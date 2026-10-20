@@ -13,6 +13,8 @@ offline on synthetic masters only; not yet run on the real game files or in game
 | NPC_ `FO4_PrestonGarvey` 0x801 | the raider plugin's calm probe (no factions, Spacer template) under Preston's Fallout 4 name, Essential, Unique: Preston's identity on a Starfield stand-in body, as ROADMAP B2 allows while the face pipeline is open |
 | ACHR 0x802 | Preston, at the point where Fallout 4 puts the player outside the Museum of Freedom's front door |
 | ACHR 0x803 on | up to 8 raiders (FO4_LvlRaider) at Fallout 4's own Concord positions: the enabled placed raiders within 120 m of that door, without the dead-body loot placements (Loot_Corpse*, Starts Dead) |
+| NPC_ `FO4_Codsworth` 0x810 | Codsworth (ROADMAP B2 stretch): a copy of Starfield's `OutpostRobotMiniBotA_Garden` (04297C, "Garden Mini Bot", MiniBotARace, a hovering robot) under his Fallout 4 name, Essential, Unique, without its factions and scripts; `write --codsworth-body EDID` picks another body, `--no-codsworth` leaves him out |
+| ACHR 0x811 | Codsworth at Fallout 4's own Sanctuary placement, ACHR 01CA7D of NPC_ 0179FF: (-1146.709, 1293.837, 111.734) m, rot z 2.356 |
 | WRLD + CELL override | the core world `FO4Core_Commonwealth` and its persistent cell, holding only the ACHRs above |
 
 Positions are Fallout 4's divided by 70, the core's frame (make_core64c.py). Because the plugin copies the core's world
@@ -44,6 +46,77 @@ summarises it (exit 0 when stage 200 was reached).
   actors added to the core's persistent cell by a later plugin load there; the quest flags (StartGameEnabled,
   RunOnce, DisplaysInHud) were chosen, not copied from a vanilla quest.
 
+## In game 18 Oct: the actors were not in the world the player walks in (fixed by Relocate)
+
+**Verified** (the PC's read of `fo4sf_mission.0.log`, v5 + the Codsworth set, save fo4sf_test_1d4591b6_s100): the
+quest started (`init raiders=5`, stage 10), but every status line read `nearest_raider` and `preston` = float max
+(3.4e38), also at 13:25:38 with the player standing on Preston's merged spot (-2011.1, -1697.2): local (-811.1, 1002.5)
++ the merge offset (-1200, -2700). So persistent references added to the core's persistent cell by a later plugin
+exist at their LOCAL position in the base world, as probe (a) found for the core's own anchor (scripted-doors.md); the
+"unresolved" item above is answered "no". Fix: the script's `Relocate` moves Preston, the raiders and Codsworth once,
+when the player is within 3 km of Preston's merged spot and still cannot reach him: each actor's local position +
+`MergeOffsetX/Y` (vmad_patch.MERGE_MEASURED, a test pins them equal), z kept, by `MoveTo(player, dx, dy, dz)`. Log lines
+`moved <who> to ... target ...` and `relocated preston=<m>`. **Unresolved** until the next run: that MoveTo with an
+offset lands an actor in the merged world's cell at that spot.
+
+**Second run, 18 Oct 14:40 local (wfc5b, the 13:32 autosave):** `relocate not needed preston=4061.8`, then status lines
+at the museum street (x -2035 to -2352, y -1397 to -1676) with Preston and the nearest raider 2,839 to 2,944 away, the
+offset's length (2,955); stage stayed 10. **Supported hypothesis:** this time the actors were in the player's world but
+at their local spot, so a finite distance does not mean "already moved". Relocate now decides per actor and by position,
+on every check: the player outdoors within `RelocateRadius` (800) of that actor's position + the offset, and the actor
+farther than `RelocateGap` (1,500). A moved actor's position + the offset is far from the player, so nobody is offset
+twice. A move that misses is retried, up to 10 failed moves in all (Codex 5564899342). Tests pin
+radius < gap < offset length - radius and model the rule: no-op, partial, retry, no double move.
+**Open risk (accepted, not fixed):** coordinates cannot tell two exterior worlds apart. The merged world is created at
+run time (FF0054C8 in the log), so no fixed form id can name it in a property. A player standing outdoors in another
+world within 800 of (-2011, -1697) before the mission is done would pull the actors there.
+
+**Third run, 18 Oct 15:15 local (wfc6, 6911ef9), verified from the PC's read of the logs:** every actor moved with
+`fails=0` (after the move, d = 174 to 229 from the player), raider 3 was put into combat at 57, all 5 died, and the
+status reached stage 40 twice, after which the user reloaded. Codsworth was moved a second time at 15:17:44: his position
+read his local spot again (supported hypothesis: he went back to his editor location), and the per-actor rule moved him
+back. Open from the user's report: the quest never showed in the Missions tab, Preston "treats me like an enemy", and
+the status stayed at stage 40 after the reward. Changes: `SetActive`, a stage-10 notification, Preston
+`IgnoreFriendlyHits` plus `StopCombat` if he targets the player, and 40 to 200 set from the timer with `CompleteQuest`.
+The quest record has no QuestType keyword (Starfield's QTYP, a KYWD); `dotnet/Mission quests` lists the vanilla ones
+to choose from (read only). **Verified** on the PC: 118 vanilla quests carry QuestTypeSideQuest (047600), e.g.
+FFNeonZ09 "Balancing the Books"; the writer now sets it and check requires it. The PC's log also had no "stage" line at
+all: OnStageSet never ran (unresolved why), so no objective, notification or reward happened. The stage actions now run
+from `AdvanceTo` (SetStage, then `Apply`), with OnStageSet as a second caller; `Apply` runs each stage once.
+
+## Codsworth (2026-10-18)
+
+The owner asked for a Codsworth test. A Mr. Handy has no Starfield skeleton (ROADMAP B2), so the first one is a
+Starfield robot body under his name at his own spot. **Verified** by `dotnet/Mission npcs` on the PC (read only):
+Fallout4.esm NPC_ 0179FF `Codsworth` (HandyRace) has one placed ACHR, 01CA7D, in the Commonwealth's persistent cell
+at the core-frame position above (about 30 m from the walk route's Sanctuary goal); Starfield.esm has no Mr. Handy
+(the robot races are ModelARace, ModelSRace and MiniBotARace). The Garden Mini Bot was chosen as the closest look (a
+small hovering robot, not a companion with quests like Vasco). **Unresolved:** whether the bot's AI packages and
+template run without its outpost, and how he behaves (sandbox, hover, idle). No dialogue or voice yet (WP-15).
+Check in game: travel to Sanctuary; a robot named Codsworth hovers near his house, does not attack, and stays.
+Since the 20 Oct review, Codsworth is moved by his own check (`KeepCodsworth`, timer 2, every `CodsworthCheck` = 5 s,
+with its own budget of 10 failed moves), not by the mission's 1 s check. Stage 200 cancels only the mission's timer,
+so he is still placed, and placed again after a snap-back, when the player reaches Sanctuary after the mission.
+**Supported hypothesis:** a quest's timers keep running after `CompleteQuest`, since the quest is completed, not
+stopped. To check in game: finish the mission, then go to Sanctuary and look for a `moved codsworth` line in the log.
+
+**His voice (18 Oct, from the Codsworth thread, PR #361):** `stage --codsworth-voice <codsworth_voice.py output>` reads
+lines.tsv, gives each line a WEMFile id (00F4C001 on, below 0x01000000 like vanilla's) and copies its `<info>_<response>.wem` to
+`sound\voice\fo4sfmission.esm\robotminibota\<wemfile>.wem` (he inherits RobotMiniBotA). The writer adds DIAL
+FO4SF_CodsworthHellos (0x820, Misc / Hello) in the mission quest with one INFO per line (0x821 on, flags Random as
+vanilla's mini bot Hellos), each said only by him (GetIsID on the subject), "sir" lines to a male player and "mum" lines to a
+female one (GetIsSex on the target). **Verified** (the PC's `infos wem:...` dump): all 20
+starfield.esm\robotminibota .wem names are the WEMFile of a vanilla INFO, e.g. BE_KT03's survey bot Hellos (DIAL 025C46,
+Misc / Hello, INFO flags Random, WEMFile 00D8DA42 and others); they are not INFO form ids (0E6020 is a REFR). **Unresolved:** whether Wwise 2026 .wem files decode in game.
+
+**His own model (18 Oct, from the Codsworth thread, PR #361):** `make_mission.py stage --codsworth-assets <convert_codsworth.py
+output>` copies its meshes, geometries, materials and textures into the stage's Data (not its report) and pins each in
+plan.json; the writer adds ARMA FO4_AA_Codsworth (0x812, a copy of Starfield.esm 081886 AA_MiniBotA_Gardening with the
+mesh fo4port\actors\codsworth\codsworth.nif, written with the vanilla path's prefix) and ARMO FO4_Skin_Codsworth
+(0x813, a copy of 3FFD3A Skin_MiniBotA_Gardening listing only that ARMA) as his WNAM; check requires them. fold carries
+the files, verify checks them. **Supported hypothesis:** the experiment archive is one stored General BA2, and the
+textures in it load from there (the port uses a DDS archive); a missing texture would show on him in game.
+
 ## Commands (on the PC)
 
 `exp_install.py` holds one experiment at a time, so the mission goes in with the core set: `fold` copies the core's
@@ -61,3 +134,30 @@ overwrites an existing folder; a failed one publishes nothing.
 # FO4SFMission.esm appended to its --plugins list (--pack), then exp_install.py order
 & $py scripts\mission\make_mission.py log
 ```
+
+### v6c wfc9b in game (19 Oct, user report)
+
+The mission ran and could be finished (**verified** by the user's play, no log read yet), but Preston still turned on
+the player. The fix was `IgnoreFriendlyHits` plus `StopCombat` from the timer. **Supported hypothesis:** with no factions
+he is only neutral to the player. Friendly-hit tolerance covers friends and allies, so a stray hit in the fight still
+makes him hostile, and the timer's StopCombat loses to his combat restarting. Change: a faction of ours,
+`FO4SF_MinutemenFaction` (0x81F), with one relation, Ally to `PlayerFaction` (Starfield.esm 01C21C, checked by EDID
+when written). Preston is in it and only in it. check requires both. Unrelated, routed to the Red Rocket work: the game
+crashes once the player nears the Red Rocket workshop.
+
+### Logs of the v6c wfc9b play (19 Oct, read on the PC, read only)
+
+Four sessions of `fo4sf_mission.{0..3}.log` (verified, the install thread's extract):
+- **Moves.** About 30 moves, fails=0 in every session, each landing within 2.5 of its target. The first move
+  from a fresh load had `before=3.4e38`: Preston read float max before the move, then 229 after it. So a "GetDistance
+  finite" gate would have blocked the only move that works. Codex's world-identity point needs the anchor route.
+- **Actors snap back.** In one session Preston was moved 5 times and raider 0 3 times, 40 to 80 s apart, with
+  fails=0 each time. Every time, the actor read its unmerged spot again (supported hypothesis: the actor returns to
+  its editor location as its cell reloads, as Codsworth did on 18 Oct). The retry hides this. The real fix is in the
+  world build (persistent ACHRs in the merged frame), which is next-phase work.
+- **The fight and Preston.** Stage 20 on the first StartCombat, 30 when 5/5 were dead, then 40, 200 and complete
+  (00:12:41 local). `preston was targeting the player: stopcombat` was logged twice, mid-fight and at stage 40. That
+  confirms he targeted the player; the faction above (wfc10) is the fix.
+- **Crashes.** Two of the four sessions ended in a crash dump: 7 s after stage 30 (player at -2074, -1654) and 21 s
+  after complete. Both were in the mission area. The mission did not run anything at those moments except its
+  1 s status check. Passed to the Red Rocket work (the workshop radius covers this area, unresolved).
