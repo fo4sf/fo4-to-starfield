@@ -36,13 +36,14 @@ complete (exit 0). A step left `running` by a crash is rerun. One driver per sta
 on purpose only). `--min-free-gb` blocks a step before it starts (the D: 40 GB rule); `--idle` runs steps at Windows
 Idle priority. A step may declare `need_gb` (the space it writes); it is blocked unless free space covers the floor
 plus that need (the example's stage step says 1 GB, from the measured 0.3 to 1 GiB a staged core costs).
+The floor applies to every step about to run, including one rerun only because a step it depends on ran. A step runs in its own process group; on timeout the whole tree is ended (`killpg`, `taskkill /T /F` on Windows), so a `dotnet` a make script started cannot keep writing into the outputs (review pass, 2026-10-20).
 A complete run writes the build manifest.
 
 A step with no `code` list is fingerprinted by the import closure of its Python scripts inside the repo (static
 imports, resolved against the script's folder and `src/`), not all of `src/fo4sf` as before: an edit to a module
 the step never imports no longer reruns it, and a changed helper two imports down still does (framework question
 B7). Steps that load code another way (dotnet projects, data files) list it under `code`, as the example recipe
-does; those fingerprints are unchanged. No speed claim: no PC run measured the difference.
+does. A listed code folder skips `bin`, `obj` and other build output (a `dotnet run` step writes `obj/` inside its own project and would otherwise change its own fingerprint), and a listed path that does not exist is a recipe error rather than an empty hash. No speed claim: no PC run measured the difference.
 
 `launcher.py status <recipe>` is the read-only view of the same state (no lock taken, nothing written): each step's
 last result, runs, seconds, the log of a step that did not finish well, whether a driver holds the folder, and what a

@@ -32,6 +32,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -190,12 +191,24 @@ def import_closure(scripts, repo):
     return sorted(seen)
 
 
+CODE_EXT = (".py", ".cs", ".csproj", ".json")
+GENERATED_DIRS = {"bin", "obj", "__pycache__", ".vs", ".git"}   # build output a step may write into its own code
+
+
+def _code_files(folder):
+    out = []
+    for d, dirs, names in os.walk(folder):
+        dirs[:] = [x for x in dirs if x.casefold() not in GENERATED_DIRS]
+        out += [os.path.join(d, n) for n in names if n.endswith(CODE_EXT)]
+    return sorted(out)
+
+
 def code_hash(paths):
     h = hashlib.sha256()
     for p in sorted(paths):
-        targets = [p] if os.path.isfile(p) else sorted(
-            os.path.join(d, n) for d, dirs, names in os.walk(p) for n in names
-            if n.endswith((".py", ".cs", ".csproj", ".json")) and "__pycache__" not in d)
+        if not os.path.exists(p):
+            raise RecipeError(f"code path {p} does not exist (a typo would silently stop tracking that code)")
+        targets = [p] if os.path.isfile(p) else _code_files(p)
         for t in targets:
             h.update(os.path.relpath(t, os.path.dirname(p)).replace(os.sep, "/").encode())
             h.update(files.sha256(t).encode())
@@ -248,6 +261,25 @@ class Lock:
             pass
 
 
+def kill_tree(proc):
+    """End a step and every process it started (its process group; taskkill /T on Windows), then reap it."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=60)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run_step(step, log_path, idle=False):
     """(status, returncode, seconds). stdout and stderr go to log_path."""
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -256,17 +288,26 @@ def run_step(step, log_path, idle=False):
     with open(log_path, "w", encoding="utf-8", errors="replace") as log:
         log.write(f"# {now()} {json.dumps(step['argv'])}\n")
         log.flush()
+        # the step gets its own process group, so a timeout ends the tools it started too (make scripts start
+        # dotnet, which would otherwise keep writing into the outputs after the step is recorded as timed out)
+        if os.name == "nt":
+            kw = {"creationflags": flags | subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            kw = {"start_new_session": True}
         try:
-            r = subprocess.run(step["argv"], cwd=step["cwd"], stdout=log, stderr=subprocess.STDOUT,
-                               timeout=step["timeout_s"], creationflags=flags)
-        except subprocess.TimeoutExpired:
-            return "timeout", None, time.monotonic() - t0
+            proc = subprocess.Popen(step["argv"], cwd=step["cwd"], stdout=log, stderr=subprocess.STDOUT, **kw)
         except OSError as e:
             log.write(f"\n# could not start: {e}\n")
             return "failed", None, time.monotonic() - t0
+        try:
+            rc = proc.wait(timeout=step["timeout_s"])
+        except subprocess.TimeoutExpired:
+            kill_tree(proc)
+            log.write(f"\n# timed out after {step['timeout_s']} s; process tree ended\n")
+            return "timeout", None, time.monotonic() - t0
     dt = time.monotonic() - t0
-    if r.returncode != 0:
-        return "failed", r.returncode, dt
+    if rc != 0:
+        return "failed", rc, dt
     missing = [p for p in step["outputs"] if not os.path.exists(p)]
     if missing:
         with open(log_path, "a", encoding="utf-8") as log:
@@ -356,15 +397,16 @@ def build(recipe, repo, *, dry_run=False, force=(), until=None, min_free_gb=0.0,
                 status, note = "blocked", "depends on " + ", ".join(d for d in s["after"] if status_of.get(d) not in OK)
             elif would == "reuse" and not any(status_of.get(d) == "done" for d in s["after"]):
                 status, note = "reused", why
-            elif would == "reuse":
-                why = "a step it depends on ran in this run"
-                status, note = None, why
-            elif (min_free_gb or s["need_gb"]) and any(
-                    free_gb(p) < min_free_gb + s["need_gb"] for p in (disk_paths or s["outputs"] or [state_dir])):
-                status, note = "blocked", (f"less than {min_free_gb:g} GB kept free plus {s['need_gb']:g} GB this "
-                                           f"step needs")
             else:
-                status, note = None, why
+                if would == "reuse":
+                    why = "a step it depends on ran in this run"
+                # every step about to run is held to the disk floor, whatever made it run
+                if (min_free_gb or s["need_gb"]) and any(
+                        free_gb(p) < min_free_gb + s["need_gb"] for p in (disk_paths or s["outputs"] or [state_dir])):
+                    status, note = "blocked", (f"less than {min_free_gb:g} GB kept free plus {s['need_gb']:g} GB "
+                                               f"this step needs")
+                else:
+                    status, note = None, why
             if status is None:
                 rec.pop("last_run_status", None)
                 rec.update(status="running", started=now(), fingerprint=fp)

@@ -132,6 +132,22 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(self.statuses(rep), ["done", "done", "timeout"])
         self.assertFalse(rep["complete"])
 
+    def test_timeout_ends_the_tools_the_step_started(self):
+        # the step starts a grandchild (as make scripts start dotnet) that would write after the step timed out
+        late = os.path.join(self.root, "late.txt")
+        parent = os.path.join(self.root, "parent.py")
+        child = f"import time; time.sleep(3); open({late!r}, 'w').write('late')"
+        with open(parent, "w") as f:
+            f.write(f"import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', {child!r}])\n"
+                    "time.sleep(30)\n")
+        step = {"id": "t", "argv": [sys.executable, parent], "cwd": self.root, "outputs": [], "timeout_s": 1}
+        status, rc, dt = driver.run_step(step, os.path.join(self.root, "logs", "t.log"))
+        self.assertEqual(status, "timeout")
+        self.assertLess(dt, 20)
+        import time
+        time.sleep(4)
+        self.assertFalse(os.path.exists(late), "a process the step started kept running after the timeout")
+
     def test_lock_refuses_a_second_driver(self):
         os.makedirs(os.path.join(self.root, ".launcher"))
         self.touch(os.path.join(".launcher", "driver.lock"), "pid 1")
@@ -152,6 +168,29 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(self.statuses(rep), ["done", "blocked", "not_run"])
         self.assertIn("this step needs", rep["steps"][1]["note"])
         self.assertEqual(self.calls(), ["select"])
+
+    def test_step_rerun_by_its_dependency_is_held_to_the_disk_floor(self):
+        r = self.recipe()
+        r["steps"][1]["inputs"] = [os.path.join(self.root, "input.txt")]   # unchanged by select's rerun
+        self.assertTrue(driver.build(r, ROOT, echo=self.lines.append)["complete"])
+        r["steps"][1]["need_gb"] = 10 ** 9                 # stage would be reused, but select reruns before it
+        rep = driver.build(r, ROOT, echo=self.lines.append, force=("select",))
+        self.assertEqual(self.statuses(rep), ["done", "blocked", "not_run"])
+        self.assertIn("this step needs", rep["steps"][1]["note"])
+
+    def test_code_hash_skips_build_output_and_refuses_a_missing_path(self):
+        proj = os.path.join(self.root, "proj")
+        os.makedirs(os.path.join(proj, "obj"))
+        self.touch(os.path.join("proj", "Program.cs"), "class P {}")
+        before = driver.code_hash([proj])
+        for d in ("obj", "bin", os.path.join("bin", "Debug")):
+            os.makedirs(os.path.join(proj, d), exist_ok=True)
+            self.touch(os.path.join("proj", d, "project.assets.json"), "{}")
+        self.assertEqual(driver.code_hash([proj]), before)
+        self.touch(os.path.join("proj", "Other.cs"), "class O {}")
+        self.assertNotEqual(driver.code_hash([proj]), before)
+        with self.assertRaises(driver.RecipeError):
+            driver.code_hash([os.path.join(self.root, "no_such_project")])
 
     def test_status_is_read_only_and_reports_each_step(self):
         st = driver.status(self.recipe(), ROOT)
