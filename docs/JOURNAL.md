@@ -1943,3 +1943,27 @@ The old unsupported-anchor test now asserts a structured missing-anchor failure.
 This is source-coordinate arithmetic, not a runtime merge/mission/NPC or native
 arrival verdict. No private rebuild, install/game input or main merge. Peer QA
 and lead integration remain pending.
+
+## 2026-10-20: Codex #360 separates source CELL grids and LAND data
+
+The reader already returns exterior CELL grids, but the oracle exposed only a
+LAND-based count, leaving present empty cells indistinguishable from absent
+source cell records. Report core_cell_record_present and
+core_local_land_data_present separately from legacy core_has_coverage. Both
+facts are null for wrong-world or missing-position observations. Missing raw
+core cell records add a specific reason; unknown external terrain remains
+unknown and non-success. Global persistent cells are not exterior grids.
+
+These are raw facts in this input core plugin, without master traversal,
+post-load active-state or physical terrain proof. LAND/VHGT data presence is
+not a height-data validity or native terrain verdict. No shared reader change
+or new SFBK/BTD interpretation is introduced.
+
+Seven new subprocess methods reproduce one failed assertion and seven errors
+on #422. All32 focused methods (43 CLI calls) and guard now pass. Four ORIGINAL
+fixture reports preserve their existing fields after removing only the new
+source-fact fields. The original actual-writer synthetic artifact reports four
+exterior CELL grids, zero local LAND-data grids and five refs in present cells;
+their terrain stays unknown/exit1 and anchor distances are unchanged. All input
+hashes remain unchanged; failed/passing evidence retained privately. No private
+rebuild, install/game input or main merge; peer QA pending.
