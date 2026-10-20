@@ -119,10 +119,11 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - The owner decided (2026-10-19, NG-C4 / NG-K7, page NG-5): SPECIAL is set at a vault terminal for testing; the
   elevator version comes with the remade start. FO4 sets it pre-war with the Vault-Tec Rep, which our start skips.
 - The stats: seven AVIF records of our own, `FO4SF_Special_Strength` to `FO4SF_Special_Luck` (FO4SFNewGame.esm 0x810 to
-  0x816), each a SpecialAttribute with default 1, range 1 to 10. Starfield has no SPECIAL values, and nothing in this
-  repo reads a Starfield AVIF back in full, so the record shape is minimal (name, abbreviation, type, default, min,
-  max) and **unverified** until the PC run opens the plugin in xEdit. Later phases read the player's values from these
-  records (`Actor.GetValue`).
+  0x816), each a SpecialAttribute with default 1, range 1 to 10, and the record's flags that name the same numbers
+  (DefaultToOne, MinimumOne, MaximumTen: Mutagen's names for the AVFL bits). Starfield has no SPECIAL values, and
+  nothing in this repo reads a Starfield AVIF back in full, so the record shape is minimal (name, abbreviation, type,
+  default, min, max, those three flags) and **unverified** until the PC run opens the plugin in xEdit next to a shipped
+  AVIF. Later phases read the player's values from these records (`Actor.GetValue`).
 - The terminal: the points step lists every placed TERM of FO4's Vault111Cryo, nearest the player's pod first (the cryo
   hall's terminals stand by the pods), or the one `--terminal-ref <hex>` names. The writer takes the first of them the
   port carries (its `formids.json` key `REFR:FO4Port_Vault111Cryo:<FO4 id>:Fallout4.esm`), a persistent one preferred,
@@ -136,7 +137,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   `FO4SF_NewGameSpecial` (0x804) in a loop: its text has one `%.0f` token per stat and one for the points left, filled
   from `Message.Show`'s float arguments; the ten buttons are the seven stats, Reset, Confirm and Leave. A stat button
   adds a point (nothing past 10 in one stat, nothing with no points left); Confirm only applies with every point spent
-  (a notification says how many are left); Leave keeps the defaults. Confirm writes each value with
+  (a notification says how many are left); Leave keeps the defaults. The loop is bounded: after 300 presses without
+  Confirm or Leave (`MaxPresses`, `SPECIAL_MAX_PRESSES`; a pass takes about 22) it ends as Leave and logs it, so a
+  message box that returns at once cannot spin. Confirm writes each value with
   `Actor.SetValue(Special[i], value)` and reads two back into the log. `make_newgame.py special_press` is the same
   rule, tested in Python; the three constants live in `SPECIAL_BASE`, `SPECIAL_POINTS`, `SPECIAL_MAX` and are held
   equal to the writer's and the script's by `tests/test_newgame.py`.

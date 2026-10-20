@@ -36,6 +36,10 @@ int Property SpecialPoints = 21 Auto Const
 int Property SpecialMax = 10 Auto Const
 {Fallout 4's rule (make_newgame.py SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX, the same numbers, its special_press is
  the same rule): 1 in each stat, 21 points to spend, 10 at most in one stat.}
+int Property MaxPresses = 300 Auto Const
+{The allocation ends as Leave after this many presses without Confirm or Leave (make_newgame.py SPECIAL_MAX_PRESSES).
+ A player needs about 22 per pass; this is the guard against a message box that returns at once (the ten-button box is
+ unverified), which would otherwise spin.}
 
 bool asked = false
 bool done = false
@@ -87,7 +91,9 @@ Function Allocate(Actor player)
 {The allocation loop: the message shows the seven values and the points left, and returns the button pressed.}
     int[] values = new int[7]
     int left = ResetValues(values)
-    while true
+    int presses = 0
+    while presses < MaxPresses
+        presses += 1
         int button = SpecialMessage.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
         if button >= 0 && button < 7
             if left <= 0
@@ -112,6 +118,7 @@ Function Allocate(Actor player)
             return
         endif
     endwhile
+    Trace("special left: defaults kept, " + MaxPresses + " presses without Confirm or Leave")
 EndFunction
 
 int Function ResetValues(int[] values)

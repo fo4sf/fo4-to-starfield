@@ -80,11 +80,14 @@ static class NewGame
     // points to spend, 10 at most per stat (make_newgame.py SPECIAL_*, held equal by tests/test_newgame.py; the script's
     // defaults are the same). The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
     // (ten buttons, FO4's MESG limit; whether Starfield's message box shows ten is unverified until the PC run). The
-    // AVIF shape is minimal (name, abbreviation, SpecialAttribute type, default 1, min 1, max 10): nothing in this repo
-    // reads a Starfield AVIF back in full, so the shape is unverified until the PC run (xEdit opens the plugin).
+    // AVIF shape is minimal (name, abbreviation, SpecialAttribute type, default 1, min 1, max 10, and the record's own
+    // flags for those three numbers: DefaultToOne, MinimumOne, MaximumTen, Mutagen's names for Starfield's AVFL bits):
+    // nothing in this repo reads a Starfield AVIF back in full, so the shape is unverified until the PC run (xEdit
+    // opens the plugin).
     public static readonly string[] SpecialNames = { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck" };
     public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
     public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
+    public const SF.ActorValueInformation.Flag SpecialAvifFlags = SF.ActorValueInformation.Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
     // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
@@ -529,12 +532,13 @@ static class NewGame
     /// The allocation's text: one %.0f token per value, in Message.Show's argument order (the stats, then the points left).
     public static readonly string SpecialDescription = string.Join("  ", SpecialNames.Select(n => n[0] + " %.0f")) + "   Points left: %.0f";
 
-    /// One SPECIAL stat as our own actor value: a SpecialAttribute with FO4's range (default 1, 1 to 10, NG-C4). The
-    /// minimal shape; which flags a shipped Starfield AVIF carries is unverified until the PC run.
+    /// One SPECIAL stat as our own actor value: a SpecialAttribute with FO4's range (default 1, 1 to 10, NG-C4), the
+    /// numbers and the flags that name them both. The minimal shape; which other fields a shipped Starfield AVIF
+    /// carries is unverified until the PC run.
     public static SF.ActorValueInformation SpecialAvif(ModKey modKey, int i) => new(new FormKey(modKey, SpecialAvifBase + (uint)i), SF.StarfieldRelease.Starfield)
     {
         EditorID = SpecialAvifPrefix + SpecialNames[i], Name = SpecialNames[i], Abbreviation = SpecialNames[i][..1],
-        Type = SF.ActorValueInformation.Types.SpecialAttribute, DefaultValue = SpecialBase, Min = SpecialBase, Max = SpecialMax,
+        Type = SF.ActorValueInformation.Types.SpecialAttribute, DefaultValue = SpecialBase, Min = SpecialBase, Max = SpecialMax, Flags = SpecialAvifFlags,
     };
 
     // ---------------------------------------------------------------- check
@@ -574,8 +578,9 @@ static class NewGame
                  $"MESG 0x{SpecialMessageId:X} is not {SpecialMessageEdid}, a message box with the buttons [{string.Join(", ", buttons)}] and the allocation text");
             Need(plug.Messages.Count == 4, $"{plug.Messages.Count} MESG, expected 4");
             Need(avifs.Count == SpecialNames.Length && avifs.Select((a, i) => a.FormKey == new FormKey(key, SpecialAvifBase + (uint)i) && a.EditorID == SpecialAvifPrefix + SpecialNames[i] &&
-                     a.Name?.String == SpecialNames[i] && a.Type == SF.ActorValueInformation.Types.SpecialAttribute && a.DefaultValue == SpecialBase && a.Min == SpecialBase && a.Max == SpecialMax).All(x => x),
-                 $"the AVIF are not the seven {SpecialAvifPrefix}<stat> SpecialAttributes, default {SpecialBase}, {SpecialBase} to {SpecialMax}");
+                     a.Name?.String == SpecialNames[i] && a.Type == SF.ActorValueInformation.Types.SpecialAttribute && a.DefaultValue == SpecialBase && a.Min == SpecialBase && a.Max == SpecialMax &&
+                     a.Flags == SpecialAvifFlags).All(x => x),
+                 $"the AVIF are not the seven {SpecialAvifPrefix}<stat> SpecialAttributes, default {SpecialBase}, {SpecialBase} to {SpecialMax}, flags {SpecialAvifFlags}");
             Console.WriteLine($"  AVIF [{string.Join(", ", avifs.Select(a => a.EditorID))}]; terminal {TerminalText(places)}");
         }
         else
@@ -846,6 +851,7 @@ static class NewGame
             ("the quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
             ("an AVIF removed", m => m.ActorValueInformation.Remove(m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Luck").FormKey)),
             ("an AVIF's maximum changed", m => m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Strength").Max = 11),
+            ("an AVIF's flags cleared", m => m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Charisma").Flags = 0),
             ("the allocation lost its Leave button", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.RemoveAt(9)),
             ("the allocation's text lost a token", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).Description = "S.P.E.C.I.A.L."),
             ("the terminal prompt removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == TerminalMessageEdid).FormKey)),

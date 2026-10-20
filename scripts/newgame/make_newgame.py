@@ -73,10 +73,13 @@ DEFAULT_RACE_MENU_MODE = 0
 # SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
 # SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
 # 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
-# Message.Show returns; special_press is the script's rule for one press, tested in Python.
+# Message.Show returns; special_press is the script's rule for one press, tested in Python. SPECIAL_MAX_PRESSES is the
+# script's MaxPresses: the allocation ends as Leave after that many presses without Confirm or Leave (about 22 per
+# pass; the guard against a message box that returns at once).
 SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
 SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
+SPECIAL_MAX_PRESSES = 300
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")

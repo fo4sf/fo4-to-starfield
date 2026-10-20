@@ -92,6 +92,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f"int Property SpecialBase = {ng.SPECIAL_BASE} Auto Const", special)
         self.assertIn(f"int Property SpecialPoints = {ng.SPECIAL_POINTS} Auto Const", special)
         self.assertIn(f"int Property SpecialMax = {ng.SPECIAL_MAX} Auto Const", special)
+        self.assertIn(f"int Property MaxPresses = {ng.SPECIAL_MAX_PRESSES} Auto Const", special)
+        self.assertIn("while presses < MaxPresses", special)   # the loop is bounded: no spin on a box that returns at once
+        self.assertNotIn("while true", special)
+        self.assertGreater(ng.SPECIAL_MAX_PRESSES, 10 * (ng.SPECIAL_POINTS + 1))   # ten full passes with a Reset each
         self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)         # FO4's MESG limit; the script's button indices
         self.assertIn("if button >= 0 && button < 7", special)
         self.assertIn("elseif button == 7", special)         # Reset
@@ -108,6 +112,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
         self.assertIn('a.Contains("--no-special")', cs)
         self.assertIn("Types.SpecialAttribute", cs)
+        self.assertIn("Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen", cs)
+        self.assertIn("Max = SpecialMax, Flags = SpecialAvifFlags", cs)
         self.assertIn('"TerminalId", (int)p.Terminal', cs)
         p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
                                                       race_menu_mode=None, special=False)
