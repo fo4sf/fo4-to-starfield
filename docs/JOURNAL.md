@@ -1933,3 +1933,21 @@ Initial test setup mistakes (imported TestCase discovery and missing LOCALAPPDAT
 isolation) and original failures are retained privately; corrected tests pin a
 temporary profile in every case. Other PR394 findings and independent QA remain
 open. No physical restore, deployment, game input or native acceptance.
+
+## 2026-10-20: Codex detect profile-INI coverage warning (offline)
+
+PR394 finding7: detect could print READY without checking My Games INIs or saying
+they were unchecked. It now warns when --my-games is omitted or the supplied
+folder is unavailable. Paths remain explicit, never guessed. READY and exit-code
+policy are unchanged: the warning is not proof of a clean profile. Supplied
+profile and game-folder sTestFile entries still refuse; loose files still warn.
+
+Five new methods plus thirteen existing detect/measure methods pass. Twelve
+old/new actual CLI calls cover omitted, missing, clean, blocked, game-blocked and
+loose-file profiles on identical synthetic inputs. Only coverage warnings change;
+refusals/readiness and all input bytes remain unchanged. The initial four new
+methods produced six pre-fix assertion failures, retained with their green runs.
+Legacy no-warning tests now explicitly supply an empty synthetic profile, keeping
+their original tool/source assertions. Only detect() changes among production
+functions; CLI dispatch is unchanged. Independent QA pending; no real profile,
+game action, staging, deployment or native acceptance.

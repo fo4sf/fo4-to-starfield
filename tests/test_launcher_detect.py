@@ -36,13 +36,15 @@ class DetectTests(unittest.TestCase):
         os.makedirs(os.path.join(self.sf, "Data"), exist_ok=True)
         self.table = {"schema": 1, "sources": []}
         detect.add_sources(self.table, {"fo4": manifest.fo4_inputs([self.fo4])}, "test install")
+        self.my_games = os.path.join(self.root, "Documents", "My Games", "Starfield")
+        os.makedirs(self.my_games)
 
     def run_detect(self, **kw):
         kw.setdefault("sources", self.table)
         return detect.detect(fo4_data=[self.fo4], starfield=self.sf, **kw)
 
     def test_ready_when_everything_is_known(self):
-        r = self.run_detect(out_dir=self.root, need_gb=0, floor_gb=0)
+        r = self.run_detect(out_dir=self.root, need_gb=0, floor_gb=0, my_games=self.my_games)
         self.assertTrue(r["ready"], r["refusals"])
         self.assertEqual(r["fo4"]["masters"]["Fallout4.esm"]["version"], "test install")
         self.assertEqual(r["warnings"], [])
@@ -65,11 +67,11 @@ class DetectTests(unittest.TestCase):
         os.remove(os.path.join(self.sf, "Tools", "Archive2", "Archive2.exe"))
         os.remove(os.path.join(self.sf, "CreationKit.exe"))
         os.remove(os.path.join(self.sf, "sfse_loader.exe"))
-        r = self.run_detect()
+        r = self.run_detect(my_games=self.my_games)
         self.assertTrue(any("Archive2" in x for x in r["refusals"]))
         self.assertEqual(len(r["refusals"]), 1)
         self.assertEqual(len(r["warnings"]), 2)
-        r = self.run_detect(require_ck=True, require_sfse=True)
+        r = self.run_detect(require_ck=True, require_sfse=True, my_games=self.my_games)
         self.assertEqual(len(r["refusals"]), 3)
 
     def test_disk_floor(self):
@@ -107,7 +109,7 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(len(r["fo4"]["archive_duplicates"]["Fallout4 - Meshes.ba2"]), 2)
         self.assertTrue(any("v8 x1" in w for w in r["warnings"]))
         self.assertTrue(any("found 2 times" in w for w in r["warnings"]))
-        r = self.run_detect()
+        r = self.run_detect(my_games=self.my_games)
         self.assertEqual(r["fo4"]["ba2_versions"], {"1": 1})
         self.assertEqual(r["warnings"], [])
 

@@ -9,7 +9,8 @@ read only.
     INIs        any sTestFileN in Starfield.ini, StarfieldPrefs.ini or StarfieldCustom.ini (game folder and My Games) is a
                 refusal: the game then ignores Plugins.txt
     My Games    loose files in its Data folder are reported (the game reads them over archives); the folder is given
-                as Windows resolves it, never guessed (OneDrive and redirected Documents move it)
+                as Windows resolves it, never guessed (OneDrive and redirected Documents move it). An omitted or
+                unavailable folder warns that its INIs were not checked; READY does not clear unchecked INIs.
     Disk        free space on the output drive, minus the floor that must stay free (40 GB on the owner's D:), against
                 the space the build needs
 
@@ -155,7 +156,9 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
                 warnings.append(f"Starfield: {len(loose)} loose files in {os.path.join(my_games, 'Data')} "
                                 "(the game reads them over archives; they are not ours and restore leaves them)")
         else:
-            warnings.append(f"Starfield: My Games folder {my_games!r} not found")
+            warnings.append(f"Starfield: My Games folder {my_games!r} not found; INIs in My Games not checked")
+    else:
+        warnings.append("Starfield: INIs in My Games not checked (pass --my-games with the resolved folder)")
     for path, n, key, value in ini_test_files(ini_folders):
         refusals.append(f"Starfield: {key}={value} in {path} line {n} makes the game ignore Plugins.txt")
     if out_dir:
