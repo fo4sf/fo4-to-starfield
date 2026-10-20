@@ -309,16 +309,33 @@ def fold(a):
     return 0
 
 
-def summarize(lines):
-    """The new-game log as {"stages", "held_off", "entered_vault", "surfaced", "landed", "fell", "stood_down",
-    "last_status"}; lines of other logs are ignored."""
-    s = {"stages": [], "held_off": [], "entered_vault": None, "surfaced": None, "landed": None, "fell": False,
-         "stood_down": False, "last_status": None}
+def split_runs(lines, line_re, start="init "):
+    """The messages of each run, oldest first: a user log is appended across game sessions, so a run starts at each
+    message beginning with `start` (the script's OnInit trace); messages before the first one form a run of their own.
+    Lines of other logs are dropped."""
+    runs = []
     for line in lines:
-        m = LINE.search(line)
+        m = line_re.search(line)
         if not m:
             continue
         msg = m.group("msg")
+        if msg.startswith(start) or not runs:
+            runs.append([])
+        runs[-1].append(msg)
+    return runs
+
+
+def summarize(lines):
+    """The LATEST run of the new-game log as {"stages", "held_off", "entered_vault", "surfaced", "landed", "fell",
+    "stood_down", "last_status", "runs", "earlier_completed"}. Only the latest run is judged; "runs" counts the runs in
+    the file and "earlier_completed" says whether an older one reached stage 200 (kept as history, never as the
+    current result). Lines of other logs are ignored."""
+    s = {"stages": [], "held_off": [], "entered_vault": None, "surfaced": None, "landed": None, "fell": False,
+         "stood_down": False, "last_status": None, "runs": 0, "earlier_completed": False}
+    runs = split_runs(lines, LINE)
+    s["runs"] = len(runs)
+    s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
+    for msg in runs[-1] if runs else []:
         if msg.startswith("stage "):
             s["stages"].append(int(msg.split()[1]))
         elif msg.startswith("held off "):
@@ -342,7 +359,7 @@ def log(a):
     with open(a.file, encoding="utf-8", errors="replace") as f:
         s = summarize(f)
     print(json.dumps(s, indent=1))
-    return 0 if 200 in s["stages"] else 1
+    return 0 if 200 in s["stages"] and not s["stood_down"] else 1
 
 
 def main(argv=None):

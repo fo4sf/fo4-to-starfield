@@ -27,7 +27,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
-from make_newgame import extract_sources, has_function, new_partial, run, sha256  # noqa: E402
+from make_newgame import extract_sources, has_function, new_partial, run, sha256, split_runs  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "QuestProbe")
 PLUGIN = "FO4SFQuestProbe.esm"
@@ -166,15 +166,16 @@ Read the run:  python scripts\\questprobe\\make_questprobe.py log
 
 
 def summarize(lines):
-    """The probe's log as {"started", "fragment", "stage_events", "setstage", "alias", "story_event", "sm_started",
-    "result": {answer: value}, "reached"}; lines of other logs are ignored."""
+    """The LATEST run of the probe's log as {"started", "fragment", "stage_events", "setstage", "alias",
+    "story_event", "sm_started", "result": {answer: value}, "reached", "runs", "earlier_result"}. A run starts at each
+    "init" trace (make_newgame.split_runs); an older run's result is kept as "earlier_result", never as the current
+    one. Lines of other logs are ignored."""
     s = {"started": False, "fragment": None, "stage_events": [], "setstage": None, "alias": None, "story_event": None,
-         "sm_started": False, "result": None, "reached": False}
-    for line in lines:
-        m = LINE.search(line)
-        if not m:
-            continue
-        msg = m.group("msg")
+         "sm_started": False, "result": None, "reached": False, "runs": 0, "earlier_result": False}
+    runs = split_runs(lines, LINE)
+    s["runs"] = len(runs)
+    s["earlier_result"] = any(m.startswith("result ") for r in runs[:-1] for m in r)
+    for msg in runs[-1] if runs else []:
         if msg.startswith("probe start"):
             s["started"] = True
         elif msg.startswith("fragment ran stage="):

@@ -227,6 +227,51 @@ class LogTests(unittest.TestCase):
             self.assertEqual(ng.main(["log", "--file", path]), 0)
 
 
+    def run_log(self, text):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, "fo4sf_newgame.0.log")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            code = ng.main(["log", "--file", path])
+        return code, json.loads(o.getvalue())
+
+    def test_an_older_completion_never_passes_a_newer_run(self):
+        """Codex review on #393: the log is appended across sessions, so only the latest run is judged."""
+        done = "\n".join(self.LINES) + "\n"
+        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        cases = {
+            "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
+            "stood down": init + "[y] FO4SF_NEWGAME rt=3.0 not a new game: days=41.2 level=12: standing down\n"
+                                 "[y] FO4SF_NEWGAME rt=3.0 stage 1\n",
+            "init only": init,
+        }
+        for name, newer in cases.items():
+            with self.subTest(name):
+                code, s = self.run_log(done + newer)
+                self.assertEqual(code, 1)
+                self.assertEqual(s["runs"], 2)
+                self.assertTrue(s["earlier_completed"])
+                self.assertNotIn(200, s["stages"])
+        self.assertFalse(self.run_log(done + cases["failed"])[1]["entered_vault"])
+        self.assertTrue(self.run_log(done + cases["stood down"])[1]["stood_down"])
+
+    def test_the_latest_run_completing_passes(self):
+        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
+                 "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n"
+        code, s = self.run_log(failed + "\n".join(self.LINES) + "\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(s["runs"], 2)
+        self.assertFalse(s["earlier_completed"])
+        self.assertTrue(s["entered_vault"])
+
+    def test_split_runs(self):
+        lines = ["[a] FO4SF_NEWGAME rt=1 status stage=20", "[b] other log", "[c] FO4SF_NEWGAME rt=2 init x",
+                 "[d] FO4SF_NEWGAME rt=3 stage 10", "[e] FO4SF_NEWGAME rt=4 init y"]
+        self.assertEqual(ng.split_runs(lines, ng.LINE), [["status stage=20"], ["init x", "stage 10"], ["init y"]])
+        self.assertEqual(ng.split_runs([], ng.LINE), [])
+
 class VerifyFoldTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

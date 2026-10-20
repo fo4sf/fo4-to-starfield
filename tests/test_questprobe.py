@@ -178,6 +178,18 @@ class LogTests(unittest.TestCase):
             self.assertIn(f"{answer}=", psc)
 
 
+    def test_an_older_result_is_not_the_current_one(self):
+        newer = "[x] FO4SF_QPROBE rt=1.0 init anchor=FO4Port.esm:4920 target=FO4Port.esm:4950 sm=True"
+        s = qp.summarize(LOGTEXT.splitlines() + [newer])
+        self.assertIsNone(s["result"])
+        self.assertTrue(s["earlier_result"])
+        self.assertEqual(s["runs"], 2)
+        self.assertFalse(s["reached"])
+        s = qp.summarize(LOGTEXT.splitlines())
+        self.assertEqual(s["runs"], 1)
+        self.assertFalse(s["earlier_result"])
+
+
 @unittest.skipUnless(shutil.which("dotnet"), "no dotnet SDK on PATH")
 class WriterSelfTest(unittest.TestCase):
     def test_selftest(self):
