@@ -1,10 +1,11 @@
 """Minimal CLI for fo4-to-starfield.
 
-python -m fo4sf status   # print config summary and optional manifest coverage (requires config.toml)
+python -m fo4sf status   # print config summary, optional manifest coverage and failure summary (requires config.toml)
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -59,6 +60,25 @@ def _print_manifest(manifest_path: Path) -> int:
         print("  By fidelity tier:")
         for k, v in sorted(summary["by_tier"].items()):
             print(f"    {k}: {v}")
+
+    # Optional failure summary from the same staging directory
+    fail_path = manifest_path.parent / "failure-summary.json"
+    if fail_path.is_file():
+        try:
+            fail = json.loads(fail_path.read_text(encoding="utf-8"))
+            total_f = fail.get("total_failures", 0)
+            unique = fail.get("unique_reasons", 0)
+            print(f"\n  Failures: {total_f} total, {unique} unique reasons")
+            top = fail.get("top") or []
+            if top:
+                print("  Top reasons:")
+                for entry in top[:5]:
+                    reason = entry.get("reason", "?")
+                    count = entry.get("count", 0)
+                    pct = entry.get("percent", 0)
+                    print(f"    {reason}: {count} ({pct:.1f}%)")
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  failure-summary error: {e}", file=sys.stderr)
     return 0
 
 

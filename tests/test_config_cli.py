@@ -1,4 +1,5 @@
 """Tests for config loading and CLI (synthetic; no real game paths)."""
+import json
 import os
 import sys
 import tempfile
@@ -96,5 +97,31 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(rc, 0)
 
 
+    def test_status_prints_failure_summary_when_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[paths]\nstaging_dir = "%s"\n' % td)
+            manifest = Path(td) / "manifest.json"
+            manifest.write_text(json.dumps([{"type": "STAT"}]), encoding="utf-8")
+            fail = Path(td) / "failure-summary.json"
+            fail.write_text(json.dumps({
+                "total_failures": 3,
+                "unique_reasons": 2,
+                "top": [
+                    {"reason": "missing texture", "count": 2, "percent": 66.7},
+                    {"reason": "too many tris", "count": 1, "percent": 33.3},
+                ],
+            }), encoding="utf-8")
+            with patch("sys.stdout") as mock_out:
+                rc = main(["--config", str(cfg), "status"])
+            self.assertEqual(rc, 0)
+            out = mock_out.write.call_args_list
+            text = "".join(c[0][0] for c in out if c[0])
+            self.assertIn("Failures: 3 total, 2 unique reasons", text)
+            self.assertIn("missing texture: 2 (66.7%)", text)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
