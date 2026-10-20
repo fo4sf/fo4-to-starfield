@@ -8,6 +8,7 @@ Emits JSON with summary counts and the largest entries. Offline only.
 """
 import argparse
 import json
+import struct
 import sys
 from pathlib import Path
 
@@ -22,13 +23,15 @@ def main() -> int:
     ap.add_argument("archive", type=Path, help="Path to a .ba2 file")
     ap.add_argument("--top", type=int, default=5, help="Number of largest entries to include")
     args = ap.parse_args()
+    if args.top < 0:
+        ap.error("--top must be nonnegative")
 
-    if not args.archive.is_file():
-        print(f"error: {args.archive} not found", file=sys.stderr)
-        return 1
     try:
+        if not args.archive.is_file():
+            print(f"error: {args.archive} not found", file=sys.stderr)
+            return 1
         a = Ba2(str(args.archive))
-    except Ba2Error as e:
+    except (Ba2Error, OSError, UnicodeError, struct.error) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
