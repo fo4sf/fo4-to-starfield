@@ -20,6 +20,7 @@ class StatusFailureSummaryTests(unittest.TestCase):
                 "successes": 8,
                 "success_percent": 80.0,
                 "total_failures": 2,
+                "unique_reasons": 1,
                 "top": [
                     {"reason": "missing texture", "count": 2, "percent": 100.0},
                 ],
@@ -46,6 +47,7 @@ class StatusFailureSummaryTests(unittest.TestCase):
                 out = buf.getvalue()
             self.assertEqual(rc, 0)
             self.assertIn("Latest batch: 8/10 succeeded (80.0%), 2 failures", out)
+            self.assertIn("Unique failure reasons: 1", out)
             self.assertIn("missing texture", out)
 
 

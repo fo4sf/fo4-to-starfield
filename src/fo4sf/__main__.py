@@ -87,11 +87,17 @@ def _print_failure_summary(base: Path) -> None:
     total_fail = data.get("total_failures", 0)
     pct = data.get("success_percent", 0.0)
     print(f"\n  Latest batch: {successes}/{attempted} succeeded ({pct}%), {total_fail} failures")
+    unique = data.get("unique_reasons", len(data.get("top") or []))
+    if unique:
+        print(f"  Unique failure reasons: {unique}")
     top = data.get("top") or []
     if top:
         print("  Top failure reasons:")
-        for item in top[:3]:
-            print(f"    {item.get('count', 0):4d} ({item.get('percent', 0):5.1f}%)  {item.get('reason', '')[:60]}")
+        for item in top[:5]:
+            reason = item.get('reason', '')[:60]
+            print(f"    {item.get('count', 0):4d} ({item.get('percent', 0):5.1f}%)  {reason}")
+        if len(top) > 5:
+            print(f"    ... and {len(top) - 5} more")
 
 
 def main(argv: list[str] | None = None) -> int:
