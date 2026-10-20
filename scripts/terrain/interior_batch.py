@@ -645,7 +645,7 @@ def release(stage, reason, check_refs, starfield, successor, archive):
     released here), be superseded by a passed successor built from it whose port is intact (successor_check), and be
     needed by nothing now: its plugin is not the installed one and nothing under check_refs names it (dependencies).
     Every file except its port plugin and archives (SUPERSEDED, which the successor carries forward) is copied to
-    archive/<name>/ and verified, whatever its size. release.json records the whole tree's
+    archive/<name>/<generation>/ (named by the tree's digest, never overwritten) and verified, whatever its size. release.json records the whole tree's
     sha256s, the archive copies and the checks; prune repeats every check before deleting. Raises ValueError."""
     stage = os.path.abspath(stage)
     name = os.path.basename(stage)
@@ -664,7 +664,10 @@ def release(stage, reason, check_refs, starfield, successor, archive):
     successor_check(stage, successor)
     digest = dependencies(stage, check_refs, starfield)
     files = tree(stage)
-    dest = os.path.join(os.path.abspath(archive), name)
+    # One generation per distinct tree, never overwritten: a stage released again after a change keeps its earlier
+    # generation, and a folder name reused by another campaign lands in its own generation.
+    gen = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:16]
+    dest = os.path.join(os.path.abspath(archive), name, gen)
     if os.path.abspath(dest).lower().startswith(stage.lower() + os.sep):
         raise ValueError("the archive must be outside the stage")
     archived = {}
@@ -672,14 +675,23 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         if rel in SUPERSEDED:
             continue
         cp = os.path.join(dest, rel)
-        os.makedirs(os.path.dirname(cp), exist_ok=True)
-        shutil.copyfile(os.path.join(stage, rel), cp)
+        if os.path.exists(cp):
+            if not os.path.isfile(cp) or os.path.getsize(cp) != size or sha256(cp) != sha:
+                raise ValueError(f"{cp} already exists with other bytes; refusing to overwrite archived evidence")
+        else:
+            os.makedirs(os.path.dirname(cp), exist_ok=True)
+            tmp = cp + ".partial"
+            shutil.copyfile(os.path.join(stage, rel), tmp)
+            os.replace(tmp, cp)
         archived[rel] = [size, sha]
     rec = {"name": name, "released_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "reason": reason,
            "plugin_sha256": digest, "starfield": os.path.abspath(starfield),
            "checked_refs": [os.path.abspath(r) for r in check_refs], "successor": os.path.abspath(successor),
            "archive": dest, "archived": archived, "tree": files}
     archived_check(rec)
+    receipt = os.path.join(dest, RELEASE)
+    if not os.path.exists(receipt):                                     # the generation's own copy of its first receipt
+        save(receipt, rec)
     save(os.path.join(stage, RELEASE), rec)
     return rec
 

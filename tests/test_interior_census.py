@@ -312,8 +312,10 @@ class BatchToolTests(unittest.TestCase):
         rec = rel(b01, b03)
         self.assertEqual(sorted(rec["tree"]), ["build.log", "port/FO4Port - Main.ba2", "port/FO4Port.esm", "result.json"])
         self.assertEqual(sorted(rec["archived"]), ["build.log", "result.json"])          # the port: carried by b03
-        with open(os.path.join(arch, "interiors_b01", "build.log"), encoding="utf-8") as f:
+        with open(os.path.join(rec["archive"], "build.log"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "log of interiors_b01")
+        self.assertEqual(os.path.dirname(rec["archive"]), os.path.join(arch, "interiors_b01"))
+        self.assertEqual(ib.release(b01, "again", [refs], sf, b03, arch)["archive"], rec["archive"])   # idempotent
         self.assertEqual([os.path.basename(p) for p in ib.prune(root, 2, delete=False)], ["interiors_b01"])
         self.assertTrue(os.path.isdir(b01))
         ib.prune(root, 2, delete=True)
@@ -332,8 +334,23 @@ class BatchToolTests(unittest.TestCase):
             f.write(b"interiors_b03")
         self.assertEqual(ib.prune(root, 2, delete=True), [])
         os.remove(os.path.join(sf, "Data", "FO4Port.esm"))
-        os.remove(os.path.join(arch, "interiors_b03", "build.log"))                 # the archive copy lost
+        first = rel(b03, b04)["archive"]
+        os.remove(os.path.join(first, "build.log"))                                  # the archive copy lost
         self.assertEqual(ib.prune(root, 2, delete=True), [])
+        # a changed stage released again gets a new generation; the first one's bytes stay as they were
+        with open(os.path.join(first, "build.log"), "w", encoding="utf-8") as f:
+            f.write("log of interiors_b03")
+        with open(os.path.join(b03, "build.log"), "w", encoding="utf-8") as f:
+            f.write("second observation")
+        second = rel(b03, b04)["archive"]
+        self.assertNotEqual(first, second)
+        with open(os.path.join(first, "build.log"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "log of interiors_b03")
+        # an existing generation with other bytes is never overwritten
+        with open(os.path.join(second, "build.log"), "w", encoding="utf-8") as f:
+            f.write("tampered")
+        with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+            rel(b03, b04)
         # any file other than the port plugin and archives is archived whatever its size; a successor whose port has
         # gone or changed no longer covers the stage
         with open(os.path.join(b03, "crash-evidence.bin"), "wb") as f:

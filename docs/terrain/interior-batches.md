@@ -101,7 +101,8 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
     folders there, not the staging root, because later stages name their `--prev`.
   - any check that cannot run, such as a missing folder or an unreadable file.
 
-  It copies every file except the port's FO4Port.esm and its two BA2s to `--archive`/<name>/, whatever the size, and
+  It copies every file except the port's FO4Port.esm and its two BA2s to `--archive`/<name>/<generation>/, whatever the size. A generation is named by the tree's digest and never
+  overwritten: a changed stage released again gets a new one, and an existing one with other bytes refuses the release, and
   verifies the copies. Those three are covered by the successor: its own plugin and BA2s must match the sha256s pinned when it
   was built (result.json pins.plugin and steps.pack.sha256), at release and again at prune. A batch built before
   0156f14's successor, with no archive sha256s, cannot stand in. It then writes release.json with the whole tree's sha256s; any file not
