@@ -283,14 +283,25 @@ active plugin's archive and #291 is a draft.
 - FO4SF_LoadDoor.pex must be packed into an active plugin's archive (loose scripts are not read on this install): the
   stage does not place it; the deploy step must.
 
+## Persistent identities: source integration, not native acceptance
 ## Protecting the pinned interior source
 
+Codex's integration of PR273 and PR272 keeps the current `destination` schema and
+legacy allocation order: lights, then exterior arrival markers, then door ACTI
+bases. `persistent_ids` reserves door references, bases and arrival markers by
+source identity. Reordering exports or adding a different endpoint must preserve
+existing destinations. One destination still belongs to only one exterior door.
 The proposed door-stage preservation repair preflights every selected REFR for an
 existing VMAD before modifying any door. Even an empty or matching load-door VMAD
 is refused: merging existing behavior needs its own reviewed policy. Marker-map
 collisions also refuse before creating output. A stage/report cannot be placed
 inside either pinned input directory.
 
+The actual PR272 writer at `b35c958` and the integration produce byte-identical
+synthetic plugin/map outputs. Explicit `--bootstrap-identities` preserves those
+bytes, and a subsequent door/light reorder retains the map. This proves that
+small current-schema migration only. Earlier generic-script/OBND stages require
+their own explicit migration evidence; no existing stage or save was upgraded.
 The plugin, formids.json, README.txt and door reports are generated independently;
 reserved names are matched case-insensitively. Old doors_check.json is not carried
 into a new stage. Each generated write replaces its destination through a new
@@ -299,6 +310,23 @@ Failed replacement preserves the old report and removes its temporary file.
 This protects individual writes; it does not make the entire directory build a
 transaction or authorize installation. Unchanged assets remain hard-linked.
 
+Normal persistent checking holds the writer lease through raw checks and final
+input verification. Retained reservations replace only sequential-ID assertions;
+VMAD, transform, type, counts and cell checks still apply.
+
+The full-size core64j_doors copy now bootstraps with byte-identical main/Mars
+plugins and the entire ID map. The real held-audit/check_stage command initially
+timed out before readiness (120 s). Indexing each source-keyed map section once
+preserves exact key/reservation checks and allows the same command/input to finish:
+260 checks pass, 709,154 reserved IDs verified, 15 doors read back raw, 171.365 s
+wall time (159.4 s raw checks). No readiness timeout or validation was relaxed.
+51,821 copied assets were hash-verified; original stages were not edited.
+
+This covers the existing current-schema generation, not migration to core64k,
+old generic-script stages, or native save compatibility. Optional FO4 LAND/raw
+collision comparisons and Archive2 were not run. Independent combined integration
+QA and native return/save/reload remain gates. The stage-preservation fixes are
+a separate PR277 proposal; this change does not modify vmad_patch.py.
 Offline: nine new synthetic regressions plus seven existing codec/plugin tests
 pass; successful plugin/map bytes match the parent writer exactly. No private
 stage was rewritten and no native door/save test was run. Independent QA remains

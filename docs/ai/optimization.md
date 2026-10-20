@@ -55,3 +55,20 @@ Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vaul
 18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
 30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
 timers stay as the upper bound). After (first run, 2026-10-11 01:3x, library cell, verified arrival): **168 s**, from 195-210 s (-15 to -20%). The per-phase times were swallowed by a pipe on that run; the script now prints them with Write-Host.
+
+### 2026-10-16 Codex: index source keys in the persistent terrain audit
+
+Measured on the same private core64j_doors candidate, same normal make_core64c.py check
+command, same copied inputs, and the original 120-second audit-readiness limit:
+parent529a36f timed out before readiness (126.871 s overall, including cleanup).
+With ordinal dictionaries built once per map section, the complete command passes
+260 checks in171.365 s (159.4 s raw checks), verifying709,154 IDs. The timeout run
+never reached raw checks, so these are completion measurements, not a whole-run
+speedup ratio. Repeated JsonElement.GetProperty lookups scanned the628,065-entry
+reference object; indexing removes that repeated scan. Duplicate properties, exact
+key sets, ID reservations, held writer exclusion and final input verification remain.
+
+Full-size bootstrap preserves both plugin files and the complete map byte-for-byte.
+Private failing/passing evidence: persistent-full-stage-work. Source scope is
+TerrainIdentityAudit.Check; no producer, game or active stage changes. Independent
+review and native acceptance remain pending; optional FO4/Archive2 checks were omitted.

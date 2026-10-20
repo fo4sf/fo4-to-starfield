@@ -1,5 +1,6 @@
 # Codex / Claude / Grok status
 
+Codex checkpoint, October17 Mountain / UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 
 ## Owners / locks
@@ -19,6 +20,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- PR2919ffce95 is merged. PR297 is merged at main0147710 with the writer opt-in on both sides; Codex delta QA5556630363 found no blocking issue (19 focused passes/1 old-script skip, separately verified against merged PSC, eight malformed controls). Native effect remains unproved: package/pin the current PEX in an active archive, then verify actual position/world/cell/facing and return/save/reload. MoveTo is void; far SetPosition remains experimental. Claude owns deployment/controller.
+- Codex PR267 merges main697bc07 and binds new map markers to world/tag ledger keys, retaining door destinations. Reproduced unnamed-key failure; eight actual-writer regressions cover rebuilds, bootstrap, source mismatches and adding the marker template. Parent-main legacy byte parity passes; current delta QA pending. Empty-door audit fix and prior-ledger continuity remain. No stage/game actions or native return/save acceptance; #280 paired caller scope still pending.
 - Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.
 - Codex activation-parent export: shared Fo4Export/Fo4Land serializer retains ordered parent FormKeys, raw flags and delays, including deferred actors. Claude reviewed the export. Requested follow-up now makes untranslated blocks counted/listed warnings by default, with partial fidelity and optional `--strict-activation-parents` gating; other link errors still block. Eight synthetic CLI controls cover publication/report/strict/override and missing-parent behavior. Grok delta QA passed at e79da3e; main-merge changes only documentation conflicts, source continuity checked. No native activation behavior or live changes. See PR305 and CELL-EXPORT.md.
 - Codex PR176 full-source promoted-name identity merges main697bc07; CONT/MISC identity repair retained and current main callers reconciled. 91 Python cases covered (89 initial passes, two stale alias expectations corrected/retested) and eight actual writer tests pass; independent merge-delta QA pending; no stage or allocation migration. Previously aliased mixed-plugin builds still require separately pinned regeneration, not silent save compatibility claims.
@@ -27,6 +30,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 - Draft PR2919ffce95: Claude reviewed13062b6 with no blocking script defect. Logging delta sends requested XYZ to normal trace without the bridge quest;16 focused checks/CK compile/assembly/guard/CI pass, delta QA pending. Writer must emit UseDestinationPosition=True plus three floats and update its strict VMAD reader. MoveTo is void; far-placement/boundary, native activation/return/save gates remain. Undeployed. Each private PEX hash pins an artifact, not byte-reproducible compilation.
 - #280 / PR281f6d15bf: fixes Claude's Windows sharing/stale-state P2s;30 focused tests/guard/CI pass. Independent delta QA pending. Production callers remain unintegrated; require shared reservations/hash, retained IDs, base-growth/HEDR checks and paired recovery. Full-store rollback still needs an external latest-state pin.
+- Draft PR2939122a7d: Claude delta QA5556622216 reports earlier blockers fixed, suitable for a testing state;72 focused/1686 full checks (82 skips), guard/CI pass. Undeployed. A history-outage rollback retains its original journal; later config/file edits can leave retry blocked. Documented recovery follow-up remains; do not infer ownership from absence of plugin lines alone. Ordinary uninstall remains preservation-first. Private failure/pass capsule verified.
+- PR276529a36f and PR2770c5d397: identity/stage-preservation proposals awaiting QA/integration. PR279 integrates main0147710 (merged writer/script) with c909301: stable arrival IDs, persistent-cell placement and enabled coordinates. Synthetic legacy/bootstrap bytes match3446a99; reordered doors/lights retain IDs and VMADs,27 reservations audited.30 distinct targeted checks pass, including the previously skipped PSC contract. Integration with main0147710 passes54 focused checks (stage readiness/recovery and two actual-writer identity controls), no skips; writer sources equal reviewed3fab4b8. Combined peer QA and a new full-size migration remain pending; the older core64j proof is not core64l acceptance. PR278 regressions are merged.
 - PR293 is merged at37f2820 after Claude delta QA5556622216. Follow-up on codex/rollback-completion-receipt addresses its retry P2: successful history-outage rollback checkpoints the exact original receipt bytes and completed outcome; retry archives/retires metadata without touching later file/config edits. Incomplete rollback retains guarded cleanup. The active check now refuses pending recovery even if a plugin is reactivated.81 targeted tests/guard pass; independent QA/CI pending, source-only. No existing live receipt is upgraded or reconstructed.
 - PR276529a36f and PR2770c5d397 remain awaiting QA/integration. PR2793fab4b8 combines persistent IDs with reviewed writer3446a99 and merged arrival script9ffce95;30 distinct targeted checks, exact synthetic bootstrap parity and CI39010241871 pass. Combined peer QA, a fresh full-size migration and native return/save remain gates. PR278 regressions are merged.
 - Grok review gates: PR288a77edfa lacks actual donor metalness override; Claude also reproduced unwanted opacity from two-sided-only materials and a broken dry-converter keyword call. PR289d7b8188 ignores palette-enable/missing palette. PR29689cc91d writes LCSR tail0 instead of templateFFFFFFFF (three actual-writer cases). Fixes pending; PR284/285 reviews remain scoped.
@@ -38,3 +43,20 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+## PR267 current-main flora compatibility (October18)
+
+Current main's FLOR promotion is retained with named flora base reservations,
+ledger loading and identity-audit coverage. Main's bench/door behavior remains;
+legacy plugin/map bytes match an independent main build in three scenarios.
+Fourteen targeted writer/ledger/audit tests pass, including six flora cases;
+four pre-fix failures and all passing evidence are retained. Independent
+current-head QA is pending. Earlier counts above are historical checkpoints.
+No live stage, installation, controller release or native acceptance is implied;
+#280 paired allocator scope and current #32 ownership still apply.
+
+Codex October18: PR279 current-main compatibility with reviewed PR267 is in progress. Preserve persistent return markers, arrival coordinates, audit lease, flora/map-marker identities and caller controls. 44 targeted synthetic writer/caller/lease checks (no skips), three new integration regressions, two negative regression controls, build/provenance and guard pass. Shared make_cluster/vmad_patch match main unchanged. Independent current-head review/CI and newly pinned full-size/native acceptance remain required; no stage/install/game actions.
+
+Codex October18:279/f0a97b8 independent Grok QA6257004942/6257022597 clears the scoped merge. CI39179440252 ran2223 tests OK/110 skips but timed out at the15min job cap during cleanup. CI/doc-only follow-up gives20min bounded headroom; every production/test blob remains f0a97b8. New-head CI and independent CI/doc delta review remain pending; do not call the timed-out job green.
+
+Codex October18, #367: separate279-based audit proposal now validates existing garage pair identity metadata instead of rejecting valid writer output. Three actual-writer/auditor methods pass, including six refusal controls and preserved raw links/IDs across growth; independent QA/CI pending. Writer, VMAD policy, #280 allocation and native/controller gates unchanged.

@@ -60,6 +60,29 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System.Activator (implicit usings)
 
+if (args.Length == 2 && args[0] is "--check-identities" or "--check-identities-held")
+{
+    try
+    {
+        bool held = args[0] == "--check-identities-held";
+        Action<object>? waitForReader = held ? report =>
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { phase = "ready", report }));
+            Console.Out.Flush();
+            if (Console.ReadLine() != "verify") throw new IOException("identity reader cancelled before verification");
+        } : null;
+        var result = TerrainIdentityAudit.Check(args[1], waitForReader);
+        Console.WriteLine(JsonSerializer.Serialize(held ? (object)new { phase = "verified", report = result } : result));
+    }
+    catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException or FormatException or OverflowException)
+    {
+        Console.Error.WriteLine($"identity audit refused: {error.Message}");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+if (args.Length is < 2 or > 3 || args.Length == 3 && args[2] != "--bootstrap-identities")
+    throw new ArgumentException("usage: <Starfield.esm> <staging dir> [--bootstrap-identities] OR --check-identities[-held] <staging dir>");
 var sfPath = args[0];
 var outDir = args[1];
 var prm = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "overlays_params.json"))).RootElement;
@@ -77,6 +100,13 @@ var templateLoc = sf.Locations.First(l => l.FormKey.ID == 0x3807BE);            
 var modKey = ModKey.FromNameAndExtension(prm.GetProperty("plugin").GetString()!);
 var mod = new StarfieldMod(modKey, release);
 mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+var outputNames = new List<string> { modKey.FileName.String };
+if (Has(prm, "objects") || Has(prm, "navmesh")) outputNames.Add("formids.json");
+if (Has(prm, "mars")) outputNames.Add(prm.GetProperty("mars").GetProperty("plugin").GetString()!);
+using var output = new OutputPublication(outDir, outputNames);
+var stable = TerrainStableIds.Open(outDir, modKey.FileName.String,
+    prm.TryGetProperty("persistent_ids", out var stableOption) && stableOption.GetBoolean(),
+    args.Length == 3, outputNames);
 var overlays = prm.GetProperty("overlays").EnumerateArray().ToList();
 
 // anchors take the first FormIDs, in params order (plan.json names them as 0x800 + index)
@@ -84,10 +114,11 @@ uint next = 0x800;
 foreach (var o in overlays)
 {
     uint want = o.GetProperty("anchor").GetProperty("form_id").GetUInt32();
-    if (want != next) throw new InvalidDataException($"anchor form_id 0x{want:X} out of order (expected 0x{next:X})");
+    if (stable != null) stable.Anchor(o.GetProperty("world").GetString()!, want);
+    else if (want != next) throw new InvalidDataException($"anchor form_id 0x{want:X} out of order (expected 0x{next:X})");
     next++;
 }
-FormKey NewKey() => new(modKey, next++);
+FormKey NewKey(params string[] identity) => new(modKey, stable?.Reserve(identity) ?? next++);
 
 float hmin = prm.GetProperty("hmin").GetSingle(), hmax = prm.GetProperty("hmax").GetSingle();
 bool absolute = prm.GetProperty("alignment").GetString() == "absolute";
@@ -100,7 +131,7 @@ foreach (var o in overlays)
     string world = o.GetProperty("world").GetString()!;
     int n = o.GetProperty("n").GetInt32(), cmin = o.GetProperty("cell_min").GetInt32(), cmax = o.GetProperty("cell_max").GetInt32();
 
-    var block = (SurfaceBlock)templateBlock.Duplicate(NewKey());
+    var block = (SurfaceBlock)templateBlock.Duplicate(NewKey("block", world));
     block.EditorID = o.GetProperty("block").GetString();
     block.ANAM = o.GetProperty("btd_path").GetString();
     block.DNAM = new SurfaceBlockIntItem { First = (uint)n, Second = (uint)n };
@@ -114,7 +145,7 @@ foreach (var o in overlays)
     block.Components.Clear();                                                // drop BlockEditorMetaData (CK bookkeeping)
     mod.SurfaceBlocks.Add(block);
 
-    var loc = (Location)templateLoc.Duplicate(NewKey());
+    var loc = (Location)templateLoc.Duplicate(NewKey("location", world));
     loc.EditorID = o.GetProperty("location").GetString();
     loc.Name = $"Commonwealth {o.GetProperty("tag").GetString()} (FO4 terrain)";
     loc.MasterSpecialReferences?.Clear();
@@ -123,7 +154,7 @@ foreach (var o in overlays)
     loc.ParentLocation.SetTo(new FormKey(sfEsm, 0x01B736));                  // SSol_PMars_Surface
     mod.Locations.Add(loc);
 
-    var w = (Worldspace)templateWorld.Duplicate(NewKey());
+    var w = (Worldspace)templateWorld.Duplicate(NewKey("world", world));
     w.EditorID = world;
     w.Name = $"Commonwealth {o.GetProperty("tag").GetString()} (FO4 terrain)";
     w.SubCells.Clear();
@@ -146,12 +177,12 @@ foreach (var o in overlays)
     for (int x = cmin; x <= cmax; x++)
         for (int y = cmin; y <= cmax; y++)
         {
-            var c = new Cell(NewKey(), release) { Grid = new CellGrid { Point = new P2Int(x, y) } };
+            var c = new Cell(NewKey("cell", world, x.ToString(System.Globalization.CultureInfo.InvariantCulture), y.ToString(System.Globalization.CultureInfo.InvariantCulture)), release) { Grid = new CellGrid { Point = new P2Int(x, y) } };
             cellAt[(x, y)] = c;
             if (x == spawnCell[0] && y == spawnCell[1])
             {
                 c.EditorID = coc;
-                c.Temporary.Add(new PlacedObject(NewKey(), release)
+                c.Temporary.Add(new PlacedObject(NewKey("coc", world), release)
                 {
                     EditorID = coc + "Marker",
                     Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfEsm, 0x000032)),   // COCMarkerHeading
@@ -164,7 +195,7 @@ foreach (var o in overlays)
             if (!subs.TryGetValue((sx, sy), out var sub)) { sub = new WorldspaceSubBlock { BlockNumberX = (short)sx, BlockNumberY = (short)sy, GroupType = GroupTypeEnum.ExteriorCellSubBlock }; subs[(sx, sy)] = sub; blk.Items.Add(sub); }
             sub.Items.Add(c);
         }
-    w.TopCell = new Cell(NewKey(), release) { Flags = Cell.Flag.HasWater };   // persistent top cell (as experiments 1 and 2)
+    w.TopCell = new Cell(NewKey("persistent-cell", world), release) { Flags = Cell.Flag.HasWater };   // persistent top cell (as experiments 1 and 2)
     var a = o.GetProperty("anchor");
     var p = a.GetProperty("local").EnumerateArray().Select(e => e.GetSingle()).ToArray();
     var anchor = new PlacedObject(new FormKey(modKey, a.GetProperty("form_id").GetUInt32()), release)
@@ -188,7 +219,8 @@ var refIds = new Dictionary<string, string>();                 // placed referen
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
 string? objWorld = null;
-string[] lightSources = Array.Empty<string>();                 // exterior lights: written after everything else
+Dictionary<string, FormKey>? referenceKeys = null;             // every reserved REFR slot (ReferenceIdentityPlan.Order)
+string[] lightSources = Array.Empty<string>();                 // exterior lights: after NAVMs, before scripted bases/arrivals
 JsonElement? lightsJson = null, lightBasesJson = null;
 // scripted load doors: the REFRs are placed with the objects (reserved slots); their ACTI bases and arrival markers
 // are allocated after the lights
@@ -220,7 +252,7 @@ if (Has(prm, "objects"))
         if (b.TryGetProperty("door", out var d) && d.ValueKind == JsonValueKind.Object)
         {
             // hinged door rigged like the vanilla template door (as PluginSpike and TerrainExp2): graph, skeleton, bounds
-            var rec = new Door(NewKey(), release)
+            var rec = new Door(NewKey("base", edid), release)
             {
                 EditorID = edid, Model = new Model { File = model }, Name = "Door",
                 SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
@@ -243,7 +275,7 @@ if (Has(prm, "objects"))
         }
         else
         {
-            var stat = new Static(NewKey(), release) { EditorID = edid, Model = new Model { File = model } };
+            var stat = new Static(NewKey("base", edid), release) { EditorID = edid, Model = new Model { File = model } };
             mod.Statics.Add(stat);
             baseKeys.Add(stat.FormKey);
             nStat++;
@@ -252,7 +284,7 @@ if (Has(prm, "objects"))
     }
     // Reserve every original slot, including references promoted out of "refs".
     // A later neighbour must not inherit the promoted source's saved-game ID.
-    var referenceKeys = referenceSources.ToDictionary(src => src, _ => NewKey(), StringComparer.OrdinalIgnoreCase);
+    referenceKeys = referenceSources.ToDictionary(src => src, src => NewKey("reference", stable == null ? src : TerrainStableIds.Source(src)), StringComparer.OrdinalIgnoreCase);
     foreach (var r in o.GetProperty("refs").EnumerateArray())
     {
         float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
@@ -313,7 +345,7 @@ if (Has(prm, "objects"))
             var cmodel = c.GetProperty("model").GetString()!;
             if (!contByEdid.TryGetValue(edid, out var cont))
             {
-                cont = new Container(NewKey(), release)
+                cont = new Container(NewKey("container", edid), release)
                 {
                     EditorID = edid, Model = new Model { File = cmodel },
                     Name = c.GetProperty("name").GetString(),
@@ -386,7 +418,7 @@ if (Has(prm, "objects"))
                 float weight = c.GetProperty("weight").GetSingle();
                 if (string.IsNullOrWhiteSpace(name) || value < 0 || !float.IsFinite(weight) || weight < 0)
                     throw new InvalidDataException($"item {src}: needs a name, a value >= 0 and a weight >= 0");
-                misc = new MiscItem(NewKey(), release)
+                misc = new MiscItem(NewKey("item", edid), release)
                 {
                     EditorID = edid, Model = new Model { File = c.GetProperty("model").GetString()! },
                     Name = name, Value = value, Weight = weight,
@@ -479,7 +511,7 @@ if (Has(prm, "objects"))
                 // PNAM / FNAM / JNAM as the vanilla majority (Starfield.esm, 1,463 ACTI read raw in the review of #241):
                 // marker colour bytes CC 4C 33 00 in 1,347 (Mutagen writes the alpha last), flags 0 in 1,412,
                 // activation angle 360 in 1,453
-                acti = new StarfieldActivator(NewKey(), release)
+                acti = new StarfieldActivator(NewKey("activator", edid), release)
                 {
                     EditorID = edid, Model = new Model { File = model }, MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
                     Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
@@ -541,13 +573,13 @@ if (Has(prm, "objects"))
             {
                 if (!menuEdids.Add(menuEdid))
                     throw new InvalidDataException($"terminal {edid}: menu {menuEdid} already belongs to another terminal");
-                var term = new Terminal(NewKey(), release)
+                var term = new Terminal(NewKey("terminal", edid), release)
                 {
                     EditorID = edid, Model = new Model { File = model }, Name = name,
                     Background = Terminal.BackgroundType.Default,
                 };
                 Furnish(term, termTemplate!);
-                var menu = new TerminalMenu(NewKey(), release)
+                var menu = new TerminalMenu(NewKey("terminal-menu", menuEdid), release)
                 {
                     EditorID = menuEdid, Name = name, INAM = string.Empty,
                     ShowBodyText = TerminalMenu.ShowBodyTextOption.Document,
@@ -623,7 +655,7 @@ if (Has(prm, "objects"))
             var sig = $"{model.ToLowerInvariant()}|{name}|{BitConverter.SingleToUInt32Bits(radius):X8}";
             if (!wkshpByEdid.TryGetValue(edid, out var acti))
             {
-                acti = new StarfieldActivator(NewKey(), release)
+                acti = new StarfieldActivator(NewKey("workshop", edid), release)
                 {
                     EditorID = edid, Model = new Model { File = model }, Name = name,
                     MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),     // as the activators above
@@ -679,7 +711,7 @@ if (Has(prm, "objects"))
             var sig = $"{model.ToLowerInvariant()}|{name}|{ingStr.ToLowerInvariant()}";
             if (!florByEdid.TryGetValue(edid, out var flor))
             {
-                flor = (Flora)florTemplate!.Duplicate(NewKey());
+                flor = (Flora)florTemplate!.Duplicate(NewKey("flora", edid));
                 flor.EditorID = edid;
                 flor.Name = name;
                 flor.Model = new Model { File = model };
@@ -857,7 +889,10 @@ if (Has(prm, "navmesh"))
     if (!cellsOf.TryGetValue(nworld, out var navCells)) throw new InvalidDataException($"navmesh.json names world {nworld}, not an overlay of these params");
     var navWorld = worlds.First(x => x.World.EditorID == nworld).World;
     var navs = nroot.GetProperty("navmeshes").EnumerateArray().ToList();
-    var navKeys = navs.Select(_ => NewKey()).ToList();
+    var navKeys = navs.Select(e => NewKey("navmesh", nworld,
+        stable == null ? "legacy" : TerrainStableIds.Source(e.GetProperty("src").GetString()!),
+        e.GetProperty("cell")[0].GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture),
+        e.GetProperty("cell")[1].GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture))).ToList();
     uint worldLocal = 0x01000000u | navWorld.FormKey.ID;
     var navi = new NavigationMeshInfoMap(new FormKey(sfEsm, 0x000FF1), release)
     {
@@ -979,12 +1014,12 @@ if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases
     // adaptive lighting, volumetric scale, the DAT2 value Mutagen calls PbrLightTemperatureK) is the vanilla template's.
     var templateLight = sf.Lights.FirstOrDefault(l => l.FormKey.ID == 0x12A74B)
         ?? throw new InvalidDataException("template light 12A74B:Starfield.esm (LGT_Interior_Omni_NS_Warm_004_2k) not in the master");
-    var lightRefKeys = lightSources.Select(_ => NewKey()).ToArray();
+    var lightRefKeys = lightSources.Select(src => NewKey("light-reference", stable == null ? src : TerrainStableIds.Source(src))).ToArray();
     var lightByEdid = new Dictionary<string, Light>(StringComparer.OrdinalIgnoreCase);
     foreach (var b in lightBases.EnumerateArray())
     {
         float F(string k) => b.GetProperty(k).GetSingle();
-        var rec = (Light)templateLight.Duplicate(NewKey());
+        var rec = (Light)templateLight.Duplicate(NewKey("light-base", b.GetProperty("edid").GetString()!));
         rec.EditorID = b.GetProperty("edid").GetString();
         var bb = b.GetProperty("bounds");
         rec.ObjectBounds = new ObjectBounds
@@ -1064,14 +1099,14 @@ if (doorEntries.Count > 0)
     // door edid in first-use order (the converted door mesh, FULL the name, PNAM / FNAM / JNAM as the activators:
     // the vanilla majority), and the door REFRs placed above take that ACTI as base.
     var persistentCell = worlds.First(x => x.World.EditorID == objWorld).World.TopCell!;
-    var markerKeys = doorEntries.Select(_ => NewKey()).ToList();
+    var markerKeys = doorEntries.Select(d => NewKey("door-arrival", stable == null ? d.Src : TerrainStableIds.Source(d.Src))).ToList();
     var doorActi = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
     for (int i = 0; i < doorEntries.Count; i++)
     {
         var d = doorEntries[i];
         if (!doorActi.TryGetValue(d.Edid, out var acti))
         {
-            acti = new StarfieldActivator(NewKey(), release)
+            acti = new StarfieldActivator(NewKey("door-base", d.Edid), release)
             {
                 EditorID = d.Edid, Model = new Model { File = d.Model }, Name = d.Name,
                 MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
@@ -1122,11 +1157,12 @@ else foreach (var (w, o) in worlds)
         entries.Add(("", "Red Rocket",
                      o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
                      o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    var identityTags = ReferenceIdentityPlan.MapMarkerTags(o);
     var tags = new Dictionary<string, string>();
     for (int i = 0; i < entries.Count; i++)
     {
         var (tag, name, pos, cell) = entries[i];
-        var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
+        var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey("map-marker", w.EditorID!, identityTags[i]));
         marker.EditorID = w.EditorID + "MapMarker" + (i == 0 ? "" : tag);       // the first keeps #296's EditorID
         marker.Position = new P3Float(pos[0], pos[1], pos[2]);
         marker.Rotation = new P3Float(0, 0, 0);
@@ -1150,7 +1186,7 @@ else foreach (var (w, o) in worlds)
         // no LCID (MasterInitiallyDisabledReferences): the marker is not initially disabled
         if (i == 0)
             mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
-        tags[tag == "" ? "RedRocket" : tag] = marker.FormKey.ID.ToString("X6");
+        tags[identityTags[i]] = marker.FormKey.ID.ToString("X6");
         nMap++;
         Console.WriteLine($"  map marker {marker.EditorID} \"{name}\" REFR {marker.FormKey} at ({pos[0]}, {pos[1]}, {pos[2]}) cell ({cell[0]}, {cell[1]}) LCSR MapMarkerRefType on {loc.EditorID}");
     }
@@ -1162,9 +1198,10 @@ if (ids != null && mapIds.Count > 0)
     ids["map_marker_refs"] = mapRefIds;
 }
 if (ids != null)
-    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
+    File.WriteAllText(output.StagePath("formids.json"), JsonSerializer.Serialize(ids));
+next = stable?.NextId ?? next;
 mod.ModHeader.Stats.NextFormID = next;
-var path = Path.Combine(outDir, modKey.FileName);
+var path = output.StagePath(modKey.FileName.String);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
@@ -1190,8 +1227,12 @@ if (Has(prm, "mars"))
             Latitude = o.GetProperty("longitude").GetDouble(),     // second f64 = longitude
         });
     mars.ModHeader.Stats.NextFormID = 0x800;
-    var marsPath = Path.Combine(outDir, marsKey.FileName);
+    var marsPath = output.StagePath(marsKey.FileName.String);
     mars.BeginWrite.ToPath(marsPath).WithLoadOrder(sfEsm, modKey)
         .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full), new KeyedMasterStyle(modKey, MasterStyle.Full)).Write();
     Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
 }
+
+stable?.PersistBeforePublication(output.StagePath);
+output.Commit();
+Console.WriteLine($"published {outputNames.Count} outputs in {outDir}");

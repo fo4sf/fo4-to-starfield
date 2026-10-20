@@ -738,6 +738,51 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
 
 
+class PersistentDoorMergeCompatibilityTests(unittest.TestCase):
+    def test_core_comparison_keeps_world_settings_but_excludes_stage_identity_controls(self):
+        core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
+        staged = dict(copy.deepcopy(core), objects="objects.json", persistent_ids=True)
+        staged["overlays"][0]["map_markers"] = [{"tag": "RedRocket"}]
+        original = copy.deepcopy(staged)
+        self.assertEqual(mk.core_params_view(staged), mk.core_params_view(core))
+        for field, value in (("world", "Other"), ("spawn", [4, 5, 6])):
+            changed = copy.deepcopy(staged)
+            changed["overlays"][0][field] = value
+            self.assertNotEqual(mk.core_params_view(changed), mk.core_params_view(core))
+        self.assertEqual(staged, original)
+
+    def test_actual_stage_reads_separate_cluster_files_before_promotion(self):
+        from contextlib import ExitStack
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        class PromotionReached(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            for name, content in (("plan.json", []), ("expected.json", {}),
+                                  ("selection.json", {"refs": 0, "deferred": 0, "skipped_refs": []}),
+                                  ("one.json", {"items": []}), ("two.json", {"doors": []})):
+                (folder / name).write_text(json.dumps(content), encoding="utf-8")
+            args = SimpleNamespace(core=str(folder), work=str(folder), out=str(folder / "out"),
+                                   cluster=f"{folder / 'one.json'},{folder / 'two.json'}")
+
+            def promotion(bases, placed, cluster):
+                self.assertEqual((bases, placed, cluster), ([], [], {"items": [], "doors": []}))
+                raise PromotionReached()
+
+            with ExitStack() as stack:
+                for name, value in (("core_params", ({}, {})), ("place_all", ([], [], [], {})),
+                                    ("terrain_edids", set()), ("link_tree", (0, 0, 0)),
+                                    ("data_files", []), ("ba2_size", 0)):
+                    stack.enter_context(patch.object(mk, name, return_value=value))
+                stack.enter_context(patch.object(mk.x2c, "copy_base_data", return_value=[]))
+                stack.enter_context(patch.object(mk, "cluster_promote", side_effect=promotion))
+                with self.assertRaises(PromotionReached):
+                    mk.cmd_stage(args)
+
+
 class ItemValidationReviewTests(unittest.TestCase):
     # the review of #235: input the writer refuses is refused at stage (value int32, weight float32, -0.0 == 0.0)
     def _two(self, **first):
@@ -756,6 +801,24 @@ class ItemValidationReviewTests(unittest.TestCase):
         for bad in ({"value": 2 ** 31}, {"value": -1}, {"weight": 1e39}):
             with self.assertRaises(ValueError, msg=str(bad)):
                 self._two(**bad)
+
+
+class ScriptedDoorContractTests(unittest.TestCase):
+    def test_contract_matches_the_papyrus_script(self):
+        src = (root / "scripts" / "door_bridge" / "FO4SF_LoadDoor.psc").read_text(encoding="utf-8")
+        self.assertRegex(src, rf"(?m)^Scriptname {mk.DOOR_SCRIPT} extends ObjectReference")
+        self.assertRegex(src, rf"(?m)^string Property {mk.DOOR_PLUGIN_PROPERTY} Auto")
+        self.assertRegex(src, rf"(?m)^int Property {mk.DOOR_ID_PROPERTY} Auto")
+
+    def test_merge_clusters(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.json"), os.path.join(d, "b.json")
+            json.dump({"note": "a", "containers": [{"src": "1"}], "items": []}, open(a, "w"))
+            json.dump({"note": "b", "doors": [{"src": "2"}]}, open(b, "w"))
+            self.assertEqual(mk.merge_clusters([a, b]), {"containers": [{"src": "1"}], "items": [], "doors": [{"src": "2"}]})
+            json.dump({"containers": [{"src": "3"}]}, open(b, "w"))
+            with self.assertRaisesRegex(ValueError, "containers listed in both"):
+                mk.merge_clusters([a, b])
 
 if __name__ == "__main__":
     unittest.main()
@@ -1760,6 +1823,23 @@ class DoorPromotionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "listed as both an activator and a door"):
             mk.cluster_promote(self.BASES, self.placed(), cl)
 
+    def test_separate_current_door_and_object_clusters_keep_one_slot_plan(self):
+        with tempfile.TemporaryDirectory() as folder:
+            paths = [os.path.join(folder, name + ".json") for name in ("doors", "objects")]
+            values = [{"doors": [self.entry()]},
+                      {"activators": [{"src": "000004:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"}]}]
+            for path, value in zip(paths, values):
+                with open(path, "w", encoding="utf-8") as stream:
+                    json.dump(value, stream)
+            for ordered in (paths, paths[::-1]):
+                keep, promoted = mk.cluster_promote(self.BASES, self.placed(), mk.merge_clusters(ordered))
+                self.assertEqual([r["src"] for r in keep],
+                                 ["000001:Fallout4.esm", "000003:Fallout4.esm", "000005:Fallout4.esm"])
+                self.assertEqual(promoted["doors"][0]["reference_index"], 1)
+                self.assertEqual(promoted["activators"][0]["reference_index"], 3)
+                self.assertEqual(promoted["doors"][0]["destination"]["id"], 0xDEFF)
+                mk.door_arrivals_inside(promoted["doors"], {"cell_min": -32, "cell_max": 31})
+
     def test_cluster_doors_refusals(self):
         def bad(regex, **kw):
             with self.assertRaisesRegex(ValueError, regex):
@@ -1950,4 +2030,3 @@ class DoorPromotionTests(unittest.TestCase):
         self.assertIn("marker 0100080F", mk.door_marker_placement(where, [own | 0x80F], own | 0x800)[0])  # temporary in the persistent cell
         self.assertIn("marker 01000811", mk.door_marker_placement(where, [own | 0x811], own | 0x800)[0])  # not written
         self.assertIn("the anchor", mk.door_marker_placement(where, [own | 0x80C], own | 0x80D)[0])       # the anchor in an exterior cell
-

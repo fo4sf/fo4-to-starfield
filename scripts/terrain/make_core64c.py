@@ -29,8 +29,8 @@ stage    places the converted references (exterior.place) in the core64 worldspa
 check    raw-walks the plugin (core64 records unchanged, REFRs per cell, bases, positions), object z - terrain z under
          every placed origin (BTD; with --fo4 also FO4's own LAND), every model / geometry / material / texture file,
          every plan point re-derived from the converted collision, every runner teleport (cells per axis) and the
-         step time, archive size; offline_check.json, and data_manifest.json (size and time of every staged file).
-verify-data  is the staged tree still the one check passed? (Data\\ is hard-linked to the conversion work folder.)
+         step time, archive size; offline_check.json, and data_manifest.json (asset/plugin size/time plus identity-input SHA256s).
+verify-data  are staged assets and identity/test inputs still those check passed? Old receipts need a fresh check.
 Everything this writes stays outside the repo (derived game data).
 """
 import argparse
@@ -52,6 +52,10 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
+from stage_outputs import require_ready_stage  # noqa: E402
+from stage_identity import identity_inputs  # noqa: E402
+from terrain_identity_session import persistent_verification  # noqa: E402
 from fo4sf import btd, exterior, map_markers  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
@@ -61,6 +65,12 @@ import overlay_records  # noqa: E402
 import vmad_patch  # noqa: E402
 
 EDID_PREFIX = "FO4Core_"
+# Scripted load doors (docs/terrain/scripted-doors.md): the contract of scripts/door_bridge/FO4SF_LoadDoor.psc (PR #243):
+# `Scriptname FO4SF_LoadDoor extends ObjectReference`, `string Property DestinationPlugin Auto`, `int Property
+# DestinationId Auto` (the destination's plugin-local id, 1..0xFFFFFF). tests/test_make_core64c.py reads the .psc.
+DOOR_SCRIPT = "FO4SF_LoadDoor"
+DOOR_PLUGIN_PROPERTY = "DestinationPlugin"
+DOOR_ID_PROPERTY = "DestinationId"
 ASSET_PREFIX = "fo4core"
 DATA_TREES = ("meshes", "geometries", "materials", "textures")
 # fields of an exported reference that placing, reporting and the plan need (the export has about 25)
@@ -87,8 +97,9 @@ def save(path, value, indent=None):
     os.replace(tmp, path)
 
 
-def core_params(core):
+def core_params(core, ready=require_ready_stage):
     """(overlays_params.json, its single overlay) of the staged core64 terrain."""
+    ready(core)
     prm = load(os.path.join(core, "overlays_params.json"))
     if len(prm["overlays"]) != 1:
         sys.exit(f"{core}: core64c needs exactly one overlay, found {len(prm['overlays'])}")
@@ -98,7 +109,7 @@ def core_params(core):
 def core_params_view(prm):
     """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
     map_markers (check compares the rest with core64's)."""
-    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh")}
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh", "persistent_ids")}
     if "overlays" in out:
         out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
     return out
@@ -1143,6 +1154,22 @@ def container_edid(base, src):
 
 def item_edid(base, src):
     return promoted_edid("misc", base, src)
+
+
+def merge_clusters(paths):
+    """One cluster from several files (stage --cluster a.json,b.json): the lists of every class concatenated; a class
+    in two files is an error (a source listed twice would otherwise slip through as two classes agreeing)."""
+    out, owner = {}, {}
+    for p in paths:
+        c = load(p)
+        for k, v in c.items():
+            if not isinstance(v, list):
+                continue
+            if k in owner:
+                raise ValueError(f"{k} listed in both {owner[k]} and {p}")
+            owner[k] = p
+            out[k] = list(v)
+    return out
 
 
 def activator_edid(base, src):
@@ -2588,8 +2615,8 @@ def cmd_stage(a):
     promoted = {k: [] for k, _sig in ALL_PROMOTED}
     lights, light_bases = [], []
     if getattr(a, "cluster", None):
-        cluster = load(a.cluster)
         try:
+            cluster = merge_clusters(a.cluster.split(","))
             placed, promoted = cluster_promote(bases, placed, cluster)
             door_arrivals_inside(promoted["doors"], ov)
             # exterior lights (docs/terrain/exterior-lights.md): never placed, so new REFR ids after every reserved one
@@ -2920,21 +2947,14 @@ def archive_dry_run(archive2, out, scratch, files):
             os.remove(path)
 
 
-def cmd_check(a):
-    import make_cw_overlays as cwo
-    t0 = time.time()
-    out = a.out
-    prm, ov = core_params(out)
-    cprm, _cov = core_params(a.core)
-    plan = load(os.path.join(out, "plan.json"))
-    exp = load(os.path.join(out, "expected.json"))
-    objects = load(os.path.join(out, "objects.json"))
-    ids = load(os.path.join(out, "formids.json"))
-    checks, rep = [], {}
-
+def declared_identity_checks(out, objects, ids, audit=None):
+    """Allocation identities only. Raw record/type/transform/VMAD checks always run separately."""
+    if audit is not None:
+        audit.require_held(out)
+        return [[f"persistent source identities match {audit.report['checked_ids']} retained reservations", True]]
+    checks = []
     def need(cond, what):
         checks.append([what, bool(cond)])
-
     promoted = [e for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
     if promoted:
         try:
@@ -2954,18 +2974,40 @@ def cmd_check(a):
         else:
             need(True, f"{len(lights):,} light REFRs have new ids after every other record, then "
                        f"{len(objects['light_bases'])} LIGH bases")
-    doors = objects.get("doors") or []
-    if doors:
-        try:
-            check_door_identities(objects, ids)
-        except ValueError as e:
-            need(False, f"declared door identities: {e}")
-        else:
-            need(True, f"{len(doors)} door REFRs keep their slots; their arrival markers have new ids after every other "
-                       f"record (lights included), then {len({e['edid'] for e in doors})} door ACTI bases")
+    return checks
+
+
+def cmd_check(a):
+    with persistent_verification(a.out) as audit:
+        rep, man, t0 = check_stage(a, audit)
+        if audit is not None:
+            rep["identity_audit"] = audit.report
+    # The held audit must verify and exit successfully before publishing even a failing raw-check report.
+    return publish_check_report(a.out, rep, man, t0)
+
+
+def check_stage(a, audit=None):
+    import make_cw_overlays as cwo
+    t0 = time.time()
+    out = a.out
+    ready = audit.require_held if audit is not None else require_ready_stage
+    checked_inputs = identity_inputs(out, ready=ready)
+    prm, ov = core_params(out, ready=ready)
+    if (prm.get("persistent_ids") is True) != (audit is not None):
+        raise ValueError("persistent verification mode changed or no held audit was supplied")
+    cprm, _cov = core_params(a.core)
+    plan = load(os.path.join(out, "plan.json"))
+    exp = load(os.path.join(out, "expected.json"))
+    objects = load(os.path.join(out, "objects.json"))
+    ids = load(os.path.join(out, "formids.json"))
+    checks, rep = declared_identity_checks(out, objects, ids, audit), {}
+    def need(cond, what):
+        checks.append([what, bool(cond)])
+    promoted = [e for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
+    lights, doors = objects.get("lights") or [], objects.get("doors") or []
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need(core_params_view(prm) == cprm and prm.get("objects") == "objects.json"
+    need(core_params_view(prm) == core_params_view(cprm) and prm.get("objects") == "objects.json"
          and prm.get("navmesh") in (None, "navmesh.json"),
          "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else "")
          + (" + map markers" if any("map_markers" in o for o in prm["overlays"]) else ""))
@@ -3019,7 +3061,8 @@ def cmd_check(a):
         last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
                                                                           "TERM", "TMLM")
                         and r["fid"] & 0xFFFFFF not in light_ids), default=0)
-        need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
+        if audit is None:
+            need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
         nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
         need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
         tri = sum(len(n.get("triangles", [])) for n in navj["navmeshes"])
@@ -3049,18 +3092,20 @@ def cmd_check(a):
         ligh = [r for r in recs if r["sig"] == "LIGH"]
         need(len(ligh) == len(objects["light_bases"]), f"{len(ligh)} LIGH = {len(objects['light_bases'])} light bases "
                                                         f"(one per FO4 base, {len(lights):,} lights)")
-        first_light, last_other = lights_after(recs, len(new["masters"]), ids)
-        need(first_light is not None and first_light > last_other,
-             f"every light record after the build's other records (first 0x{first_light or 0:06X}, last other 0x{last_other:06X})")
+        if audit is None:
+            first_light, last_other = lights_after(recs, len(new["masters"]), ids)
+            need(first_light is not None and first_light > last_other,
+                 f"every light record after ordinary promotions/NAVMs (first 0x{first_light or 0:06X}, last preceding 0x{last_other:06X})")
         lp = light_record_problems(recs, own, objects, ids)
         need(not lp, f"every LIGH and light REFR matches objects.json ({len(lp)} problems: {lp[:3]})")
     if doors:
         # scripted load doors (docs/terrain/scripted-doors.md): the arrival markers and the door ACTIs after everything
         # (the lights included); the door REFRs' VMADs and the markers are judged in promotion_checks (door_record_problems)
-        first_door, last_other = doors_after(recs, len(new["masters"]), ids)
-        need(first_door is not None and first_door > last_other,
-             f"every door arrival marker and door ACTI after the build's other records (first 0x{first_door or 0:06X}, "
-             f"last other 0x{last_other:06X})")
+        if audit is None:
+            first_door, last_other = doors_after(recs, len(new["masters"]), ids)
+            need(first_door is not None and first_door > last_other,
+                 f"every door arrival marker and door ACTI after the build's other records (first 0x{first_door or 0:06X}, "
+                 f"last other 0x{last_other:06X})")
         rep["doors"] = [{"src": e["src"], "edid": e["edid"], "destination": e["destination"], "arrival": e["arrival"],
                          "ids": (ids.get("doors") or {}).get(e["src"]), "raw": {}} for e in doors]
         for d in rep["doors"]:                        # the raw records, for the report (hex of every field)
@@ -3259,10 +3304,18 @@ def cmd_check(a):
         need(not probs and dry.get("bytes", ARCHIVE_LIMIT) < ARCHIVE_LIMIT,
              f"Archive2 dry run: {dry.get('bytes', 0) / 2 ** 30:.3f} GiB, {dry.get('entries')} entries, "
              f"{dry.get('packed_entries')} packed ({probs})")
+    man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
+    need(identity_inputs(out, ready=ready) == checked_inputs, "identity and plan inputs unchanged throughout check")
     rep["checks"] = checks
     rep["pass"] = all(c[1] for c in checks)
-    man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
-    save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"], "files": man})
+    rep["identity_inputs"] = checked_inputs
+    return rep, man, t0
+
+
+def publish_check_report(out, rep, man, t0):
+    checks, checked_inputs = rep["checks"], rep["identity_inputs"]
+    save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"],
+                                     "files": man, "identity_inputs": checked_inputs})
     rep["data_manifest"] = {"file": MANIFEST, "files": len(man)}
     rep["seconds"] = round(time.time() - t0, 1)
     save(os.path.join(out, "offline_check.json"), rep, indent=1)
@@ -3299,19 +3352,37 @@ def manifest_diff(old, new):
 
 
 def cmd_verify_data(a):
-    """Is the staged tree still the one `check` passed? Exit 0 only if it passed and nothing changed since."""
+    """Check existing asset metadata and identity-input content receipts; never upgrade an old report."""
     path = os.path.join(a.out, MANIFEST)
     if not os.path.isfile(path):
         print(f"no {MANIFEST}: run make_core64c.py check first")
         return 1
     m = load(path)
+    receipt = m.get("identity_inputs")
+    if not isinstance(receipt, dict) or type(receipt.get("schema")) is not int or receipt["schema"] != 1:
+        print("identity input evidence missing or unsupported: run make_core64c.py check again")
+        return 1
+    try:
+        current_inputs = identity_inputs(a.out)
+    except (OSError, ValueError) as error:
+        print(f"identity inputs unavailable or unproven: {error}")
+        return 1
     prm, _ov = core_params(a.out)
     diff = manifest_diff(m["files"], data_manifest(a.out, [prm["plugin"], prm["mars"]["plugin"]]))
     for k, v in diff.items():
         if v:
             print(f"{len(v)} {k}: {v[:5]}")
-    good = m.get("pass") and not any(diff.values())
-    print(f"{len(m['files']):,} files as checked on {m.get('checked')} (check {'PASS' if m.get('pass') else 'FAIL'}): "
+    same_inputs = receipt == current_inputs
+    if not same_inputs:
+        print("identity or plan inputs differ from the checked contents: run make_core64c.py check again")
+    # Re-read after asset inspection too; never bless a receipt when its inputs changed during verification.
+    try:
+        same_inputs = same_inputs and identity_inputs(a.out) == current_inputs
+    except (OSError, ValueError) as error:
+        print(f"identity inputs changed during verification: {error}")
+        same_inputs = False
+    good = m.get("pass") is True and not any(diff.values()) and same_inputs
+    print(f"{len(m['files']):,} files as checked on {m.get('checked')} (check {'PASS' if m.get('pass') is True else 'FAIL'}): "
           + ("unchanged" if good else "NOT the checked tree"))
     return 0 if good else 1
 

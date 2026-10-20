@@ -1442,6 +1442,68 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+### 2026-10-15 Codex: recoverable terrain artifact publication (proposal)
+
+At1506f511b2, a real synthetic writer with its final plugin write denied left the old plugin and a new formids map.
+The companion prepares all outputs before publication, retains old/new snapshots and append-only journal records,
+rolls back proven publications and preserves concurrent owner files. Interrupted/ambiguous stages block native
+install, experiment inventory/install, core reads and cave stage/check. Canonical Claude source/stages are untouched.
+Seven new publication fault/success methods and four consumer methods pass, including process exit, owner-created target,
+Windows file sharing and missing optional Mars preparation. Existing deployment/experiment/core/cave and serialized
+identity regressions pass; guard/CI/peer QA are recorded on the PR. Backups and failed attempts are retained for
+verified archiving. No native gameplay or power-loss acceptance. See testing/terrain-output-publication.md and
+private test-plans/terrain-output-publication-20261015. Producer and consumer changes must integrate together.
+
+### 2026-10-15 Codex: full-size promotion/publication author validation
+
+At105a10ca, an isolated pinned core64c candidate preserves all648358 source REFR IDs/11769 base IDs. Raw comparison:
+664228 original records byte-identical; only promoted NAME and TES4 HEDR changed, with one appended CONT/group.
+All original physical group paths/3492 group headers and Mars bytes match. PR146 reader checks the actual container
+binding/inventory/transform/cell with zero ID changes/missing keys; final peer source review remains pending.
+REFR069435 is preserved; CONT0A2AA5 is new. Candidate receipt matches all three published hashes; five original source
+files rechecked unchanged. The2GiB heap OOM is retained; fresh3GiB run18.02s/2.82GiB sampled peak succeeds. Initial
+verifier HEDR assumptions were corrected from raw framing and retained; inherited absolute-count offset-3 unresolved.
+No production install/native input/save change or acceptance. Independent QA, lead integration/new plans/native tests
+remain. Private evidence core64-identity-validation-20261015; see testing/container-reference-identities.md.
+
+## 2026-10-16: pending publication must checkpoint a runner stop (Codex)
+
+Independent cloud review #191 /5544456464 reproduced the guard's ValueError escaping the in-process runner,
+leaving state at running. Both journal and lease cases fail the new regression on0d04207 with that checkpoint.
+PendingPublication now subclasses OSError, matching the existing caller contract: both cases checkpoint stopped,
+log the cause, preserve controls and perform no launch/input or inventory hash. Five guard and88 runner tests
+pass. Current main aa5b223's mismatch handler has the identical syntax tree. No runner/C# publication/staging
+or game change; corrected-source peer review and lead integration pending. Evidence publication-error-191-20261016.
+
+## 2026-10-16: compiled publication assertions follow the corrected error contract (Codex)
+
+CI38889339558 caught two remaining ValueError expectations in the actual-writer recovery tests. Both errors
+reproduce locally on de205a3; assertions now require PendingPublication. Seven compiled publication and five
+stage-guard tests pass on Windows, including locked-plugin denial, forced exit and concurrent-owner retention.
+Production guard/C# unchanged; hosted CI and corrected-source peer check remain separate gates. Failed and passing
+synthetic evidence retained in publication-ci-153-20261016. No game/install/input or cleanup.
+
+
+## 2026-10-16 Codex: persistent terrain identities (#226, source proposal)
+
+Seven compiled synthetic baselines reproduced reordered/inserted reference and base ID shifts, including a later
+promoted CONT base. New opt-in semantic reservations cover terrain/cells/anchors/bases/REFR/CONT/NAVM in one
+24-bit namespace; tombstones remain. Explicit bootstrap requires every prepared output to equal the old bundle
+byte-for-byte. Checksummed ledgers are bound to complete old/prepared output generations and persisted before
+publication; rollback keeps reservations and crashes retain the recovery block. No active stage was migrated.
+
+Four initial new methods failed before implementation (three failures and missing-ledger error). The first test
+discovery attempt also imported the parent test class and reused its evidence directory; that harness error is
+retained separately and corrected. Sixteen actual-writer/fixture methods now pass, including NAVM byte stability,
+foreign-ledger refusal, publication failure, abrupt exit, live synthetic competing writer and exhaustion. The
+publication dependency is merged forward with current main: NAVM-only formids use staged publication too.
+Independent review, current-head CI, full-size bootstrap/resources and native saves remain gates. The caller must
+explicitly enable persistent_ids; legacy stages are not silently changed. Source and preserved observations are
+private/offline; no install, game/controller input or watchdog changes.
+See [identity protocol](testing/terrain-persistent-identities.md).
+- 2026-10-16, Codex: merged current main into owned PR227 and reproduced four loose-item integration failures with the actual synthetic writer/allocator fixture. A single unnamed MISC reservation produced a ledger that could not reopen; distinct MISC bases collided on that key; item bootstrap could not reopen; malformed new semantic keys were accepted. MISC allocation now names its item identity and new keys pass the reopening schema before reservation. Added rebuild/reorder/later-container/removal/reintroduction and exact-bootstrap controls. Evidence: private persistent-items-227-20261016. No production stage, source game data, caller activation or live input changed. Peer QA remains required; PR176 supplies collision-free caller identities.
+
+
 ## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
 
 Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
@@ -1555,6 +1617,18 @@ Initial XCLC concern was disproved by the existing tests: unpack_from already
 handles the fixture; no XCLC change made. No writer/stage/game modifications or
 retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
 peer QA pending. Merge placement and native travel/save-reload remain unresolved.
+
+### 2026-10-16 Codex: scripted-door persistent identity integration (proposal)
+
+Combined227/6e7fc62 with261/9f57a64 in an isolated branch, retaining publication and source-reference allocation.
+Four new synthetic persistent-door builds refused the new records' unnamed allocations; a legacy reorder swapped
+ACTI and return-marker IDs while keeping door REFR slots. Named door-base/editor-ID and door-arrival/full-source
+reservations fix the integration. Five new actual-writer checks pass for reorder, added/removed/reintroduced doors,
+distinct source-plugin identities and byte-identical explicit legacy bootstrap. No live stage was migrated.
+PR261's independent staging/ownership/VMAD findings remain gates; this patch changes none of those paths.
+Peer review, current-head CI, full-size integration and native travel/save-reload remain required.
+Evidence: private scripted-door-identities-20261016; original failures and passing outputs retained.
+
 ## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
 New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
 transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
@@ -1604,6 +1678,96 @@ the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent workt
   models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
   wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
   digest changes the checkpoints).
+
+## 2026-10-16 Codex: persistent doors with main's activators, terminals and lights (offline)
+
+PR265 integrates pinned main edd2400 into the isolated227/261 combination. Four mixed persistent builds
+refused anonymous ACTI allocations before the fix. Semantic keys now cover ordinary ACTI, TERM/TMLM,
+LIGH bases and complete source identities for light REFRs, alongside the existing door ACTI/arrival keys.
+Legacy allocation keeps lights before scripted bases/arrivals. The combined caller retains every promotion
+class; its raw checker counts ordinary and door ACTIs together, includes return markers, and checks VMADs.
+
+Five mixed-writer tests and21 existing writer tests pass: reorder, insertion/removal/reintroduction,
+separate source masters, exact bootstrap, invalid-input preservation, prior light IDs/bytes and damaged
+record refusals.67 caller and19 cluster tests pass. Legacy plugin/map bytes match before/after for both
+mixed and pre-door builds. Failed observations and two corrected test-harness mistakes (VMAD byte-tag
+comparison and map metadata iteration) are retained in scripted-door-main-integration-20261016.
+Independent QA, production persistent caller/checker integration, full-size bootstrap and native travel/
+return/save-reload remain pending. PR261 staging/raw-patch review findings remain inherited and gated.
+No live stage, deployment, controller or other agent checkout changed.
+
+## 2026-10-16 Codex: audit persistent door/source IDs without rebuilding (offline)
+
+The legacy checker rejects a valid reordered persistent light reference (00081E, expected sequential00081C).
+New TerrainOverlays --check-identities validates the saved generation using the existing ledger reader's
+checksum/output hashes and compares current source/map identities to reservations. It holds the publication
+lease, refuses existing recovery controls, and never writes artifacts or creates reservations. It reports
+identity evidence only; raw fields and native behavior remain unchecked.9 actual-CLI tests pass, including
+reorder, tombstones, altered/missing bundles, source mismatch, duplicate JSON, Unicode, NAVM and Mars outputs.
+Successful/refused audits preserve the complete synthetic stage file snapshot. Initial test import-alias
+failure retained and corrected. Evidence: persistent-door-audit-20261016. Peer QA, production checker routing,
+full-size runs and native save validation remain pending. No active stage/controller changes.
+
+## 2026-10-16 Codex: persistent doors alongside workshops and benches (offline)
+
+PR267 integrates pinned main7200aa5 (266). Three persistent station cases refused anonymous workshop
+allocation; the legacy mixed door check also rejected a vanilla bench FormKey as a local hex ID. Workshop
+bases now have semantic reservations. Benches retain their source REFR and vanilla FURN links; the audit
+checks source/kind/master without allocating replacement bases. Legacy door/light checks count only their
+local references. Mixed ACTI counts include ordinary activators, workshops and scripted doors.
+
+Four new actual-writer tests pass: reorder/growth/removal/reintroduction preserves old door destinations;
+explicit bootstrap preserves plugin/map bytes; changed bench kind/master is refused without mutation;
+legacy lights and existing records survive door addition. A separate build with main7200aa5's original
+writer gives identical legacy station plugin/map bytes. Merge-time assertion expectations for added classes
+and the combined ACTI label were corrected; failures are retained with passing evidence in
+persistent-stations-integration-20261016. Independent QA, production checker routing, full-size bootstrap,
+261's inherited review findings and native travel/return/save-reload remain gated. No active stage,
+installation, game controller or Claude checkout changed.
+
+## 2026-10-16 Codex: bind reuse checks to door identity inputs (offline)
+
+At267/0958585, verify-data reported unchanged after same-size/same-time edits to parameters, objects,
+formids, ledger, NAVM input, plan and expected results. It also accepted absent identity evidence, missing
+map/ledger, incomplete/unknown receipts and a string "false" pass value:13 reproduced false acceptances.
+Check now records content receipts for those inputs and requires the beginning/end receipts to agree.
+Verify-data compares them around asset inspection, retains existing asset metadata checks, and never
+rewrites old reports. Legacy allocation works with a fresh receipt; old reports require a fresh check.
+
+11 new tests (actual CLI for the changed/missing/control/legacy cases, producer contract and an input
+change injected during asset inspection),77 caller tests and5 publication-control tests pass. Failed
+and passing synthetic evidence: persistent-door-verification-20261016. This verifies freshness only;
+semantic ledger validation, raw/native acceptance and normal-check persistent ordering/lease integration
+remain separate gates. No active stage, game, installation or other agent checkout changed.
+
+## 2026-10-16 Codex: check persistent door identities under a held lease (offline)
+
+At269/3939dd0 a synthetic persistent workshop insertion left valid door IDs that
+the legacy reference/door/light ordering checks refused. The standalone audit
+proved43 reservations. The normal check now holds that .NET audit's publication
+lease through raw checks and requests final generation verification before
+publishing reports. Only sequential allocation assertions change in persistent
+mode; raw record/type/transform/VMAD/count/dependency checks remain.
+
+Nine new session cases plus9 audit,77 caller,11 receipt and5 publication-control
+tests pass (111 unique tests). Actual synthetic writer contention is refused;
+missing VMAD still fails raw checks; input changes, EOF cancellation and a child
+crash cannot publish a passing report. Prior reports and failures are retained.
+Commands use isolated Python unittest and the Release TerrainOverlays build;
+evidence: persistent-check-lease-20261016. Wrapper tests stub the terrain body,
+so full-stage check, full-size bootstrap, peer QA and native save/door acceptance
+remain unverified. No game version tested, deployment or active-stage changes.
+
+## 2026-10-16: Codex full-size persistent-door bootstrap and indexed audit (offline)
+
+Exact276/529a36f bootstrapped a copied core64j_doors stage with both plugins and the full
+map byte-identical. Normal held-audit/check_stage then timed out before ready at120s.
+Indexing source-keyed map sections once retains ordinal/duplicate/reservation checks;
+the same command/input now passes260 checks,709,154 IDs and15 raw doors in171.365s.
+13 targeted audit/lease regressions pass (2 new); original assets and failures retained.
+No game/install changes. Optional FO4 LAND/raw collision and Archive2 checks omitted.
+Private evidence: persistent-full-stage-work. Independent QA, changed-core64k identity
+validation and native return/save/reload remain open; see ai/optimization.md.
 
 ## 2026-10-16 (afternoon and evening, Mountain time) - Claude: wave 1 merged, stations, the shooting crash found
 
@@ -1806,6 +1970,7 @@ texture. The first read after the rebuild is the proof; the T10 PHANTOM test cov
 
 ## 2026-10-17 — Codex: activation-parent warnings keep interior exports usable (#305)
 
+## 2026-10-17: Codex persistent-ID integration with merged return writer (offline)
 Claude requested nonblocking, counted warnings for preserved activation-parent metadata.
 The previous default returned exit 2 for a synthetic cell with a non-null activation block;
 the new eight-case CLI regression reproduced that before the change. ReferenceLinks now
@@ -1817,6 +1982,16 @@ Report-only never publishes a plugin or marks the build complete. Synthetic outp
 to check identities and that no activation behavior or substitute link was invented.
 This is offline export policy, not a native door/activation fix. Delta peer QA remains required.
 
+PR279 is merged with main0147710, which contains the reviewed PR297 return writer.
+The only manual conflict was the handoff; retained the newer branch evidence and
+updated merged status. TerrainOverlays source is byte-identical to reviewed3fab4b8.
+No new runner/bridge change relative to main; exp_install retains its two existing
+stage-readiness checks. Fifty-four targeted checks pass without skips: stage
+readiness, experiment install/recovery, actual-writer legacy/bootstrap byte parity
+and stable IDs through reorder/remove/reintroduce. Guard/whitespace pass.
+Independent integration review and a fresh full-size migration remain pending;
+older migration evidence does not accept the current native build. No stage,
+game installation or controller input changed. Synthetic logs/pins retained privately.
 ## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
 
 Starfield 1.16.244. Offline. Pinned `terrain_core64k`: LCTN parent `SSol_PMars_Surface`, overlay SNAM 0 / PNAM 4, Mars
@@ -1891,3 +2066,28 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+- **2026-10-18 Codex PR267 flora compatibility:** reconcile current main's FLOR promotion with the persistent-ID/audit stack. Four actual synthetic-writer regressions first failed with `invalid semantic identity key`. Name flora base reservations, accept that key family and audit its declared bindings; retain main's flora promotion order and the existing bench lookup. Six new flora cases plus eight existing flora/ledger/audit cases pass (14 total); three independently built main-writer legacy scenarios have identical plugin/map bytes. Both parent journal histories retained. Source-only, independent current-head QA pending; no staging, deployment, native harvesting, door-trip or save acceptance.
+
+
+## Codex: October18 persistent-door stack current-main compatibility
+
+Plain merge combines PR279/beb7466 with reviewed PR267/2ff2a47, which contains main/d263b19. Retains persistent exterior return markers, enabled arrival coordinates, source-keyed IDs, held audit generations, flora and map-marker identities. Shared producer and patcher match main exactly; #280 paired caller integration remains unimplemented. Both complete documentation histories retained.
+
+Resolved CLI/caller and fixture conflicts. A compiler check caught a duplicate local introduced by the merge; corrected assignment retains the outer reference plan. Removed a premature single-file cluster read so comma-separated clusters reach the actual merger; core comparison removes stage identity controls while preserving world settings. Three new integration regressions cover these caller contracts and a real synthetic map-marker/door-return held generation; both negative caller mutations fail as expected. All44 focused writer/caller/lease tests, build, provenance and guard pass, no skips. Independent current-head QA and hosted CI remain gates.
+
+The prior full-size core64l migration/parity evidence belongs to beb7466, not this new combined head. No fresh real stage, paired interior publication, installed archives/PEX, native outside/inside/return/save/reload or walking acceptance is claimed. No game installation, controller input or cleanup was performed. Initial merge/compiler failure and passing synthetic outputs remain privately preserved.
+
+
+## Codex: October18 CI headroom for the combined door-identity suite
+
+PR279/f0a97b8 CI39179440252 completed all2223 tests successfully with110 skips in888.656s, then the complete job timed out at15m01s. The earlier267/2ff2a47 job39175102642 already took13m54s. Original logs and timing-gap analysis retained; no individual test failure or hang was observed.
+
+Raise the existing CI job cap from15 to20 minutes, preserving every step, test, permission and security check. No production/test source changes or manual unchanged-suite reruns. f0a97b8 independent Grok QA6257004942/6257022597 and44 Windows controls remain scoped source evidence; terminal CI success at the new head is still required. This bounded headroom is not a performance improvement or native door acceptance. Independent CI/doc delta review requested.
+
+
+## Codex: October18 persistent garage identity audit (#367)
+
+At279/9d18e9e the actual synthetic writer publishes a valid garage button pair with persistent IDs and existing VMAD/XLKR links, but --check-identities refuses the emitted garage_buttons section with map/source key sets differ. Reproduction and failing actual-writer regression retained; artifacts unchanged by the failed audit.
+
+Recognize that section only for nonempty source pairs and validate exact ordered row shape/count, active promoted-activator ownership and both source-keyed REFR reservations. This is not an unchecked schema allowance. Three actual-writer/auditor regression methods pass: growth/reordering preserves prior endpoint IDs and serialized reference bytes/links; six source mismatch/type/count controls refuse unchanged artifacts; absent/empty pairs and canonical source case retain writer semantics. Build/provenance/guard pass; every other auditor line and all producer/VMAD/allocator code remain unchanged. Independent QA/CI pending. Identity-only report remains record_fields_checked:false/native_acceptance:false; native activation/save and #280 paired integration remain separate. No stage/install/game action.

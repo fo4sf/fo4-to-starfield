@@ -292,6 +292,7 @@ def data_path(data, rel):
 
 def source_inventory(exp_dir, plugins):
     """Pin staged inputs, including loose inputs used to build a packed archive."""
+    deployment.require_ready_stage(exp_dir)
     inputs = {"plugin/" + name: digest(os.path.join(exp_dir, name)) for name in plugins}
     data = os.path.join(exp_dir, "Data")
     for root, dirs, files in os.walk(data):
@@ -493,6 +494,7 @@ def build_ba2(a, root, out):
 
 
 def install(a):
+    deployment.require_ready_stage(a.exp_dir)
     if getattr(a, "pack", False):
         with tempfile.TemporaryDirectory(prefix="fo4sf-exp-pack-") as packing_dir:
             return _install(a, packing_dir)

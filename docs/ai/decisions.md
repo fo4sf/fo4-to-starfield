@@ -330,6 +330,62 @@ remains a separate control.
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
 - 2026-10-16 (Claude): FO4 settlement workshops become native ACTI build stations in the vanilla pre-placed pattern (OutpostPlayerHouseActivator 00024DC7: WorkshopKeyword + its OutpostCategory keywords read from the master, PRPS OutpostBuildAreaRadius 250, no VMAD; temporary REFR in the original slot), and FO4 crafting benches bind their REFR to the vanilla Starfield bench of their kind (weapon 2B6A63, armor 2B6A62, chem 2B6A61, cooking 2B6A65) with no record of ours; power armor stations stay statics. Why: build mode and the crafting menu are engine behaviour of these records (no script), the vanilla bench carries the animation and menu a converted mesh cannot yet, and a vanilla base keeps every FormID. Alternatives considered: the outpost beacon ACTI 2C60E9 (needs its quest script's mandatory properties), an outpost beacon pack-in (creates an overlay instance, unverified on ours), our own FURN with the FO4 mesh (second step: the animation over a boneless model is unresolved). docs/terrain/stations.md.
 
+
+## 2026-10-15 Codex: recoverable terrain output bundles (proposal)
+
+A final plugin sharing-denial reproduced a new ID map paired with an unchanged plugin. Prepare every plugin/map/
+optional Mars output in a private directory; retain previous files and an append-only pending journal through
+publication. Restore proven prior bytes on failure; preserve changed/unproven owner files and block consumers when
+recovery is incomplete. Integrate producer and deployment/experiment/core/cave guards together. This is not an
+atomic multi-file snapshot for arbitrary readers. A torn append retains earlier recovery records; process-exit
+faults are tested, while universal power-loss behavior is not claimed. Immutable inputs/cooperating writers remain
+required off Windows. Transaction histories are retained for verified private archiving, not silently deleted.
+Alternatives: merely swapping plugin/map write order leaves another partial-failure boundary; silently overwriting
+or deleting concurrent files loses evidence. See [protocol/evidence](../testing/terrain-output-publication.md).
+Peer QA and lead integration pending; no production stage/install/game change.
+
+
+## 2026-10-16 Codex: one persistent namespace for terrain IDs (#226, proposal)
+
+Use semantic reservations across terrain, scene and NAVM classes, retain tombstones and save before bundle
+publication under its exclusive lease. Match a ledger to complete old/prepared output hashes so rollback can
+retain reservations without accepting mixed files or an unrelated ledger. Legacy bootstrap must reproduce
+old output bytes; sorted future inputs cannot recover previously assigned IDs. Reject ambiguous NAVM pieces
+without a stable discriminator rather than using array order. Keep activation explicit until peer QA, a pinned
+full-size bootstrap and native save tests; never mutate the owner's installed stage during this work.
+
+The main7200aa5 station integration uses `workshop` plus EditorID for owned workshop bases. Crafting benches
+reserve only their source REFRs and continue to reference vanilla master-owned FURNs. Counting those master
+IDs as local allocations rejected a valid mixed door build; allocating replacement bench bases would change
+the native station contract. The audit checks kind, full master identity and the retained REFR reservation.
+
+## 2026-10-16 Codex: hold identity proof across raw terrain checks (proposal)
+
+The .NET audit retains the producer lease while Python checks raw records, then
+revalidates the generation before Python publishes reports. Persistent mode
+substitutes reservation proof only for sequential allocation assertions. Keep
+raw VMAD/transform/type/count/cell checks and legacy ordering. Separate audit and
+raw-check processes without a held lease permit a cooperating rebuild between
+the two; disabling all raw checks would accept malformed records. The protocol
+is ready/verify/verified, with EOF cancellation and owned-child cleanup. External
+assets/core inputs remain subject to immutable-input rules. Full-stage/native
+acceptance and independent QA remain pending; no active-stage migration.
+
+- 2026-10-16 (Claude): FO4 exterior load doors into the converted interiors become scripted doors (docs/terrain/scripted-doors.md): every record stays temporary on the exterior side (the overlay merge), the door REFR keeps its slot on an ACTI with the converted door mesh and carries the FO4SF_LoadDoor VMAD (PR #243: DestinationPlugin + DestinationId, resolved at run time, no master link between the plugins), each side gets an arrival XMarker at the FO4 XTEL point (exterior: temporary, appended after the lights with the ACTIs; interior: persistent, so it resolves from outside). The exterior side is written by Mutagen (its VMAD bytes equal the raw codec's and vanilla's), the interior side by a raw record-level patch of a copy of the pinned FO4Port.esm (scripts/terrain/vmad_patch.py), proved by a byte diff of every other record. Alternatives rejected: a vanilla XTEL door (persistent references read unmerged, 4 in-game runs); MoveTo onto the interior door itself (temporary: unresolvable from outside, and the player would land in the mesh); rewriting FO4Port.esm with Mutagen (no byte-level proof that nothing else moved); allocating the door ACTIs with the other promoted bases (would shift every NAVM and light id of core64i). Open until Step 0 runs in game: whether a temporary exterior marker resolves from inside (else a persistent twin plus the (-1200, -2700) offset).
+
+### 2026-10-16 - current door schema with persistent identities (Codex)
+
+Integrate PR272's destination schema and marker-before-ACTI legacy order with
+PR273's persistent reservations, transactional publication and held audit. The
+old generic-script/OBND caller is not compatible with the current writer; keeping
+both argparse door commands also breaks every make_cluster command. Retain the
+current producer/helpers and adapt the identity tests, rather than silently
+changing existing IDs or weakening raw checks. A separately built exact272
+writer produces identical synthetic plugin/map bytes; explicit bootstrap and
+subsequent reorder preserve that generation. Old-schema stages, full-size and
+native save compatibility remain unverified. Peer QA is required before lead
+integration; original stages and Claude's source checkout remain untouched.
+
 ## 2026-10-16 Converted compressed meshes must pass the decoder simulation (Claude)
 - Decision: src/fo4sf/meshcheck.py (CLI scripts/oracles/collision_mesh_keys.py) walks every compressed mesh of a
   converted NIF as Starfield's hknp decoder does and a build with violations is not deployed. The converter writes
@@ -355,6 +411,10 @@ before copying. Full-directory transactional publication remains separate.
 - 2026-10-17 (Claude): the door return trip, writer side (docs/terrain/scripted-doors.md "Return trip"). Step 0 answered in game: the temporary exterior marker 0A76FD does not resolve from inside (door_trip_sdm_1018, `FO4SF_LoadDoor refused`), and a MoveTo onto a persistent overlay reference lands at its unmerged position, from where a setpos to the merged one stands on the overlay (probe (e)). So each exterior arrival marker itself becomes persistent (flag 0x400, same id: the slot and append rules of #272 and formids.json stay as they were) in the overlay world's persistent cell beside the anchor, and both door VMADs gain DestinationX / Y / Z (float, edited; the names of Codex's draft PR #291): the exterior door the interior marker's position, the interior door the exterior marker's merged position = local + overlays_params planet_target_cell x 100 m, refused unless it equals the measured (-1200, -2700, 0). Why the world's persistent cell and not the exterior cell's persistent children: the only persistent overlay reference seen to resolve and MoveTo in game is the anchor there, and vanilla keeps every persistent worldspace reference there (Starfield.esm 16,057 of 16,057, Fallout4.esm 33,571 of 33,571; 0 in an exterior cell's persistent children; read raw with C:\Modding\scratch\doorreturn\survey_persistent.py). Alternatives rejected: a persistent twin beside the temporary marker (a fourth id per door for no use: nothing resolves the temporary one); a marker written at local + offset (supported, not run: the MoveTo lands at the written position in the unmerged instance, 2.95 km from the door's terrain there, and the position leaves the overlay's cells); the offset as a bare constant (it follows the overlay's registration: a build registered elsewhere is refused until measured).
 - 2026-10-17 (Claude): both door VMADs now carry `UseDestinationPosition` (bool, edited, true) as the sixth property, right after DestinationZ (docs/terrain/scripted-doors.md "Restage with the bool"). Why: PR #291's FO4SF_LoadDoor applies DestinationX/Y/Z with SetPosition only when that bool is true (zero is a valid coordinate, so the values cannot be the switch), so the five-property VMADs staged earlier the same day would have kept the plain MoveTo and ignored the coordinates. The reader (`vmad_patch.load_door_target`, hence `check_port` and `make_core64c.door_record_problems`) refuses floats without the bool, a false bool and the bool without floats; the two-property door stays valid. #291's psc declares the bool before the floats: the names and types match, the order differs, and Papyrus binds VMAD properties by name, so the reader takes both orders and the writer keeps the sixth position. terrain_core64l and integ_1018_doors2 were regenerated (265 of 265, 49 of 49; formids, objects and plan byte-identical to core64k). Alternative rejected: leaving the bool out (the psc defaults it to False, so the coordinates would never be applied).
 - 2026-10-17 (Claude): exterior light lumens scaled 0.375 as a raw patch (terrain_core64l_l125) pending the owner's night check; the build default stays 333 until then. Alternatives: a full rebuild with --lumens-per-m2 125 (hours); a patch plugin (a second master). docs/terrain/exterior-lights.md "Calibration (17 Oct)".
+
+### 2026-10-18 Codex: persistent identity audit on current door schema (PR267)
+
+Plain-merge main88b0c03; retain its six-property VMAD, persistent world-cell arrivals and marker-before-base legacy allocation. Apply semantic reservation keys at those allocations; old ledgers retain their stored IDs regardless of historical order. Main's producer/patcher/checker and tests supersede the earlier branch's two-property temporary-marker prototype, including make_port_doors.py. This is not the unapproved paired allocator integration. The identity-only audit accepts both historically omitted and current explicit-empty door sections; it still requires all nonempty source/map/ledger keys to agree. Parent-main byte parity, old-writer ledger continuity and regression evidence are pinned on PR267. Independent delta QA and native travel/save remain gates.
 
 
 ## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
@@ -418,6 +478,9 @@ cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate
 one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
 decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
 
+### 2026-10-18 Codex: map-marker keys in persistent terrain output (PR267)
+
+The main697bc07 marker writer calls unnamed NewKey, which the persistent ledger rejects (actual synthetic writer reproduction). Use world plus published tag, not list index/display name; normalize the default empty tag to RedRocket and refuse canonical duplicates. The existing declaration drives both writing and read-only identity audit, including the first-marker alias. Old reservations are retained when a marker template is introduced. Legacy output order/bytes stay with main; no production-stage opt-in or paired allocator wiring. Native map/travel behavior remains unverified.
 ## 2026-10-18 Claude-cloud: SetRigidBodyMass tests when GetMass cannot be read
 - **Decision:** a movable_control test with `set_mass_kg` whose GetMass probe answers "No script named ..." is judged
   on a move only. PASS WALKED or PASS IMPULSE stands, with "mass not read back" in the detail. No move stays

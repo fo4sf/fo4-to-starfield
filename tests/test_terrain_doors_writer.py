@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
 import test_terrain_reference_identity as tri  # noqa: E402  (module import: its TestCase is not collected twice)
 import test_terrain_lights_writer as tlw  # noqa: E402
 import vmad_patch  # noqa: E402
+import overlay_records  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("make_core64c", ROOT / "scripts" / "terrain" / "make_core64c.py")
 mk = importlib.util.module_from_spec(spec)
