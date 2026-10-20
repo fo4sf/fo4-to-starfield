@@ -1891,3 +1891,22 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex owner-authorized Grok converter repair
+
+Grok's mesh-bounds branch replaced the entire converter with a placeholder in
+67122b8; its later helper-only commit hid the loss in a last-commit comparison.
+Restored the complete converter from verified main 4a434761, with no converter
+behavior changes. The separate diagnostic now reads a converted `.mesh` using
+the existing packed-position parser and reports mesh-local min/max in metres.
+It refuses empty, truncated and invalid-scale inputs instead of printing a
+placeholder success. It does not parse NIF transforms or collision, and is not
+the complete collision-vs-mesh oracle requested in #359.
+
+Six actual isolated CLI tests reproduced 12 failed assertions on the old helper
+and now pass; 52 existing converter, mass-argument, transform and door checks
+pass, as does guard. Original red logs and broken source are retained privately.
+Original Grok branch and main are unchanged. Source-only draft repair; peer QA
+and native acceptance remain pending. The existing collision-bounds proposal
+PR364 is separate; do not duplicate its research or confuse this vertex helper
+with its collision/NIF-frame oracle.
