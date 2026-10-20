@@ -101,6 +101,20 @@ class CensusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "port cells not among"):
             ic.census([self.esm], port_cells=["Nowhere"])
 
+    def test_a_dlc_override_of_a_reference_counts_once(self):
+        # A DLC re-saves Lobby's light 0x303 as a door (base 0x100) and its load door 0x301 with a new destination.
+        tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 2, 0x800)), (b"MAST", b"Fallout4.esm\0"),
+                                (b"DATA", bytes(8))], flags=1)
+        lobby = cell(0x200, "Lobby", [ref(0x303, 0x100), ref(0x301, 0x100, xtel=0x311)])
+        sub = G(struct.pack("<I", 0), 3, bytes(8), lobby)
+        cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+        dlc = os.path.join(self.tmp.name, "DLCRobot.esm")
+        with open(dlc, "wb") as f:
+            f.write(tes4.serialize() + cells.serialize())
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc])["cells"]}
+        self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"], by["Lobby"]["placed"]), (5, 1, {"ACHR": 1, "REFR": 4}))
+        self.assertEqual(sorted(d["to"] for d in by["Lobby"]["load_doors_out"]), ["Vault", "Vault"])
+
     def test_main_writes_the_census(self):
         out = os.path.join(self.tmp.name, "census.json")
         self.assertEqual(ic.main(["--out", out, self.esm]), 0)
@@ -420,6 +434,18 @@ class BuildFlowTests(unittest.TestCase):
     steps, the arguments they get, the base exports pinned, the result table. The real tools run on the PC."""
 
     def test_build_runs_the_steps_and_writes_the_result(self):
+        self._build_flow()
+
+    def test_a_cell_missing_from_the_plugin_fails_the_batch_and_skips_the_pack(self):
+        # Bad exports fine but PluginSpike never writes it: the batch fails and nothing is packed.
+        res = self._build_flow(bad_export_ok=True)
+        self.assertEqual((res["cells"]["Bad"]["result"], res["cells"]["Bad"]["reason"]),
+                         ("failed", "cell not written by PluginSpike"))
+        self.assertEqual(res["steps"]["export"]["failed"], [])
+        self.assertEqual(res["steps"]["cells_failed"], ["Bad"])
+        self.assertNotIn("pack", res["steps"])
+
+    def _build_flow(self, bad_export_ok=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         t = tmp.name
@@ -445,13 +471,13 @@ class BuildFlowTests(unittest.TestCase):
             calls.append(cmd)
             joined = " ".join(cmd)
             if "export" in cmd and cmd[0] == "dotnet":
-                if cmd[-2] == "Bad":
+                if cmd[-2] == "Bad" and not bad_export_ok:
                     return 1, 0.1
                 ib.save(cmd[-1], {"cell": cmd[-2], "refs": [{"model": "meshes\\n.nif"}]})
             elif "convert_batch.py" in joined:
                 self.assertEqual(ib.load(os.path.join(work, "editorids.json")), {"meshes\\A.nif": "FO4Port_A"})
                 merged = ib.load(cmd[cmd.index("--cell-json") + 1])
-                self.assertEqual(len(merged["refs"]), 2)                 # Old (pinned) + New
+                self.assertEqual(len(merged["refs"]), 3 if bad_export_ok else 2)   # Old (pinned) + New (+ Bad)
                 ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": [{"nif": "meshes\\n.nif", "reason": "x"}]})
             elif "port_promote.py" in joined:
                 ib.save(cmd[cmd.index("--out") + 1], {})
@@ -477,15 +503,18 @@ class BuildFlowTests(unittest.TestCase):
         argv = ["build", "--plan", plan, "--batch", "1", "--base", base, "--base-exports", base, "--core", os.path.join(t, "core"),
                 "--work", work, "--out", out, "--fo4-data", t, "--starfield", t, "--content-resources", "c.zip",
                 "--texconv", "tex.exe", "--collision-template", "t.nif", "--fo4export", "Fo4Export.dll",
-                "--pluginspike", "PluginSpike.dll", "--no-pack", "--jobs", "1", "--min-free-gb", "0"]
-        real = ib.run
+                "--pluginspike", "PluginSpike.dll", "--jobs", "1", "--min-free-gb", "0"] + ([] if bad_export_ok else ["--no-pack"])
+        real, real_pack = ib.run, ib.deploy_starfield.build_archive
         ib.run = fake_run
+        ib.deploy_starfield.build_archive = lambda *_a, **_k: self.fail("packed a failed batch")
         try:
             rc = ib.main(argv)
         finally:
-            ib.run = real
+            ib.run, ib.deploy_starfield.build_archive = real, real_pack
         res = ib.load(os.path.join(out, "result.json"))
-        self.assertEqual(rc, 1, res)                                      # the Bad export fails the batch
+        self.assertEqual(rc, 1, res)                                      # the Bad cell fails the batch
+        if bad_export_ok:
+            return res
         self.assertEqual(res["cells"]["New"]["result"], "converted")
         self.assertEqual(res["cells"]["New"]["placed"], 1)
         self.assertEqual(res["cells"]["New"]["failed_models"], ["meshes\\n.nif"])
@@ -617,6 +646,28 @@ class BuildFlowTests(unittest.TestCase):
             self.assertEqual(len(calls), n)
         finally:
             ib.run = real
+
+    def test_an_export_that_writes_nothing_is_a_failed_export(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        a = argparse.Namespace(fo4_data=tmp.name, fo4export="Fo4Export.dll", dlc_data=tmp.name)
+        log = os.path.join(tmp.name, "export.log")
+        real = ib.run
+        for wrote in (None, b""):
+            def fake_run(cmd, log_, env=None, cwd=None):
+                if wrote is not None:
+                    with open(cmd[-1], "wb") as f:
+                        f.write(wrote)
+                return 0, 0.1
+            ib.run = fake_run
+            try:
+                cell, rc, _s = ib.export_cell(a, "Lobby", tmp.name, log)
+            finally:
+                ib.run = real
+            self.assertEqual((cell, rc), ("Lobby", 3))
+            self.assertFalse(os.path.exists(os.path.join(tmp.name, "Lobby.json")))
+            with open(log + ".Lobby", encoding="utf-8") as f:
+                self.assertIn("missing or empty", f.read())
 
     def test_disk_need_counts_what_the_batch_adds(self):
         plan = {"batches": [{"archives_gb_est": 2.9, "work_staging_gb_est": 5.9},

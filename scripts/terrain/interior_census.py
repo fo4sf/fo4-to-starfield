@@ -166,6 +166,23 @@ def read_children(buf, start, end, cell, K, out):
             elif s == b"XTEL" and len(d) >= 4 and u32(d):
                 xtel = K(u32(d))
         ref = K(fid)
+        # A later plugin's override of the same reference replaces the earlier one, as in the game, so a DLC that
+        # edits a vanilla ref takes back what the earlier copy added instead of counting the ref twice.
+        seen = out.setdefault("refs", {})
+        if ref in seen:
+            pcell, ptyp, pbase, pdoor = seen[ref]
+            if "placed" in pcell:
+                pcell["placed"][ptyp] -= 1
+                if not pcell["placed"][ptyp]:
+                    del pcell["placed"][ptyp]
+                if pbase:
+                    pcell["bases"][pbase] -= 1
+                    if not pcell["bases"][pbase]:
+                        del pcell["bases"][pbase]
+            if pdoor:
+                pcell["load_doors"] = [d for d in pcell["load_doors"] if d["ref"] != ref]
+                out["door_cell"].pop(ref, None)
+        seen[ref] = (cell, typ.decode("ascii"), base if need_base else None, bool(xtel))
         if need_base:
             cell["placed"][typ.decode("ascii")] += 1
             if base:

@@ -259,6 +259,11 @@ def export_cell(a, cell, exports, log, plugin=None):
     rc, s = run(["dotnet", a.fo4export] + src + ["export", cell, tmp], log + f".{cell}")
     if rc == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
         os.replace(tmp, dst)
+    elif rc == 0:
+        # Fo4Export said it worked but wrote nothing: a failed export, not a cell to convert.
+        with open(log + f".{cell}", "a", encoding="utf-8") as f:
+            f.write(f"exit 0 but {tmp} is missing or empty\n")
+        rc = 3
     return cell, rc, s
 
 
@@ -408,8 +413,11 @@ def build(a):
         if e["result"] == "failed":
             e["reason"] = "export failed" if not e.get("exported") else "cell not written by PluginSpike"
 
-    # 7. pack
-    if not a.no_pack and cmp_["pass"] and prev_ok:
+    unwritten = sorted(c for c in new_cells if cells[c]["result"] == "failed")
+    steps["cells_failed"] = unwritten
+
+    # 7. pack (not for a batch with cells missing from its plugin: it fails anyway)
+    if not a.no_pack and cmp_["pass"] and prev_ok and not unwritten:
         packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
         t = time.time()
         main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
@@ -421,7 +429,7 @@ def build(a):
         # older batch's (successor_check).
         steps["pack"]["sha256"] = {n: sha256(os.path.join(port, n)) for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)}
         steps["pack"]["seconds"] = round(time.time() - t, 1)
-    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports
+    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
           and steps.get("pack", {}).get("pass", True))
     return finish(a, plan, steps, cells, t0, None if ok else "checks failed (see steps)")
 
