@@ -1,0 +1,29 @@
+{
+  "cell": "FO4SF_TestCell",
+  "spacing_m": 6.0,
+  "rows": [
+    {"row": "A", "title": "Doors from the cells whose door exits failed (job 6), and a vanilla door", "items": [
+      {"vanilla": "0AA24A", "name": "Akila door", "note": "vanilla control, as in the FO4Port_DoorTest cell"},
+      {"from_cell": "FO4Port_Vault95", "type": "DOOR", "max": 4, "note": "Vault95 exit leg STAYED"},
+      {"from_cell": "FO4Port_MuseumOfWitchcraft01", "type": "DOOR", "max": 4, "note": "second door landed 16.4 m off in height"},
+      {"from_cell": "FO4Port_PrydwenHull01", "type": "DOOR", "max": 4, "note": "door landed 71.7 m off in height"}
+    ]},
+    {"row": "B", "title": "Movable props next to their vanilla controls (the movable queue's items)", "items": [
+      {"vanilla": "2A0D5B", "name": "TrashbinGeneric01 (MSTT)", "note": "vanilla control"},
+      {"edid": "FO4Port_TrashcanMetalOffice01", "note": "pushed 2.21 m when walked into (supervised_1011)"},
+      {"vanilla": "11EDD1", "name": "ContemporaryCigarettesPack01 (MISC)", "note": "vanilla control"},
+      {"edid": "FO4Port_CigarettePack"},
+      {"vanilla": "133D12", "name": "Office_NotePad_Stack01 (MISC)", "note": "vanilla control"},
+      {"edid": "FO4Port_BurntBook01"},
+      {"vanilla": "1EB3B7", "name": "Office_Folder01 (MISC)", "note": "vanilla control"},
+      {"edid": "FO4Port_BobbyPinBox"}
+    ]},
+    {"row": "C", "title": "Library stairs (the stairs queue's five models)", "items": [
+      {"edid": "FO4Port_BldDecoSmStairs01"},
+      {"edid": "FO4Port_BldDecoSmStairsBlock01"},
+      {"edid": "FO4Port_BldDecoSmStairsBlock03"},
+      {"edid": "FO4Port_BldDecoSmStairsShort01"},
+      {"edid": "FO4Port_BldBrickSmStairsHalfBlockShort01"}
+    ]}
+  ]
+}
