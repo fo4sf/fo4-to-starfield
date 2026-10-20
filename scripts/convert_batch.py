@@ -338,8 +338,12 @@ def main():
         if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            target = min(len(names), a.limit) if a.limit else len(names)
+            remaining = max(0, target - attempted_so_far)
+            eta = remaining / rate if rate > 0 else 0
+            eta_str = f" ~{eta/60:.1f}min ETA" if eta > 30 else ""
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s){eta_str}")
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
