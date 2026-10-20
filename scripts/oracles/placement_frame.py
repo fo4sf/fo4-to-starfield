@@ -2,7 +2,8 @@
 
 Reports every REFR/ACHR placed into the shared worldspace: position, exterior cell
 computed from that position (Starfield 100 m grid), whether the core contains a
-local LAND record in that cell. External SFBK/BTD or inherited terrain is not
+raw exterior CELL grid and local LAND/VHGT data in that cell. These are source
+file facts, not post-load active-cell or physical terrain proof. External SFBK/BTD or inherited terrain is not
 decoded here: absence of local LAND is coverage UNKNOWN, not missing terrain.
 Optional --anchor EDID measures Euclidean source-WRLD distance in metres, using
 the plugin's overrides of core references by canonical source key. It does not
@@ -132,7 +133,8 @@ def collect_refs(plugin_path, world_edid, with_names=False):
                 source_refs[ref["fid"]] = ref
         if source_hash != hashlib.sha256(p.buf).hexdigest():
             raise ValueError("plugin changed during placement read")
-        return cells_with_coverage, refs, data["world_fid"], world_key, source_hash, list(source_refs.values())
+        return (cells_with_coverage, refs, data["world_fid"], world_key, source_hash,
+                list(source_refs.values()), set(data["cells"]))
 
 
 def valid_position(pos):
@@ -183,9 +185,9 @@ def main():
         ap.error("--anchor must be a nonempty EDID")
 
     try:
-        core_cells, core_refs, core_fid, core_key, core_hash, _ = collect_refs(
+        core_cells, core_refs, core_fid, core_key, core_hash, _, core_cell_records = collect_refs(
             args.core, args.world_edid, with_names=args.anchor is not None)
-        _, plugin_refs, plugin_fid, plugin_key, plugin_hash, plugin_records = collect_refs(
+        _, plugin_refs, plugin_fid, plugin_key, plugin_hash, plugin_records, _ = collect_refs(
             args.plugin, args.world_edid, with_names=args.anchor is not None)
     except Exception as exc:
         print(f"failed to read plugins: {exc}", file=sys.stderr)
@@ -209,6 +211,8 @@ def main():
                 "computed_cell": None,
                 "parent_cell": list(r.get("parent_xy")) if r.get("parent_xy") else None,
                 "core_has_coverage": None,
+                "core_cell_record_present": None,
+                "core_local_land_data_present": None,
                 "flag": True,
                 "reason": "missing_or_invalid_position",
             }
@@ -222,7 +226,9 @@ def main():
         computed = sf_cell_of(pos[0], pos[1])
         parent = r.get("parent_xy")
         is_persistent = r.get("is_persistent_parent", False)
-        has_coverage = True if identity_ok and computed in core_cells else None
+        cell_present = computed in core_cell_records if identity_ok else None
+        land_data_present = computed in core_cells if identity_ok else None
+        has_coverage = True if land_data_present else None
         # Persistent parent XCLC is not a spatial constraint
         disagree = (not is_persistent) and parent is not None and tuple(parent) != computed
         reasons = []
@@ -232,6 +238,8 @@ def main():
             reasons.append("parent_mismatch")
         if has_coverage is None:
             reasons.append("coverage_unknown")
+        if cell_present is False:
+            reasons.append("core_cell_record_missing")
         flag = bool(reasons)
         entry = {
             "fid": f"{r.get('fid', 0):08X}",
@@ -240,6 +248,8 @@ def main():
             "computed_cell": list(computed),
             "parent_cell": list(parent) if parent else None,
             "core_has_coverage": has_coverage,
+            "core_cell_record_present": cell_present,
+            "core_local_land_data_present": land_data_present,
             "flag": flag,
             "reason": reasons[0] if reasons else None,
             "reasons": reasons,
@@ -258,6 +268,8 @@ def main():
         "plugin_world_key": plugin_key,
         "source_sha256": {"core": core_hash, "plugin": plugin_hash},
         "core_coverage_cells": len(core_cells),
+        "core_exterior_cell_grids": len(core_cell_records),
+        "cell_record_basis": "raw exterior CELL grids in this core plugin only; no master traversal or active/terrain proof",
         "coverage_basis": "local LAND records only; external/inherited terrain unassessed",
         "refs": report,
         "flagged": len(flags),
@@ -269,7 +281,8 @@ def main():
         print(json.dumps(out, indent=2, allow_nan=False))
     else:
         print(f"world {out['world_fid']} (plugin {out['plugin_world_fid']})  "
-              f"core coverage cells: {out['core_coverage_cells']}  cell={SF_CELL_M}m")
+              f"raw core exterior CELL grids: {out['core_exterior_cell_grids']}  "
+              f"local LAND data grids: {out['core_coverage_cells']}  cell={SF_CELL_M}m")
         print(f"refs: {len(report)}  flagged: {len(flags)}")
         if anchor is not None:
             print(f"anchor {args.anchor!r}: {anchor['status']} ({anchor['distance_frame']})")
@@ -277,6 +290,8 @@ def main():
             mark = "FLAG" if e["flag"] else "ok  "
             print(f"  {mark} {e['fid']} {e['type']} pos={e['pos']} "
                   f"cell={e['computed_cell']} parent={e['parent_cell']} "
+                  f"core_cell_record_present={e['core_cell_record_present']} "
+                  f"core_local_land_data_present={e['core_local_land_data_present']} "
                   f"coverage={e['core_has_coverage']} reason={e.get('reason')}"
                   + (f" anchor_distance_m={e['anchor_distance_m']}" if anchor is not None else ""))
     anchor_failed = anchor is not None and anchor["status"] != "ok"
