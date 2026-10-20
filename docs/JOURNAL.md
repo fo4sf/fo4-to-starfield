@@ -1891,3 +1891,21 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex owner-authorized Grok #387 CLI correction
+
+Reject negative --top with a usage error before any archive lookup; zero still
+means no largest entries and large positive limits retain all available entries.
+At the existing CLI boundary, handle expected malformed-header/read failures
+(struct.error, UnicodeError, OSError and Ba2Error) without a traceback or partial
+JSON. Shared archive parsing, ranking and stored-payload size semantics are
+unchanged. This does not make every malformed archive supported or prove payload
+decompression, conversion resource use or native behavior.
+
+Four new subprocess regression methods reproduce ten failures on 23d22ef;
+all six focused methods (16 actual CLI calls) and guard pass after the fix.
+Cases include truncated headers/records/names, invalid archive-type encoding,
+negative limits on present/missing input, zero/large limits, raw/zlib archives
+and unchanged source bytes. Red/green logs retained privately. Original Grok
+branch and peer #373 CLI preserved; choose one tool during lead integration.
+No private archive, game/stage/install action or main merge. Peer QA pending.
