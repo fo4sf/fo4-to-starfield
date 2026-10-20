@@ -19,10 +19,11 @@ The combined core is game runtime; its records and packages are kept apart from 
 | Layer | Content | Here now |
 |---|---|---|
 | L5 content packs | Commonwealth pack first, other worlds and community packs later; packs only add data | `pack.py`, `fixtures.py` (synthetic) |
-| L4 player systems | reputation UI, settlement management, survival, RP SPECIAL | no |
-| L3 presentation | materialize squads and caravans near the player, radiant quests, radio and terminal news | no |
+| L4 player systems | reputation UI, settlement management, survival, RP SPECIAL | `reputation.py`, `modes.py` (data, no UI) |
+| L3 presentation | materialize squads and caravans near the player, radiant quests, radio and terminal news | `present.py`, `news.py` (data, no spawns) |
 | L2 simulation | faction AI, settlement growth, supply and trade, events; coarse ticks, deterministic per seed | `sim.py` |
-| L1 world-state model | places, holders, settlements, factions, routes, events; game-neutral data | `model.py` |
+| L1 world-state model | places, holders, settlements, factions, routes, events; game-neutral data | `model.py` (schema 2) |
+| engine edge | records the save keeps, plus the plugin's sidecar (CC-02 C') | `adapter.py`, `sidecar.py` (plan and codec only) |
 | L0 converted worlds | per-game modules from the single-game pipeline | the rest of the repo |
 
 ## Implemented now (M1, all offline, pure Python stdlib)
@@ -37,10 +38,35 @@ The combined core is game runtime; its records and packages are kept apart from 
   regex guesses, labelled unverified until the first real run's report. Its output stays on the player's PC.
 - `__main__.py`: the command line below.
 
+## Implemented now (M2, still offline, pure Python stdlib)
+
+- `present.py`: the L3 presence planner. `plan(ws, player_place)` lists what to materialize within a route radius of
+  the player as abstract spawn slots under an actor budget (attackers, garrisons, settlers, squads, caravans);
+  `diff(old, new)` says what a replan spawns, keeps and dissolves. Nothing is spawned; it is data for an adapter.
+- `news.py`: L3 terminal news. The simulation's events, as reached along the routes (`sim.news_for`), become short
+  lines in our own words; `terminal_page` wraps them for a terminal. Text only, no voice, quotes no game's writing.
+- `reputation.py`: L4 New Vegas-style fame and infamy per faction (two scales, four levels each, tiered gains cited
+  from `settlements-factions-precedents.md`), an optional per-region layer (CC-22) that is empty in a one-world game,
+  and abstract effects (price, refusal, hostility) as placeholder tiers for probe P7.
+- `modes.py`: L4 play settings stored in the save (schema 2): survival presets off/light/full (data only, no needs
+  model yet), raid pressure low/normal/high scaling the attack and raid rolls, and the chronological story mode
+  (CC-50), which shields places near an active story's locked place from attack.
+- `adapter.py`: the engine edge as a record plan, not records: `record_plan(ws)` names the `FOCC_` slots a pack
+  needs (one keyword per place for holder keyword data, our choice where the note plans a single `FOCC_Holder`
+  keyword, probe P2; one global per faction for the reputation tier;
+  globals for the settings), `game_view(ws)` gives each slot's value, `changes(old, new)` the minimal writes.
+  Holder codes are small ints from sorted faction ids. Nothing writes a plugin.
+- `sidecar.py`: the reference codec for the per-save file an SFSE plugin would keep (no co-save exists; SFSE's
+  save and load messages carry the save name, `engine-feasibility.md`): a sanitised file name per save, JSON body
+  with a sha256 of the canonical state, atomic `write`, `read` that refuses a wrong format, schema or checksum, and
+  `orphans` that lists sidecars whose save is gone and never deletes.
+
 ## Not implemented (and not claimed)
 
-No game runtime, no Papyrus, no SFSE plugin, nothing installed or deployed, no engine adapter, no presentation
-layer. The fixtures use placeholder names (`farm_a`, `raiders`); they are not game facts.
+No game runtime, no Papyrus, no SFSE plugin, no plugin records written (the adapter is a plan), nothing installed or
+deployed, no UI, no spawning, no voice, no player-needs model behind the survival presets, no reputation globals per
+region. Whether keyword data survives a save (P2) and the sidecar's behaviour under SFSE (P1) are untested on the PC.
+The fixtures use placeholder names (`farm_a`, `raiders`); they are not game facts.
 
 ## Run it
 

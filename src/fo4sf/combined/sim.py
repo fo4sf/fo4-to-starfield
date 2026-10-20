@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import random
 
+from . import reputation
 from .model import GOODS, STRENGTH_CAP, Squad, WorldState  # noqa: F401  (STRENGTH_CAP re-exported for callers)
+from .modes import STORY_SHIELD_HOURS
 
 TICK_HOURS = 6
 STAGE_POP = (0, 4, 8, 14, 22)        # population needed for stage 0..4
@@ -25,6 +27,8 @@ NEWS_HOURS_PER_ROUTE_HOUR = 1        # news travels at travel speed
 STRENGTH_INCOME_PER_PLACE = 2        # strength gained per held place per day
 UPKEEP_PER_PLACE = 1                 # strength paid per held place per day, floor 0
 RETAKE_WEIGHT = 3                    # a lost place counts this many times when picking a target
+ATTACK_CHANCE_PER_AGGRESSION = 0.25  # percent chance per tick per aggression point, times the raid-pressure
+                                     # multiplier from ws.settings (modes.py, CC-41)
 
 # Caravan raiding (placeholders): a hostile faction holding a place next to either end of the route
 # gets one interception roll per caravan, scaled by its strength.
@@ -32,9 +36,9 @@ RAID_CHANCE_PER_STRENGTH = 0.01      # chance = min(cap, strength * this)
 RAID_CHANCE_CAP = 0.35
 RAID_STRENGTH_GAIN = 1               # loot feeds the raider a little
 
-# Player hooks (placeholders). Reputation follows New Vegas: fame and infamy per faction, with gains
-# in the NV tiers (verified in the design notes), the tier chosen by how much the player did.
-REP_TIERS = (1, 2, 4, 7, 12)
+# Player hooks (placeholders). Reputation rules live in reputation.py (NV fame and infamy per faction, gains in
+# the NV tiers); REP_TIERS stays as an alias for callers of the first prototype.
+REP_TIERS = reputation.GAIN_TIERS
 PLAYER_DEFENCE_BONUS = 10            # defence a player garrison adds to the next attack at that place
 PLAYER_DEFENCE_HOURS = 72            # a garrison the player leaves goes home after this long
 PLAYER_DEFENCE_FAME = 4
@@ -57,8 +61,18 @@ def _new_id(ws: WorldState, prefix: str) -> str:
 
 
 def _rep_tier(amount: int) -> int:
-    """NV-style gain for `amount` units of help: tiers 1, 2, 4, 7, 12."""
-    return REP_TIERS[min(len(REP_TIERS) - 1, max(0, amount) // TRADE_GOODS_PER_TIER)]
+    """NV-style gain for `amount` goods given: one tier per TRADE_GOODS_PER_TIER (reputation.tier_for)."""
+    return reputation.tier_for(amount, TRADE_GOODS_PER_TIER)
+
+
+def _story_shielded(ws: WorldState) -> set[str]:
+    """Places no attack may target under story mode: within STORY_SHIELD_HOURS by route of a story-locked place
+    whose story is active (CC-50 "mute the sandbox's pressure on story places"). Empty when story mode is off."""
+    out: set[str] = set()
+    for pid in sorted(ws.places):
+        if ws.settings.story_active(ws.places[pid].story_lock):
+            out.update(p for p, h in _distances(ws, pid).items() if h <= STORY_SHIELD_HOURS)
+    return out
 
 
 # --- settlements -----------------------------------------------------------
@@ -155,7 +169,8 @@ def _raider(ws: WorldState, q: Squad, rng: random.Random) -> str | None:
             continue
         if not any(ws.places[n].holder == fid for n in sorted(near)):
             continue
-        chance = min(RAID_CHANCE_CAP, ws.factions[fid].strength * RAID_CHANCE_PER_STRENGTH)
+        chance = min(RAID_CHANCE_CAP,
+                     ws.factions[fid].strength * RAID_CHANCE_PER_STRENGTH * ws.settings.raid_multiplier())
         if rng.random() < chance:
             return fid
     return None
@@ -182,19 +197,21 @@ def _daily_strength(ws: WorldState, fid: str, held: list[str]) -> None:
 
 
 def _faction_tick(ws: WorldState, rng: random.Random) -> None:
+    pressure = ws.settings.raid_multiplier()
+    shielded = _story_shielded(ws)
     for fid in sorted(ws.factions):
         f = ws.factions[fid]
         held = sorted(p for p, pl in ws.places.items() if pl.holder == fid)
         if ws.hour % 24 == 0:
             _daily_strength(ws, fid, held)
-        if f.strength < 6 or rng.random() * 100 > f.aggression * 0.25:
+        if f.strength < 6 or rng.random() * 100 > f.aggression * ATTACK_CHANCE_PER_AGGRESSION * pressure:
             continue
         lost = _lost_places(ws, fid)
         targets = []
         for p in held:
             for n, hours in ws.neighbours(p):
                 pl = ws.places[n]
-                if pl.story_lock or any(x.home == n for x in ws.factions.values()):
+                if pl.story_lock or n in shielded or any(x.home == n for x in ws.factions.values()):
                     continue
                 if pl.holder is None or _hostile(ws, fid, pl.holder):
                     targets.extend([(n, hours, p)] * (RETAKE_WEIGHT if n in lost else 1))
@@ -276,11 +293,8 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
 # --- player-facing hooks -----------------------------------------------------
 
 def player_helped(ws: WorldState, faction: str, amount: int = 10) -> None:
-    """New Vegas-style: fame with the faction, and a share of infamy with its enemies."""
-    ws.reputation[faction].fame += amount
-    for other, rel in sorted(ws.factions[faction].relations.items()):
-        if rel < 0 and other in ws.reputation:
-            ws.reputation[other].infamy += amount // 2
+    """New Vegas-style: `amount` fame with the faction, and a share of infamy with its enemies (reputation.helped)."""
+    reputation.helped(ws, faction, amount)
 
 
 def player_defended(ws: WorldState, place: str, bonus: int = PLAYER_DEFENCE_BONUS) -> str:
@@ -312,7 +326,7 @@ def player_traded(ws: WorldState, settlement: str, goods: dict[str, int]) -> dic
     given = sum(n for n in moved.values() if n > 0)
     holder = ws.places[settlement].holder
     if given and holder is not None and holder in ws.reputation:
-        ws.reputation[holder].fame += _rep_tier(given)
+        reputation.add(ws, holder, fame=_rep_tier(given))
     _event(ws, "player_traded", settlement, goods=moved)
     return moved
 

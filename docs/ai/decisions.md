@@ -453,3 +453,13 @@ decided the import path); keeping the order as a parameter (two orders in the co
   unit-tested on CI); reusing Sim Settlements 2 or Workshop Framework code (rejected: their permissions forbid
   conversion; design question CC-04); one shared `core` package (rejected: build orchestration and game runtime would
   drift into each other).
+
+## 2026-10-20: the combined core's game-facing state is a small view the save keeps, the rest a sidecar (Claude-cloud)
+- Decision: M2 adds `adapter.py` (a record plan and a minimal-writes view: one FOCC_ keyword datum per place for its
+  holder, one global per faction for its reputation tier, globals for play settings) and `sidecar.py` (a checksummed
+  per-save file the SFSE plugin would mirror). One keyword per place is our choice; engine-feasibility.md sketches a
+  single FOCC_Holder keyword with a datum per location, and probe P2 decides between them.
+- Why: SFSE has no co-save today, so the bulk state needs its own file per save, while conditions, dialogue and leveled
+  lists must read holders and reputation without SFSE (design CC-02, option C').
+- Alternatives: everything in Papyrus (save bloat, the Warzones lesson); everything in the sidecar (a broken SFSE after a
+  patch would leave the game blind to territory instead of frozen).

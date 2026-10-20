@@ -11,13 +11,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 import json
 
+from .modes import Settings
+
 GOODS = ("food", "water", "scrap", "ammo", "medicine")
 ROLES = ("farmer", "guard", "trader", "crafter", "scavenger", "doctor")
 PLACE_KINDS = ("settlement", "base", "landmark", "gateway")
 
-# Bump when a saved state's shape changes; from_json refuses anything else so a stale or
-# foreign save fails loudly instead of loading half-right.
-SCHEMA_VERSION = 1
+# Bump when a saved state's shape changes; from_json refuses anything it cannot upgrade so a stale or
+# foreign save fails loudly instead of loading half-right. Version 2 added settings and regional_reputation;
+# a version-1 save loads with their defaults.
+SCHEMA_VERSION = 2
+LOADABLE_SCHEMAS = (1, 2)
 
 # Upper bound on Faction.strength. Lives here so packs are validated against the same number the
 # simulation clamps to; otherwise an oversized faction would run unclamped until its first daily step.
@@ -91,6 +95,9 @@ class WorldState:
     reputation: dict[str, Reputation] = field(default_factory=dict)  # faction -> player rep
     events: list[dict] = field(default_factory=list)
     next_id: int = 1
+    # schema 2: region -> faction -> rep, overriding `reputation` there (CC-22; empty in a one-world game)
+    regional_reputation: dict[str, dict[str, Reputation]] = field(default_factory=dict)
+    settings: Settings = field(default_factory=Settings)   # schema 2: play settings (modes.py)
 
     def neighbours(self, place: str) -> list[tuple[str, int]]:
         out = []
@@ -109,8 +116,8 @@ class WorldState:
     @classmethod
     def from_json(cls, text: str) -> "WorldState":
         d = json.loads(text)
-        if d.get("schema") != SCHEMA_VERSION:
-            raise ValueError(f"unknown world-state schema {d.get('schema')!r}, want {SCHEMA_VERSION}")
+        if d.get("schema") not in LOADABLE_SCHEMAS:
+            raise ValueError(f"unknown world-state schema {d.get('schema')!r}, want one of {LOADABLE_SCHEMAS}")
         ws = cls(seed=d["seed"], hour=d["hour"], next_id=d["next_id"])
         ws.places = {k: Place(**v) for k, v in d["places"].items()}
         ws.settlements = {k: Settlement(**v) for k, v in d["settlements"].items()}
@@ -119,6 +126,9 @@ class WorldState:
         ws.routes = [Route(**r) for r in d["routes"]]
         ws.reputation = {k: Reputation(**v) for k, v in d["reputation"].items()}
         ws.events = d["events"]
+        ws.regional_reputation = {region: {k: Reputation(**v) for k, v in layer.items()}
+                                  for region, layer in d.get("regional_reputation", {}).items()}
+        ws.settings = Settings.from_dict(d.get("settings"))
         return ws
 
 
