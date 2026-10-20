@@ -7,6 +7,7 @@ Lookup is case-insensitive and slash-agnostic: a.find("textures/setdressing/x_d.
 Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompressed are.
 """
 import os
+import operator
 import struct
 import zlib
 from dataclasses import dataclass
@@ -124,11 +125,16 @@ class Ba2:
         }
 
     def largest_entries(self, n: int = 10) -> list:
-        """Return the n largest entries by unpacked size, useful for conversion planning.
+        """Return up to n largest entries by unpacked size; n is a nonnegative integer index.
 
-        Each item is a dict with name, kind, unpacked bytes, and packed bytes (0 if uncompressed).
-        For DX10 textures the unpacked size is the sum of chunk unpacked sizes (excluding the DDS header).
+        Each item is a dict with name, kind, unpacked bytes, and packed bytes (stored payload bytes,
+        including raw payloads). For DX10, both totals sum the respective chunk payload sizes,
+        excluding the synthesized DDS header. These index totals are not peak disk/RAM requirements.
         """
+        n = operator.index(n)
+        if n < 0:
+            raise ValueError("n must be nonnegative")
+
         def unpacked_of(e: Entry) -> int:
             if e.kind == "GNRL":
                 return e.unpacked
