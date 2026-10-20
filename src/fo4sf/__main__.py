@@ -36,19 +36,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         return rc
 
     # Optional auto-discovery in staging_dir or work_dir
-    found = False
     for key in ("staging_dir", "work_dir"):
         d = paths.get(key)
         if d:
             base = Path(d)
             cand = base / "manifest.json"
             if cand.is_file():
-                _print_manifest(cand)
+                rc = _print_manifest(cand)
                 _print_failure_summary(base)
-                found = True
-                break
-    if not found:
-        print("  Manifest: not found (run a conversion stage to generate one)")
+                return rc
+    print("  Manifest: not found (run a conversion stage to generate one)")
     return 0
 
 
@@ -79,19 +76,31 @@ def _print_failure_summary(base: Path) -> None:
         return
     try:
         data = json.loads(summary_path.read_text(encoding="utf-8"))
-    except Exception as e:
+        if not isinstance(data, dict):
+            raise ValueError("failure summary must be an object")
+        attempted = data.get("attempted", 0)
+        successes = data.get("successes", 0)
+        total_fail = data.get("total_failures", 0)
+        pct = data.get("success_percent", 0.0)
+        top = data.get("top")
+        if top is None:
+            top = []
+        if not isinstance(top, list):
+            raise ValueError("failure summary top must be a list")
+        # Render the complete advisory report before printing any success banner.
+        lines = [f"\n  Latest batch: {successes}/{attempted} succeeded ({pct}%), {total_fail} failures"]
+        if top:
+            lines.append("  Top failure reasons:")
+            for item in top[:3]:
+                if not isinstance(item, dict):
+                    raise ValueError("failure summary reason must be an object")
+                lines.append(
+                    f"    {item.get('count', 0):4d} ({item.get('percent', 0):5.1f}%)  {item.get('reason', '')[:60]}"
+                )
+    except (OSError, UnicodeError, ValueError, TypeError) as e:
         print(f"  failure-summary error: {e}", file=sys.stderr)
         return
-    attempted = data.get("attempted", 0)
-    successes = data.get("successes", 0)
-    total_fail = data.get("total_failures", 0)
-    pct = data.get("success_percent", 0.0)
-    print(f"\n  Latest batch: {successes}/{attempted} succeeded ({pct}%), {total_fail} failures")
-    top = data.get("top") or []
-    if top:
-        print("  Top failure reasons:")
-        for item in top[:3]:
-            print(f"    {item.get('count', 0):4d} ({item.get('percent', 0):5.1f}%)  {item.get('reason', '')[:60]}")
+    print("\n".join(lines))
 
 
 def main(argv: list[str] | None = None) -> int:
