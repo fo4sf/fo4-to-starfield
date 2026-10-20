@@ -96,14 +96,22 @@ static class QuestProbe
     /// has somewhere to point: the load door (a placed object with a teleport destination) farthest from it; in a cell
     /// with none (the library in the installed port, PC 19 Oct), the farthest door, then the farthest object, on the
     /// marker's floor (within MaxRise metres of its height) and within MaxReach metres, so the player can walk to it.
+    public const string PortFile = "FO4Port.esm";
+
     public static Place Resolve(string portPath, string cellEdid)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        // the script resolves both ids as GetFormFromFile(id, "FO4Port.esm") (FO4SF_QProbeQuest.psc PortPlugin), so
+        // the input must be that file and both references its own records, not overrides (Codex review on #393)
+        if (!port.ModKey.FileName.String.Equals(PortFile, StringComparison.OrdinalIgnoreCase))
+            throw new Refusal($"the port is {port.ModKey.FileName}, but the script resolves its ids in {PortFile}");
         var cell = port.EnumerateMajorRecords<SF.ICellGetter>().FirstOrDefault(c => c.EditorID == cellEdid && c.FormKey.ModKey == port.ModKey)
                    ?? throw new Refusal($"{port.ModKey} has no cell {cellEdid}");
         var refs = cell.Persistent.Concat(cell.Temporary).OfType<SF.IPlacedObjectGetter>().ToList();
         var cocs = refs.Where(r => r.Base.FormKey == new FormKey(SfEsm, CocMarkerId)).ToList();
         if (cocs.Count != 1) throw new Refusal($"{cellEdid} has {cocs.Count} COC markers, not one");
+        if (cocs[0].FormKey.ModKey != port.ModKey)
+            throw new Refusal($"the COC marker {cocs[0].FormKey} is owned by {cocs[0].FormKey.ModKey}, not {port.ModKey}: its id would resolve to another record");
         var a = cocs[0].Position;
         float Dist(SF.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - a.X, 2) + MathF.Pow(r.Position.Y - a.Y, 2) + MathF.Pow(r.Position.Z - a.Z, 2));
         var doors = port.Doors.Select(d => d.FormKey).ToHashSet();
@@ -445,9 +453,14 @@ static class QuestProbe
         var empty = new SF.Cell(new FormKey(portKey, 0x840), rel) { EditorID = "FO4Port_Bare", Flags = SF.Cell.Flag.IsInteriorCell };
         empty.Temporary.Add(Rz(0x841, new FormKey(SfEsm, CocMarkerId), 0, 0));
         empty.Temporary.Add(Rz(0x842, pstat.FormKey, 3, 0));
+        // a COC marker in our cell that is another plugin's record (same local id as one of ours would be)
+        var foreign = new SF.Cell(new FormKey(portKey, 0x845), rel) { EditorID = "FO4Port_ForeignCoc", Flags = SF.Cell.Flag.IsInteriorCell };
+        foreign.Temporary.Add(new SF.PlacedObject(new FormKey(SfEsm, 0x846), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, CocMarkerId)), Position = new P3Float(0, 0, 0) });
+        foreign.Temporary.Add(Rz(0x847, pstat.FormKey, 25, 0));
         var pb = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var ps = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         ps.Cells.Add(cell);
+        ps.Cells.Add(foreign);
         ps.Cells.Add(noLoad);
         ps.Cells.Add(statsOnly);
         ps.Cells.Add(empty);
@@ -463,6 +476,13 @@ static class QuestProbe
             if (Resolve(portPath, c).Target != want) { Console.WriteLine($"FAIL  resolve {c}: {Resolve(portPath, c)}"); return 1; }
         try { Resolve(portPath, "FO4Port_Bare"); Console.WriteLine("FAIL  resolve accepted a cell with nothing in reach"); return 1; }
         catch (Refusal) { }
+        try { Resolve(portPath, "FO4Port_ForeignCoc"); Console.WriteLine("FAIL  resolve accepted a COC marker owned by Starfield.esm"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (a COC marker owned by Starfield.esm): {e.Message}"); }
+        var renamed = Path.Combine(dir, "renamed");
+        Directory.CreateDirectory(renamed);
+        File.Copy(portPath, Path.Combine(renamed, "FO4PortB.esm"), true);
+        try { Resolve(Path.Combine(renamed, "FO4PortB.esm"), DefaultCell); Console.WriteLine("FAIL  resolve accepted a port under another file name"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (a port under another file name): {e.Message}"); }
 
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());
