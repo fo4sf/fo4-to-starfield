@@ -12,7 +12,8 @@
 //        position / 70); headings in degrees.
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
-//         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--no-special] [--exit-anchor <REFR EditorID>]
+//         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
+//         [--exit-anchor <REFR EditorID>]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
 //        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
@@ -20,6 +21,9 @@
 //        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
 //        an override of Starfield's GLOB MQ101Debug set to 10 (what MQ00 writes before it starts MQ101; the owner's
 //        decision NG-2 is that we set it ourselves) unless --no-mq101debug, or --mq101debug <n> for another value.
+//        Unless --no-version: GLOB FO4SF_NewGameVersion (constant, the build's version number, --build-version <n>,
+//        default 1) and a player alias on the quest carrying FO4SF_NewGameVersion, which compares that GLOB to the
+//        version the save was started with on every load (NG-15 / NG-L2).
 //        --race-menu-mode <n> is the uiMode the looks script passes to Game.ShowRaceMenu (its RaceMenuMode property;
 //        default 0, the full creator: which mode is looks-only is unverified until the in-game C1 test). Unless
 //        --no-special: seven AVIF FO4SF_Special_<stat> (Strength to Luck, the SPECIAL stats as our own actor values),
@@ -76,6 +80,18 @@ static class NewGame
     public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialAvifPrefix = "FO4SF_Special_";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the GLOB override keeps Starfield's id
     public const uint SpecialAvifBase = 0x810;                  // the seven AVIF: 0x810 Strength to 0x816 Luck
+    // The save version check (NG-15 / NG-L2, the owner's decision 2026-10-19: a save version from v1). GLOB
+    // FO4SF_NewGameVersion holds the build's version number (--build-version <n>, default DefaultBuildVersion;
+    // make_newgame.py DEFAULT_BUILD_VERSION is held equal by tests/test_newgame.py). It is flagged Constant so the
+    // value is the plugin's, not the save's: the CK documents a constant global as not saved, so a save made under
+    // build 1 reads the installed build's number when loaded under build 2; whether Starfield's save keeps the rule is
+    // unverified until the PC run (the log's "version load" line is the proof). The quest's alias 0 is forced to the
+    // player (PlayerRef 00000014, the engine's fixed id; FO4SF_Probe reads the player as ref 20, door_probe.py
+    // PLAYER_ID) and carries FO4SF_NewGameVersion, which records the GLOB's value when the alias fills (a new game)
+    // and compares it on OnPlayerLoadGame (on Actor and ReferenceAlias, verified, ContentResources.zip PC read 19 Oct).
+    public const string VersionGlobEdid = "FO4SF_NewGameVersion", VersionScript = "FO4SF_NewGameVersion", PlayerAliasName = "Player";
+    public const uint VersionGlobId = 0x805, PlayerRefId = 0x000014, PlayerAlias = 0;
+    public const float DefaultBuildVersion = 1f;
     // SPECIAL at the vault terminal (NG-5 / NG-C4, the owner's decision 2026-10-19): FO4's numbers, base 1 each, 21
     // points to spend, 10 at most per stat (make_newgame.py SPECIAL_*, held equal by tests/test_newgame.py; the script's
     // defaults are the same). The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
@@ -127,7 +143,7 @@ static class NewGame
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     static float Deg(float rad) => rad * 180f / MathF.PI;
 
-    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, string ExitAnchor)
+    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor)
     {
         public static Options From(string[] a) => new(
             ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
@@ -136,6 +152,8 @@ static class NewGame
             !a.Contains("--no-looks"),
             ArgOrNull(a, "--race-menu-mode") is { } m ? int.Parse(m, CultureInfo.InvariantCulture) : DefaultRaceMenuMode,
             !a.Contains("--no-special"),
+            !a.Contains("--no-version"),
+            ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
             ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
     }
 
@@ -504,6 +522,26 @@ static class NewGame
             foreach (var (name, value) in SpecialProperties(pts, places)) special.Properties.Add(ValueProperty(name, value));
             quest.VirtualMachineAdapter.Scripts.Add(special);
         }
+        // the save version check (NG-15 / NG-L2): our constant GLOB, and the player alias whose script compares it on
+        // every load. The alias script is bound through the VMAD's alias fragment (the quest's form and the alias id),
+        // the shape Mutagen reads back; whether the game binds it so is unverified until the PC run
+        if (o.Version)
+        {
+            mod.Globals.Add(VersionGlob(modKey, o.BuildVersion));
+            (quest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
+            {
+                ID = PlayerAlias, Name = PlayerAliasName, ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(new FormKey(SfEsm, PlayerRefId)),
+            });
+            var version = new SF.ScriptEntry { Name = VersionScript, Flags = SF.ScriptEntry.Flag.Local };
+            version.Properties.Add(Obj("BuildVersion", new FormKey(modKey, VersionGlobId)));
+            var bound = new SF.QuestFragmentAlias
+            {
+                Property = new SF.ScriptObjectProperty { Name = "", Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(quest.FormKey), Alias = (short)PlayerAlias, Unused = 0 },
+                Version = 6, ObjectFormat = 2,
+            };
+            bound.Scripts.Add(version);
+            quest.VirtualMachineAdapter.Aliases.Add(bound);
+        }
         mod.Quests.Add(quest);
 
         if (o.MQ101Debug is { } dbg)
@@ -522,9 +560,17 @@ static class NewGame
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
                           (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden") +
-                          (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off"));
+                          (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off") +
+                          (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off"));
         return 0;
     }
+
+    /// The build's version number as our own constant GLOB (see the constants' note: Constant so the save does not
+    /// carry the value; unverified until the PC run).
+    public static SF.Global VersionGlob(ModKey modKey, float version) => new(new FormKey(modKey, VersionGlobId), SF.StarfieldRelease.Starfield)
+    {
+        EditorID = VersionGlobEdid, Data = version, MajorFlags = SF.Global.MajorFlag.Constant,
+    };
 
     static string TerminalText(Places p) => p.TerminalSrc == 0 ? "none" :
         $"FO4 {p.TerminalSrc:X8} at {Show(p.TerminalPos)} -> {(p.Terminal == 0 ? "not in the port (the prompt watches the spot)" : $"FO4Port.esm:{p.Terminal:X6}")}";
@@ -554,7 +600,8 @@ static class NewGame
         var key = plug.ModKey;
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], {plug.Quests.Count} QUST, " +
-                          $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB, {plug.ActorValueInformation.Count} AVIF");
+                          $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB, {plug.ActorValueInformation.Count} AVIF, " +
+                          $"{plug.Quests.Sum(q => q.Aliases?.Count ?? 0)} alias(es)");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { "Starfield.esm" }), "masters are not Starfield.esm alone (the port and the core are resolved at run time)");
         Need(plug.Npcs.Count == 0 && plug.Worldspaces.Count == 0 && plug.Cells.Count == 0, "the plugin carries NPC_, WRLD or CELL records (it places nothing)");
@@ -589,14 +636,24 @@ static class NewGame
             Need(avifs.Count == 0, "a --no-special build carries AVIF records");
         }
 
-        var globals = plug.Globals.ToList();
+        // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); nothing else
+        var overrides = plug.Globals.Where(g => g.FormKey.ModKey != key).ToList();
+        var own = plug.Globals.Where(g => g.FormKey.ModKey == key).ToList();
         if (o.MQ101Debug is { } dbg)
         {
             var src = sf.Globals.FirstOrDefault(g => g.EditorID == "MQ101Debug");
-            Need(globals.Count == 1 && src is not null && globals[0].FormKey == src.FormKey && globals[0].Data == dbg,
+            Need(overrides.Count == 1 && src is not null && overrides[0].FormKey == src.FormKey && overrides[0].Data == dbg,
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
-        else Need(globals.Count == 0, "a --no-mq101debug build overrides a GLOB");
+        else Need(overrides.Count == 0, "a --no-mq101debug build overrides a GLOB");
+        var ver = own.FirstOrDefault(g => g.FormKey == new FormKey(key, VersionGlobId));
+        if (o.Version)
+        {
+            Need(own.Count == 1 && ver is { EditorID: VersionGlobEdid } && ver.Data == o.BuildVersion && ver.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
+                 $"GLOB 0x{VersionGlobId:X} is not {VersionGlobEdid} = {F(o.BuildVersion)}, constant");
+            Console.WriteLine($"  GLOB {VersionGlobEdid} = {(ver?.Data is { } vd ? F(vd) : "missing")} flags {ver?.MajorFlags}");
+        }
+        else Need(own.Count == 0, "a --no-version build carries a GLOB of its own");
 
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
         if (q is null) problems.Add("no QUST 0x800");
@@ -610,7 +667,27 @@ static class NewGame
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Count == 1 && q.Objectives[0].Index == Objective && q.Objectives[0].DisplayText?.String == ObjectiveText, $"objective {Objective} is not \"{ObjectiveText}\"");
-            Need((q.Aliases?.Count ?? 0) == 0 && q.DialogTopics.Count == 0, "the quest carries aliases or dialogue");
+            Need(q.DialogTopics.Count == 0, "the quest carries dialogue");
+            // the player alias and its script (the version check): alias 0 forced to PlayerRef, bound in the VMAD's
+            // alias fragment to one script with the version GLOB as BuildVersion
+            var aliases = (q.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().ToList();
+            var bound = q.VirtualMachineAdapter?.Aliases.ToList() ?? new();
+            if (o.Version)
+            {
+                Need((q.Aliases?.Count ?? 0) == 1 && aliases.Count == 1 && aliases[0].ID == PlayerAlias && aliases[0].Name == PlayerAliasName &&
+                     aliases[0].ForcedReference.FormKey == new FormKey(SfEsm, PlayerRefId), $"alias {PlayerAlias} is not {PlayerAliasName}, forced to Starfield.esm:{PlayerRefId:X6}");
+                var vs = bound.Count == 1 ? bound[0].Scripts.FirstOrDefault(s => s.Name == VersionScript) : null;
+                Need(bound.Count == 1 && bound[0].Property.Object.FormKey == q.FormKey && bound[0].Property.Alias == PlayerAlias && bound[0].Scripts.Count == 1 && vs is not null,
+                     $"the VMAD binds {bound.Count} alias fragment(s), not one on alias {PlayerAlias} with {VersionScript} alone");
+                if (vs is not null)
+                {
+                    var props = vs.Properties.ToDictionary(p => p.Name);
+                    Console.WriteLine($"  alias {aliases.FirstOrDefault()?.ID} {aliases.FirstOrDefault()?.Name} -> {aliases.FirstOrDefault()?.ForcedReference.FormKey}; script {vs.Name}: {props.Count} properties");
+                    Need(props.Count == 1 && props.TryGetValue("BuildVersion", out var bp) && bp is SF.IScriptObjectPropertyGetter bo && bo.Object.FormKey == ver?.FormKey,
+                         $"{VersionScript}'s one property is not BuildVersion -> {VersionGlobEdid}");
+                }
+            }
+            else Need((q.Aliases?.Count ?? 0) == 0 && bound.Count == 0, "a --no-version build carries an alias or an alias script");
             var scripts = q.VirtualMachineAdapter?.Scripts.Select(s => s.Name).ToList() ?? new();
             var wantScripts = new List<string> { ScriptName };
             if (o.Looks) wantScripts.Add(LooksScript);
@@ -790,6 +867,8 @@ static class NewGame
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         if (plain.RaceMenuMode != DefaultRaceMenuMode || Options.From(new[] { "--race-menu-mode", "1" }).RaceMenuMode != 1) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
+        if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
+            Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
@@ -797,6 +876,7 @@ static class NewGame
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
             ("mode1", idsPath, plain with { RaceMenuMode = 1 }), ("nospecial", idsPath, plain with { Special = false }),
             ("nearterm", nearTermIds, plain),
+            ("noversion", idsPath, plain with { Version = false }), ("version2", idsPath, plain with { BuildVersion = 2 }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -823,6 +903,10 @@ static class NewGame
             ("nospecial", plain, idsPath, "a --no-special build as a SPECIAL one"),
             ("default", plain, nearTermIds, "a build on the persistent terminal against a port with only the temporary one"),
             ("nearterm", plain, idsPath, "a build on the temporary terminal against a port with the persistent one"),
+            ("default", plain with { Version = false }, idsPath, "a version-check build as a --no-version one"),
+            ("noversion", plain, idsPath, "a --no-version build as a version-check one"),
+            ("default", plain with { BuildVersion = 2 }, idsPath, "the default (build version 1) build as a version 2 one"),
+            ("version2", plain, idsPath, "a build version 2 build as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -841,8 +925,18 @@ static class NewGame
             ("a property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PodHeading")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
-            ("the MQ101Debug override reads 0", m => m.Globals.First().Data = 0),
-            ("the MQ101Debug override removed", m => m.Globals.Clear()),
+            ("the MQ101Debug override reads 0", m => m.Globals.First(g => g.EditorID == "MQ101Debug").Data = 0),
+            ("the MQ101Debug override removed", m => m.Globals.Remove(m.Globals.First(g => g.EditorID == "MQ101Debug").FormKey)),
+            ("the version GLOB reads another value", m => m.Globals.First(g => g.EditorID == VersionGlobEdid).Data = 7),
+            ("the version GLOB not constant", m => m.Globals.First(g => g.EditorID == VersionGlobEdid).MajorFlags = 0),
+            ("the version GLOB removed", m => m.Globals.Remove(m.Globals.First(g => g.EditorID == VersionGlobEdid).FormKey)),
+            ("the player alias removed", m => m.Quests.First().Aliases!.Clear()),
+            ("the player alias forced to another reference", m => ((SF.QuestReferenceAlias)m.Quests.First().Aliases![0]).ForcedReference.SetTo(new FormKey(SfEsm, 0x902))),
+            ("a second alias", m => m.Quests.First().Aliases!.Add(new SF.QuestReferenceAlias { ID = 1, Name = "Other" })),
+            ("the alias script unbound", m => m.Quests.First().VirtualMachineAdapter!.Aliases.Clear()),
+            ("the alias script bound to another alias", m => m.Quests.First().VirtualMachineAdapter!.Aliases[0].Property.Alias = 1),
+            ("the alias script lost BuildVersion", m => m.Quests.First().VirtualMachineAdapter!.Aliases[0].Scripts[0].Properties.Clear()),
+            ("the alias script renamed", m => m.Quests.First().VirtualMachineAdapter!.Aliases[0].Scripts[0].Name = "Other"),
             ("the elevator prompt has one button", m => m.Messages.First(x => x.EditorID == MessageEdid).MenuButtons.RemoveAt(1)),
             ("the opening choice has one button", m => m.Messages.First(x => x.EditorID == StartMessageEdid).MenuButtons.RemoveAt(1)),
             ("the opening choice removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == StartMessageEdid).FormKey)),

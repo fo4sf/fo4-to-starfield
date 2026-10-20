@@ -1,6 +1,7 @@
 """The Fallout 4 new game (docs/newgame/vault111-start.md): the contract between dotnet/NewGame (the plugin),
-FO4SF_NewGameQuest.psc / FO4SF_NewGameLooks.psc / FO4SF_NewGameSpecial.psc (the scripts) and make_newgame.py (precheck,
-staging, verify, fold, the log reader). Synthetic only; the C# writer's own self-test runs when a dotnet SDK is on PATH."""
+FO4SF_NewGameQuest.psc / FO4SF_NewGameLooks.psc / FO4SF_NewGameSpecial.psc / FO4SF_NewGameVersion.psc (the scripts) and
+make_newgame.py (precheck, staging, verify, fold, the log reader). Synthetic only; the C# writer's own self-test runs
+when a dotnet SDK is on PATH."""
 import io
 import unittest.mock
 import json
@@ -20,7 +21,15 @@ import make_newgame as ng  # noqa: E402
 PSC = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameQuest.psc")
 LOOKS = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameLooks.psc")
 SPECIAL = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameSpecial.psc")
+VERSION = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameVersion.psc")
 CS = os.path.join(ROOT, "dotnet", "NewGame", "Program.cs")
+# the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
+DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
+                version=True, build_version=None)
+
+
+def namespace(**kw):
+    return ng.main.__globals__["argparse"].Namespace(**{**DEFAULTS, **kw})
 
 
 def read(path):
@@ -29,9 +38,10 @@ def read(path):
 
 
 def written_properties(cs):
-    """(quest, looks, special): the property names Program.cs writes to each script. The quest's are the Properties()
-    table plus its three object properties; the looks script's are LooksProperties() plus StartMessage; the SPECIAL
-    script's are SpecialProperties() plus Special, TerminalMessage and SpecialMessage."""
+    """(quest, looks, special, version): the property names Program.cs writes to each script. The quest's are the
+    Properties() table plus its three object properties; the looks script's are LooksProperties() plus StartMessage;
+    the SPECIAL script's are SpecialProperties() plus Special, TerminalMessage and SpecialMessage; the version
+    script's (on the player alias) is BuildVersion alone."""
     def values(table):
         body = cs[cs.index(table):]
         return set(re.findall(r'\("(\w+)",', body[:body.index("};")]))
@@ -46,7 +56,8 @@ def written_properties(cs):
     looks |= objects("var looks = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(looks)")
     special |= objects("var special = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(special)")
     quest |= objects("var script = new SF.ScriptEntry", "quest.VirtualMachineAdapter = new SF.QuestAdapter")
-    return quest, looks, special
+    version = objects("var version = new SF.ScriptEntry", "var bound = new SF.QuestFragmentAlias")
+    return quest, looks, special, version
 
 
 class ContractTests(unittest.TestCase):
@@ -69,8 +80,8 @@ class ContractTests(unittest.TestCase):
         self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
 
     def test_every_mandatory_property_is_written_and_every_written_one_declared(self):
-        written, looks_written, special_written = written_properties(read(CS))
-        for psc, written_here in ((PSC, written), (LOOKS, looks_written), (SPECIAL, special_written)):
+        written, looks_written, special_written, version_written = written_properties(read(CS))
+        for psc, written_here in ((PSC, written), (LOOKS, looks_written), (SPECIAL, special_written), (VERSION, version_written)):
             declared = ng.declared_properties(read(psc))
             mandatory = {n for n, m in declared.items() if m}
             self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
@@ -79,6 +90,48 @@ class ContractTests(unittest.TestCase):
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
         self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
         self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
+        self.assertEqual(version_written, {"BuildVersion"})   # SavedVersion is the script's own, written in game, never by the plugin
+        self.assertFalse(ng.declared_properties(read(VERSION))["SavedVersion"])
+
+    def test_the_save_version_check(self):
+        """NG-15 / NG-L2: the build's version number is one constant in the writer and Python, written to our own
+        constant GLOB (--build-version, --no-version drops the check); the quest's alias 0 is the player (PlayerRef
+        00000014), its script records the GLOB when the alias fills and compares it on OnPlayerLoadGame, logging both
+        and notifying on a mismatch; it never changes the save otherwise."""
+        cs, version, psc = read(CS), read(VERSION), read(PSC)
+        self.assertIn(f"DefaultBuildVersion = {ng.DEFAULT_BUILD_VERSION}f", cs)
+        self.assertIn('ArgOrNull(a, "--build-version")', cs)
+        self.assertIn('a.Contains("--no-version")', cs)
+        self.assertIn('VersionGlobEdid = "FO4SF_NewGameVersion", VersionScript = "FO4SF_NewGameVersion"', cs)
+        self.assertIn("PlayerRefId = 0x000014, PlayerAlias = 0", cs)
+        self.assertIn("MajorFlags = SF.Global.MajorFlag.Constant", cs)
+        self.assertIn("ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(new FormKey(SfEsm, PlayerRefId))", cs)
+        self.assertIn("quest.VirtualMachineAdapter.Aliases.Add(bound)", cs)
+        self.assertIn(f"Scriptname {ng.VERSION} extends ReferenceAlias", version)
+        self.assertIn("GlobalVariable Property BuildVersion Auto Const Mandatory", version)
+        self.assertIn("float Property SavedVersion = -1.0 Auto", version)
+        self.assertIn("Event OnInit()", version)
+        self.assertIn("Event OnPlayerLoadGame()", version)
+        code = version[version.index("GlobalVariable Property BuildVersion"):]
+        self.assertEqual(code.count("SavedVersion = BuildVersion.GetValue()"), 1)
+        self.assertIn("if SavedVersion < 0.0", code)         # recorded once, when the alias fills
+        self.assertIn('Trace("version saved=" + SavedVersion + " (new game)")', code)
+        self.assertIn('Trace("version load saved=" + SavedVersion + " installed=" + installed)', code)
+        self.assertIn("if SavedVersion != installed", code)
+        self.assertIn('Trace("version mismatch")', code)
+        self.assertIn("Debug.Notification(", code)
+        self.assertEqual(code.count("Debug.Notification("), 1)   # on the mismatch alone
+        self.assertIn("Debug.OpenUserLog(LogName)", code)   # a loaded save is a new game session: the log is reopened
+        for forbidden in ("SetStage(", "SetValue(", "MoveTo(", "Stop(", "SetPosition(", "Clear(", "ForceRefTo("):
+            self.assertNotIn(forbidden, code)              # the check changes nothing
+        self.assertNotIn("Version", psc.split("}", 1)[1])   # the quest script knows nothing of it
+        self.assertEqual(ng.OPTIONAL[ng.VERSION], "--no-version")
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.build_version_option(namespace()), ng.DEFAULT_BUILD_VERSION)
+        self.assertEqual(ng.tool_options(namespace(version=False)), ["--no-version"])
+        self.assertIsNone(ng.build_version_option(namespace(version=False)))
+        self.assertEqual(ng.tool_options(namespace(build_version=2)), ["--build-version", "2"])
+        self.assertEqual(ng.build_version_option(namespace(build_version=2)), 2)
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -115,10 +168,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn("Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen", cs)
         self.assertIn("Max = SpecialMax, Flags = SpecialAvifFlags", cs)
         self.assertIn('"TerminalId", (int)p.Terminal', cs)
-        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
-                                                      race_menu_mode=None, special=False)
-        self.assertEqual(ng.tool_options(p), ["--no-special"])
-        self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special"})
+        self.assertEqual(ng.tool_options(namespace(special=False)), ["--no-special"])
+        self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special", ng.VERSION: "--no-version"})
 
     def test_the_allocation_rule(self):
         """special_press is FO4SF_NewGameSpecial.Allocate's rule: base 1 each, 21 points, 10 at most per stat, Reset
@@ -166,9 +217,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Done("creator closed")', looks)
         self.assertIn('Trace("looks done: " + how)', looks)
         self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
-        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
-                                                      race_menu_mode=1, special=True)
-        self.assertEqual(ng.tool_options(p), ["--race-menu-mode", "1"])
+        self.assertEqual(ng.tool_options(namespace(race_menu_mode=1)), ["--race-menu-mode", "1"])
 
     def test_stages_match(self):
         cs, psc = read(CS), read(PSC)
@@ -201,8 +250,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
         self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
         self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
-        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
-                                                      race_menu_mode=None, special=True)
+        p = namespace()
         self.assertEqual(ng.tool_options(p), [])
         self.assertEqual(ng.mq101debug_option(p), 10)
         p.no_mq101debug = True
@@ -233,8 +281,11 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(read(LOOKS), rf"Scriptname {ng.LOOKS} extends Quest")
         self.assertIn(f'SpecialScript = "{ng.SPECIAL}"', cs)
         self.assertRegex(read(SPECIAL), rf"Scriptname {ng.SPECIAL} extends Quest")
+        self.assertIn(f'VersionScript = "{ng.VERSION}"', cs)
+        self.assertRegex(read(VERSION), rf"Scriptname {ng.VERSION} extends ReferenceAlias")
         self.assertIn('"FO4SF_NEWGAME rt="', read(PSC))
         self.assertIn('"FO4SF_NEWGAME rt="', read(SPECIAL))
+        self.assertIn('"FO4SF_NEWGAME rt="', read(VERSION))
 
     def test_merge_offset_is_the_measured_one(self):
         sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
@@ -282,6 +333,16 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(set(ng.NATIVES[ng.SPECIAL]["Actor"]), {"SetValue", "GetValue"})
         self.assertNotIn("IsInMenuMode(", special)
         self.assertNotIn("Function Reset(", special)          # Quest.psc has Reset(); Papyrus has no overloads
+        # the version script the same way; its two events (OnInit, OnPlayerLoadGame) are declarations the precheck
+        # looks up in ScriptObject.psc and ReferenceAlias.psc
+        version = read(VERSION)
+        version_calls = set(re.findall(r"\.(\w+)\(", version)) | set(re.findall(r"^Event (On\w+)\(", version, re.M))
+        version_own = set(re.findall(r"^\s*[\w\[\]]*\s*Function\s+(\w+)", version, re.M))
+        version_listed = {f for bases in ng.NATIVES[ng.VERSION].values() for f in bases}
+        self.assertEqual(version_calls - version_listed - version_own, set())
+        self.assertEqual(ng.NATIVES[ng.VERSION]["ReferenceAlias"], ["OnPlayerLoadGame"])
+        self.assertEqual(ng.NATIVES[ng.VERSION]["ScriptObject"], ["OnInit"])
+        self.assertNotIn("IsInMenuMode(", version)
 
     def test_declared_properties_parser(self):
         text = ("Quest[] Property A Auto Const Mandatory\nfloat Property B = 0.25 Auto Const\n"
@@ -294,7 +355,7 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
 
 
-def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None):
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None):
     base = {
         # Actor.psc: GetLevel (the guard) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
         "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
@@ -313,7 +374,10 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
         "ScriptObject": scriptobject if scriptobject is not None else
                         "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
-                        "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\n",
+                        "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
+        # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
+        "ReferenceAlias": referencealias if referencealias is not None else
+                          "Scriptname ReferenceAlias extends Alias\nEvent OnPlayerLoadGame()\nEndEvent\n",
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
@@ -337,6 +401,7 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(r["missing_core"], [])
         self.assertTrue(all(r["natives"][ng.LOOKS].values()))
         self.assertTrue(all(r["natives"][ng.SPECIAL].values()))
+        self.assertTrue(all(r["natives"][ng.VERSION].values()))
         self.assertEqual(r["drop"], [])
         self.assertEqual(len(r["mq101debug"]), 1)
         self.assertIn("QF_MQ101_00003448.psc:1:", r["mq101debug"][0])
@@ -372,6 +437,24 @@ class PrecheckTests(unittest.TestCase):
         self.assertIn("FO4SF_NewGameSpecial cannot compile: stage with --no-special", o.getvalue())
         self.assertNotIn("--no-looks", o.getvalue())
 
+    def test_missing_player_load_event_only_drops_the_version(self):
+        """OnPlayerLoadGame on ReferenceAlias (PC read 19 Oct) is what the version script needs beyond the quest's
+        natives: a source set without it fails only that script, and the precheck says --no-version."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, referencealias="Scriptname ReferenceAlias extends Alias\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.VERSION]["ReferenceAlias.OnPlayerLoadGame"])
+        self.assertTrue(r["natives"][ng.VERSION]["ScriptObject.OnInit"])
+        self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertTrue(all(r["natives"][ng.SPECIAL].values()))
+        self.assertEqual(r["drop"], ["--no-version"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("FO4SF_NewGameVersion cannot compile: stage with --no-version", o.getvalue())
+        self.assertNotIn("--no-looks", o.getvalue())
+        self.assertNotIn("--no-special", o.getvalue())
+
     def test_missing_core_native_fails(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, utility="Function Wait(float a) native global\n")
@@ -404,6 +487,7 @@ class PrecheckTests(unittest.TestCase):
 class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
@@ -440,6 +524,9 @@ class LogTests(unittest.TestCase):
         self.assertFalse(s["fell"])
         self.assertFalse(s["stood_down"])
         self.assertIn("stage=20", s["last_status"])
+        self.assertEqual(s["version_saved"], "1.000000")
+        self.assertIsNone(s["version_load"])                 # no save was loaded in this run
+        self.assertFalse(s["version_mismatch"])
 
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()
@@ -516,6 +603,21 @@ class LogTests(unittest.TestCase):
                                       "[x] FO4SF_NEWGAME rt=90.0 stage 40\n[x] FO4SF_NEWGAME rt=91.0 special skipped: left the vault with SPECIAL unset\n")
         self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
         self.assertIsNone(self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n")[1]["special"])
+
+    def test_version_lines(self):
+        """The save version check (NG-15 / NG-L2): the version recorded at the new game, the last load's comparison
+        (a load logs no "init", so its lines join the run before it) and whether any load found a mismatch."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
+               "[x] FO4SF_NEWGAME rt=2.0 version saved=1.000000 (new game)\n"
+        code, s = self.run_log(head + "[y] FO4SF_NEWGAME rt=1.5 version load saved=1.000000 installed=1.000000\n")
+        self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), ("1.000000", "saved=1.000000 installed=1.000000", False))
+        code, s = self.run_log(head + "[y] FO4SF_NEWGAME rt=1.5 version load saved=1.000000 installed=1.000000\n"
+                                      "[z] FO4SF_NEWGAME rt=1.7 version load saved=1.000000 installed=2.000000\n"
+                                      "[z] FO4SF_NEWGAME rt=1.7 version mismatch\n")
+        self.assertEqual((s["version_load"], s["version_mismatch"]), ("saved=1.000000 installed=2.000000", True))
+        self.assertEqual(s["runs"], 1)
+        s = self.run_log("[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n")[1]
+        self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), (None, None, False))
 
     def test_split_runs(self):
         lines = ["[a] FO4SF_NEWGAME rt=1 status stage=20", "[b] other log", "[c] FO4SF_NEWGAME rt=2 init x",

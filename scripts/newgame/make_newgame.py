@@ -2,21 +2,21 @@
 
 usage:
   python make_newgame.py precheck [--content-resources <zip>] [--out <precheck.json>]
-      read only, no game: every native and event the three scripts use, looked up in Starfield's base sources
+      read only, no game: every native and event the four scripts use, looked up in Starfield's base sources
       (Scripts/Source of ContentResources.zip), and every source line naming MQ101Debug (how Starfield's debug start
       works). Exit 1 when a native of FO4SF_NewGameQuest is missing (do not stage); a missing native of the looks
       script (Game.ShowRaceMenu, the menu open/close event) only means --no-looks, one of the SPECIAL script
-      (Actor.SetValue / GetValue) only --no-special.
+      (Actor.SetValue / GetValue) only --no-special, one of the version script (OnPlayerLoadGame) only --no-version.
   python make_newgame.py stage --out <dir> --fo4 <Fallout4.esm> --port <FO4Port.esm> --port-ids <formids.json>
                                --core <FO4TerrainCore.esm> [--starfield <Starfield.esm>] [--compiler <exe>]
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
-                               [--hold MQ00,MQ101,...] [--mq101debug N] [--no-mq101debug] [--pod-ref HEX]
-                               [--terminal-ref HEX]
+                               [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
+                               [--no-mq101debug] [--pod-ref HEX] [--terminal-ref HEX]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
       3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks,
-         FO4SF_NewGameSpecial.psc unless --no-special);
+         FO4SF_NewGameSpecial.psc unless --no-special, FO4SF_NewGameVersion.psc unless --no-version);
       4. plan.json (the plugin's and scripts' SHA-256 and the port, its formids.json and the core it was checked
          against) and README.txt. Built in a new <out>.partial-<time>-<pid> and renamed to <out> only when every step
          passed; an existing <out> is refused.
@@ -28,7 +28,7 @@ usage:
       .pex, published only after verify passes on the result.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
       the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
-      the SPECIAL ending, moves, the landing); exit 0 when stage 200 was reached.
+      the SPECIAL ending, the save version lines, moves, the landing); exit 0 when stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -49,6 +49,7 @@ PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
 SPECIAL = "FO4SF_NewGameSpecial"
+VERSION = "FO4SF_NewGameVersion"
 # The stage contract (NG-14): the stages FO4SF_NewGame publishes for later phases and other mods to listen to, with
 # what each means. FO4SF_NewGameQuest.psc's header lists the same lines and tests/test_newgame.py holds them equal;
 # docs/newgame/vault111-start.md section 9 is the published table. Stage 0 is the quest's start, not a QUST record.
@@ -80,7 +81,13 @@ SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligenc
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
 SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
 SPECIAL_MAX_PRESSES = 300
-STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
+# The save version check (NG-15 / NG-L2; Program.cs DefaultBuildVersion, held equal by tests/test_newgame.py): the
+# build's version number, written to GLOB FO4SF_NewGameVersion (constant) and recorded by the version script when a new
+# game starts; on every load the script compares the two and logs "version load saved=<n> installed=<n>", then "version
+# mismatch" and a notification when they differ. --build-version sets another number; bump it when a save made under
+# the old build must not go on under the new one.
+DEFAULT_BUILD_VERSION = 1
+STARFIELD =r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
@@ -120,9 +127,18 @@ NATIVES = {
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
+    # OnPlayerLoadGame is declared on ReferenceAlias (PC read 19 Oct, NG-L3); OnInit on ScriptObject is where the
+    # script records the version when the alias fills
+    VERSION: {
+        "Debug": ["OpenUserLog", "TraceUser", "Notification"],
+        "GlobalVariable": ["GetValue"],
+        "ReferenceAlias": ["OnPlayerLoadGame"],
+        "ScriptObject": ["OnInit"],
+        "Utility": ["GetCurrentRealTime"],
+    },
 }
 # the optional scripts: the stage option that drops each, and the precheck's advice when a native is missing
-OPTIONAL = {LOOKS: "--no-looks", SPECIAL: "--no-special"}
+OPTIONAL = {LOOKS: "--no-looks", SPECIAL: "--no-special", VERSION: "--no-version"}
 
 
 def run(cmd, cwd=None, check=True):
@@ -274,6 +290,10 @@ def tool_options(a):
         opts += ["--race-menu-mode", str(a.race_menu_mode)]
     if not a.special:
         opts.append("--no-special")
+    if not a.version:
+        opts.append("--no-version")
+    if a.build_version is not None:
+        opts += ["--build-version", str(a.build_version)]
     return opts
 
 
@@ -282,6 +302,14 @@ def mq101debug_option(a):
     if a.no_mq101debug:
         return None
     return DEFAULT_MQ101DEBUG if a.mq101debug is None else a.mq101debug
+
+
+def build_version_option(a):
+    """The version number the build writes to GLOB FO4SF_NewGameVersion: None under --no-version, else the value
+    given or the default."""
+    if not a.version:
+        return None
+    return DEFAULT_BUILD_VERSION if a.build_version is None else a.build_version
 
 
 def pins(a):
@@ -307,7 +335,7 @@ def stage(a):
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)
-    scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else [])
+    scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
     pex = {s: compile_script(a.compiler, s, src, os.path.join(out, "Data", "Scripts")) for s in scripts}
     for s in scripts:
         shutil.copy(os.path.join(HERE, s + ".psc"), os.path.join(out, s + ".psc"))
@@ -320,7 +348,8 @@ def stage(a):
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
             "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
-                        "special": a.special},
+                        "special": a.special, "version": a.version,
+                        "build_version": build_version_option(a)},
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -328,7 +357,7 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (start game enabled, run once),
-MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''};
+MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
@@ -422,15 +451,19 @@ def split_runs(lines, line_re, start="init "):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "special", "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "special", "version_saved", "version_load", "version_mismatch", "entered_vault", "surfaced", "landed", "fell",
+    "stood_down", "last_status", "runs", "earlier_completed"}.
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
     says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
     is the SPECIAL script's ending ("set S=.. P=.. ..." or "skipped: ..." when the player left the vault without it;
-    "later" and "left" prompts are not endings). Only the latest run is judged; "runs"
-    counts the runs in the file and "earlier_completed" says whether an older one reached stage 200 (kept as history,
-    never as the current result). Lines of other logs are ignored."""
+    "later" and "left" prompts are not endings). "version_saved" is the build version the version script recorded
+    when the new game started, "version_load" the last "saved=<n> installed=<n>" line of a save load (a load logs no
+    "init", so it joins the run before it) and "version_mismatch" whether any load found the two apart. Only the
+    latest run is judged; "runs" counts the runs in the file and "earlier_completed" says whether an older one reached
+    stage 200 (kept as history, never as the current result). Lines of other logs are ignored."""
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
+         "version_saved": None, "version_load": None, "version_mismatch": False,
          "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
          "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE)
@@ -452,6 +485,13 @@ def summarize(lines):
         elif msg.startswith("special set ") or msg.startswith("special skipped"):
             if s["special"] is None:
                 s["special"] = msg[len("special "):]
+        elif msg.startswith("version saved="):
+            if s["version_saved"] is None:
+                s["version_saved"] = msg[len("version saved="):].split()[0]
+        elif msg.startswith("version load "):
+            s["version_load"] = msg[len("version load "):]
+        elif msg.startswith("version mismatch"):
+            s["version_mismatch"] = True
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -496,6 +536,10 @@ def main(argv=None):
     s.add_argument("--no-special", dest="special", action="store_false",
                    help="no SPECIAL terminal: no FO4SF_NewGameSpecial script, AVIF or its two MESG")
     s.add_argument("--terminal-ref", default=None, help="the SPECIAL terminal in Vault111Cryo, FO4 hex id (default: the cell's terminals, nearest the pod first)")
+    s.add_argument("--no-version", dest="version", action="store_false",
+                   help="no save version check: no FO4SF_NewGameVersion script, player alias or GLOB")
+    s.add_argument("--build-version", type=int, default=None,
+                   help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
     s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
     s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")

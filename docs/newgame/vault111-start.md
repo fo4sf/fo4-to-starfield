@@ -6,8 +6,9 @@ game or been installed.** Labels follow docs/ai/research-log.md (verified, suppo
 
 Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
 quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character creation),
-`scripts/newgame/FO4SF_NewGameSpecial.psc` (optional SPECIAL at the vault terminal), `scripts/newgame/make_newgame.py`
-(precheck, stage, verify, fold, log reader), `tests/test_newgame.py`.
+`scripts/newgame/FO4SF_NewGameSpecial.psc` (optional SPECIAL at the vault terminal),
+`scripts/newgame/FO4SF_NewGameVersion.psc` (optional save version check), `scripts/newgame/make_newgame.py` (precheck,
+stage, verify, fold, log reader), `tests/test_newgame.py`.
 
 ## 1. What the player gets (the defaults)
 
@@ -39,6 +40,9 @@ quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character crea
    merge offset). If the player lands more than 3 m below the arrival, they are put on the Vault 111 map marker's spot.
 9. The quest completes. The player is **silent** (Starfield's player has no voice; nothing to do), and has **no
    Pip-Boy** (section 5). The stages the quest passes through are a published contract (section 9).
+10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
+    it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
+    changes (optional script).
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -152,6 +156,33 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - The script is separate for the same reason as the looks script: a failed compile drops only it (`--no-special`, and
   the plugin then carries no AVIF and neither MESG).
 
+## 4b. The save version check
+
+- The owner decided (2026-10-19, NG-F5 / NG-L2, page NG-15): a save version from v1, checked on every load with a
+  visible warning. This is the first half; the launcher's block on unsafe swaps is a later item.
+- The version: GLOB `FO4SF_NewGameVersion` (FO4SFNewGame.esm 0x805) holds the build's version number, `--build-version
+  <n>` (default 1, `DefaultBuildVersion` in the writer and `DEFAULT_BUILD_VERSION` in Python, held equal by the tests).
+  Bump it when a save made under the old build must not go on under the new one. The GLOB is flagged **Constant**: the
+  Creation Kit documents a constant global as not saved, so a loaded save reads the installed plugin's number, not its
+  own. Whether Starfield's save keeps that rule is **unverified** until the PC run.
+- The alias: the quest's alias 0, "Player", is forced to the player (`PlayerRef` 00000014, the engine's fixed id; the
+  door probe reads the player as ref 20). It carries `FO4SF_NewGameVersion`, bound through the quest's VMAD alias
+  fragment (the quest's form and the alias id, the shape Mutagen reads back; whether the game binds the script the same
+  way is **unverified** until the PC run).
+- The script: when the alias fills (`OnInit`, a new game) it writes the GLOB's value into its `SavedVersion` property
+  once; the save keeps it (-1 until then). On `OnPlayerLoadGame` (**verified**, PC read 19 Oct: declared on Actor and
+  ReferenceAlias) it reads the GLOB again, logs `version load saved=<n> installed=<n>`, and on a mismatch logs `version
+  mismatch` and shows "Fallout 4 new game: this save is from build <n>, the installed build is <n>". It sets no stage,
+  moves nothing and writes no value: the save is left as it is. `make_newgame.py log` prints `version_saved`,
+  `version_load` (the last load's line; a load logs no `init`, so it joins the run before it) and `version_mismatch`.
+- Limits: a save that stood the quest down (stage 1, an existing save that gained the plugin) has no check, because the
+  quest stops and the alias clears; nothing of ours is in that save to version. Whether the alias stays filled after the
+  quest completes at stage 200, and so still receives the load event, is **unverified** until the PC run: the `version
+  load` line on a reload after a completed start is the proof. If it does not, the check moves to a quest of its own.
+- The script is separate for the same reason as the other two: a failed compile drops only it (`--no-version`, and the
+  plugin then carries no GLOB of its own and no alias). The precheck looks `OnPlayerLoadGame` up in ReferenceAlias.psc
+  and `OnInit` in ScriptObject.psc; a miss means `--no-version`.
+
 ## 5. What Vault 111 needs from the port today
 
 | Piece | State | Source |
@@ -169,25 +200,27 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 ## 6. Build recipe (PC, offline, no game)
 
 1. `python scripts\newgame\make_newgame.py precheck --out D:\Modding\scratch\newgame\precheck.json` reads
-   ContentResources.zip only and lists every native and event the three scripts use and every MQ101Debug line. Exit 1
+   ContentResources.zip only and lists every native and event the four scripts use and every MQ101Debug line. Exit 1
    means a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
    `OnMenuOpenCloseEvent` means stage with `--no-looks`; a missing `Actor.SetValue` or `Actor.GetValue` means
-   `--no-special`.
+   `--no-special`; a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`.
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
    Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
    (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
-   `--no-special` (section 4a), `--pod-ref <hex>`, `--terminal-ref <hex>`. plan.json records them and the stage
-   contract.
+   `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
+   `--terminal-ref <hex>`. plan.json records them and the stage contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
    selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold,
-   `--race-menu-mode 1`, `--no-special` and temporary-terminal-only variants, and each build must fail `check` under
-   the others' options. It also checks the four MESG records (two buttons each, ten on the allocation), the seven
-   AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties and the SPECIAL script's list, messages and
-   terminal; the terminal pick prefers a persistent reference and refuses a foreign or missing one.
+   `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version` and `--build-version 2` variants,
+   and each build must fail `check` under the others' options. It also checks the four MESG records (two buttons each,
+   ten on the allocation), the seven AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties, the SPECIAL
+   script's list, messages and terminal, and the version GLOB (its value and Constant flag), the player alias (forced
+   to 00000014, the only alias) and the alias script's binding and `BuildVersion` property; the terminal pick prefers a
+   persistent reference and refuses a foreign or missing one.
 4. Install is a later owner line: `fold` into a copy of the installed core set, `verify`, then `exp_install.py`, game
    closed, after the current v6e test. Testing needs a NEW game, so it never touches the owner's saves.
 
