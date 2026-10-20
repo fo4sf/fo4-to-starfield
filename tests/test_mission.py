@@ -218,6 +218,7 @@ class RelocateContractTests(unittest.TestCase):
         self.assertIn("player.GetWorldSpace()", move)
         self.assertIn("a.GetWorldSpace()", move)
         self.assertLess(move.index('" player="'), move.index("a.MoveTo("))
+        self.assertGreater(move.index('" player="'), move.index("RelocateRadius * RelocateRadius"))   # moves only
         self.assertGreater(move.index('" after="'), move.index("a.MoveTo("))
 
     def test_codsworth_is_an_optional_property(self):
