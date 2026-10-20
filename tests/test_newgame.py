@@ -38,6 +38,14 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_plugin_names_match_the_resolver(self):
+        """The writer refuses references not owned by the plugin the script resolves them in (Codex review on #393);
+        those names must be the script's own defaults."""
+        cs, psc = read(CS), read(PSC)
+        for prop, const in (("VaultPlugin", "PortPlugin"), ("CorePlugin", "CorePluginFile")):
+            want = re.search(rf'string Property {prop} = "([^"]+)"', psc).group(1)
+            self.assertIn(f'{const} = "{want}"', cs)
+
     def test_saving_and_hud_restored_after_the_hold_off(self):
         """MQ101's stage 0 turns saving off and hides the HUD; its stop (stage 9000) restores neither (PC read of
         QF_MQ101_00003448.psc, 19 Oct). The quest restores both right after stopping it, before the move."""

@@ -55,6 +55,9 @@ catch (NewGame.Refusal e)
 static class NewGame
 {
     public const string Plugin = "FO4SFNewGame.esm", World = "FO4Core_Commonwealth", VaultCell = "FO4Port_Vault111Cryo";
+    // the plugins the script resolves its ids in (FO4SF_NewGameQuest.psc VaultPlugin and CorePlugin): every resolved
+    // reference must be owned by the plugin of that name, or the script would ask for the wrong record
+    public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks";
     public const string MessageEdid = "FO4SF_NewGameElevator", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
     public const uint QuestId = 0x800, MessageId = 0x801, MQ101DebugOverride = 0;  // the GLOB override keeps Starfield's id
@@ -173,11 +176,13 @@ static class NewGame
     public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        Owner(port.ModKey, PortPlugin, "the port");
         var cell = port.EnumerateMajorRecords<SF.ICellGetter>().FirstOrDefault(c => c.EditorID == VaultCell && c.FormKey.ModKey == port.ModKey)
                    ?? throw new Refusal($"{port.ModKey} has no cell {VaultCell}");
         var inCell = cell.Persistent.Concat(cell.Temporary).OfType<SF.IPlacedObjectGetter>().ToList();
         var cocs = inCell.Where(r => r.Base.FormKey == new FormKey(SfEsm, CocMarkerId)).ToList();
         if (cocs.Count != 1) throw new Refusal($"{VaultCell} has {cocs.Count} COC markers, not one");
+        Owned(cocs[0], port.ModKey, "the vault anchor (COC marker)");
         uint cog = 0;
         string cogBase = "none";
         using (var doc = JsonDocument.Parse(File.ReadAllText(portIds)))
@@ -186,9 +191,11 @@ static class NewGame
         if (cog != 0)
         {
             var r = inCell.FirstOrDefault(x => x.FormKey.ID == cog) ?? throw new Refusal($"formids.json names {cog:X6} as the cog door, not a reference of {VaultCell}");
+            Owned(r, port.ModKey, "the cog door");
             cogBase = port.EnumerateMajorRecords().FirstOrDefault(x => x.FormKey == r.Base.FormKey) is { } b ? $"{b.GetType().Name.Replace("BinaryOverlay", "")} {b.EditorID}" : r.Base.FormKey.ToString();
         }
         using var core = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        Owner(core.ModKey, CorePluginFile, "the core");
         var world = core.Worldspaces.FirstOrDefault(w => w.EditorID == World && w.FormKey.ModKey == core.ModKey)
                     ?? throw new Refusal($"{core.ModKey} has no worldspace {World}");
         var all = new List<SF.IPlacedGetter>();
@@ -196,8 +203,24 @@ static class NewGame
         foreach (var b in world.SubCells) foreach (var s in b.Items) foreach (var c in s.Items) all.AddRange(c.Persistent.Concat(c.Temporary));
         var exits = all.OfType<SF.IPlacedObjectGetter>().Where(r => r.EditorID == exitAnchor).ToList();
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
+        Owned(exits[0], core.ModKey, "the exit anchor");
         if ((exits[0].MajorRecordFlagsRaw & 0x400) == 0) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
         return new Places(cocs[0].FormKey.ID, cocs[0].Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position);
+    }
+
+    /// The script resolves each id as GetFormFromFile(id, <plugin name>), so the input must be the plugin of that name.
+    static void Owner(ModKey key, string expected, string what)
+    {
+        if (!key.FileName.String.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            throw new Refusal($"{what} is {key.FileName}, but the script resolves its ids in {expected}");
+    }
+
+    /// A reference found in an owned cell or world can still be another plugin's record (an override of, say,
+    /// Starfield.esm:000801): its local id in our plugin would then name a different record. Codex review on #393.
+    static void Owned(IMajorRecordGetter r, ModKey owner, string what)
+    {
+        if (r.FormKey.ModKey != owner)
+            throw new Refusal($"{what} {r.FormKey} is owned by {r.FormKey.ModKey}, not {owner}: its id would resolve to another record");
     }
 
     /// PluginSpike's key for the cog door's reference: REFR:FO4Port_Vault111Cryo:<FO4 FormKey>, the FormKey as Mutagen
@@ -544,6 +567,42 @@ static class NewGame
             mod.BeginWrite.ToPath(Path.Combine(md, Plugin)).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
             if (Check(Path.Combine(md, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine($"FAIL  check passed a mutation: {name}"); return 1; }
             Console.WriteLine($"mutation rejected: {name}");
+        }
+        // refusals: references that sit in our cell or world but are owned by another plugin (same local id), and a
+        // port under another file name; the owned inputs above are the positive case
+        {
+            var fdir = Path.Combine(dir, "foreign");
+            Directory.CreateDirectory(fdir);
+            string Port(Action<SF.StarfieldMod> edit, string file = "FO4Port.esm")
+            {
+                var m = SF.StarfieldMod.CreateFromBinary(portPath, rel, Full(SfEsm));
+                edit(m);
+                var d = Path.Combine(fdir, Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(d);
+                var path = Path.Combine(d, file);
+                m.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).NoModKeySync().Write();
+                return path;
+            }
+            SF.Cell VCell(SF.StarfieldMod m) => m.Cells.Records[0].SubBlocks[0].Cells[0];
+            SF.PlacedObject Rekey(SF.PlacedObject r, FormKey k) => (SF.PlacedObject)r.Duplicate(k);
+            var foreignCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); c.Temporary.Add(Rekey(r, new FormKey(SfEsm, 0x801))); });
+            var foreignCog = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x802); c.Temporary.Remove(r); c.Temporary.Add(Rekey(r, new FormKey(SfEsm, 0x802))); });
+            var renamed = Port(m => { }, "FO4PortB.esm");
+            var cm = SF.StarfieldMod.CreateFromBinary(corePath, rel, Full(SfEsm));
+            var top = cm.Worldspaces.First().TopCell!;
+            var mk = (SF.PlacedObject)top.Persistent.First();
+            top.Persistent.Remove(mk);
+            top.Persistent.Add(Rekey(mk, new FormKey(SfEsm, 0xA775B)));
+            var cd = Path.Combine(fdir, "core");
+            Directory.CreateDirectory(cd);
+            var foreignCore = Path.Combine(cd, coreKey.FileName);
+            cm.BeginWrite.ToPath(foreignCore).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+            foreach (var (why, p, c) in new[] { ("a COC marker owned by Starfield.esm", foreignCoc, corePath), ("a cog door owned by Starfield.esm", foreignCog, corePath),
+                                                ("a port under another file name", renamed, corePath), ("an exit anchor owned by Starfield.esm", portPath, foreignCore) })
+            {
+                try { Resolve(p, idsPath, c, ExitAnchorEdid); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
+                catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
+            }
         }
         // refusals: a hold quest Starfield lacks, an exit anchor the core lacks
         foreach (var (why, o) in new[] { ("an unknown hold quest", plain with { Hold = new[] { "MQ999" } }), ("an unknown exit anchor", plain with { ExitAnchor = "NoSuchMarker" }) })
