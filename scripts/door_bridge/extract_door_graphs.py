@@ -102,6 +102,16 @@ def extract(archives, out_dir, pattern=DEFAULT_PATTERN):
     return result
 
 
+def _inside(path, root):
+    """True if path is root or under it. Case-insensitive on Windows; a path on another drive is outside (commonpath
+    raises ValueError there)."""
+    path, root = os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.abspath(root))
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--starfield-data", required=True)
@@ -111,7 +121,7 @@ def main(argv=None):
     out = os.path.abspath(a.out)
     if os.path.exists(out):
         raise SystemExit(f"refusing to write into existing {out}: give a new folder")
-    if os.path.commonpath([out, ROOT]) == ROOT:
+    if _inside(out, ROOT):
         raise SystemExit("refusing to write game data inside the repository")
     paths = sorted(glob.glob(os.path.join(a.starfield_data, "Starfield - Animations*.ba2")))
     if not paths:

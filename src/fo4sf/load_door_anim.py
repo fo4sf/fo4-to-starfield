@@ -112,7 +112,11 @@ def plan(manifest, tolerance=TWIN_TOLERANCE_M):
         anim = copy.deepcopy(door)
         anim["model"] = twin["model"]
         anim["twin"] = twin.get("source")
-        anim.setdefault("open_seconds", TEMPLATE_OPEN_SECONDS if anim.get("rig") != "native" else None)
+        if anim.get("rig") != "native":          # the template rig: Starfield's clip length, and its vanilla load graph
+            anim["open_seconds"] = TEMPLATE_OPEN_SECONDS
+            anim["xtel_anim_graph"] = TEMPLATE_XTEL_GRAPH
+        else:
+            anim.setdefault("open_seconds", None)
         ld["anim"] = anim
         row["anim"] = "twin"
     return out, rows

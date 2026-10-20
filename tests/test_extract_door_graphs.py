@@ -70,5 +70,16 @@ class ExtractDoorGraphsTests(unittest.TestCase):
         self.assertIn("error", edg.summarise(b"\x00not xml"))
 
 
+class InsideTests(unittest.TestCase):
+    def test_repository_guard(self):
+        self.assertTrue(edg._inside(os.path.join(ROOT, "x"), ROOT))
+        self.assertFalse(edg._inside(os.path.dirname(ROOT), ROOT))
+        from unittest import mock
+        with mock.patch("os.path.commonpath", side_effect=ValueError("different drives")):
+            self.assertFalse(edg._inside("D:\\out", ROOT))     # another drive is outside, not a crash
+        with mock.patch("os.path.normcase", side_effect=str.lower):
+            self.assertTrue(edg._inside(os.path.join(ROOT.upper(), "x"), ROOT))   # letter case does not bypass it
+
+
 if __name__ == "__main__":
     unittest.main()

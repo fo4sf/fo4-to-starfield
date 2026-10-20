@@ -726,7 +726,13 @@ class Converter:
                 except nif.NifError:
                     timing = None
                 if timing:
-                    res["load_door"]["anim"]["open_seconds"] = timing["seconds"]
+                    # the template rig plays Starfield's own Open clip, not FO4's: the script must wait that clip's length
+                    # (a shorter FO4 wait ends before the door is open, so the close behind the player is skipped)
+                    native_rig = res["load_door"]["anim"].get("rig") == "native"
+                    res["load_door"]["anim"]["open_seconds"] = (timing["seconds"] if native_rig
+                                                                else load_door_anim.TEMPLATE_OPEN_SECONDS)
+                    if not native_rig:
+                        res["load_door"]["anim"]["fo4_open_seconds"] = timing["seconds"]
                     if timing["events"]:
                         res["load_door"]["anim"]["fo4_open_events"] = timing["events"]
             if files is None:

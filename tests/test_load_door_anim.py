@@ -70,7 +70,9 @@ class ConverterSwitchTests(unittest.TestCase):
         anim = result["load_door"]["anim"]
         self.assertEqual(anim["anim_graph"], "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx")
         self.assertIn("bounds", result["load_door"])
-        self.assertGreater(anim["open_seconds"], 0)
+        # the template rig plays Starfield's clip, so the script waits that clip's length; FO4's own is kept for reference
+        self.assertAlmostEqual(anim["open_seconds"], load_door_anim.TEMPLATE_OPEN_SECONDS)
+        self.assertGreater(anim["fo4_open_seconds"], 0)
         self.assertEqual(anim["xtel_anim_graph"], "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx")
 
     def test_on_a_teleporting_hatch_without_a_door_name_takes_the_own_rig_route(self):
@@ -143,6 +145,7 @@ class TwinTests(unittest.TestCase):
         self.assertEqual(anim["model"], "fo4port\\synthdoor.nif")
         self.assertEqual(anim["origin_offset"], [0.5, 0.0, 0.0])
         self.assertAlmostEqual(anim["open_seconds"], load_door_anim.TEMPLATE_OPEN_SECONDS)
+        self.assertEqual(anim["xtel_anim_graph"], load_door_anim.TEMPLATE_XTEL_GRAPH)  # gets the _XtelLoad copy too
         self.assertNotIn("anim", m["items"][1]["load_door"])             # the input is never changed
 
     def test_refusals_keep_the_static_door(self):
