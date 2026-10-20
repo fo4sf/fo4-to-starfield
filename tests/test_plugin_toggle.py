@@ -121,6 +121,9 @@ class ToggleTests(unittest.TestCase):
             exp.verify_relaunch(a, str(self.data), ["Core.esm", "Mission.esm"], False, rec, exp.held_off(str(self.data)))
             with self.assertRaisesRegex(SystemExit, "inactive"):         # without the toggle it is a fault
                 exp.verify_relaunch(a, str(self.data), ["Core.esm", "Mission.esm"], False, rec)
+            self.txt.write_bytes(self.original.encode())                  # review pass on #407: ticked again
+            with self.assertRaisesRegex(SystemExit, "held off by plugin_toggle.py but active in Plugins.txt: Mission.esm"):
+                exp.verify_relaunch(a, str(self.data), ["Core.esm", "Mission.esm"], False, rec, exp.held_off(str(self.data)))
 
     def test_on_refuses_a_child_whose_master_stays_held(self):
         # Codex on #407: on --plugins Mission.esm after holding Core and Mission activated Mission without its master
@@ -143,6 +146,15 @@ class ToggleTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as buf:
             self.assertEqual(exp.active(self.a()), 8)
         self.assertIn("but active in Plugins.txt: fo4sfbridge.esm", buf.getvalue())
+        self.assertEqual(self.txt.read_bytes().decode(), self.original)       # nothing rewritten
+
+    def test_order_refuses_a_held_plugin_ticked_again(self):
+        # review pass on #407: order printed "order ok", exit 0, with *Mission.esm active while held
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes(self.original.encode())
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.order(self.a()), 6)
+        self.assertIn("held off by plugin_toggle.py but active in Plugins.txt: Mission.esm", buf.getvalue())
         self.assertEqual(self.txt.read_bytes().decode(), self.original)       # nothing rewritten
 
     def test_order_skips_held_plugins(self):

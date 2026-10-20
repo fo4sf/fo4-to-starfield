@@ -164,6 +164,12 @@ def order(a):
             plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
         held = held_off(data)
         if any(p.casefold() in held for p in plugins):
+            ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
+                      if ln.strip().startswith("*")}
+            again = [p for p in plugins if p.casefold() in held and p.casefold() in ticked]
+            if again:                                     # the game ticked it again: never launch with it loaded
+                raise ValueError(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
+                                 f"run plugin_toggle.py on, or off again")
             print(f"held off (plugin_toggle.py), left unticked: {', '.join(p for p in plugins if p.casefold() in held)}")
             plugins = [p for p in plugins if p.casefold() not in held]
         masters = {}
@@ -349,6 +355,10 @@ def verify_relaunch(a, data, plugins, packed, rec, held=frozenset()):
               if line.strip().startswith("*")}
     if any(name.casefold() not in active and name.casefold() not in held for name in plugins):
         sys.exit("experiment plugin is inactive; recover the installation before relaunching")
+    again = [name for name in plugins if name.casefold() in held and name.casefold() in active]
+    if again:
+        sys.exit(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
+                 f"run plugin_toggle.py on, or off again, before relaunching")
     if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
         sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
     for relative, identity in rec["files"].items():

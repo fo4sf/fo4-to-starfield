@@ -10,9 +10,9 @@ Only plugins our installers own can be held off: the experiment record's plugins
 (bridge_install.py). off refuses a plugin that is missing, inactive or duplicated in Plugins.txt, and one that another
 of our plugins still active needs as a master. It writes Data\\FO4SF.toggle.json first, then unticks the lines (a
 guarded Plugins.txt rewrite), so an interruption leaves the record ahead of Plugins.txt and `on` repairs it. While the
-record holds a plugin: exp_install.py order and bridge_install.py order leave it unticked, exp_install.py active
-counts it as intended (and fails if it is ticked), the relaunch of the same installed experiment or bridge
-(a campaign's pre_launch) keeps it off, and a new install or any uninstall refuses until `on`. on ticks the lines
+record holds a plugin: exp_install.py order and bridge_install.py order leave it unticked (and refuse, exit 6, when the
+game ticked it again), exp_install.py active counts it as intended (and fails if it is ticked), the relaunch of the
+same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
 first, then empties the record. Run it with the game closed, as the installers.
 """
 import argparse
