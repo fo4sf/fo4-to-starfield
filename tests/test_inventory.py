@@ -110,6 +110,8 @@ class InventoryTests(unittest.TestCase):
 
     def test_promote_refuses_another_build_and_a_tier1_with_no_pass(self):
         self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        self.assertIn("CellA.json", jload(os.path.join(self.out, "staging_files.json")))
+        self.assertNotIn("probe_CellA_1.txt", jload(os.path.join(self.out, "staging_files.json")))
         with self.assertRaises(SystemExit) as cm:                        # nothing ran: every cell held
             self.run_inv("promote", "--inventory", self.out)
         self.assertIn("no cell passed tier 1", str(cm.exception))
@@ -117,6 +119,21 @@ class InventoryTests(unittest.TestCase):
         for k in ("bogus", ""):
             with self.subTest(kinds=k), self.assertRaises(SystemExit):
                 self.run_inv("promote", "--inventory", self.out, "--kinds", k)
+        with open(os.path.join(self.out, "promotion.json"), "rb") as f:
+            held = f.read()                                              # the no-pass promote's record
+        with open(os.path.join(self.st, "Meshes.ba2"), "wb") as f:      # same plugin, another archive (Codex on #405)
+            f.write(b"BTDX rebuilt")
+        with self.assertRaises(SystemExit) as cm:
+            self.run_inv("promote", "--inventory", self.out)
+        self.assertIn("the staging changed since the smoke tier was planned (1 file(s): Meshes.ba2)", str(cm.exception))
+        os.remove(os.path.join(self.st, "Meshes.ba2"))
+        with open(os.path.join(self.st, "CellA.json"), "a") as f:
+            f.write(" ")
+        with self.assertRaisesRegex(SystemExit, "CellA.json"):
+            self.run_inv("promote", "--inventory", self.out)
+        with open(os.path.join(self.out, "promotion.json"), "rb") as f:
+            self.assertEqual(f.read(), held)                             # a refused promote rewrites nothing
+        self.assertFalse(os.path.exists(os.path.join(self.out, "tier2")))
         with open(os.path.join(self.st, "FO4Port.esm"), "ab") as f:
             f.write(b"!")                                                # rebuilt: the ids are another build's
         with self.assertRaises(SystemExit) as cm:

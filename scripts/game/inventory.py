@@ -8,8 +8,8 @@ passed tier 1, so a broken cell never costs a night of interaction tests.
            smoke test) and <dir>/tier1/queue.json (testqueue.py plan --kinds fall: coc into the cell, drop onto a
            floor point, read the landing).
   promote  --inventory <dir> [--kinds stairs,door,movable,travel] [--per-cell 12]
-           reads tier 1's results, refuses when the staging's FO4Port.esm changed since the plan (the ids would be
-           another build's), and writes <dir>/promotion.json (each cell promoted or held, with why) and
+           reads tier 1's results, refuses when the staging's FO4Port.esm or any other staged file changed since the
+           plan (plan pins every file's sha256 in staging_files.json, the probe_*.txt floor points aside), and writes <dir>/promotion.json (each cell promoted or held, with why) and
            <dir>/tier2/queue.json for the promoted cells.
 
 Both commands only read the staging and write under --out; probe_points.py may add probe_<cell>_<n>.txt files to the
@@ -17,6 +17,7 @@ staging, as testqueue.py plan does. Nothing here launches the game; the queues r
 """
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -71,6 +72,27 @@ def wanted_cells(a):
     return out
 
 
+def fingerprint(staging, skip=()):
+    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
+    out: the probe_<cell>_<n>.txt floor points testqueue.py plan writes there itself, and any folder in `skip` (an
+    inventory planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build for the
+    smoke result (Codex on #405)."""
+    out = {}
+    skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
+    for root, dirs, files in os.walk(staging):
+        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip)
+        for n in sorted(files):
+            if n.startswith("probe_") and n.endswith(".txt"):
+                continue
+            p = os.path.join(root, n)
+            out[os.path.relpath(p, staging).replace(os.sep, "/")] = tq.sha256(p)
+    return out
+
+
+def digest(files):
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+
+
 def run_plan(args):
     """testqueue.py plan with these arguments, its summary line returned instead of printed."""
     buf = io.StringIO()
@@ -98,6 +120,7 @@ def plan(a):
     if not present:
         sys.exit("none of the cells is in the staging: " + ", ".join(cells))
     extra = ["--bridge", a.bridge] if a.bridge else []
+    files = fingerprint(staging, [out])
     os.makedirs(out)
     t1 = os.path.join(out, "tier1")
     summary = run_plan(["--staging", staging, "--out", t1, "--kinds", "fall", "--per-cell", str(a.smoke_per_cell),
@@ -112,7 +135,9 @@ def plan(a):
     if not q["tests"]:
         shutil.rmtree(out)
         sys.exit("no smoke test could be planned: every cell is no_point or not_in_staging")
+    tq.save_atomic(os.path.join(out, "staging_files.json"), files)
     inv = {"created": tq.now(), "staging": staging, "plugin_sha256": q["plugin_sha256"], "build_id": q["build_id"],
+           "staging_files": len(files), "staging_digest": digest(files),
            "plugin_index": a.plugin_index, "bridge": os.path.abspath(a.bridge) if a.bridge else "",
            "source": ({"batch": os.path.abspath(a.batch), "batch_number": a.batch_number} if a.batch else
                       {"cells": a.cells} if a.cells else {"all": True}),
@@ -170,6 +195,14 @@ def promote(a):
     esm = os.path.join(inv["staging"], "FO4Port.esm")
     if not os.path.exists(esm) or tq.sha256(esm) != inv["plugin_sha256"]:
         sys.exit(f"{esm} is not the build the inventory planned ({inv['build_id']}): plan the inventory again")
+    pinned = tq.load(os.path.join(d, "staging_files.json"))
+    if not isinstance(pinned, dict) or digest(pinned) != inv.get("staging_digest"):
+        sys.exit(f"{d}: staging_files.json missing or not the one inventory.json pinned: plan the inventory again")
+    now_files = fingerprint(inv["staging"], [d])
+    if now_files != pinned:
+        moved = sorted(k for k in set(pinned) | set(now_files) if pinned.get(k) != now_files.get(k))
+        sys.exit(f"the staging changed since the smoke tier was planned ({len(moved)} file(s): "
+                 f"{', '.join(moved[:5])}{', ...' if len(moved) > 5 else ''}): plan the inventory again")
     final = final_rows(os.path.join(d, "tier1"))
     rows = []
     for c in inv["cells"]:
