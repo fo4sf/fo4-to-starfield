@@ -1460,10 +1460,13 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   The judge at c0024fa gave PASS 0, FAIL 1, INCONCLUSIVE 7: all 7 were `WORLD` (player in FF00552F, marker in 02000803).
 - **verified (judge fault, fixed in #383 daff232):** a persistent reference reports our base WRLD while the player stands in
   the overlay's runtime instance (JOURNAL 2026-10-16 "Step 0 probes" (a) and (e); docs/terrain/door-arrival-position.md
-  already warned that equal world ids are not the success check). The judge now accepts a runtime (FF) player world for
-  a plugin marker world, and nothing else.
+  already warned that equal world ids are not the success check). daff232 accepted any runtime (FF) player world for
+  any plugin marker world; Codex held that (an FF prefix does not say which WRLD it instantiates), so from the next
+  commit the judge crosses worlds only for a pair the operator pins: `judge --world-instance FF00552F=02000803`.
+  Without a pin an OUT leg in another world stays INCONCLUSIVE WORLD, as at c0024fa.
 - **verified (re-judged on the PC at daff232, read-only, 20 Oct ~04:50Z; the c0024fa output kept as
-  door_rounds_judge.c0024fa.json):** PASS 5, FAIL 3, INCONCLUSIVE 0, NOT_RUN 0.
+  door_rounds_judge.c0024fa.json):** PASS 5, FAIL 3, INCONCLUSIVE 0, NOT_RUN 0. The run saw only the one pair
+  FF00552F / 02000803, so the pinned rule should give the same verdicts (supported; not re-run).
   PASS: 0000 ParsonsState01 (0.00 m xy, 0.01 m z), 0001 Vault114 (0.04, 0.10), 0002 Vault114 (0.28, 0.02),
   0003 BostonPublicLibrary02 (0.00, 0.00), 0005 MuseumOfWitchcraft01 (0.00, 0.02).
   FAIL: 0004 Vault95 STAYED (interior cell 06007D12); 0006 MuseumOfWitchcraft01 WRONG_PLACE (0.0 m xy, 16.4 m z);

@@ -19,10 +19,10 @@ usage:
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
-  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json]
+  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json] [--world-instance FF......=02......]
       PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
-      cell (in) or the world it resolves in or that world's runtime instance (out, instance_of), within TOL_M of the marker (its record position; out: + the
+      cell (in) or the world it resolves in, or the runtime world --world-instance pins to it (out), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
@@ -328,16 +328,27 @@ def latest_attempt(qdir, test_id):
     return os.path.join(d, tries[-1][1]) if tries else None
 
 
-def instance_of(player_world, marker_world):
-    """Whether the player's world can be the runtime instance of the marker's world. A persistent reference
-    resolves in our base WRLD (a plugin form, e.g. 02000803) while the player stands in the overlay's runtime
-    instance, a created form (index FF): verified 2026-10-16, docs/JOURNAL.md "Step 0 probes" (a) and (e), and
-    doors_out2 on 2026-10-19 (player FF00552F, markers 02000803, 0.0 to 0.3 m off). Only that pair: two plugin
-    worlds, or a marker in a runtime world, still have to be equal."""
-    return str(player_world).upper().startswith("FF") and not str(marker_world).upper().startswith("FF")
+def world_pairs(specs):
+    """{runtime world: base world} from --world-instance RUNTIME=BASE (8 hex each): the operator's pin, for one
+    session, of the runtime instance the player stood in to the plugin WRLD the markers resolve in. A persistent
+    reference reports the base WRLD while the player stands in a created instance (index FF): docs/JOURNAL.md
+    2026-10-16 "Step 0 probes" (a) and (e). Nothing in an attempt's logs ties the two ids together, so the judge
+    never crosses them on its own (Codex on #383: an FF prefix does not say which WRLD it instantiates)."""
+    out = {}
+    for spec in specs or []:
+        m = re.fullmatch(r"([0-9A-Fa-f]{8})=([0-9A-Fa-f]{8})", spec.strip())
+        if not m:
+            raise ValueError(f"--world-instance {spec!r}: want RUNTIME=BASE, 8 hex digits each")
+        rt, base = m.group(1).upper(), m.group(2).upper()
+        if not rt.startswith("FF") or base.startswith("FF"):
+            raise ValueError(f"--world-instance {spec}: the first id must be a created (FF) world, the second a plugin's")
+        if out.get(rt, base) != base:
+            raise ValueError(f"--world-instance pins {rt} to both {out[rt]} and {base}")
+        out[rt] = base
+    return out
 
 
-def judge_test(events, obs, exp, tol=TOL_M):
+def judge_test(events, obs, exp, tol=TOL_M, instances=None):
     """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
     proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
     resolved after it at the planned index, a loaded player position after it, in the marker's cell (in) or world (out)
@@ -390,15 +401,23 @@ def judge_test(events, obs, exp, tol=TOL_M):
             return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
         if not last.get("world"):
             return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
-        if last["world"] != target["world"] and not instance_of(last["world"], target["world"]):
+        pinned = last["world"] != target["world"] and (instances or {}).get(last["world"]) == target["world"]
+        if last["world"] != target["world"] and not pinned:
             return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
-                                    f"{target['world']} ({dxy:.1f} m off)"), last
+                                    f"{target['world']} ({dxy:.1f} m off)"
+                                    + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
         return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
-    return "PASS", f"{dxy:.2f} m off in xy, {dz:.2f} m in z", last
+    return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
+                    + (f" (world {last['world']} taken as {target['world']} by --world-instance)" if not exp["cell"]
+                       and last.get("world") != target.get("world") else "")), last
 
 
 def judge(a):
+    try:
+        pairs = world_pairs(getattr(a, "world_instance", None))
+    except ValueError as e:
+        sys.exit(str(e))
     qdir = os.path.abspath(a.queue)
     q = load(os.path.join(qdir, "queue.json"))
     info = load(a.rounds or os.path.join(q["experiment"], "rounds.json"))
@@ -413,10 +432,11 @@ def judge(a):
             rows.append(dict(exp, id=t["id"], verdict="NOT_RUN", why="no attempt folder"))
             continue
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
-        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"])
+        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
+                                       pairs or None)
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
-    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "results": rows})
+    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "world_instances": pairs, "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}
@@ -442,6 +462,9 @@ def main(argv=None):
     j = sub.add_parser("judge")
     j.add_argument("--queue", required=True)
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")
+    j.add_argument("--world-instance", action="append", default=[], metavar="RUNTIME=BASE",
+                   help="pin a created world (FF...) to the plugin WRLD it instantiates, for this queue's session "
+                        "(repeatable; e.g. FF00552F=02000803); without it an OUT leg in another world is INCONCLUSIVE")
     a = ap.parse_args(argv)
     {"order": cmd_order, "stage": stage, "judge": judge}[a.cmd](a)
     return 0

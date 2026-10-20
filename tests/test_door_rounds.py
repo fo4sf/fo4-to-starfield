@@ -210,20 +210,34 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
 
-    def test_out_accepts_the_runtime_instance_of_the_markers_base_world(self):
+    def test_out_crosses_worlds_only_for_a_pinned_runtime_instance(self):
         # doors_out2 (2026-10-19): the player stood in FF00552F, the marker resolved in our WRLD 02000803, 0.0 to
-        # 0.3 m off; the journal's Step 0 probes (2026-10-16) show the persistent ref reports the base WRLD
+        # 0.3 m off. Codex on #383: an FF prefix does not say which WRLD it instantiates, so only a pinned pair crosses
         runtime, base = str(0xFF00552F - (1 << 32)), str(0x02000803)
         out = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base),
                pos(-1669.3, -2063.8, 42.4, cell="-6", world=runtime))
-        self.assertEqual(verdict(out, EXP_OUT)[0], "PASS")
+        pin = {"FF00552F": "02000803"}
+        self.assertEqual(verdict(out, EXP_OUT), ("INCONCLUSIVE", "WORLD"))      # no pin: as before daff232
+
+        def v(lines, pins=pin):
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins)
+            return r, why
+        self.assertEqual(v(out)[0], "PASS")
+        self.assertIn("taken as 02000803 by --world-instance", v(out)[1])
         far = out[:2] + (pos(-469, 636, 42, cell="-6", world=runtime),)
-        self.assertEqual(verdict(far, EXP_OUT), ("FAIL", "WRONG_PLACE"))       # the instance never excuses distance
-        for player in ("42", str(0x04000803)):                                   # another plugin's world: not an instance
-            with self.subTest(player=player):
-                self.assertEqual(verdict(out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=player),), EXP_OUT),
-                                 ("INCONCLUSIVE", "WORLD"))
-        self.assertEqual(verdict(out[:2] + (pos(-1669.3, -2063.8, 42.4),), EXP_OUT), ("FAIL", "STAYED"))
+        self.assertEqual(v(far)[0], "FAIL")                                       # a pin never excuses distance
+        other_rt = out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=str(0xFF123456 - (1 << 32))),)
+        self.assertEqual(v(other_rt)[0], "INCONCLUSIVE")                          # an unpinned runtime world
+        other_base = (out[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0x04000803)), out[2])
+        self.assertEqual(v(other_base)[0], "INCONCLUSIVE")                        # pinned to another WRLD
+        self.assertIn("no --world-instance pins the pair", v(other_base)[1])
+        self.assertEqual(v(out[:2] + (pos(-1669.3, -2063.8, 42.4),))[0], "FAIL")  # still inside: STAYED
+
+    def test_world_pins_are_checked(self):
+        self.assertEqual(dr.world_pairs(["ff00552f=02000803", "FF00552F=02000803"]), {"FF00552F": "02000803"})
+        for bad in (["FF00552F"], ["02000803=FF00552F"], ["FF00552F=FF000001"], ["FF00552F=02000803", "FF00552F=02000804"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                dr.world_pairs(bad)
 
     def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
         # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
