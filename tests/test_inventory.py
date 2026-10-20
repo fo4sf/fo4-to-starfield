@@ -86,7 +86,8 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):                              # never over an existing inventory
             self.run_inv("plan", "--staging", self.st, "--out", self.out)
         bad = os.path.join(self.d, "bad")
-        for extra in (["--cells", "CellC"], ["--cells", "Gone"], ["--cells", "coc CellA"], ["--smoke-per-cell", "0"]):
+        for extra in (["--cells", "CellC"], ["--cells", "Gone"], ["--cells", "coc CellA"], ["--smoke-per-cell", "0"],
+                      ["--bridge", os.path.join(self.d, "no_bridge")]):           # review pass on #405
             with self.subTest(extra=extra), self.assertRaises(SystemExit):
                 self.run_inv("plan", "--staging", self.st, "--out", bad, *extra)
             self.assertFalse(os.path.exists(bad))

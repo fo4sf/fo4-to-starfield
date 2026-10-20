@@ -123,8 +123,12 @@ def plan(a):
     files = fingerprint(staging, [out])
     os.makedirs(out)
     t1 = os.path.join(out, "tier1")
-    summary = run_plan(["--staging", staging, "--out", t1, "--kinds", "fall", "--per-cell", str(a.smoke_per_cell),
-                        "--cells", ",".join(present), "--plugin-index", a.plugin_index, *extra])
+    try:
+        summary = run_plan(["--staging", staging, "--out", t1, "--kinds", "fall", "--per-cell", str(a.smoke_per_cell),
+                            "--cells", ",".join(present), "--plugin-index", a.plugin_index, *extra])
+    except BaseException:                                 # a refused plan (a missing --bridge, ...) leaves nothing
+        shutil.rmtree(out, ignore_errors=True)
+        raise
     q = tq.load(os.path.join(t1, "queue.json"))
     by_cell = {}
     for t in q["tests"]:
