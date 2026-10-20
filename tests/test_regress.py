@@ -43,11 +43,11 @@ class DiffTests(unittest.TestCase):
                     [(0, "PASS"), (1, "FAIL"), (2, "INCONCLUSIVE"), (3, "PASS")], torn=True)
         r = rg.diff([old], [new])
         self.assertEqual((r["old_builds"], r["new_builds"]), (["aaaa"], ["bbbb"]))
-        self.assertEqual([x["key"] for x in r["regressed"]], [["stairs", "BostonPublicLibrary02", "0EBEDE"]])
-        self.assertEqual([x["key"] for x in r["lost"]], [["fall", "BostonPublicLibrary02", "pt1"]])
-        self.assertEqual([x["key"] for x in r["fixed"]], [["walk", "", "RedRocket_to_Sanctuary"]])
-        self.assertEqual([x["key"] for x in r["new"]], [["stairs", "X", "1"]])
-        self.assertEqual([x["key"] for x in r["gone"]], [["movable_control", "", "C_can"]])
+        self.assertEqual([x["key"] for x in r["regressed"]], [["stairs", "BostonPublicLibrary02", "0EBEDE", ""]])
+        self.assertEqual([x["key"] for x in r["lost"]], [["fall", "BostonPublicLibrary02", "pt1", ""]])
+        self.assertEqual([x["key"] for x in r["fixed"]], [["walk", "", "RedRocket_to_Sanctuary", ""]])
+        self.assertEqual([x["key"] for x in r["new"]], [["stairs", "X", "1", ""]])
+        self.assertEqual([x["key"] for x in r["gone"]], [["movable_control", "", "C_can", ""]])
 
     def test_the_last_row_is_final_and_unrun_tests_count_as_lost(self):
         d = tempfile.mkdtemp()
@@ -144,8 +144,48 @@ class DiffTests(unittest.TestCase):
         a = queue(d, "a", "x", [STAIRS], [(0, "PASS")])
         b = queue(d, "b", "x", [STAIRS], [(0, "FAIL")])
         r = rg.diff([a, b], [a])
-        self.assertEqual(r["duplicates"]["old"], [["stairs", "BostonPublicLibrary02", "0EBEDE"]])
+        self.assertEqual(r["duplicates"]["old"], [["stairs", "BostonPublicLibrary02", "0EBEDE", ""]])
         self.assertEqual(r["counts"]["fixed"], 1)                         # the later old queue (FAIL) won
+
+    def test_a_doors_two_sides_are_two_matches(self):
+        # review pass on #401: both sides shared one key, so side 1 going PASS to FAIL printed "unchanged", exit 0
+        d = tempfile.mkdtemp()
+        door = {"kind": "door", "cell": "Vault95", "ref": "0A1B2C:Fallout4.esm"}
+        sides = [dict(door, side=1), dict(door, side=-1)]
+        old = queue(d, "old", "a", sides, [(0, "PASS"), (1, "PASS")])
+        new = queue(d, "new", "b", sides, [(0, "FAIL"), (1, "PASS")])
+        r = rg.diff([old], [new])
+        self.assertEqual([x["key"] for x in r["regressed"]], [["door", "Vault95", "0A1B2C:Fallout4.esm", "1"]])
+        self.assertEqual(r["counts"]["unchanged"], 1)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
+
+    def test_a_key_repeated_inside_one_queue_is_refused(self):
+        d = tempfile.mkdtemp()
+        twice = queue(d, "twice", "a", [STAIRS, STAIRS], [(0, "PASS"), (1, "FAIL")])
+        other = queue(d, "other", "b", [STAIRS], [(0, "PASS")])
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", twice, "--new", other]), 2)
+        self.assertIn("share the key", buf.getvalue())
+        # terrain tests from one coc are told apart by their label
+        walks = [{"kind": "terrain", "cell": "", "ref": "FO4Port_X", "model": m} for m in ("walk north", "walk south")]
+        old = queue(d, "wo", "a", walks, [(0, "PASS"), (1, "PASS")])
+        new = queue(d, "wn", "b", walks, [(0, "PASS"), (1, "FAIL")])
+        self.assertEqual([x["key"][-1] for x in rg.diff([old], [new])["regressed"]], ["walk south"])
+
+    def test_not_run_to_fail_is_a_new_failure_and_other_changes_are_shown(self):
+        # review pass on #401: NOT_RUN to FAIL went into the never printed "unchanged" group, exit 0
+        d = tempfile.mkdtemp()
+        old = queue(d, "old", "a", [STAIRS, FALL, WALK], [(1, "FAIL"), (2, "INCONCLUSIVE")])
+        new = queue(d, "new", "b", [STAIRS, FALL, WALK], [(0, "FAIL"), (1, "INCONCLUSIVE"), (2, "INCONCLUSIVE")])
+        r = rg.diff([old], [new])
+        self.assertEqual([(x["old"], x["new"]) for x in r["new_failure"]], [("NOT_RUN", "FAIL")])
+        self.assertEqual([(x["old"], x["new"]) for x in r["changed"]], [("FAIL", "INCONCLUSIVE")])
+        self.assertEqual([(x["old"], x["new"]) for x in r["unchanged"]], [("INCONCLUSIVE", "INCONCLUSIVE")])
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
+        self.assertIn("new_failure", buf.getvalue())
+        self.assertIn("changed", buf.getvalue())
 
 
 if __name__ == "__main__":
