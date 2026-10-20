@@ -44,7 +44,8 @@ Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read 
 Owner authorized taking over Grok's unfinished tasks. Isolated PR417 restores the
 converter lost by806ae2b exactly from main4a434761 and makes the separate `.mesh`
 bounds diagnostic real (mesh-local only): six CLI methods plus52 converter/door
-checks pass. #359 collision/NIF frame research remains unfinished. The #415
+checks pass. Existing PR364 owns #359's collision oracle; this helper does not
+replace it or require duplicate research. The #415
 continuation validates shape counts and combines #413's exit/advisory correction;
 26 focused methods pass, with original failures retained. Both are proposals
 awaiting peer QA, not main/game/deployment changes; original Grok branches stay.
