@@ -5,7 +5,8 @@ names): FO4SFMapMarkers.esm and "FO4SFMapMarkers - Main.ba2" (the compiled FO4SF
 scripts are not read on this install) go into the game's Data folder, "*FO4SFMapMarkers.esm" goes to the end of
 Plugins.txt, and Data\\FO4SFMapMarkers.install.json records what was added. It is independent of exp_install.py's one
 experiment record, so it rides along with the installed core set. install refuses unless every master of the staged
-plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line. order moves its line to the end; cycle.ps1 runs it
+plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line and a readable plugin in Data; order refuses the
+same way before it moves or reactivates the line. order moves its line to the end; cycle.ps1 runs it
 before the bridge's order, so the planned reads' load indexes (the experiment's, FO4Port's) stay as they were.
 Uninstall it before a core swap (exp_install uninstall + install): its only master leaves Plugins.txt meanwhile, and
 exp_install refuses missing masters. Install it again after the swap.
@@ -34,14 +35,26 @@ kit.KIT = "map markers plugin"
 kit.STAGE_HINT = "scripts/mapmarkers/make_map_markers.py stage"
 
 
-def require_masters_active(a):
-    """Every master of the staged plugin is an active Plugins.txt line (or one the game loads by itself)."""
-    _d, plugin, _pex = kit.staged(a)
+def require_masters(plugin, data, action):
+    """Every master of `plugin` is an active Plugins.txt line (or one the game loads by itself) AND a readable plugin
+    in this Data folder, and no main-build recovery is pending: an active line alone does not prove the file is there.
+    Exits before anything is written."""
+    try:
+        exp_install.require_complete_master(data)
+        masters = exp_install.plugin_masters(plugin)
+    except (OSError, ValueError) as error:
+        sys.exit(f"map markers plugin not {action}: {error}")
     lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
-    for m in exp_install.plugin_masters(plugin):
-        if not exp_install.implicit(m) and kit.plugin_line_present(lines, m) is None:
-            sys.exit(f"map markers plugin not installed: its master {m} is not active in Plugins.txt "
+    for m in masters:
+        if exp_install.implicit(m):
+            continue
+        if kit.plugin_line_present(lines, m) is None:
+            sys.exit(f"map markers plugin not {action}: its master {m} is not active in Plugins.txt "
                      "(install the core set first)")
+        try:
+            exp_install.plugin_masters(exp_install.data_path(data, m))
+        except (OSError, ValueError) as error:
+            sys.exit(f"map markers plugin not {action}: its master {m} is not a readable plugin in Data ({error})")
 
 
 def main(argv=None):
@@ -53,11 +66,15 @@ def main(argv=None):
     if a.cmd == "install":
         if not a.dir:
             sys.exit("install needs --dir")
-        require_masters_active(a)
+        _d, plugin, _pex = kit.staged(a)
+        require_masters(plugin, kit.record_path(a)[0], "installed")
         kit.install(a)
     elif a.cmd == "uninstall":
         kit.uninstall(a)
     elif a.cmd == "order":
+        data, rec_p = kit.record_path(a)
+        if os.path.exists(rec_p):                         # never reactivate or move the line while a master is held
+            require_masters(os.path.join(data, PLUGIN), data, "ordered")
         kit.order(a)
     else:
         kit.status(a)

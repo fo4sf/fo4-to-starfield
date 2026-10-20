@@ -41,6 +41,7 @@ class MapMarkersInstallTests(unittest.TestCase):
         self.game = os.path.join(root, "game")
         self.data = os.path.join(self.game, "Data")
         os.makedirs(self.data)
+        write(os.path.join(self.data, "FO4TerrainCore.esm"), plugin())     # the installed core the markers master
         self.staged = os.path.join(root, "mapmarkers_v6e")
         write(os.path.join(self.staged, mm.PLUGIN), plugin("FO4TerrainCore.esm"))
         write(os.path.join(self.staged, mm.PEX), b"pex")
@@ -90,8 +91,49 @@ class MapMarkersInstallTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             self.run_cmd("install")
         self.assertIn("FO4TerrainCore.esm is not active", str(cm.exception))
-        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(os.listdir(self.data), ["FO4TerrainCore.esm"])
         self.assertEqual(self.lines(), ["*FO4Port.esm", "FO4TerrainCore.esm"])
+
+    def test_install_refuses_an_active_core_line_without_its_file(self):
+        os.remove(os.path.join(self.data, "FO4TerrainCore.esm"))          # the line is active, the file is gone
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("install")
+        self.assertIn("FO4TerrainCore.esm is not a readable plugin in Data", str(cm.exception))
+        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_install_refuses_while_the_main_build_recovers(self):
+        write(os.path.join(self.data, exp_install.deployment.MANIFEST), json.dumps({"complete": False}).encode())
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("install")
+        self.assertIn("incomplete FO4Port deployment", str(cm.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.data, mm.RECORD)))
+
+    def test_order_refuses_to_reactivate_while_the_core_is_held(self):
+        self.run_cmd("install")
+        write(self.plugins, b"*FO4Port.esm\r\nFO4TerrainCore.esm\r\nFO4SFMapMarkers.esm\r\n")   # both held off
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("order")
+        self.assertIn("FO4TerrainCore.esm is not active", str(cm.exception))
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_order_refuses_when_the_core_file_is_gone(self):
+        self.run_cmd("install")
+        write(self.plugins, b"*FO4TerrainCore.esm\r\n*FO4SFMapMarkers.esm\r\n*FO4Port.esm\r\n")
+        os.remove(os.path.join(self.data, "FO4TerrainCore.esm"))
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("order")
+        self.assertIn("not a readable plugin in Data", str(cm.exception))
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_order_reactivates_when_the_core_is_active(self):
+        self.run_cmd("install")
+        write(self.plugins, b"*FO4TerrainCore.esm\r\n*FO4Port.esm\r\n")     # a deploy dropped the markers line
+        self.run_cmd("order")
+        self.assertEqual(self.lines(), ["*FO4TerrainCore.esm", "*FO4Port.esm", "*FO4SFMapMarkers.esm"])
 
     def test_order_puts_it_last_then_the_bridge_goes_after_it(self):
         self.run_cmd("install")
@@ -102,7 +144,7 @@ class MapMarkersInstallTests(unittest.TestCase):
     def test_uninstall_removes_only_what_it_added(self):
         self.run_cmd("install")
         self.run_cmd("uninstall")
-        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(os.listdir(self.data), ["FO4TerrainCore.esm"])
         self.assertEqual(self.lines(), ["# header", "*FO4Port.esm", "*FO4TerrainCore.esm", "*FO4SFBridge.esm"])
 
     def test_a_different_build_is_refused_until_uninstalled(self):
@@ -124,6 +166,9 @@ class CycleOrderTests(unittest.TestCase):
         markers = text.index("map_markers_install.py\" order")
         self.assertLess(text.index("FO4SFExp.install.json"), markers)
         self.assertLess(markers, text.index("bridge_install.py\" order"))
+        block = text[markers:text.index("bridge_install.py\" order")]
+        self.assertIn("$mmCode = $LASTEXITCODE", block)                   # a refused order stops the launch
+        self.assertIn("exit 7", block)
 
 
 if __name__ == "__main__":
