@@ -1891,3 +1891,15 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex takes over Grok #415 shape summary validation
+
+The new asset-mix report coerced shape counts with `int(value or 0)`: malformed
+JSON values could crash status, while fractions, booleans and negative counts
+could silently produce incorrect totals. Validate present counts as nonnegative
+integers (missing/null remains zero for legacy rows), and report malformed or
+unrepresentably large totals as a clean manifest error before printing coverage.
+Three regression methods include 16 actual subprocess calls, explicit and
+auto-discovered; the old code produced 22 failures and two errors. All17 focused
+config/manifest/CLI methods now pass, as does guard. Inputs remain unchanged.
+No private build/game/deploy actions; independent review remains required.

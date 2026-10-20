@@ -77,10 +77,10 @@ def cmd_status(args: argparse.Namespace) -> int:
 def _print_manifest(manifest_path: Path) -> int:
     try:
         items = load_manifest(manifest_path)
+        summary = summarize_manifest(items)
     except ManifestError as e:
         print(f"  manifest error: {e}", file=sys.stderr)
         return 1
-    summary = summarize_manifest(items)
     print(f"\n  Manifest: {manifest_path} ({summary['total']} items)")
     if summary["by_type"]:
         print("  By type:")
