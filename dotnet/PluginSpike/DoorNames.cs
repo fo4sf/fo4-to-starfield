@@ -7,9 +7,12 @@
 // Mutagen 0.55's TranslatedString dumps as its string, checked 2026-10-19). Per converted DOOR base:
 // - every reference's FO4 name is one line, or "Door" when FO4 gives none (an unnamed base, or an export without
 //   door_bases);
-// - the most common name becomes the base's name (ties: an FO4 name before "Door", then ordinal order);
-// - each other name gets a copy of the base under identity DOOR:<editor id>|name:<name>, so its FormID is stable, and
+// - the base itself keeps "Door" and the references without an FO4 name;
+// - each FO4 name gets a copy of the base under identity DOOR:<editor id>|name:<name>, so its FormID is stable, and
 //   that name's references move to the copy. A copy keeps the original's open / own-rig roles (the caller's sets).
+// No name is elected from reference counts, so a growing export (more references, new names) never moves an existing
+// reference to another base or gives a published base another name (Codex review on #400). A model whose references
+// all have FO4 names leaves its base unreferenced.
 // Runs before activation chains and teleport links, which read the bases. Not verified in game.
 using System.Security.Cryptography;
 using System.Text;
@@ -19,8 +22,7 @@ using Mutagen.Bethesda.Starfield;
 
 public sealed class DoorNameReport
 {
-    public int Named { get; set; }        // DOOR bases whose name is no longer "Door"
-    public int Copies { get; set; }       // extra DOOR bases made for a second (third, ...) name of one model
+    public int Copies { get; set; }       // DOOR bases made for an FO4 name, one per (model, name)
     public int Moved { get; set; }        // references moved to a copy
     public int Unnamed { get; set; }      // door references with no usable FO4 name (kept "Door")
     public List<string> Refused { get; } = new();   // "<source ref>: <reason>" for names that are not one line
@@ -53,11 +55,9 @@ public static class DoorNames
         foreach (var (key, refs) in byBase.OrderBy(kv => kv.Key.ID))
         {
             var door = doors[key];
-            var names = refs.GroupBy(r => r.name, StringComparer.Ordinal)
-                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key == Default).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-            door.Name = names[0].Key;
-            if (names[0].Key != Default) report.Named++;
-            foreach (var group in names.Skip(1))
+            door.Name = Default;
+            foreach (var group in refs.Where(r => r.name != Default).GroupBy(r => r.name, StringComparer.Ordinal)
+                         .OrderBy(g => g.Key, StringComparer.Ordinal))
             {
                 var copy = door.Duplicate(id($"DOOR:{door.EditorID}|name:{group.Key}"));
                 copy.EditorID = $"{door.EditorID}_N{Digest(group.Key)}";
@@ -67,7 +67,6 @@ public static class DoorNames
                     if (set.Contains(key)) set.Add(copy.FormKey);
                 foreach (var (obj, _) in group) { obj.Base.SetTo(copy.FormKey); report.Moved++; }
                 report.Copies++;
-                if (group.Key != Default) report.Named++;
             }
         }
         return report;

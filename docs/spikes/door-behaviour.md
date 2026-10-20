@@ -22,7 +22,7 @@ byte layout was not checked here, so the list is a **supported hypothesis** unti
 | Hidden until a quest enables it | REFR initially disabled, enable parent XESP | `disabled`, `enable_parent` | disabled kept; **enable parent not written**, so such a door never appears or always appears |
 | Opened by something else (button, terminal, lever) | REFR activate parents XAPD, linked refs | `activate_parents`, `linked_references` | not written for doors |
 | Automatic, hidden, minimal use, sliding, no "to" text | DOOR FNAM flags | **new**: `door_bases[..].record.Flags` | not used |
-| Name in the prompt ("Open Roof Hatch") | DOOR FULL | **new**: `door_bases[..].record.Name` | interiors: the FO4 FULL on the DOOR base (PluginSpike DoorNames.cs, 2026-10-19; a second name of one model gets its own base; "Door" without an export that has door_bases); exterior: ACTI with the FO4 FULL or "Door". Not verified in game |
+| Name in the prompt ("Open Roof Hatch") | DOOR FULL | **new**: `door_bases[..].record.Name` | interiors: the FO4 FULL on the DOOR base (PluginSpike DoorNames.cs, 2026-10-19; each FO4 name of a model gets its own stable base, so growing exports never rebind old references; "Door" without an export that has door_bases); exterior: ACTI with the FO4 FULL or "Door". Not verified in game |
 | Open / close sounds | DOOR sound fields | **new**: in `door_bases[..].record` | none |
 | Scripted (elevators, quest doors, default lock scripts) | VMAD on the DOOR or the REFR | **new**: `scripts` on refs, `door_bases[..].scripts` | none, except FO4SF_LoadDoor |
 
