@@ -12,10 +12,12 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--pod-ref HEX] [--terminal-ref HEX]
-                               [--clear-inventory [--vault-suit EDITORID]]
+                               [--clear-inventory [--vault-suit EDITORID]] [--require-persistent-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
-      2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
+      2. dotnet/NewGame write + check against the port and core given (offline_check.txt; its "vault anchor" line says
+         whether the anchor is persistent or the temporary COC marker the script must center on first, and plan.json
+         records that mode; --require-persistent-anchor refuses the temporary mode);
       3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks,
          FO4SF_NewGameSpecial.psc unless --no-special, FO4SF_NewGameVersion.psc unless --no-version);
       4. plan.json (the plugin's and scripts' SHA-256 and the port, its formids.json and the core it was checked
@@ -32,8 +34,8 @@ usage:
       command would never install the new game.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
       the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
-      the SPECIAL ending, the save version lines, the inventory reset, moves, the landing); exit 0 when stage 200 was
-      reached.
+      the SPECIAL ending, the save version lines, the inventory reset, the centering of a temporary-anchor start, moves,
+      the landing); exit 0 when stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -98,6 +100,15 @@ DEFAULT_BUILD_VERSION = 1
 # cleared removed=<n> left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and
 # equips ("vault suit equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
 DEFAULT_CLEAR_INVENTORY = False
+# The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The installed
+# port (PC 21 Oct) has no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
+# terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
+# then anchors on the temporary COC marker and the quest script loads the cell first (Debug.CenterOnCell, the
+# AnchorTemporary / VaultCell properties). The persistent mode stays preferred and returns by itself once the port marks
+# its COC markers persistent; --require-persistent-anchor restores the refusal. check prints the mode after the anchor
+# ("vault anchor FO4Port.esm:<id> persistent|temporary"), anchor_mode reads it into plan.json.
+DEFAULT_REQUIRE_PERSISTENT_ANCHOR = False
+ANCHOR_LINE = re.compile(r"vault anchor FO4Port\.esm:(?P<id>[0-9A-Fa-f]+) (?P<mode>persistent|temporary)\b")
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
@@ -106,10 +117,12 @@ LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 # Events are declarations too (Event OnMenuOpenCloseEvent in ScriptObject.psc), looked up the same way.
 NATIVES = {
     # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
-    # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads
+    # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads. The
+    # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc is believed to
+    # declare CenterOnCell, unverified until this precheck reads it, and whether it works in retail until the PC run)
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
-        "Debug": ["OpenUserLog", "TraceUser", "Notification"],
+        "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode"],
         "GlobalVariable": ["GetValue"],
         "Message": ["Show"],
@@ -332,6 +345,8 @@ def tool_options(a):
             opts += ["--vault-suit", a.vault_suit]
     elif a.vault_suit:
         sys.exit("--vault-suit is equipped by the inventory reset: stage with --clear-inventory too")
+    if a.require_persistent_anchor:
+        opts.append("--require-persistent-anchor")
     return opts
 
 
@@ -348,6 +363,14 @@ def build_version_option(a):
     if not a.version:
         return None
     return DEFAULT_BUILD_VERSION if a.build_version is None else a.build_version
+
+
+def anchor_mode(check_text):
+    """The vault anchor as check printed it: {"id": "<hex>", "mode": "persistent" | "temporary"}; None when the text has
+    no such line (a check that never reached the anchor). "temporary" means the quest script centers on the vault cell
+    before the marker resolves (AnchorTemporary); plan.json records it as "anchor"."""
+    m = ANCHOR_LINE.search(check_text)
+    return {"id": m.group("id").upper(), "mode": m.group("mode")} if m else None
 
 
 def pins(a):
@@ -372,6 +395,9 @@ def stage(a):
     check = run(tool + ["check", os.path.join(out, PLUGIN)] + masters + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
+    anchor = anchor_mode(check)
+    if anchor is None:
+        sys.exit(f"check printed no vault anchor line (persistent or temporary); attempt kept in {out}")
     src = extract_sources(a.content_resources, work)
     scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
     pex = {s: compile_script(a.compiler, s, src, os.path.join(out, "Data", "Scripts")) for s in scripts}
@@ -388,7 +414,9 @@ def stage(a):
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
-                        "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None},
+                        "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None,
+                        "require_persistent_anchor": bool(a.require_persistent_anchor)},
+            "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -401,6 +429,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON (quest items kept), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
+Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
 command, every plugin listed), verify, then exp_install.py.
@@ -551,10 +580,12 @@ def split_runs(lines, line_re, start="init ", carry=()):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "entered_vault",
-    "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
+    "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
     "inventory_cleared" is the reset's line ("removed=<n> left=<n> ..."; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
+    "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
+    persistent mode, which never centers, or when the anchor resolved at once).
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
     says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
@@ -566,7 +597,7 @@ def summarize(lines):
     stage 200 (kept as history, never as the current result). Lines of other logs are ignored."""
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
-         "inventory_cleared": None, "vault_suit": None,
+         "inventory_cleared": None, "vault_suit": None, "centered": None,
          "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
          "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
@@ -599,6 +630,9 @@ def summarize(lines):
             s["inventory_cleared"] = msg[len("inventory cleared "):]
         elif msg.startswith("vault suit "):
             s["vault_suit"] = msg[len("vault suit "):]
+        elif msg.startswith("centered on "):
+            if s["centered"] is None:                        # the first centering; a second one is the bound's retry
+                s["centered"] = msg[len("centered on "):]
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -655,6 +689,9 @@ def main(argv=None):
                    help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")
     s.add_argument("--vault-suit", default=None, metavar="EDITORID",
                    help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
+    s.add_argument("--require-persistent-anchor", action="store_true",
+                   help="refuse a port whose vault cell has no persistent reference (default: anchor on its temporary "
+                        "COC marker, and the script centers on the cell first)")
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)
     v.add_argument("--plan", required=True)

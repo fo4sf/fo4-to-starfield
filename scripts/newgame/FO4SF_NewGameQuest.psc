@@ -14,7 +14,9 @@ Scriptname FO4SF_NewGameQuest extends Quest
    40 on the surface: the elevator ride is over
    200 complete: landed, or put on the fallback spot
  The places come from other plugins by their plugin-local form ids (the FO4SF_LoadDoor contract): this plugin has no
- master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).}
+ master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).
+ The vault anchor has two modes (AnchorTemporary): a persistent reference, which resolves before the vault loads, or the
+ temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo.}
 
 GlobalVariable Property GameDaysPassed Auto Const Mandatory
 {Starfield.esm 000039, 0 on a new game. Part of the new-game guard (IsNewGame).}
@@ -37,7 +39,18 @@ Message Property ExitMessage Auto Const Mandatory
 
 string Property VaultPlugin = "FO4Port.esm" Auto Const
 int Property VaultAnchorId Auto Const Mandatory
-{A persistent reference in FO4Port_Vault111Cryo (the cell's COC marker): MoveTo it puts the player in the vault.}
+{A reference in FO4Port_Vault111Cryo (the cell's COC marker, or the port's persistent reference nearest to it): MoveTo it
+ with the pod's offset puts the player at their pod. Persistent when the port has one (the preferred mode); else the
+ temporary COC marker with AnchorTemporary set (the installed port, PC 21 Oct: no persistent reference in the cell).}
+bool Property AnchorTemporary = false Auto Const
+{True when the anchor is a temporary reference (the writer found no persistent one): it resolves to None while the vault
+ is unloaded (verified 16 Oct), so EnterVault first loads the cell with Debug.CenterOnCell on VaultCell, once, and the
+ next tick's retry resolves the marker and does the same MoveTo. False is the persistent mode, which centers never.}
+string Property VaultCell = "FO4Port_Vault111Cryo" Auto Const
+{The vault cell's EditorID, what Debug.CenterOnCell takes in the temporary-anchor mode.}
+int Property CenterTicks = 30 Auto Const
+{The temporary-anchor mode's bound: after this many ticks without the anchor resolving, one more centering at most, then
+ a failure line every 10 ticks ("vault anchor ... does not resolve after <n> ticks ..."), never a centering loop.}
 float Property AnchorX Auto Const Mandatory
 float Property AnchorY Auto Const Mandatory
 float Property AnchorZ Auto Const Mandatory
@@ -102,10 +115,12 @@ float arrivedAt = 0.0
 bool asked = false
 int applied = 0
 int holdPasses = 0
+int centerTicks = 0
+int centered = 0
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
-    Trace("init holdoff=" + HoldOff.Length + " vault=" + VaultPlugin + ":" + VaultAnchorId + " core=" + CorePlugin + ":" + ExitAnchorId)
+    Trace("init holdoff=" + HoldOff.Length + " vault=" + VaultPlugin + ":" + VaultAnchorId + " anchor_temporary=" + AnchorTemporary + " core=" + CorePlugin + ":" + ExitAnchorId)
     StartTimer(1.0, 1)
 EndEvent
 
@@ -225,9 +240,15 @@ EndFunction
 
 bool Function EnterVault(Actor player)
 {MoveTo the vault's anchor with the pod's offset (the verified MoveTo form of the mission and FO4SF_Probe), then the
- pod's heading. False when the anchor does not resolve or the player did not land in the anchor's cell.}
+ pod's heading. False when the anchor does not resolve or the player did not land in the anchor's cell. In the
+ temporary-anchor mode an unresolved anchor means the cell is not loaded yet: CenterOnVault loads it and the retry one
+ tick later resolves the marker; the MoveTo then applies the pod's offset even though the player already stands in the
+ cell (on the COC marker), so the two modes end at the same spot.}
     ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
     if anchor == None
+        if AnchorTemporary
+            return CenterOnVault()
+        endif
         Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve")
         return false
     endif
@@ -239,6 +260,25 @@ bool Function EnterVault(Actor player)
         Debug.Notification("Vault 111")
     endif
     return ok
+EndFunction
+
+bool Function CenterOnVault()
+{The temporary-anchor mode (AnchorTemporary): the COC marker resolves to None while the vault is unloaded, so the cell is
+ loaded with Debug.CenterOnCell on VaultCell (FO4's signature, CenterOnCell(string asCellname); Starfield's Debug.psc is
+ believed to declare it, whether it works in retail is unverified: the precheck reads the declaration, the log line
+ "centered on ..." and the "enter vault ok=" line after it are the proof) and false is returned, so the caller's 1 s
+ retry resolves the now-loaded marker and does the MoveTo. Bounded: the first call centers; after CenterTicks ticks
+ without the anchor resolving one more centering at most; past that a failure line every 10 ticks, never a loop. The
+ guard and the hold-off have run before the first call (OnTimer's order), so a centering never re-judges them.}
+    centerTicks += 1
+    if centered == 0 || (centered == 1 && centerTicks > CenterTicks)
+        centered += 1
+        Debug.CenterOnCell(VaultCell)
+        Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")
+    elseif centerTicks > CenterTicks && centerTicks % 10 == 0
+        Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve after " + centerTicks + " ticks and " + centered + " centerings on " + VaultCell + ": the temporary-anchor start failed")
+    endif
+    return false
 EndFunction
 
 Function ResetInventory(Actor player)

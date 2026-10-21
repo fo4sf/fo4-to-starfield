@@ -28,7 +28,8 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    (section 2, NG-2). That override is a record, not gated by the guard: whether an existing save keeps its own value
    of the global is unverified until the PC run.
 4. **The cryo pod:** the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`) and stands up one metre
-   in front of their own pod, facing out of it. The notification reads "Vault 111" and the objective is "Leave Vault
+   in front of their own pod, facing out of it (on the installed port, which has no persistent reference in the cell,
+   the script first loads the cell by centering on it: section 3a). The notification reads "Vault 111" and the objective is "Leave Vault
    111" under FO4's quest name for this part (MQ102's name, read from Fallout4.esm by the points step; "Out of
    Time" is only the fallback when it has none).
 5. **Looks:** a message box in the vault asks "Create character" or "Quick start" (NG-6, NG-C9). Create opens
@@ -80,9 +81,10 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   them where FO4 has it (door probe (e), the Super Duper Mart round trip PASS 17 Oct, `FO4SF_LoadDoor`
   UseDestinationPosition). The new game uses the same two steps for the elevator exit.
 - So the script resolves its places at run time with `Game.GetFormFromFile(id, plugin)` (the `FO4SF_LoadDoor`
-  contract): the vault anchor is a persistent reference of `FO4Port_Vault111Cryo` (its COC marker when that is persistent,
-  else the port's persistent reference nearest to it: a temporary reference in an unloaded cell resolves to none, 16 Oct
-  probe), and every resolved reference must be the named plugin's own record; the exit anchor is the core's persistent
+  contract): the vault anchor is a reference of `FO4Port_Vault111Cryo`, persistent when the cell has one (its COC marker
+  when that is persistent, else the port's persistent reference nearest to it) and otherwise the cell's temporary COC
+  marker, which the script must load the cell for first (section 3a: a temporary reference in an unloaded cell resolves
+  to none, 16 Oct probe), and every resolved reference must be the named plugin's own record; the exit anchor is the core's persistent
   `FO4Core_CommonwealthMapMarkerVault111`; the cog door is the port's reference keyed
   `REFR:FO4Port_Vault111Cryo:0330C3:Fallout4.esm` (Mutagen prints six digits; the id is matched as a number) in its stable `formids.json`. The writer reads the port, its
   `formids.json` and the core to find those ids and refuses when any is missing or ambiguous; `check` re-reads them.
@@ -91,6 +93,44 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   offline re-check).
 - Alternative: master FO4Port.esm and the core and place our own markers (a WRLD and CELL override, as the mission
   does). That costs a rebuild after every port or core build and ties the start to one build pair.
+
+## 3a. The vault anchor: persistent, or the temporary COC marker
+
+- **The evidence (PC, 21 Oct, real data):** the installed port's `FO4Port_Vault111Cryo` has **0 persistent references of
+  1,166**; its COC marker is `001338:FO4Port.esm`, temporary, and every terminal is temporary. So the writer as it stood
+  refused the build ("has no persistent reference of FO4Port.esm to anchor the start on"). **verified** (16 Oct probe):
+  a temporary reference in an unloaded cell resolves to None via `Game.GetFormFromFile`, and `player.moveto` a
+  non-persistent reference fails. A later port build (another thread) will make each cell's COC marker persistent with
+  the same form id; until then the start needs a way in that does not depend on a persistent reference.
+- **Two modes, one property.** The writer's `Resolve` prefers a persistent anchor (the COC marker when it is persistent,
+  else the port's persistent reference nearest to it) and writes `AnchorTemporary = false`: the **persistent mode**, the
+  one the start returns to by itself once the port marks its COC markers persistent (the id stays, so the same plugin
+  needs no rebuild beyond the re-stage that pins the new port's bytes). When the cell has no persistent reference the
+  writer anchors on the temporary COC marker itself and writes `AnchorTemporary = true` and `VaultCell =
+  "FO4Port_Vault111Cryo"` (the cell's EditorID): the **temporary mode**. `write` and `check` print the mode after the
+  anchor's id (`vault anchor FO4Port.esm:001338 temporary`), `offline_check.txt` keeps the line, `make_newgame.py`
+  reads it into plan.json as `anchor` and `check` holds a build to its mode (a temporary-anchor build fails the check
+  against a port with a persistent reference, and the other way round). `--require-persistent-anchor` restores the
+  refusal, for a build that must not rely on the fallback.
+- **The script in the temporary mode:** `EnterVault` resolves the anchor as before. When it comes back None and
+  `AnchorTemporary` is set, `CenterOnVault` calls `Debug.CenterOnCell(VaultCell)` once, logs `centered on
+  FO4Port_Vault111Cryo attempt=1 tick=1: ...` and returns false, so the existing 1 s retry resolves the now-loaded marker
+  and does the same `MoveTo` with the pod's offset: the player, already standing in the cell on the COC marker after the
+  centering, still ends at their pod, and the `enter vault ok=` line is the same proof as in the persistent mode. The
+  wait is bounded: after `CenterTicks` ticks (30) without the anchor resolving the script centers once more, at most,
+  and past that logs a failure line every 10 ticks (`vault anchor FO4Port.esm:<id> does not resolve after <n> ticks and
+  <m> centerings on FO4Port_Vault111Cryo: the temporary-anchor start failed`) instead of recentering in a loop. The
+  guard and the hold-off run before the first `EnterVault` as before (once, before the hold-off), so a centering never
+  re-judges them; the persistent mode never centers.
+- **What is unverified:** FO4 declares `Function CenterOnCell(string asCellname) native global` in Debug.psc. Starfield's
+  Debug.psc is **believed** to declare `CenterOnCell` (and `CenterOnCellAndWait`), **unverified** until the PC precheck
+  reads it (it is in the quest script's NATIVES, so a miss fails the precheck: the script would not compile); whether
+  the call works in retail Starfield, loads the cell and leaves the player in it is **unverified** until the PC run (the
+  `centered on` line followed by `enter vault ok=True` is the proof; the failure line is the counter-proof). The
+  selftest covers the resolver and the plugin: the no-persistent-reference fixture (every reference of the cell
+  temporary, as on the PC) writes a temporary-anchor build and still refuses under `--require-persistent-anchor`, and
+  mutations of `AnchorTemporary` and `VaultCell` are rejected.
+- `make_newgame.py log` prints `centered` (the first centering line's text; None in the persistent mode).
 
 ## 4. The cryo pod and character creation
 
@@ -248,15 +288,19 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
    (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
-   `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c). plan.json
-   records them and the stage contract.
+   `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
+   `--require-persistent-anchor` (refuse a vault cell without a persistent reference instead of the temporary-anchor
+   mode, section 3a). plan.json records them, the anchor's id and mode (`anchor`), and the stage contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
    selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold,
    `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
    `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the
    others' options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks,
-   has twice, or that another plugin owns is refused. It also checks the four MESG records (two buttons each,
+   has twice, or that another plugin owns is refused. A port whose vault cell has no persistent reference (every
+   reference temporary, the installed port's shape) builds a temporary-anchor plugin whose `write` and `check` lines say
+   `temporary`, fails `check` against the port with persistent references (and that build fails against it), and is
+   refused under `--require-persistent-anchor`. It also checks the four MESG records (two buttons each,
    ten on the allocation), the seven AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties, the SPECIAL
    script's list, messages and terminal, and the version GLOB (its value and Constant flag), the player alias (forced
    to 00000014, the only alias) and the alias script's binding and `BuildVersion` property; the terminal pick prefers a

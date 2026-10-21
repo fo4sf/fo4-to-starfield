@@ -13,7 +13,7 @@
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]]
+//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]] [--require-persistent-anchor]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
 //        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
@@ -30,7 +30,10 @@
 //        MESG FO4SF_NewGameTerminal (the prompt at the vault terminal, two buttons) and MESG FO4SF_NewGameSpecial (the
 //        allocation: one button per stat, Reset, Confirm, Leave), which the SPECIAL script drives (NG-5 / NG-C4). The
 //        port and the core are read for the ids and positions the scripts resolve at run time with Game.GetFormFromFile
-//        (plugin-local ids): the vault anchor (the COC marker of FO4Port_Vault111Cryo), the cog door (formids.json
+//        (plugin-local ids): the vault anchor (a persistent reference of FO4Port_Vault111Cryo, the COC marker first; when
+//        the cell has none, the temporary COC marker itself, and the script loads the cell with Debug.CenterOnCell
+//        before the move: the AnchorTemporary / VaultCell properties; --require-persistent-anchor refuses that
+//        fallback), the cog door (formids.json
 //        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
 //        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
 //        and the exit anchor (the core's Vault 111 map marker).
@@ -41,8 +44,9 @@
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
-//        synthetic Fallout4.esm, Starfield.esm, port and core; points + write + check, and mutations check rejects;
-//        then the records selftest.
+//        synthetic Fallout4.esm, Starfield.esm, port and core; points + write + check (every option variant, and the
+//        temporary-anchor build on a port without a persistent reference), and mutations check rejects; then the
+//        records selftest.
 //   records <Fallout 4 Data dir> --out <report.txt> [--sf-data <Starfield Data dir>] [--port <FO4Port.esm>] [--nearest <n>]
 //        the read-only PC record reader for newgame.md sections K and N (NG-K1, K2, K4, K9, N4 and the anchor
 //        picks): Records.cs. Writes only --out.
@@ -130,6 +134,15 @@ static class NewGame
     // ObjectReference.RemoveAllItems(None, false, false) (quest items kept; FO4's signature, Starfield's is read by the
     // precheck, unverified) after the move into the pod, and with --vault-suit it adds and equips the port's ARMO.
     public const bool DefaultClearInventory = false;
+    // The vault anchor's mode (PC result 21 Oct, the installed port: FO4Port_Vault111Cryo has 0 persistent references of
+    // 1,166, its COC marker 001338 and every terminal temporary, so the persistent-only resolver refused the build).
+    // Verified 16 Oct: a temporary reference of an unloaded cell resolves to None via Game.GetFormFromFile, and a MoveTo
+    // onto a non-persistent reference fails. So with no persistent reference the writer anchors on the temporary COC
+    // marker and the script loads the cell first (Debug.CenterOnCell(VaultCell), the AnchorTemporary property; whether
+    // Starfield's CenterOnCell works in retail is unverified, the precheck reads its declaration). Persistent stays the
+    // preferred mode and returns by itself once the port marks its COC markers persistent (same form id, another thread);
+    // --require-persistent-anchor restores the refusal for a build that must not rely on the fallback.
+    public const bool DefaultRequirePersistentAnchor = false;
     // GLOB MQ101Debug: MQ00's stage 10 sets it to 10 and starts MQ101 (verified, QF_MQ00_00005790.psc). We stop MQ00,
     // which may leave it at 0 (sustenance off, NG-M1), so the default build writes 10 ourselves (NG-2); which value
     // gives the cleanest start is unverified until the PC run (NG-M4), hence --mq101debug <n> and --no-mq101debug.
@@ -167,7 +180,7 @@ static class NewGame
     static float Deg(float rad) => rad * 180f / MathF.PI;
 
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
-                          bool ClearInventory = DefaultClearInventory, string? VaultSuit = null)
+                          bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor)
     {
         public static Options From(string[] a)
         {
@@ -185,7 +198,7 @@ static class NewGame
                 !a.Contains("--no-version"),
                 ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
-                clear, suit);
+                clear, suit, a.Contains("--require-persistent-anchor"));
         }
     }
 
@@ -263,7 +276,11 @@ static class NewGame
     // ---------------------------------------------------------------- the places the script resolves at run time
 
     public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos,
-                         uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0);
+                         uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0, bool AnchorTemporary = false)
+    {
+        /// "persistent" or "temporary": the anchor's mode, as write and check print it after the anchor's id.
+        public string AnchorMode => AnchorTemporary ? "temporary" : "persistent";
+    }
 
     /// points.json's terminals, nearest the pod first: (FO4 id, position in metres).
     public static List<(uint Src, P3Float Pos)> Terminals(JsonElement pts)
@@ -285,13 +302,16 @@ static class NewGame
         return new BinaryReadParameters { MasterFlagsLookup = styles };
     }
 
-    /// The vault anchor (the one COC marker of FO4Port_Vault111Cryo), the cog door (formids.json's key for FO4 000330C3
+    /// The vault anchor (a persistent reference of FO4Port_Vault111Cryo: its one COC marker when that is persistent, else
+    /// the port's persistent reference nearest to it; with none, the temporary COC marker itself and AnchorTemporary set,
+    /// unless `requirePersistentAnchor` refuses that), the cog door (formids.json's key for FO4 000330C3
     /// in that cell, 0 when absent, and it must be a reference of that cell), the SPECIAL terminal (the first of points'
     /// terminals the port carries, a persistent one preferred, nearest the pod among those; each key named must be the
     /// port's own reference of the cell; 0 when it carries none, and the prompt then watches points' nearest terminal)
     /// the exit anchor (the core world's REFR with that EditorID, persistent) and, when `vaultSuit` names one, the port's
     /// ARMO of that EditorID (exactly one, the port's own record; refused otherwise) the inventory reset equips.
-    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null, string? vaultSuit = null)
+    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null, string? vaultSuit = null,
+                                 bool requirePersistentAnchor = DefaultRequirePersistentAnchor)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         Owner(port.ModKey, PortPlugin, "the port");
@@ -310,15 +330,21 @@ static class NewGame
         if (cocs.Count != 1) throw new Refusal($"{VaultCell} has {cocs.Count} COC markers, not one");
         Owned(cocs[0], port.ModKey, "the vault's COC marker");
         // The script resolves the anchor at game start, while the vault is not loaded: a temporary reference in an
-        // unloaded cell resolves to none (16 Oct probe, JOURNAL), so the anchor must be persistent. The COC marker when
-        // it is; otherwise the port's own persistent reference in the cell nearest to it (the script moves the player
-        // by the pod's offset from the anchor, so any persistent reference of the cell serves). 20 Oct review on #393.
+        // unloaded cell resolves to none (16 Oct probe, JOURNAL), so a persistent anchor is preferred. The COC marker
+        // when it is; otherwise the port's own persistent reference in the cell nearest to it (the script moves the
+        // player by the pod's offset from the anchor, so any persistent reference of the cell serves). 20 Oct review on
+        // #393. With none at all (the installed port, PC 21 Oct: 0 persistent of 1,166) the anchor is the temporary COC
+        // marker and AnchorTemporary tells the script to load the cell first (Debug.CenterOnCell(VaultCell)), after
+        // which the marker resolves and the same MoveTo applies; --require-persistent-anchor keeps the refusal instead.
         var c0 = cocs[0].Position;
         float Dist(SF.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - c0.X, 2) + MathF.Pow(r.Position.Y - c0.Y, 2) + MathF.Pow(r.Position.Z - c0.Z, 2));
-        var anchor = IsPersistent(cocs[0]) ? cocs[0]
-                   : cell.Persistent.OfType<SF.IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == port.ModKey && IsPersistent(r))
-                         .OrderBy(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault()
-                     ?? throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads)");
+        var persistent = IsPersistent(cocs[0]) ? cocs[0]
+                       : cell.Persistent.OfType<SF.IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == port.ModKey && IsPersistent(r))
+                             .OrderBy(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault();
+        if (persistent is null && requirePersistentAnchor)
+            throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads; without --require-persistent-anchor the build anchors on the temporary COC marker and the script centers on the cell first)");
+        var anchor = persistent ?? cocs[0];
+        bool anchorTemporary = persistent is null;
         uint cog = 0;
         string cogBase = "none";
         var termRefs = new Dictionary<uint, uint>();            // FO4 terminal id -> the port's reference id
@@ -367,7 +393,7 @@ static class NewGame
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
         if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
-        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit);
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit, anchorTemporary);
     }
 
     static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
@@ -424,6 +450,7 @@ static class NewGame
             ("FallbackX", p.ExitPos.X), ("FallbackY", p.ExitPos.Y), ("FallbackZ", p.ExitPos.Z),
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
+            ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
         };
     }
 
@@ -447,6 +474,7 @@ static class NewGame
         int i => new SF.ScriptIntProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = i },
         float f => new SF.ScriptFloatProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = f },
         bool b => new SF.ScriptBoolProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = b },
+        string s => new SF.ScriptStringProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = s },
         _ => throw new Refusal($"property {name}: unsupported value"),
     };
 
@@ -455,13 +483,14 @@ static class NewGame
         (int i, SF.IScriptIntPropertyGetter ip) => ip.Data == i,
         (float f, SF.IScriptFloatPropertyGetter fp) => fp.Data == f && float.IsFinite(fp.Data),
         (bool b, SF.IScriptBoolPropertyGetter bp) => bp.Data == b,
+        (string s, SF.IScriptStringPropertyGetter sp) => sp.Data == s,
         _ => false,
     };
 
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
@@ -603,7 +632,7 @@ static class NewGame
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\" " +
-                          $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} at {Show(places.AnchorPos)}, " +
+                          $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode} at {Show(places.AnchorPos)}, " +
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
                           (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden") +
@@ -645,7 +674,7 @@ static class NewGame
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         var key = plug.ModKey;
@@ -793,7 +822,9 @@ static class NewGame
                 Need(props.Count == expected.Count + 3, $"{props.Count} SPECIAL properties, expected {expected.Count + 3}");
             }
         }
-        Console.WriteLine($"  vault anchor FO4Port.esm:{places.VaultAnchor:X6}, cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} {places.CogDoorBase}")}, " +
+        // the anchor line names the mode (make_newgame.py anchor_mode reads it into plan.json): "persistent", or
+        // "temporary" when the script must center on the cell before the marker resolves
+        Console.WriteLine($"  vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode}, cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} {places.CogDoorBase}")}, " +
                           $"exit anchor FO4TerrainCore.esm:{places.ExitAnchor:X6}");
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -936,6 +967,9 @@ static class NewGame
             try { Options.From(bad); Console.WriteLine($"FAIL  options accepted {why}"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
         }
+        // the anchor mode: the fallback is on by default; --require-persistent-anchor turns it off
+        var requirePers = plain with { RequirePersistentAnchor = true };
+        if (plain.RequirePersistentAnchor || !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
         var clear = plain with { ClearInventory = true };
         var suit = clear with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
@@ -1031,6 +1065,10 @@ static class NewGame
             ("the inventory reset switched on", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ClearInventory")).Data = true),
             ("a vault suit id without the option", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultSuitId")).Data = 0x820),
             ("ClearInventory removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "ClearInventory")),
+            ("the anchor marked temporary on a persistent one", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "AnchorTemporary")).Data = true),
+            ("AnchorTemporary removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "AnchorTemporary")),
+            ("the vault cell renamed", m => ((SF.ScriptStringProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultCell")).Data = "FO4Port_Vault111Ent"),
+            ("VaultCell removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "VaultCell")),
         };
         foreach (var (name, edit) in mutations)
         {
@@ -1080,14 +1118,47 @@ static class NewGame
                 try { Resolve(p, idsPath, c, ExitAnchorEdid, terms); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
                 catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
             }
-            // the vault anchor is persistent: a temporary COC marker gives way to the nearest persistent reference
-            // of the port in the cell; a persistent COC marker is used itself; none at all is refused
-            if (Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms).VaultAnchor != 0x805) { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
+            // the vault anchor prefers persistence: a temporary COC marker gives way to the nearest persistent reference
+            // of the port in the cell; a persistent COC marker is used itself; none at all (the installed port, PC 21
+            // Oct) anchors on the temporary COC marker with AnchorTemporary set, and --require-persistent-anchor refuses
+            var full0 = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms);
+            if (full0.VaultAnchor != 0x805 || full0.AnchorTemporary || full0.AnchorMode != "persistent") { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
             var persCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); r.MajorRecordFlagsRaw |= 0x400; c.Persistent.Add(r); });
-            if (Resolve(persCoc, idsPath, corePath, ExitAnchorEdid, terms).VaultAnchor != 0x801) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
-            var noPers = Port(m => VCell(m).Persistent.Clear());
-            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference"); return 1; }
-            catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault): {e.Message}"); }
+            var pc = Resolve(persCoc, idsPath, corePath, ExitAnchorEdid, terms);
+            if (pc.VaultAnchor != 0x801 || pc.AnchorTemporary) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
+            // the installed port's shape (PC 21 Oct): every reference of the cell temporary, the terminals among them
+            var noPers = Port(m => { var c = VCell(m); foreach (var r in c.Persistent.ToList()) { var t = (SF.PlacedObject)r; t.MajorRecordFlagsRaw &= ~0x400; c.Temporary.Add(t); } c.Persistent.Clear(); });
+            var tmp = Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms);
+            if (tmp.Terminal != 0x807) { Console.WriteLine($"FAIL  the temporary-only port's terminal is not the nearer one: {tmp.Terminal:X}"); return 1; }
+            if (tmp.VaultAnchor != 0x801 || !tmp.AnchorTemporary || tmp.AnchorMode != "temporary" || MathF.Abs(tmp.AnchorPos.X - 60f) > 1e-3) { Console.WriteLine($"FAIL  a vault with no persistent reference is not anchored on its temporary COC marker: {tmp.VaultAnchor:X} {tmp.AnchorMode}"); return 1; }
+            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms, requirePersistentAnchor: true); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference under --require-persistent-anchor"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault, --require-persistent-anchor): {e.Message}"); }
+            // the temporary-anchor build: written and checked against that port (its check line says "temporary"); it
+            // fails the check against the port with persistent references and the default build fails against the port
+            // without (another anchor id and the other mode); the build under --require-persistent-anchor is refused
+            {
+                var td = Path.Combine(outDir, "tempanchor");
+                var tw = new StringWriter();
+                var stdout = Console.Out;
+                Console.SetOut(tw);
+                try
+                {
+                    rc = Write(sfPath, noPers, idsPath, corePath, pointsPath, td, plain);
+                    if (rc == 0) rc = Check(Path.Combine(td, Plugin), sfPath, noPers, idsPath, corePath, pointsPath, plain);
+                }
+                finally { Console.SetOut(stdout); }
+                Console.Write(tw.ToString());
+                if (rc != 0) { Console.WriteLine("FAIL  the temporary-anchor build"); return 1; }
+                if (!tw.ToString().Contains("vault anchor FO4Port.esm:000801 temporary at") || !tw.ToString().Contains("  vault anchor FO4Port.esm:000801 temporary, cog door")) { Console.WriteLine("FAIL  write and check do not print the temporary anchor mode"); return 1; }
+                if (Check(Path.Combine(td, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine("FAIL  check passed a temporary-anchor build against a port with persistent references"); return 1; }
+                Console.WriteLine("rejected: a temporary-anchor build against a port with persistent references");
+                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, noPers, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine("FAIL  check passed a persistent-anchor build against a port without a persistent reference"); return 1; }
+                Console.WriteLine("rejected: a persistent-anchor build against a port without a persistent reference");
+                try { Write(sfPath, noPers, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), requirePers); Console.WriteLine("FAIL  write accepted a temporary anchor under --require-persistent-anchor"); return 1; }
+                catch (Refusal e) { Console.WriteLine($"refused as expected (--require-persistent-anchor): {e.Message}"); }
+                // the option changes nothing in a build whose anchor is persistent: the default build passes under it
+                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, portPath, idsPath, corePath, pointsPath, requirePers) != 0) { Console.WriteLine("FAIL  the default build fails under --require-persistent-anchor"); return 1; }
+            }
             // the terminal: the persistent one is preferred over the nearer temporary one; with only the temporary
             // one it is taken; with none the id is 0 and the spot is the nearest terminal's; --terminal-ref pins one
             var full = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms);

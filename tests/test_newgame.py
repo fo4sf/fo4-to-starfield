@@ -27,7 +27,7 @@ RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
-                version=True, build_version=None, clear_inventory=False, vault_suit=None)
+                version=True, build_version=None, clear_inventory=False, vault_suit=None, require_persistent_anchor=False)
 
 
 def namespace(**kw):
@@ -198,6 +198,69 @@ class ContractTests(unittest.TestCase):
         self.assertIn("--clear-inventory", read(DOC))
         self.assertIn("--vault-suit", read(DOC))
         self.assertIn("## 4c. The starting inventory reset", read(DOC))
+
+    def test_the_vault_anchor_modes(self):
+        """PC result 21 Oct: the installed port's FO4Port_Vault111Cryo has no persistent reference (0 of 1,166; the COC
+        marker 001338 and every terminal temporary), so the persistent-only resolver refused the build. A temporary
+        reference of an unloaded cell resolves to None (verified 16 Oct), so the writer now falls back to the temporary
+        COC marker and tells the script (AnchorTemporary, VaultCell) to load the cell with Debug.CenterOnCell once before
+        the same MoveTo; the retry is bounded (CenterTicks, one more centering at most, then a failure line each 10
+        ticks). The persistent mode stays preferred; --require-persistent-anchor restores the refusal; write and check
+        print the mode after the anchor id; plan.json records it; the log summary reads the centering line."""
+        cs, psc = read(CS), read(PSC)
+        self.assertIn(f"DefaultRequirePersistentAnchor = {str(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR).lower()};", cs)
+        self.assertFalse(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR)
+        self.assertIn('a.Contains("--require-persistent-anchor")', cs)
+        self.assertIn("bool requirePersistentAnchor = DefaultRequirePersistentAnchor", cs)
+        self.assertIn("if (persistent is null && requirePersistentAnchor)", cs)
+        self.assertIn("var anchor = persistent ?? cocs[0];", cs)
+        self.assertIn("bool anchorTemporary = persistent is null;", cs)
+        self.assertIn('("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell)', cs)
+        self.assertIn('AnchorTemporary ? "temporary" : "persistent"', cs)
+        self.assertIn("vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode} at", cs)       # write's line
+        self.assertIn("  vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode}, cog door", cs)   # check's line
+        self.assertIn("string s => new SF.ScriptStringProperty", cs)
+        self.assertIn("(string s, SF.IScriptStringPropertyGetter sp) => sp.Data == s", cs)
+        # the script: the two properties the writer fills, the bound, and the centering only in the temporary mode
+        self.assertIn("bool Property AnchorTemporary = false Auto Const", psc)
+        self.assertIn('string Property VaultCell = "FO4Port_Vault111Cryo" Auto Const', psc)
+        self.assertIn('VaultCell = "FO4Port_Vault111Cryo"', cs)
+        self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
+        enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
+        self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
+        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
+        self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
+        self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
+        self.assertIn("if centered == 0 || (centered == 1 && centerTicks > CenterTicks)", center)
+        self.assertIn("elseif centerTicks > CenterTicks && centerTicks % 10 == 0", center)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks', center)
+        self.assertIn('does not resolve after " + centerTicks + " ticks and " + centered + " centerings', center)
+        self.assertEqual(center.count("return false"), 1)          # the caller's retry does the move; no MoveTo here
+        self.assertNotIn("MoveTo(", center)
+        self.assertIsNone(re.search(r"^\s*while\b", center, re.M))   # no loop: the timer's retry is the only repeat
+        # the guard and the hold-off still run first, once: EnterVault (and so any centering) comes after both
+        body = psc[psc.index("Event OnTimer"):]
+        self.assertLess(body.index("HoldOffPass(1)"), body.index("if !EnterVault(player)"))
+        self.assertIn("anchor_temporary=", psc[psc.index("Event OnQuestInit"):psc.index("Function AdvanceTo")])
+        # the precheck reads the native; the stage option, the plan and the README carry the mode
+        self.assertIn("CenterOnCell", ng.NATIVES[ng.SCRIPT]["Debug"])
+        self.assertEqual(ng.tool_options(namespace(require_persistent_anchor=True)), ["--require-persistent-anchor"])
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.anchor_mode("  vault anchor FO4Port.esm:001338 temporary, cog door none, exit anchor FO4TerrainCore.esm:0A775B\n"),
+                         {"id": "001338", "mode": "temporary"})
+        self.assertEqual(ng.anchor_mode("x\n  vault anchor FO4Port.esm:000805 persistent, cog door 000802 Door X, exit anchor FO4TerrainCore.esm:0A775B\n"),
+                         {"id": "000805", "mode": "persistent"})
+        self.assertIsNone(ng.anchor_mode("  vault anchor FO4Port.esm:000805, cog door none"))   # the line before the modes
+        self.assertIsNone(ng.anchor_mode(""))
+        src = read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py"))
+        self.assertIn('"anchor": anchor,', src)
+        self.assertIn('"require_persistent_anchor": bool(a.require_persistent_anchor)', src)
+        doc = read(DOC)
+        self.assertIn("--require-persistent-anchor", doc)
+        self.assertIn("## 3a. The vault anchor: persistent, or the temporary COC marker", doc)
+        self.assertRegex(doc, r"0 persistent references of\s+1,166")
+        self.assertIn("`CenterOnCell`", doc)
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -447,15 +510,18 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
               "bool Function IsEquipped(Form akItem) native\n")
 
 
-def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None):
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
         "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\n" + ACTOR_CORE +
                                                  "Function SetValue(ActorValue akAV, float afValue) native\n"
                                                  "float Function GetValue(ActorValue akAV) native\n",
-        "Debug": "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
-                 "Function Notification(string a) native global\n",
+        # Debug.psc: CenterOnCell with FO4's signature (the temporary-anchor mode); Starfield's declaration is what the
+        # precheck reads, unverified until then
+        "Debug": debug if debug is not None else
+                 "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
+                 "Function Notification(string a) native global\nFunction CenterOnCell(string asCellname) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
@@ -572,6 +638,20 @@ class PrecheckTests(unittest.TestCase):
             self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
         self.assertIn("MISSING  FO4SF_NewGameQuest: Actor.EquipItem", o.getvalue())
 
+    def test_missing_center_on_cell_fails_the_core_script(self):
+        """Debug.CenterOnCell is the temporary-anchor mode's native in the quest script (the property is off in a
+        persistent-anchor build, but the script must compile): a Debug.psc without it is a core miss, not an optional
+        drop."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, debug="Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
+                          "Function Notification(string a) native global\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["Debug.CenterOnCell"])
+        self.assertEqual(r["drop"], [])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
+        self.assertIn("MISSING  FO4SF_NewGameQuest: Debug.CenterOnCell", o.getvalue())
+
     def test_has_function_needs_the_declaration(self):
         self.assertTrue(ng.has_function("bool Function IsInMenuMode() native global", "IsInMenuMode"))
         self.assertFalse(ng.has_function("; IsInMenuMode() is not here\nFunction IsInMenuModeX()", "IsInMenuMode"))
@@ -645,6 +725,25 @@ class LogTests(unittest.TestCase):
         self.assertFalse(s["version_mismatch"])
         self.assertEqual(s["inventory_cleared"], "removed=14 left=2 (quest items kept)")
         self.assertEqual(s["vault_suit"], "equipped [Armor < (0A000820)>] worn=True")
+        self.assertIsNone(s["centered"])                     # a persistent-anchor run never centers
+
+    def test_centered_line(self):
+        """The temporary-anchor mode: the first centering line is the summary's "centered" (the bound's second centering
+        and its failure lines change nothing); the lines are the ones the script writes."""
+        psc = read(PSC)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")', psc)
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:4920 anchor_temporary=True core=FO4TerrainCore.esm:685915\n"
+        first = "centered on FO4Port_Vault111Cryo attempt=1 tick=1: temporary anchor FO4Port.esm:4920 does not resolve before the cell loads"
+        code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=7.0 {first}\n"
+                                      "[x] FO4SF_NEWGAME rt=8.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]\n")
+        self.assertEqual(s["centered"], first[len("centered on "):])
+        self.assertTrue(s["entered_vault"])
+        code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=7.0 {first}\n"
+                                      "[x] FO4SF_NEWGAME rt=38.0 centered on FO4Port_Vault111Cryo attempt=2 tick=31: temporary anchor FO4Port.esm:4920 does not resolve before the cell loads\n"
+                                      "[x] FO4SF_NEWGAME rt=47.0 vault anchor FO4Port.esm:4920 does not resolve after 40 ticks and 2 centerings on FO4Port_Vault111Cryo: the temporary-anchor start failed\n")
+        self.assertEqual(s["centered"], first[len("centered on "):])
+        self.assertIsNone(s["entered_vault"])
+        self.assertEqual(code, 1)
 
     def test_stage_20_is_traced_by_whichever_script_sets_it(self):
         """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n>" is traced, but the looks script sets
