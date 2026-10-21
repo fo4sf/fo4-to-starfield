@@ -411,6 +411,26 @@ class PlanTerrainHoldTests(Base):
         os.remove(r)                                                     # Codex on #391: deleted after planning
         self.assertIn(f"routes_file {r} is missing", " ".join(self.check(self.camp([("a", e["queue"])]))[1]))
 
+    def test_the_runners_staging_pin_and_the_planned_route_digests_are_checked(self):
+        # Codex on #391: the runner stops before its first test on a changed staging file; a route changed between
+        # planning and arming was pinned as it was
+        pin = {k: tq.sha256(p) for k, p in tq.staging_paths(self.staging).items()}
+        q = self.queue("a", [{"coc": "FO4Port_X"}], staging_files=pin)
+        self.assertEqual(self.check(self.camp([("a", q)])), (True, []))
+        with open(os.path.join(self.staging, "extra.nif"), "wb") as f:
+            f.write(b"new")
+        self.assertIn("the staging changed since the queue was planned", " ".join(self.check(self.camp([("a", q)]))[1]))
+        os.remove(os.path.join(self.staging, "extra.nif"))
+        r = os.path.join(self.d, "routes_A.json")
+        with open(r, "w") as f:
+            json.dump({"routes": [[0, 0, 0]]}, f)
+        q2 = self.queue("b", [{"coc": "FO4Port_X", "routes_file": r, "route_index": 0}],
+                        routes_sha256={"routes_A.json": tq.sha256(r)})
+        self.assertEqual(self.check(self.camp([("b", q2)])), (True, []))
+        with open(r, "a") as f:
+            f.write(" ")
+        self.assertIn("routes_A.json changed since the queue was planned", " ".join(self.check(self.camp([("b", q2)]))[1]))
+
     def test_an_unknown_launch_or_a_relative_python_path_is_refused(self):
         # Codex on #391: chain() refused the launch only when writing; a relative python resolves in two folders
         q = self.queue("a", [{"coc": "FO4Port_X"}])
@@ -418,6 +438,7 @@ class PlanTerrainHoldTests(Base):
         self.assertIn("launch 'cmd'", caps(launch="cmd"))
         self.assertIn("is a relative path", caps(python=".\\venv\\Scripts\\python.exe"))
         self.assertNotIn("python", caps(python="python"))
+        self.assertIn("is not named python.exe", caps(python="C:\\py\\pythonw.exe"))
         self.assertNotIn("python", caps())
 
     def test_a_relative_starfield_is_refused(self):
@@ -561,6 +582,7 @@ class ScriptAndGateTests(Base):
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
         self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
         self.assertIn("& $py -I @argv", text)                              # Codex on #391: isolated mode
+        self.assertLess(text.index("$env:PATH = (Split-Path -Parent $py)"), text.index("testqueue.py"))
         self.assertIn("$env:FO4SF_PYTHON = $py", text)                     # Codex on #391: never the caller's
         self.assertLess(text.index("FO4SF_PYTHON"), text.index("testqueue.py"))
 
@@ -736,6 +758,7 @@ class RunChainTests(Base):
             argv = argv[:1] + argv[2:]
             self.calls.append((argv[1:3], env.get("FO4SF_LAUNCH")))
             self.envpy.append(env.get("FO4SF_PYTHON"))
+            self.assertTrue(env["PATH"].startswith("C:\\py" + os.pathsep))     # Codex on #391: cycle.ps1's python
             if state is not None and "testqueue.py" in argv[1]:
                 q = argv[argv.index("--queue") + 1]
                 with open(os.path.join(q, "state.json"), "w") as f:

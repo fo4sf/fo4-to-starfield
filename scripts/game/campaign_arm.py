@@ -53,6 +53,7 @@ import ast
 import hashlib
 import json
 import math
+import ntpath
 import os
 import re
 import sys
@@ -302,6 +303,11 @@ def check_queue(entry, camp, release):
             why.append(f"{esm} is missing")
         elif tq.sha256(esm) != q.get("plugin_sha256"):
             why.append(f"{esm} changed since the plan (build {q.get('build_id')})")
+    # Codex on #391: the runner's own checks before its first test, so an armed chain is not stopped by them
+    from types import SimpleNamespace
+    for m in (tq.Runner.staging_mismatch(SimpleNamespace(q=q)), tq.Runner.experiment_mismatch(SimpleNamespace(q=q))):
+        if m:
+            why.append(m)
     loose = sorted({str(t["routes_file"]) for t in q["tests"] if t.get("routes_file") and not rooted(t["routes_file"])})
     if loose:
         # Codex on #391: the pin hashes the routes where the check runs, the runner reads them in the checkout
@@ -311,6 +317,14 @@ def check_queue(entry, camp, release):
     if gone:
         # Codex on #391: a missing routes_file would pin as "missing" and reach the game with no route
         why.append(f"routes_file {', '.join(gone[:3])} is missing")
+    planned = q.get("routes_sha256")
+    if isinstance(planned, dict):
+        # Codex on #391: the pin hashes the route as it is at arming; the plan recorded the route it planned with
+        moved = sorted({os.path.basename(str(t["routes_file"])) for t in q["tests"] if t.get("routes_file")
+                        and rooted(t["routes_file"]) and os.path.isfile(t["routes_file"])
+                        and planned.get(os.path.basename(str(t["routes_file"]))) != tq.sha256(t["routes_file"])})
+        if moved:
+            why.append(f"routes_file {', '.join(moved[:3])} changed since the queue was planned (routes_sha256)")
     br = q.get("bridge")
     if br and not camp.get("bridge"):
         # Codex on #391: the runner installs a queue's bridge before launch: a campaign that names none would get one
@@ -490,6 +504,9 @@ def check(camp, release):
         # Codex on #391: the chain checks the python before Set-Location and runs it after; a bare command is found
         # on PATH both times, a relative path would not be the same file
         caps.append(f"python {py!r} is a relative path: give a full path or a bare command name")
+    elif rooted(py) and re.split(r"[\\/]", py)[-1].lower() not in ("python", "python.exe"):
+        # Codex on #391: cycle.ps1 runs a bare `python`; the chain puts this python's folder first on PATH for it
+        caps.append(f"python {py!r} is not named python.exe: cycle.ps1's own python calls would not find it")
     why = installed_exp_why(camp)
     if why:
         caps.append(why)
@@ -590,6 +607,8 @@ def chain(camp, path, release, digest=None):
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
              # Codex on #391: the runner's helpers use FO4SF_PYTHON; it is the campaign's python, never the caller's
              "$env:FO4SF_PYTHON = $py",
+             # Codex on #391: cycle.ps1 deploys and orders plugins with a bare `python`: this python's folder first
+             "if (Split-Path -Parent $py) { $env:PATH = (Split-Path -Parent $py) + ';' + $env:PATH }",
              # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
                                 digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
@@ -670,6 +689,8 @@ def run_chain(camp, log=print, call=None):
     py, caps = camp.get("python") or "python", camp["caps"]
     # Codex on #391: the runner's helpers use FO4SF_PYTHON; it is the campaign's python, never the caller's
     env = dict(os.environ, FO4SF_LAUNCH=launch, FO4SF_PYTHON=py)
+    if ntpath.dirname(py):                                # Codex on #391: cycle.ps1's bare `python` is this one
+        env["PATH"] = ntpath.dirname(py) + os.pathsep + env.get("PATH", "")
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
     for (e, _, _), pin in zip(res["queues"], pins):
         why = recheck(e, camp, set(released), pin)
