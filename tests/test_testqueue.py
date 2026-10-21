@@ -356,16 +356,21 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("menu or overlay", readf(os.path.join(self.d, "run.log")))
 
     def test_a_game_that_vanishes_while_travelling_is_a_crash(self):
-        def ps(script, args, timeout, steal=False):
-            self.ctl.pid = None                           # the game exits during the coc
-            return 1, "no arrival"
-        r = self.runner(lambda test, out: 0, max_tests=1)
-        r.cell, r._ps = "Elsewhere", ps
-        r.recover = lambda: self.fail("no Escapes into a game that is gone")
-        r.run()
-        row = self.results()[0]
-        self.assertEqual((row["verdict"], row["class"]), ("INCONCLUSIVE", "CRASH"))
-        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        for exit_code in (1, 2):                          # Codex on #446: exit 2 (input guard) is not the owner then
+            with self.subTest(exit_code=exit_code):
+                self.setUp()
+
+                def ps(script, args, timeout, steal=False):
+                    self.ctl.pid = None                   # the game exits during the coc
+                    return exit_code, "no arrival"
+                r = self.runner(lambda test, out: 0, max_tests=1)
+                r.cell, r._ps = "Elsewhere", ps
+                r.recover = lambda: self.fail("no Escapes into a game that is gone")
+                r.run()
+                row = self.results()[0]
+                self.assertEqual((row["verdict"], row["class"]), ("INCONCLUSIVE", "CRASH"))
+                self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+                self.assertNotIn("owner", readf(os.path.join(self.d, "run.log")))
 
     def test_a_game_that_vanished_between_tests_counts_against_the_crash_budget(self):
         r = self.runner(lambda test, out: 0, crash_budget=1, min_free_gb=0)

@@ -3181,7 +3181,7 @@ class Runner:
         if cell and self.cell != cell:
             code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json], 180)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
-            if code == 2:
+            if code == 2 and not self.game_gone():        # a game gone fails the input guard too: a crash, below
                 return "owner"
             if code != 0:
                 self.cell = None
