@@ -23,6 +23,8 @@ LOOKS = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameLooks.psc")
 SPECIAL = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameSpecial.psc")
 VERSION = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameVersion.psc")
 CS = os.path.join(ROOT, "dotnet", "NewGame", "Program.cs")
+RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
+DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None)
@@ -68,6 +70,26 @@ class ContractTests(unittest.TestCase):
         for prop, const in (("VaultPlugin", "PortPlugin"), ("CorePlugin", "CorePluginFile")):
             want = re.search(rf'string Property {prop} = "([^"]+)"', psc).group(1)
             self.assertIn(f'{const} = "{want}"', cs)
+
+    def test_the_record_reader_is_documented(self):
+        """The records verb (Records.cs) answers newgame.md's K and N record questions in one PC run: the doc names
+        the exact command, every section's NG id, and the reader's own defaults; the verb is dispatched and the main
+        selftest runs the records one."""
+        cs, rec, doc = read(CS), read(RECORDS), read(DOC)
+        self.assertIn('"records" when args.Length >= 2', cs)
+        self.assertIn('NewGameRecords.SelfTest(Path.Combine(dir, "records"))', cs)
+        sf_data = re.search(r'DefaultSfData = @"([^"]+)"', rec).group(1)
+        self.assertEqual(sf_data, r"D:\SteamLibrary\steamapps\common\Starfield\Data")
+        self.assertIn(f"`{sf_data}`", doc)
+        self.assertIn("-- records \"<Fallout 4>\\Data\" --out ", doc)
+        for section in ("NG-K1", "NG-K2", "NG-K4", "NG-K9", "NG-N4"):
+            self.assertIn(f'o.Section("{section} ', rec.replace("$\"", "\""))
+            self.assertIn(f"| `{section}` | {section}", doc)
+        self.assertIn('o.Section($"anchor: ', rec)
+        self.assertIn("| `anchor` |", doc)
+        self.assertIn("SustenanceId = 0x2EEA4D", rec)
+        self.assertIn("002EEA4D", doc)
+        self.assertIn("**unresolved** until that PC run", doc)
 
     def test_saving_and_hud_restored_after_the_hold_off(self):
         """MQ101's stage 0 turns saving off and hides the HUD; its stop (stage 9000) restores neither (PC read of

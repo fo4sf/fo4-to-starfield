@@ -4,7 +4,8 @@ Written 2026-10-19 by Claude-cloud (the new-game thread). Phase 1 of the approve
 Vault 111 with no Starfield intro, which everything else plugs into. **Offline only so far: nothing here has run in
 game or been installed.** Labels follow docs/ai/research-log.md (verified, supported hypothesis, unresolved).
 
-Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
+Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `dotnet/NewGame/Records.cs` (the read-only PC
+record reader, section 6a), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
 quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character creation),
 `scripts/newgame/FO4SF_NewGameSpecial.psc` (optional SPECIAL at the vault terminal),
 `scripts/newgame/FO4SF_NewGameVersion.psc` (optional save version check), `scripts/newgame/make_newgame.py` (precheck,
@@ -223,6 +224,39 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    persistent reference and refuses a foreign or missing one.
 4. Install is a later owner line: `fold` into a copy of the installed core set, `verify`, then `exp_install.py`, game
    closed, after the current v6e test. Testing needs a NEW game, so it never touches the owner's saves.
+
+## 6a. The record reader (PC, read only, no game): one run for newgame.md sections K and N
+
+`dotnet/NewGame/Records.cs` adds the `records` verb: it opens Starfield.esm, Fallout4.esm and the installed FO4Port.esm
+read-only (Mutagen 0.55.0-alpha.67) and writes one plain-text report. Nothing else is written; a plugin or record that
+is missing is said so in its section and the run still exits 0. The exact PC command (Fallout 4's Data folder is the
+argument; Starfield's defaults to `D:\SteamLibrary\steamapps\common\Starfield\Data`, `--sf-data` for another):
+
+```
+dotnet run -c Release --project dotnet\NewGame -- records "<Fallout 4>\Data" --out D:\Modding\scratch\newgame\records.txt
+```
+
+Options: `--sf-data <dir>` (Starfield's Data folder), `--port <path>` (another FO4Port.esm than `<sf-data>\FO4Port.esm`),
+`--nearest <n>` (how many persistent references the anchor section lists, default 30). The report's sections, and the
+newgame.md question each answers:
+
+| Section | Answers | What it lists |
+|---|---|---|
+| `NG-K1` | NG-K1 | MQ102 (Fallout4.esm 0001CC2A): every stage with its flags, each log entry's flags, text and conditions, the script fragments per stage, and `completes: stage <n>` for the log entries flagged CompleteQuest (or that none is, and completion is scripted) |
+| `NG-K2` | NG-K2 | MQ101 (Fallout4.esm): stages 710 to 1000 in the same detail (the cryo scene, 770, 900) |
+| `NG-K4` | NG-K4 | every reference in the port's Vault 111 cells (`FO4Port_Vault111*`) whose base record's EditorID mentions PipBoy: cell, reference, base, position (metres), persistence. None means the converted vault has no Pip-Boy prop under that name |
+| `NG-K9` | NG-K9 | the conditions that reference MQ102 on records named Codsworth, Dogmeat or Min00 (quests: their own conditions, stage log entries, aliases, objective targets; dialogue responses, scenes and packages named so or owned by a quest named so) and on MQ102's own aliases named for them. It also reads NG-K3 (stage 6 sits in the K1 table) |
+| `NG-N4` | NG-N4 (and NG-M1, NG-A1) | Starfield's MQ101 stage 0: each log entry's conditions and the stage's fragments (which of the 12 starts runs under which MQ101Debug value); MQ00's conditions, stages and aliases; the record 002EEA4D (SustenanceAllowed: type, conditions, links); every record whose EditorID mentions StartupQuest |
+| `anchor` | the anchor and terminal picks (section 3, 4a) | the persistent references of `FO4Port_Vault111Cryo` nearest the player's pod (FO4's pod / 70; the COC marker when Fallout4.esm is absent) with base and distance, and every terminal in the cell with its persistence |
+
+Conditions print as `[flags] Function(parameters) on <RunOn> <reference> <op> <value>`, every linked record as
+`EditorID (Type id:plugin)`. Fallout 4 stores a condition's two parameters as unions (a record id and a number share the
+bytes), so the first prints as the record when Fallout4.esm has one of that id, else the number, and the second as the
+number with any record of that id after a bar; Starfield's parameters are typed per function. The selftest
+(`records-selftest <scratch>`, also run by `selftest`) builds synthetic plugins covering every section, checks the
+report line by line, and checks that a missing Fallout4.esm or port is reported, not fatal, and that only `--out` is
+written. The real plugins have not been read yet: every fact the report will state is **unresolved** until that PC run,
+and its findings go into newgame.md section N as the 19 Oct script read did.
 
 ## 7. First in-game proof (later, on the owner's word)
 

@@ -37,7 +37,12 @@
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
-//        synthetic Fallout4.esm, Starfield.esm, port and core; points + write + check, and mutations check rejects.
+//        synthetic Fallout4.esm, Starfield.esm, port and core; points + write + check, and mutations check rejects;
+//        then the records selftest.
+//   records <Fallout 4 Data dir> --out <report.txt> [--sf-data <Starfield Data dir>] [--port <FO4Port.esm>] [--nearest <n>]
+//        the read-only PC record reader for newgame.md sections K and N (NG-K1, K2, K4, K9, N4 and the anchor
+//        picks): Records.cs. Writes only --out.
+//   records-selftest <scratch dir>
 // Nothing is deployed and no game file is written.
 using System.Globalization;
 using System.Text.Json;
@@ -60,6 +65,9 @@ try
         "write" when args.Length >= 7 => NewGame.Write(args[1], args[2], args[3], args[4], args[5], args[6], NewGame.Options.From(args)),
         "check" when args.Length >= 7 => NewGame.Check(args[1], args[2], args[3], args[4], args[5], args[6], NewGame.Options.From(args)),
         "selftest" when args.Length >= 2 => NewGame.SelfTest(args[1]),
+        "records" when args.Length >= 2 && !args[1].StartsWith("--") => NewGameRecords.Run(args[1], NewGame.ArgOrNull(args, "--out"), NewGame.ArgOrNull(args, "--sf-data"),
+                                                                                             NewGame.ArgOrNull(args, "--port"), (int)NewGame.Opt(args, "--nearest", NewGameRecords.DefaultNearest)),
+        "records-selftest" when args.Length >= 2 => NewGameRecords.SelfTest(args[1]),
         _ => NewGame.Usage(),
     };
 }
@@ -134,7 +142,7 @@ static class NewGame
 
     public static int Usage()
     {
-        Console.Error.WriteLine("usage: see the header of dotnet/NewGame/Program.cs (points | write | check | selftest)");
+        Console.Error.WriteLine("usage: see the header of dotnet/NewGame/Program.cs (points | write | check | selftest | records | records-selftest)");
         return 2;
     }
     public static string? ArgOrNull(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
@@ -246,7 +254,7 @@ static class NewGame
         return list;
     }
 
-    static BinaryReadParameters Full(params ModKey[] keys)
+    public static BinaryReadParameters Full(params ModKey[] keys)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         foreach (var k in keys) styles.Set(new KeyedMasterStyle(k, MasterStyle.Full));
@@ -1040,6 +1048,8 @@ static class NewGame
             try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), o); Console.WriteLine($"FAIL  write accepted {why}"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
         }
+        // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
+        if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;
         Console.WriteLine("selftest pass");
         return 0;
     }
