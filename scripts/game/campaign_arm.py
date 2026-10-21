@@ -336,9 +336,13 @@ def map_markers_why(camp):
     try:
         mm.require_masters(os.path.join(data, mm.PLUGIN), data, "ordered", mm.receipt_pins(rec_p))
         # Codex on #391: and everything kit.order refuses (receipt state, file digests, a held-off plugin left active)
-        mm.kit.order_preflight(argparse.Namespace(starfield=camp.get("starfield") or STARFIELD))
+        pre = mm.kit.order_preflight(argparse.Namespace(starfield=camp.get("starfield") or STARFIELD))
     except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
         return f"map_markers_install.py order would stop every launch: {error}"
+    if pre and pre[4]:
+        # Codex on #391: order leaves a held-off plugin unticked, then cycle.ps1's map_markers_install.py active check
+        # stops every launch with exit 8 after the save loads
+        return f"{mm.PLUGIN} is held off by plugin_toggle.py: map_markers_install.py active would stop every launch"
     return None
 
 
@@ -631,6 +635,10 @@ def recheck(entry, camp, release, pin):
     mm = map_markers_why(camp)
     if mm:
         why = why + [mm]
+    br = bridge_order_why(camp)
+    if br:
+        # Codex on #391: cycle.ps1 orders an installed bridge before every launch, whatever the queue pins
+        why = why + [br]
     rev = checkout_rev_why(camp)
     if rev:
         why = why + [rev]

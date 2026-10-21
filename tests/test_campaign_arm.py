@@ -473,6 +473,9 @@ class PlanTerrainHoldTests(Base):
         self.assertEqual(self.check(c), (True, []))
         self.plugins_txt(["*" + p for p in PLUGINS])                    # installed, unticked: order would tick it
         self.assertIn("every launch would activate it", " ".join(self.check(c)[1]))
+        entry = c["queues"][0]                                           # and again before each queue
+        self.assertTrue(any("every launch would activate it" in w
+                            for w in ca.recheck(entry, c, set(), ca.queue_sha256(entry))))
 
     def test_the_campaign_python_must_exist_where_the_check_runs(self):
         # Codex on #391: a typo in python passed the path checks and armed a chain that could start nothing
@@ -1104,6 +1107,12 @@ class RunChainTests(Base):
                 ok, why = self.check(self.camp([("a", q)]))
                 self.assertFalse(ok)
                 self.assertTrue(any("map_markers_install.py order would stop" in w and want in w for w in why), why)
+        with open(rec, "w") as f:
+            json.dump(good, f)
+        with open(os.path.join(data, "FO4SF.toggle.json"), "w") as f:
+            json.dump({"off": ["FO4SFMapMarkers.esm"]}, f)              # held off and unticked: active exits 8
+        self.assertIn("held off by plugin_toggle.py", " ".join(self.check(self.camp([("a", q)]))[1]))
+        os.remove(os.path.join(data, "FO4SF.toggle.json"))
         with open(rec, "w") as f:
             json.dump(dict(good, masters_sha256={"fo4terraincore.esm": "0" * 64}), f)
         ok, why = self.check(self.camp([("a", q)]))
