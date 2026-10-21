@@ -200,5 +200,16 @@ class ToggleTests(unittest.TestCase):
         self.assertEqual(json.loads(self.run_cmd("status"))["off"], ["Mission.esm"])
 
 
+class CycleTests(unittest.TestCase):
+    def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
+        # Codex on #407: bridge_install.py order exits nonzero on a held bridge the game ticked again, and cycle.ps1
+        # went on to launch with the bridge active (checked as text: no PowerShell here)
+        text = (ROOT / "scripts" / "game" / "cycle.ps1").read_text(encoding="utf-8")
+        block = text[text.index("bridge_install.py\" order"):text.index("function Wait-Screen")]
+        self.assertIn("$bordCode = $LASTEXITCODE", block)
+        self.assertIn("if ($bordCode -ne 0) {", block)
+        self.assertIn("not launching\"; exit 7 }", block)
+        self.assertLess(text.index("$bordCode -ne 0"), text.index("Start-Process"))
+
 if __name__ == "__main__":
     unittest.main()

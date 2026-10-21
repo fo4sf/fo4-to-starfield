@@ -59,8 +59,13 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {
 }
 # The observation bridge (bridge_install.py) goes LAST: the planned reads address the experiment's records by load
 # index, and a bridge line above them shifted every index by one (cave_core64c_1015 a1, 2026-10-15)
+# A bridge held off by plugin_toggle.py that the game ticked again makes order exit nonzero: no launch, or a bridge-off
+# run would be judged with the bridge active (Codex on #407)
 if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
-  python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf | Select-Object -Last 1
+  $bord = python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf
+  $bordCode = $LASTEXITCODE
+  $bord | Select-Object -Last 1
+  if ($bordCode -ne 0) { "bridge plugin order refused (exit $bordCode): not launching"; exit 7 }
 }
 function Wait-Screen($label, $maxSec, $check) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
