@@ -298,7 +298,11 @@ def cmd_play(a):
 def cmd_watch(a):
     values = settings.load(a.settings or default_settings_path())
     r = crashwatch.watch(values, pid=a.pid, repeat=a.repeat, start_timeout_s=a.timeout, dry_run=a.dry_run)
-    return 0 if r[0].get("dry_run") or any(x.get("started") for x in r) else 1
+    if r[0].get("dry_run"):
+        return 0
+    watched = [x for x in r if x.get("started")]
+    # 0 only when every game seen was armed and nothing stopped the watch early (Codex, #449)
+    return 0 if watched and all(x.get("armed") for x in watched) and not any(x.get("stopped") for x in r) else 1
 
 
 def main(argv=None):

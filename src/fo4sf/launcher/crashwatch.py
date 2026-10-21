@@ -132,6 +132,15 @@ class System:
     def free_gb(self, path):
         return detect.free_gb(path)
 
+    def plugins_active(self):
+        """Casefolded names ticked in the player's Plugins.txt, or None when it cannot be read."""
+        local = os.environ.get("LOCALAPPDATA", "")
+        try:
+            with open(os.path.join(local, "Starfield", "Plugins.txt"), encoding="utf-8-sig", errors="replace") as f:
+                return {ln.strip()[1:].strip().casefold() for ln in f if ln.strip().startswith("*")}
+        except OSError:
+            return None
+
 
 def _log(path, line):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -169,6 +178,13 @@ def apply_bridge(values, starfield, system, say):
     elif want == "on" and BRIDGE.casefold() in held:
         argv = [sys.executable, PLUGIN_TOGGLE, "on", "--plugins", BRIDGE, "--starfield", starfield]
     else:
+        # not held is not proof of on: a restore that could not load the bridge releases the hold and leaves it
+        # unticked (Codex, #449)
+        active = system.plugins_active()
+        if active is None or BRIDGE.casefold() not in active:
+            raise ValueError(f"bridge=on: {BRIDGE} is installed and not held off, but "
+                             + ("Plugins.txt cannot be read" if active is None else "it is not active in Plugins.txt")
+                             + ": reinstall the bridge or tick it in the game, then play again")
         say(f"bridge: already {want}")
         return
     code, out = system.run(argv)
@@ -428,6 +444,15 @@ def watch(values, system=None, say=print, pid=None, repeat=False, start_timeout_
         raise ValueError(f"crash watcher: cannot write to {values['crash_watch.folder']} ({e.strerror or e})") from None
     results, seen = [], []
     while True:
+        if results:                                 # each dump takes room: the floor holds for every game (Codex, #449)
+            free = system.free_gb(values["crash_watch.folder"])
+            if free < values["crash_watch.min_free_gb"]:
+                why = (f"{free:.1f} GB free for dumps, under crash_watch.min_free_gb "
+                       f"{values['crash_watch.min_free_gb']:g}; not watching the next game")
+                _log(log_path, f"watch stopped: {why}")
+                say(f"crash watcher stopped: {why}")
+                results.append({"started": False, "stopped": why})
+                return results
         t0 = system.now()
         r = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=pid, seen=seen)
         results.append(r)

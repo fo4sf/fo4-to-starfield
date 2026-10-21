@@ -42,6 +42,7 @@ class FakeSystem:
         self.toggle_status = {"off": [], "owned": []}
         self.toggle_out = "back on: FO4SFBridge.esm"
         self.toggle_code = 0
+        self.active = {"fo4sfbridge.esm"}
 
     def now(self):
         return self.t
@@ -84,7 +85,10 @@ class FakeSystem:
         return 0, self.toggle_out if argv[2] == "on" else "held off: FO4SFBridge.esm"
 
     def free_gb(self, path):
-        return self.free
+        return self.free.pop(0) if isinstance(self.free, list) else self.free
+
+    def plugins_active(self):
+        return self.active
 
 
 class CrashWatchTests(unittest.TestCase):
@@ -218,6 +222,32 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual([a[-2] for a in sys_.spawned], ["10", "20"])
         self.assertNotIn("-t", sys_.spawned[0])
         self.assertIn("ended: process 20, 0xC0000005", self.log())
+
+    def test_watch_repeat_stops_when_dumps_fill_the_drive(self):
+        sys_ = FakeSystem([(10, 0, 100, 0), (20, 150, 300, 0)], free=[100.0, 4.0])
+        sys_.started_at = sys_.t
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append, repeat=True, start_timeout_s=60)
+        self.assertEqual([x.get("pid") for x in r], [10, None])
+        self.assertIn("not watching the next game", r[1]["stopped"])
+        self.assertEqual(len(sys_.spawned), 1)
+        self.assertIn("watch stopped", self.log())
+
+    def test_watch_exit_code_says_whether_every_game_was_armed(self):
+        spec = importlib.util.spec_from_file_location("launcher_cli2", os.path.join(ROOT, "scripts", "launcher.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        a = type("A", (), {"settings": os.path.join(self.dir, "none.json"), "pid": None, "repeat": True,
+                           "timeout": 60.0, "dry_run": False})()
+        for results, code in (([{"started": True, "armed": True}, {"started": False}], 0),
+                              ([{"started": True, "armed": False}, {"started": False}], 1),
+                              ([{"started": True, "armed": True}, {"started": False, "stopped": "disk"}], 1),
+                              ([{"started": False}], 1)):
+            real = cli.crashwatch.watch
+            cli.crashwatch.watch = lambda *x, **k: results
+            try:
+                self.assertEqual(cli.cmd_watch(a), code, results)
+            finally:
+                cli.crashwatch.watch = real
 
     def test_watch_pid_and_refusals(self):
         sys_ = FakeSystem([(10, 0, 100, 0), (12, 0, 200, 0)])
@@ -357,6 +387,17 @@ class CrashWatchTests(unittest.TestCase):
         os.makedirs(mg)
         self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
         self.assertEqual(sys_.ran[1][:3], ["on", "--plugins", "FO4SFBridge.esm"])
+        sys_ = FakeSystem([(5, 0, 100, 0)])                       # not held, and active: nothing to do
+        sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
+        self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
+        self.assertEqual(len(sys_.ran), 1)
+        for active in (set(), None):                               # not held but unticked, or no Plugins.txt
+            sys_ = FakeSystem([(5, 0, 100, 0)])
+            sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
+            sys_.active = active
+            with self.assertRaises(ValueError):
+                self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
+            self.assertEqual(sys_.calls, [])
         sys_ = FakeSystem([(5, 0, 100, 0)])                       # released but left unticked: refused
         sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
         sys_.toggle_out = "back on: none; released, left unticked (cannot load): FO4SFBridge.esm: file missing"
