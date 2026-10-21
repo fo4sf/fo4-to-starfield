@@ -22,10 +22,10 @@ differ. `movables.txt` lists the 448 meshes that v6c made movable, one per line
 
 | Build | Side-door rig (RedRPedDoor) | Movable props | Switches added to the v6c command |
 |---|---|---|---|
-| v6c (installed) | on | movable | none |
-| v6e (staged) | off | static | `--no-rig-pattern "redrped" --static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
-| v6f (planned) | on | static | `--static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
-| v6g (planned) | off | movable | `--no-rig-pattern "redrped"` |
+| v6c (crashes) | on | movable | none |
+| v6e (installed, crashes) | off | static | `--no-rig-pattern "redrped" --static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
+| v6f (dropped) | on | static | `--static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
+| v6g (dropped) | off | movable | `--no-rig-pattern "redrped"` |
 
 How to read the results:
 - v6e stable: build v6f. If v6f is stable too, the props caused it and the side door is safe. If v6f crashes, the
@@ -53,30 +53,31 @@ How to read the results:
 The bisect's own next step: v6e's switches plus no rig for the counter door 0232E0 and the safe door 1D1F0E.
 - Their model names are in D:\Modding\scratch\v6\near_redrocket.jsonl (the rows for 0232E0 and 1D1F0E). Add each model's
   file name, without extension, to the v6e `--no-rig-pattern` value, joined with `|` (for example `redrped|name1|name2`).
-- Build it like v6f above: wt_v6 at 5a93beb, `--resume` into work_v6c2 (copy it aside first), so only those meshes
-  reconvert. Check that those two have no `door.rig` of `native` and that `reused` is all meshes but them. Then stage
-  `terrain_core64v6h_l125_mission_wfc11` the v6e way.
+- Build it cheaply, as below.
 - Reading it: v6h stable means one of those two rigs is the cause (split them next). If v6h still crashes, no door rig
   near Red Rocket is left to blame; the next candidates are the remaining v5 to v6 differences near Red Rocket (the
   resdoor and roofhatch load doors and the truckdoor) and anything outside that 300 m list.
 
-## Building v6f cheaply
+## Building v6h cheaply
 `checkpoint_signature` (scripts/convert_batch.py) digests every `src/fo4sf/*.py` file and `convert_batch.py` itself, so
 any code change makes the next run reconvert all 11,887 meshes (about 35 to 48 minutes). Since 039a44e (the commit v6e
-was built from, worktree wt_v6 at 5a93beb), only `convert_batch.py`'s help text has changed on main. So:
-- Build v6f in wt_v6 **without** merging main. With `--resume`, only the RedRPedDoor meshes lose their `|no_rig` tag
-  and reconvert; everything else is reused. Expect `reused` near 11,880.
-- Building v6f from main also works, but it reconverts everything. Use main at e079ac9 or later: between 5f2a065 and
+was built from, worktree wt_v6 at 5a93beb), only `convert_batch.py`'s help text had changed on main when this was
+written. So:
+- Build v6h in wt_v6 **without** merging main. With `--resume`, only the two door meshes gain a `|no_rig` tag and
+  reconvert; everything else is reused. Expect `reused` near 11,880.
+- Building from main also works, but it reconverts everything. Use main at e079ac9 or later: between 5f2a065 and
   e079ac9 `--max-tris` defaulted to 20000, which skips every model over 20,000 triangles and drops its base record.
 
 Steps (PC install thread; D: needs room for one more staged core, and keeps its 40 GB floor):
-1. Copy work_v6c2's manifest and checkpoints aside as `work_v6c2_before_v6f` (rollback for the work dir; v6e's staged
+1. Copy work_v6c2's manifest and checkpoints aside as `work_v6c2_before_v6h` (rollback for the work dir; v6e's staged
    output stays untouched in D:\Modding\staging).
-2. In wt_v6 (5a93beb), run the v6e convert_batch command with `--resume` into work_v6c2, minus `--no-rig-pattern`.
-3. Check: the manifest still has 0 entries with a `movable` key; RedRPedDoor has `door.rig` = `native` and no
-   `door_not_opening`; `reused` is all meshes but the RedRPedDoor ones.
-4. Stage `terrain_core64v6f_l125_mission_wfc10` the same way as v6e: normal cluster, CHECK, l125, compare-ids against
-   v6c (identical, or stop), fold and verify the wfc10 mission.
-5. Delete superseded builds per the drive rule (keep installed plus one rollback). The swap needs the owner's own line.
+2. In wt_v6 (5a93beb), run the v6e convert_batch command with `--resume` into work_v6c2, with the two model names added
+   to `--no-rig-pattern` as above and every other v6e switch kept.
+3. Check: the manifest still has 0 entries with a `movable` key; RedRPedDoor and the two new doors have no `door.rig`
+   of `native`; `reused` is all meshes but the two new ones.
+4. Stage `terrain_core64v6h_l125_mission_wfc11` the same way as v6e: normal cluster, CHECK, l125, compare-ids against
+   v6e (identical, or stop), fold and verify the wfc11 mission.
+5. Superseded builds are listed for the owner's cleanup; nothing is deleted from here. The swap goes through the
+   coordinator like v6e's.
 
-Nothing here has been tested in game.
+v6c and v6e are tested in game (both crash at Red Rocket); v6h has not been built or tested yet.
