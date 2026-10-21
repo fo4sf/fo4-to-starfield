@@ -242,6 +242,34 @@ class ToggleTests(unittest.TestCase):
             self.assertEqual(self.txt.read_bytes(), before)
             self.assertEqual(json.loads(p.read_text())["off"], ["Mission.esm"])
 
+    def test_every_reader_of_the_hold_refuses_another_profile(self):
+        # Codex on #407: held_off returned profile A's hold to relaunch and active under profile B
+        self.run_cmd("off", "--plugins", "FO4SFBridge.esm")
+        p = self.data / exp.TOGGLE
+        rec = json.loads(p.read_text())
+        rec["plugins_txt"] = str(self.txt.parent.parent / "Other" / "Plugins.txt")
+        p.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, "is not the current user's"):
+            exp.held_off(str(self.data))
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.active(self.a()), 8)
+        self.assertIn("is not the current user's", buf.getvalue())
+        p.write_text(json.dumps(dict(rec, off=[])))          # nothing held: another profile's empty record is no hold
+        self.assertEqual(exp.held_off(str(self.data)), set())
+
+    def test_on_refuses_a_plugin_whose_non_implicit_master_is_inactive(self):
+        # Codex on #407: only our installers' masters were checked; FO4Port.esm unticked let Core.esm come back
+        self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
+        self.txt.write_bytes("# keep\r\nFO4Port.esm\r\nCore.esm\r\nMission.esm\r\n*FO4SFBridge.esm\r\n".encode())
+        before = self.txt.read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("on")
+        self.assertIn("Core.esm needs FO4Port.esm as a master, which is not active", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes(), before)
+        (self.data / "Core.esm").write_bytes(tes4("Starfield.esm", "SFBGS003.esm"))   # implicit masters need no line
+        self.run_cmd("on")
+        self.assertEqual(self.lines(), ["# keep", "FO4Port.esm", "*Core.esm", "*Mission.esm", "*FO4SFBridge.esm"])
+
 class CycleTests(unittest.TestCase):
     def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
         # Codex on #407: bridge_install.py order exits nonzero on a held bridge the game ticked again, and cycle.ps1

@@ -532,8 +532,9 @@ def build_ba2(a, root, out):
 def held_off(data):
     """The plugins plugin_toggle.py holds off (Data\\FO4SF.toggle.json), casefolded: order, active and the relaunch
     of the same install leave them unticked; a new install or an uninstall refuses until they are back on (their
-    Plugins.txt lines are no longer the ones a record wrote). Empty without the file; an unreadable file is a
-    ValueError."""
+    Plugins.txt lines are no longer the ones a record wrote). Empty without the file; an unreadable file, or a hold
+    recorded for another user's Plugins.txt (its plugins are unticked there, not in this profile's), is a
+    ValueError, so every caller refuses it (Codex on #407)."""
     p = os.path.join(data, TOGGLE)
     if not os.path.exists(p):
         return set()
@@ -541,6 +542,11 @@ def held_off(data):
     off = rec.get("off") if isinstance(rec, dict) else None
     if not isinstance(off, list) or not all(isinstance(x, str) and x for x in off):
         raise ValueError(f"{p}: off must be a list of plugin names")
+    mine = rec.get("plugins_txt")
+    if off and mine is not None:
+        here = plugins_txt()
+        if not isinstance(mine, str) or os.path.normcase(os.path.abspath(mine)) != os.path.normcase(os.path.abspath(here)):
+            raise ValueError(f"{p}: the record's Plugins.txt ({mine}) is not the current user's ({here})")
     return {x.casefold() for x in off}
 
 

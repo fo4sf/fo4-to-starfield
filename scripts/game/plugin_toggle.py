@@ -13,7 +13,8 @@ guarded Plugins.txt rewrite), so an interruption leaves the record ahead of Plug
 record holds a plugin: exp_install.py order and bridge_install.py order leave it unticked (and refuse, exit 6, when the
 game ticked it again), exp_install.py active counts it as intended (and fails if it is ticked), the relaunch of the
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
-first, then empties the record; it refuses a plugin whose master is one of ours that is neither active nor coming back.
+first, then empties the record; it refuses a plugin with a master (other than the game's implicit ones) that is
+neither active nor coming back. A hold recorded for another user's Plugins.txt is refused everywhere.
 off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
 """
 import argparse
@@ -45,7 +46,7 @@ def owned(data):
 
 def read_record(data):
     p = os.path.join(data, exp_install.TOGGLE)
-    exp_install.held_off(data)                            # validates the record
+    exp_install.held_off(data)                            # validates the record, and its profile
     return exp_install.read_json(p) if os.path.exists(p) else {"off": []}
 
 
@@ -55,13 +56,6 @@ def name(line):
 
 def names(arg):
     return [x.strip() for x in (arg or "").split(",") if x.strip()]
-
-
-def same_profile(rec, p_txt):
-    """A toggle record written for another user's Plugins.txt is refused by off and on alike (Codex on #407)."""
-    mine = rec.get("plugins_txt")
-    if mine and os.path.normcase(os.path.abspath(mine)) != os.path.normcase(os.path.abspath(p_txt)):
-        raise ValueError(f"the record's Plugins.txt ({mine}) is not the current user's ({p_txt})")
 
 
 def off(a):
@@ -75,7 +69,6 @@ def off(a):
     if bad:
         raise ValueError(f"not a plugin our installers own here: {', '.join(bad)} (owned: {', '.join(mine.values()) or 'none'})")
     p_txt = exp_install.plugins_txt()
-    same_profile(rec, p_txt)
     original = exp_install.read_bytes(p_txt)
     lines, bom, nl = exp_install.plugin_lines(original)
     held = {x.casefold() for x in rec["off"]}
@@ -118,7 +111,6 @@ def on(a):
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
     p_txt = exp_install.plugins_txt()
-    same_profile(rec, p_txt)
     original = exp_install.read_bytes(p_txt)
     lines, bom, nl = exp_install.plugin_lines(original)
     active = {name(ln) for ln in lines if ln.strip().startswith("*")}
@@ -131,9 +123,9 @@ def on(a):
         if needs:
             raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
                              f"bring them back together")
-        # one of our plugins the game unticked meanwhile (exp_install.active) is no master to load against
-        # (Codex on #407)
-        inactive = [m for m in masters if m.casefold() in mine and m.casefold() not in active | back]
+        # a master the game unticked meanwhile (exp_install.active), ours or not, is no master to load against: every
+        # master but the implicit ones needs an active line or must come back too (Codex on #407)
+        inactive = [m for m in masters if not exp_install.implicit(m) and m.casefold() not in active | back]
         if inactive:
             raise ValueError(f"{p} needs {', '.join(inactive)} as a master, which is not active in Plugins.txt: "
                              f"bring them back together or reinstall")
