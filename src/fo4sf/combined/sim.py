@@ -52,6 +52,24 @@ PRIORITY_BONUS_PER_WORKER = 1
 PRIORITY_ROLE = {"food": "farmer", "water": "farmer", "scrap": "scavenger", "ammo": "crafter",
                  "medicine": "doctor"}
 
+# Shortage response (placeholder; the second prototype's balance run found capture stripping a farm of every farmer,
+# since _remove_settler takes from the biggest role, and starvation then emptied it: docs/combined-core.md "Balance
+# baseline"). On a tick short of food or water, this many settlers of the biggest other role take up farming while
+# 3 * farmers < population + 2 (the same food-ahead-of-mouths rule _add_settler grows by). Capture still hurts: the
+# population halves and the larder drains for a tick or two (a resupply job window), but a place with people in it
+# feeds itself again instead of emptying. 0 disables.
+REROLE_ON_SHORTAGE = 1
+
+# Resettlement (placeholders): an empty settlement a faction holds draws a wanderer once a day when it is safe (no
+# attack has touched it for RESETTLE_SAFE_HOURS and none is on its way) and fed (the wanderer brings RESETTLE_KIT food
+# and water, so a looted larder does not keep a place dead for good). The first settler is a farmer (_add_settler),
+# morale restarts at no less than RESETTLE_MORALE. Design: "settlements that grow into real places and can fall", so
+# a place can empty, but rarely, and can be resettled.
+RESETTLE_SAFE_HOURS = 48
+RESETTLE_KIT = 6
+RESETTLE_MORALE = 50
+ATTACK_EVENT_KINDS = ("place_taken", "attack_failed", "place_cleared")   # events that mean fighting at a place
+
 # Event kinds that change a place's holder and carry `previous`: place_taken (here and jobs' retake, `faction` is the
 # new holder) and place_cleared (jobs' clear: the holder becomes None, `faction` is the giver). Every reader of holder
 # history (here, jobs, balance) walks both, so a player-cleared place counts as lost to its old holder.
@@ -124,15 +142,26 @@ def _settlement_tick(ws: WorldState) -> None:
                 s.stock[g] = 0
         if short:
             s.morale = max(0, s.morale - 5)
+            for role, n in sorted(_reroles_to_farming(s, REROLE_ON_SHORTAGE).items()):
+                _event(ws, "roles_changed", sid, from_role=role, to_role="farmer", n=n)
         elif s.stock["food"] > 2 * need and s.stock["water"] > 2 * need:
             s.morale = min(100, s.morale + 2)
         if s.morale <= 10 and s.population > 0:
             _remove_settler(s)
             _event(ws, "settler_left", sid)
+            if s.population == 0:
+                _event(ws, "settlement_emptied", sid, holder=ws.places[sid].holder)
         elif (s.morale >= 70 and ws.hour % 24 == 0 and not short
               and s.population < s.beds):
             _add_settler(s)
             _event(ws, "settler_arrived", sid)
+        elif (s.population == 0 and s.beds > 0 and ws.hour % 24 == 0
+              and ws.places[sid].holder is not None and _resettle_safe(ws, sid)):
+            _add_settler(s)                     # a farmer, since no farmer feeds anyone yet
+            s.stock["food"] += RESETTLE_KIT
+            s.stock["water"] += RESETTLE_KIT
+            s.morale = max(s.morale, RESETTLE_MORALE)
+            _event(ws, "settlement_resettled", sid, faction=ws.places[sid].holder)
         stage = max(i for i, p in enumerate(STAGE_POP) if s.population >= p)
         if stage != s.stage:
             _event(ws, "stage_changed", sid, old=s.stage, new=stage)
@@ -155,6 +184,38 @@ def _remove_settler(s) -> None:
     biggest = max(sorted(s.roles), key=lambda r: s.roles[r])
     if s.roles[biggest]:
         s.roles[biggest] -= 1
+
+
+def _reroles_to_farming(s, n: int) -> dict[str, int]:
+    """Move up to `n` settlers, one at a time from the biggest non-farmer role, to farming while farmers are below
+    the food rule (3 * farmers < population + 2). Returns {role: how many came from it}, empty when nobody moved.
+    Same fields as manage.set_roles's roles_changed event, so news shows it with that template."""
+    moved: dict[str, int] = {}
+    for _ in range(max(0, n)):
+        if 3 * s.roles["farmer"] >= s.population + 2:
+            break
+        others = [r for r in sorted(s.roles) if r != "farmer" and s.roles[r] > 0]
+        if not others:
+            break
+        role = max(others, key=lambda r: s.roles[r])
+        s.roles[role] -= 1
+        s.roles["farmer"] += 1
+        moved[role] = moved.get(role, 0) + 1
+    return moved
+
+
+def _resettle_safe(ws: WorldState, sid: str) -> bool:
+    """No attack squad bound for `sid`, and no fighting there (ATTACK_EVENT_KINDS) within RESETTLE_SAFE_HOURS.
+    Read from the squads and the event log, so a resumed save judges the same."""
+    if any(q.kind == "attack" and q.goal == sid for q in ws.squads.values()):
+        return False
+    since = ws.hour - RESETTLE_SAFE_HOURS
+    for e in reversed(ws.events):
+        if e["hour"] < since:
+            break
+        if e["place"] == sid and e["kind"] in ATTACK_EVENT_KINDS:
+            return False
+    return True
 
 
 # --- caravans and supply ---------------------------------------------------
@@ -310,6 +371,8 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
             for _ in range((s.population + 1) // 2):
                 _remove_settler(s)
             s.morale = min(s.morale, 30)
+            if s.population == 0:
+                _event(ws, "settlement_emptied", q.goal, holder=q.faction)
         f = ws.factions[q.faction]
         f.strength = min(STRENGTH_CAP, f.strength + q.size // 2)
         _event(ws, "place_taken", q.goal, faction=q.faction, previous=old, retaken=retaken)

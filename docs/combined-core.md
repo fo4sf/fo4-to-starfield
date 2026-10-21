@@ -83,31 +83,77 @@ The combined core is game runtime; its records and packages are kept apart from 
 
 ### Balance baseline (before-number, per AGENTS.md's measured-before-and-after rule)
 
-Fixtures, 20 seeds x 90 days, unmodified constants, 2026-10-20, `python3 -m fo4sf.combined balance --seeds 20
---days 90` (0.6 s). Later tuning changes record the same command's numbers next to these.
+Fixtures, 20 seeds x 90 days, `PYTHONPATH=src python3 -m fo4sf.combined balance --seeds 20 --days 90` (under a
+second). "Before" is the M3 constants, 2026-10-20; "after" is the same command on 2026-10-21 with the two settlement
+rules added below (`sim.REROLE_ON_SHORTAGE`, `sim.RESETTLE_*`), everything else unchanged. Later tuning changes add a
+column the same way.
 
-| Metric | Baseline | Reads as |
-|---|---|---|
-| changes_per_30_days | 15.0 | places change hands about every two days across 11 places |
-| attacks_per_day | 1.08 | about one attack squad launched per game day |
-| caravans_raided_share | 0.13 | one caravan in eight is intercepted |
-| empty_settlements | 1.6 of 4 | on average more than one settlement ends the run with nobody in it |
-| mean_morale | 48.2 | settlers neither thriving nor despairing |
-| landless_share_max | 0.0 | 0 by construction while homes never change hands |
-| home_only_share | slavers 1.0, traders 0.62, order 0.53, raiders 0.35, settlers 0.0 | see note |
-| story_lock_violations, home_violations | 0, 0 | invariants hold over all seeds |
-| frozen_regions | none | both regions saw a change of holder in every seed |
+| Metric | Before (2026-10-20) | After (2026-10-21) | Reads as |
+|---|---|---|---|
+| changes_per_30_days | 15.0 | 12.5 | places change hands about every two and a half days across 11 places |
+| attacks_per_day | 1.08 | 1.09 | about one attack squad launched per game day (unchanged) |
+| caravans_raided_share | 0.13 | 0.10 | one caravan in ten is intercepted |
+| empty_settlements | 1.6 of 4 | 0.0 of 4 | no run ends with an empty settlement |
+| settlements_emptied (new) | 2.3 | 2.35 | a settlement still falls empty about twice per run (per 4 settlements, 90 days) |
+| resettlements (new) | 0 | 1.75 | and is resettled; the rest refill through the older arrival rule |
+| empty_share (new) | 0.32 | 0.024 | share of settlement-hours with nobody home: a third of the run, now one fortieth |
+| mean_morale | 48.2 | 85.9 | settlers were flat or starving; now most settlements are fed and growing |
+| landless_share_max | 0.0 | 0.0 | 0 by construction while homes never change hands |
+| home_only_share | slavers 1.0, traders 0.62, order 0.53, raiders 0.35, settlers 0.0 | slavers 1.0, traders 0.62, order 0.47, raiders 0.40, settlers 0.0 | see note |
+| story_lock_violations, home_violations | 0, 0 | 0, 0 | invariants hold over all seeds |
+| frozen_regions | none | none | both regions saw a change of holder in every seed |
+
+The three new metrics are rebuilt from two new event kinds, `settlement_emptied` (the last settler leaves, or a
+capture removes the last people; carries `holder`) and `settlement_resettled` (carries `faction`, the holder), so a
+resumed save measures the same; a save from before 2026-10-21 has neither and measures `empty_share` 0 until
+something happens. The "before" column's new metrics come from the same command with the rules switched off
+(`--set sim.REROLE_ON_SHORTAGE=0 --set sim.RESETTLE_SAFE_HOURS=1000000000`).
+
+**Diagnosis of the 1.6 (traces in the per-seed harness, 20 seeds x 90 days, old rules).** 40 emptyings: 31 were
+the last settler leaving after a morale collapse, 8 a capture removing the last one or two people, 1 both. The
+collapse was always starvation after capture: `_remove_settler` takes from the biggest role, which on a farm is
+the farmers, so a capture of `farm_a` (3 farmers, 1 guard, 1 trader) removed all three farmers, the guard and
+trader ate the stock down (seed 9: dead at hour 126), and nothing could recover because the arrival rule needs
+morale 70 and a surplus. Once empty, 96% of the empty settlement-hours had food or water at 0, and with nobody
+producing and no caravan going to a raider-held farm, morale stays frozen and the place is dead for the rest of
+the run (32% of all settlement-hours were empty). Not beds (20, never the cap at the time), not raided caravans
+(13%). Judged a rule problem: people do not starve beside a field, and an empty place a faction holds should be
+able to be lived in again.
+
+**Rules added (placeholder constants in `sim.py`, overridable in sweeps):**
+- `REROLE_ON_SHORTAGE = 1`: on a tick short of food or water, one settler of the biggest non-farmer role takes up
+  farming while `3 * farmers < population + 2` (the food rule `_add_settler` grows by). Logged as `roles_changed`
+  with the same fields as `manage.set_roles`. Capture still halves the population and caps morale at 30, and the
+  larder still drains for a tick or two (the `resupply` job window stays), but the place feeds itself again.
+  Rejected alternative, measured: taking non-farmers first on removal gave the same emptiness numbers but no
+  shortage ever, so `resupply` jobs never appeared and caravans grew to 74 goods (which also exposed that
+  `jobs.Offer.reward_tier` stores points, not a 1..5 tier, so a cargo of 30 or more fails the offer-shape test; a `jobs.py` finding for its owner, not reached by the rules kept).
+- `RESETTLE_SAFE_HOURS = 48`, `RESETTLE_KIT = 6`, `RESETTLE_MORALE = 50`: an empty settlement a faction holds (and
+  with beds) draws one wanderer on a day tick when no attack squad is bound for it and no `place_taken`,
+  `attack_failed` or `place_cleared` touched it within the window; the wanderer is a farmer, brings the kit in
+  food and water, and morale restarts at no less than 50. Logged as `settlement_resettled`. No random draw, so
+  the RNG sequence of every other rule is unchanged.
+
+Variants measured for the decision (same command, 20 seeds x 90 days): re-role only gives empty_share 0.031 and
+resettlements 0 (the older arrival rule refills a place that still has stock); resettle only gives 0.037 with 4.45
+emptyings and 3.65 resettlements per run (farms keep dying and being reseeded); both give 0.024 with 2.35 and 1.75.
+`DEFAULT_BOUNDS` tightened to match: `empty_settlements` at most 1.0 (was 2.5), `empty_share` at most 0.15 (new).
 
 Findings for the lead, not fixed here: `slavers` never leave home because `slaver_pit`'s one route leads to
 `river_town`, the traders' home, which can never be attacked (fixture shape, so `home_only_share` is reported but
-not bounded); 1.6 of 4 settlements empty by day 90 is high for a world meant to grow (capture halves a population).
+not bounded). `market` never grows past its starting 6 in any seed under either rule set: its two farmers make exactly
+the 6 water its 6 settlers drink, and caravans carry only food, so the morale rule's surplus test (`stock > 2 * need`
+for both goods) never passes; `river_town` reaches its 20 beds at hour 432 (day 18) in every seed and stays there (slavers cannot attack a home). Both are fixture-shape
+findings; a water cargo or a lower morale threshold would be a tuning question. Mean morale 86 reads as generous:
+whether settlements should thrive this easily between raids is for the lead to judge against the design, and
+`RAID`/`ATTACK` pressure and `REROLE_ON_SHORTAGE` are the knobs.
 
 ## Not implemented (and not claimed)
 
 No game runtime, no Papyrus, no SFSE plugin, no plugin records written (the adapter is a plan), nothing installed or
 deployed, no UI, no spawning, no voice, no quest records behind the job offers, no player-needs model behind the
-survival presets, no reputation globals per region, no tuning done (the harness measures; the constants are the
-first prototype's placeholders). Whether keyword data survives a save (P2) and the sidecar's behaviour under SFSE (P1) are untested on the PC.
+survival presets, no reputation globals per region, only one tuning pass (empty settlements, see "Balance baseline"; the other constants are
+still the first prototype's placeholders). Whether keyword data survives a save (P2) and the sidecar's behaviour under SFSE (P1) are untested on the PC.
 The fixtures use placeholder names (`farm_a`, `raiders`); they are not game facts.
 
 ## Run it

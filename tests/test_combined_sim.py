@@ -1,5 +1,6 @@
 """Combined-core L2 simulation: synthetic REGION_1/REGION_2 packs only, no game data (placeholder names, not facts)."""
 import copy
+import json
 import os
 import sys
 import unittest
@@ -259,6 +260,181 @@ class PlayerHookTests(unittest.TestCase):
             sim.run(ws, 30 * 24)
             runs.append(ws.to_json())
         self.assertEqual(runs[0], runs[1])
+
+
+def settle(ws, sid, roles, stock=0, morale=50, holder="settlers"):
+    """Shape settlement `sid`: roles {role: n}, every stock at `stock`, the place held by `holder`."""
+    s = ws.settlements[sid]
+    s.roles = {r: roles.get(r, 0) for r in ROLES}
+    s.population = sum(s.roles.values())
+    s.stock = {g: stock for g in s.stock}
+    s.morale = morale
+    ws.places[sid].holder = holder
+    return s
+
+
+class ShortageTests(unittest.TestCase):
+    """REROLE_ON_SHORTAGE: a settlement short of food or water puts a settler to farming instead of starving."""
+
+    def test_short_tick_turns_the_biggest_other_role_into_a_farmer(self):
+        ws = quiet(world(1))
+        s = settle(ws, "farm_a", {"guard": 2, "trader": 1})
+        sim.tick(ws)
+        self.assertEqual((s.roles["farmer"], s.roles["guard"], s.roles["trader"]), (1, 1, 1))   # one per tick
+        self.assertEqual(s.population, 3)
+        ev = kinds(ws, "roles_changed")
+        self.assertEqual([(e["place"], e["from_role"], e["to_role"], e["n"]) for e in ev],
+                         [("farm_a", "guard", "farmer", 1)])
+        self.assertEqual(s.morale, 45)                       # the shortage still hurts
+        sim.tick(ws)                                         # 3 food and water for 3 mouths: fed, no second move
+        self.assertEqual(s.roles["farmer"], 1)
+        self.assertEqual(len(kinds(ws, "roles_changed")), 1)
+
+    def test_no_move_when_farmers_already_meet_the_food_rule_or_nobody_else_is_left(self):
+        ws = quiet(world(1))
+        s = settle(ws, "farm_a", {"farmer": 2, "guard": 1})  # 3 * 2 >= 3 + 2
+        sim.tick(ws)
+        self.assertEqual(s.roles["farmer"], 2)
+        s = settle(ws, "farm_b", {"farmer": 1}, stock=0)
+        s.population = 1
+        sim.tick(ws)
+        self.assertEqual(s.roles, {**{r: 0 for r in ROLES}, "farmer": 1})
+        self.assertEqual(kinds(ws, "roles_changed"), [])
+
+    def test_zero_disables_the_rule(self):
+        ws = quiet(world(1))
+        s = settle(ws, "farm_a", {"guard": 2, "trader": 1})
+        with mock.patch.object(sim, "REROLE_ON_SHORTAGE", 0):
+            sim.run(ws, 48)
+        self.assertEqual(s.roles["farmer"], 0)
+        self.assertEqual(kinds(ws, "roles_changed"), [])
+        self.assertLess(s.population, 3)                     # the old death spiral
+
+    def test_captured_farm_feeds_itself_again_instead_of_emptying(self):
+        """The baseline's commonest story (seed 9, farm_a): capture takes the three farmers, the guard and trader
+        starve and leave, the place is dead by day 6. Now a survivor farms and the place keeps people."""
+        ws = quiet(world(1))
+        s = settle(ws, "farm_a", {"farmer": 3, "guard": 1, "trader": 1}, stock=20, morale=56)
+        ws.places["farm_a"].defence = 0
+        ws.factions["settlers"].strength = 0
+        ws.squads["s1"] = Squad(id="s1", faction="raiders", size=500, at="raider_camp", goal="farm_a",
+                                kind="attack", eta=sim.TICK_HOURS)
+        sim.run(ws, 20 * 24)
+        self.assertEqual(ws.places["farm_a"].holder, "raiders")
+        self.assertGreaterEqual(s.population, 2)
+        self.assertGreaterEqual(s.roles["farmer"], 1)
+        self.assertEqual(kinds(ws, "settlement_emptied"), [])
+
+
+class ResettlementTests(unittest.TestCase):
+    """An empty settlement a faction holds draws a wanderer once a day when it is safe and fed (RESETTLE_*)."""
+
+    def empty(self, ws, sid="farm_a", holder="raiders"):
+        return settle(ws, sid, {}, stock=0, morale=0, holder=holder)
+
+    def test_wanderer_arrives_as_a_farmer_with_a_kit_on_the_day_tick(self):
+        ws = quiet(world(1))
+        s = self.empty(ws)
+        sim.run(ws, 18)                                      # hours 6, 12, 18: not a day boundary
+        self.assertEqual(s.population, 0)
+        sim.tick(ws)                                         # hour 24
+        self.assertEqual((s.population, s.roles["farmer"]), (1, 1))
+        self.assertEqual((s.stock["food"], s.stock["water"]), (sim.RESETTLE_KIT, sim.RESETTLE_KIT))
+        self.assertEqual(s.morale, sim.RESETTLE_MORALE)
+        ev = kinds(ws, "settlement_resettled")
+        self.assertEqual([(e["hour"], e["place"], e["faction"]) for e in ev], [(24, "farm_a", "raiders")])
+        sim.run(ws, 20 * 24)                                 # and then it grows like any fed settlement
+        self.assertGreater(s.population, 1)
+        self.assertTrue(kinds(ws, "settler_arrived"))
+
+    def test_no_wanderer_without_a_holder_or_beds(self):
+        ws = quiet(world(1))
+        s = self.empty(ws, holder=None)
+        sim.run(ws, 10 * 24)
+        self.assertEqual(s.population, 0)
+        s = self.empty(ws, holder="raiders")
+        s.beds = 0
+        sim.run(ws, 10 * 24)
+        self.assertEqual(s.population, 0)
+        self.assertEqual(kinds(ws, "settlement_resettled"), [])
+
+    def test_recent_fighting_or_an_attack_on_the_way_blocks_it(self):
+        ws = quiet(world(1))
+        s = self.empty(ws)
+        ws.events.append({"hour": 0, "kind": "place_taken", "place": "farm_a", "region": "R1",
+                          "faction": "raiders", "previous": "settlers", "retaken": False})
+        sim.run(ws, sim.RESETTLE_SAFE_HOURS)                 # the fight is still within the window at its end
+        self.assertEqual(s.population, 0)
+        sim.run(ws, 24)                                      # hour 72: 72 - 48 = 24 > 0, safe
+        self.assertEqual(s.population, 1)
+        s = self.empty(ws, "farm_b")
+        ws.squads["s9"] = Squad(id="s9", faction="order", size=3, at="ruins", goal="farm_b", kind="attack",
+                                eta=ws.hour + 500)
+        sim.run(ws, 5 * 24)
+        self.assertEqual(s.population, 0)
+        del ws.squads["s9"]
+        sim.run(ws, 24)
+        self.assertEqual(s.population, 1)
+
+    def test_safe_check_reads_squads_and_the_log(self):
+        ws = quiet(world(1))
+        self.assertTrue(sim._resettle_safe(ws, "farm_a"))
+        ws.events.append({"hour": 0, "kind": "attack_failed", "place": "farm_a", "region": "R1",
+                          "faction": "raiders", "defender": "settlers"})
+        self.assertFalse(sim._resettle_safe(ws, "farm_a"))
+        ws.hour = sim.RESETTLE_SAFE_HOURS + 1
+        self.assertTrue(sim._resettle_safe(ws, "farm_a"))
+        self.assertTrue(sim._resettle_safe(ws, "farm_b"))
+        ws.squads["s9"] = Squad(id="s9", faction="order", size=3, at="ruins", goal="farm_b", kind="attack", eta=999)
+        self.assertFalse(sim._resettle_safe(ws, "farm_b"))
+
+    def test_emptied_event_on_the_last_leaver_and_on_a_capture(self):
+        ws = quiet(world(1))
+        s = settle(ws, "farm_a", {"guard": 1}, stock=0, morale=12)
+        with mock.patch.object(sim, "REROLE_ON_SHORTAGE", 0):
+            sim.tick(ws)                                     # short: morale 7, the guard leaves
+        self.assertEqual(s.population, 0)
+        self.assertEqual([(e["place"], e["holder"]) for e in kinds(ws, "settlement_emptied")],
+                         [("farm_a", "settlers")])
+        s = settle(ws, "farm_b", {"guard": 1}, stock=0, morale=90)
+        ws.places["farm_b"].defence = 0
+        ws.factions["settlers"].strength = 0
+        ws.squads["s1"] = Squad(id="s1", faction="raiders", size=500, at="ruins", goal="farm_b",
+                                kind="attack", eta=ws.hour + sim.TICK_HOURS)
+        sim.tick(ws)
+        self.assertEqual(ws.places["farm_b"].holder, "raiders")
+        self.assertEqual(s.population, 0)
+        self.assertEqual([e["holder"] for e in kinds(ws, "settlement_emptied") if e["place"] == "farm_b"],
+                         ["raiders"])
+
+    def test_settlements_still_fall_and_come_back_across_seeds(self):
+        emptied = resettled = ended_empty = 0
+        for seed in SEEDS:
+            ws = world(seed)
+            sim.run(ws, DAYS * 24)
+            emptied += len(kinds(ws, "settlement_emptied"))
+            resettled += len(kinds(ws, "settlement_resettled"))
+            ended_empty += sum(s.population == 0 for s in ws.settlements.values())
+        self.assertGreater(emptied, 0)                       # a settlement can fall
+        self.assertGreater(resettled, 0)                     # and be resettled
+        self.assertLessEqual(ended_empty, len(SEEDS))        # rarely still empty at the end (baseline: 32 of 80)
+
+    def test_save_made_under_the_old_rules_replays_under_the_new_ones(self):
+        old = {"REROLE_ON_SHORTAGE": 0, "RESETTLE_SAFE_HOURS": 10 ** 9}
+        for seed in (3, 9):
+            ws = world(seed)
+            with mock.patch.multiple(sim, **old):
+                sim.run(ws, 45 * 24)
+            d = json.loads(ws.to_json())                     # schema 2; strip the events a save from before
+            d["events"] = [e for e in d["events"]            # the change never had
+                           if e["kind"] not in ("settlement_emptied", "settlement_resettled")]
+            self.assertTrue(len(d["events"]) < len(ws.events))
+            ws = WorldState.from_json(json.dumps(d))
+            sim.run(ws, 45 * 24)
+            for sid, s in ws.settlements.items():
+                self.assertEqual(sum(s.roles.values()), s.population, sid)
+                self.assertTrue(0 <= s.population <= s.beds, sid)
+            self.assertTrue(kinds(ws, "settlement_resettled") or kinds(ws, "settler_arrived"))
 
 
 class NewsTests(unittest.TestCase):

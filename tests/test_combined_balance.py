@@ -55,6 +55,30 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(sorted(m["frozen_regions"]), m["frozen_regions"])
         self.assertEqual(m["frozen_region_count"], len(m["frozen_regions"]))
 
+    def test_empty_hours_are_rebuilt_from_emptied_and_resettled_events(self):
+        ws = world()
+        ws.hour = 100
+        for hour, kind, place in ((10, "settlement_emptied", "farm_a"), (30, "settlement_resettled", "farm_a"),
+                                  (20, "settler_arrived", "market"),            # no open span: ignored
+                                  (50, "settlement_emptied", "farm_b"),         # open until the end
+                                  (80, "settlement_emptied", "farm_a"), (90, "settler_arrived", "farm_a"),
+                                  (95, "settlement_emptied", "ruins")):         # not a settlement: ignored
+            ws.events.append({"hour": hour, "kind": kind, "place": place, "region": "R1"})
+        self.assertEqual(balance.empty_hours(ws), {"farm_a": 30, "farm_b": 50, "market": 0, "river_town": 0})
+        m = balance.metrics(ws)
+        self.assertAlmostEqual(m["empty_share"], 80 / 400)
+        self.assertEqual((m["settlements_emptied"], m["resettlements"]), (4, 1))   # raw log counts
+        self.assertEqual(balance.metrics(world())["empty_share"], 0.0)
+
+    def test_empty_share_matches_a_population_trace(self):
+        ws = world(9)
+        hours = {sid: 0 for sid in ws.settlements}
+        for _ in range(60 * 24 // sim.TICK_HOURS):
+            sim.tick(ws)
+            for sid, s in ws.settlements.items():
+                hours[sid] += sim.TICK_HOURS * (s.population == 0)
+        self.assertEqual(balance.empty_hours(ws), hours)
+
     def test_raided_share_is_raided_over_finished_caravans(self):
         ws = world()
         for kind in ("caravan_raided", "caravan_arrived", "caravan_arrived", "caravan_lost"):
@@ -211,6 +235,9 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(agg["home_violations"], 0)
         self.assertEqual(agg["landless_share_max"], 0.0)
         self.assertEqual(balance.check(agg), [])      # the fixtures sit inside their own envelope
+        self.assertGreater(agg["resettlements"], 0)   # places fall and are resettled (sim.RESETTLE_*)
+        self.assertGreater(agg["settlements_emptied"], 0)
+        self.assertLess(agg["empty_settlements"], 1.0)
 
 
 class CheckTests(unittest.TestCase):

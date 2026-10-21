@@ -39,7 +39,9 @@ DEFAULT_BOUNDS = {
     "changes_per_30_days": (2, 30),     # territory moves, but not every tick
     "attacks_per_day": (0.1, 3.0),      # pressure exists without constant war
     "landless_share_max": (None, 0.5),  # no faction spends most of its time holding nothing
-    "empty_settlements": (None, 2.5),   # the fixtures have four settlements; most keep people
+    "empty_settlements": (None, 1.0),   # four settlements; a run rarely ends with one empty (was 2.5 before the
+                                        # shortage and resettlement rules, when 1.6 of 4 ended empty)
+    "empty_share": (None, 0.15),        # settlement-hours with nobody home: places fall, but come back
     "mean_morale": (25, None),          # settlers are not all despairing
     "caravans_raided_share": (None, 0.6),  # supply lines are breakable, not broken
 }
@@ -93,12 +95,34 @@ def frozen_regions(ws: WorldState) -> list[str]:
     return sorted({pl.region for pl in ws.places.values()} - moved)
 
 
+def empty_hours(ws: WorldState) -> dict[str, int]:
+    """Hours each settlement spent with nobody in it, rebuilt from the log: a `settlement_emptied` event opens a span
+    and the next `settlement_resettled` or `settler_arrived` at that place closes it (an open span runs to ws.hour).
+    A settlement that starts a run empty has no opening event, so its hours before the first arrival do not count;
+    saves written before those events existed measure 0 here."""
+    out = {sid: 0 for sid in sorted(ws.settlements)}
+    open_since: dict[str, int] = {}
+    for e in ws.events:
+        sid = e["place"]
+        if sid not in out:
+            continue
+        if e["kind"] == "settlement_emptied":
+            open_since.setdefault(sid, e["hour"])
+        elif e["kind"] in ("settlement_resettled", "settler_arrived") and sid in open_since:
+            out[sid] += e["hour"] - open_since.pop(sid)
+    for sid, since in open_since.items():
+        out[sid] += ws.hour - since
+    return out
+
+
 def metrics(ws: WorldState) -> dict:
     """Numbers for one finished world: scalars plus the per-faction `landless_share` and `home_only_share` and the
     `frozen_regions` list. A place changing hands is any holder change, a player clear included. Rates are per
-    day of ws.hour, so a resumed save measures its whole history."""
+    day of ws.hour, so a resumed save measures its whole history. `empty_share` is the share of settlement-hours
+    with nobody home (empty_hours), the span metric behind the end-state count `empty_settlements`."""
     days = ws.hour / HOURS_PER_DAY
     taken = sim.holder_changes(ws)
+    empties = empty_hours(ws)
     raided = sum(e["kind"] == "caravan_raided" for e in ws.events)
     finished = raided + sum(e["kind"] in ("caravan_arrived", "caravan_lost") for e in ws.events)
     share = landless_share(ws)
@@ -111,6 +135,9 @@ def metrics(ws: WorldState) -> dict:
         "attacks_per_day": sum(e["kind"] == "attack_launched" for e in ws.events) / days if days else 0.0,
         "caravans_raided_share": raided / finished if finished else 0.0,
         "empty_settlements": sum(s.population == 0 for s in settlements),
+        "settlements_emptied": sum(e["kind"] == "settlement_emptied" for e in ws.events),
+        "resettlements": sum(e["kind"] == "settlement_resettled" for e in ws.events),
+        "empty_share": (sum(empties.values()) / (len(empties) * ws.hour)) if empties and ws.hour else 0.0,
         "mean_morale": mean(s.morale for s in settlements) if settlements else 0.0,
         "landless_share": share,
         "landless_share_max": max(share.values(), default=0.0),

@@ -27,6 +27,17 @@ out/
 *.pex
 *.swf
 
+# SFSE probe plugin (sfse/FOCCSidecar): the fetched MIT header and its licence copy are the owner's local copies
+# (fetch_pluginapi.ps1 pins the commit and hash); compiler outputs never enter the repo (guard.py bans .dll too)
+sfse/FOCCSidecar/PluginAPI.h
+sfse/FOCCSidecar/PluginAPI.LICENSE.txt
+*.dll
+*.obj
+*.pdb
+*.exp
+*.lib
+*.ilk
+
 # python / dotnet
 __pycache__/
 *.pyc
