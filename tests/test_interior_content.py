@@ -430,6 +430,18 @@ class ContentTests(unittest.TestCase):
         self.assertEqual((lobby["refs"], lobby["trap_refs"], r["totals"]["trap_refs"]), (22, 3, 3))
         self.assertEqual(lobby["plugins"], ["Fallout4.esm", "DLCMove.esm"])
 
+    def test_a_deleted_cell_leaves_the_content_scan(self):
+        """A later plugin deletes Vault's CELL (record flag 0x20, no fields, no child group): Vault and every ref its
+        earlier copy held leave the scan, measured or named."""
+        before = self.by_cell(icn.content([self.esm]))
+        self.assertIn("Vault", before)
+        gone = self.write("DLCGone.esm", plugin_bytes(master_header(1), [interiors([rec(b"CELL", VAULT, [], flags=icn.DELETED)])]))
+        r = icn.content([self.esm, gone])
+        by = self.by_cell(r)
+        self.assertNotIn("Vault", by)
+        self.assertEqual(r["totals"]["refs"], sum(c["refs"] for c in before.values()) - before["Vault"]["refs"])
+        self.assertNotIn("Vault", self.by_cell(icn.content([self.esm, gone], {fk(VAULT), fk(LOBBY)})))
+
     def test_plugin_name_case_follows_the_masters(self):
         """fallout4.esm on the command line (a case-insensitive disk opens it) still keys its records Fallout4.esm,
         as the DLC's MAST and the census spell it."""

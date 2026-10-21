@@ -186,7 +186,7 @@ def _walk_cells(buf, start, end, world, K, plugin, on_cell, on_ref):
             elif gtype == ic.GROUP_CELL and cell_key is not None and K(ic.u32(label)) == cell_key:
                 _walk_children(buf, off + 24, gend, state, K, on_ref)
             continue
-        typ, off, _flags, fid = item
+        typ, off, rflags, fid = item
         if typ != b"CELL":
             state = cell_key = None
             continue
@@ -194,7 +194,11 @@ def _walk_cells(buf, start, end, world, K, plugin, on_cell, on_ref):
         fields = list(fl.iter_subrecords(fl.record_data(buf, off)))
         flags = next((struct.unpack_from("<H", d)[0] for s, d in fields if s == b"DATA" and len(d) >= 2), 0)
         interior = world is None and bool(flags & ic.CELL_INTERIOR)
-        state = on_cell(K, cell_key, interior, world, fields, plugin)
+        # a CELL re-saved with the Deleted flag is gone from the game with everything in it (CellMerge and
+        # interior_census.py drop it too): on_cell takes it back and returns None, so its own children are not read
+        state = on_cell(K, cell_key, interior, world, fields, plugin, deleted=bool(rflags & DELETED))
+        if rflags & DELETED:
+            cell_key = None
 
 
 def _walk_children(buf, start, end, state, K, on_ref):
@@ -274,7 +278,12 @@ class Content:
                         t.setdefault("odd_types", []).append(item_type)
             self.term[key] = t
 
-    def on_cell(self, K, key, interior, world, fields, plugin):
+    def on_cell(self, K, key, interior, world, fields, plugin, deleted=False):
+        if deleted:
+            gone = self.cells.pop(key, None)
+            for ref in (gone or {}).get("refs", {}):
+                self.ref_cell.pop(ref, None)
+            return None
         if not interior or (self.wanted is not None and key not in self.wanted):
             return None
         cell = self.cells.get(key)
@@ -318,7 +327,11 @@ class Content:
             found = {}
             keys = PluginKeys(self.canon)
 
-            def on_cell(K, key, interior, world, fields, plugin):
+            def on_cell(K, key, interior, world, fields, plugin, deleted=False):
+                if deleted:
+                    for ref in [r for r, f in found.items() if f and f["place"][0] != "world" and f["place"][1] == key]:
+                        found.pop(ref)
+                    return None
                 eid = next((fl.zstring(d) for s, d in fields if s == b"EDID"), "")
                 return (key, interior, world, eid)
 
@@ -326,7 +339,7 @@ class Content:
                 ref = K(fid)
                 if ref not in wanted:
                     return
-                if flags & DELETED:
+                if flags & DELETED or state is None:
                     found.pop(ref, None)
                     return
                 key, interior, world, eid = state
