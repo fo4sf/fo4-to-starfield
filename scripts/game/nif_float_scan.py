@@ -119,7 +119,7 @@ def main(argv=None):
                 hits = scan(data, value)
             except Exception as e:                         # noqa: BLE001  (a reader failure is reported, not fatal)
                 errors += 1
-                print(f"ERROR {name}: {type(e).__name__}: {e}")
+                lines.append(f"ERROR {name}: {type(e).__name__}: {e}")
                 continue
             if hits:
                 found[name] = [{"block": i, "type": t, "offset": o, "where": w} for i, t, o, w in hits]
