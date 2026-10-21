@@ -289,8 +289,14 @@ class BatchPlanTests(unittest.TestCase):
         census, backlog = self.plan_inputs()
         old = ibs.plan(census, backlog, min_cells=1, max_cells=2)
         census["cells"].append(crow("DLC01Lair01", "A:DLCRobot.esm", status="new", entered=("Commonwealth",)))
+        near = next(r for r in census["cells"] if r["editor_id"] == "Near")
+        near["plugins"] = ["Fallout4.esm", "DLCRobot.esm"]                     # a DLC now overrides an earlier cell
         grown = ibs.extend(old, ibs.plan(census, backlog, min_cells=1, max_cells=2), min_cells=1, max_cells=2)
-        self.assertEqual(grown["batches"][:3], old["batches"])                  # built batches stay byte-for-byte
+        rows = {c["editor_id"]: c for b in grown["batches"] for c in b["cells"]}
+        self.assertEqual(rows["Near"]["plugins"], ["Fallout4.esm", "DLCRobot.esm"])
+        self.assertEqual(grown["totals"]["plugins_refreshed"], 1)
+        strip = lambda bs: [dict(b, cells=[{k: v for k, v in c.items() if k != "plugins"} for c in b["cells"]]) for b in bs]
+        self.assertEqual(strip(grown["batches"][:3]), strip(old["batches"]))   # built batches keep order and fields
         self.assertEqual([c["editor_id"] for c in grown["batches"][3]["cells"]], ["DLC01Lair01"])
         self.assertEqual(grown["batches"][3]["name"], "interiors_b04")
         self.assertEqual(grown["totals"]["extended_by"], 1)

@@ -171,7 +171,20 @@ def extend(existing, fresh, min_cells=20, max_cells=30, max_refs=60000):
     if lost:
         raise ValueError(f"{len(lost)} cell(s) of the earlier plan are not in the new census's plan (first {lost[:3]})")
     todo = [c for b in fresh["batches"] for c in b["cells"] if c["formkey"] not in have]
-    out = [dict(b) for b in existing["batches"]]
+    # An earlier cell keeps its batch and order, but takes the larger census's load order (`plugins`): a DLC that
+    # overrides it must be exported as the winner (interior_batch.cell_plugins prefers the plan's list to --census).
+    fresh_plugins = {c["formkey"]: c["plugins"] for b in fresh["batches"] for c in b["cells"] if c.get("plugins")}
+    refreshed = 0
+    out = []
+    for b in existing["batches"]:
+        cells = []
+        for c in b["cells"]:
+            want = fresh_plugins.get(c["formkey"])
+            if want and want != c.get("plugins"):
+                c = dict(c, plugins=list(want))
+                refreshed += 1
+            cells.append(c)
+        out.append(dict(b, cells=cells))
     per_model = fresh["params"]["bytes_per_model"]
     cum = out[-1]["cumulative_models_est"] if out else PORT_MODELS
     groups, cur = [], []
@@ -196,7 +209,8 @@ def extend(existing, fresh, min_cells=20, max_cells=30, max_refs=60000):
     result["batches"] = out
     result["totals"] = dict(existing["totals"], batches=len(out), cells=sum(b["cell_count"] for b in out),
                             refs=sum(b["refs"] for b in out), final_archives_gb_est=out[-1]["archives_gb_est"] if out else 0,
-                            final_peak_gb_est=out[-1]["peak_gb_est"] if out else 0, extended_by=len(todo))
+                            final_peak_gb_est=out[-1]["peak_gb_est"] if out else 0, extended_by=len(todo),
+                            plugins_refreshed=refreshed)
     return result
 
 
