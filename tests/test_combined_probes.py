@@ -305,7 +305,7 @@ class P3Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P4
 
 def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
-    lines = [INIT]
+    lines = [INIT, f"FOCC rt=0.5 p4 start cycles={cycles}"]
     for n in range(1, cycles + 1):
         placed = 2 if short_at == n else 3
         lines.append(f"FOCC rt={n * 8.5:.1f} p4 cycle n={n} placed={placed} loaded={loaded} deleted=3 mode={mode}")
@@ -314,6 +314,15 @@ def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
 
 
 class P4Tests(unittest.TestCase):
+    def test_only_the_latest_run_counts(self):
+        # Codex P1 on #431: an older complete run must not fill the gaps of the latest one.
+        partial = [l for l in p4_log() if " n=7 " not in l]
+        c = col(log=p4_log() + partial[1:])
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        v = probes.check_p4(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("cycles missing: [7]" in r for r in v.reasons), v.reasons)
+
     def test_pass_and_growth_record(self):
         v = probes.check_p4(col(log=p4_log()))
         self.assertEqual(v.verdict, INCONCLUSIVE)                        # no saves.json
@@ -441,6 +450,24 @@ def p7_log(pairs=((3.0, "A"), (9.0, "B")), glob=None):
     return lines
 
 
+class LatestAttemptTests(unittest.TestCase):
+    """Codex review of #431: logs can hold retries; only the latest attempt is judged."""
+
+    def test_p1_post_save_must_follow_the_latest_pre_save(self):
+        c = p1_collection()
+        retry = json.dumps({"event": "pre_save", "save": "focc_p1_b", "counter": 3})
+        c.sfse_log = c.sfse_log + [retry]                  # the newer save of b never finished
+        v = probes.check_p1(c)
+        self.assertEqual(v.verdict, FAIL)
+        self.assertTrue(any("without post_save" in r for r in v.reasons), v.reasons)
+
+    def test_p6_a_partial_retry_is_not_backfilled(self):
+        retry = p6_log()[1:3]                              # datum 1: trials 1 and 2 only
+        v = probes.check_p6(col(log=p6_log() + retry))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("want 1, 2, 3" in r for r in v.reasons), v.reasons)
+
+
 # the two trial shapes the kit's sources promise: the script's Trace call and the fixture above must agree
 SPAWN_TRACE = 'Trace(probe + " " + head + " trial=" + k + " base=" + Id(b) + " baselocal=" + BaseName(b))'
 
@@ -528,6 +555,11 @@ def p8_log(order=(1, 2, 0), swap=None, detach=None):
 
 
 class P8Tests(unittest.TestCase):
+    def test_an_older_run_before_the_latest_move_does_not_count(self):
+        c = col(log=p8_log() + p8_log()[1:-1])                # latest run lost its last child line
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE)
+
     def test_pass(self):
         c = col(log=p8_log())
         c.saves = saves(focc_p8_before=5_000_000, focc_p8_after=5_010_000)

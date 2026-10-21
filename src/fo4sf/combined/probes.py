@@ -393,7 +393,8 @@ def check_p1(c: Collection) -> Verdict:
     for n, d, s in evs:
         if d.get("event") == "pre_save" and isinstance(d.get("save"), str):
             pre[d["save"]], pre_line[d["save"]] = d, n
-    post_saves = {d["save"] for n, d, s in evs if d.get("event") == "post_save" and isinstance(d.get("save"), str)}
+    post_saves = {d["save"] for n, d, s in evs if d.get("event") == "post_save" and isinstance(d.get("save"), str)
+                  and d["save"] in pre_line and n > pre_line[d["save"]]}
     # The log is appended across launches: a load only counts for a saved name when it follows that name's last
     # pre_save, so an older attempt's read-back never stands in for this one's (Codex review of #431).
     loads = [d for n, d, s in evs if d.get("event") == "post_load"
@@ -673,6 +674,9 @@ def check_p4(c: Collection) -> Verdict:
     if evs is None:
         v.reasons.append("no log (focc.0.log)")
         return v
+    starts = _by_kind(evs, "p4 start")
+    if starts:                                  # judge only the latest run: an older one never fills its gaps
+        evs = [e for e in evs if e.line >= starts[-1].line]
     cycles = _by_kind(evs, "p4 cycle")
     done = _by_kind(evs, "p4 done")
     v.cite(*cycles, *done)
@@ -831,9 +835,10 @@ def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: 
         v.reasons.append(f"no `{kind}` trial lines")
         return INCONCLUSIVE
     for value, want in cases.items():
-        mine = [e for e in trials if _close(e.num(key), value)]
-        if len(mine) < 3:
-            v.reasons.append(f"{key}={value}: {len(mine)} trials, want 3")
+        mine = [e for e in trials if _close(e.num(key), value)][-3:]     # the latest call's trials only
+        if len(mine) < 3 or [e.num("trial") for e in mine] != [1.0, 2.0, 3.0]:
+            v.reasons.append(f"{key}={value}: the latest trials are {[e.num('trial') for e in mine]}, want 1, 2, 3 "
+                             "from one call")
             return INCONCLUSIVE
         for e in mine:
             rb = e.num(readback_key)
@@ -904,6 +909,9 @@ def check_p8(c: Collection) -> Verdict:
     if evs is None:
         v.reasons.append("no log (focc.0.log)")
         return v
+    moves = _by_kind(evs, "p8 move")
+    if moves:                                   # judge only after the latest move: an older run's lines never count
+        evs = [e for e in evs if e.line >= moves[-1].line]
     move = _by_kind(evs, "p8 move")
     stages = [e for e in evs if e.kind == "p8" and set(e.fields) == {"stage"}]      # `FOCC p8 stage=<s>`
     children = _by_kind(evs, "p8 child")
