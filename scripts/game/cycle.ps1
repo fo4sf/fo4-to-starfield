@@ -198,7 +198,9 @@ Send 'hold:e,300|wait:1500'
 Clear-AchievementsPopup | Out-Null
 if ($CellJson) {
   $name = $Cell -replace '^FO4Port_', ''
-  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') -Cell $name -CellJson $CellJson
+  $cocArgs = @('-Cell', $name, '-CellJson', $CellJson)
+  if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }   # the arrival read from the bridge
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') @cocArgs
   if ($LASTEXITCODE -ne 0) { "coc.ps1 could not verify the arrival in $Cell (exit $LASTEXITCODE)"; exit 4 }
 } else {
   $clear = 'key:back|' * 40                                    # empties the console line, whatever was left in it
