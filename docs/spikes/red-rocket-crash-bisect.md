@@ -1,7 +1,7 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
 Status: **in progress**. v6e and v6h both crash at Red Rocket with the same fault, so every door rig near Red Rocket
-is cleared. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes"); v6i tests it.
+is cleared, and a run with the mission off crashes too. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes"); v6i tests it.
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -113,6 +113,14 @@ Steps (PC install thread; D: needs room for one more staged core, and keeps its 
   **Verified** (PC report).
 - So the counter and safe door rigs are cleared too, and no door rig near Red Rocket is left. The counter door's 0.02
   leaf box is still in v6h, so it remains the lead (**supported hypothesis**).
+
+## Mission-off control (Card D, 2026-10-21)
+- v6h with FO4SFMission.esm off crashes the same way, about 16 s after the move to Red Rocket (17:39:41 local).
+  Starfield.exe+0x2bf016b, rcx 0x3ca3d70a, r12 0x6666666666666600; process commit 13.29 GiB, 3.99 GiB available.
+  The plugin was confirmed off before launch and in the cycle's active line. **Verified** (PC report).
+- So the mission script (and its MoveTo of Preston, the raiders and Codsworth) is ruled out.
+- Side note: after the game exited, Plugins.txt had FO4SFMission.esm ticked again while the toggle still read off,
+  so the runner or the game rewrote it on exit (unchecked which).
 
 ## v6i (next): the leaf floor alone
 v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR's `sfcollision.MIN_LEAF_HALF`).
