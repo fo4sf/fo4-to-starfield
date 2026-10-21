@@ -15,8 +15,8 @@ game ticked it again), exp_install.py active counts it as intended (and fails if
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
 first, then empties the record; it refuses a plugin with a master (other than the game's implicit ones) that is
 neither active nor coming back, and a plugin with no line or several; a held plugin the game cannot load (its Data
-file gone or its header unreadable, or such a master) is released and unticked, and off refuses to hold one. A hold
-recorded for another user's Plugins.txt is refused everywhere.
+file gone or its header unreadable, or the same down its master chain) is released and unticked, and off refuses to
+hold one. A hold recorded for another user's Plugins.txt is refused everywhere.
 off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
 """
 import argparse
@@ -60,17 +60,36 @@ def names(arg):
     return [x.strip() for x in (arg or "").split(",") if x.strip()]
 
 
-def unloadable(data, plugin):
-    """Why the installed plugin cannot be loaded (its Data file missing, or its TES4 header unreadable), else None:
-    off refuses to hold such a plugin and on releases it without ticking it."""
-    path = exp_install.data_path(data, plugin)
-    if not os.path.isfile(path):
-        return f"the installed plugin file is missing: {path}"
+def unloadable(data, plugin, memo=None):
+    """Why the plugin cannot be loaded, else None: its Data file missing, its TES4 header unreadable, or the same for
+    any master down its master chain (read from each master's own header in Data, held or not, active or not;
+    implicit masters aside) (Codex on #407). off refuses to hold such a plugin and on releases it without ticking it.
+    memo ({casefolded name: reason or None}) shares the walk between calls."""
+    memo = {} if memo is None else memo
+    key = plugin.casefold()
+    if key in memo:
+        return memo[key]
+    memo[key] = None                                      # a master cycle is not this check's to judge
     try:
-        exp_install.plugin_masters(path)
-    except (OSError, ValueError) as error:
-        return f"the installed plugin file is unreadable: {error}"
-    return None
+        path = exp_install.data_path(data, plugin)
+    except ValueError as error:
+        memo[key] = f"{plugin}: {error}"
+        return memo[key]
+    why = None
+    if not os.path.isfile(path):
+        why = f"{plugin}: the plugin file is missing ({path})"
+    else:
+        try:
+            masters = exp_install.plugin_masters(path)
+        except (OSError, ValueError) as error:
+            why = f"{plugin}: the plugin file is unreadable ({error})"
+        else:
+            for m in masters:
+                if not exp_install.implicit(m) and unloadable(data, m, memo):
+                    why = f"{plugin}: needs {memo[m.casefold()]}"
+                    break
+    memo[key] = why
+    return why
 
 
 def off(a):
@@ -130,19 +149,14 @@ def on(a):
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
     mine = owned(data)
-    # The plugins that cannot load are released, unticked, never restored (Codex on #407): a held plugin the game
-    # cannot load (its Data file gone or its header unreadable: a hold from before off checked it, or a file deleted
-    # or damaged since), and, transitively, a held plugin with such a master (implicit masters aside). Their hold
-    # would otherwise block every uninstall for good. Everything else held comes back under the checks below.
-    lost = {p.casefold() for p in want if p.casefold() in mine and unloadable(data, mine[p.casefold()])}
-    masters = {p.casefold(): exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
-               for p in want if p.casefold() in mine and p.casefold() not in lost}
-    grew = True
-    while grew:
-        more = {k for k, ms in masters.items()
-                if k not in lost and any(not exp_install.implicit(m) and m.casefold() in lost for m in ms)}
-        lost |= more
-        grew = bool(more)
+    # Every requested plugin that cannot load (unloadable: its file, its header, or anything down its master chain,
+    # held or not) is released and unticked, never restored: its hold would otherwise block every uninstall for good.
+    # A broken master that is not held is never ticked or unticked here (Codex on #407). Everything else requested
+    # comes back under the checks below.
+    memo = {}
+    why = {p.casefold(): unloadable(data, mine[p.casefold()], memo) for p in want if p.casefold() in mine}
+    lost = {k for k, w in why.items() if w}
+    masters = {k: exp_install.plugin_masters(exp_install.data_path(data, mine[k])) for k in why if k not in lost}
     tick = back - lost
     p_txt = exp_install.plugins_txt()
     original = exp_install.read_bytes(p_txt)
@@ -183,8 +197,8 @@ def on(a):
     rec = dict(rec, off=[p for p in held if p.casefold() not in back])
     deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
     print(f"back on: {', '.join(p for p in want if p.casefold() in tick) or 'none'}"
-          + (f"; released, left unticked (cannot load: plugin file missing or unreadable, or such a master): "
-             f"{', '.join(p for p in want if p.casefold() in lost)}" if lost else "")
+          + (f"; released, left unticked (cannot load): "
+             f"{'; '.join(why[p.casefold()] for p in want if p.casefold() in lost)}" if lost else "")
           + (f"; still held off: {', '.join(rec['off'])}" if rec["off"] else ""))
 
 

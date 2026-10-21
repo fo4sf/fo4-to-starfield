@@ -36,6 +36,7 @@ class ToggleTests(unittest.TestCase):
         env = patch.dict(os.environ, {"LOCALAPPDATA": str(root / "local")})
         env.start()
         self.addCleanup(env.stop)
+        (self.data / "FO4Port.esm").write_bytes(tes4("Starfield.esm"))
         (self.data / "Core.esm").write_bytes(tes4("FO4Port.esm"))
         (self.data / "Mission.esm").write_bytes(tes4("Core.esm"))
         (self.data / bi.PLUGIN).write_bytes(tes4())
@@ -286,14 +287,15 @@ class ToggleTests(unittest.TestCase):
         (self.data / "Mission.esm").unlink()
         with self.assertRaises(SystemExit) as cm:
             self.run_cmd("off", "--plugins", "Mission.esm")
-        self.assertIn("the installed plugin file is missing", str(cm.exception))
+        self.assertIn("Mission.esm: the plugin file is missing", str(cm.exception))
         self.assertEqual(self.txt.read_bytes().decode(), self.original)
         self.assertFalse((self.data / exp.TOGGLE).exists())
         (self.data / "Mission.esm").write_bytes(tes4("Core.esm"))
         self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
         (self.data / "Mission.esm").unlink()               # gone while held
         out = self.run_cmd("on")
-        self.assertIn("back on: Core.esm; released, left unticked (cannot load: plugin file missing or unreadable, or such a master): Mission.esm", out)
+        self.assertIn("back on: Core.esm; released, left unticked (cannot load): Mission.esm: the plugin file is "
+                      "missing", out)
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
@@ -302,12 +304,12 @@ class ToggleTests(unittest.TestCase):
         (self.data / "Mission.esm").write_bytes(b"TES4")
         with self.assertRaises(SystemExit) as cm:
             self.run_cmd("off", "--plugins", "Mission.esm")
-        self.assertIn("the installed plugin file is unreadable", str(cm.exception))
+        self.assertIn("Mission.esm: the plugin file is unreadable", str(cm.exception))
         (self.data / "Mission.esm").write_bytes(tes4("Core.esm"))
         self.run_cmd("off", "--plugins", "Mission.esm")
         (self.data / "Mission.esm").write_bytes(b"TES4")     # damaged while held
         out = self.run_cmd("on")
-        self.assertIn("released, left unticked (cannot load: plugin file missing or unreadable, or such a master): Mission.esm", out)
+        self.assertIn("released, left unticked (cannot load): Mission.esm: the plugin file is unreadable", out)
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
@@ -316,8 +318,9 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("off", "--plugins", "Core.esm,Mission.esm,FO4SFBridge.esm")
         (self.data / "Core.esm").write_bytes(b"TES4")
         out = self.run_cmd("on")
-        self.assertIn("back on: FO4SFBridge.esm; released, left unticked (cannot load: plugin file missing or "
-                      "unreadable, or such a master): Core.esm, Mission.esm", out)
+        self.assertIn("back on: FO4SFBridge.esm; released, left unticked (cannot load): Core.esm: the plugin file is "
+                      "unreadable", out)
+        self.assertIn("; Mission.esm: needs Core.esm: the plugin file is unreadable", out)
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
@@ -328,6 +331,36 @@ class ToggleTests(unittest.TestCase):
         (self.data / "Mission.esm").unlink()
         self.run_cmd("on")
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
+    def test_on_releases_a_held_child_of_a_broken_master_that_is_not_held(self):
+        # Codex on #407: Core.esm stays ticked and not held, but its file broke; Mission.esm was ticked anyway
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        (self.data / "Core.esm").unlink()
+        out = self.run_cmd("on")
+        self.assertIn("back on: none; released, left unticked (cannot load): Mission.esm: needs Core.esm: the plugin "
+                      "file is missing", out)
+        # the broken master that is not held is never ticked or unticked by us
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
+    def test_on_follows_the_whole_master_chain_from_data(self):
+        # a master's master, outside the held set and the request, breaks the chain too
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        (self.data / "FO4Port.esm").write_bytes(b"TES4")
+        out = self.run_cmd("on")
+        self.assertIn("Mission.esm: needs Core.esm: needs FO4Port.esm: the plugin file is unreadable", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+
+    def test_on_for_one_child_releases_it_when_its_held_master_is_broken(self):
+        # on --plugins Mission.esm refused ("bring them back together") while the held Core.esm was broken
+        self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
+        (self.data / "Core.esm").write_bytes(b"TES4")
+        out = self.run_cmd("on", "--plugins", "Mission.esm")
+        self.assertIn("released, left unticked (cannot load): Mission.esm: needs Core.esm", out)
+        self.assertIn("still held off: Core.esm", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.run_cmd("on")
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
 class CycleTests(unittest.TestCase):
