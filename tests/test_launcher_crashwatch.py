@@ -38,6 +38,7 @@ class FakeSystem:
         self.spawned, self.ran, self.calls = [], [], []
         self.procdump_hangs, self.dump_name = False, None
         self.procdump_quits, self.spawn_error = None, None
+        self.refuse_handle = False
         self.toggle_status = {"off": [], "owned": []}
         self.toggle_code = 0
 
@@ -58,7 +59,7 @@ class FakeSystem:
         self.started_at = self.t
 
     def open_process(self, pid):
-        return pid
+        return None if self.refuse_handle else pid
 
     def wait_exit(self, handle):
         for pid, _a, b, code in self.script:
@@ -226,6 +227,23 @@ class CrashWatchTests(unittest.TestCase):
         self.assertFalse(r["armed"])
         self.assertIn("ProcDump did not start (Access is denied)", self.log())
         self.assertIn("ended: process 5", self.log())
+
+    def test_without_a_handle_the_process_is_followed_by_its_id(self):
+        sys_ = FakeSystem([(5, 0, 700, 0)])
+        sys_.refuse_handle = True
+        r = self.play(self.values(), sys_)
+        self.assertEqual(r["exit"], "unknown (no handle on the game)")
+        self.assertGreaterEqual(r["seconds"], 700)             # not reported ended while it still ran
+        self.assertTrue(any("following it by process id" in s for s in self.said))
+
+    def test_logging_goes_on_before_the_bridge_comes_back(self):
+        mg = os.path.join(self.dir, "mg")
+        os.makedirs(os.path.join(mg, "StarfieldCustom.ini"))      # a folder where the INI should be: the write fails
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
+        with self.assertRaises(ValueError):
+            self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
+        self.assertEqual((sys_.ran, sys_.calls), ([], []))       # the bridge stayed held, nothing started
 
     def test_procdump_still_writing_is_never_killed(self):
         sys_ = FakeSystem([(5, 0, 100, 0x80000003)])

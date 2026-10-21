@@ -222,25 +222,25 @@ def apply_papyrus(values, say):
     if want == "unchanged":
         return
     path = os.path.join(values["my_games"], "StarfieldCustom.ini")
-    old = ""
-    if os.path.exists(path):
-        with open(path, encoding="utf-8-sig") as f:
-            old = f.read()
-    new, changed = set_papyrus(old, want == "on")
-    if not changed:
-        say(f"papyrus logging: already {want} in {path}")
-        return
-    if os.path.exists(path):
-        bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        with open(bak, "w", encoding="utf-8") as f:
-            f.write(old)
-        say(f"papyrus logging: kept {bak}")
     try:
+        old = ""
+        if os.path.exists(path):
+            with open(path, encoding="utf-8-sig") as f:
+                old = f.read()
+        new, changed = set_papyrus(old, want == "on")
+        if not changed:
+            say(f"papyrus logging: already {want} in {path}")
+            return
+        if os.path.exists(path):
+            bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            with open(bak, "w", encoding="utf-8") as f:
+                f.write(old)
+            say(f"papyrus logging: kept {bak}")
         with open(path, "w", encoding="utf-8") as f:
             f.write(new)
     except OSError as e:
-        raise ValueError(f"papyrus logging: cannot write {path} ({e.strerror or e}); Windows Controlled Folder Access "
-                         "may block Python in Documents") from None
+        raise ValueError(f"papyrus logging: cannot read or write {path} ({e.strerror or e}); Windows Controlled "
+                         "Folder Access may block Python in Documents") from None
     say(f"papyrus logging: turned {want} in {path}")
 
 
@@ -281,8 +281,14 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         except OSError as e:
             raise ValueError(f"crash watcher: cannot write to {values['crash_watch.folder']} ({e.strerror or e})") \
                 from None
-    apply_bridge(values, starfield, system, say)
-    apply_papyrus(values, say)
+    # never a blind bridge, even half way: logging goes on before the bridge comes back, and off only after the
+    # bridge is held (Codex, #449)
+    if values["bridge"] == "on":
+        apply_papyrus(values, say)
+        apply_bridge(values, starfield, system, say)
+    else:
+        apply_bridge(values, starfield, system, say)
+        apply_papyrus(values, say)
 
     t0 = system.now()
     system.start_game(values["route"], starfield)
@@ -334,7 +340,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         else:
             _log(log_path, f"NOT armed on process {pid}: {why}; only the exit code will be logged")
             say(f"crash watcher NOT armed: {why}; only the exit code will be logged (see crashwatch.log)")
-    code = system.wait_exit(handle) if handle else None
+    if handle:
+        code = system.wait_exit(handle)
+    else:                           # Windows refused a handle: follow the process id; the exit code stays unknown
+        say(f"no handle on process {pid}: following it by process id, the exit code will be unknown")
+        while pid in system.pids():
+            system.sleep(2)
+        code = None
     result = {"started": True, "pid": pid, "early": early, "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - t0), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s: {result['exit']}")
