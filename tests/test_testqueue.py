@@ -334,6 +334,64 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.results()[0]["class"], "CRASH")
         self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
 
+    def test_a_game_that_vanishes_and_fails_the_input_is_a_crash_not_the_owner(self):
+        # doors_rounds 2026-10-21: Starfield exited silently mid-step, input.ps1 found no process, no dump was written
+        def step(test, out):
+            self.ctl.pid = None
+            return 2
+        r = self.runner(step, max_tests=1)
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertNotIn("owner took over", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_and_hides_the_hud_is_a_crash_not_a_menu(self):
+        def step(test, out):
+            self.ctl.pid = None
+            return 3
+        r = self.runner(step, max_tests=1)
+        r.recover = lambda: self.fail("no Escapes into a game that is gone")
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertNotIn("menu or overlay", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_while_travelling_is_a_crash(self):
+        for exit_code in (1, 2):                          # Codex on #446: exit 2 (input guard) is not the owner then
+            with self.subTest(exit_code=exit_code):
+                self.setUp()
+
+                def ps(script, args, timeout, steal=False):
+                    self.ctl.pid = None                   # the game exits during the coc
+                    return exit_code, "no arrival"
+                r = self.runner(lambda test, out: 0, max_tests=1)
+                r.cell, r._ps = "Elsewhere", ps
+                r.recover = lambda: self.fail("no Escapes into a game that is gone")
+                r.run()
+                row = self.results()[0]
+                self.assertEqual((row["verdict"], row["class"]), ("INCONCLUSIVE", "CRASH"))
+                self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+                self.assertNotIn("owner", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanished_between_tests_counts_against_the_crash_budget(self):
+        r = self.runner(lambda test, out: 0, crash_budget=1, min_free_gb=0)
+        r.live_pid, self.ctl.pid = 42, None               # up after the last test, gone before the next one
+        r.run()
+        log = readf(os.path.join(self.d, "run.log"))
+        self.assertIn("exited between tests", log)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertIn("--crash-budget 1", log)            # stopped before launching again
+        self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
+
+    def test_a_game_closed_for_a_fresh_test_is_not_a_crash(self):
+        r = self.runner(self.landing(0.1), max_tests=2)
+        r.game_used, r.live_pid = True, 42
+        q = jload(os.path.join(self.d, "queue.json"))
+        q["tests"][0]["fresh"] = True
+        jdump(q, os.path.join(self.d, "queue.json"))
+        r.q = q
+        r.run()
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 0)
+
     def test_a_second_crash_in_the_same_test_is_a_final_fail(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exits during every attempt
