@@ -143,6 +143,33 @@ class CensusTests(unittest.TestCase):
         self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"], by["Lobby"]["placed"]), (5, 1, {"ACHR": 1, "REFR": 4}))
         self.assertEqual(sorted(d["to"] for d in by["Lobby"]["load_doors_out"]), ["Vault", "Vault"])
 
+    def test_a_deleted_override_removes_the_reference_and_its_door(self):
+        # The DLC re-saves Lobby's light 0x303 and its load door 0x302 (to Vault) with the Deleted flag; the deleted door
+        # keeps an XTEL, which must not keep the edge alive. A third plugin re-adds the light: it counts again.
+        def plugin(name, refs, nmast=1):
+            masts = [(b"MAST", b"Fallout4.esm\0"), (b"DATA", bytes(8))] + ([(b"MAST", b"DLCRobot.esm\0"), (b"DATA", bytes(8))] if nmast > 1 else [])
+            tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 2, 0x800))] + masts, flags=1)
+            lobby = cell(0x200, "Lobby", refs)
+            sub = G(struct.pack("<I", 0), 3, bytes(8), lobby)
+            cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+            path = os.path.join(self.tmp.name, name)
+            with open(path, "wb") as f:
+                f.write(tes4.serialize() + cells.serialize())
+            return path
+        dlc = plugin("DLCRobot.esm", [rec(b"REFR", 0x303, [(b"NAME", struct.pack("<I", 0x101))], flags=ic.DELETED),
+                                      rec(b"REFR", 0x302, [(b"NAME", struct.pack("<I", 0x100)), (b"XTEL", struct.pack("<I", 0x311) + bytes(28))], flags=ic.DELETED)])
+        r = ic.census([self.esm, dlc])
+        by = {c["editor_id"]: c for c in r["cells"]}
+        self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"], by["Lobby"]["placed"]), (3, 1, {"ACHR": 1, "REFR": 2}))
+        self.assertEqual(sorted(d["to"] for d in by["Lobby"]["load_doors_out"]), ["world:Commonwealth"])
+        self.assertEqual(by["Vault"]["reach"], "no_load_door")              # the only door into Vault is gone with its edge
+        self.assertEqual(by["Vault"]["load_doors_out"], [{"ref": fk(0x311), "to": None}])   # its door back names a deleted door
+        self.assertEqual(r["totals"]["refs_deleted"], 2)
+        again = plugin("DLCAgain.esm", [ref(0x303, 0x101)], nmast=2)
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc, again])["cells"]}
+        self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"]), (4, 2))
+        self.assertEqual(by["Lobby"]["plugins"], ["Fallout4.esm", "DLCRobot.esm", "DLCAgain.esm"])
+
     def test_main_writes_the_census(self):
         out = os.path.join(self.tmp.name, "census.json")
         self.assertEqual(ic.main(["--out", out, self.esm]), 0)
@@ -511,6 +538,132 @@ class BuildFlowTests(unittest.TestCase):
         # FO4 location data must come from the sidecar too, or the cell's LCTN key would change on a later re-export
         res = self._build_flow(stale_cache=True)
         self.assertEqual((res["steps"]["locations"]["exit"], res["steps"]["locations"]["cells"]), (0, 2))
+        # a work staging with exports but no sources.json (made before the pins) is adopted, which result.json says
+        self.assertEqual(res["steps"]["sources"]["work"], "adopted")
+        self.assertEqual(ib.load(os.path.join(res["work"], "exports", "sources.json"))["status"], "adopted")
+
+    def test_work_sources_states(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        work = os.path.join(tmp.name, "work")
+        pins = {"plugins": {"Fallout4.esm": {"sha256": "aa", "bytes": 1}}, "archives": {}}
+        a = argparse.Namespace(work=work, allow_source_change=False)
+        self.assertEqual(ib.work_sources(work), (None, "new"))              # absent
+        os.makedirs(os.path.join(work, "exports"))
+        self.assertEqual(ib.work_sources(work), (None, "new"))              # empty
+        self.assertEqual(ib.check_work(a, pins), ("new", []))
+        ib.save(os.path.join(work, "exports", "Cell.json"), {"cell": "Cell", "refs": []})
+        self.assertEqual(ib.work_sources(work), (None, "adopted"))          # exports from before the pins
+        self.assertEqual(ib.check_work(a, pins), ("adopted", []))
+        os.remove(os.path.join(work, "exports", "Cell.json"))
+        ib.save(os.path.join(work, "manifest.json"), {"items": []})
+        self.assertEqual(ib.work_sources(work), (None, "adopted"))          # conversion checkpoints count too
+        ib.save(os.path.join(work, "exports", "sources.json"), {"schema_version": 1, "sources": pins, "status": "new"})
+        self.assertEqual(ib.work_sources(work), (pins, "pinned"))
+        self.assertEqual(ib.check_work(a, pins), ("match", []))
+        grown = {"plugins": dict(pins["plugins"], **{"DLCRobot.esm": {"sha256": "bb", "bytes": 2}}), "archives": {}}
+        self.assertEqual(ib.check_work(a, grown), ("match", []))            # a plugin pinned for the first time is no change
+        other = {"plugins": {"Fallout4.esm": {"sha256": "cc", "bytes": 1}}, "archives": {}}
+        with self.assertRaisesRegex(SystemExit, "--work .*refusing to reuse its exports and checkpoints"):
+            ib.check_work(a, other)
+        a.allow_source_change = True
+        self.assertEqual(ib.check_work(a, other), ("changed", ["Fallout4.esm sha256 aa -> cc"]))
+        with open(os.path.join(work, "exports", "sources.json"), "w") as f:
+            f.write("not json")
+        self.assertEqual(ib.work_sources(work), (None, "adopted"))          # an unreadable record proves nothing
+        # ... and neither does one that pins nothing (a partial write, a hand edit): adopted, never "match"
+        for empty in ({"schema_version": 1}, {"sources": None}, {"sources": {"plugins": {}, "archives": {}}}, {"sources": {"archives": {"x.ba2": {}}}}):
+            ib.save(os.path.join(work, "exports", "sources.json"), empty)
+            self.assertEqual(ib.work_record(work), (None, "adopted"), empty)
+            self.assertEqual(ib.check_work(a, pins), ("adopted", []), empty)
+        # the full record carries the per-cell export plugins and the sticky history
+        full = {"schema_version": 2, "sources": pins, "cells": {"Cell": ["Fallout4.esm"]}, "history": [{"batch": "b05", "status": "adopted", "differences": []}]}
+        ib.save(os.path.join(work, "exports", "sources.json"), full)
+        self.assertEqual(ib.work_record(work), (full, "pinned"))
+        self.assertEqual(ib.work_status_label("match", full["history"]), "match (adopted by b05)")
+        self.assertEqual(ib.work_status_label("match", []), "match")
+        self.assertEqual(ib.work_status_label("changed", full["history"] + [{"batch": "b07", "status": "changed"}]), "changed (adopted by b05; changed by b07)")
+
+    def test_a_cached_export_made_from_fewer_plugins_is_exported_again(self):
+        # Batch 8 once exported GeneralAtomicsFactory01 from Fallout4.esm alone (no plan `plugins`, no --census); the
+        # build repeated with the census wants [Fallout4.esm, DLCRobot.esm]: the cached file is not the merged cell and
+        # must be exported again, whatever the work pins say (DLCRobot.esm newly pinned is "added", not a change).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t = tmp.name
+        dlc = os.path.join(t, "DLC")
+        os.makedirs(dlc)
+        open(os.path.join(dlc, "DLCRobot.esm"), "wb").close()
+        a = argparse.Namespace(fo4export="Fo4Export.dll", fo4_data=t, dlc_data=[dlc])
+        out, log = os.path.join(t, "exports"), os.path.join(t, "export.log")
+        os.makedirs(out)
+        calls = []
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            calls.append(cmd)
+            ib.save(cmd[-1], {"schema_version": 3, "cell": cmd[-2], "formkey": "04280D:Fallout4.esm", "refs": [{"n": len(cmd)}]})
+            return 0, 0.1
+        real, ib.run = ib.run, fake_run
+        try:
+            fo4, robot = os.path.join(t, "Fallout4.esm"), os.path.join(dlc, "DLCRobot.esm")
+            both = ["Fallout4.esm", "DLCRobot.esm"]
+            self.assertEqual(ib.export_cell(a, "Factory", out, log)[1], 0)                 # exported from Fallout4.esm alone
+            self.assertEqual(calls[-1][2:5], [fo4, "export", "Factory"])
+            path = os.path.join(out, "Factory.json")
+            self.assertEqual(ib.export_plugins(path), ["Fallout4.esm"])                     # no record: its formkey's owner
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, ["Fallout4.esm"])[1:], (0, 0.0))   # same list: cached
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, None, {"Factory": ["Fallout4.esm"]})[1:], (0, 0.0))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, both)[1], 0)          # the DLC override is now known
+            self.assertEqual(calls[-1][2:7], [robot, "--master", fo4, "export", "Factory"])
+            self.assertEqual(len(calls), 2)
+            with open(log, encoding="utf-8") as f:
+                self.assertIn("Factory: cached export was made from ['Fallout4.esm'], now ['Fallout4.esm', 'DLCRobot.esm']: exporting again", f.read())
+            # the record says what it was made from, so the formkey (still Fallout4.esm's) no longer decides
+            self.assertEqual(ib.export_plugins(path, {"Factory": both}), both)
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, both, {"Factory": both})[1:], (0, 0.0))
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, ["DLCRobot.esm"], {"Factory": both})[1:], (0, 0.0))   # same order, Fallout4.esm implied
+            self.assertEqual(len(calls), 2)
+            # a recorded merged export asked for from Fallout4.esm alone is exported again too: the list differs
+            self.assertEqual(ib.export_cell(a, "Factory", out, log, None, {"Factory": both})[1], 0)
+            self.assertEqual(len(calls), 3)
+            # a DLC's own cell cached before the record: its formkey names the plugin, Fallout4.esm is its master: cached
+            ib.save(os.path.join(out, "Lair.json"), {"cell": "Lair", "formkey": "0008A3:DLCRobot.esm", "refs": []})
+            self.assertEqual(ib.export_cell(a, "Lair", out, log, both)[1:], (0, 0.0))
+            self.assertEqual(len(calls), 3)
+            # an unreadable cached export counts as Fallout4.esm's: a base-game cell keeps it, a multi-plugin one re-exports
+            with open(os.path.join(out, "Odd.json"), "w") as f:
+                f.write("not json")
+            self.assertEqual(ib.export_plugins(os.path.join(out, "Odd.json")), ["Fallout4.esm"])
+            self.assertEqual(ib.export_cell(a, "Odd", out, log)[1:], (0, 0.0))
+            self.assertEqual(ib.export_cell(a, "Odd", out, log, both)[1], 0)
+            self.assertEqual(len(calls), 4)
+        finally:
+            ib.run = real
+
+    def test_base_cells_a_dlc_overrides_read_the_census(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = tmp.name
+        ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "formkey": "000010:Fallout4.esm"})
+        ib.save(os.path.join(base, "Factory.json"), {"cell": "Factory", "formkey": "04280D:Fallout4.esm"})
+        ib.save(os.path.join(base, "Lair.json"), {"cell": "Lair", "formkey": "0008A3:DLCRobot.esm"})
+        with open(os.path.join(base, "Odd.json"), "w") as f:
+            f.write("not json")
+        census = {"cells": [{"editor_id": "Factory", "formkey": "04280D:Fallout4.esm", "plugins": ["Fallout4.esm", "DLCRobot.esm"]},
+                            {"editor_id": "Old", "formkey": "000010:Fallout4.esm", "plugins": ["Fallout4.esm"]},
+                            {"editor_id": "Lair", "formkey": "0008A3:DLCRobot.esm", "plugins": ["DLCRobot.esm"]}]}
+        cells = ["Old", "Factory", "Lair", "Odd", "Missing"]
+        self.assertEqual(ib.base_plugins(cells, base, census), {"Factory": ["Fallout4.esm", "DLCRobot.esm"], "Lair": ["Fallout4.esm", "DLCRobot.esm"]})
+        self.assertEqual(ib.base_plugins(cells, base, None), {})
+        # the pins cover a base cell's DLC plugin, as a batch cell's
+        a = argparse.Namespace(fo4_data=os.path.join(base, "Data"), dlc_data=[])
+        os.makedirs(a.fo4_data)
+        open(os.path.join(a.fo4_data, "Fallout4.esm"), "wb").close()
+        plan = {"batches": [{"cells": [{"editor_id": "Plain", "formkey": "000011:Fallout4.esm", "plugins": ["Fallout4.esm"]}]}]}
+        self.assertEqual(sorted(ib.source_pins(a, plan, 1)["plugins"]), ["Fallout4.esm"])
+        pins = ib.source_pins(a, plan, 1, ib.base_plugins(cells, base, census))["plugins"]
+        self.assertEqual((sorted(pins), pins["DLCRobot.esm"]), (["DLCRobot.esm", "Fallout4.esm"], None))   # not under --dlc-data: pinned None
 
     def test_locations_sidecar_runs_once_per_source_plugin(self):
         tmp = tempfile.TemporaryDirectory()
@@ -541,6 +694,11 @@ class BuildFlowTests(unittest.TestCase):
                                                       ["Fo4Export.dll", os.path.join(dlc, "DLCRobot.esm"), "--master", fo4, "locations",
                                                        dst + ".DLCRobot.esm.tmp", "Lair"]])
             self.assertEqual(sorted(ib.load(dst)["cells"]), ["Keyless", "Lair", "Old"])
+            # a cell the plan says a DLC overrides (a Fallout4.esm formkey) joins the DLC's run, from the same sources as its export
+            del calls[:]
+            self.assertEqual(ib.locations_sidecar(a, {c: exports[c] for c in ("Old", "Lair", "Keyless")}, dst, log,
+                                                  {"Old": ["Fallout4.esm", "DLCRobot.esm"]})[0], 0)
+            self.assertEqual([c[c.index("locations") + 2:] for c in calls], [["Keyless"], ["Lair", "Old"]])
             self.assertEqual(ib.load(dst)["cells"]["Lair"]["cell_data"]["name"], "Lair")
             self.assertFalse(os.path.exists(dst + ".tmp") or os.path.exists(dst + ".DLCRobot.esm.tmp"))
             # a DLC that is not under --dlc-data fails the step before any run
@@ -749,7 +907,10 @@ class BuildFlowTests(unittest.TestCase):
         r1 = ib.load(os.path.join(b1, "result.json"))
         self.assertEqual(r1["sources"]["plugins"], {"Fallout4.esm": {"sha256": ib.sha256(os.path.join(t, "Fallout4.esm")), "bytes": 14}})
         self.assertEqual(list(r1["sources"]["archives"]), ["Fallout4 - Meshes.ba2"])
-        self.assertEqual(r1["steps"]["sources"], {"plugins": 1, "archives": 1, "allowed_change": None, "added": None})
+        self.assertEqual(r1["steps"]["sources"], {"plugins": 1, "archives": 1, "allowed_change": None, "added": None, "work": "new", "work_history": None})
+        # the work staging now carries the pins its exports were made from (X8), and what each export was made from
+        rec1 = ib.load(os.path.join(work, "exports", "sources.json"))
+        self.assertEqual((rec1["sources"], rec1["cells"], rec1["history"]), (r1["sources"], {"One": ["Fallout4.esm"]}, []))
         self.assertEqual(r1["install"], {"files": ["FO4Port.esm"], "plugins_txt": ["FO4Port.esm"]})   # --no-pack: the plugin only
         # batch 2 packed (Archive2 faked), with textures split at a tiny limit: two parts, one companion plugin
         for n, size in (("a.dds", 40), ("b.dds", 40), ("c.dds", 30)):
@@ -762,6 +923,7 @@ class BuildFlowTests(unittest.TestCase):
             self.assertEqual(build(2, b2, prev=b1, pack=True), 0)
         finally:
             ib.ARCHIVE_LIMIT = limit
+        self.assertEqual(ib.load(os.path.join(b2, "result.json"))["steps"]["sources"]["work"], "match")   # pinned by batch 1
         self.assertEqual(seeds[-1]["CELL:FO4Port_One"], 0x850)            # batch 2 starts from batch 1's map
         self.assertEqual(seeds[-1]["LCTN:FO4Port_InteriorsLocation"], 0x8F0)   # and the LCTN key rides the chain
         r2 = ib.load(os.path.join(b2, "result.json"))
@@ -795,9 +957,17 @@ class BuildFlowTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(t, "staging", "interiors_b02z")))
         b2w = os.path.join(t, "staging", "interiors_b02w")
         self.assertEqual(build(2, b2w, prev=b1, extra=["--allow-source-change"]), 0)
-        allowed = ib.load(os.path.join(b2w, "result.json"))["steps"]["sources"]["allowed_change"]
-        self.assertEqual(list(allowed), ["--prev"])
+        r2w = ib.load(os.path.join(b2w, "result.json"))
+        allowed = r2w["steps"]["sources"]["allowed_change"]
+        self.assertEqual(list(allowed), ["--prev", "--work"])             # the work staging's exports came from the old file too
         self.assertTrue(allowed["--prev"][0].startswith("Fallout4.esm sha256 "))
+        self.assertEqual(allowed["--work"], allowed["--prev"])
+        self.assertEqual(r2w["steps"]["sources"]["work"], "changed")
+        self.assertEqual(r2w["steps"]["sources"]["work_history"], [{"batch": "interiors_b02w", "status": "changed", "differences": allowed["--work"]}])
+        # ... and the override re-pins the work staging to the patched file, so the next build over it matches, but the
+        # allowed change stays on the staging's record: every later build's result.json says it happened
+        wrec = ib.load(os.path.join(work, "exports", "sources.json"))
+        self.assertEqual((wrec["sources"], wrec["history"]), (r2w["sources"], r2w["steps"]["sources"]["work_history"]))
         # a --base that is a batch's own stage (its result.json carries sources) is checked the same way; the installed
         # doors staging has no record and is never refused for one
         ib.save(os.path.join(base, "result.json"), {"sources": r1["sources"]})
@@ -805,6 +975,29 @@ class BuildFlowTests(unittest.TestCase):
             build(1, os.path.join(t, "staging", "interiors_b01v"))
         os.remove(os.path.join(base, "result.json"))
         self.assertEqual(build(1, os.path.join(t, "staging", "interiors_b01u")), 0)
+        r1u = ib.load(os.path.join(t, "staging", "interiors_b01u", "result.json"))["steps"]["sources"]
+        self.assertEqual(r1u["work"], "match (changed by interiors_b02w)")            # sticky: the staging was once re-pinned
+        self.assertEqual(r1u["work_history"], r2w["steps"]["sources"]["work_history"])
+        self.assertIsNone(r1u["allowed_change"])
+        # a work staging pinned to other game files is refused like a --prev: the cached exports and checkpoints would
+        # silently come from the other files while result.json pins the current ones
+        with open(os.path.join(t, "Fallout4.esm"), "wb") as f:
+            f.write(b"TES4 fallout 4 patched again")
+        with self.assertRaisesRegex(SystemExit, "--work .* was built from other game files .*Fallout4.esm sha256 .*refusing to reuse"):
+            build(1, os.path.join(t, "staging", "interiors_b01t"))
+        self.assertFalse(os.path.exists(os.path.join(t, "staging", "interiors_b01t")))
+        # a staging used before the pins (an export, no sources.json) is adopted; the adoption sticks to its record, so
+        # the next build over it says so instead of "match", and the adopting build's own label is the plain status
+        work = os.path.join(t, "work2")                                   # the build closure reads this name
+        os.makedirs(os.path.join(work, "exports"))
+        ib.save(os.path.join(work, "exports", "Stray.json"), {"cell": "Stray", "refs": []})
+        self.assertEqual(build(1, os.path.join(t, "staging", "interiors_b01s")), 0)
+        r1s = ib.load(os.path.join(t, "staging", "interiors_b01s", "result.json"))["steps"]["sources"]
+        self.assertEqual((r1s["work"], r1s["work_history"]), ("adopted", [{"batch": "interiors_b01s", "status": "adopted", "differences": []}]))
+        self.assertEqual(build(1, os.path.join(t, "staging", "interiors_b01r")), 0)
+        r1r = ib.load(os.path.join(t, "staging", "interiors_b01r", "result.json"))["steps"]["sources"]
+        self.assertEqual((r1r["work"], r1r["work_history"]), ("match (adopted by interiors_b01s)", r1s["work_history"]))
+        self.assertEqual(ib.load(os.path.join(work, "exports", "sources.json"))["cells"], {"One": ["Fallout4.esm"]})   # the stray export is not recorded as this build's
 
     def test_dlc_cells_export_from_their_plugin_with_the_master(self):
         tmp = tempfile.TemporaryDirectory()
@@ -816,7 +1009,8 @@ class BuildFlowTests(unittest.TestCase):
                             {"cells": [{"editor_id": "DLC01Lair01", "formkey": "0008A3:DLCRobot.esm"},
                                        {"editor_id": "DLC03Gone", "formkey": "000001:DLCCoast.esm"}]}]}
         self.assertEqual(ib.cell_plugins(plan, 1), {})
-        self.assertEqual(ib.cell_plugins(plan, 2), {"DLC01Lair01": "DLCRobot.esm", "DLC03Gone": "DLCCoast.esm"})
+        self.assertEqual(ib.cell_plugins(plan, 2), {"DLC01Lair01": ["Fallout4.esm", "DLCRobot.esm"], "DLC03Gone": ["Fallout4.esm", "DLCCoast.esm"]})
+        self.assertEqual(ib.plugins_from(plan, 2, None), "formkey")
         a = argparse.Namespace(fo4export="Fo4Export.dll", fo4_data=os.path.join(tmp.name, "Data"), dlc_data=[dlc])
         calls = []
 
@@ -829,15 +1023,46 @@ class BuildFlowTests(unittest.TestCase):
         try:
             out = os.path.join(tmp.name, "exports")
             os.makedirs(out)
-            self.assertEqual(ib.export_cell(a, "DLC01Lair01", out, os.path.join(tmp.name, "x.log"), "DLCRobot.esm")[1], 0)
+            self.assertEqual(ib.export_cell(a, "DLC01Lair01", out, os.path.join(tmp.name, "x.log"), ["Fallout4.esm", "DLCRobot.esm"])[1], 0)
             self.assertEqual(calls[-1][2:5], [os.path.join(dlc, "DLCRobot.esm"), "--master", os.path.join(a.fo4_data, "Fallout4.esm")])
             self.assertEqual(ib.export_cell(a, "Old", out, os.path.join(tmp.name, "x.log"))[1], 0)
             self.assertEqual(calls[-1][2:4], [os.path.join(a.fo4_data, "Fallout4.esm"), "export"])
+            self.assertEqual(ib.export_cell(a, "Old2", out, os.path.join(tmp.name, "x.log"), ["Fallout4.esm"])[1], 0)
+            self.assertEqual(calls[-1][2:4], [os.path.join(a.fo4_data, "Fallout4.esm"), "export"])
             n = len(calls)                                                      # a DLC that is not installed: no run
-            self.assertEqual(ib.export_cell(a, "DLC03Gone", out, os.path.join(tmp.name, "x.log"), "DLCCoast.esm")[1], 2)
+            self.assertEqual(ib.export_cell(a, "DLC03Gone", out, os.path.join(tmp.name, "x.log"), ["Fallout4.esm", "DLCCoast.esm"])[1], 2)
             self.assertEqual(len(calls), n)
+            # a Fallout4.esm cell two DLCs override: the last plugin, then the masters in load order (Fo4Export's order)
+            open(os.path.join(dlc, "DLCworkshop01.esm"), "wb").close()
+            fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
+            self.assertEqual(ib.export_sources(a, ["Fallout4.esm", "DLCRobot.esm", "DLCworkshop01.esm"]),
+                             ([os.path.join(dlc, "DLCworkshop01.esm"), "--master", fo4, "--master", os.path.join(dlc, "DLCRobot.esm")], None))
+            self.assertEqual(ib.export_sources(a, None), ([fo4], None))
+            self.assertEqual(ib.export_sources(a, ["DLCRobot.esm"]), ([os.path.join(dlc, "DLCRobot.esm"), "--master", fo4], None))
         finally:
             ib.run = real
+        # cell_plugins: the plan row's `plugins` (the census's) names every plugin that holds a Fallout4.esm cell a DLC
+        # overrides; a plan without the key reads the census row of the same formkey; without a census the formkey's
+        # owner alone (recorded as "formkey": the override is missed)
+        census = {"cells": [{"editor_id": "Factory", "formkey": "04280D:Fallout4.esm", "plugins": ["Fallout4.esm", "DLCRobot.esm"]},
+                            {"editor_id": "Plain", "formkey": "000010:Fallout4.esm", "plugins": ["Fallout4.esm"]},
+                            {"editor_id": "DLC01Lair01", "formkey": "0008A3:DLCRobot.esm", "plugins": ["DLCRobot.esm"]}]}
+        old_plan = {"batches": [{"cells": [{"editor_id": "Factory", "formkey": "04280D:Fallout4.esm"}, {"editor_id": "Plain", "formkey": "000010:Fallout4.esm"}]},
+                                {"cells": [{"editor_id": "DLC01Lair01", "formkey": "0008A3:DLCRobot.esm"}]}]}
+        self.assertEqual(ib.cell_plugins(old_plan, 2), {"DLC01Lair01": ["Fallout4.esm", "DLCRobot.esm"]})
+        self.assertEqual(ib.cell_plugins(old_plan, 2, census), {"Factory": ["Fallout4.esm", "DLCRobot.esm"], "DLC01Lair01": ["Fallout4.esm", "DLCRobot.esm"]})
+        self.assertEqual(ib.cell_plugins(old_plan, 1, census), {"Factory": ["Fallout4.esm", "DLCRobot.esm"]})
+        self.assertEqual(ib.plugins_from(old_plan, 1, census), "census")
+        new_plan = ibs.plan({"cells": [dict(crow("Factory", "04280D:Fallout4.esm"), plugins=["Fallout4.esm", "DLCRobot.esm"]),
+                                       dict(crow("Plain", "000010:Fallout4.esm"), plugins=["Fallout4.esm"])],
+                             "worlds": {"a": "Commonwealth"}}, {"backlog": [], "second_hop": []}, min_cells=1)
+        self.assertEqual([c["plugins"] for c in new_plan["batches"][0]["cells"]], [["Fallout4.esm", "DLCRobot.esm"], ["Fallout4.esm"]])
+        self.assertEqual(ib.cell_plugins(new_plan, 1), {"Factory": ["Fallout4.esm", "DLCRobot.esm"]})
+        self.assertEqual(ib.plugins_from(new_plan, 1, None), "plan")
+        # the pins follow: a batch with an overridden cell pins the DLC plugin too
+        os.makedirs(a.fo4_data)
+        open(os.path.join(a.fo4_data, "Fallout4.esm"), "wb").close()
+        self.assertEqual(sorted(ib.source_pins(a, new_plan, 1)["plugins"]), ["DLCRobot.esm", "Fallout4.esm"])
 
     def test_an_export_that_writes_nothing_is_a_failed_export(self):
         tmp = tempfile.TemporaryDirectory()

@@ -11,7 +11,8 @@ too: the ones behind other worldspaces' doors (Diamond City, Goodneighbor, ...),
 all (quest holding cells, editor test cells), and the DLC's own interiors.
 
 Per interior cell: form key ("<6 hex>:<owner plugin>", as Mutagen and the exports write it; a DLC record that overrides a Fallout4.esm cell keeps the
-Fallout4.esm key and lists both plugins), editor id, DATA flags, location (XLCN), encounter zone (XEZN: the ECZN's
+Fallout4.esm key and lists both plugins; a later plugin's copy of a reference replaces the earlier one, and one flagged
+Deleted (record flag 0x20) removes it, so the counts and door edges are the game's, as interior_content.py's), editor id, DATA flags, location (XLCN), encounter zone (XEZN: the ECZN's
 level band and flags, the leveling the port folds into the cell's Starfield location), references by record type,
 lights, navmeshes, distinct bases, load doors out (their destination: an interior form key or a worldspace editor id)
 and in.
@@ -39,6 +40,7 @@ from fo4sf import fo4land as fl  # noqa: E402
 GROUP_TOP, GROUP_WORLD, GROUP_INT_BLOCK, GROUP_INT_SUB, GROUP_EXT_BLOCK, GROUP_EXT_SUB, GROUP_CELL = 0, 1, 2, 3, 4, 5, 6
 GROUP_PERSISTENT, GROUP_TEMPORARY = 8, 9
 CELL_INTERIOR = 0x0001
+DELETED = 0x20                  # record flag "Deleted": every record's header (xEdit Core/wbInterface.pas IsDeleted)
 # Placed-reference signatures (FO4): objects, actors and the projectile/hazard placements.
 PLACED = (b"REFR", b"ACHR", b"PGRE", b"PMIS", b"PARW", b"PBAR", b"PBEA", b"PCON", b"PFLA", b"PHZD")
 TEST_NAME = re.compile(r"^(zz|aaa|test|qa|debug|ctest|warehouse)|test(cell)?$|holding|packin|template|dummy|"
@@ -183,7 +185,7 @@ def read_children(buf, start, end, cell, K, out):
         if item[0] == "GRUP":
             read_children(buf, item[1] + 24, item[2], cell, K, out)
             continue
-        typ, off, _flags, fid = item
+        typ, off, flags, fid = item
         if typ == b"NAVM":
             if "navmeshes" in cell:
                 cell["navmeshes"] += 1
@@ -191,18 +193,16 @@ def read_children(buf, start, end, cell, K, out):
         if typ not in PLACED:
             continue
         need_base = "placed" in cell                            # worldspace cells only keep their load doors
-        base, xtel = None, None
-        for s, d in fl.iter_subrecords(fl.record_data(buf, off)):
-            if s == b"NAME" and len(d) >= 4:
-                base = K(u32(d))
-            elif s == b"XTEL" and len(d) >= 4 and u32(d):
-                xtel = K(u32(d))
         ref = K(fid)
         # A later plugin's override of the same reference replaces the earlier one, as in the game, so a DLC that
-        # edits a vanilla ref takes back what the earlier copy added instead of counting the ref twice.
+        # edits a vanilla ref takes back what the earlier copy added instead of counting the ref twice; one it
+        # re-saves with the Deleted record flag (0x20, Core/wbInterface.pas IsDeleted; interior_content.py's DELETED)
+        # takes it back and adds nothing, not even a load door its XTEL still names (the record keeps no live data),
+        # and is remembered as deleted so that a still later plugin's copy counts again.
         seen = out.setdefault("refs", {})
-        if ref in seen:
-            pcell, ptyp, pbase, pdoor = seen[ref]
+        prev = seen.pop(ref, None)
+        if prev is not None:
+            pcell, ptyp, pbase, pdoor = prev
             if "placed" in pcell:
                 pcell["placed"][ptyp] -= 1
                 if not pcell["placed"][ptyp]:
@@ -214,6 +214,16 @@ def read_children(buf, start, end, cell, K, out):
             if pdoor:
                 pcell["load_doors"] = [d for d in pcell["load_doors"] if d["ref"] != ref]
                 out["door_cell"].pop(ref, None)
+        if flags & DELETED:
+            out.setdefault("deleted", set()).add(ref)
+            continue
+        out.get("deleted", set()).discard(ref)
+        base, xtel = None, None
+        for s, d in fl.iter_subrecords(fl.record_data(buf, off)):
+            if s == b"NAME" and len(d) >= 4:
+                base = K(u32(d))
+            elif s == b"XTEL" and len(d) >= 4 and u32(d):
+                xtel = K(u32(d))
         seen[ref] = (cell, typ.decode("ascii"), base if need_base else None, bool(xtel))
         if need_base:
             cell["placed"][typ.decode("ascii")] += 1
@@ -229,7 +239,9 @@ def census(paths, port_cells=(), backlog=None):
     out = {"bases": {}, "locations": {}, "zones": {}, "worlds": {}, "cells": {}, "ext": {}, "door_cell": {}}
     for pi, path in enumerate(paths):
         read_plugin(path, pi, keys, out)
-    return summarize(out, [os.path.basename(p) for p in paths], port_cells, backlog)
+    result = summarize(out, [os.path.basename(p) for p in paths], port_cells, backlog)
+    result["totals"]["refs_deleted"] = len(out.get("deleted", ()))
+    return result
 
 
 def summarize(out, plugins, port_cells=(), backlog=None):

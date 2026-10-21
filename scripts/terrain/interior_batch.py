@@ -7,7 +7,7 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          --content-resources <ContentResources.zip> --texconv <Texconvx64.exe> --collision-template <template.nif>
          --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> [--spec-mask-roughness] [--promote-arg ARG ...]
          [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
-         [--allow-source-change] [--pack-ratio R]
+         [--allow-source-change] [--pack-ratio R] [--census <census.json>]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
   python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --successor <interiors_bMM> --archive <dir>
@@ -20,14 +20,27 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
      (disk_need: its packed folder plus the work staging's growth, from the plan's estimates); the base has FO4Port.esm, formids.json and doors.json (a vmad_patch.py port report).
   2. exports: the base cells' <Cell>.json are copied from --base-exports (pinned: the installed port was built from
      them); every other cell is exported with --fo4export into <work>/exports (kept: an existing non-empty export is
-     reused, so a re-run only exports what is missing).
+     reused, so a re-run only exports what is missing) from every plugin that holds the cell, in load order (the plan's
+     per-cell `plugins`, else the --census row, else the formkey's owner plugin; Fallout4.esm always first, the DLC
+     plugins found under --dlc-data): Fo4Export merges the cell as the game sees it (winning CELL record, each
+     reference from its winning copy, deleted ones dropped), so a Fallout4.esm cell a DLC overrides
+     (GeneralAtomicsFactory01, batch 8) carries the DLC's references, location and encounter zone.
+     <work>/exports/sources.json pins the game files the work staging's exports and conversion checkpoints were made
+     from (the same pins as result.json "sources") and, per cell, the plugins its export was made from (a cached
+     export made from other plugins than the build wants is exported again); a build whose pins differ refuses to
+     reuse the staging unless --allow-source-change (recorded under steps.sources.allowed_change["--work"]), a
+     staging used before the pins (exports or a manifest, no usable sources.json: batches 0 to 4's) is adopted with
+     this build's pins and steps.sources.work says "adopted" (its exports cannot be proven to match), else "match"
+     or "new"; every adoption or allowed change stays in the record's history, so a later build says
+     "match (adopted by interiors_b05)" (steps.sources.work_history lists them).
   3. convert: one merged cell json, then scripts/convert_batch.py --resume into --work (the work staging grows; the
      checkpoints make a later batch convert only its new models) with --starfield-data (rigged doors and movables, as
      the integ builds) and --spec-mask-roughness when given.
   4. plugin: --out/plugin gets the base's formids.json, or with --prev the previous batch's port\formids.json (every
      earlier record, the previous batch's new ones included, keeps its FormID; PluginSpike reuses the map) and lighting.json;
      Fo4Export's locations mode writes the base cells' FO4 location data (XLCN, XEZN, cell flags and name) to
-     locations.json (their pinned exports predate it; a failed run fails the batch), scripts/terrain/port_promote.py
+     locations.json (their pinned exports predate it; a failed run fails the batch; one run per distinct plugin list,
+     a cell's from the same sources as its export), scripts/terrain/port_promote.py
      writes promote.json, PluginSpike writes FO4Port.esm with one LCTN per FO4 location and every cell's XLCN.
   5. doors: scripts/terrain/vmad_patch.py port --keep-markers <base>/doors.json into --out/port: the base's scripted
      load doors re-applied with the SAME marker ids the installed core's exterior doors name, then vmad_patch check.
@@ -51,8 +64,8 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
      sha256s of the plugins and maps), the sources (sha256 of Fallout4.esm and of each DLC plugin a cell is exported
      from; size and mtime of every BA2 under --fo4-data and --dlc-data), the files to install and their Plugins.txt
-     order, timings, sizes, free space; README.txt says NOT installed. A --prev built from other sources is refused
-     unless --allow-source-change (recorded in result.json).
+     order, timings, sizes, free space; README.txt says NOT installed. A --prev, a --base that is a batch's stage, or a
+     --work built from other sources is refused unless --allow-source-change (recorded in result.json).
 compare: every key of the old formids.json has the same FormID in the new one; every old record is still there with the
 same signature; counts of byte-identical / changed records by signature, added records by signature, the cells added.
 doors: the batch's door-round selection for scripts/bridge/door_rounds.py stage --only (FO4Port_<Cell> editor ids),
@@ -216,16 +229,18 @@ def check_prev(a, n):
 
 
 # ---------------------------------------------------------------------------------------------------- sources (X8)
-def source_pins(a, plan, n):
+def source_pins(a, plan, n, extra=None):
     """What this batch reads from the game: {"plugins": {name: {"sha256", "bytes"}}, "archives": {file name: {"bytes",
     "mtime", "folder"}}} (keyed by name, so a moved game folder changes no pin). The plugins are Fallout4.esm and each DLC plugin a cell of batches 1..n is exported from (hashed:
-    330 MB and 8 MB, seconds). The archives are every .ba2 directly under --fo4-data and each --dlc-data folder, the
+    330 MB and 8 MB, seconds; `extra`: more {cell: [plugins]} lists to pin, the base cells'). The archives are every .ba2 directly under --fo4-data and each --dlc-data folder, the
     set convert_batch.py can open (a superset of what one batch reads); they are pinned by size and mtime only, since
     hashing some 30 GB of BA2s would take longer than the convert step. A missing plugin is pinned as None (the export
     step reports it)."""
     plugins = {}
     fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
-    names = ["Fallout4.esm"] + sorted(set(cell_plugins(plan, n).values()), key=str.casefold)
+    lists = list(cell_plugins(plan, n, getattr(a, "census_data", None)).values()) + list((extra or {}).values())
+    others = {p for ps in lists for p in ps if p.lower() != "fallout4.esm"}
+    names = ["Fallout4.esm"] + sorted(others, key=str.casefold)
     for name in names:
         path = fo4 if name == "Fallout4.esm" else find_plugin(a.dlc_data, name)
         plugins[name] = ({"sha256": sha256(path), "bytes": os.path.getsize(path)} if path and os.path.isfile(path) else None)
@@ -280,16 +295,44 @@ def base_sources(base):
     return None
 
 
-def cell_plugins(plan, n):
-    """{editor id: plugin file} for the cells of batches 1..n whose formkey names a plugin other than Fallout4.esm
-    (the DLC batch); every other cell is exported from Fallout4.esm."""
+FO4 = "Fallout4.esm"
+
+
+def plugins_of(row):
+    """The plugins a plan or census cell row is read from, in load order, Fallout4.esm first: the row's `plugins` (the
+    census's: every plugin that holds the cell), else its formkey's owner. Always a list; [Fallout4.esm] for a cell
+    only the base game holds."""
+    plugins = list(row.get("plugins") or [])
+    if not plugins:
+        owner = (row.get("formkey") or "").partition(":")[2]
+        plugins = [owner] if owner else []
+    return [FO4] + [p for p in plugins if p.lower() != FO4.lower()]
+
+
+def cell_plugins(plan, n, census=None):
+    """{editor id: [plugins in load order, Fallout4.esm first]} for the cells of batches 1..n that a plugin other than
+    Fallout4.esm holds: a DLC's own cell (its formkey's owner), or a Fallout4.esm cell a DLC overrides (listed by the
+    plan row's `plugins`, interior_batches.py's copy of the census's; a plan written before that key falls back to the
+    census row of the same formkey, or without --census to the formkey's owner alone, which misses the override:
+    steps.export.plugins_from says which). Every other cell is exported from Fallout4.esm alone."""
+    rows = {r["formkey"]: r for r in (census or {}).get("cells", [])}
     out = {}
     for b in plan["batches"][:n]:
         for c in b["cells"]:
-            plugin = (c.get("formkey") or "").partition(":")[2]
-            if plugin and plugin.lower() != "fallout4.esm":
-                out[c["editor_id"]] = plugin
+            row = c if c.get("plugins") else rows.get(c.get("formkey"), c)
+            plugins = plugins_of(row)
+            if len(plugins) > 1:
+                out[c["editor_id"]] = plugins
     return out
+
+
+def plugins_from(plan, n, census):
+    """Where cell_plugins read the lists: "plan" when every cell of batches 1..n carries `plugins`, else "census" when
+    one was given, else "formkey"."""
+    cells = [c for b in plan["batches"][:n] for c in b["cells"]]
+    if all(c.get("plugins") for c in cells):
+        return "plan"
+    return "census" if census else "formkey"
 
 
 def find_plugin(dirs, name):
@@ -323,14 +366,37 @@ def run(cmd, log, env=None, cwd=None):
     return r.returncode, round(time.time() - t, 1)
 
 
-def export_cell(a, cell, exports, log, plugin=None):
-    """Fo4Export one cell from Fallout4.esm, or (plugin: a DLC's own cell) from that plugin found in --dlc-data with
-    Fallout4.esm loaded as its master, so the base records and the Commonwealth doors resolve."""
+def export_plugins(path, recorded=None):
+    """The plugins an existing export was made from, in load order: the work record's entry for the cell (`recorded`:
+    sources.json "cells", kept by export_cell since the pins), else the export's formkey owner (an export cached before
+    the record was exported from that plugin alone, with Fallout4.esm as the master for a DLC's own cell); [Fallout4.esm]
+    for one that cannot be read."""
+    cell = os.path.splitext(os.path.basename(path))[0]
+    if recorded and recorded.get(cell):
+        return plugins_of({"plugins": recorded[cell]})
+    try:
+        return plugins_of({"formkey": load(path).get("formkey") or ""})
+    except (OSError, ValueError, AttributeError):
+        return [FO4]
+
+
+def export_cell(a, cell, exports, log, plugins=None, recorded=None):
+    """Fo4Export one cell from Fallout4.esm, or (plugins: the load order that holds it, Fallout4.esm first) from the last
+    of them with the earlier ones as --master, the DLC plugins found in --dlc-data: Fo4Export merges the cell over the
+    load order, so a DLC's own cell resolves its base records and Commonwealth doors through Fallout4.esm and a
+    Fallout4.esm cell a DLC overrides gets the DLC's references, location and zone. A cached export is reused only when
+    it was made from the same plugins (export_plugins: the work record `recorded`, else its formkey's owner); one made
+    from fewer (a cell exported before its DLC override was known) is exported again, the log says so."""
     dst = os.path.join(exports, cell + ".json")
+    wanted = plugins_of({"plugins": plugins or []})
     if os.path.isfile(dst) and os.path.getsize(dst) > 0:
-        return cell, 0, 0.0
+        have = export_plugins(dst, recorded)
+        if have == wanted:
+            return cell, 0, 0.0
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"{cell}: cached export was made from {have}, now {wanted}: exporting again\n")
     tmp = dst + ".tmp"
-    src, why = export_sources(a, plugin)
+    src, why = export_sources(a, plugins)
     if src is None:
         with open(log + f".{cell}", "w", encoding="utf-8") as f:
             f.write(why + "\n")
@@ -346,16 +412,22 @@ def export_cell(a, cell, exports, log, plugin=None):
     return cell, rc, s
 
 
-def export_sources(a, plugin=None):
-    """The Fo4Export source arguments for a cell: [Fallout4.esm], or for a DLC's own cell [its plugin, --master,
-    Fallout4.esm]; None (and the reason) when the DLC plugin is not under --dlc-data."""
-    fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
-    if not plugin:
+def export_sources(a, plugins=None):
+    """The Fo4Export source arguments for a cell held by `plugins` (load order, Fallout4.esm first; None or
+    [Fallout4.esm] for a base-game cell): [Fallout4.esm], or [the last plugin, --master, Fallout4.esm, --master, the
+    next, ...] (Fo4Export's load order is the masters in order, then the plugin); None (and the reason) when a DLC
+    plugin is not under --dlc-data."""
+    fo4 = os.path.join(a.fo4_data, FO4)
+    order = [p for p in (plugins or []) if p.lower() != FO4.lower()]
+    if not order:
         return [fo4], None
-    path = find_plugin(a.dlc_data, plugin)
-    if path is None:
-        return None, f"{plugin} not found in --dlc-data {a.dlc_data}"
-    return [path, "--master", fo4], None
+    paths = [fo4]
+    for plugin in order:
+        path = find_plugin(a.dlc_data, plugin)
+        if path is None:
+            return None, f"{plugin} not found in --dlc-data {a.dlc_data}"
+        paths.append(path)
+    return [paths[-1]] + [x for m in paths[:-1] for x in ("--master", m)], None
 
 
 def lacks_location_keys(doc):
@@ -364,30 +436,34 @@ def lacks_location_keys(doc):
     return isinstance(doc, dict) and "location" not in doc and "encounter_zone" not in doc
 
 
-def locations_sidecar(a, exports, dst, log):
+def locations_sidecar(a, exports, dst, log, plugins=None):
     """Fo4Export's location data (XLCN location, XEZN encounter zone, cell flags and name) for the cells of `exports`
     ({cell editor id: its export's path}) whose exports predate schema 3 and never carry it (the pinned base cells, and
     any earlier batch's cell whose export is still cached in --work from before schema 3: export_cell never re-exports
     a cached file), into dst (PluginSpike's locations.json: {"schema_version": 1, "cells": {cell editor id: {...}}}).
-    One Fo4Export run per source plugin (an export's formkey names a DLC's cell; the rest are Fallout4.esm's), merged
-    in editor-id order; no run at all when every export already carries the keys. Returns (exit code, seconds):
-    non-zero when a run fails, a DLC plugin is missing, or a run wrote nothing."""
+    One Fo4Export run per distinct plugin list (`plugins`: {cell: [plugins in load order]}, cell_plugins'; a cell not
+    listed is read from its export's formkey owner: a DLC's own cell with Fallout4.esm as its master, the rest from
+    Fallout4.esm alone), merged in editor-id order; no run at all when every export already carries the keys. Returns
+    (exit code, seconds): non-zero when a run fails, a DLC plugin is missing, or a run wrote nothing."""
     t = time.time()
     by_plugin = {}
     for c, path in exports.items():
-        try:
-            plugin = (load(path).get("formkey") or "").partition(":")[2]
-        except (OSError, ValueError, AttributeError):
-            plugin = ""
-        by_plugin.setdefault(None if not plugin or plugin.lower() == "fallout4.esm" else plugin, []).append(c)
+        if c in (plugins or {}):
+            order = plugins[c]
+        else:
+            try:
+                order = plugins_of({"formkey": load(path).get("formkey") or ""})
+            except (OSError, ValueError, AttributeError):
+                order = [FO4]
+        by_plugin.setdefault(tuple(order), []).append(c)
     merged = {}
-    for plugin, names in sorted(by_plugin.items(), key=lambda kv: kv[0] or ""):
-        src, why = export_sources(a, plugin)
+    for order, names in sorted(by_plugin.items()):
+        src, why = export_sources(a, list(order))
         if src is None:
             with open(log, "a", encoding="utf-8") as f:
                 f.write(f"locations: {why}\n")
             return 2, round(time.time() - t, 1)
-        tmp = dst + (f".{plugin}" if plugin else "") + ".tmp"
+        tmp = dst + "".join(f".{p}" for p in order[1:]) + ".tmp"
         rc, _s = run(["dotnet", a.fo4export] + src + ["locations", tmp] + sorted(names), log)
         try:
             part = load(tmp)["cells"] if rc == 0 else {}
@@ -403,8 +479,86 @@ def locations_sidecar(a, exports, dst, log):
     return 0, round(time.time() - t, 1)
 
 
+WORK_SOURCES = "sources.json"                                 # under <work>/exports
+
+
+def work_record(work):
+    """What a work staging was made from: (its <work>/exports/sources.json record, "pinned") when that record pins at
+    least one plugin; (None, "adopted") for a staging that holds exports or a conversion manifest but no usable record
+    (used before the pins: batches 0 to 4's interiors_work2; or a record that is unreadable or pins nothing, a partial
+    write or a hand edit: its exports cannot be proven to match any game files); (None, "new") for an empty or absent
+    one. The record: {"sources": the pins, "cells": {cell: [plugins its export was made from]}, "history": [every
+    unproven step the staging went through, sticky: {"batch", "status": "adopted" | "changed", "differences"}]}."""
+    exports = os.path.join(work, "exports")
+    path = os.path.join(exports, WORK_SOURCES)
+    if os.path.isfile(path):
+        try:
+            record = load(path)
+            if ((record.get("sources") or {}).get("plugins") or {}):
+                return record, "pinned"
+        except (OSError, ValueError, AttributeError):
+            pass
+        return None, "adopted"
+    used = os.path.isfile(os.path.join(work, "manifest.json")) or (
+        os.path.isdir(exports) and any(n.lower().endswith(".json") for n in os.listdir(exports)))
+    return None, "adopted" if used else "new"
+
+
+def work_sources(work):
+    """(the staging's pins or None, its status): work_record's "sources"."""
+    record, status = work_record(work)
+    return (record or {}).get("sources"), status
+
+
+def check_work(a, sources):
+    """The work staging against this build's pins (X8, like --prev and --base): ("match", []), ("adopted", []),
+    ("new", []), or ("changed", [differences]) when the staging's exports and checkpoints were made from other game
+    files. Exits unless --allow-source-change; the caller records the status and the allowed differences."""
+    old, status = work_sources(a.work)
+    if status != "pinned":
+        return status, []
+    diff = source_changes(old, sources)
+    if diff and not a.allow_source_change:
+        sys.exit(f"--work {a.work} was built from other game files ({len(diff)} difference(s): {'; '.join(diff[:5])}): "
+                 f"refusing to reuse its exports and checkpoints; pass --allow-source-change to build over it anyway, or use a new --work")
+    return ("changed" if diff else "match"), diff
+
+
+def work_status_label(status, history):
+    """steps.sources.work: this build's status, and every unproven step earlier builds put the staging through (sticky,
+    from its record's history): "match (adopted by interiors_b05; changed by interiors_b02w)". A bare "match" means
+    every build over the staging since it was created found its pins equal to the files; steps.sources.work_history
+    has the entries, this build's included."""
+    if not history:
+        return status
+    steps = "; ".join(f"{h.get('status')} by {h.get('batch')}" for h in history)
+    return f"{status} ({steps})"
+
+
+def base_plugins(old_cells, base_exports, census):
+    """{base cell: [plugins in load order]} for the pinned base cells a plugin other than Fallout4.esm holds, read from
+    the census row of each export's formkey (the base cells are not in the plan): the locations sidecar reads their
+    FO4 location data from the same load order as a batch cell's, and the pins cover the plugin. Empty without a
+    census, or for base cells only the base game holds (every one today)."""
+    rows = {r["formkey"]: r for r in (census or {}).get("cells", [])}
+    out = {}
+    for c in old_cells:
+        try:
+            formkey = load(os.path.join(base_exports, c + ".json")).get("formkey") or ""
+        except (OSError, ValueError, AttributeError):
+            continue
+        row = rows.get(formkey)
+        if row is None:
+            continue
+        plugins = plugins_of(row)
+        if len(plugins) > 1:
+            out[c] = plugins
+    return out
+
+
 def build(a):
     plan = load(a.plan)
+    a.census_data = load(a.census) if getattr(a, "census", "") else None
     t0 = time.time()
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: every batch is a new folder")
@@ -417,9 +571,11 @@ def build(a):
     if clash:
         sys.exit(f"cells already in the base port: {clash}")
     prev_port, prev_result = check_prev(a, a.batch) if a.prev else (None, None)
+    # the base cells a DLC overrides (none today): the sidecar reads their location data from the DLC too, so it is pinned
+    old_plugins = base_plugins(old_cells, a.base_exports, a.census_data)
     # X8: the game files this batch reads are pinned; a chain built from other files is refused, since the
     # converted models and the exported cells would silently differ from the earlier batches'.
-    sources = source_pins(a, plan, a.batch)
+    sources = source_pins(a, plan, a.batch, old_plugins)
     source_change, added = {}, {}
     for what, old in (("--prev", (prev_result or {}).get("sources")), ("--base", base_sources(a.base))):
         diff = source_changes(old, sources) if old else []
@@ -430,6 +586,18 @@ def build(a):
             source_change[what] = diff
         if old and source_added(old, sources):
             added[what] = source_added(old, sources)
+    # The work staging too: its cached exports and conversion checkpoints are reused only when it was made from these
+    # game files; one from before the pins is adopted (recorded, not provable), one from other files refused.
+    work_status, work_diff = check_work(a, sources)
+    if work_diff:
+        source_change["--work"] = work_diff
+    # the staging's record: its per-cell export plugins and its history (every adoption or allowed change, kept by
+    # every later build, so result.json never calls a staging proven that once was not)
+    work_old = work_record(a.work)[0] or {}
+    work_cells = dict(work_old.get("cells") or {})
+    work_earlier = list(work_old.get("history") or [])
+    work_history = work_earlier + ([{"batch": os.path.basename(os.path.abspath(a.out)), "status": work_status, "differences": work_diff}]
+                                   if work_status in ("adopted", "changed") else [])
     need = disk_need(plan, a.batch, os.path.isfile(os.path.join(a.work, "manifest.json")))
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
@@ -440,23 +608,34 @@ def build(a):
     log = os.path.join(a.out, "build.log")
     steps, cells = {}, {}
     steps["sources"] = {"plugins": len(sources["plugins"]), "archives": len(sources["archives"]),
-                        "allowed_change": source_change or None, "added": added or None}
+                        "allowed_change": source_change or None, "added": added or None,
+                        "work": work_status_label(work_status, work_earlier), "work_history": work_history or None}
     finish_ = lambda error: finish(a, plan, steps, cells, t0, error, sources)  # noqa: E731
 
-    # 2. exports
+    # 2. exports (the work staging now carries this build's pins: adopted, matched or allowed, they are what its
+    # exports and checkpoints are made from as far as this build can tell)
     exports = os.path.join(a.work, "exports")
     os.makedirs(exports, exist_ok=True)
+    work_rec = {"schema_version": 2, "sources": sources, "status": work_status, "history": work_history, "cells": work_cells,
+                "batch": os.path.basename(os.path.abspath(a.out)), "commit": git_head()}
+    save(os.path.join(exports, WORK_SOURCES), work_rec)
     pinned = os.path.join(a.out, "base_exports")
     os.makedirs(pinned)
     for c in old_cells:
         shutil.copyfile(os.path.join(a.base_exports, c + ".json"), os.path.join(pinned, c + ".json"))
+    dlc = cell_plugins(plan, a.batch, a.census_data)
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-        dlc = cell_plugins(plan, a.batch)
-        got = list(pool.map(lambda c: export_cell(a, c, exports, os.path.join(a.out, "export.log"), dlc.get(c)), new_cells))
+        got = list(pool.map(lambda c: export_cell(a, c, exports, os.path.join(a.out, "export.log"), dlc.get(c), work_cells), new_cells))
     for c, rc, s in got:
         cells[c] = {"exported": rc == 0, "export_s": s}
+        if c in dlc:
+            cells[c]["plugins"] = dlc[c]
+        if rc == 0:
+            work_cells[c] = plugins_of({"plugins": dlc.get(c) or []})
+    save(os.path.join(exports, WORK_SOURCES), work_rec)                  # now with every export's plugins
     failed_exports = [c for c, rc, _s in got if rc != 0]
-    steps["export"] = {"cells": len(new_cells), "failed": failed_exports}
+    steps["export"] = {"cells": len(new_cells), "failed": failed_exports, "plugins_from": plugins_from(plan, a.batch, a.census_data),
+                       "multi_plugin": sorted(dlc)}
     export_cells = old_cells + [c for c in new_cells if c not in failed_exports]
     export_paths = [os.path.join(pinned, c + ".json") for c in old_cells] + \
                    [os.path.join(exports, c + ".json") for c in new_cells if c not in failed_exports]
@@ -515,7 +694,7 @@ def build(a):
     # The base cells' pinned exports predate schema 3 (no location keys), and so may an earlier batch's export cached
     # in --work (never re-exported): their FO4 location data comes from a locations.json sidecar next to lighting.json,
     # so the LCTN key of a cell is the same whether its export is old or fresh. A schema-3 export carries its own.
-    rc, s = locations_sidecar(a, stale, os.path.join(raw, "locations.json"), log)
+    rc, s = locations_sidecar(a, stale, os.path.join(raw, "locations.json"), log, dict(old_plugins, **dlc))
     steps["locations"] = {"exit": rc, "seconds": s, "cells": len(stale)}
     if rc != 0:
         return finish_("locations failed")
@@ -1191,6 +1370,9 @@ def main(argv=None):
     b.add_argument("--pack-ratio", type=float, default=None,
                    help="plan the texture parts by this packed/loose ratio (0 < r) instead of the --prev's measured one; "
                         "a smaller ratio widens the loose-byte cap, 1.0 plans by loose bytes")
+    b.add_argument("--census", default="",
+                   help="interior_census.py's census: which plugins hold each cell, for a plan written before its rows "
+                        "carried `plugins` (docs/terrain/data/interior-census.json)")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)

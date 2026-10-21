@@ -77,6 +77,53 @@ does not itself export those cells or implement their transitions.
 Primitive geometry and bound half-extents also remain in source units in the
 placement JSON. Primitive colors are explicit RGBA integer arrays.
 
+## Load order: a cell as the game sees it
+
+`--master <plugin>` (repeatable) loads plugins before the positional one; the load
+order is the masters in the order given, then the plugin. A cell is exported as the
+game sees it over that load order (`dotnet/Fo4Export/CellMerge.cs`):
+
+- `cell`, `formkey`, `cell_data`, `location`, `encounter_zone` and `lighting` come
+  from the **winning CELL record**, the last plugin that holds the cell. A DLC's
+  override keeps the master's FormKey (GeneralAtomicsFactory01 stays
+  `04280D:Fallout4.esm` with Automatron loaded).
+- `refs` and `deferred_refs` are the **children merged across every plugin that
+  holds the cell**, in load order. A DLC's override CELL carries only the references
+  it overrides or adds; the master's other references still belong to the cell. A
+  later copy of a reference replaces the earlier one in place (the list keeps the
+  earlier copy's position; `persistent` is the winning copy's membership); a copy
+  flagged Deleted (record flag 0x20, Mutagen `IMajorRecordGetter.IsDeleted`) removes
+  the reference and adds nothing, even if it kept an XTEL; a reference a later plugin
+  holds in another cell (moved) is left out of this one and exported with that cell.
+- `teleport_dependencies` resolve over every cell of the load order merged the same
+  way, so a destination door a DLC deleted resolves to no cell and one it added does.
+- The cell's **name** (`cell`, the `locations` key, `list`, the name `export` and
+  `locations` look up, the `teleport_dependencies` cell names) is the last copy's
+  EditorID that is not null: an override written without EDID (Mutagen writes none
+  for a null EditorID; the official DLC overrides carry it) does not unname the cell
+  (`CellMerge.Merged.EditorID`; tested with a third synthetic plugin).
+- With one plugin the merge is exactly `Temporary` then `Persistent`, so the export
+  of a cell no later plugin touches is byte for byte what it was (pinned by
+  `dotnet/Fo4Export.Tests/CellMergeTests.cs`, which also checks: master refs A, B, C,
+  DLC edits B, deletes C, adds D, moves E -> A (master), B (DLC), D, no C, no E, the
+  DLC's name and encounter zone; `locations` mode reads the winning record too).
+  The export carries no record of the plugins it was made from, so it stays byte
+  for byte the same: `interior_batch.py` keeps that per cell in its work staging's
+  `exports\sources.json` and exports a cell again when the list it wants differs.
+
+So a DLC's own cell is exported as `<DLCRobot.esm> --master <Fallout4.esm> export <cell>`
+(its bases and Commonwealth doors resolve through the master), and a Fallout4.esm cell
+a DLC overrides the same way; `interior_batch.py build` passes every plugin the
+census lists for the cell, in load order (`docs/terrain/interior-batches.md`, DLC).
+Verified against Mutagen.Bethesda.Fallout4 0.55.0-alpha.67 in a cloud probe
+(scratchpad `probe-merge`, 2026-10-21): the DLC overlay's `Cells` group holds the
+override CELL under the master's FormKey with only the DLC's children; a deleted
+reference reads back with `MajorRecordFlagsRaw` 0x20 and `IsDeleted` true and stays
+in the list; `ILinkCache.TryResolve<ICellGetter>` returns the DLC's copy and
+`ResolveAllSimpleContexts` every copy in priority order. The merge walks the mods'
+copies itself rather than the link cache, so the whole-load-order walk
+`teleport_dependencies` needs costs no cache index over every placed record.
+
 ## Cell data, location and encounter zone (schema 3)
 
 Three top-level keys carry what the plugin writer needs to give every converted
@@ -147,10 +194,11 @@ writes only those three keys for several interior cells of the plugin:
 {"schema_version": 1, "cells": {"<cell EditorID>": {"cell_data": ..., "location": ..., "encounter_zone": ...}}}
 ```
 
-Each entry is exactly what the same cell's schema-3 export would carry.
-`interior_batch.py` uses it to build `plugin/locations.json` for the pinned base
-cells whose exports predate schema 3. A named cell that is not an interior of the
-plugin fails the run (non-zero exit, nothing written).
+Each entry is exactly what the same cell's schema-3 export would carry (the winning
+record's, see "Load order" above). `interior_batch.py` uses it to build
+`plugin/locations.json` for the pinned base cells whose exports predate schema 3.
+A named cell that is not an interior of the load order fails the run (non-zero exit,
+nothing written).
 
 Synthetic checks run with:
 

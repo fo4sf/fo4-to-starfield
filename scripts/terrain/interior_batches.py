@@ -21,6 +21,11 @@ Left out and listed: Creation Club hook cells (`cc...` editor ids: their doors h
 backlog doc's "no arrival" cells) and cells no load door reaches (the census's no_load_door / closed).
 A batch closes at --max-cells cells, or at --max-refs references once it has --min-cells.
 
+Per cell the plan keeps the census's `plugins`: every plugin that holds the cell, in load order (Fallout4.esm alone for
+most; Fallout4.esm then DLCRobot.esm for a cell Automatron overrides; the DLC alone for its own cells). interior_batch.py
+exports the cell from all of them, so a DLC's edits to a base-game cell are in the port; a plan written before this key
+(batches 1 to 9) is read with the census (`build --census`) or, without one, by the formkey's owner plugin alone.
+
 Estimates (labelled as such in the output): new models per batch = the backlog's `adds_models` (models no earlier
 ranked cell brings) where measured, else the cell's distinct bases x the backlog's measured new fraction; archive
 bytes per model from the installed port (integ_v6_specmask: FO4Port - Textures.ba2 2,156,974,881 B and - Main.ba2
@@ -131,7 +136,8 @@ def plan(census, backlog, min_cells=20, max_cells=30, max_refs=60000, near_m=100
         for r in cells:
             n, how = models(r)
             c = bl.get(r["formkey"]) or sh.get(r["formkey"]) or {}
-            cell_rows.append({"editor_id": r["editor_id"], "formkey": r["formkey"], "phase": "completes_port" if phase(r)[1] == -1.0 else ("near", "ranked", "world")[phase(r)[0]],
+            cell_rows.append({"editor_id": r["editor_id"], "formkey": r["formkey"], "plugins": list(r.get("plugins") or []),
+                              "phase": "completes_port" if phase(r)[1] == -1.0 else ("near", "ranked", "world")[phase(r)[0]],
                               "reach": r["reach"], "entered_from": r["entered_from"], "refs": r["refs"],
                               "lights": r["lights"], "navmeshes": r["navmeshes"], "load_doors_out": len(r["load_doors_out"]),
                               "doors_to_world": sorted({d["to"] for d in r["load_doors_out"] if (d["to"] or "").startswith("world:")}),

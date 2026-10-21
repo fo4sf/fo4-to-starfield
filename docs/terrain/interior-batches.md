@@ -170,6 +170,30 @@ DLC's BA2s to batch 9's pins) is not one, since nothing the earlier batches read
 `steps.sources.added`, and the flag keeps meaning a real change (a Fallout4.esm updated by Steam in the same build
 is still refused).
 
+The work staging is pinned the same way (Codex's review on #396, 2026-10-21): `<work>\exports\sources.json` records
+the pins the staging's cached exports and conversion checkpoints (`convert_batch.py --resume`'s manifest and
+models, in the same folder) were made from, written by every build before its export step and again after it. A
+build whose pins differ refuses to reuse the staging (`--work ... was built from other game files ... refusing to
+reuse its exports and checkpoints`) unless `--allow-source-change`, recorded under
+`steps.sources.allowed_change["--work"]`, and the override re-pins the staging to the current files. A staging that
+holds exports or a manifest but no usable record (used before the pins: batches 0 to 4's `interiors_work2`; or a
+record that is unreadable or pins no plugin, a partial write or a hand edit) is **adopted**: pinned to this build's
+files and recorded as `steps.sources.work = "adopted"`, which says only that it was not checked, since nothing can
+prove what those exports came from (the alternative, re-exporting and re-converting everything, is the `--work <new
+folder>` choice). The other values are `new` (an empty staging), `match` and `changed`. The record keeps a sticky
+`history` of every adoption and allowed change the staging went through (`{"batch", "status", "differences"}`), so a
+later build over it says `match (adopted by interiors_b05)` or `match (changed by interiors_b02w)` rather than a bare
+`match`, and `steps.sources.work_history` lists the entries: a bare `match` means every build over the staging since
+it was created found its pins equal to the files, and nothing less than a new `--work` clears the history. The
+record also keeps, per cell, the plugins its cached export was made from (`cells`): `export_cell` reuses a cached
+export only when that list is the one the build wants (an export cached before the record counts as made from its
+formkey's owner, which is what it was exported from then), and exports the cell again otherwise, saying so in
+export.log, so a batch 8 staging that once exported GeneralAtomicsFactory01 from Fallout4.esm alone gets the merged
+cell on the next build with `--census` (DLCRobot.esm joining the pins is `added`, not a change, so the pins alone
+would not have caught it). Unit tested for all four states, the refusal, the empty record, the sticky label and the
+re-export (`tests/test_interior_census.py`, `test_work_sources_states`,
+`test_a_cached_export_made_from_fewer_plugins_is_exported_again` and the build flow).
+
 **PC tests, not run** (the companion split is unverified in game):
 - `coc` into a cell whose textures are only in `FO4PortTextures2 - Textures.ba2` (pick one from
   `port\textures_parts.json` with part 1) with `FO4Port.esm` and `FO4PortTextures2.esm` active, in that order: the
@@ -270,19 +294,38 @@ Census over Fallout4.esm + both (**verified**, interior_census.py, the data file
   **batch 10** (36,291 references); batches 1 to 9 are unchanged byte for byte (`interior_batches.py --after`).
 - Wasteland Workshop adds no reachable interior (only test and holding cells). The other 29 DLC cells have no load
   door in (holding, test, door-storage cells).
-- Automatron also adds 44 references to `GeneralAtomicsFactory01` (batch 8: 6,150 in Fallout4.esm, 6,194 with
-  the DLC). The batches export that cell from Fallout4.esm only, so those 44 are not in the port yet
-  (**unresolved**: an override-cell merge in the exporter; small).
+- Automatron also overrides `GeneralAtomicsFactory01` (batch 8: 6,150 references in Fallout4.esm, 6,194 with the
+  DLC; its formkey stays `04280D:Fallout4.esm`, the census lists `plugins` Fallout4.esm, DLCRobot.esm). The batch
+  exports it from both (below), so the 44 references and the DLC's cell data are in the port when batch 8 is built
+  with `--dlc-data` and `--census` (Codex's review on #396, 2026-10-21; before it the cell was exported from
+  Fallout4.esm alone, the formkey's owner).
 
 What a DLC cell needs, and what is done:
-- **Export:** `Fo4Export <DLCRobot.esm> --master <Fallout4.esm> export <cell>` (new `--master`, repeatable): the DLC
-  cell's bases and its door targets resolve through Fallout4.esm. **Verified** on both cells in the cloud: without
-  the master 7,615 and 26,333 references have no base; with it every base resolves and every door names the
-  Commonwealth's persistent cell 018AA2.
+- **Export:** `Fo4Export <DLCRobot.esm> --master <Fallout4.esm> export <cell>` (`--master`, repeatable, the load
+  order): the DLC cell's bases and its door targets resolve through Fallout4.esm. **Verified** on both cells in the
+  cloud: without the master 7,615 and 26,333 references have no base; with it every base resolves and every door
+  names the Commonwealth's persistent cell 018AA2. The same command exports a Fallout4.esm cell the DLC overrides
+  as the game sees it (docs/CELL-EXPORT.md, "Load order"): the winning CELL record's data (name, flags, XLCN, XEZN,
+  lighting) with the children merged over the load order, each reference from its winning copy, one the DLC
+  deletes (record flag 0x20) or moves to another cell left out. A cell no DLC touches exports byte for byte as
+  before (**verified** on synthetic plugins, `dotnet/Fo4Export.Tests/CellMergeTests.cs`: master refs A, B, C, DLC
+  edits B, deletes C, adds D -> A, B (DLC), D, the DLC's zone; `locations` mode and `teleport_dependencies` follow
+  the same merge). Not yet run on the real GeneralAtomicsFactory01 (no game data in the cloud).
 - **Models:** `convert_batch.py --extra-data <DLC Data folder>` reads its `DLC*.ba2` (Main and Textures) after the base
   game's archives, so base-game models convert exactly as before (unit tested; not yet run on the real archives).
-- **Batch:** `interior_batch.py build --dlc-data <depot_435871\Data> --dlc-data <depot_435880\Data>` exports a
-  DLC cell from its own plugin (the plan's formkey says which) and passes the folders to the converter.
+- **Batch:** `interior_batch.py build --dlc-data <depot_435871\Data> --dlc-data <depot_435880\Data>` exports every
+  cell from the plugins that hold it, in load order: the plan row's `plugins` (interior_batches.py copies the
+  census's list; plans written before that key, batches 1 to 9's, are read with `--census
+  docs\terrain\data\interior-census.json`, and without a census by the formkey's owner alone, which misses the
+  override; result.json `steps.export.plugins_from` says which of `plan`, `census` or `formkey` was used and
+  `steps.export.multi_plugin` lists the cells, each with its `plugins` under `cells`). The DLC plugins are found
+  under `--dlc-data`; a plugin a cell needs that is not there fails that cell's export (so batch 8 needs the
+  Automatron folder, as batch 10 does). The locations sidecar runs once per distinct plugin list, so a cached
+  pre-schema-3 export of an overridden cell gets the DLC's location data too; the pinned base cells (not in the
+  plan) take their list from the census row of their export's formkey (`base_plugins`; none of the 16 is overridden
+  today, so no output changes). The sources pins follow: batch 8 pins DLCRobot.esm (`steps.sources.added` against
+  batch 7's pins, not a change), and a base cell's DLC would be pinned too. A cached export made from fewer plugins
+  than the build wants is exported again (the work record above). The folders are passed to the converter as before.
 - **Not done:** the Commonwealth side. Automatron's exterior doors (and the satellite array's outside structure) are
   DLCRobot.esm references in the Commonwealth, which the core does not convert; wiring batch 10's doors needs a
   core built with the DLC's Commonwealth references. The DLC chairs are not in the furniture table either
@@ -296,7 +339,9 @@ that the port has to decide about. Status: **written and unit tested on syntheti
 (no game data in the cloud). It is read-only, streams the plugins one record at a time (memory-mapped, as
 interior_census.py) and takes a later plugin's record over an earlier one's: a placed reference a DLC re-saves
 leaves the cell the earlier copy stood in wherever the later copy lands (a measured cell, an unmeasured interior, a
-worldspace cell), and one re-saved with the Deleted record flag (0x20) is dropped. Form keys spell the owner plugin
+worldspace cell), and one re-saved with the Deleted record flag (0x20) is dropped (interior_census.py does the same
+since Codex's review on #396: a deleted override removes the reference, its base and its load-door edge and adds
+nothing, `totals.refs_deleted` counts them). Form keys spell the owner plugin
 as the later plugins' MAST subrecords do (`Fallout4.esm` however the command line spells the file), so they match
 the census's.
 
@@ -351,7 +396,8 @@ python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior
   --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> --spec-mask-roughness ^
   --convert-arg=--door-anim-dll --convert-arg=<CALUMI.Animation.dll> --convert-arg=--mass-scale --convert-arg=0.2 ^
   --promote-arg=--names --promote-arg=<fo4_names.json> --promote-arg=--furniture --promote-arg=<fo4-furniture.json> ^
-  --promote-arg=--fo4-data --promote-arg=<FO4 Data> [--prev D:\Modding\staging\interiors_bMM] [--allow-source-change] [--pack-ratio R]
+  --promote-arg=--fo4-data --promote-arg=<FO4 Data> [--prev D:\Modding\staging\interiors_bMM] [--allow-source-change] [--pack-ratio R] ^
+  --census docs\terrain\data\interior-census.json [--dlc-data <depot_435871\Data> --dlc-data <depot_435880\Data>]
 python scripts/terrain/interior_batch.py release --dir D:\Modding\staging\interiors_b03 --reason "superseded by b05" ^
   --successor D:\Modding\staging\interiors_b04 --archive <evidence archive folder> --check-refs <queue folder> --check-refs <recovery receipts folder> --starfield <Starfield>
 python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging --keep 2 --delete
@@ -368,7 +414,7 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 | 3 | 2026-10-19 PASS (7fc0caa, --prev b02) | 77 | 77 | 0 cells; 6 cells with trap/glass models | pass; vs b02 pass (no b02 record changed) | Main 191,448,321 B, Textures 3,282,063,253 B | plugin 1db0e61e (15,074,712 B); convert 663 s, total 792 s; D: 53.8 to 49.8 GB free |
 | 4 | 2026-10-19 PASS (7fc0caa, --prev b03) | 104 | 104 | 0 cells; 7 cells with trap/gnat/water models | pass, 6 base doors changed; vs b03 pass, 1 changed (010045AA) | Main 230,547,923 B, Textures 3,590,442,691 B | plugin 1b94d270 (18,444,707 B); total 815 s; D: 49.8 to 45.1 GB free; teleports Linked 48 |
 | 5 to 9 | held | | | | | | D: near the 40 GB floor until the owner deletes superseded folders |
-| 10 (DLC) | not yet | | | | | | Automatron's 2 interiors; needs the DLC Data folders readable by the build |
+| 10 (DLC) | not yet | | | | | | Automatron's 2 interiors; needs the DLC Data folders readable by the build (batch 8 does too, for GeneralAtomicsFactory01's override) |
 
 Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json and both plugins):
 - The 5 changed base records are load doors of installed cells (REFR 010062BB, 010062BE, 010045AE, 0100383E,

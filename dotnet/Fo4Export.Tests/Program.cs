@@ -5,6 +5,7 @@ using Noggog;
 
 ActivationParentTests.Run();
 LocationExportTests.Run();
+CellMergeTests.Run();
 
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
