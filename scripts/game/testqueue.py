@@ -99,6 +99,7 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+CYCLE_TIMEOUT_S = 1200        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc; was 900
 LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
@@ -3142,7 +3143,7 @@ class Runner:
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
-                                               "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
+                                               "-Shot", os.path.join(self.qdir, "cycle.png")], CYCLE_TIMEOUT_S, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
             # the whole output goes to cycle.log: its main menu, load order and "save loaded" lines say where a launch
             # that never became playable stopped (v6e doors_out, 2026-10-21: only the last line was kept)
