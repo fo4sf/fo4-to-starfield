@@ -89,7 +89,7 @@ def off(a):
         print(f"already held off: {', '.join(want)}")
         return
     if new:
-        rec = {"off": rec["off"] + new, "plugins_txt": p_txt, "at": utc_now(), "why": a.why or ""}
+        rec = {"off": rec["off"] + new, "plugins_txt": p_txt, "why": a.why or ""}
         deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
     out = [ln.strip().lstrip("*").strip() if name(ln) in going and ln.strip().startswith("*") else ln for ln in lines]
     exp_install.write_plugins(p_txt, out, bom, nl, original)
@@ -145,11 +145,6 @@ def status(a):
     data = os.path.join(a.starfield, "Data")
     rec = read_record(data)
     print(json.dumps(dict(rec, owned=sorted(owned(data).values()))))
-
-
-def utc_now():
-    import datetime
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def main(argv=None):

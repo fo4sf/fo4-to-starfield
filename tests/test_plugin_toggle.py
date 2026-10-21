@@ -64,6 +64,7 @@ class ToggleTests(unittest.TestCase):
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "FO4SFBridge.esm"])
         rec = json.loads((self.data / exp.TOGGLE).read_text())
         self.assertEqual((rec["off"], rec["why"]), (["Mission.esm", "FO4SFBridge.esm"], "crash split"))
+        self.assertNotIn("at", rec)                                    # Codex on #407: no timestamp in the record
         self.assertIn("already held off", self.run_cmd("off", "--plugins", "Mission.esm"))
         self.run_cmd("on", "--plugins", "FO4SFBridge.esm")
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
