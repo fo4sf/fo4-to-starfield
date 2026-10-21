@@ -249,6 +249,14 @@ def staging_paths(staging, skip=()):
     return out
 
 
+def stat_sig(p):
+    """A staged file's identity for the staging pin's cache: size, mtime, and the file id and change time (st_ino is the
+    NTFS file id on Windows, new after an atomic replace; st_ctime_ns is the change time on Linux, the creation time on
+    Windows), so a same-size replace with its old mtime restored is rehashed (Codex on #405)."""
+    st = os.stat(p)
+    return (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev, st.st_ctime_ns)
+
+
 def staging_fingerprint(staging, skip=()):
     """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
     out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
@@ -3011,14 +3019,15 @@ class Runner:
         written by inventory.py), else None. A queue without the pin is checked on FO4Port.esm alone (pinned_ok). A
         changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405).
         Checked before every test (ensure_game), the live game reused or not. Every file is hashed only when the
-        staging's stat signature (each file's size and mtime) differs from the last one that matched the pin, so a run
-        on an unchanged staging pays one stat walk per test."""
+        staging's stat signature (stat_sig) differs from the last one that matched the pin, so a run on an unchanged
+        staging pays one stat walk per test. Known limit: an in-place write on Windows that keeps the size and restores
+        the mtime keeps the signature; inventory.py promote hashes every file in full."""
         pin = self.q.get("staging_files")
         if pin is None:
             return None
         try:
             paths = staging_paths(self.q["staging"], self.q.get("staging_skip") or [])
-            sig = {k: (os.stat(p).st_size, os.stat(p).st_mtime_ns) for k, p in paths.items()}
+            sig = {k: stat_sig(p) for k, p in paths.items()}
             if sig == getattr(self, "_staging_sig", None):
                 return None                               # nothing touched since the last full match
             now_ = {k: sha256(p) for k, p in paths.items()}

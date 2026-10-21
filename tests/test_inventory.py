@@ -239,6 +239,21 @@ class InventoryTests(unittest.TestCase):
             f.write(" ")
         self.assertIn("CellA.json", r.staging_mismatch())
 
+    def test_a_same_size_replace_with_the_old_mtime_is_rehashed(self):
+        # Codex on #405: the cache trusted size and mtime alone
+        self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        r = tq.Runner(os.path.join(self.out, "tier1"), tt.args(), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        self.assertIsNone(r.staging_mismatch())
+        p = os.path.join(self.st, "FO4Port.esm")
+        st = os.stat(p)
+        new = os.path.join(self.d, "new.esm")
+        with open(new, "wb") as f:
+            f.write(b"TES5")                                             # same length, other bytes
+        os.utime(new, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(new, p)
+        self.assertEqual((os.stat(p).st_size, os.stat(p).st_mtime_ns), (st.st_size, st.st_mtime_ns))
+        self.assertIn("FO4Port.esm", r.staging_mismatch())
+
     def test_the_archives_the_deploy_packs_are_not_a_build_change(self):
         # Codex on #405: deploy_starfield.py install writes "FO4Port - Main.ba2" into the staging on the first launch
         self.run_inv("plan", "--staging", self.st, "--out", self.out)

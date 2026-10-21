@@ -30,7 +30,8 @@ python scripts/game/testqueue.py run --queue <dir>\tier2 <the usual caps>
 
 Both queues carry the staging fingerprint (`staging_files`, every staged file's sha256). `testqueue.py run` stops
 before every test, a live game included, when any staged file changed since the plan, not only `FO4Port.esm`. Files
-are rehashed only when a size or mtime changed since the last match. The archives `deploy_starfield.py install`
+are rehashed only when a size, mtime, file id or change time changed since the last match (an in-place write on
+Windows that keeps the size and restores the mtime is the cache's known limit; `promote` hashes every file). The archives `deploy_starfield.py install`
 packs into the staging root on the first launch (`FO4Port - Main.ba2`, `FO4Port - Textures.ba2`) are left out: they
 are built from the pinned loose files.
 
