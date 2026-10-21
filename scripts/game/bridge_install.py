@@ -152,6 +152,15 @@ def install(a):
         if not same:
             sys.exit(f"another {KIT} is installed ({rec_p}: {rec.get('dir')}); uninstall it first")
         exp_install.verify_archive(targets[ARCHIVE], archive_inputs(source))
+        try:
+            held = PLUGIN.casefold() in exp_install.held_off(data)
+        except (OSError, ValueError) as error:
+            sys.exit(f"bridge not installed: {error}")
+        if held:                                          # plugin_toggle.py holds it off: stays unticked
+            if plugin_line_present(exp_install.read_plugins(exp_install.plugins_txt())[0], PLUGIN) is not None:
+                sys.exit(f"bridge not installed: {PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt")
+            print(f"already installed; {PLUGIN} held off by plugin_toggle.py")
+            return
         lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
         if plugin_line_present(lines, PLUGIN) is None:    # e.g. a deploy rewrote Plugins.txt: activate again
             # Verified complete legacy receipts already own these files. Retain
@@ -164,6 +173,7 @@ def install(a):
         else:
             print("already installed")
         return
+    exp_install.refuse_while_held(data, "bridge not installed")
     clash = [rel for rel in targets if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
@@ -210,6 +220,8 @@ def uninstall(a, _recovery=None):
     if not os.path.exists(rec_p):
         print(f"{KIT} not installed")
         return
+    if _recovery is None:
+        exp_install.refuse_while_held(data, "bridge not uninstalled")
     rec = read_record(rec_p) if _recovery is None else _recovery
     validate_profile(rec)  # interrupted recovery must obey the same profile guard
     if not isinstance(rec.get("files"), dict) or set(rec["files"]) - {PLUGIN, ARCHIVE}:
@@ -274,6 +286,12 @@ def order(a):
         if not os.path.isfile(target) or exp_install.digest(target) != expected:
             raise ValueError(f"installed {KIT} changed: {relative}")
     p = validate_profile(rec)
+    if PLUGIN.casefold() in exp_install.held_off(data):
+        if plugin_line_present(exp_install.read_plugins(p)[0], PLUGIN) is not None:
+            raise ValueError(f"{PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt: "
+                             f"run plugin_toggle.py on, or untick it")
+        print(f"{PLUGIN} held off by plugin_toggle.py: left unticked")
+        return
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
     k = plugin_line_present(lines, PLUGIN)
