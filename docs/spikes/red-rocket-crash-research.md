@@ -61,6 +61,15 @@ reader is not known.
 
 `scripts/game/nif_float_scan.py` (this PR) lists every NIF and block holding 0x3ca3d70a, and flags box half-extents.
 
+## Scan result (PC, 2026-10-21, nif_float_scan at 0bf3ea0, read only; reported by Install through the coordinator)
+- 6 of 11,768 converted NIFs hold 0x3ca3d70a, every one a door leaf's box-collision half-extent in bhkPhysicsSystem
+  (the 0.02 clamp): bldgmetalgaragedoorcoma, bldcounterdoor01, switchdoorexsmlatch01 and 02, safedoor01,
+  fancycuriodoors01. Within 250 m of Red Rocket and of the museum door, only **bldcounterdoor01**, in both areas.
+- v6h's counter door still has a 0.02 half-extent (block 9 +544, hx); v6e had it in blocks 7 and 11.
+- **Supported hypothesis:** a clamped (thin) box, not door boxes in general, is the trigger: thick leaves would give
+  other rcx values, and every dump has exactly 0.02. Next: raise the clamp floor, gate the build on 0 scan hits, then
+  the Red Rocket arrival test; Card D (mission off) as the control.
+
 ## Earlier lead: the mission script moves actors exactly where the crashes happen
 **Verified from source** (scripts/mission/FO4SF_Min00Quest.psc, Relocate, KeepCodsworth, MoveOver):
 - FO4SFMission's start-game-enabled quest checks every second (Codsworth every CodsworthCheck = 5 s, and still after stage 200) and
