@@ -1,5 +1,6 @@
 """scripts/bridge/door_batch.py: door round trips per interior batch (the synthetic core and port of
 test_door_rounds.py)."""
+import hashlib
 import io
 import json
 import os
@@ -54,6 +55,8 @@ class BatchTests(unittest.TestCase):
         self.assertEqual([p["coc"] for p in plan], ["FO4Port_SuperDuperMart01"])     # never the Red Rocket arrival
         self.assertEqual([(t["test"], t["leg"], t["ack"]) for t in rounds["tests"]], [(0, "out", "door-ret-0")])
         self.assertEqual((rounds["core_index"], rounds["port_index"], rounds["batch"]), ("02", "06", "b1"))
+        with open(os.path.join(o, "chunk_00", "plan.json"), "rb") as f:     # #401: plan-terrain checks this digest
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         with open(os.path.join(o, "README.txt")) as f:
             self.assertIn("--crash-budget 1", f.read())
 

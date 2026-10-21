@@ -206,9 +206,9 @@ def stage(a):
     for n, tests in enumerate(parts):
         d = os.path.join(out, f"chunk_{n:02d}")
         os.makedirs(d)
-        dr.save(os.path.join(d, "plan.json"), [p for p, _ in tests])
-        dr.save(os.path.join(d, "rounds.json"), dict(base, batch=name, chunk=n,
-                                                     tests=[dict(e, test=i) for i, (_, e) in enumerate(tests)]))
+        # #401: rounds.json carries the plan's digest, which plan-terrain checks before it queues the chunk
+        dr.save_stage(d, [p for p, _ in tests], dict(base, batch=name, chunk=n,
+                                                      tests=[dict(e, test=i) for i, (_, e) in enumerate(tests)]))
         folders.append({"folder": d, "tests": len(tests)})
     cov = {"batch": name, "legs": a.legs, "min_out_m": a.min_out_m if a.legs == "out" else None,
            "cells": rows, "chunks": folders,
