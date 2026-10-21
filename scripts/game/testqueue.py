@@ -99,7 +99,9 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
-CYCLE_TIMEOUT_S = 1200        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc; was 900
+COC_TIMEOUT_S = 480           # coc.ps1 with its retries: the first coc, the same coc again, the hop and the target twice
+CYCLE_TIMEOUT_S = 1500        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc
+                              # (COC_TIMEOUT_S); was 900, then 1200 before coc.ps1's retries
 LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
@@ -2976,6 +2978,7 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.live_pid = None                              # the runner's own game while it should be running
         self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
@@ -3098,6 +3101,10 @@ class Runner:
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
+        if gp:
+            self.live_pid = gp                            # the runner's own game (a resumed run finds it running)
+        elif self.game_gone():
+            self.count_vanished("between tests")          # before launch_limit, so --crash-budget sees it
         if not gp:
             fresh = getattr(self, "fresh_launch", False)
             self.fresh_launch = False
@@ -3170,12 +3177,16 @@ class Runner:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
             self.session, self.cell = False, launch
+            self.live_pid = self.ctl.game_pid()
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
-            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json], 180)
+            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs);
+            # COC_TIMEOUT_S covers its retries when the first coc misses the marker (four more cocs and two more reads)
+            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
+                                                                                       else []), COC_TIMEOUT_S)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
-            if code == 2:
+            if code == 2 and not self.game_gone():        # a game gone fails the input guard too: a crash, below
                 return "owner"
             if code != 0:
                 self.cell = None
@@ -3212,6 +3223,21 @@ class Runner:
             obs = load(os.path.join(sd, "obs.json"), {})
             self.log(f"companion {COMPANION_REF}: {obs.get('companion')} (exit {code})")
         self.session = True
+
+    def game_gone(self, pid=None):
+        """True when the game this run launched or found running has no process any more: it exited on its own, with or
+        without a dump (doors_rounds 2026-10-21: Starfield vanished as 0000_terrain_FO4Core_RedRocketSpawn began, no
+        WER event, no dump, and the run judged stale bridge lines instead of counting a crash)."""
+        pid = pid or self.live_pid
+        return bool(pid) and not self.ctl.game_pid()
+
+    def count_vanished(self, where):
+        """A game that exited on its own counts as a crash (state crashes, so --crash-budget sees it); the session
+        and cell are unknown after it."""
+        self.state["crashes"] += 1
+        self.session, self.cell, self.live_pid = False, None, None
+        self.log(f"the game exited {where} (no Starfield process): counted as a crash, {self.state['crashes']} this run")
+        self.checkpoint()
 
     def recover(self):
         """The console could not be opened (menu, overlay or popup over the HUD). Only when nobody touched the PC since
@@ -3523,6 +3549,7 @@ class Runner:
                 self.log("fresh test: closing the runner's game for a new launch")
                 self.ctl.close_game()
                 self.session, self.cell, self.game_used = False, None, False
+                self.live_pid = None                      # closed on purpose: not a crash
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
             if g and g.startswith(("the game did not start", "limit:")):   # no waiting fixes Steam or a full disk
@@ -3550,7 +3577,11 @@ class Runner:
             lt = None                                     # the sky reading, for tests that asked for a time of day
             crashed = False                               # the game exited during this test's step
             con = []                                      # console_pre / console_post replies (parsed OCR)
-            if g in ("nocell", "retry"):
+            if g in ("nocell", "retry") and self.game_gone():
+                self.count_vanished(f"while travelling to {t['cell']}")
+                crashed, code = True, None                # counted toward FAIL CRASH below, like a crash in the step
+                verdict, cls, detail = "INCONCLUSIVE", "CRASH", f"the game exited before {t['cell']} was reached"
+            elif g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
                 if g == "nocell" and not self.recover():
                     self.log("stopped: the game is not in a playable state (menu or overlay)")
@@ -3560,7 +3591,10 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the foreground was lost mid-step: not an attempt
+                # a game that exited on its own fails the step's input (exit 2) or its HUD check (exit 3) too: it is a
+                # crash, never "the owner took over" or "a menu" (doors_rounds 2026-10-21, see game_gone)
+                gone = self.game_gone(pid_before)
+                if code == 2 and not gone:                # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
                     who = foreground_thief(out_dir)
@@ -3587,14 +3621,13 @@ class Runner:
                     self.log("stopped: owner took over during a step")
                     self.checkpoint("stopped: owner took over during a step")
                     return 3
-                if code == 3 and not self.recover():      # a menu or overlay hides the HUD and Escape did not clear it
+                if code == 3 and not gone and not self.recover():   # a menu or overlay hides the HUD, Escape did not clear it
                     self.state["attempts"][t["id"]] = n - 1
                     self.log("stopped: the game is not in a playable state (menu or overlay)")
                     self.checkpoint("stopped: menu or overlay")
                     return 3
-                if pid_before and not self.ctl.game_pid():
-                    self.state["crashes"] += 1
-                    self.session, self.cell = False, None
+                if gone:
+                    self.count_vanished(f"during {t['id']}")
                     crashed = True                        # counted below, once the install is known to be the pinned one
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:

@@ -269,7 +269,23 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertGreaterEqual(save, 300)
         start = 12 + 150 + 20 + 10                                             # close an old game, see it start, alive, settle
         cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
-        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + cell + 120)   # the runner never cuts a slow launch short
+        escapes = 2 * (2 + 15 + 10)                                           # the Escapes after a missed save load
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + cell + 120)   # never cut a slow launch short
+        # with -CellJson the launch ends with coc.ps1 and its retries (Codex on #452): its whole budget fits too
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + tq.COC_TIMEOUT_S + 120)
+
+    def test_cycle_ps1_sends_no_blind_e_after_the_save_loads(self):
+        # v6e retry 4, 2026-10-21: the E after Continue opened Vasco's dialogue on the owner's save and hid the HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        load = src.index("loadorder.ps1')")
+        wait = src.index("Wait-Screen 'save loaded'")
+        between = src[load:wait]
+        self.assertNotIn("Send 'hold:e", between)
+        self.assertIn("Clear-AchievementsPopup", between)                   # E only when the popup's text is read
+        after = src[wait:src.index("function Prompt-Visible")]
+        self.assertIn("key:esc", after)                                     # a missed load gets Escapes, each checked
+        self.assertRegex(after, r"while \(\$n -lt 2\)")      # an even count: never left in the pause menu
+        self.assertIn("Wait-Screen \"save loaded after", after)
 
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
