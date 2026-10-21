@@ -348,6 +348,12 @@ if (promotions.Listed > 0)
                       $"{promotions.Listed - handled} listed but not placed");
 }
 
+// ---- door names (DoorNames.cs): the FO4 DOOR name in the prompt; before the chains and links, which read the bases ------
+var named = DoorNames.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), Id, openingDoors, ownRigDoors);
+Console.WriteLine($"door names: {named.Copies} named copies of door bases " +
+                  $"({named.Moved} references moved), {named.Unnamed} door references without an FO4 name, {named.Refused.Count} refused");
+foreach (var refusal in named.Refused) Console.WriteLine($"  refused {refusal}");
+
 // ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
 var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
                                     new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
