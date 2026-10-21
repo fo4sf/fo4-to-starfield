@@ -56,6 +56,8 @@ def load(path):
     out = defaults()
     if path and os.path.isfile(path):
         saved = files.load_json(path)
+        if not isinstance(saved, dict):
+            raise ValueError(f"{path}: expected an object of settings, found {type(saved).__name__}")
         bad = sorted(set(saved) - set(KEYS))
         if bad:
             raise ValueError(f"{path}: unknown setting(s) {', '.join(bad)}")

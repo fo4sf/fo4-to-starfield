@@ -143,6 +143,11 @@ class CrashWatchTests(unittest.TestCase):
                 f.write('{"crash_watch.min_free_gb": NaN}')
             with self.assertRaises(ValueError):
                 settings.load(path)
+            for root in ("[]", '"on"', "3"):
+                with open(path, "w") as f:
+                    f.write(root)
+                with self.assertRaises(ValueError):
+                    settings.load(path)
 
     def test_problems(self):
         v = settings.assign(settings.defaults(), ["crash_watch.enabled=on", "bridge=on", "papyrus_logging=off"])
