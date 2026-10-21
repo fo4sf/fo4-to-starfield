@@ -1079,14 +1079,21 @@ class RunChainTests(Base):
             json.dump(c, f)
         self.assertIn("'--pin-only'", ca.chain(c, cp, set()))
 
-    def test_a_game_gone_between_queues_stops_the_chain(self):
-        # Codex on #391: a fresh runner does not know the game it should find and would launch another
+    def test_a_game_gone_after_a_run_stops_the_chain(self):
+        # Codex on #391: a fresh runner does not know the game it should find and would launch another; after the
+        # last queue the chain would end clean over a late crash
         qa, qb = self.queue("a", [{"coc": "FO4Port_X"}]), self.queue("b", [{"coc": "FO4Port_Y"}])
         c = self.camp([("a", qa), ("b", qb)])
-        with mock.patch.object(ca, "game_kept_why", return_value="Starfield exited after the previous queue"):
+        with mock.patch.object(ca, "game_kept_why", return_value="Starfield exited after its run"):
             self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
         self.assertEqual([a[1] for a, _ in self.calls], ["run"])                  # b never ran
-        self.assertIn("b: STOP before the run: Starfield exited after the previous queue", self.lines[-1])
+        self.assertEqual(self.lines[-1], "a: STOP Starfield exited after its run")
+        self.calls.clear()
+        kept = iter([None, "Starfield exited after its run"])
+        with mock.patch.object(ca, "game_kept_why", side_effect=lambda: next(kept)):
+            self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
+        self.assertEqual([a[1] for a, _ in self.calls], ["run", "run"])           # the last queue's crash too
+        self.assertEqual(self.lines[-1], "b: STOP Starfield exited after its run")
         with mock.patch.object(ca, "game_running", return_value=None):
             self.assertIn("exited", REAL_KEPT())
         with mock.patch.object(ca, "game_running", return_value=4242):
@@ -1095,8 +1102,9 @@ class RunChainTests(Base):
         with open(cp, "w") as f:
             json.dump(c, f)
         text = ca.chain(c, cp, set())
-        self.assertNotIn("Get-Process Starfield -ErrorAction SilentlyContinue)) { Write-Host 'stopped before a", text)
-        self.assertIn("Get-Process Starfield -ErrorAction SilentlyContinue)) { Write-Host 'stopped before b", text)
+        for name in ("a", "b"):
+            self.assertIn(f"Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped after {name}",
+                          text)
 
     def test_a_failed_judge_stops_the_chain(self):
         # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0

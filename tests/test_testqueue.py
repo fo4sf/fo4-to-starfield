@@ -889,11 +889,17 @@ class PlanJsonTests(unittest.TestCase):
         tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out2])
         self.assertEqual(jload(os.path.join(out2, "queue.json"))["rounds_sha256"], hashlib.sha256(rounds.encode()).hexdigest())
         self.assertNotIn("presence_sha256", jload(os.path.join(out2, "queue.json")))
-        writef(os.path.join(d, "presence.json"), b'{"tests": []}')    # a presence stage: its digest is recorded too
+        # a presence stage: staged with this plan.json (plan_sha256), its digest is recorded too (Codex on #391)
+        writef(os.path.join(d, "presence.json"), b'{"tests": []}')
+        with self.assertRaises(SystemExit) as stop:
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "qp0")])
+        self.assertIn("no plan_sha256 in presence.json", str(stop.exception))
+        pres = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
+        writef(os.path.join(d, "presence.json"), pres.encode())
         out3 = os.path.join(d, "qp")
         tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out3])
         self.assertEqual(jload(os.path.join(out3, "queue.json"))["presence_sha256"],
-                         hashlib.sha256(b'{"tests": []}').hexdigest())
+                         hashlib.sha256(pres.encode()).hexdigest())
         # Codex on #401: a plan.json edited after staging, or a rounds.json without plan_sha256, is refused
         for body, why in ((json.dumps({"tests": []}), "no plan_sha256"),
                           (json.dumps({"tests": [], "plan_sha256": "0" * 64}), "plan_sha256 differs")):

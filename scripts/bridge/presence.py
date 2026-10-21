@@ -112,9 +112,8 @@ def stage(a):
              "local": [round(v, 4) for v in r["pos"]],
              "merged": [round(v, 4) for v in dr.vmad_patch.merged(r["pos"], merge)]} for local, r in g]})
     os.makedirs(out)
-    dr.save(os.path.join(out, "plan.json"), plan)
     info = {"plugin": plug.path, "index": index, "core": core_dir, "merge": list(merge), "near_m": NEAR_M, "tests": tests}
-    dr.save(os.path.join(out, "presence.json"), info)
+    dr.save_stage(out, plan, info, "presence.json")       # plan_sha256: plan-terrain pairs the two (Codex on #391)
     lines = [f"Presence readout (scripts/bridge/presence.py): {len(found)} actors of {plug.path} (index {index}),"
              f" {len(extra)} extra references, {len(plan)} tests. Report-only."]
     for t in tests:

@@ -644,11 +644,11 @@ def game_running():
 
 
 def game_kept_why():
-    """Why the game the previous queue's runner launched is gone, else None. Each queue's runner keeps its game
-    running for the next one; a fresh runner does not know the game it should find (its live_pid starts empty), so a
-    game that exited between two queues would be launched again, not counted as a crash (Codex on #391)."""
+    """Why the game a queue's runner launched is gone after its run, else None. The runner keeps its game running for
+    the next queue; a fresh runner does not know the game it should find (its live_pid starts empty), so a game that
+    exited after a run would be launched again, or the chain end clean, not counted as a crash (Codex on #391)."""
     if not game_running():
-        return "Starfield exited after the previous queue (counted as a crash: the campaign stops at the first)"
+        return "Starfield exited after its run (counted as a crash: the campaign stops at the first)"
     return None
 
 
@@ -834,16 +834,11 @@ def chain(camp, path, release, digest=None):
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
                                 digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
              "{ Write-Host 'campaign check refused: nothing run'; exit 1 }"]
-    for n, (e, _, _) in enumerate(check(camp, release)[0]["queues"]):
+    for e, _, _ in check(camp, release)[0]["queues"]:
         pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", digest,
                "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
-        lines += ["", f"# {e['name']}"]
-        if n:
-            # Codex on #391: the previous queue's runner keeps its game for this one; a fresh runner would launch
-            # another over a game that exited between them instead of counting the crash
-            lines += [f"if (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped before "
-                      f"{e['name']}: Starfield exited after the previous queue (counted as a crash)'; exit 1 }}"]
-        lines += [f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
+        lines += ["", f"# {e['name']}",
+                  f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
                   "was armed'; exit 1 }",
                   "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
@@ -856,7 +851,10 @@ def chain(camp, path, release, digest=None):
             judge = " --judge-exit $jr"
         gate_argv = psa(["scripts\\game\\campaign_arm.py", "gate", "--queue", e["queue"], "--run-exit"])[:-1]
         gate_argv += ', "$rc"' + (', \'--judge-exit\', "$jr"' if judge else "") + ")"
-        lines += [f"if ((Py {gate_argv}) -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
+        lines += [f"if ((Py {gate_argv}) -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}",
+                  # Codex on #391: the runner keeps its game; one gone after the run, the last queue's too, crashed
+                  f"if (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped after "
+                  f"{e['name']}: Starfield exited after its run (counted as a crash)'; exit 1 }}"]
     lines += ["", "Write-Host 'chain finished: every queue ran clean (the verdicts are in each judge report)'"]
     return "\r\n".join(lines) + "\r\n"
 
@@ -923,8 +921,8 @@ def run_chain(camp, log=print, call=None):
         log("REFUSED campaign: Starfield is running: close it so the first queue launches the armed build")
         return 1
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
-    for n, ((e, _, _), pin) in enumerate(zip(res["queues"], pins)):
-        why = ([w for w in [game_kept_why()] if w] if n else []) + recheck(e, camp, set(released), pin)
+    for (e, _, _), pin in zip(res["queues"], pins):
+        why = recheck(e, camp, set(released), pin)
         if why:
             log(f"{e['name']}: STOP before the run: " + "; ".join(why))
             return 1
@@ -946,6 +944,10 @@ def run_chain(camp, log=print, call=None):
             jr = call([py, "-I", e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
+        kept = game_kept_why() if good else None
+        if kept:
+            # Codex on #391: the runner keeps its game; one gone after the run (the last queue's too) crashed
+            good, why = False, kept
         log(f"{e['name']}: {'OK' if good else 'STOP'} {why}")
         if not good:
             return 1
