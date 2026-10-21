@@ -209,6 +209,22 @@ class PlanTerrainHoldTests(Base):
         self.assertTrue(self.check(self.camp([("a", q)]))[0])
 
 
+    def test_travel_other_than_coc_and_relative_queues_are_refused(self):
+        # Codex on #391: cow and player.moveto go where the holds can not see; a relative queue names another folder
+        for travel in ("cow Commonwealth 0 0", "player.moveto 0001A2B3"):
+            with self.subTest(travel=travel):
+                q = self.queue(travel.split()[0].replace(".", "_"), [{"kind": "terrain", "cell": "", "world_coc": "FO4Port_X",
+                                                                      "travel": travel}])
+                ok, why = self.check(self.camp([("a", q)]))
+                self.assertFalse(ok)
+                self.assertIn("can not be checked against the holds", " ".join(why))
+        q = self.queue("rel", [{"coc": "FO4Port_X"}])
+        ok, why = self.check(self.camp([("a", os.path.relpath(q))]))
+        self.assertFalse(ok)
+        self.assertIn("is not a full path", " ".join(why))
+        self.assertTrue(self.check(self.camp([("a", q)]))[0])
+
+
 class ScriptAndGateTests(Base):
     def test_the_chain_carries_the_caps_and_stops_on_the_gate(self):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95"}])
@@ -324,6 +340,24 @@ class ScriptAndGateTests(Base):
                 c = self.camp([("a", q)])
                 c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q] + bad
                 self.assertIn(want, " ".join(self.check(c)[1]))
+
+    def test_the_chain_names_the_campaign_by_its_full_path(self):
+        # Codex on #391: the chain runs Set-Location to the checkout before its check
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp = os.path.join(self.d, "c.json")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)]), f)
+        old = os.getcwd()
+        os.chdir(self.d)
+        try:
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(ca.main(["script", "--campaign", "c.json", "--out", "chain.ps1"]), 0)
+        finally:
+            os.chdir(old)
+        with open(os.path.join(self.d, "chain.ps1"), newline="") as f:
+            text = f.read()
+        self.assertIn("check --campaign '%s' --sha256" % os.path.abspath(cp), text)
+        self.assertNotIn("--campaign 'c.json'", text)
 
     def test_the_chain_has_no_time_in_it(self):
         # Codex on #391: the same manifest and inputs write the same chain

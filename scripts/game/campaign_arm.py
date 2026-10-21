@@ -5,7 +5,8 @@ manifest, it never launches the game, installs or types anything.
 usage:
   python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...] [--sha256 HEX]
       every queue of the campaign, refused with the reason when:
-        - its queue.json is missing, or its tests name no coc;
+        - its queue folder is not a full path, its queue.json is missing, or its tests name no coc;
+        - a test travels by anything but coc <cell> (cow and player.moveto go where the holds can not see);
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
@@ -146,6 +147,9 @@ def pre_launch_why(pre, camp):
 def check_queue(entry, camp, release):
     """(queue.json or None, [reasons it is refused], [notes])."""
     qdir, why, notes = entry.get("queue") or "", [], []
+    if not (re.match(r"[A-Za-z]:[\\/]", qdir) or os.path.isabs(qdir)):
+        # Codex on #391: run and the chain work in the checkout, a relative folder would name another queue there
+        return None, [f"queue {qdir!r} is not a full path"], notes
     q = tq.load(os.path.join(qdir, "queue.json"))
     if not isinstance(q, dict) or not q.get("tests"):
         return None, [f"no planned queue at {qdir}"], notes
@@ -172,6 +176,11 @@ def check_queue(entry, camp, release):
     if p:
         why.append(p)
     starts = cells(q)
+    odd = sorted({str(t.get("travel")).strip() for t in q["tests"] if str(t.get("travel") or "").strip()
+                  and not re.fullmatch(r"(?i)coc\s+[A-Za-z0-9_]+", str(t["travel"]).strip())})
+    if odd:
+        # Codex on #391: a cow or player.moveto travel goes where the holds can not see
+        why.append(f"travel other than coc <cell> can not be checked against the holds: {', '.join(odd[:3])}")
     if not starts:
         why.append("no test names a coc: where it starts can not be checked")
     for hold, names in (camp.get("holds") or {}).items():
@@ -335,6 +344,7 @@ def chain(camp, path, release):
     if launch not in LAUNCHES:
         sys.exit(f"launch {launch!r}, want one of {LAUNCHES}")
     rel = ",".join(sorted(release))
+    path = os.path.abspath(path)          # Codex on #391: the chain changes into the checkout before the check
     # Codex on #391: no time in the chain, the same manifest and inputs write the same file
     lines = [f"# {camp.get('name')} chain, written by scripts/game/campaign_arm.py from {path}"
              + (f"; released: {rel}" if rel else ""),
