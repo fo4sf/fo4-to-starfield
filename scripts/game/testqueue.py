@@ -3141,6 +3141,10 @@ class Runner:
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            # the whole output goes to cycle.log: its main menu, load order and "save loaded" lines say where a launch
+            # that never became playable stopped (v6e doors_out, 2026-10-21: only the last line was kept)
+            with open(os.path.join(self.qdir, "cycle.log"), "a", encoding="utf-8") as f:
+                f.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} launch into {launch}: exit {code}\n{out.rstrip()}\n")
             if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
