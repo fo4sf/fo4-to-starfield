@@ -1,7 +1,7 @@
 # Door exits that land in the wrong place (v6e, 2026-10-21)
 
-Status: **unresolved**. The terrain and object checks both ran on the PC (2026-10-21); the collision of the pieces they
-named is the next read.
+Status: **unresolved**. The terrain, object and conversion checks all ran on the PC (2026-10-21); what is left needs a look
+in game.
 
 ## Results
 The v6e door rounds ran on core 06C0DECD and port 9AF962D2, judged with `--world-instance FF005511=02000803`, on
@@ -63,8 +63,20 @@ What this narrows (**supported hypotheses**, not tested):
 - **Fort Hagen 02:** the roof piece is listed as native collision, so either its converted collision does not cover the
   arrival spot (a part left out, or offset), or the player arrives before that body is in the world and falls through.
 - **Cambridge:** the arrival overlaps the door frame's collision, and the engine moves the player to the nearest open spot.
-- The next offline read is the conversion report of those pieces (collision source, parts left out, bounds) and the
-  rigged door box of the elevator exit.
+
+### Conversion reports of those pieces
+From the convert manifest the v6e core was built with (terrain_core64c_work_v6c2, 11,768 items), **verified**:
+decoroof1x1str01, decoroof1x1str01full01, bldwlpsmflronly01, bldwlpsmceilonly01 and decomaina1x2doordouble01 each have
+FO4 native collision converted as one body, with nothing left out. The Fort Hagen elevator exit utilmetalelevatorout01
+has no static collision report; it is a native door rig (two moving bodies, bounds 3.17 x 0.46 x 2.51 m, its panels slide
+about 0.64 m sideways when it opens).
+
+So no collision is missing at the manifest level, and the offline checks stop here. What remains (**supported
+hypotheses**, to be told apart in game):
+- **Timing:** the player is moved before the arrival's collision is in the world and falls (Fort Hagen) or is pushed
+  out (museum). A look in game after the exit would show whether the roof is solid when walked onto from the elevator.
+- **Overlap:** the player capsule overlaps a body at the arrival (the museum ceiling 1.8 m up; the Cambridge door frame;
+  the Fort Hagen elevator rig 1.2 m away), and the engine resolves it by moving the player.
 
 ## Object check (read-only, PC)
 `scripts/terrain/arrival_objects.py <core staging dir> <arrival_ground.json> [--radius 20]` reads the core's
