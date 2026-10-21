@@ -10,7 +10,10 @@ from contextlib import redirect_stdout
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inventory as inv  # noqa: E402
+import testqueue as tq  # noqa: E402
+import test_testqueue as tt  # noqa: E402  (FakeControls, args: the runner without Windows or a game)
 
 
 def jdump(o, p):
@@ -140,6 +143,43 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             self.run_inv("promote", "--inventory", self.out)
         self.assertIn("plan the inventory again", str(cm.exception))
+
+    def passed_tier1(self):
+        self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        ids = {c["cell"]: c.get("tests") for c in jload(os.path.join(self.out, "inventory.json"))["cells"]}
+        self.results([{"id": ids["CellA"][0], "verdict": "PASS", "class": "PASS"}])
+
+    def test_a_refused_tier2_plan_leaves_no_tier2_folder(self):
+        # Codex on #405: a bridge gone at promotion left tier2/ behind, and every later promote was refused
+        self.passed_tier1()
+        p = os.path.join(self.out, "inventory.json")
+        i = jload(p)
+        i["bridge"] = os.path.join(self.d, "no_bridge")
+        jdump(i, p)
+        with self.assertRaises(SystemExit):
+            self.run_inv("promote", "--inventory", self.out, "--kinds", "stairs")
+        self.assertFalse(os.path.exists(os.path.join(self.out, "tier2")))
+        i["bridge"] = ""
+        jdump(i, p)
+        self.run_inv("promote", "--inventory", self.out, "--kinds", "stairs")
+        self.assertTrue(os.path.exists(os.path.join(self.out, "tier2", "queue.json")))
+
+    def test_the_runner_refuses_a_staging_changed_after_the_plan(self):
+        # Codex on #405: the tier 2 queue pinned only FO4Port.esm, so a rebuilt archive ran under the old build id
+        self.passed_tier1()
+        self.run_inv("promote", "--inventory", self.out, "--kinds", "stairs")
+        for tier in ("tier1", "tier2"):
+            with self.subTest(tier=tier):
+                qdir = os.path.join(self.out, tier)
+                self.assertEqual(jload(os.path.join(qdir, "queue.json"))["staging_files"],
+                                 jload(os.path.join(self.out, "staging_files.json")))
+                r = tq.Runner(qdir, tt.args(), ctl=tt.FakeControls(), step=lambda t, o: 0)
+                self.assertIsNone(r.staging_mismatch())
+                with open(os.path.join(self.st, "Meshes.ba2"), "wb") as f:
+                    f.write(b"BTDX rebuilt")
+                self.assertIn("1 file(s): Meshes.ba2", r.staging_mismatch())
+                self.assertTrue(r.pinned_ok())                   # the plugin alone would have let it run
+                os.remove(os.path.join(self.st, "Meshes.ba2"))
 
 
 if __name__ == "__main__":

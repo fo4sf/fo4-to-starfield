@@ -72,21 +72,16 @@ def wanted_cells(a):
     return out
 
 
-def fingerprint(staging, skip=()):
-    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
-    out: the probe_<cell>_<n>.txt floor points testqueue.py plan writes there itself, and any folder in `skip` (an
-    inventory planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build for the
-    smoke result (Codex on #405)."""
-    out = {}
-    skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
-    for root, dirs, files in os.walk(staging):
-        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip)
-        for n in sorted(files):
-            if n.startswith("probe_") and n.endswith(".txt"):
-                continue
-            p = os.path.join(root, n)
-            out[os.path.relpath(p, staging).replace(os.sep, "/")] = tq.sha256(p)
-    return out
+fingerprint = tq.staging_fingerprint                     # every staged file's sha256 (the probe points aside)
+
+
+def pin_staging(qdir, files, skip):
+    """Write the staging fingerprint into the planned queue, so testqueue.py run refuses a staging changed after the
+    plan, not only a changed FO4Port.esm (Runner.staging_mismatch; Codex on #405)."""
+    p = os.path.join(qdir, "queue.json")
+    q = tq.load(p)
+    q["staging_files"], q["staging_skip"] = files, [os.path.abspath(x) for x in skip]
+    tq.save_atomic(p, q)
 
 
 def digest(files):
@@ -126,6 +121,7 @@ def plan(a):
     try:
         summary = run_plan(["--staging", staging, "--out", t1, "--kinds", "fall", "--per-cell", str(a.smoke_per_cell),
                             "--cells", ",".join(present), "--plugin-index", a.plugin_index, *extra])
+        pin_staging(t1, files, [out])
     except BaseException:                                 # a refused plan (a missing --bridge, ...) leaves nothing
         shutil.rmtree(out, ignore_errors=True)
         raise
@@ -222,8 +218,13 @@ def promote(a):
     if not up:
         sys.exit(f"no cell passed tier 1 ({res['counts']}): promotion.json written, no tier 2 queue")
     extra = ["--bridge", inv["bridge"]] if inv.get("bridge") else []
-    summary = run_plan(["--staging", inv["staging"], "--out", t2, "--kinds", ",".join(kinds), "--per-cell",
-                        str(a.per_cell), "--cells", ",".join(up), "--plugin-index", inv["plugin_index"], *extra])
+    try:
+        summary = run_plan(["--staging", inv["staging"], "--out", t2, "--kinds", ",".join(kinds), "--per-cell",
+                            str(a.per_cell), "--cells", ",".join(up), "--plugin-index", inv["plugin_index"], *extra])
+        pin_staging(t2, pinned, [d])
+    except BaseException:                                 # a refused plan leaves no tier2/ to block the next promote
+        shutil.rmtree(t2, ignore_errors=True)
+        raise
     print(f"tier 2: {summary}; cells {res['counts']}")
 
 

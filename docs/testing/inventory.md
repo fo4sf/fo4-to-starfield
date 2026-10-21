@@ -28,6 +28,9 @@ python scripts/game/testqueue.py run --queue <dir>\tier2 <the usual caps>
   state).
 - `tier2/queue.json`: the interaction queue.
 
+Both queues carry the staging fingerprint (`staging_files`, every staged file's sha256). `testqueue.py run` stops
+before a launch when any staged file changed since the plan, not only `FO4Port.esm`.
+
 ## Refusals
 
 - `plan` refuses:
@@ -41,6 +44,7 @@ python scripts/game/testqueue.py run --queue <dir>\tier2 <the usual caps>
   - a second tier 2;
   - unknown kinds;
   - a tier 1 with no passing cell. That case still writes `promotion.json` and no queue.
+  A tier 2 plan that `testqueue.py plan` refuses (a missing `--bridge`, ...) leaves no `tier2/` behind.
 
 For #396's interior batches, `--batch docs/terrain/data/interior-batches.json --batch-number N` takes that batch's own
 cells from the batch staging. Smoke only needs `coc FO4Port_<Cell>`, so it doesn't wait for a wired core. The door

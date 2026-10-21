@@ -222,6 +222,22 @@ def load(p, default=None):
         return json.load(f)
 
 
+def staging_fingerprint(staging, skip=()):
+    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
+    out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
+    planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build (Codex on #405)."""
+    out = {}
+    skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
+    for root, dirs, files in os.walk(staging):
+        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip)
+        for n in sorted(files):
+            if n.startswith("probe_") and n.endswith(".txt"):
+                continue
+            p = os.path.join(root, n)
+            out[os.path.relpath(p, staging).replace(os.sep, "/")] = sha256(p)
+    return out
+
+
 def save_atomic(p, obj):
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -2972,6 +2988,23 @@ class Runner:
         esm = os.path.join(self.q["staging"], "FO4Port.esm")
         return os.path.exists(esm) and sha256(esm) == self.q["plugin_sha256"]
 
+    def staging_mismatch(self):
+        """Why the staging no longer matches the full fingerprint the queue pinned (staging_files: every file's sha256,
+        written by inventory.py), else None. A queue without the pin is checked on FO4Port.esm alone (pinned_ok). A
+        changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405)."""
+        pin = self.q.get("staging_files")
+        if pin is None:
+            return None
+        try:
+            now_ = staging_fingerprint(self.q["staging"], self.q.get("staging_skip") or [])
+        except OSError as e:
+            return f"staging {self.q['staging']} unreadable: {e}"
+        if now_ != pin:
+            moved = sorted(k for k in set(pin) | set(now_) if pin.get(k) != now_.get(k))
+            return (f"the staging changed since the queue was planned ({len(moved)} file(s): "
+                    f"{', '.join(moved[:5])}{', ...' if len(moved) > 5 else ''})")
+        return None
+
     def experiment_mismatch(self):
         """Why the staged experiment a walk queue pinned (experiment_identity) is no longer what the plan saw, else
         None: checked before a launch (the launch installs it), as pinned_ok checks FO4Port.esm."""
@@ -3011,7 +3044,7 @@ class Runner:
             if not self.pinned_ok():
                 self.log("staging FO4Port.esm no longer matches the pinned build: stopping")
                 return "stop"
-            why = self.experiment_mismatch()
+            why = self.staging_mismatch() or self.experiment_mismatch()
             if why:
                 self.log(f"{why}: stopping")
                 return "stop"
