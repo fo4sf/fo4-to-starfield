@@ -121,6 +121,7 @@ class MinidumpRead(unittest.TestCase):
 
 
 TEXT, RDATA, PDATA = 0x2BF0000, 0x4000000, 0x4001000   # section RVAs in the synthetic exe
+IMAGE_BASE = 0x140000000                                 # the file's preferred base; the dump's is BASE (ASLR)
 VTABLE = RDATA + 0x100                                   # a vtable whose locator names "BSGeometry"
 HEAP = 0x198B55AC188                                     # rdi's object: its first qword is that vtable
 
@@ -137,6 +138,7 @@ def build_exe():
     struct.pack_into("<H", head, 0x80 + 20, 240)                  # optional header size
     opt = 0x80 + 24
     struct.pack_into("<H", head, opt, 0x20B)
+    struct.pack_into("<Q", head, opt + 24, IMAGE_BASE)
     struct.pack_into("<I", head, opt + 56, SIZE)
     struct.pack_into("<II", head, opt + 112 + 24, PDATA, 12)
     text = bytearray(0x1000)
@@ -146,7 +148,7 @@ def build_exe():
     col, td = RDATA + 0x10, RDATA + 0x40
     struct.pack_into("<IIIIII", rdata, 0x10, 1, 0, 0, td, 0, col)
     rdata[0x50:0x50 + 17] = b".?AVBSGeometry@@\0"
-    struct.pack_into("<Q", rdata, 0xF8, BASE + col)              # vtable[-1]: the locator
+    struct.pack_into("<Q", rdata, 0xF8, IMAGE_BASE + col)        # vtable[-1]: the locator, against ImageBase
     pdata = struct.pack("<III", TEXT + 0x100, TEXT + 0x300, 0)
     body, sections = bytes(head), []
     for va, data in ((TEXT, bytes(text)), (RDATA, bytes(rdata)), (PDATA, pdata)):

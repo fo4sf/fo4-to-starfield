@@ -41,7 +41,7 @@ Disassembled here from the 96 code bytes the PC returned (capstone), **verified*
 
 ## New lead: the mission script moves actors exactly where the crashes happen
 **Verified from source** (scripts/mission/FO4SF_Min00Quest.psc, Relocate, KeepCodsworth, MoveOver):
-- FO4SFMission's start-game-enabled quest checks every second (Codsworth every 2 s, and still after stage 200) and
+- FO4SFMission's start-game-enabled quest checks every second (Codsworth every CodsworthCheck = 5 s, and still after stage 200) and
   MoveTo's Preston, the raiders and Codsworth from their unmerged local spot into the merged world when the player is
   within RelocateRadius 800 m of the actor's merged spot.
 - Red Rocket's cell (-17, 19) centre is 237 m from Codsworth's spot and 207 m from Preston's (core-local coordinates,

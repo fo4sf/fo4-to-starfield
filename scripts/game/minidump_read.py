@@ -187,6 +187,7 @@ class Image:
         opt = pe + 24
         if struct.unpack_from("<H", data, opt)[0] != 0x20B:
             raise ValueError("not a 64-bit PE file")
+        self.image_base, = struct.unpack_from("<Q", data, opt + 24)   # the preferred base the file's pointers assume
         self.size_of_image, = struct.unpack_from("<I", data, opt + 56)
         # data directory 3 is the exception table (.pdata): RUNTIME_FUNCTION {begin, end, unwind} RVAs, sorted by begin
         self.pdata = struct.unpack_from("<II", data, opt + 112 + 8 * 3)
@@ -257,11 +258,13 @@ def rtti_name(img, base, vtable):
     raw = img.read(vtable - base - 8, 8)
     if raw is None:
         return None
-    col, = struct.unpack("<Q", raw)
-    if not (base <= col < base + img.size_of_image):
+    # vtable[-1] holds the locator's address against the file's preferred ImageBase, not the module's runtime base
+    # (Codex on #453: Starfield is ASLR-relocated), so it becomes an RVA through ImageBase
+    col = struct.unpack("<Q", raw)[0] - img.image_base
+    if not (0 <= col < img.size_of_image):
         return None
     # x64 RTTICompleteObjectLocator: signature 1, offset, cdOffset, then the type descriptor's RVA
-    head = img.read(col - base, 16)
+    head = img.read(col, 16)
     if head is None:
         return None
     sig, _off, _cd, td = struct.unpack("<IIII", head)
