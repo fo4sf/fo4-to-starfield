@@ -442,6 +442,12 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(r["totals"]["refs"], sum(c["refs"] for c in before.values()) - before["Vault"]["refs"])
         self.assertNotIn("Vault", self.by_cell(icn.content([self.esm, gone], {fk(VAULT), fk(LOBBY)})))
 
+    def test_a_deleted_base_record_no_longer_resolves(self):
+        """A later plugin deletes the empty container's CONT (flag 0x20): Lobby's ref to it is no container any more."""
+        gone = self.write("DLCBase.esm", plugin_bytes(master_header(1), [group(b"CONT", [rec(b"CONT", CONT_EMPTY, [], flags=icn.DELETED)])]))
+        lobby = self.by_cell(icn.content([self.esm, gone]))["Lobby"]
+        self.assertEqual((lobby["containers"], lobby["container_bases"]), (1, 1))
+
     def test_plugin_name_case_follows_the_masters(self):
         """fallout4.esm on the command line (a case-insensitive disk opens it) still keys its records Fallout4.esm,
         as the DLC's MAST and the census spell it."""

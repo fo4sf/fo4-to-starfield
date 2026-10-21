@@ -104,7 +104,13 @@ def read_plugin(path, pi, keys, out):
                 for rec in fl.iter_items(buf, off + 24, end):
                     if rec[0] == "GRUP":
                         continue
-                    typ, roff, _flags, fid = rec
+                    typ, roff, rflags, fid = rec
+                    if rflags & DELETED:
+                        # a later plugin deletes the base record: it no longer exists, so references to it count as
+                        # unknown ("?"), not as lights; a deleted location or zone resolves to nothing either
+                        for table in ("bases", "locations", "zones"):
+                            out[table].pop(K(fid), None)
+                        continue
                     out["bases"][K(fid)] = typ.decode("ascii")
                     if typ == b"LCTN":
                         for s, d in fl.iter_subrecords(fl.record_data(buf, roff)):

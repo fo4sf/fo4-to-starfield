@@ -226,6 +226,10 @@ def check_prev(a, n):
     for need in (PLUGIN, "formids.json"):
         if not os.path.isfile(os.path.join(port, need)):
             sys.exit(f"--prev {a.prev} lacks port\\{need}")
+    want = (r.get("pins") or {}).get("plugin")
+    if not want or sha256(os.path.join(port, PLUGIN)) != want:
+        sys.exit(f"--prev {a.prev}: port\\{PLUGIN} is not the plugin that build passed with "
+                 f"(pins.plugin {str(want)[:12]}): refusing to grow a changed or unpinned stage")
     return port, r
 
 

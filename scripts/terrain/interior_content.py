@@ -173,7 +173,7 @@ def walk_plugin(path, pi, keys, on_base, on_cell, on_ref, on_world=None):
             else:
                 for rec in fl.iter_items(buf, off + 24, end):
                     if rec[0] != "GRUP":
-                        on_base(K, buf, rec[0], rec[1], rec[3])
+                        on_base(K, buf, rec[0], rec[1], rec[3], deleted=bool(rec[2] & DELETED))
 
 
 def _walk_cells(buf, start, end, world, K, plugin, on_cell, on_ref):
@@ -238,8 +238,13 @@ class Content:
     def on_world(self, key, edid):
         self.worlds[key] = edid or key
 
-    def on_base(self, K, buf, typ, off, fid):
+    def on_base(self, K, buf, typ, off, fid, deleted=False):
         key = K(fid)
+        if deleted:
+            # a later plugin deletes the base record: references to it resolve to nothing ("?"), as in the game
+            for table in (self.sigs, self.edids, self.cont, self.lvli, self.term):
+                table.pop(key, None)
+            return
         sig = typ.decode("ascii")
         self.sigs[key] = sig
         keep = sig in EDID_KEEP
@@ -356,7 +361,7 @@ class Content:
                               "disabled": bool(flags & INITIALLY_DISABLED)}
 
             for pi, path in enumerate(paths):
-                walk_plugin(path, pi, keys, lambda *a: None, on_cell, on_ref)
+                walk_plugin(path, pi, keys, lambda *a, **k: None, on_cell, on_ref)
             for ref in wanted:
                 self.placed[ref] = found.get(ref)        # None: not placed in the plugins read
             wanted = {f["parent"] for f in found.values() if f and f["parent"]} - set(self.ref_cell) - set(self.placed)

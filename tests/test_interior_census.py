@@ -193,6 +193,16 @@ class CensusTests(unittest.TestCase):
         by = {c["editor_id"]: c for c in ic.census([self.esm, dlc, again])["cells"]}
         self.assertEqual((by["Vault"]["refs"], by["Vault"]["plugins"]), (1, ["DLCAgain.esm"]))
 
+    def test_a_deleted_base_record_is_no_light(self):
+        # The DLC deletes the LIGH base 0x101: Lobby's two refs to it stay references but are no lights any more.
+        tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 1, 0x800)), (b"MAST", b"Fallout4.esm\0"),
+                                (b"DATA", bytes(8))], flags=1)
+        dlc = os.path.join(self.tmp.name, "DLCBase.esm")
+        with open(dlc, "wb") as f:
+            f.write(tes4.serialize() + G(b"LIGH", 0, bytes(8), [rec(b"LIGH", 0x101, [], flags=ic.DELETED)]).serialize())
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc])["cells"]}
+        self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"]), (5, 0))
+
     def test_navmesh_overrides_count_once_and_deleted_ones_not_at_all(self):
         # DLCRobot adds two navmeshes to Lobby; DLCAgain re-saves the first (same FormKey) and deletes the second.
         def plugin(name, kids, nmast=1):
@@ -1006,6 +1016,15 @@ class BuildFlowTests(unittest.TestCase):
             build(2, os.path.join(t, "staging", "interiors_b02n"))
         with self.assertRaisesRegex(SystemExit, "not a passing build of batch 2"):   # ... exactly that one
             ib.check_prev(argparse.Namespace(prev=b1, base=base), 3)
+        plug = os.path.join(b1, "port", "FO4Port.esm")                 # ... and its plugin as it passed
+        with open(plug, "rb") as f:
+            kept_plugin = f.read()
+        with open(plug, "ab") as f:
+            f.write(b"x")
+        with self.assertRaisesRegex(SystemExit, "is not the plugin that build passed with"):
+            ib.check_prev(argparse.Namespace(prev=b1, base=base), 2)
+        with open(plug, "wb") as f:
+            f.write(kept_plugin)
         # X8: a --prev built from another Fallout4.esm is refused, unless --allow-source-change, which is recorded
         renumber[0] = False
         with open(os.path.join(t, "Fallout4.esm"), "wb") as f:
