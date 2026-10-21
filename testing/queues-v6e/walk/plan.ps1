@@ -3,18 +3,20 @@
 # Usage (PowerShell, game closed, from any folder):   .\plan.ps1          plan + dry run only
 #                                                     .\plan.ps1 -Run     also run (one queue, caps below), report, audit
 # -Tag <name>: a retest into NEW queue folders (<queue>_<name>); -PortStaging: the value the earlier v6e runs used.
-param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '')
+# Another installed core (Bugs' v6h, 2026-10-21): -CorePin <first 8 hex of its sha256> -CoreStaging <its experiment
+# folder> -WalkStage <a NEW route folder for it>; the defaults are v6e's.
+param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '', [string]$CorePin = '06C0DECD',
+      [string]$CoreStaging = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11',
+      [string]$WalkStage = 'D:\Modding\staging\walk_core64v6e')
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- pins and placeholders (check every line before use)
 $py          = 'C:\Modding\venv-render\Scripts\python.exe'                      # docs/ai/test-queue.md:9
 $Repo        = 'D:\Modding\wt_nightrun'      # PLACEHOLDER (supported): campaign_arm.py example on the launchexe branch; must be at 88c5aad or later
 if (-not $PortStaging) { $PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>' }
-$CoreStaging = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11'        # the installed core experiment (install session)
 $Bridge      = 'C:\Modding\staging\bridge_t4'                                   # real-records FO4SFBridge.install.json "dir"
 $Starfield   = 'D:\SteamLibrary\steamapps\common\Starfield'                     # real-records INDEX.md; testqueue.py default
 $Fo4Esm      = 'C:\Program Files (x86)\Steam\steamapps\content\app_377160\depot_377163\Data\Fallout4.esm'
-$WalkStage   = 'D:\Modding\staging\walk_core64v6e'                              # NEW folder: the route planned on v6e ground
 $Queue       = 'D:\Modding\testqueue_v6e\walk'                                  # convention of D:\Modding\testqueue_v6c_out\doors_out2
 $Caps        = @('--max-attempts','1','--max-relaunch','1','--crash-budget','1','--min-free-gb','40','--dump-drive','D:\')
 
@@ -27,7 +29,8 @@ function Sha8($p) { (Get-FileHash -Algorithm SHA256 $p).Hash.Substring(0,8) }
 # ---------------------------------------------------------------- 0. checks (read-only)
 Need (-not $PortStaging.StartsWith('<')) 'fill $PortStaging'
 Need ((Sha8 "$PortStaging\FO4Port.esm") -eq '9AF962D2') 'staged FO4Port.esm is not build 9AF962D2'
-Need ((Sha8 "$Starfield\Data\FO4TerrainCore.esm") -eq '06C0DECD') 'installed FO4TerrainCore.esm is not 06C0DECD'
+Need ($CorePin -match '^[0-9A-Fa-f]{8}$') '-CorePin takes the first 8 hex digits of the core sha256'
+Need ((Sha8 "$Starfield\Data\FO4TerrainCore.esm") -eq $CorePin.ToUpper()) "installed FO4TerrainCore.esm is not $CorePin"
 Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
