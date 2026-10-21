@@ -187,4 +187,11 @@ def compare_inputs(a, b):
         x, y = ga.get(k), gb.get(k)
         if (x is None) != (y is None) or (x and y and (x.get("size"), x.get("sha256")) != (y.get("size"), y.get("sha256"))):
             diffs.append(f"game {k}: differs")
+    sa, sb = (a.get("game") or {}).get("sfse_dlls") or {}, (b.get("game") or {}).get("sfse_dlls") or {}
+    for k in sorted(set(sa) | set(sb)):
+        x, y = sa.get(k), sb.get(k)
+        if x is None or y is None:
+            diffs.append(f"game {k}: only in {'second' if x is None else 'first'}")
+        elif (x.get("size"), x.get("sha256")) != (y.get("size"), y.get("sha256")):
+            diffs.append(f"game {k}: differs")
     return diffs

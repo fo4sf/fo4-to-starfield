@@ -73,6 +73,9 @@ def sfse_problems(runtime, game):
             out.append(f"{name} missing (the SFSE build listed for this runtime has it)")
         elif got != sha:
             out.append(f"{name} is not the SFSE build listed for this runtime")
+    listed = {n.casefold() for n in (want.get("dlls") or {})}
+    for name in sorted(n for n in (game.get("sfse_dlls") or {}) if n.casefold() not in listed):
+        out.append(f"{name} is not part of the SFSE build listed for this runtime (another SFSE build left behind?)")
     return out
 
 

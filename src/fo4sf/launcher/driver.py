@@ -116,12 +116,10 @@ def path_identity(p):
     if os.path.isfile(p):
         return files.identity(p, SMALL)
     if os.path.isdir(p):
-        n, size, newest = 0, 0, 0
-        for d, _dirs, names in os.walk(p):
-            for name in names:
-                st = os.stat(os.path.join(d, name))
-                n, size, newest = n + 1, size + st.st_size, max(newest, st.st_mtime_ns)
-        return {"dir_files": n, "dir_bytes": size, "dir_newest_ns": newest}
+        # every file's relative path and identity (hash up to SMALL, size and time above), folded into one digest
+        tree = files.tree(p, SMALL, hash_ext=())
+        digest = hashlib.sha256(json.dumps(tree, sort_keys=True).encode()).hexdigest()
+        return {"dir_files": len(tree), "dir_bytes": sum(i["size"] for i in tree.values()), "dir_tree_sha256": digest}
     return None
 
 

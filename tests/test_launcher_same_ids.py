@@ -31,9 +31,9 @@ def grup(label, records):
     return b"GRUP" + struct.pack("<I", 24 + len(inner)) + label.encode() + struct.pack("<IHHHH", 0, 0, 0, 0, 0) + inner
 
 
-def plugin(recs, hedr_next=0x800, stamp_tes4=0, masters=("Starfield.esm",)):
+def plugin(recs, hedr_next=0x800, stamp_tes4=0, masters=("Starfield.esm",), tes4_flags=0):
     tes4 = record("TES4", 0, [("HEDR", struct.pack("<fII", 0.96, len(recs), hedr_next))]
-                  + [("MAST", name.encode() + b"\0") for name in masters], stamp=stamp_tes4)
+                  + [("MAST", name.encode() + b"\0") for name in masters], stamp=stamp_tes4, flags=tes4_flags)
     return tes4 + grup("STAT", recs)
 
 
@@ -84,6 +84,14 @@ class SameIdsTests(unittest.TestCase):
         e = same_ids.check(self.a, self.b)["plugins"]["P.esm"]
         self.assertEqual(e["verdict"], "SAME_IDS")
         self.assertEqual(sorted(e["tes4"]), ["HEDR"])
+
+    def test_tes4_flag_change_differs(self):
+        self.write(self.a, "P.esm", plugin(self.base(), tes4_flags=0x1))         # Master flag
+        self.write(self.b, "P.esm", plugin(self.base(), tes4_flags=0x0))
+        e = same_ids.check(self.a, self.b)["plugins"]["P.esm"]
+        self.assertEqual(e["verdict"], "IDS_DIFFER")
+        self.assertTrue(e["ids"]["tes4_flags_changed"])
+        self.assertEqual(e["tes4"]["flags"], {"a": "00000001", "b": "00000000"})
 
     def test_ordered_master_changes_fail_with_unchanged_raw_record_ids(self):
         cases = [

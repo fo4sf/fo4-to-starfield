@@ -69,7 +69,8 @@ practice in code, so the launcher can later call it.
 Level 1 plugin bytes; level 2 a raw record walk (no Mutagen, no load order): FormID set, type and editor id per
 FormID, editor ids that moved to another FormID, record-header metadata, record bodies, TES4 header; level 3 the
 converter's formids.json through compare-ids. Verdicts IDENTICAL, SAME_IDS (ids equal, explained diff listed),
-IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
+IDS_DIFFER, INCOMPLETE; exit 0 only for the first two. A changed master list or TES4 header flags (master, light,
+medium) is IDS_DIFFER, since both change how the game maps the plugin's FormIDs.
 
 ### detect (the launcher's first stage)
 `launcher.py detect --fo4-data <Data> ... --starfield <game> --out-dir <drive> --need-gb N` answers "can this PC

@@ -104,6 +104,11 @@ class DetectTests(unittest.TestCase):
         write(os.path.join(self.sf, "sfse_loader.exe"), b"MZ other loader")
         r = self.run_detect(my_games=self.my_games)
         self.assertIn("Starfield: SFSE: sfse_loader.exe is not the SFSE build listed for this runtime", r["refusals"])
+        write(os.path.join(self.sf, "sfse_loader.exe"), b"MZ loader")
+        write(os.path.join(self.sf, "sfse_old.dll"), b"MZ an older sfse build")
+        r = self.run_detect(my_games=self.my_games)
+        self.assertFalse(r["ready"])
+        self.assertTrue(any("sfse_old.dll is not part of the SFSE build listed" in x for x in r["refusals"]))
 
     def test_game_pass_folder_is_refused(self):
         xbox = os.path.join(self.root, "XboxGames", "Starfield", "Content")

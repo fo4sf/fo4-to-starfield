@@ -119,15 +119,19 @@ def compare_plugins(a_path, b_path, examples=5):
         if a["tes4"]["subrecords"].get(k) != b["tes4"]["subrecords"].get(k):
             tes4[k] = {"a": a["tes4"]["subrecords"].get(k), "b": b["tes4"]["subrecords"].get(k)}
     masters_changed = a["tes4"]["subrecords"]["MAST"] != b["tes4"]["subrecords"]["MAST"]
+    # the header flags (master, light, medium) decide how the game maps the plugin's FormIDs
+    flags_changed = a["tes4"]["flags"] != b["tes4"]["flags"]
+    if flags_changed:
+        tes4["flags"] = {"a": f"{a['tes4']['flags']:08X}", "b": f"{b['tes4']['flags']:08X}"}
 
     def ex(ids, f=lambda i: f"{i:08X}"):
         return [f(i) for i in ids[:examples]]
-    ids_equal = not (only_a or only_b or retyped or renamed or moved or masters_changed
+    ids_equal = not (only_a or only_b or retyped or renamed or moved or masters_changed or flags_changed
                      or a["duplicates"] or b["duplicates"])
     return {
         "ids_equal": ids_equal, "records": [len(ra), len(rb)],
         "ids": {"only_a": len(only_a), "only_b": len(only_b), "retyped": len(retyped), "renamed": len(renamed),
-                "edid_moved": len(moved), "masters_changed": masters_changed,
+                "edid_moved": len(moved), "masters_changed": masters_changed, "tes4_flags_changed": flags_changed,
                 "duplicates": [a["duplicates"][:examples], b["duplicates"][:examples]],
                 "examples": {"only_a": ex(only_a), "only_b": ex(only_b), "retyped": ex(retyped),
                              "renamed": ex(renamed, lambda i: f"{i:08X} {ra[i]['edid']} -> {rb[i]['edid']}"),

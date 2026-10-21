@@ -87,6 +87,24 @@ class DriverTests(unittest.TestCase):
         rep = self.run_it()
         self.assertEqual(self.statuses(rep), ["done", "done", "done"])
 
+    def test_folder_input_identity_sees_a_same_size_change_to_an_older_file(self):
+        d = os.path.join(self.root, "folder_input")
+        os.makedirs(os.path.join(d, "sub"))
+        old, new = os.path.join(d, "sub", "old.txt"), os.path.join(d, "new.txt")
+        for p, t in ((old, 1_000_000_000), (new, 2_000_000_000)):
+            with open(p, "w") as f:
+                f.write("aaaa")
+            os.utime(p, ns=(t, t))
+        before = driver.path_identity(d)
+        with open(old, "w") as f:
+            f.write("bbbb")                                  # same size, still older than new.txt
+        os.utime(old, ns=(1_500_000_000, 1_500_000_000))
+        after = driver.path_identity(d)
+        self.assertEqual((before["dir_files"], before["dir_bytes"]), (after["dir_files"], after["dir_bytes"]))
+        self.assertNotEqual(before, after)
+        os.rename(old, os.path.join(d, "sub", "renamed.txt"))
+        self.assertNotEqual(driver.path_identity(d), after)
+
     def test_failure_blocks_dependants_and_resume_reuses_finished_steps(self):
         self.touch("fail_stage", "4")
         rep = self.run_it()
@@ -349,6 +367,16 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest.compare_inputs(a, b), [])
         b["fo4"]["masters"]["Fallout4.esm"]["sha256"] = "0" * 64
         self.assertEqual(len(manifest.compare_inputs(a, b)), 1)
+
+    def test_compare_inputs_finds_changed_and_extra_sfse_dlls(self):
+        dll = {"size": 3, "mtime_ns": 1, "sha256": "a" * 64}
+        a = {"game": {"files": {}, "sfse_dlls": {"sfse_1.dll": dll}}}
+        b = json.loads(json.dumps(a))
+        self.assertEqual(manifest.compare_inputs(a, b), [])
+        b["game"]["sfse_dlls"]["sfse_1.dll"]["sha256"] = "b" * 64
+        self.assertEqual(manifest.compare_inputs(a, b), ["game sfse_1.dll: differs"])
+        b["game"]["sfse_dlls"] = {"sfse_1.dll": dll, "sfse_2.dll": dll}
+        self.assertEqual(manifest.compare_inputs(a, b), ["game sfse_2.dll: only in second"])
 
     def test_game_pins(self):
         game = os.path.join(os.path.dirname(self.base), "..", "sf")
