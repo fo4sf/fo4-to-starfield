@@ -117,6 +117,7 @@ class CrashWatchTests(unittest.TestCase):
         d = settings.defaults()
         self.assertFalse(d["crash_watch.enabled"])
         self.assertEqual((d["bridge"], d["papyrus_logging"], d["crash_watch.dump"]), ("unchanged", "unchanged", "mini"))
+        self.assertTrue(d["crash_watch.dump_on_exit"])           # the owner's choice: silent exits leave a dump
         path = os.path.join(self.dir, "s", "launcher_settings.json")
         v = settings.assign(settings.load(path), ["crash_watch.enabled=on", "crash_watch.dump=full",
                                                   "crash_watch.min_free_gb=30"])
@@ -167,6 +168,10 @@ class CrashWatchTests(unittest.TestCase):
 
     def test_procdump_argv(self):
         v = self.values()
+        self.assertEqual(crashwatch.procdump_argv(v, 42),
+                         [self.procdump, "-accepteula", "-mm", "-e", "1", "-f", "80000003", "-t", "-n", "2", "42",
+                          self.dumps])
+        v = self.values(crash_watch__dump_on_exit=False)
         self.assertEqual(crashwatch.procdump_argv(v, 42),
                          [self.procdump, "-accepteula", "-mm", "-e", "1", "-f", "80000003", "-n", "1", "42", self.dumps])
         v = self.values(crash_watch__dump="full", crash_watch__catch_assertion=False, crash_watch__dump_on_exit=True)

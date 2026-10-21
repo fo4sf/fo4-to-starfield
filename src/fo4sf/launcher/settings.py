@@ -3,7 +3,8 @@
 RAM use"). One JSON file per player, written only by `launcher.py settings --set` and read by `launcher.py play`.
 
 Every setting starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus logging left
-as they are), so a fresh install plays exactly as before until the player turns something on.
+as they are), so a fresh install plays exactly as before until the player turns something on. Once the watcher is on,
+it also saves a dump at every exit unless crash_watch.dump_on_exit is turned off.
 """
 import json
 import math
@@ -24,9 +25,10 @@ SPEC = (
      "the game is paused while it is written)."),
     ("crash_watch.catch_assertion", True, bool,
      "also dump on the engine's assertion stop (first-chance 0x80000003), the flags the old crashwatch.cmd used."),
-    ("crash_watch.dump_on_exit", False, bool,
+    ("crash_watch.dump_on_exit", True, bool,
      "also dump when the game ends without an exception (ProcDump -t), for silent exits; it writes one dump on every "
-     "exit, a normal quit included."),
+     "exit, a normal quit included (a mini dump is small; with dump=full it is the whole game every time). On by "
+     "the owner's choice, 2026-10-21."),
     ("crash_watch.folder", "", str, "where dumps and crashwatch.log go (required when the watcher is on)."),
     ("crash_watch.procdump", "", str, "path to procdump64.exe (required when the watcher is on)."),
     ("crash_watch.min_free_gb", 25.0, float, "the watcher is not armed when the dump folder's drive has less free."),
