@@ -442,6 +442,19 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
   hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
 
+## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
+- Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
+  bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
+  script (FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor). Every switch is off by default (docs/spikes/load-door-animations.md).
+- Why: the owner's phase 2 (doors with enter and exit animations); Starfield's own visible load doors animate, and its
+  own animations come first (owner 2026-10-19). A child script leaves the FO4SF_LoadDoor contract the passing round
+  trips use untouched.
+- Alternatives:
+  - A separate opening door beside each load door: rejected, two records per door and a prompt clash.
+  - A fade or sound only: rejected, it is not the animation the owner asked for.
+  - Changing FO4SF_LoadDoor itself: rejected while v6e's test runs on it.
+  - Moving the core's exterior ACTI to a DOOR now: deferred until the v6e test is done (the bugs thread owns that path).
+
 ## 2026-10-20: one stable DOOR base per converted model and FO4 name (Claude-cloud)
 - **Decision:** PluginSpike's DoorNames.cs gives each FO4 name of a converted door model its own DOOR base, under the
   identity `DOOR:<editor id>|name:<name>`, and moves that name's references to it. The model's own base

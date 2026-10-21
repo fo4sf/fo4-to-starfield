@@ -102,7 +102,8 @@ the walk climbs).
   `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
   load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
   stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
-  checklist either way. Unset: not run.
+  checklist either way. Unset: not run. `--preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`) runs the same checks report-only:
+  the checklist goes to `run.log` and `preflight.json`, nothing is refused, nothing goes to the ledger (leader-core.md section 7).
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by
