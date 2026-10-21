@@ -1,6 +1,7 @@
 """python -m fo4sf.combined: offline tools for the combined core (nothing here touches a game).
 
   seed OUT_DIR PLUGIN...           read-only draft of a pack from the player's own plugins (seed.py)
+  seed-pack DRAFT.json OUT_DIR     a pack that runs, generated from that draft by placeholder rules (seedpack.py)
   simulate --pack FILE [--pack FILE] --seed N --days D [--out STATE.json] [--resume STATE.json]
   demo --seed N --days D           the built-in synthetic fixtures (placeholder names, not game facts)
   balance --seeds N --days D [--pack FILE ...] [--set NAME=VALUE ...]   tuning sweep (balance.py); exit 1 on a broken bound
@@ -17,7 +18,7 @@ from collections import Counter
 
 from . import balance, news, present
 from . import seed as _seed
-from . import sim
+from . import seedpack, sim
 from .fixtures import REGION_1, REGION_2
 from .model import WorldState, load_pack
 
@@ -50,6 +51,16 @@ def cmd_seed(args) -> int:
 def _load_json(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def cmd_seedpack(args) -> int:
+    draft = _load_json(args.draft)
+    if not isinstance(draft, dict) or not draft.get("draft") or "places" not in draft:
+        raise ValueError(f"{args.draft}: not a seed draft (want the commonwealth_seed.draft.json that `seed` writes)")
+    pack, report = seedpack.generate(draft)
+    paths = seedpack.write(args.out_dir, pack, report)
+    print(f"{seedpack.summary(report)} -> {paths['pack']}")
+    return 1 if report["validation_problems"] else 0
 
 
 def _world(args, seed: int = 1) -> WorldState | None:
@@ -144,6 +155,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("out_dir")
     s.add_argument("plugins", nargs="+", metavar="PLUGIN")
     s.set_defaults(fn=cmd_seed)
+    s = sub.add_parser("seed-pack", help="generate a runnable pack from a seed draft (placeholder rules)")
+    s.add_argument("draft", metavar="DRAFT.json")
+    s.add_argument("out_dir")
+    s.set_defaults(fn=cmd_seedpack)
     s = sub.add_parser("simulate", help="run the simulation on JSON packs")
     s.add_argument("--pack", action="append", metavar="FILE")
     s.add_argument("--seed", type=int, default=1)

@@ -33,9 +33,10 @@ The combined core is game runtime; its records and packages are kept apart from 
   through a gateway place without the first knowing about it.
 - `sim.py`: L2 ticks of 6 game hours; the RNG is seeded from (seed, hour), so a state saved and resumed replays
   exactly. Invariants kept: story-locked places and faction homes never change hands; values stay in range.
-- `seed.py`: a read-only reader that drafts a pack from the player's own Fallout 4 plugins (LCTN, FACT, KYWD, LCRT;
-  field layouts cited from xEdit dev-4.1.6 in the module docstring). Settlement and faction classification are
-  regex guesses, labelled unverified until the first real run's report. Its output stays on the player's PC.
+- `seed.py`: a read-only reader that drafts a pack from the player's own Fallout 4 plugins (LCTN, FACT, KYWD, LCRT,
+  then the REFR map markers the locations name; field layouts cited from xEdit dev-4.1.6 in the module docstring).
+  Settlement and faction classification are regex guesses; the first real run (below) supports them. Its output
+  stays on the player's PC.
 - `__main__.py`: the command line below.
 
 ## Implemented now (M2, still offline, pure Python stdlib)
@@ -148,6 +149,64 @@ findings; a water cargo or a lower morale threshold would be a tuning question. 
 whether settlements should thrive this easily between raids is for the lead to judge against the design, and
 `RAID`/`ATTACK` pressure and `REROLE_ON_SHORTAGE` are the knobs.
 
+## From draft to a pack that runs (`seedpack.py`)
+
+The first real `seed` run (owner's PC, 2026-10-21, `Fallout4.esm` + `DLCRobot.esm` + `DLCworkshop01.esm`; the other
+four DLC were not installed) read 397 locations, 38 settlement candidates, 84 base candidates and 710 factions. Its
+keyword counts included `LocTypeWorkshop` 30, `LocTypeWorkshopSettlement` 30, `LocTypeSettlement` 24,
+`LocEncRaiders` 39, `LocEncSuperMutants` 24, `LocEncGhouls` 27, and the ref type `WorkshopRefType` 31. That supports
+the regex guesses in `seed.CLASSIFY` (a supported hypothesis, not proof). A draft still could not run: holders were
+null, faction homes empty, no routes.
+
+Two additions close that gap, both offline and stdlib only:
+
+- `seed.py` now also reads **map-marker positions**. LCTN `MNAM` names the location's world map marker REFR; a
+  second pass enters only the WRLD trees and decodes only the REFR records some MNAM names (the rest cost one header
+  read each), taking x, y from REFR `DATA` (position then rotation floats, xEdit) and the worldspace from the
+  enclosing World Children group (type 1, labelled with the WRLD form id). Each draft place gets
+  `marker: {x, y, world}` or null; the report counts `markers_found` and `markers_missing`; malformed data goes to
+  `problems`, never a crash.
+- `seedpack.py`: `generate(draft, rules=DEFAULT_RULES) -> (pack, report)`. Deterministic (the same draft gives
+  byte-identical JSON), and the output passes `pack.validate_pack`, loads, and runs under `sim.run` with the balance
+  invariants kept. **Every rule is a placeholder** in `DEFAULT_RULES`, labelled in code, except where the first run
+  supports it:
+  - keep a place if it is a settlement candidate or has a marker position; drop the rest (quest and virtual
+    locations, unplaced parents) and count each drop reason;
+  - holders: a place with a `LocEnc<X>` keyword is held by the pack faction `enc_factions` maps `<X>` to
+    (`Raiders`, `SuperMutants`, `Ghouls` from the first run; `Gunners` is a guess at a keyword name); settlement
+    candidates start held by `settlers`; the rest are unheld, and unmapped `<X>` values are reported, not guessed;
+  - factions are the pack's own small set (`settlers` plus each mapped enemy that holds a place), not the 710 FACT
+    records. FACT relation data is carried only where a FACT editor id matches a `fact_patterns` regex (unverified
+    guesses); otherwise the placeholder applies (enemy of settlers at -80, enemies neutral to one another);
+  - each faction's home is its held place with the most neighbours held by the same faction, ties to the smaller
+    id; strength is `8 + 2 * places held`, capped by the model; aggression 20 for settlers, 70 for enemies;
+  - routes: per worldspace, each place with a marker joins its 3 nearest by marker distance, undirected and
+    deduplicated; hours are distance / 20000 units per hour, rounded half up, at least 1 (the unit is the marker's
+    own, no claim about what it measures; the report's `route_hours` histogram is what to tune against). A kept
+    place without a marker joins its parent location's place at 1 hour when that is kept; isolated places are listed;
+  - settlements get the fixtures' `farm_a` starting stats (population 5, 3 farmers, 1 guard, 1 trader, food and
+    water 20, ammo 10, 20 beds, morale 50); defence 2 for settlements, 4 for bases.
+
+  `python -m fo4sf.combined seed-pack DRAFT.json OUT_DIR` writes `commonwealth.pack.json` and
+  `seedpack_report.json` (drop reasons, holders per faction, homes, route count and hour histogram, isolated places,
+  unmapped keywords, FACT ids matched, validation problems, the rules used) and prints one line.
+
+### PC rerun card (read-only on game files)
+
+Outputs under `D:\Modding\research\combined_seed`; nothing is written into the game folder and nothing is committed.
+
+```
+cd <repo>
+set PYTHONPATH=src
+python -m fo4sf.combined seed D:\Modding\research\combined_seed "<Fallout 4>\Data\Fallout4.esm" "<Fallout 4>\Data\DLCRobot.esm" "<Fallout 4>\Data\DLCworkshop01.esm"
+python -m fo4sf.combined seed-pack D:\Modding\research\combined_seed\commonwealth_seed.draft.json D:\Modding\research\combined_seed
+python -m fo4sf.combined simulate --pack D:\Modding\research\combined_seed\commonwealth.pack.json --seed 1 --days 30
+```
+
+Add the other DLC `.esm` files to the first line when they are installed. What to send back: `seed_report.json`
+(now with `markers_found` and `markers_missing`), `seedpack_report.json`, the one-line `seed-pack` summary and the
+`simulate` summary; the drafts and packs themselves stay on the PC.
+
 ## Not implemented (and not claimed)
 
 No game runtime, no Papyrus, no SFSE plugin, no plugin records written (the adapter is a plan), nothing installed or
@@ -165,6 +224,7 @@ python3 -m fo4sf.combined demo --seed 3 --days 30
 python3 -m fo4sf.combined simulate --pack r1.json --pack r2.json --seed 5 --days 20 --out state.json
 python3 -m fo4sf.combined simulate --resume state.json --days 10
 python3 -m fo4sf.combined seed OUT_DIR Fallout4.esm DLCRobot.esm ...   # read-only; writes two JSON files
+python3 -m fo4sf.combined seed-pack OUT_DIR/commonwealth_seed.draft.json OUT_DIR   # a pack that runs, by placeholder rules
 python3 -m fo4sf.combined balance --seeds 20 --days 90                    # fixtures; exit 1 when a bound breaks
 python3 -m fo4sf.combined balance --seeds 20 --days 90 --pack r1.json --set sim.UPKEEP_PER_PLACE=2
 python3 -m fo4sf.combined news --resume state.json --place market         # the terminal page at a place
@@ -177,13 +237,14 @@ constant or `sim.NAME`, with the value as JSON (a value that is not JSON is an e
 
 Run the module with `src/` on `PYTHONPATH` (the tests insert it themselves). `seed` writes
 `commonwealth_seed.draft.json` (places and factions with their evidence) and `seed_report.json` (counts of every
-keyword and ref type locations use, overrides, deleted records, compressed records, odd input). `seed.to_pack()` strips a draft to the
-pack shape; a human fills holders and faction homes before `load_pack` accepts it.
+keyword and ref type locations use, overrides, deleted records, compressed records, markers found and missing, odd
+input). `seed.to_pack()` strips a draft to the pack shape for a human to fill holders and faction homes;
+`seed-pack` fills them by the placeholder rules above and writes `commonwealth.pack.json` and `seedpack_report.json`.
 
 ## Waiting on the PC (on the owner's word, after the v6e test)
 
-- The seed reader's read-only run on the player's `Fallout4.esm` and DLC: the report decides whether the regex
-  guesses in `seed.CLASSIFY` stand, and the draft becomes the first Commonwealth pack.
+- Done once (2026-10-21, three plugins): the seed reader's read-only run; its counts support `seed.CLASSIFY`. Next:
+  the rerun card above with markers, then `seed-pack`, so the draft becomes the first Commonwealth pack.
 - Probes P1 to P10 from the design (one at a time, read-only or staged): P1 SFSE sidecar on save and load, P2 keyword
   data persistence, P3 location data on our interiors, P4 squad spawn and dissolve over 20 cycles, P5 Papyrus tick
   over 50 places, P6 leveled list conditioned on location keyword data, P7 vendor refusal by reputation tier,
