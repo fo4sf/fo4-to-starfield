@@ -444,6 +444,45 @@ class PlanTerrainHoldTests(Base):
                 json.dump(dict(rec, source_sha256={bi.PLUGIN: "0" * 64}), f)
             self.assertIn("is not the queue's", " ".join(self.check(c)[1]))
 
+    def test_an_installed_bridge_is_checked_for_queues_that_name_none(self):
+        # Codex on #391: cycle.ps1 runs bridge_install.py order before every launch whenever its receipt exists
+        import bridge_install as bi
+        import exp_install as ei
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([("a", q)])
+        self.assertEqual(self.check(c), (True, []))                      # no receipt: nothing to order
+        files = {}
+        for rel, body in ((bi.PLUGIN, b"esm"), (bi.ARCHIVE, b"ba2")):
+            with open(os.path.join(self.sf, "Data", rel), "wb") as f:
+                f.write(body)
+            files[rel] = ei.digest(os.path.join(self.sf, "Data", rel))
+        rec = {"dir": "C:\\b", "plugin": bi.PLUGIN, "files": files, "complete": True}
+        rec_p = os.path.join(self.sf, "Data", bi.RECORD)
+        self.plugins_txt(["*" + p for p in PLUGINS + [bi.PLUGIN]])
+        for bad, want in ((dict(rec, complete=False), "incomplete"), (dict(rec, files={bi.PLUGIN: files[bi.PLUGIN]}),
+                                                                       "coverage"),
+                          (dict(rec, files=dict(files, **{bi.ARCHIVE: "0" * 64})), "changed")):
+            with self.subTest(want=want):
+                with open(rec_p, "w") as f:
+                    json.dump(bad, f)
+                ok, why = self.check(c)
+                self.assertFalse(ok)
+                self.assertTrue(any("bridge_install.py order would stop" in w and want in w for w in why), why)
+        with open(rec_p, "w") as f:
+            json.dump(rec, f)
+        self.assertEqual(self.check(c), (True, []))
+        self.plugins_txt(["*" + p for p in PLUGINS])                    # installed, unticked: order would tick it
+        self.assertIn("every launch would activate it", " ".join(self.check(c)[1]))
+
+    def test_the_campaign_python_must_exist_where_the_check_runs(self):
+        # Codex on #391: a typo in python passed the path checks and armed a chain that could start nothing
+        self.assertIsNone(ca.python_why(sys.executable))
+        self.assertIn("does not exist", ca.python_why(os.path.join(self.d, "python.exe")))
+        self.assertIn("not found on PATH", ca.python_why("python-not-installed-here"))
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        with mock.patch.object(ca.os, "name", "nt"):
+            self.assertIn(f"python {PY!r} does not exist", " ".join(self.check(self.camp([("a", q)]))[1]))
+
     def test_relative_checkout_staging_and_bridge_are_refused(self):
         # Codex on #391: the chain and the runner resolve a relative path where they are started, not where checked
         q = self.queue("a", [{"coc": "FO4Port_X"}])

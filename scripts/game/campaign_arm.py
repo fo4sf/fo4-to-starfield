@@ -56,6 +56,7 @@ import math
 import ntpath
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -339,6 +340,33 @@ def map_markers_why(camp):
     except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
         return f"map_markers_install.py order would stop every launch: {error}"
     return None
+
+
+def bridge_order_why(camp):
+    """Why cycle.ps1's bridge_install.py order, which runs before every launch whenever a bridge receipt exists, would
+    stop or change the load order, else None (no receipt: nothing to order). Codex on #391: also for queues that name
+    no bridge; an inactive one would be activated for them."""
+    import bridge_install as bi
+    import exp_install as ei
+    try:
+        pre = bi.order_preflight(argparse.Namespace(starfield=camp.get("starfield") or STARFIELD))
+        if pre is None:
+            return None
+        _data, _rec_p, _rec, p, held = pre
+        lines = ei.read_plugins(p)[0]
+    except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
+        return f"bridge_install.py order would stop every launch: {error}"
+    if not held and bi.plugin_line_present(lines, bi.PLUGIN) is None:
+        return f"{bi.PLUGIN} is installed but not active: every launch would activate it; order or activate it first"
+    return None
+
+
+def python_why(py):
+    """Why the campaign's python can not be started where the check runs (the PC), else None. Codex on #391: a typo
+    passed the path checks and armed a chain whose first Py call fails."""
+    if rooted(py):
+        return None if os.path.isfile(py) else f"python {py!r} does not exist"
+    return None if shutil.which(py) else f"python {py!r} is not found on PATH"
 
 
 def checkout_features(checkout):
@@ -640,6 +668,13 @@ def check(camp, release):
     why = map_markers_why(camp)
     if why:
         caps.append(why)
+    why = bridge_order_why(camp)
+    if why:
+        caps.append(why)
+    if os.name == "nt":                                   # the check runs on the PC that runs the chain
+        why = python_why(py)
+        if why:
+            caps.append(why)
     why = checkout_rev_why(camp)
     if why:
         caps.append(why)
