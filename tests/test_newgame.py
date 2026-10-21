@@ -63,6 +63,21 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_no_variable_shares_a_property_name(self):
+        """Papyrus names are case-insensitive: a script variable or local named like a property fails to compile
+        (newgame_v4 on the PC, 21 Oct: CenterTicks and centerTicks)."""
+        decl = re.compile(r"^\s*(?!Event|Function|EndFunction|EndEvent|return|if|elseif|while|Scriptname)"
+                          r"[A-Za-z_]\w*(?:\[\])?\s+([A-Za-z_]\w*)\s*(?:=|$)")
+        for d in ("newgame", "questprobe"):
+            folder = os.path.join(ROOT, "scripts", d)
+            for name in sorted(n for n in os.listdir(folder) if n.endswith(".psc")):
+                text = read(os.path.join(folder, name))
+                props = {m.lower() for m in re.findall(r"\bProperty\s+(\w+)", text)}
+                names = [m.group(1) for line in text.splitlines() if "Property" not in line
+                         for m in [decl.match(line.split(";")[0])] if m]
+                with self.subTest(script=name):
+                    self.assertEqual([n for n in names if n.lower() in props], [])
+
     def test_plugin_names_match_the_resolver(self):
         """The writer refuses references not owned by the plugin the script resolves them in (Codex review on #393);
         those names must be the script's own defaults."""
@@ -232,10 +247,10 @@ class ContractTests(unittest.TestCase):
         center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
         self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
-        self.assertIn("if centered == 0 || (centered == 1 && centerTicks > CenterTicks)", center)
-        self.assertIn("elseif centerTicks > CenterTicks && centerTicks % 10 == 0", center)
-        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks', center)
-        self.assertIn('does not resolve after " + centerTicks + " ticks and " + centered + " centerings', center)
+        self.assertIn("if centered == 0 || (centered == 1 && centerTries > CenterTicks)", center)
+        self.assertIn("elseif centerTries > CenterTicks && centerTries % 10 == 0", center)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTries', center)
+        self.assertIn('does not resolve after " + centerTries + " ticks and " + centered + " centerings', center)
         self.assertEqual(center.count("return false"), 1)          # the caller's retry does the move; no MoveTo here
         self.assertNotIn("MoveTo(", center)
         self.assertIsNone(re.search(r"^\s*while\b", center, re.M))   # no loop: the timer's retry is the only repeat
@@ -731,7 +746,7 @@ class LogTests(unittest.TestCase):
         """The temporary-anchor mode: the first centering line is the summary's "centered" (the bound's second centering
         and its failure lines change nothing); the lines are the ones the script writes."""
         psc = read(PSC)
-        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")', psc)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTries + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")', psc)
         head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:4920 anchor_temporary=True core=FO4TerrainCore.esm:685915\n"
         first = "centered on FO4Port_Vault111Cryo attempt=1 tick=1: temporary anchor FO4Port.esm:4920 does not resolve before the cell loads"
         code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=7.0 {first}\n"
