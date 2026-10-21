@@ -41,6 +41,8 @@ class ProbeInstallTests(unittest.TestCase):
         self.game = os.path.join(root, "game")
         self.data = os.path.join(self.game, "Data")
         os.makedirs(self.data)
+        self.port = os.path.join(self.data, "FO4Port.esm")
+        write(self.port, b"TES4-port")
         self.staged = os.path.join(root, "questprobe_v1")
         write(os.path.join(self.staged, qi.NAMES["PLUGIN"]), b"TES4-probe")
         for s in SCRIPTS:
@@ -68,7 +70,8 @@ class ProbeInstallTests(unittest.TestCase):
         h = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()  # noqa: E731
         plan = {"kind": "questprobe", "plugin": qi.NAMES["PLUGIN"],
                 "plugin_sha256": h(os.path.join(self.staged, qi.NAMES["PLUGIN"])),
-                "scripts": {s: h(os.path.join(self.staged, "Data", "Scripts", s + ".pex")) for s in SCRIPTS}}
+                "scripts": {s: h(os.path.join(self.staged, "Data", "Scripts", s + ".pex")) for s in SCRIPTS},
+                "checked_against_sha256": {"FO4Port.esm": h(self.port)}}
         write(os.path.join(self.staged, "plan.json"), json.dumps(plan).encode())
 
     def run_cmd(self, cmd):
@@ -89,7 +92,7 @@ class ProbeInstallTests(unittest.TestCase):
         self.run_cmd("install")
         self.run_cmd("uninstall")
         self.assertEqual(self.lines(), ["# header", "*FO4Port.esm", "*FO4SFBridge.esm"])
-        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(os.listdir(self.data), ["FO4Port.esm"])
 
     def test_the_bridge_record_is_not_the_probe_record(self):
         self.run_cmd("install")
@@ -101,7 +104,7 @@ class ProbeInstallTests(unittest.TestCase):
         write(os.path.join(self.staged, "Data", "Scripts", "FO4SF_QProbeSMQuest.pex"), b"edited")
         with self.assertRaises(SystemExit):
             self.run_cmd("install")
-        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(os.listdir(self.data), ["FO4Port.esm"])
 
     def test_every_dir_spelling_is_plan_checked(self):
         """20 Oct review on #393: "--dir=X" skipped check_plan. Each spelling must refuse a changed script."""
@@ -109,11 +112,22 @@ class ProbeInstallTests(unittest.TestCase):
         for args in (["--dir=" + self.staged], ["--dir", self.staged]):
             with self.subTest(args[0][:6]), self.assertRaises(SystemExit):
                 qi.main(["install", *args, "--starfield", self.game])
-            self.assertEqual(os.listdir(self.data), [])
+            self.assertEqual(os.listdir(self.data), ["FO4Port.esm"])
 
     def test_install_without_dir_is_refused(self):
         with self.assertRaises(SystemExit):
             qi.main(["install", "--starfield", self.game])
+        self.assertEqual(os.listdir(self.data), ["FO4Port.esm"])
+
+    def test_a_different_installed_port_is_refused(self):
+        """21 Oct review on #393: the probe's ids are port-local, so a rebuilt port must not take it."""
+        write(self.port, b"TES4-port-rebuilt")
+        with self.assertRaises(SystemExit):
+            self.run_cmd("install")
+        self.assertEqual(sorted(os.listdir(self.data)), ["FO4Port.esm"])
+        os.remove(self.port)
+        with self.assertRaises(SystemExit):
+            self.run_cmd("install")
         self.assertEqual(os.listdir(self.data), [])
 
     def test_an_unplanned_file_in_data_is_refused(self):
@@ -129,7 +143,7 @@ class ProbeInstallTests(unittest.TestCase):
         self.assertIn("Scripts/FO4SF_QProbeQuest.pex", out.getvalue())
         self.assertNotIn("Data/Scripts", out.getvalue())
         self.assertEqual(len(self.packed), 1)
-        self.assertEqual(os.listdir(self.data), [])
+        self.assertEqual(os.listdir(self.data), ["FO4Port.esm"])
         self.assertEqual(self.lines(), ["# header", "*FO4Port.esm", "*FO4SFBridge.esm"])
 
 

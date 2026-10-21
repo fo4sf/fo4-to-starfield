@@ -10,7 +10,8 @@ usage: python questprobe_install.py install|uninstall|status|order --dir <staged
        python questprobe_install.py pack-check --dir <staged probe dir> --starfield <game dir>
            builds the archive into a temporary folder with the game's Archive2 and checks its contents against the
            staged Data tree; touches nothing in the game. Run it before the owner's line, offline.
-install refuses a staged folder whose plugin or scripts differ from its plan.json (make_questprobe.py stage).
+install refuses a staged folder whose plugin or scripts differ from its plan.json (make_questprobe.py stage), and a game
+whose Data\FO4Port.esm is not the port the probe was built against (its ids are port-local).
 Nothing runs on its own: install is the owner's line ("Install the quest probe plugin."), with the game closed.
 """
 import json
@@ -42,8 +43,9 @@ def configure():
         setattr(bridge_install, k, v)
 
 
-def check_plan(directory):
-    """The staged folder is the one make_questprobe.py published: plan.json's kind, plugin and every script hash."""
+def check_plan(directory, starfield=None):
+    """The staged folder is the one make_questprobe.py published: plan.json's kind, plugin and every script hash. With
+    starfield, the installed port is also the one the probe was built against (21 Oct review on #393)."""
     path = os.path.join(directory, "plan.json")
     if not os.path.isfile(path):
         sys.exit(f"{path} missing: stage with make_questprobe.py first")
@@ -61,6 +63,13 @@ def check_plan(directory):
                    for n in ns if os.path.relpath(os.path.join(r, n), directory) not in wanted)
     if extra:
         sys.exit(f"files in the staged Data tree that plan.json does not name (they would be packed): {extra}")
+    if starfield is not None:
+        want = plan.get("checked_against_sha256", {}).get("FO4Port.esm")
+        port = os.path.join(starfield, "Data", "FO4Port.esm")
+        if not want:
+            sys.exit(f"{path} pins no FO4Port.esm; re-stage, do not install")
+        if not os.path.isfile(port) or sha256(port) != want:
+            sys.exit(f"{port} is not the port the probe was built against (plan.json {want}); re-stage, do not install")
     return plan
 
 
@@ -97,10 +106,13 @@ def main(argv=None):
         import argparse
         ap = argparse.ArgumentParser(add_help=False)
         ap.add_argument("--dir")
+        ap.add_argument("--starfield")
         known, _ = ap.parse_known_args(argv[1:])
         if not known.dir:
             sys.exit("install needs --dir <staged probe dir> (its plan.json is checked first)")
-        check_plan(os.path.abspath(known.dir))
+        if not known.starfield:
+            sys.exit("install needs --starfield <game dir> (its FO4Port.esm is checked against the plan)")
+        check_plan(os.path.abspath(known.dir), known.starfield)
     bridge_install.main(argv)
     return 0
 
