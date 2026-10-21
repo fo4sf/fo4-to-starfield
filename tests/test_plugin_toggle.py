@@ -363,6 +363,38 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("on")
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
+    def test_off_refuses_when_an_active_plugin_would_lose_a_master_down_its_chain(self):
+        # Codex on #407: off Core.esm was allowed while Addon.esm -> Bridgehead.esm -> Core.esm (neither ours) stayed
+        # active; Stale.esm, whose chain was already broken by the held Mission.esm, is not ours to judge
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        (self.data / "Addon.esm").write_bytes(tes4("Bridgehead.esm"))
+        (self.data / "Bridgehead.esm").write_bytes(tes4("Starfield.esm"))
+        (self.data / "Stale.esm").write_bytes(tes4("Mission.esm"))
+        self.txt.write_bytes("# keep\r\n*FO4Port.esm\r\n*Core.esm\r\nMission.esm\r\n*FO4SFBridge.esm\r\n"
+                             "*Stale.esm\r\n*Addon.esm\r\n*Bridgehead.esm\r\n".encode())
+        self.run_cmd("off", "--plugins", "FO4SFBridge.esm")   # Bridgehead does not need Core yet: allowed
+        self.run_cmd("on", "--plugins", "FO4SFBridge.esm")
+        (self.data / "Bridgehead.esm").write_bytes(tes4("Core.esm"))
+        before = self.txt.read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("off", "--plugins", "Core.esm")
+        self.assertEqual(str(cm.exception), "not changed: Addon.esm stays active and needs Core.esm as a master: "
+                                            "untick it by hand first")
+        self.assertNotIn("Stale.esm", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
+
+    def test_on_refuses_a_child_whose_grand_master_is_inactive(self):
+        # Codex on #407: Mission.esm's direct master Core.esm is active but its grand-master FO4Port.esm is not
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes("# keep\r\nFO4Port.esm\r\n*Core.esm\r\nMission.esm\r\n*FO4SFBridge.esm\r\n".encode())
+        before = self.txt.read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("on")
+        self.assertIn("Mission.esm needs FO4Port.esm as a master, which is not active", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
+
 class CycleTests(unittest.TestCase):
     def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
         # Codex on #407: bridge_install.py order exits nonzero on a held bridge the game ticked again, and cycle.ps1

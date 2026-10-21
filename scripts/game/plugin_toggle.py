@@ -7,14 +7,14 @@ usage: python plugin_toggle.py off --plugins A.esm,B.esm --starfield <game dir> 
        python plugin_toggle.py status --starfield <game dir>
 
 Only plugins our installers own can be held off: the experiment record's plugins (exp_install.py) and the bridge
-(bridge_install.py). off refuses a plugin that is missing, inactive or duplicated in Plugins.txt, and one that another
-of our plugins still active needs as a master. It writes Data\\FO4SF.toggle.json first, then unticks the lines (a
+(bridge_install.py). off refuses a plugin that is missing, inactive or duplicated in Plugins.txt, and one that any
+plugin still active (ours or not) needs anywhere down its master chain. It writes Data\\FO4SF.toggle.json first, then unticks the lines (a
 guarded Plugins.txt rewrite), so an interruption leaves the record ahead of Plugins.txt and `on` repairs it. While the
 record holds a plugin: exp_install.py order and bridge_install.py order leave it unticked (and refuse, exit 6, when the
 game ticked it again), exp_install.py active counts it as intended (and fails if it is ticked), the relaunch of the
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
-first, then empties the record; it refuses a plugin with a master (other than the game's implicit ones) that is
-neither active nor coming back, and a plugin with no line or several; a held plugin the game cannot load (its Data
+first, then empties the record; it refuses a plugin with a master anywhere down its chain (other than the game's
+implicit ones) that is neither active nor coming back, and a plugin with no line or several; a held plugin the game cannot load (its Data
 file gone or its header unreadable, or the same down its master chain) is released and unticked, and off refuses to
 hold one. A hold recorded for another user's Plugins.txt is refused everywhere.
 off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
@@ -60,36 +60,70 @@ def names(arg):
     return [x.strip() for x in (arg or "").split(",") if x.strip()]
 
 
+def header(data, plugin, memo):
+    """The plugin's masters from its own TES4 header in Data, or the reason it cannot be read; read once per walk
+    (memo["head"])."""
+    heads = memo.setdefault("head", {})
+    key = plugin.casefold()
+    if key not in heads:
+        try:
+            path = exp_install.data_path(data, plugin)
+            if not os.path.isfile(path):
+                heads[key] = (None, f"{plugin}: the plugin file is missing ({path})")
+            else:
+                heads[key] = (exp_install.plugin_masters(path), None)
+        except (OSError, ValueError) as error:
+            heads[key] = (None, f"{plugin}: the plugin file is unreadable ({error})")
+    return heads[key]
+
+
 def unloadable(data, plugin, memo=None):
     """Why the plugin cannot be loaded, else None: its Data file missing, its TES4 header unreadable, or the same for
     any master down its master chain (read from each master's own header in Data, held or not, active or not;
     implicit masters aside) (Codex on #407). off refuses to hold such a plugin and on releases it without ticking it.
-    memo ({casefolded name: reason or None}) shares the walk between calls."""
+    memo shares the walk between calls, and with chain."""
     memo = {} if memo is None else memo
+    whys = memo.setdefault("why", {})
     key = plugin.casefold()
-    if key in memo:
-        return memo[key]
-    memo[key] = None                                      # a master cycle is not this check's to judge
-    try:
-        path = exp_install.data_path(data, plugin)
-    except ValueError as error:
-        memo[key] = f"{plugin}: {error}"
-        return memo[key]
-    why = None
-    if not os.path.isfile(path):
-        why = f"{plugin}: the plugin file is missing ({path})"
-    else:
-        try:
-            masters = exp_install.plugin_masters(path)
-        except (OSError, ValueError) as error:
-            why = f"{plugin}: the plugin file is unreadable ({error})"
-        else:
-            for m in masters:
-                if not exp_install.implicit(m) and unloadable(data, m, memo):
-                    why = f"{plugin}: needs {memo[m.casefold()]}"
-                    break
-    memo[key] = why
+    if key in whys:
+        return whys[key]
+    whys[key] = None                                      # a master cycle is not this check's to judge
+    masters, why = header(data, plugin, memo)
+    for m in masters or ():
+        if not exp_install.implicit(m) and unloadable(data, m, memo):
+            why = f"{plugin}: needs {whys[m.casefold()]}"
+            break
+    whys[key] = why
     return why
+
+
+def chain(data, plugin, memo):
+    """{casefolded name: name} of every non-implicit master down the plugin's master chain, read from Data with the
+    same memoised walk as unloadable; a header that does not read adds nothing (unloadable reports it)."""
+    chains = memo.setdefault("chain", {})
+    key = plugin.casefold()
+    if key in chains:
+        return chains[key]
+    chains[key] = {}                                      # a master cycle ends here
+    out = {}
+    for m in header(data, plugin, memo)[0] or ():
+        if exp_install.implicit(m):
+            continue
+        out[m.casefold()] = m
+        out.update(chain(data, m, memo))
+    out.pop(key, None)
+    chains[key] = out
+    return out
+
+
+def broken(data, plugins, active, memo):
+    """{plugin: [masters]}: for each plugin, the masters down its chain that are not in the active set."""
+    out = {}
+    for p in plugins:
+        miss = [m for k, m in chain(data, p, memo).items() if k not in active]
+        if miss:
+            out[p] = miss
+    return out
 
 
 def off(a):
@@ -117,12 +151,15 @@ def off(a):
             raise ValueError(why)
     going = held | {p.casefold() for p in new}
     active = {name(ln) for ln in lines if ln.strip().startswith("*")}
-    for k, p in mine.items():                             # what stays on must not need what goes off
-        if k in going or k not in active:
-            continue
-        needs = [m for m in exp_install.plugin_masters(exp_install.data_path(data, p)) if m.casefold() in going]
-        if needs:
-            raise ValueError(f"{p} stays active and needs {', '.join(needs)} as a master: hold it off too")
+    # every plugin that stays active (any active line, not only ours) must keep its whole master chain active; one
+    # whose chain is already broken before this change is not ours to judge (Codex on #407)
+    memo = {}
+    stays = [ln.strip().lstrip("*").strip() for ln in lines if ln.strip().startswith("*") and name(ln) not in going]
+    before = broken(data, stays, active, memo)
+    for p, miss in broken(data, stays, active - going, memo).items():
+        if p not in before:
+            fix = "hold it off too" if p.casefold() in mine else "untick it by hand first"
+            raise ValueError(f"{p} stays active and needs {', '.join(miss)} as a master: {fix}")
     ticked = [p for p in rec["off"] if p.casefold() in active]   # held, but the game ticked it again
     if not new and not ticked:
         print(f"already held off: {', '.join(want)}")
@@ -153,10 +190,9 @@ def on(a):
     # held or not) is released and unticked, never restored: its hold would otherwise block every uninstall for good.
     # A broken master that is not held is never ticked or unticked here (Codex on #407). Everything else requested
     # comes back under the checks below.
-    memo = {}
+    memo = {}                                             # one walk of Data for unloadable and chain
     why = {p.casefold(): unloadable(data, mine[p.casefold()], memo) for p in want if p.casefold() in mine}
     lost = {k for k, w in why.items() if w}
-    masters = {k: exp_install.plugin_masters(exp_install.data_path(data, mine[k])) for k in why if k not in lost}
     tick = back - lost
     p_txt = exp_install.plugins_txt()
     original = exp_install.read_bytes(p_txt)
@@ -171,19 +207,20 @@ def on(a):
         if count > 1:
             raise ValueError(f"{p} has {count} lines in Plugins.txt: remove the extra ones by hand, then run on again")
     for p in want:                                        # what comes back must not need what stays off or unticked
-        if p.casefold() not in tick or p.casefold() not in masters:
+        if p.casefold() not in tick or p.casefold() not in mine:
             continue
-        needs = [m for m in masters[p.casefold()] if m.casefold() in still]
+        needs = [m for k, m in chain(data, mine[p.casefold()], memo).items() if k in still]
         if needs:
             raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
                              f"bring them back together")
-        # a master the game unticked meanwhile (exp_install.active), ours or not, is no master to load against: every
-        # master but the implicit ones needs an active line or must come back too (Codex on #407)
-        inactive = [m for m in masters[p.casefold()]
-                    if not exp_install.implicit(m) and m.casefold() not in active | tick]
-        if inactive:
-            raise ValueError(f"{p} needs {', '.join(inactive)} as a master, which is not active in Plugins.txt: "
-                             f"bring them back together or reinstall")
+    # every plugin ticked must have its whole master chain (implicit masters aside, ours or not) active once this
+    # change is written: a master or grand-master the game unticked meanwhile is no master to load against (Codex on
+    # #407)
+    after = (active - lost) | tick
+    ticking = [mine[p.casefold()] for p in want if p.casefold() in tick and p.casefold() in mine]
+    for p, miss in broken(data, ticking, after, memo).items():
+        raise ValueError(f"{p} needs {', '.join(miss)} as a master, which is not active in Plugins.txt: "
+                         f"bring them back together or reinstall")
     out = []
     for ln in lines:                                      # tick what comes back, untick what is released
         ticked = ln.strip().startswith("*")
