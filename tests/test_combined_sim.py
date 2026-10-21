@@ -358,6 +358,17 @@ class ResettlementTests(unittest.TestCase):
         self.assertEqual(s.population, 0)
         self.assertEqual(kinds(ws, "settlement_resettled"), [])
 
+    def test_an_unheld_empty_settlement_never_gains_a_normal_arrival(self):
+        # Codex P1 on #431: morale drift lifted an empty place to 70 and the normal arrival branch skipped every
+        # resettlement guard.
+        ws = quiet(world(1))
+        s = self.empty(ws, holder=None)
+        s.stock["food"] = s.stock["water"] = 50
+        s.morale = 90
+        sim.run(ws, 20 * 24)
+        self.assertEqual(s.population, 0)
+        self.assertEqual([e for e in kinds(ws, "settler_arrived") if e["place"] == "farm_a"], [])
+
     def test_recent_fighting_or_an_attack_on_the_way_blocks_it(self):
         ws = quiet(world(1))
         s = self.empty(ws)

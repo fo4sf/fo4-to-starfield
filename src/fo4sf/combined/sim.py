@@ -176,8 +176,8 @@ def _settlement_tick(ws: WorldState) -> None:
             _event(ws, "settler_left", sid)
             if s.population == 0:
                 _event(ws, "settlement_emptied", sid, holder=ws.places[sid].holder)
-        elif (s.morale >= 70 and ws.hour % 24 == 0 and not short
-              and s.population < s.beds and _arrival_due(ws, s)):
+        elif (s.population > 0 and s.morale >= 70 and ws.hour % 24 == 0 and not short
+              and s.population < s.beds and _arrival_due(ws, s)):     # an empty place only refills by resettlement
             _add_settler(s)
             _event(ws, "settler_arrived", sid)
         elif (s.population == 0 and s.beds > 0 and ws.hour % 24 == 0
