@@ -1,5 +1,6 @@
 """Queued test runner (scripts/game/testqueue.py): judges never pass on missing observations, the run checkpoints after
 every test and resumes, retries are limited, and the owner's controls stop it. Synthetic data; no game, no Windows calls."""
+import hashlib
 import json
 import os
 import sys
@@ -11,6 +12,11 @@ from types import SimpleNamespace
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import testqueue as tq  # noqa: E402
+
+
+def readb(p):
+    with open(p, "rb") as f:
+        return f.read()
 
 
 def jdump(obj, p):
@@ -788,6 +794,20 @@ class PlanJsonTests(unittest.TestCase):
         self.assertEqual([x["world_coc"] for x in t], ["FO4CW_RedRocketSpawn"])
         self.assertEqual(t[0]["drop_z"], 140.0)
         self.assertEqual(t[0]["beyond"], {"x": -500.0, "y": 300.0})
+        self.assertNotIn("rounds_sha256", jload(os.path.join(out, "queue.json")))
+        rounds = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
+        writef(os.path.join(d, "rounds.json"), rounds.encode())      # a door rounds stage: its digest is recorded
+        out2 = os.path.join(d, "q2")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out2])
+        self.assertEqual(jload(os.path.join(out2, "queue.json"))["rounds_sha256"], hashlib.sha256(rounds.encode()).hexdigest())
+        # Codex on #401: a plan.json edited after staging, or a rounds.json without plan_sha256, is refused
+        for body, why in ((json.dumps({"tests": []}), "no plan_sha256"),
+                          (json.dumps({"tests": [], "plan_sha256": "0" * 64}), "plan_sha256 differs")):
+            writef(os.path.join(d, "rounds.json"), body.encode())
+            with self.subTest(why=why), self.assertRaisesRegex(SystemExit, why):
+                tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q3")])
+            self.assertFalse(os.path.exists(os.path.join(d, "q3")))
+        os.remove(os.path.join(d, "rounds.json"))
         jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
