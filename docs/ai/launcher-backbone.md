@@ -126,6 +126,12 @@ problem.
 other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
 work folders). This is the measuring half of the unresolved full-build disk budget.
 
+### Determinism variants (framework B5)
+`tests/test_determinism_variants.py` runs a static mesh conversion and the driver's step fingerprint in fresh
+interpreters under string-hash seeds 0, 1, 4242 and 7, a German locale and `NPY_DISABLE_CPU_FEATURES="AVX2 AVX512F"`,
+and requires the same bytes from each. `convert_static` does not import numpy today, so the numpy variant guards only
+against a future import. A second machine (L4's real half) is still untested.
+
 ### Mod manifests (draft v0, plan task L2)
 `src/fo4sf/launcher/mods.py`: a mod declares id, version, the core version range it needs, an optional exact Starfield
 pin, its plugins, `requires` and `load_after`. `resolve` puts the core's plugins first, then mods in dependency order
