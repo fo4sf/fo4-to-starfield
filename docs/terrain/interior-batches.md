@@ -288,6 +288,55 @@ What a DLC cell needs, and what is done:
   core built with the DLC's Commonwealth references. The DLC chairs are not in the furniture table either
   (Fo4Land's export reads Fallout4.esm), so they stay static.
 
+## Content census
+
+`scripts/terrain/interior_content.py` (tests: `tests/test_interior_content.py`) answers the research framework's
+offline content rows C1, C3, C7 and C9 for the interior cells of a census (or every interior): what the cells hold
+that the port has to decide about. Status: **written and unit tested on synthetic plugins; not yet run on the PC**
+(no game data in the cloud). It is read-only, streams the plugins one record at a time (memory-mapped, as
+interior_census.py) and takes a later plugin's record over an earlier one's: a placed reference a DLC re-saves
+leaves the cell the earlier copy stood in wherever the later copy lands (a measured cell, an unmeasured interior, a
+worldspace cell), and one re-saved with the Deleted record flag (0x20) is dropped. Form keys spell the owner plugin
+as the later plugins' MAST subrecords do (`Fallout4.esm` however the command line spells the file), so they match
+the census's.
+
+- **C1 enable state:** per cell the references flagged Initially Disabled (record flag 0x800), the ones with an
+  enable parent (XESP: u32 parent, u8 flags, bit 1 = opposite state), the distinct parents and the ones standing
+  outside the cell (in which interior or worldspace, or placed nowhere in the plugins read; a second walk finds
+  them, up to `MAX_PARENT_PASSES` = 4 hops further out; a chain that leads further is counted in `chains_cut` and
+  its last parent in `parents_unresolved`), the deepest parent chain with its references, and `chain_cycles`, the
+  distinct parent cycles (a 2-ref cycle counts once). Totals and the cells with the most (`top_enable_state`,
+  `top_deepest_chain`): the story cells the decision is about.
+- **C3 loot:** per cell the placed containers (CONT) and leveled-item references (LVLI), the containers' direct CNTO
+  entries by record signature, and the distinct leaf records reached through every LVLI (LVLO entries, recursive; the
+  members of a cycle of lists reach the same leaves, whichever cell is measured first) by signature: WEAP, ARMO,
+  AMMO, ALCH, MISC, BOOK, KEYM, NOTE, ...; `?` marks a base in no plugin read. `leaf_types` at the top is the same
+  over all cells.
+- **C7 terminals:** every placed TERM with its menu depth (a menu item's TNAM opens a submenu TERM; depth 0 = no
+  submenu; a submenu already on the path is cut there and the terminal flagged `cycle`, measured from the placed
+  terminal itself whichever cell came first), menu items and body texts at the top level and over the distinct
+  terminals of the tree (a submenu reached by two paths counts once), `submenus_missing` (TNAMs that are no TERM
+  read); `terminal_depths` (placed terminals) and `terminal_base_depths` (distinct TERM records).
+- **C9 traps:** placed references whose base's editor id names a trap, by base and by kind (bear_trap, tripwire,
+  gas, oil, mine, trap: a **hypothesis** over FO4's editor ids, no record flag marks a trap; `Trapper` is taken out
+  of the name first, `trap` wants a word start and no `Trapdoor` (not Strap, Contraption, Extrapolator), `mine` the
+  explosive's word (MineFrag, MineBottlecap, MinePlasma, MinePulse, MineCryo, MineNuke, LandMines, Mine01: not
+  MineCart, MinerOutfit, LC_MinesDrainage); the per-base `traps` listing is there to check the rule against the real
+  names), plus hazards (HAZD bases and PHZD placements).
+
+Record layouts, from xEdit dev-4.1.6 `Core/wbDefinitionsFO4.pas`: the 0x800 flag (REFR line 11352, ACHR 4487,
+placed hazards 3206), XESP (4330-4336), CNTO and COCT (3300-3316), TERM's BTXT / ITXT / ANAM / TNAM (12707-12753),
+HAZD (7180), PHZD (5950); LVLO from `Core/wbDefinitionsCommon.pas` 9062-9074 (u16 level, 2 unused, u32 item, u16
+count, u8 chance none, 1 unused); the Deleted record flag 0x20 from `Core/wbInterface.pas` 20552-20554. On the PC
+(read-only, one job):
+
+```
+python scripts/terrain/interior_content.py --out docs\terrain\data\interior-content.json --md docs\terrain\data\interior-content.md ^
+  --census docs\terrain\data\interior-census.json <FO4 Data>\Fallout4.esm <dlc>\DLCRobot.esm <dlc>\DLCworkshop01.esm
+```
+
+(`--cells <editor id>` narrows the census to named cells.) Results: none yet.
+
 ## Reproduce
 
 ```
