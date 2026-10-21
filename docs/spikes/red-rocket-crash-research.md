@@ -21,6 +21,24 @@ docs/ai/research-log.md.
 - The read target 0x19a87db9280 is a heap-range address that is not mapped, next to the float 0.02 in rcx. A pointer
   read from memory that was freed or reused fits that better than a bad value in a file (**supported hypothesis**).
 
+## The faulting instruction (--exe read on the PC, 2026-10-21, minidump_read at 3a28329)
+Disassembled here from the 96 code bytes the PC returned (capstone), **verified**:
+```
++0x2bf0161  mov rcx, rax
++0x2bf0164  mov rax, [rsi+0x340]        ; a table of pointers, held in a stack-local struct (rsi = rsp+0x4e0)
++0x2bf016b  mov rdx, [rax+rcx*8]        ; FAULT: rcx = 0x3ca3d70a
++0x2bf016f  mov rax, [rdi]
++0x2bf0172  cmp rdx, rax
+            ...
++0x2bf0181  lock xadd [rdx+0x10], eax    ; take a reference on the entry
+```
+- The read target is exactly table + index * 8: 0x198a2bcda30 + 0x3ca3d70a * 8 = 0x19a87db9280. So the table pointer
+  is good; the **index** is the float 0.02's bit pattern. The function looks up a ref-counted entry by index and stores it
+  in the smart pointer at [rdi] (fault function starts at +0x2bf00f0; caller +0x2bda63c in +0x2bd9dd0).
+- This revises the read above: a float stored where a 32-bit index is expected (a field-layout mismatch, or a struct whose
+  memory was reused) rather than a stale table. Where the index came from is before the window; `--code-before -1`
+  prints the whole function from +0x2bf00f0. Object types need a full dump (-ma, owner's call).
+
 ## New lead: the mission script moves actors exactly where the crashes happen
 **Verified from source** (scripts/mission/FO4SF_Min00Quest.psc, Relocate, KeepCodsworth, MoveOver):
 - FO4SFMission's start-game-enabled quest checks every second (Codsworth every 2 s, and still after stage 200) and
@@ -40,7 +58,8 @@ docs/ai/research-log.md.
    look for `world`/`moved` lines in the 30 s before each crash. Test B, no build: plugin_toggle.py holds FO4SFMission off,
    repeat the Vault111Cryo to Red Rocket move three times, wait 60 s each. Stable means the mission; then split
    Codsworth (`write --no-codsworth`) from Preston and the raiders.
-2. Name the faulting object. `minidump_read.py --exe <Starfield.exe>` (this PR) prints the code bytes and function start
+2. Name the faulting object. First run done (above): the index is the float. Next, `--code-before -1` for the whole
+   function, then a full dump on the next crash if the owner agrees. `minidump_read.py --exe <Starfield.exe>` (this PR) prints the code bytes and function start
    at the fault, which stack entries follow a call, and the C++ class (RTTI) of every object a register or stack slot
    points at, when the dump holds it. An Actor, a Character or an animation-graph class there supports suspect 1; a
    geometry or skin class supports suspect 3.

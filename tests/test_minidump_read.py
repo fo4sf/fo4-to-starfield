@@ -196,6 +196,12 @@ class MinidumpWithExe(unittest.TestCase):
             self.assertEqual(bytes.fromhex(im["code"]["hex"])[64], 0x8B)
             self.assertEqual([o["in"] for o in im["objects"]], ["rdi"])     # r13 points past the vtable qword
 
+    def test_code_from_the_function_start(self):
+        img = md.Image(build_exe())
+        im = md._summary("a.dmp", md.Dump(self.dump()), 64, img, -1)["image"]
+        self.assertEqual((im["code"]["from"], im["code"]["fault_at_byte"]), ("Starfield.exe+0x2bf0100", 0x6B))
+        self.assertEqual(bytes.fromhex(im["code"]["hex"])[0x6B], 0x8B)
+
     def test_exe_of_another_size_is_refused(self):
         exe = bytearray(build_exe())
         struct.pack_into("<I", exe, 0x80 + 24 + 56, SIZE + 0x1000)

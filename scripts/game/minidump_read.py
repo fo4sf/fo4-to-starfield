@@ -298,16 +298,16 @@ def objects(d, img, base, regs, stack_slots):
     return out
 
 
-def summary(path, scan, exe=None):
+def summary(path, scan, exe=None, before=64):
     # memory-mapped, not read: a full (-ma) dump can be many GB, and only a few small structures are touched
     with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
         if not exe:
             return _summary(path, Dump(data), scan)
         with open(exe, "rb") as g, mmap.mmap(g.fileno(), 0, access=mmap.ACCESS_READ) as pe:
-            return _summary(path, Dump(data), scan, Image(pe))
+            return _summary(path, Dump(data), scan, Image(pe), before)
 
 
-def _summary(path, d, scan, img=None):
+def _summary(path, d, scan, img=None, before=64):
     exc, regs = d.exception()
     fault_module = next((m for m in d.modules if exc["at"] and exc["at"].startswith(m["name"] + "+")), None)
     stack = d.stack_scan(regs["rsp"], scan) if "rsp" in regs else []
@@ -316,18 +316,21 @@ def _summary(path, d, scan, img=None):
             "stack_scan": [{"rsp+": f"0x{o:x}", "value": f"0x{v:x}", "at": w} for o, v, w in stack],
             "memory_gib": d.memory(), "modules": len(d.modules), "memory_ranges": len(d.ranges)}
     if img is not None and fault_module:
-        out["image"] = _image_report(d, img, fault_module, regs, stack, scan)
+        out["image"] = _image_report(d, img, fault_module, regs, stack, scan, before)
     return out
 
 
-def _image_report(d, img, mod, regs, stack, scan):
+def _image_report(d, img, mod, regs, stack, scan, before=64):
     base, name = mod["base"], mod["name"]
     if img.size_of_image != mod["size"]:
         raise ValueError(f"--exe is not the dump's {name}: SizeOfImage 0x{img.size_of_image:x}, "
                          f"the dump's 0x{mod['size']:x}")
     rip = regs.get("rip", 0)
-    code = code_around(d, img, base, rip)
     fn = img.function(rip - base) if base <= rip < base + img.size_of_image else None
+    if before < 0 and fn is not None:                    # -1: from the start of the fault's function
+        before = rip - base - fn
+    before = max(before, 0)
+    code = code_around(d, img, base, rip, before)
     calls = []
     for o, v, w in stack:
         if base <= v < base + img.size_of_image:
@@ -341,7 +344,8 @@ def _image_report(d, img, mod, regs, stack, scan):
             break
         slots.append((f"rsp+0x{8 * i:x}", struct.unpack("<Q", raw)[0]))
     return {"fault_function": f"{name}+0x{fn:x}" if fn is not None else None,
-            "code": {"from": f"{name}+0x{rip - base - 64:x}", "fault_at_byte": 64, "hex": code.hex() if code else None},
+            "code": {"from": f"{name}+0x{rip - base - before:x}", "fault_at_byte": before,
+                     "hex": code.hex() if code else None},
             "stack_calls": calls,
             "objects": [{"in": w, "pointer": f"0x{v:x}", "class": c} for w, v, c in objects(d, img, base, regs, slots)]}
 
@@ -353,11 +357,13 @@ def main(argv=None):
     ap.add_argument("--top", type=int, default=24, help="stack scan entries to print per dump")
     ap.add_argument("--json", default="")
     ap.add_argument("--exe", default="", help="the faulting module's file (same version): code bytes, call checks, RTTI")
+    ap.add_argument("--code-before", type=int, default=64,
+                    help="code bytes to print before the fault with --exe; -1 starts at the fault's function")
     a = ap.parse_args(argv)
     found = []
     for p in a.dumps:
         try:
-            s = summary(p, a.scan, a.exe or None)
+            s = summary(p, a.scan, a.exe or None, a.code_before)
         except (OSError, ValueError, struct.error) as e:
             print(f"{p}: {e}")
             continue
