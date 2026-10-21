@@ -57,6 +57,13 @@ def names(arg):
     return [x.strip() for x in (arg or "").split(",") if x.strip()]
 
 
+def same_profile(rec, p_txt):
+    """A toggle record written for another user's Plugins.txt is refused by off and on alike (Codex on #407)."""
+    mine = rec.get("plugins_txt")
+    if mine and os.path.normcase(os.path.abspath(mine)) != os.path.normcase(os.path.abspath(p_txt)):
+        raise ValueError(f"the record's Plugins.txt ({mine}) is not the current user's ({p_txt})")
+
+
 def off(a):
     data = os.path.join(a.starfield, "Data")
     rec = read_record(data)
@@ -68,6 +75,7 @@ def off(a):
     if bad:
         raise ValueError(f"not a plugin our installers own here: {', '.join(bad)} (owned: {', '.join(mine.values()) or 'none'})")
     p_txt = exp_install.plugins_txt()
+    same_profile(rec, p_txt)
     original = exp_install.read_bytes(p_txt)
     lines, bom, nl = exp_install.plugin_lines(original)
     held = {x.casefold() for x in rec["off"]}
@@ -109,9 +117,8 @@ def on(a):
         return
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
-    p_txt = rec.get("plugins_txt") or exp_install.plugins_txt()
-    if os.path.normcase(os.path.abspath(p_txt)) != os.path.normcase(os.path.abspath(exp_install.plugins_txt())):
-        raise ValueError("the record's Plugins.txt is not the current user's")
+    p_txt = exp_install.plugins_txt()
+    same_profile(rec, p_txt)
     original = exp_install.read_bytes(p_txt)
     lines, bom, nl = exp_install.plugin_lines(original)
     active = {name(ln) for ln in lines if ln.strip().startswith("*")}

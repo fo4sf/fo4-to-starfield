@@ -214,6 +214,34 @@ class ToggleTests(unittest.TestCase):
         self.assertIn("held off by plugin_toggle.py but active in Plugins.txt: fo4sfbridge.esm", buf.getvalue())
 
 
+    def test_active_fails_when_the_game_unticks_a_bridge_that_is_not_held(self):
+        # Codex on #407: with only the bridge record, active said "nothing installed" (exit 0) for an unticked bridge
+        (self.data / exp.RECORD).unlink()
+        self.assertEqual((exp.BRIDGE_RECORD, exp.BRIDGE_PLUGIN), (bi.RECORD, bi.PLUGIN))
+        a = SimpleNamespace(starfield=str(self.game))
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.active(a), 0)
+        self.assertIn("active: FO4SFBridge.esm", buf.getvalue())
+        self.txt.write_bytes(self.original.replace("*FO4SFBridge.esm", "FO4SFBridge.esm").encode())
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.active(a), 8)
+        self.assertIn("inactive in Plugins.txt: FO4SFBridge.esm", buf.getvalue())
+
+    def test_off_and_on_refuse_a_record_from_another_profile(self):
+        # Codex on #407: off compared nothing and rewrote this user's Plugins.txt under another user's record
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        p = self.data / exp.TOGGLE
+        rec = json.loads(p.read_text())
+        rec["plugins_txt"] = str(self.txt.parent.parent / "Other" / "Plugins.txt")
+        p.write_text(json.dumps(rec))
+        before = self.txt.read_bytes()
+        for argv in (("off", "--plugins", "FO4SFBridge.esm"), ("off", "--plugins", "Mission.esm"), ("on",)):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit) as cm:
+                self.run_cmd(*argv)
+            self.assertIn("is not the current user's", str(cm.exception))
+            self.assertEqual(self.txt.read_bytes(), before)
+            self.assertEqual(json.loads(p.read_text())["off"], ["Mission.esm"])
+
 class CycleTests(unittest.TestCase):
     def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
         # Codex on #407: bridge_install.py order exits nonzero on a held bridge the game ticked again, and cycle.ps1

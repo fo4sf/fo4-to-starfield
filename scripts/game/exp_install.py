@@ -37,6 +37,8 @@ from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 TOGGLE = "FO4SF.toggle.json"                             # plugin_toggle.py: our plugins held off for a test
+# bridge_install.py's RECORD and PLUGIN (it imports this module): active checks an installed bridge too
+BRIDGE_RECORD, BRIDGE_PLUGIN = "FO4SFBridge.install.json", "FO4SFBridge.esm"
 PACKING_POLICY = "general-stored-verified-v2"
 _UNSET = object()
 
@@ -214,8 +216,17 @@ def active(a):
         if ticked:
             print(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(sorted(ticked))}")
             return 8
+    lines, _, _ = read_plugins(plugins_txt())
+    on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
+    # an installed bridge not held off must still be ticked, with or without an experiment record: a bridge-only run
+    # went on with the bridge unticked by the game (Codex on #407)
+    bridge = (os.path.exists(os.path.join(a.starfield, "Data", BRIDGE_RECORD))
+              and BRIDGE_PLUGIN.casefold() not in held)
+    if bridge and BRIDGE_PLUGIN.casefold() not in on:
+        print(f"inactive in Plugins.txt: {BRIDGE_PLUGIN}")
+        return 8
     if not os.path.exists(rec_p):
-        print("nothing installed")
+        print(f"active: {BRIDGE_PLUGIN}" if bridge else "nothing installed")
         return 0
     rec = read_json(rec_p)
     if not rec.get("complete", True) or rec.get("cleanup_pending") or "rollback_completed" in rec:
@@ -225,8 +236,6 @@ def active(a):
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
-    lines, _, _ = read_plugins(plugins_txt())
-    on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
     off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
