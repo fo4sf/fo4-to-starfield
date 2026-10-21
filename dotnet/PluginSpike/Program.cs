@@ -276,7 +276,12 @@ foreach (var cdoc in cellDocs)
         // The coc arrival marker is persistent: a script, probe or new-game start must resolve it before the cell has
         // loaded (FO4Port_Vault111Cryo had 0 persistent refs of 1,166, records report 21 Oct). Moving a ref between the
         // groups keeps its FormID (keyed by REFR:<cell>:<source>).
-        if (obj.Base.FormKey == cocMarker) cell.Persistent.Add(obj); else cell.Temporary.Add(obj);
+        if (obj.Base.FormKey == cocMarker)
+        {
+            cell.Persistent.Add(obj);
+            obj.MajorRecordFlagsRaw |= 0x400;                                              // Persistent, as TeleportLinks.MakePersistent
+        }
+        else cell.Temporary.Add(obj);
         placedBySource[src] = (obj, cell);
     }
     var cid = cell.FormKey.ID;

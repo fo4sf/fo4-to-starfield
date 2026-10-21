@@ -187,8 +187,15 @@ def read_children(buf, start, end, cell, K, out):
             continue
         typ, off, flags, fid = item
         if typ == b"NAVM":
-            if "navmeshes" in cell:
+            # Same rule as placed refs below: a later plugin's copy of a navmesh replaces the earlier one, and a copy
+            # with the Deleted flag takes it back and adds nothing.
+            navms = out.setdefault("navms", {})
+            pcell = navms.pop(K(fid), None)
+            if pcell is not None:
+                pcell["navmeshes"] -= 1
+            if "navmeshes" in cell and not flags & DELETED:
                 cell["navmeshes"] += 1
+                navms[K(fid)] = cell
             continue
         if typ not in PLACED:
             continue

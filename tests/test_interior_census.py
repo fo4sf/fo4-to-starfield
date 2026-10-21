@@ -170,6 +170,24 @@ class CensusTests(unittest.TestCase):
         self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"]), (4, 2))
         self.assertEqual(by["Lobby"]["plugins"], ["Fallout4.esm", "DLCRobot.esm", "DLCAgain.esm"])
 
+    def test_navmesh_overrides_count_once_and_deleted_ones_not_at_all(self):
+        # DLCRobot adds two navmeshes to Lobby; DLCAgain re-saves the first (same FormKey) and deletes the second.
+        def plugin(name, kids, nmast=1):
+            masts = [(b"MAST", b"Fallout4.esm\0"), (b"DATA", bytes(8))] + ([(b"MAST", b"DLCRobot.esm\0"), (b"DATA", bytes(8))] if nmast > 1 else [])
+            tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 2, 0x800))] + masts, flags=1)
+            sub = G(struct.pack("<I", 0), 3, bytes(8), cell(0x200, "Lobby", kids))
+            cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+            path = os.path.join(self.tmp.name, name)
+            with open(path, "wb") as f:
+                f.write(tes4.serialize() + cells.serialize())
+            return path
+        dlc = plugin("DLCRobot.esm", [rec(b"NAVM", 0x350, []), rec(b"NAVM", 0x351, [])])
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc])["cells"]}
+        self.assertEqual(by["Lobby"]["navmeshes"], 2)
+        again = plugin("DLCAgain.esm", [rec(b"NAVM", 0x350, []), rec(b"NAVM", 0x351, [], flags=ic.DELETED)], nmast=2)
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc, again])["cells"]}
+        self.assertEqual(by["Lobby"]["navmeshes"], 1)
+
     def test_main_writes_the_census(self):
         out = os.path.join(self.tmp.name, "census.json")
         self.assertEqual(ic.main(["--out", out, self.esm]), 0)

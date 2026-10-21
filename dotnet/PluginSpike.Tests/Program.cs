@@ -590,6 +590,8 @@ Console.WriteLine("Location (LCTN) checks passed.");
             var temporary = cryo.Temporary.OfType<IPlacedObjectGetter>().ToList();
             Require(persistent.Count == 1 && persistent[0].Base.FormKey == new FormKey(sfKey, 0x000032)
                     && persistent[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000902:Fallout4.esm"], "the coc marker is not a persistent reference with its keyed FormID");
+            Require((persistent[0].MajorRecordFlagsRaw & 0x400) != 0, "the coc marker lacks the Persistent record flag (0x400)");
+            Require((temporary[0].MajorRecordFlagsRaw & 0x400) == 0, "a temporary reference carries the Persistent record flag");
             Require(temporary.Count == 1 && temporary[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000901:Fallout4.esm"], "a non-marker reference left the temporary group");
         }
         Console.SetOut(new StringWriter());
