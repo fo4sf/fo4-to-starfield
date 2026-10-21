@@ -40,9 +40,12 @@ How to read the results:
   dumps. **Verified.** The v6c dumps are gone, so the comparison uses the values recorded above.
 - rcx 0x3ca3d70a is exactly the bit pattern of the float 0.02, so the game is handling a number where it expects a
   pointer or handle. That fits bad or mismatched record data more than low memory (**supported hypothesis**).
-- Memory: the dump records the process at 12.78 GiB commit (peak 14.66), 9.77 GiB working set. The dump has no system
-  memory stream. Install's snapshot of the PC with the game running was 46.7 of 61.2 GB commit. Nothing points to
-  running out of memory (**supported**); Card C's 1 s memory log around the Red Rocket move will confirm or rule it out.
+- Memory at the crash, from the dump (**verified**): the process at 12.78 GiB commit (peak 14.66), 9.77 GiB working set;
+  the system at 3.51 GiB RAM available and 44.82 of 61.16 GiB commit, so 16 GiB of commit was still free. Physical RAM
+  was low, which makes Windows page and can stutter the game, but an allocation only fails when commit runs out. The
+  system's peak commit since boot is 75.23 GiB, above today's limit, so the page file grew at some earlier point
+  (unchecked). Running out of memory does not fit this crash (**supported**); Card C's 1 s memory log around the Red
+  Rocket move will confirm or rule it out.
 - So neither change v6e made is the cause: the 448 movable props (static in v6e) and the RedRPedDoor side-door rigs (off
   in v6e) are both cleared, and v6f and v6g are dropped.
 
