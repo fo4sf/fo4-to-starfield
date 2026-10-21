@@ -57,6 +57,14 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {
   $ord | Select-Object -Last 1
   if ($ordCode -ne 0) { "experiment plugin order could not be fixed (exit $ordCode): not launching"; exit 7 }
 }
+# The map markers plugin (map_markers_install.py) goes after FO4Port, so the planned reads' load indexes stay as they were.
+# A master of it inactive or missing from Data: it refuses before writing, exit 7, no launch (Codex, #399).
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {
+  $mmOrd = python -I "$repo\scripts\game\map_markers_install.py" order --starfield $sf
+  $mmCode = $LASTEXITCODE
+  $mmOrd | Select-Object -Last 1
+  if ($mmCode -ne 0) { "map markers plugin order refused (exit $mmCode): not launching"; exit 7 }
+}
 # The observation bridge (bridge_install.py) goes LAST: the planned reads address the experiment's records by load
 # index, and a bridge line above them shifted every index by one (cave_core64c_1015 a1, 2026-10-15)
 if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
@@ -155,6 +163,12 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can 
   $actCode = $LASTEXITCODE
   $act | Select-Object -Last 1
   if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
+}
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {   # the same check for the map markers plugin (Codex, #399)
+  $mmAct = python -I "$repo\scripts\game\map_markers_install.py" active --starfield $sf
+  $mmActCode = $LASTEXITCODE
+  $mmAct | Select-Object -Last 1
+  if ($mmActCode -ne 0) { "Starfield deactivated the map markers plugin while loading the save: not testing (exit $mmActCode)"; exit 8 }
 }
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it

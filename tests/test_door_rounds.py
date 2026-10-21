@@ -1,5 +1,6 @@
 """scripts/bridge/door_rounds.py: door round trips planned against the installed plugins and judged from the bridge's
 log (synthetic core and port plugins, synthetic logs)."""
+import hashlib
 import io
 import json
 import os
@@ -101,6 +102,8 @@ class StageTests(unittest.TestCase):
         for got, want in zip(t1["pos"], back):
             self.assertAlmostEqual(got, want, places=3)
         self.assertEqual(t0["hops"], 3)                        # 728 m at 185 m a hop
+        with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
 
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
@@ -210,6 +213,35 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
 
+    def test_out_crosses_worlds_only_for_a_pinned_runtime_instance(self):
+        # doors_out2 (2026-10-19): the player stood in FF00552F, the marker resolved in our WRLD 02000803, 0.0 to
+        # 0.3 m off. Codex on #383: an FF prefix does not say which WRLD it instantiates, so only a pinned pair crosses
+        runtime, base = str(0xFF00552F - (1 << 32)), str(0x02000803)
+        out = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base),
+               pos(-1669.3, -2063.8, 42.4, cell="-6", world=runtime))
+        pin = {"FF00552F": "02000803"}
+        self.assertEqual(verdict(out, EXP_OUT), ("INCONCLUSIVE", "WORLD"))      # no pin: as before daff232
+
+        def v(lines, pins=pin):
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins)
+            return r, why
+        self.assertEqual(v(out)[0], "PASS")
+        self.assertIn("taken as 02000803 by --world-instance", v(out)[1])
+        far = out[:2] + (pos(-469, 636, 42, cell="-6", world=runtime),)
+        self.assertEqual(v(far)[0], "FAIL")                                       # a pin never excuses distance
+        other_rt = out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=str(0xFF123456 - (1 << 32))),)
+        self.assertEqual(v(other_rt)[0], "INCONCLUSIVE")                          # an unpinned runtime world
+        other_base = (out[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0x04000803)), out[2])
+        self.assertEqual(v(other_base)[0], "INCONCLUSIVE")                        # pinned to another WRLD
+        self.assertIn("no --world-instance pins the pair", v(other_base)[1])
+        self.assertEqual(v(out[:2] + (pos(-1669.3, -2063.8, 42.4),))[0], "FAIL")  # still inside: STAYED
+
+    def test_world_pins_are_checked(self):
+        self.assertEqual(dr.world_pairs(["ff00552f=02000803", "FF00552F=02000803"]), {"FF00552F": "02000803"})
+        for bad in (["FF00552F"], ["02000803=FF00552F"], ["FF00552F=FF000001"], ["FF00552F=02000803", "FF00552F=02000804"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                dr.world_pairs(bad)
+
     def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
         # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
         wrong = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace(f"form={(2 << 24) | 2304}", f"form={(2 << 24) | 2305}"),
@@ -259,7 +291,10 @@ class JudgeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])
-        self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
+        with open(os.path.join(d, "door_rounds_judge.json")) as f:
+            judged = json.load(f)
+        with open(os.path.join(d, "rounds.json"), "rb") as f:          # the file it read, for regress (Codex on #401)
+            self.assertEqual(judged["rounds_sha256"], hashlib.sha256(f.read()).hexdigest())
 
 
 class OutLegsTests(unittest.TestCase):
@@ -294,6 +329,8 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
         with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
             self.dol.main([self.st, os.path.join(self.d, "near"), "0"])

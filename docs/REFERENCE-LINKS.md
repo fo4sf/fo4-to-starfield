@@ -33,6 +33,19 @@ Implemented translation:
 - Linked references resolve placed targets. A null discriminator remains null; a
   discriminator that resolves to a placed object is translated as that reference.
 - Default-open state applies to resolved, non-deleted DOOR bases.
+- Locks (`lock_data`, FO4 REFR XLOC) are written on resolved, non-deleted DOOR bases only
+  and counted as `Locks`. Levels are copied when Mutagen 0.55.0-alpha.67's Fallout4 and
+  Starfield `LockLevel` enums give the value the same name: 0 None, 1 Novice1, 25 Novice25,
+  50 Advanced, 75 Expert, 100 Master, 255 RequiresKey (only with a key). Flag bit 1
+  (LeveledLock, same in both) is kept. A key must resolve through `KEYM:<source formkey>` in
+  `formids.json` to an existing, non-deleted KEYM in the plugin (keys compare as parsed FormKeys, so
+  case does not matter; two spellings of one key reserved at different IDs make the map invalid and stop the run before any change, even with `--allow-unresolved`); otherwise it is a warning and
+  no lock is written (PluginSpike converts no keys, so keyed locks normally fail; a warning, so
+  real runs are not blocked; no key is invented). Refused as warnings, nothing written: 251 Barred, 252 Chained, 253
+  RequiresTerminal, 254 Inaccessible (what opens them in FO4 is not translated) and locks on
+  non-door bases such as containers. RequiresKey without a key is a warning too.
+  Issues: any other level, other flag bits. `--strict-activation-parents` blocks on every warning, lock warnings included.
+  Synthetic and binary round-trip tests only; not verified in game.
 - Absolute teleport destinations resolve placed doors and transition cells;
   positions convert from source units to metres and rotations remain radians.
   Both validated endpoints become persistent (group and flag), even when the
@@ -71,7 +84,7 @@ keywords with similar names. Specialized keyword categories/flags/attraction
 semantics still need translators. Targets
 outside the supplied exports, skipped actors/objects, unsupported flag bits and
 relative-position teleports are reported as unresolved. Relative teleports need
-additional handling for the converted door pivot. Ownership, locks, actor behavior
+additional handling for the converted door pivot. Ownership, container locks, actor behavior
 and scripts remain separate work. No unsupported case is assigned a numeric-ID
 guess.
 

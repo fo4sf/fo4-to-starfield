@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, door_rig, nif, sfcollision, sfmesh, sfnif, textures
+from . import convert_static, door_rig, load_door_anim, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
 NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
@@ -165,6 +165,11 @@ def _plane_pair(dds: bytes, tmp: str, texconv_exe: str):
 
 class Converter:
     door_anim_dll: Optional[str] = None
+    # rig_load_doors: FO4 load doors whose NIF animates ("Open" sequence) are rigged like the other doors, and the rig goes
+    # into their "load_door" entry as "anim" (the plugin writer then gives the load DOOR an animation graph, so the door
+    # swings open before the trip; docs/spikes/load-door-animations.md). Off by default: load doors stay the graph-less
+    # static doors every pinned build has. Class default so Converter.__new__ tests see it too.
+    rig_load_doors: bool = False
     mass_scale: float = 1.0  # class default so Converter.__new__ tests still pass mass_scale into convert_static
 
     def __init__(self, src: Fo4Archives, staging: str, texconv_exe: str, content_resources: str,
@@ -172,8 +177,10 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=()):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=(),
+                 no_rig_models=(), rig_load_doors: bool = False):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        self.rig_load_doors = rig_load_doors
         # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
         # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
         # LOAD_DOOR_RE and stayed STATs nobody could activate (Museum of Witchcraft roof hatch, owner 2026-10-18)
@@ -181,6 +188,8 @@ class Converter:
         # static_body_models: mesh names that keep a static body even with dynamic_template (the outdoor core places
         # them as STAT only, never as a pickable item: cars, skeletons, cones; convert_batch.static_body_models)
         self.static_body_models = {n.replace("/", "\\").lower() for n in static_body_models}
+        # no_rig_models: doors that skip their own rig as if door_anim_dll were missing (crash bisects; --no-rig-pattern)
+        self.no_rig_models = {n.replace("/", "\\").lower() for n in no_rig_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -643,6 +652,7 @@ class Converter:
             aliases = OWN_RIG_ALIASES.get(re.split(r"[\\/]", nif_name)[-1].lower())
             if aliases and not any(0 <= s < len(src.strings) and src.strings[s].decode("latin-1") in aliases for s in seq_names):
                 aliases = None                           # not the model the table means (no such clip)
+            anim_dll = None if nif_name.replace("/", "\\").lower() in getattr(self, "no_rig_models", ()) else self.door_anim_dll
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
@@ -650,13 +660,20 @@ class Converter:
             # without turning: a sliding door named like any other, RedRPedDoor.nif)
             not_hinged = bool(NOT_HINGED_RE.search(nif_name)) or (animated and pose is None and self.rig_doors
                                                                   and DOOR_RE.search(nif_name) and door_rig.slides(src))
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not not_hinged and not aliases and not load_door and nif.door_hinge(src):
+            # a load door is rigged only with rig_load_doors; then its FO4 record, not its file name, makes it a door
+            # (RoofHatch01 is placed as a teleporting Door but matches no DOOR_RE)
+            rig_load = load_door and self.rig_load_doors
+            doorish = bool(DOOR_RE.search(nif_name)) or rig_load
+            if rig_load and not not_hinged and animated and pose is None and self.rig_doors and (
+                    door_rig.slides(src) or door_rig.flips(src)):
+                not_hinged = True               # a trapdoor named like a door (MetalTrapdoor01) must not swing upright
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and doorish and not not_hinged and not aliases and (not load_door or rig_load) and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
                 # door is kept and the parts that stay closed are listed (door_frozen_parts), not silently dropped.
                 frozen = convert_static.frozen_door_parts(src)
-                if frozen and self.door_anim_dll:
+                if frozen and anim_dll:
                     try:
                         from . import native_door
                         files, res["door"] = convert_static.convert_multipart_door(
@@ -679,9 +696,9 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
-                  and (animated or aliases) and not load_door
-                  and (aliases or (DOOR_RE.search(nif_name) and not_hinged))):
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and anim_dll
+                  and (animated or aliases) and (not load_door or rig_load)
+                  and (aliases or (doorish and not_hinged))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
@@ -698,6 +715,26 @@ class Converter:
                     files = None
                     res.pop("door", None)
                     res["door_error"] = f"own rig: {type(e).__name__}: {e}"
+            if load_door and "door" in res:
+                # rig_load_doors: the rig belongs to the load door (one record: a DOOR that opens, then the trip), not to a
+                # separate opening door; the plugin writer reads it from load_door.anim
+                res["load_door"]["anim"] = res.pop("door")
+                if res["load_door"]["anim"].get("rig") != "native":   # the template rig has a vanilla load variant
+                    res["load_door"]["anim"]["xtel_anim_graph"] = load_door_anim.TEMPLATE_XTEL_GRAPH
+                try:                                     # how long the FO4 door takes to open, and its sound keys
+                    timing = load_door_anim.open_timing(src)
+                except nif.NifError:
+                    timing = None
+                if timing:
+                    # the template rig plays Starfield's own Open clip, not FO4's: the script must wait that clip's length
+                    # (a shorter FO4 wait ends before the door is open, so the close behind the player is skipped)
+                    native_rig = res["load_door"]["anim"].get("rig") == "native"
+                    res["load_door"]["anim"]["open_seconds"] = (timing["seconds"] if native_rig
+                                                                else load_door_anim.TEMPLATE_OPEN_SECONDS)
+                    if not native_rig:
+                        res["load_door"]["anim"]["fo4_open_seconds"] = timing["seconds"]
+                    if timing["events"]:
+                        res["load_door"]["anim"]["fo4_open_events"] = timing["events"]
             if files is None:
                 if animated and not aliases and not load_door and DOOR_RE.search(nif_name):
                     use_box = False

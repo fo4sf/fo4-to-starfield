@@ -52,6 +52,15 @@ class SlidingRoutingTests(unittest.TestCase):
         multi.assert_not_called()
         self.assertEqual(result["door_not_opening"], "open animation not ported: passable")
 
+    def test_a_door_named_in_no_rig_models_stays_passable_with_the_library(self):
+        """--no-rig-pattern (v6 Red Rocket crash bisect, 2026-10-19): the door is converted as without the library."""
+        with tempfile.TemporaryDirectory() as staging:
+            result, single, multi, _ = self.convert(staging, PED, sliding_panels()[:1], "calumi.dll",
+                                                    no_rig_models={PED.replace("/", "\\").lower()})
+        single.assert_not_called()
+        multi.assert_not_called()
+        self.assertEqual(result["door_not_opening"], "open animation not ported: passable")
+
     def test_a_hinged_door_with_the_same_name_keeps_the_template(self):
         with tempfile.TemporaryDirectory() as staging:
             _, single, multi, _ = self.convert(staging, PED, two_leaves()[:1], "calumi.dll")
