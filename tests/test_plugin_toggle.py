@@ -293,7 +293,7 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
         (self.data / "Mission.esm").unlink()               # gone while held
         out = self.run_cmd("on")
-        self.assertIn("back on: Core.esm; released, left unticked (plugin file missing or unreadable): Mission.esm", out)
+        self.assertIn("back on: Core.esm; released, left unticked (cannot load: plugin file missing or unreadable, or such a master): Mission.esm", out)
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 
@@ -307,7 +307,26 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("off", "--plugins", "Mission.esm")
         (self.data / "Mission.esm").write_bytes(b"TES4")     # damaged while held
         out = self.run_cmd("on")
-        self.assertIn("released, left unticked (plugin file missing or unreadable): Mission.esm", out)
+        self.assertIn("released, left unticked (cannot load: plugin file missing or unreadable, or such a master): Mission.esm", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
+    def test_on_releases_the_held_dependents_of_an_unloadable_master(self):
+        # Codex on #407: a damaged held Core.esm refused its held child Mission.esm, so both stayed held for good
+        self.run_cmd("off", "--plugins", "Core.esm,Mission.esm,FO4SFBridge.esm")
+        (self.data / "Core.esm").write_bytes(b"TES4")
+        out = self.run_cmd("on")
+        self.assertIn("back on: FO4SFBridge.esm; released, left unticked (cannot load: plugin file missing or "
+                      "unreadable, or such a master): Core.esm, Mission.esm", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
+    def test_on_unticks_a_released_plugin_the_game_ticked_again(self):
+        # Codex on #407: the hold was cleared with the broken plugin still ticked
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes(self.original.encode())         # the game ticked it again
+        (self.data / "Mission.esm").unlink()
+        self.run_cmd("on")
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 

@@ -15,8 +15,8 @@ game ticked it again), exp_install.py active counts it as intended (and fails if
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
 first, then empties the record; it refuses a plugin with a master (other than the game's implicit ones) that is
 neither active nor coming back, and a plugin with no line or several; a held plugin the game cannot load (its Data
-file gone or its header unreadable) is released without ticking it, and off refuses to hold one. A hold recorded for
-another user's Plugins.txt is refused everywhere.
+file gone or its header unreadable, or such a master) is released and unticked, and off refuses to hold one. A hold
+recorded for another user's Plugins.txt is refused everywhere.
 off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
 """
 import argparse
@@ -130,10 +130,19 @@ def on(a):
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
     mine = owned(data)
-    # a held plugin the game cannot load (its Data file gone or its header unreadable: a hold from before off checked
-    # it, or a file deleted or damaged since) is released without ticking its line; the hold would otherwise block
-    # every uninstall
+    # The plugins that cannot load are released, unticked, never restored (Codex on #407): a held plugin the game
+    # cannot load (its Data file gone or its header unreadable: a hold from before off checked it, or a file deleted
+    # or damaged since), and, transitively, a held plugin with such a master (implicit masters aside). Their hold
+    # would otherwise block every uninstall for good. Everything else held comes back under the checks below.
     lost = {p.casefold() for p in want if p.casefold() in mine and unloadable(data, mine[p.casefold()])}
+    masters = {p.casefold(): exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
+               for p in want if p.casefold() in mine and p.casefold() not in lost}
+    grew = True
+    while grew:
+        more = {k for k, ms in masters.items()
+                if k not in lost and any(not exp_install.implicit(m) and m.casefold() in lost for m in ms)}
+        lost |= more
+        grew = bool(more)
     tick = back - lost
     p_txt = exp_install.plugins_txt()
     original = exp_install.read_bytes(p_txt)
@@ -148,27 +157,34 @@ def on(a):
         if count > 1:
             raise ValueError(f"{p} has {count} lines in Plugins.txt: remove the extra ones by hand, then run on again")
     for p in want:                                        # what comes back must not need what stays off or unticked
-        if p.casefold() not in mine or p.casefold() in lost:
+        if p.casefold() not in tick or p.casefold() not in masters:
             continue
-        masters = exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
-        needs = [m for m in masters if m.casefold() in still]
+        needs = [m for m in masters[p.casefold()] if m.casefold() in still]
         if needs:
             raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
                              f"bring them back together")
         # a master the game unticked meanwhile (exp_install.active), ours or not, is no master to load against: every
         # master but the implicit ones needs an active line or must come back too (Codex on #407)
-        inactive = [m for m in masters if not exp_install.implicit(m) and m.casefold() not in active | tick]
+        inactive = [m for m in masters[p.casefold()]
+                    if not exp_install.implicit(m) and m.casefold() not in active | tick]
         if inactive:
             raise ValueError(f"{p} needs {', '.join(inactive)} as a master, which is not active in Plugins.txt: "
                              f"bring them back together or reinstall")
-    out = ["*" + ln.strip() if name(ln) in tick and not ln.strip().startswith("*") else ln for ln in lines]
+    out = []
+    for ln in lines:                                      # tick what comes back, untick what is released
+        ticked = ln.strip().startswith("*")
+        if name(ln) in tick and not ticked:
+            ln = "*" + ln.strip()
+        elif name(ln) in lost and ticked:
+            ln = ln.strip().lstrip("*").strip()
+        out.append(ln)
     if out != lines:
         exp_install.write_plugins(p_txt, out, bom, nl, original)
     rec = dict(rec, off=[p for p in held if p.casefold() not in back])
     deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
     print(f"back on: {', '.join(p for p in want if p.casefold() in tick) or 'none'}"
-          + (f"; released, left unticked (plugin file missing or unreadable): {', '.join(p for p in want if p.casefold() in lost)}"
-             if lost else "")
+          + (f"; released, left unticked (cannot load: plugin file missing or unreadable, or such a master): "
+             f"{', '.join(p for p in want if p.casefold() in lost)}" if lost else "")
           + (f"; still held off: {', '.join(rec['off'])}" if rec["off"] else ""))
 
 
