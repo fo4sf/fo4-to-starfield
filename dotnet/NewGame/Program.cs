@@ -13,7 +13,7 @@
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>]
+//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
 //        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
@@ -34,6 +34,10 @@
 //        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
 //        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
 //        and the exit anchor (the core's Vault 111 map marker).
+//        --clear-inventory (default off, NG-K8): the quest script empties the player's inventory (quest items kept)
+//        right after the move into the pod and logs the count removed; --vault-suit <EditorID> (only with it) names an
+//        ARMO of FO4Port.esm the script then adds and equips, resolved here by EditorID with the same owner check as
+//        the other ids (refused when the port lacks it, has two, or it is another plugin's record).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -118,6 +122,13 @@ static class NewGame
     // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
     // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
     public const int DefaultRaceMenuMode = 0;
+    // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900; Starfield's MQ101
+    // stage 0 swaps the outfit and removes items too (PC read 19 Oct). What a game started with MQ101 held off leaves
+    // in the player's inventory is unverified until the first in-game proof, so the reset is OFF by default: the quest
+    // script's ClearInventory property (false) and VaultSuitId (0, none). With --clear-inventory the script calls
+    // ObjectReference.RemoveAllItems(None, false, false) (quest items kept; FO4's signature, Starfield's is read by the
+    // precheck, unverified) after the move into the pod, and with --vault-suit it adds and equips the port's ARMO.
+    public const bool DefaultClearInventory = false;
     // GLOB MQ101Debug: MQ00's stage 10 sets it to 10 and starts MQ101 (verified, QF_MQ00_00005790.psc). We stop MQ00,
     // which may leave it at 0 (sustenance off, NG-M1), so the default build writes 10 ourselves (NG-2); which value
     // gives the cleanest start is unverified until the PC run (NG-M4), hence --mq101debug <n> and --no-mq101debug.
@@ -153,18 +164,27 @@ static class NewGame
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     static float Deg(float rad) => rad * 180f / MathF.PI;
 
-    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor)
+    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
+                          bool ClearInventory = DefaultClearInventory, string? VaultSuit = null)
     {
-        public static Options From(string[] a) => new(
-            ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
-            (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            a.Contains("--no-mq101debug") ? null : ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : DefaultMQ101Debug,
-            !a.Contains("--no-looks"),
-            ArgOrNull(a, "--race-menu-mode") is { } m ? int.Parse(m, CultureInfo.InvariantCulture) : DefaultRaceMenuMode,
-            !a.Contains("--no-special"),
-            !a.Contains("--no-version"),
-            ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
-            ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
+        public static Options From(string[] a)
+        {
+            var suit = ArgOrNull(a, "--vault-suit");
+            if (a.Contains("--vault-suit") && (suit is null || suit.StartsWith("--"))) throw new Refusal("--vault-suit needs an ARMO EditorID");
+            bool clear = a.Contains("--clear-inventory");
+            if (suit is not null && !clear) throw new Refusal("--vault-suit is equipped by the inventory reset: it needs --clear-inventory");
+            return new(
+                ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
+                (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                a.Contains("--no-mq101debug") ? null : ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : DefaultMQ101Debug,
+                !a.Contains("--no-looks"),
+                ArgOrNull(a, "--race-menu-mode") is { } m ? int.Parse(m, CultureInfo.InvariantCulture) : DefaultRaceMenuMode,
+                !a.Contains("--no-special"),
+                !a.Contains("--no-version"),
+                ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
+                ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
+                clear, suit);
+        }
     }
 
     // ---------------------------------------------------------------- points (Fallout 4, read only)
@@ -241,7 +261,7 @@ static class NewGame
     // ---------------------------------------------------------------- the places the script resolves at run time
 
     public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos,
-                         uint Terminal, uint TerminalSrc, P3Float TerminalPos);
+                         uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0);
 
     /// points.json's terminals, nearest the pod first: (FO4 id, position in metres).
     public static List<(uint Src, P3Float Pos)> Terminals(JsonElement pts)
@@ -267,11 +287,20 @@ static class NewGame
     /// in that cell, 0 when absent, and it must be a reference of that cell), the SPECIAL terminal (the first of points'
     /// terminals the port carries, a persistent one preferred, nearest the pod among those; each key named must be the
     /// port's own reference of the cell; 0 when it carries none, and the prompt then watches points' nearest terminal)
-    /// and the exit anchor (the core world's REFR with that EditorID, persistent).
-    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null)
+    /// the exit anchor (the core world's REFR with that EditorID, persistent) and, when `vaultSuit` names one, the port's
+    /// ARMO of that EditorID (exactly one, the port's own record; refused otherwise) the inventory reset equips.
+    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null, string? vaultSuit = null)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         Owner(port.ModKey, PortPlugin, "the port");
+        uint suit = 0;
+        if (vaultSuit is not null)
+        {
+            var suits = port.Armors.Where(x => string.Equals(x.EditorID, vaultSuit, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (suits.Count != 1) throw new Refusal($"{port.ModKey} has {suits.Count} ARMO {vaultSuit}, not one (--vault-suit names the port's vault suit by EditorID)");
+            Owned(suits[0], port.ModKey, $"the vault suit {vaultSuit}");
+            suit = suits[0].FormKey.ID;
+        }
         var cell = port.EnumerateMajorRecords<SF.ICellGetter>().FirstOrDefault(c => c.EditorID == VaultCell && c.FormKey.ModKey == port.ModKey)
                    ?? throw new Refusal($"{port.ModKey} has no cell {VaultCell}");
         var inCell = cell.Persistent.Concat(cell.Temporary).OfType<SF.IPlacedObjectGetter>().ToList();
@@ -336,7 +365,7 @@ static class NewGame
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
         if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
-        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos);
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit);
     }
 
     static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
@@ -392,6 +421,7 @@ static class NewGame
             ("ArrivalHeading", pts.GetProperty("arrival").GetProperty("heading").GetSingle()),
             ("FallbackX", p.ExitPos.X), ("FallbackY", p.ExitPos.Y), ("FallbackZ", p.ExitPos.Z),
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
+            ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
         };
     }
 
@@ -414,6 +444,7 @@ static class NewGame
     {
         int i => new SF.ScriptIntProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = i },
         float f => new SF.ScriptFloatProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = f },
+        bool b => new SF.ScriptBoolProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = b },
         _ => throw new Refusal($"property {name}: unsupported value"),
     };
 
@@ -421,13 +452,14 @@ static class NewGame
     {
         (int i, SF.IScriptIntPropertyGetter ip) => ip.Data == i,
         (float f, SF.IScriptFloatPropertyGetter fp) => fp.Data == f && float.IsFinite(fp.Data),
+        (bool b, SF.IScriptBoolPropertyGetter bp) => bp.Data == b,
         _ => false,
     };
 
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts));
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
@@ -571,9 +603,13 @@ static class NewGame
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
                           (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden") +
                           (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off") +
-                          (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off"));
+                          (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off") +
+                          $"; inventory reset {InventoryText(o, places)}");
         return 0;
     }
+
+    static string InventoryText(Options o, Places p) => !o.ClearInventory ? "off" :
+        $"on (quest items kept), vault suit {(o.VaultSuit is null ? "none" : $"{o.VaultSuit} FO4Port.esm:{p.VaultSuit:X6}")}";
 
     /// The build's version number as our own constant GLOB (see the constants' note: Constant so the save does not
     /// carry the value; unverified until the PC run).
@@ -604,7 +640,7 @@ static class NewGame
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts));
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         var key = plug.ModKey;
@@ -719,6 +755,8 @@ static class NewGame
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
                 Need(props.Count == expected.Count + 3, $"{props.Count} properties, expected {expected.Count + 3}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
+                Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
+                Console.WriteLine($"  inventory reset {InventoryText(o, places)}");
             }
             else problems.Add($"script {ScriptName} not attached");
             var ls = q.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == LooksScript);
@@ -811,6 +849,9 @@ static class NewGame
         port.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         var pdoor = new SF.Door(new FormKey(portKey, 0x810), rel) { EditorID = "FO4Port_VltGearDoor01" };
         port.Doors.Add(pdoor);
+        // the vault suit the inventory reset may equip (--vault-suit): the port's own ARMO, named by EditorID
+        const string SuitEdid = "FO4Port_VaultSuit111";
+        port.Armors.Add(new SF.Armor(new FormKey(portKey, 0x820), rel) { EditorID = SuitEdid });
         var pcell = new SF.Cell(new FormKey(portKey, 0x800), rel) { EditorID = VaultCell, Flags = SF.Cell.Flag.IsInteriorCell };
         pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x801), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, CocMarkerId)), Position = new P3Float(60, 15, 1) });
         pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x802), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(52, 10, 0) });
@@ -827,7 +868,7 @@ static class NewGame
         ps.Cells.Add(pcell);
         pb.SubBlocks.Add(ps);
         port.Cells.Records.Add(pb);
-        port.ModHeader.Stats.NextFormID = 0x811;
+        port.ModHeader.Stats.NextFormID = 0x821;
         var portPath = Path.Combine(dir, portKey.FileName);
         port.BeginWrite.ToPath(portPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         var idsPath = Path.Combine(dir, "formids.json");
@@ -879,8 +920,20 @@ static class NewGame
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
         if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
             Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
+        // the inventory reset is off by default; the suit needs the reset and an EditorID
+        if (plain.ClearInventory || plain.VaultSuit is not null || !Options.From(new[] { "--clear-inventory" }).ClearInventory ||
+            Options.From(new[] { "--clear-inventory", "--vault-suit", SuitEdid }) is not { ClearInventory: true, VaultSuit: SuitEdid }) { Console.WriteLine("FAIL  the inventory options"); return 1; }
+        foreach (var (why, bad) in new[] { ("--vault-suit without --clear-inventory", new[] { "--vault-suit", SuitEdid }), ("--vault-suit without an EditorID", new[] { "--clear-inventory", "--vault-suit" }),
+                                           ("--vault-suit followed by another option", new[] { "--clear-inventory", "--vault-suit", "--no-looks" }) })
+        {
+            try { Options.From(bad); Console.WriteLine($"FAIL  options accepted {why}"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
+        }
+        var clear = plain with { ClearInventory = true };
+        var suit = clear with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
         {
+            ("clear", idsPath, clear), ("suit", idsPath, suit),
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("nodebug", idsPath, plain with { MQ101Debug = null }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
@@ -917,6 +970,11 @@ static class NewGame
             ("noversion", plain, idsPath, "a --no-version build as a version-check one"),
             ("default", plain with { BuildVersion = 2 }, idsPath, "the default (build version 1) build as a version 2 one"),
             ("version2", plain, idsPath, "a build version 2 build as the default one"),
+            ("default", clear, idsPath, "the default (inventory kept) build as a --clear-inventory one"),
+            ("clear", plain, idsPath, "a --clear-inventory build as the default one"),
+            ("clear", suit, idsPath, "a --clear-inventory build without a suit as a --vault-suit one"),
+            ("suit", clear, idsPath, "a --vault-suit build as a --clear-inventory one without a suit"),
+            ("suit", plain, idsPath, "a --vault-suit build as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -962,6 +1020,9 @@ static class NewGame
             ("the SPECIAL list order swapped", m => { var l = (SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special"); (l.Objects[0], l.Objects[6]) = (l.Objects[6], l.Objects[0]); }),
             ("the terminal id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalId")).Data = 0x807),
             ("the terminal spot changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalX")).Data += 1),
+            ("the inventory reset switched on", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ClearInventory")).Data = true),
+            ("a vault suit id without the option", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultSuitId")).Data = 0x820),
+            ("ClearInventory removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "ClearInventory")),
         };
         foreach (var (name, edit) in mutations)
         {
@@ -1031,7 +1092,21 @@ static class NewGame
             if (pinned.Terminal != 0x808 || Resolve(portPath, nearTermIds, corePath, ExitAnchorEdid, pinned.Terminal == 0x808 ? Terminals(JsonDocument.Parse(File.ReadAllText(oneTerm)).RootElement) : terms).Terminal != 0)
                 { Console.WriteLine("FAIL  --terminal-ref"); return 1; }
             if (!IsRefKey($"REFR:{VaultCell}:001002:Fallout4.esm", 0x1002) || IsRefKey($"REFR:{VaultCell}:001002:Fallout4.esm", 0x1003)) { Console.WriteLine("FAIL  IsRefKey"); return 1; }
+            // the vault suit (--vault-suit): the port's one ARMO of that EditorID, any case; none, two, another plugin's
+            // record or no option at all give 0 or a refusal
+            if (Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms, SuitEdid).VaultSuit != 0x820 || Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms, SuitEdid.ToUpperInvariant()).VaultSuit != 0x820 ||
+                Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms).VaultSuit != 0) { Console.WriteLine("FAIL  the vault suit"); return 1; }
+            var twoSuits = Port(m => m.Armors.Add(new SF.Armor(new FormKey(portKey, 0x821), rel) { EditorID = SuitEdid }));
+            var foreignSuit = Port(m => { var s = m.Armors.First(); m.Armors.Remove(s.FormKey); m.Armors.Add((SF.Armor)s.Duplicate(new FormKey(SfEsm, 0x820))); });
+            foreach (var (why, p, edid) in new[] { ("a vault suit the port lacks", portPath, "FO4Port_NoSuchSuit"), ("two vault suits of that EditorID", twoSuits, SuitEdid), ("a vault suit owned by Starfield.esm", foreignSuit, SuitEdid) })
+            {
+                try { Resolve(p, idsPath, corePath, ExitAnchorEdid, terms, edid); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
+                catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
+            }
         }
+        // refusals: a --vault-suit build whose suit the port lacks (write resolves it as it does the anchors)
+        try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), clear with { VaultSuit = "FO4Port_NoSuchSuit" }); Console.WriteLine("FAIL  write accepted a vault suit the port lacks"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (a vault suit the port lacks): {e.Message}"); }
         // refusals: a SPECIAL build from a points.json without a terminal (a --no-special one builds)
         {
             var noTerm = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(pointsPath))!;

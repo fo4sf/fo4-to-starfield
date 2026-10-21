@@ -44,6 +44,10 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
     it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
     changes (optional script).
+11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory`
+    build empties the inventory (quest items kept) right after the move into the pod and logs the count; with
+    `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8; section 4c). Off until the first
+    in-game proof shows what a game with MQ101 held off leaves in the inventory.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -184,6 +188,32 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   plugin then carries no GLOB of its own and no alias). The precheck looks `OnPlayerLoadGame` up in ReferenceAlias.psc
   and `OnInit` in ScriptObject.psc; a miss means `--no-version`.
 
+## 4c. The starting inventory reset
+
+- The question (NG-K8, with NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (**verified**, the B4 spike and
+  the 19 Oct script read); Starfield's MQ101 stage 0 swaps the outfit and removes items too (PC read 19 Oct). What a
+  game started our way, with MQ00 and MQ101 held off before stage 0 has run or after it, leaves in the player's
+  inventory is **unresolved** until the first in-game proof. So the reset is a writer option, **off by default**:
+  `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
+  the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
+  setting.
+- When on: right after the move into the pod succeeds and before stage 10, `ResetInventory` calls
+  `player.RemoveAllItems(None, false, false)` (the third argument false keeps quest items), reads
+  `GetItemCount(None)` before and after and logs `inventory cleared removed=<n> left=<n> (quest items kept)`. Both
+  natives are written with FO4's signatures; Starfield's `ObjectReference.psc` is what the precheck reads, and a miss
+  fails the core script (there is no `--no-...` for it: the property is off, but the script must compile). Whether
+  Starfield's `GetItemCount(None)` counts every item, as FO4's does, is **unverified**: both numbers are logged so the
+  proof can say.
+- The suit: `--vault-suit <EditorID>` (only with `--clear-inventory`; refused alone) names an ARMO of FO4Port.esm. The
+  writer resolves it offline exactly as it does the anchors and the terminal: exactly one ARMO of that EditorID (any
+  case) in the port, the port's own record, else refused (none, two, or another plugin's record). The script resolves it
+  with `Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor`, `AddItem(suit, 1, true)` and
+  `EquipItem(suit, false, true)` (silent), and logs `vault suit equipped <armor> worn=<IsEquipped>`, or that the id did
+  not resolve. Whether the installed port carries a wearable vault suit ARMO at all, and under which EditorID, is
+  **unresolved**: the owner names it when it exists; the selftest uses a synthetic `FO4Port_VaultSuit111`.
+- `make_newgame.py log` prints `inventory_cleared` and `vault_suit` (None when the build kept the inventory, or named no
+  suit); plan.json records `clear_inventory` and `vault_suit`.
+
 ## 5. What Vault 111 needs from the port today
 
 | Piece | State | Source |
@@ -204,7 +234,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    ContentResources.zip only and lists every native and event the four scripts use and every MQ101Debug line. Exit 1
    means a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
    `OnMenuOpenCloseEvent` means stage with `--no-looks`; a missing `Actor.SetValue` or `Actor.GetValue` means
-   `--no-special`; a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`.
+   `--no-special`; a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
+   (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) belong to the quest script, so a miss there
+   is a core miss (section 4c).
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
@@ -212,12 +244,15 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
    (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
-   `--terminal-ref <hex>`. plan.json records them and the stage contract.
+   `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c). plan.json
+   records them and the stage contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
    selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold,
-   `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version` and `--build-version 2` variants,
-   and each build must fail `check` under the others' options. It also checks the four MESG records (two buttons each,
+   `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
+   `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the
+   others' options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks,
+   has twice, or that another plugin owns is refused. It also checks the four MESG records (two buttons each,
    ten on the allocation), the seven AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties, the SPECIAL
    script's list, messages and terminal, and the version GLOB (its value and Constant flag), the player alias (forced
    to 00000014, the only alias) and the alias script's binding and `BuildVersion` property; the terminal pick prefers a

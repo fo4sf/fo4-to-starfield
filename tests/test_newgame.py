@@ -27,7 +27,7 @@ RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
-                version=True, build_version=None)
+                version=True, build_version=None, clear_inventory=False, vault_suit=None)
 
 
 def namespace(**kw):
@@ -154,6 +154,50 @@ class ContractTests(unittest.TestCase):
         self.assertIsNone(ng.build_version_option(namespace(version=False)))
         self.assertEqual(ng.tool_options(namespace(build_version=2)), ["--build-version", "2"])
         self.assertEqual(ng.build_version_option(namespace(build_version=2)), 2)
+
+    def test_the_starting_inventory_reset(self):
+        """NG-K8: the reset is one default (off) in the writer and Python; --clear-inventory makes the quest script
+        empty the inventory (quest items kept) right after the move into the pod and before stage 10, logging the count;
+        --vault-suit names the port's ARMO the writer resolves by EditorID (refused without --clear-inventory) and the
+        script adds and equips after the reset, logging it. Every native of it is prechecked, and the plan records both."""
+        cs, psc = read(CS), read(PSC)
+        self.assertIn(f"DefaultClearInventory = {str(ng.DEFAULT_CLEAR_INVENTORY).lower()};", cs)
+        self.assertFalse(ng.DEFAULT_CLEAR_INVENTORY)
+        self.assertIn('a.Contains("--clear-inventory")', cs)
+        self.assertIn('ArgOrNull(a, "--vault-suit")', cs)
+        self.assertIn("it needs --clear-inventory", cs)
+        self.assertIn('("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit)', cs)
+        self.assertIn("port.Armors.Where(x => string.Equals(x.EditorID, vaultSuit", cs)
+        self.assertIn('Owned(suits[0], port.ModKey, $"the vault suit {vaultSuit}")', cs)
+        self.assertIn("bool Property ClearInventory = false Auto Const", psc)
+        self.assertIn("int Property VaultSuitId = 0 Auto Const", psc)
+        body = psc[psc.index("Event OnTimer"):]
+        enter = body.index("if !EnterVault(player)")
+        self.assertLess(enter, body.index("if ClearInventory\n            ResetInventory(player)"))
+        self.assertLess(body.index("ResetInventory(player)"), body.index("AdvanceTo(10)"))
+        reset = psc[psc.index("Function ResetInventory"):psc.index("Function InVault")]
+        self.assertEqual(reset.count("player.RemoveAllItems("), 1)   # once; the doc comment names the call too
+        self.assertIn("player.RemoveAllItems(None, false, false)", reset)   # quest items kept (the third argument)
+        self.assertIn("int before = player.GetItemCount(None)", reset)
+        self.assertIn('Trace("inventory cleared removed=" + (before - after) + " left=" + after', reset)
+        self.assertIn("if VaultSuitId > 0", reset)
+        self.assertIn("Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor", reset)
+        self.assertLess(reset.index("player.AddItem(suit, 1, true)"), reset.index("player.EquipItem(suit, false, true)"))
+        self.assertIn('Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))', reset)
+        self.assertIn('Trace("vault suit " + VaultPlugin + ":" + VaultSuitId + " does not resolve")', reset)
+        for native in ("RemoveAllItems", "GetItemCount", "AddItem"):
+            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["ObjectReference"])
+        for native in ("EquipItem", "IsEquipped"):
+            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["Actor"])
+        self.assertNotIn("RemoveAllItems", read(LOOKS) + read(SPECIAL) + read(VERSION))
+        self.assertEqual(ng.tool_options(namespace(clear_inventory=True)), ["--clear-inventory"])
+        self.assertEqual(ng.tool_options(namespace(clear_inventory=True, vault_suit="FO4Port_VaultSuit111")),
+                         ["--clear-inventory", "--vault-suit", "FO4Port_VaultSuit111"])
+        with self.assertRaises(SystemExit):
+            ng.tool_options(namespace(vault_suit="FO4Port_VaultSuit111"))
+        self.assertIn("--clear-inventory", read(DOC))
+        self.assertIn("--vault-suit", read(DOC))
+        self.assertIn("## 4c. The starting inventory reset", read(DOC))
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -375,12 +419,19 @@ class ContractTests(unittest.TestCase):
 # Starfield's Game.psc declarations (PC read, 19 Oct): the restore after the hold-off calls both
 CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
+# Actor.psc's declarations the quest script itself needs: the guard's GetLevel and the inventory reset's EquipItem /
+# IsEquipped (FO4's signatures; Starfield's are what the precheck reads). ObjectReference's RemoveAllItems, GetItemCount
+# and AddItem are generated from NATIVES below
+ACTOR_CORE = ("int Function GetLevel() native\n"
+              "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
+              "bool Function IsEquipped(Form akItem) native\n")
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None):
     base = {
-        # Actor.psc: GetLevel (the guard) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
-        "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+        # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
+        # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
+        "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\n" + ACTOR_CORE +
                                                  "Function SetValue(ActorValue akAV, float afValue) native\n"
                                                  "float Function GetValue(ActorValue akAV) native\n",
         "Debug": "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
@@ -447,7 +498,7 @@ class PrecheckTests(unittest.TestCase):
         """Actor.SetValue / GetValue are what the SPECIAL script needs beyond the quest's natives: a source set
         without them fails only that script, and the precheck says --no-special."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
@@ -485,6 +536,22 @@ class PrecheckTests(unittest.TestCase):
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
 
+    def test_missing_inventory_natives_fail_the_core_script(self):
+        """The inventory reset lives in the quest script (its ClearInventory property is off by default, but the
+        natives must compile): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
+        self.assertEqual(r["drop"], [])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.RemoveAllItems"])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.GetItemCount"])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.AddItem"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
+        self.assertIn("MISSING  FO4SF_NewGameQuest: Actor.EquipItem", o.getvalue())
+
     def test_has_function_needs_the_declaration(self):
         self.assertTrue(ng.has_function("bool Function IsInMenuMode() native global", "IsInMenuMode"))
         self.assertFalse(ng.has_function("; IsInMenuMode() is not here\nFunction IsInMenuModeX()", "IsInMenuMode"))
@@ -514,6 +581,8 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2 (quest items kept)",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
         "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
         "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
@@ -549,6 +618,20 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["version_saved"], "1.000000")
         self.assertIsNone(s["version_load"])                 # no save was loaded in this run
         self.assertFalse(s["version_mismatch"])
+        self.assertEqual(s["inventory_cleared"], "removed=14 left=2 (quest items kept)")
+        self.assertEqual(s["vault_suit"], "equipped [Armor < (0A000820)>] worn=True")
+
+    def test_inventory_lines(self):
+        """The inventory reset (NG-K8): a default build logs neither line (both None); a --clear-inventory build logs
+        the count; a --vault-suit build the suit, or that it did not resolve."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=x\n")[1]
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0 (quest items kept)\n")[1]
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0 (quest items kept)", None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1 (quest items kept)\n"
+                                "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
+        self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")
 
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()

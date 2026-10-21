@@ -80,6 +80,14 @@ float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
 
+bool Property ClearInventory = false Auto Const
+{The starting inventory reset (NG-K8, the writer's --clear-inventory; off until the first in-game proof shows what
+ Starfield leaves the player with when MQ101 is held off). True: right after the move into the pod, RemoveAllItems
+ (quest items kept) and the count removed logged as "inventory cleared removed=<n> left=<n>"; then VaultSuitId.}
+int Property VaultSuitId = 0 Auto Const
+{With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
+ added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
+
 string LogName = "fo4sf_newgame"
 int ticks = 0
 float startedAt = 0.0
@@ -149,6 +157,9 @@ Event OnTimer(int aiTimerID)
             StartTimer(1.0, 1)                               ; the port is not loaded yet or the move missed: retried
             return
         endif
+        if ClearInventory
+            ResetInventory(player)
+        endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
     elseif stage == 10
@@ -211,6 +222,27 @@ bool Function EnterVault(Actor player)
         Debug.Notification("Vault 111")
     endif
     return ok
+EndFunction
+
+Function ResetInventory(Actor player)
+{The starting inventory reset (NG-K8), once, right after the move into the pod: every item but quest items goes
+ (RemoveAllItems(None, false, false), FO4's signature; Starfield's is what the precheck reads), the count before and
+ after is logged (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers are logged), then
+ the vault suit, when the build names one, is added and equipped.}
+    int before = player.GetItemCount(None)
+    player.RemoveAllItems(None, false, false)
+    int after = player.GetItemCount(None)
+    Trace("inventory cleared removed=" + (before - after) + " left=" + after + " (quest items kept)")
+    if VaultSuitId > 0
+        Armor suit = Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor
+        if suit == None
+            Trace("vault suit " + VaultPlugin + ":" + VaultSuitId + " does not resolve")
+            return
+        endif
+        player.AddItem(suit, 1, true)
+        player.EquipItem(suit, false, true)
+        Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
+    endif
 EndFunction
 
 Function InVault(Actor player, int stage)

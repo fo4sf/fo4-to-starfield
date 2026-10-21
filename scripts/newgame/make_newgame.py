@@ -12,6 +12,7 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--pod-ref HEX] [--terminal-ref HEX]
+                               [--clear-inventory [--vault-suit EDITORID]]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
@@ -28,7 +29,8 @@ usage:
       .pex, published only after verify passes on the result.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
       the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
-      the SPECIAL ending, the save version lines, moves, the landing); exit 0 when stage 200 was reached.
+      the SPECIAL ending, the save version lines, the inventory reset, moves, the landing); exit 0 when stage 200 was
+      reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -87,21 +89,30 @@ SPECIAL_MAX_PRESSES = 300
 # mismatch" and a notification when they differ. --build-version sets another number; bump it when a save made under
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
-STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
+# The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
+# OFF until the first in-game proof shows what Starfield leaves the player with when MQ101 is held off. --clear-inventory
+# makes the quest script call RemoveAllItems (quest items kept) right after the move into the pod and log "inventory
+# cleared removed=<n> left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and
+# equips ("vault suit equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
+DEFAULT_CLEAR_INVENTORY = False
+STARFIELD =r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 # the natives each script calls and the events it handles, by the base script that must declare them (precheck).
 # Events are declarations too (Event OnMenuOpenCloseEvent in ScriptObject.psc), looked up the same way.
 NATIVES = {
+    # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
+    # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads
     SCRIPT: {
-        "Actor": ["GetLevel"],
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode"],
         "GlobalVariable": ["GetValue"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
-                            "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen"],
+                            "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen", "RemoveAllItems", "GetItemCount",
+                            "AddItem"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
                   "SetObjectiveCompleted", "SetActive"],
         "ScriptObject": ["StartTimer"],
@@ -294,6 +305,12 @@ def tool_options(a):
         opts.append("--no-version")
     if a.build_version is not None:
         opts += ["--build-version", str(a.build_version)]
+    if a.clear_inventory:
+        opts.append("--clear-inventory")
+        if a.vault_suit:
+            opts += ["--vault-suit", a.vault_suit]
+    elif a.vault_suit:
+        sys.exit("--vault-suit is equipped by the inventory reset: stage with --clear-inventory too")
     return opts
 
 
@@ -349,7 +366,8 @@ def stage(a):
             "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
-                        "build_version": build_version_option(a)},
+                        "build_version": build_version_option(a),
+                        "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None},
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -361,6 +379,7 @@ MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and F
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
+Inventory reset at the pod: {('ON (quest items kept), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set, verify, then exp_install.py.
 In game: a NEW game only (an existing save stands the quest down at stage 1). Read the run:
@@ -451,8 +470,10 @@ def split_runs(lines, line_re, start="init "):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "special", "version_saved", "version_load", "version_mismatch", "entered_vault", "surfaced", "landed", "fell",
-    "stood_down", "last_status", "runs", "earlier_completed"}.
+    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "entered_vault",
+    "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "inventory_cleared" is the reset's line ("removed=<n> left=<n> ..."; None when the build kept the inventory) and
+    "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
     says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
@@ -464,6 +485,7 @@ def summarize(lines):
     stage 200 (kept as history, never as the current result). Lines of other logs are ignored."""
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
+         "inventory_cleared": None, "vault_suit": None,
          "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
          "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE)
@@ -492,6 +514,10 @@ def summarize(lines):
             s["version_load"] = msg[len("version load "):]
         elif msg.startswith("version mismatch"):
             s["version_mismatch"] = True
+        elif msg.startswith("inventory cleared "):
+            s["inventory_cleared"] = msg[len("inventory cleared "):]
+        elif msg.startswith("vault suit "):
+            s["vault_suit"] = msg[len("vault suit "):]
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -544,6 +570,10 @@ def main(argv=None):
     s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
     s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
+    s.add_argument("--clear-inventory", action="store_true",
+                   help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")
+    s.add_argument("--vault-suit", default=None, metavar="EDITORID",
+                   help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)
     v.add_argument("--plan", required=True)
