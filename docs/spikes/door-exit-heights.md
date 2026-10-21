@@ -25,7 +25,7 @@ These are **supported hypotheses**. None is tested.
 ## Offline check (read-only, PC)
 `scripts/terrain/arrival_ground.py <core staging dir> <door_rounds_judge.json>` takes each WRONG_PLACE marker and read
 position back into the core's local frame, by subtracting the build's merge offset. It prints the core BTD's ground
-height under each. Reading it:
+height under each, under all three in-quad rules (one verdict only when they agree; "in" legs are skipped). Reading it:
 - Got z on the ground: the player stood on terrain.
 - Marker above the ground: the marker floats, or it stands on an object that is not terrain.
 - Marker below the ground: the marker is buried.

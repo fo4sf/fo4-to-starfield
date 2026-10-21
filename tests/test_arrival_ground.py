@@ -39,8 +39,8 @@ def core_dir(tmp):
     return tmp
 
 
-def row(i, why, pos, got):
-    return {"id": f"{i:04d}_t", "src": f"00000{i}:Fallout4.esm", "cell_edid": f"C{i}", "why": why,
+def row(i, why, pos, got, leg="out"):
+    return {"id": f"{i:04d}_t", "leg": leg, "src": f"00000{i}:Fallout4.esm", "cell_edid": f"C{i}", "why": why,
             "pos": [pos[k] + MERGE[k] for k in range(3)], "got": {"pos": [got[k] + MERGE[k] for k in range(3)]}}
 
 
@@ -53,21 +53,40 @@ class ArrivalGround(unittest.TestCase):
                 row(1, "WRONG_PLACE: 0.0 m off in xy, 12.0 m in z", (0.0, 0.0, 22.0), (0.0, 0.0, 10.0)),
                 # buried marker: ground 15 at x 50, marker at 5, the player was lifted 16 m (onto something)
                 row(2, "WRONG_PLACE: 0.0 m off in xy, 16.0 m in z", (50.0, 0.0, 5.0), (50.0, 0.0, 21.0)),
-                {"id": "0003_t", "why": "PASS", "pos": [0, 0, 0], "got": {"pos": [0, 0, 0]}},
-                {"id": "0004_t", "why": "WRONG_PLACE: no read"}]}
+                {"id": "0003_t", "leg": "out", "why": "PASS", "pos": [0, 0, 0], "got": {"pos": [0, 0, 0]}},
+                {"id": "0004_t", "leg": "out", "why": "WRONG_PLACE: no read"},
+                # an interior (in) row: interior-cell coordinates, never read against the core's terrain
+                row(5, "WRONG_PLACE: 3.0 m off in xy", (1.0, 2.0, 3.0), (4.0, 2.0, 3.0), leg="in"),
+                # outside the 2 x 2-cell BTD: clamped edge heights are not ground
+                row(6, "WRONG_PLACE: 0.0 m off in xy, 1.0 m in z", (500.0, 0.0, 5.0), (500.0, 0.0, 6.0))]}
             path = os.path.join(tmp, "judge.json")
             with open(path, "w") as f:
                 json.dump(judge, f)
             offset = ag.vmad_patch.merge_offset(core)
             found = ag.read(ag.core_terrain(core), offset, ag.rows(ag.load(path)))
-            self.assertEqual([f["id"] for f in found], ["0001_t", "0002_t"])
-            a, b = found
+            self.assertEqual([f["id"] for f in found], ["0001_t", "0002_t", "0006_t"])
+            a, b, c = found
             self.assertEqual(a["marker_local"], [0.0, 0.0, 22.0])
-            self.assertAlmostEqual(a["ground_at_marker"], 10.0, delta=0.01)
+            self.assertEqual(sorted(a["ground_at_marker"]), ["bilinear", "tri_nw_se", "tri_sw_ne"])
+            self.assertAlmostEqual(a["ground_at_marker"]["bilinear"], 10.0, delta=0.01)
             self.assertEqual((a["marker"], a["got"]), ("12.0 m above ground", "on ground"))
-            self.assertAlmostEqual(b["ground_at_marker"], 15.0, delta=0.01)
+            self.assertAlmostEqual(b["ground_at_marker"]["tri_sw_ne"], 15.0, delta=0.01)
             self.assertEqual((b["marker"], b["got"]), ("10.0 m below ground", "6.0 m above ground"))
-            self.assertEqual(len(ag.rows(ag.load(path), everything=True)), 3)
+            self.assertEqual((c["ground_at_marker"], c["marker"]), (None, "outside the BTD"))
+            self.assertEqual(len(ag.rows(ag.load(path), everything=True)), 4)
+
+    def test_rules_that_disagree_leave_it_unresolved(self):
+        # a saddle quad: corners 0, 2, 2, 0; at its centre bilinear gives 1.0, the SW-NE split 0.0, the NW-SE split 2.0
+        class Saddle:
+            origin, raw = 0.0, np.zeros((2, 2), np.uint16)
+
+            def window(self, *_):
+                return np.array([[0.0, 2.0], [2.0, 0.0]]), 0.0, 0.0
+        h = ag.ground(Saddle(), tg.SF_STEP_M / 2, tg.SF_STEP_M / 2)
+        self.assertEqual(sorted(h.values()), [0.0, 1.0, 2.0])
+        self.assertEqual(ag.classify(1.0, h), "unresolved: -1.0 to +1.0 m from the ground under the three rules")
+        self.assertEqual(ag.classify(5.0, h), "3.0 to 5.0 m above ground")
+        self.assertEqual(ag.classify(-3.0, h), "3.0 to 5.0 m below ground")
 
     def test_refuses_a_core_without_one_btd_overlay(self):
         with tempfile.TemporaryDirectory() as tmp:
