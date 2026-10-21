@@ -334,7 +334,9 @@ def map_markers_why(camp):
         return None
     try:
         mm.require_masters(os.path.join(data, mm.PLUGIN), data, "ordered", mm.receipt_pins(rec_p))
-    except (OSError, ValueError, SystemExit) as error:
+        # Codex on #391: and everything kit.order refuses (receipt state, file digests, a held-off plugin left active)
+        mm.kit.order_preflight(argparse.Namespace(starfield=camp.get("starfield") or STARFIELD))
+    except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
         return f"map_markers_install.py order would stop every launch: {error}"
     return None
 
@@ -472,6 +474,11 @@ def check_queue(entry, camp, release):
                 why.append(bad)
             elif path and not os.path.isfile(path):
                 why.append(f"the judge's definition file {path} is missing")
+            elif path and q.get("rounds_sha256") and norm(judge[0]) == norm("scripts/bridge/door_rounds.py") and \
+                    tq.sha256(path) != q["rounds_sha256"]:
+                # Codex on #391: the judge would read other door definitions than the ones the tests were planned from
+                why.append(f"the judge's definition file {path} is not the rounds.json this queue was planned from "
+                           f"(queue.json rounds_sha256 differs): plan the queue again")
     st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
     left = len([t for t in q["tests"] if t["id"] not in (st.get("done") or {})])
     if st.get("crashes") or st.get("start_deaths"):
@@ -609,6 +616,9 @@ def recheck(entry, camp, release, pin):
 def check(camp, release):
     """({"caps": [...], "queues": [(entry, why, notes)]}, ok)."""
     caps = check_caps(camp.get("caps"))
+    if not name_ok(camp.get("name")):
+        # Codex on #391: chain() writes the name into a comment line; a line break would end it and run the rest
+        caps.append(f"name {camp.get('name')!r} is not one plain line (letters, digits, space, . _ - only)")
     for k in ("checkout", "staging") + tuple(k for k in ("bridge", "starfield") if camp.get(k)):
         if not rooted(camp.get(k)):
             # Codex on #391: the chain's Set-Location and the runner resolve a relative path where they are started
@@ -699,8 +709,15 @@ def campaign_sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def name_ok(name):
+    """A campaign name chain() may write into its header comment: one plain line."""
+    return isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}", name) is not None
+
+
 def chain(camp, path, release, digest=None):
     caps, py = camp["caps"], camp.get("python") or "python"
+    if not name_ok(camp.get("name")):
+        sys.exit(f"name {camp.get('name')!r} is not one plain line (letters, digits, space, . _ - only)")
     launch = camp.get("launch", "steam")
     if launch not in LAUNCHES:
         sys.exit(f"launch {launch!r}, want one of {LAUNCHES}")

@@ -266,16 +266,13 @@ def uninstall(a, _recovery=None):
     print("uninstalled")
 
 
-def order(a):
-    """The bridge's line moved to the END of Plugins.txt, right before launch (cycle.ps1 after exp_install order).
-    The bridge has no masters and nothing depends on its load index, but every planned test addresses the experiment's
-    records by load index (plugin_index 02 for the terrain, the cave slice's door 05000800): cave_core64c_1015 a1
-    (2026-10-15) had "*FO4SFBridge.esm" first, every experiment shifted one index up, prid 05000800 hit FO4Port's
-    record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
+def order_preflight(a):
+    """order's read-only checks, before it touches Plugins.txt: None when the kit is not installed, else
+    (data, rec_p, rec, Plugins.txt path, held off); ValueError when order would refuse (campaign_arm.py runs the same
+    checks before it arms a chain, Codex on #391)."""
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
-        print(f"{KIT} not installed: nothing to order")
-        return
+        return None
     rec = read_record(rec_p)
     if rec.get("complete") is not True or rec.get("cleanup_pending"):
         raise ValueError(f"incomplete {KIT} install: recover before ordering")
@@ -286,10 +283,25 @@ def order(a):
         if not os.path.isfile(target) or exp_install.digest(target) != expected:
             raise ValueError(f"installed {KIT} changed: {relative}")
     p = validate_profile(rec)
-    if PLUGIN.casefold() in exp_install.held_off(data):
-        if plugin_line_present(exp_install.read_plugins(p)[0], PLUGIN) is not None:
-            raise ValueError(f"{PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt: "
-                             f"run plugin_toggle.py on, or untick it")
+    held = PLUGIN.casefold() in exp_install.held_off(data)
+    if held and plugin_line_present(exp_install.read_plugins(p)[0], PLUGIN) is not None:
+        raise ValueError(f"{PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt: "
+                         f"run plugin_toggle.py on, or untick it")
+    return data, rec_p, rec, p, held
+
+
+def order(a):
+    """The bridge's line moved to the END of Plugins.txt, right before launch (cycle.ps1 after exp_install order).
+    The bridge has no masters and nothing depends on its load index, but every planned test addresses the experiment's
+    records by load index (plugin_index 02 for the terrain, the cave slice's door 05000800): cave_core64c_1015 a1
+    (2026-10-15) had "*FO4SFBridge.esm" first, every experiment shifted one index up, prid 05000800 hit FO4Port's
+    record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
+    pre = order_preflight(a)
+    if pre is None:
+        print(f"{KIT} not installed: nothing to order")
+        return
+    data, rec_p, rec, p, held = pre
+    if held:
         print(f"{PLUGIN} held off by plugin_toggle.py: left unticked")
         return
     original = exp_install.read_bytes(p)

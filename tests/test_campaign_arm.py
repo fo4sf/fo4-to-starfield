@@ -754,6 +754,33 @@ class ScriptAndGateTests(Base):
                 c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q] + bad
                 self.assertIn(want, " ".join(self.check(c)[1]))
 
+    def test_a_door_judge_reads_the_rounds_its_queue_was_planned_from(self):
+        # Codex on #391: queue.json rounds_sha256 pins the rounds.json plan-terrain read; an edit before arming would
+        # have the judge score the run against other door definitions
+        rounds = os.path.join(self.stage, "rounds.json")
+        with open(rounds, "w") as f:
+            json.dump({"tests": []}, f)
+        q = self.queue("a", [{"coc": "FO4Port_X"}], rounds_sha256=tq.sha256(rounds))
+        c = self.camp([])
+        c["queues"] = [{"name": "a", "queue": q, "judge": ["scripts/bridge/door_rounds.py", "judge", "--queue", q]}]
+        self.assertTrue(self.check(c)[0])
+        with open(rounds, "w") as f:
+            json.dump({"tests": [{"test": 0}]}, f)
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("not the rounds.json this queue was planned from", " ".join(why))
+
+    def test_the_campaign_name_is_one_plain_line(self):
+        # Codex on #391: chain() writes the name into its header comment; a line break would end the comment
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        for name in ("v6e\nStop-Process -Name Starfield", "", "a" * 81, "v6e; rm", None):
+            with self.subTest(name=name):
+                c = self.camp([("a", q)], name=name)
+                self.assertIn("is not one plain line", " ".join(self.check(c)[1]))
+                with self.assertRaises(SystemExit):
+                    ca.chain(dict(c, caps=dict(CAPS)), os.path.join(self.d, "c.json"), set())
+        self.assertTrue(self.check(self.camp([("a", q)], name="v6e night 2026-10-21"))[0])
+
     def test_the_chain_names_the_campaign_by_its_full_path(self):
         # Codex on #391: the chain runs Set-Location to the checkout before its check
         q = self.queue("a", [{"coc": "FO4Port_X"}])
@@ -1019,13 +1046,27 @@ class RunChainTests(Base):
         data = os.path.join(self.sf, "Data")
         with open(os.path.join(data, "FO4SFMapMarkers.esm"), "wb") as f:
             f.write(tes4("FO4SFMapMarkers.esm", ("Starfield.esm", "FO4TerrainCore.esm")))
+        with open(os.path.join(data, "FO4SFMapMarkers - Main.ba2"), "wb") as f:
+            f.write(b"BTDX")
+        files = {n: ei.digest(os.path.join(data, n)) for n in ("FO4SFMapMarkers.esm", "FO4SFMapMarkers - Main.ba2")}
         core = ei.digest(os.path.join(data, "FO4TerrainCore.esm"))
         rec = os.path.join(data, "FO4SFMapMarkers.install.json")
+        good = {"complete": True, "files": files, "masters_sha256": {"fo4terraincore.esm": core}}
         with open(rec, "w") as f:
-            json.dump({"complete": True, "masters_sha256": {"fo4terraincore.esm": core}}, f)
+            json.dump(good, f)
         self.assertEqual(self.check(self.camp([("a", q)])), (True, []))
+        # Codex on #391: everything kit.order refuses too, not only the masters
+        for bad, want in ((dict(good, complete=False), "incomplete"),
+                          (dict(good, files={"FO4SFMapMarkers.esm": files["FO4SFMapMarkers.esm"]}), "coverage"),
+                          (dict(good, files=dict(files, **{"FO4SFMapMarkers - Main.ba2": "0" * 64})), "changed")):
+            with self.subTest(want=want):
+                with open(rec, "w") as f:
+                    json.dump(bad, f)
+                ok, why = self.check(self.camp([("a", q)]))
+                self.assertFalse(ok)
+                self.assertTrue(any("map_markers_install.py order would stop" in w and want in w for w in why), why)
         with open(rec, "w") as f:
-            json.dump({"complete": True, "masters_sha256": {"fo4terraincore.esm": "0" * 64}}, f)
+            json.dump(dict(good, masters_sha256={"fo4terraincore.esm": "0" * 64}), f)
         ok, why = self.check(self.camp([("a", q)]))
         self.assertFalse(ok)
         self.assertTrue(any("map_markers_install.py order would stop" in w and "not the core it was staged" in w
