@@ -309,6 +309,19 @@ class PlanTerrainHoldTests(Base):
                 json.dump(dict(rec, source_sha256={bi.PLUGIN: "0" * 64}), f)
             self.assertIn("is not the queue's", " ".join(self.check(c)[1]))
 
+    def test_relative_checkout_staging_and_bridge_are_refused(self):
+        # Codex on #391: the chain and the runner resolve a relative path where they are started, not where checked
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        for k, v in (("checkout", "wt_nightrun"), ("checkout", ".\\wt"), ("staging", "integ_v6"), ("bridge", "b\\t4")):
+            ok, why = self.check(self.camp([("a", q)], **{k: v}))
+            self.assertFalse(ok, k)
+            self.assertIn(f"{k} {v!r} is not a full path", " ".join(why))
+        rel = os.path.relpath(self.staging)
+        q = self.queue("rel", [{"coc": "FO4Port_X"}], staging=rel)
+        ok, why = self.check(self.camp([("a", q)], staging=rel))
+        self.assertFalse(ok)
+        self.assertIn("not a full path", " ".join(why))
+
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
         q = self.queue("a", [{"coc": "FO4Port_X"}, {"coc": "FO4Port_Y"}])

@@ -5,7 +5,7 @@ manifest, it never launches the game, installs or types anything.
 usage:
   python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...] [--sha256 HEX]
       every queue of the campaign, refused with the reason when:
-        - its queue folder is not a full path, its queue.json is missing, or its tests name no coc;
+        - its queue folder or staging is not a full path, its queue.json is missing, or its tests name no coc;
         - a test travels by anything but coc <cell>, or types FO4SF_Probe.MoveTo (both go where the holds can not see);
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
         - its pinned bridge is not the campaign's, changed since the plan, or is not that bridge already installed and
@@ -217,16 +217,24 @@ def bridge_installed_why(br, camp):
     return None
 
 
+def rooted(p):
+    """Whether p is a full path (a Windows drive path, or absolute here)."""
+    return bool(p) and bool(re.match(r"[A-Za-z]:[\\/]", str(p)) or os.path.isabs(str(p)))
+
+
 def check_queue(entry, camp, release):
     """(queue.json or None, [reasons it is refused], [notes])."""
     qdir, why, notes = entry.get("queue") or "", [], []
-    if not (re.match(r"[A-Za-z]:[\\/]", qdir) or os.path.isabs(qdir)):
+    if not rooted(qdir):
         # Codex on #391: run and the chain work in the checkout, a relative folder would name another queue there
         return None, [f"queue {qdir!r} is not a full path"], notes
     q = tq.load(os.path.join(qdir, "queue.json"))
     if not isinstance(q, dict) or not q.get("tests"):
         return None, [f"no planned queue at {qdir}"], notes
-    if norm(q.get("staging") or "") != norm(camp.get("staging") or ""):
+    if not rooted(q.get("staging")):
+        # Codex on #391: the check reads the staging where it runs, the runner in the checkout: one path, two folders
+        why.append(f"pins the staging {q.get('staging')!r}, not a full path")
+    elif norm(q.get("staging") or "") != norm(camp.get("staging") or ""):
         why.append(f"pins the staging {q.get('staging')}, the campaign's is {camp.get('staging')}")
     else:
         esm = os.path.join(q["staging"], "FO4Port.esm")
@@ -376,6 +384,10 @@ def recheck(entry, camp, release, pin):
 def check(camp, release):
     """({"caps": [...], "queues": [(entry, why, notes)]}, ok)."""
     caps = check_caps(camp.get("caps"))
+    for k in ("checkout", "staging") + (("bridge",) if camp.get("bridge") else ()):
+        if not rooted(camp.get(k)):
+            # Codex on #391: the chain's Set-Location and the runner resolve a relative path where they are started
+            caps.append(f"{k} {camp.get(k)!r} is not a full path")
     unknown = sorted(set(release) - set(camp.get("holds") or {}))
     if unknown:
         caps.append(f"--release names holds the campaign does not have: {unknown}")
