@@ -18,13 +18,14 @@ usage:
   python scripts/game/campaign_arm.py script --campaign <campaign.json> --out <NEW chain.ps1> [--release HOLD,...]
       after the same check, the PowerShell chain: the campaign's launch mode (FO4SF_LAUNCH), the check again at run
       time against the sha256 of the manifest it was written from, then per queue the check of that queue again
-      (check --only NAME --queue-sha256 HEX: its queue.json must still be the file the chain was armed with), the run
+      (check --only NAME --queue-sha256 HEX: its queue.json and the rounds or presence file its judge reads must
+      still be the files the chain was armed with), the run
       with the caps, its judge, and the gate; the chain stops at the first queue the recheck or the gate refuses.
   python scripts/game/campaign_arm.py run --campaign <campaign.json>
       the same chain without PowerShell: the check (holds
       lifted only by the campaign's "released" list), then per queue the check again with its queue.json pinned,
       testqueue.py run with the caps, its judge and the gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
-      FO4SF_LAUNCH for cycle.ps1. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
+      FO4SF_LAUNCH for cycle.ps1. Every step runs in the campaign's checkout with its python. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
   python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N [--judge-exit N]
       exit 0 only when the run ended with exit 0, the judge (when given) with exit 0, and the queue's state.json
       exists, says finished and counts no crash and no dead start.
@@ -193,6 +194,12 @@ def check_queue(entry, camp, release):
         elif not judge_bound(judge, entry.get("queue")):
             # Codex on #391: a judge of another folder would leave this queue unjudged while its gate passed
             why.append(f"judge {judge!r} does not judge this queue: it needs exactly one --queue {entry.get('queue')}")
+        else:
+            path, bad = judge_def(judge, q)
+            if bad:
+                why.append(bad)
+            elif path and not os.path.isfile(path):
+                why.append(f"the judge's definition file {path} is missing")
     st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
     left = len([t for t in q["tests"] if t["id"] not in (st.get("done") or {})])
     if st.get("crashes") or st.get("start_deaths"):
@@ -210,19 +217,58 @@ def check_queue(entry, camp, release):
     return q, why, notes
 
 
+JUDGE_DEFS = {"scripts/bridge/door_rounds.py": ("--rounds", "rounds.json"),
+              "scripts/bridge/presence.py": ("--presence", "presence.json")}
+
+
+def judge_def(judge, q):
+    """(the definition file a judge reads at judge time, else None; why it can not be pinned, else None).
+    door_rounds.py judge reads --rounds, else the queue's experiment rounds.json; presence.py judge --presence,
+    else presence.json there; testqueue.py report reads only the queue folder."""
+    if not (isinstance(judge, list) and judge and isinstance(judge[0], str)):
+        return None, None
+    d = next((v for k, v in JUDGE_DEFS.items() if norm(k) == norm(judge[0])), None)
+    if d is None:
+        return None, None
+    opt, name = d
+    at = [i for i, x in enumerate(judge) if x == opt]
+    if any(str(x).startswith(opt + "=") for x in judge) or len(at) > 1 or (at and at[0] + 1 >= len(judge)):
+        return None, f"judge gives {opt} more than once or as {opt}=value: once, as {opt} <file>"
+    if at:
+        path = judge[at[0] + 1]
+        if not re.match(r"[A-Za-z]:[\\/]", path) and not os.path.isabs(path):
+            return None, f"judge {opt} {path!r} is relative: give the full path"
+        return path, None
+    exp = (q or {}).get("experiment")
+    return (os.path.join(exp, name), None) if exp else (None, f"judge reads {name} from the queue's experiment "
+                                                             "folder, and the queue names none")
+
+
 def queue_sha256(entry):
-    """The sha256 of a campaign entry's queue.json, or None when it is missing."""
+    """The pin of a campaign entry: the sha256 of its queue.json and of the definition file its judge reads (Codex on
+    #391: the judge loads it only at judge time), or None when the queue.json is missing."""
     p = os.path.join(entry.get("queue") or "", "queue.json")
-    return campaign_sha256(p) if os.path.isfile(p) else None
+    if not os.path.isfile(p):
+        return None
+    h = hashlib.sha256(campaign_sha256(p).encode())
+    try:
+        q = tq.load(p)
+    except ValueError:
+        q = None
+    path, _ = judge_def(entry.get("judge"), q if isinstance(q, dict) else None)
+    if path:
+        h.update(b"\0" + norm(path).encode() + b"\0" + (campaign_sha256(path) if os.path.isfile(path) else "missing").encode())
+    return h.hexdigest()
 
 
 def recheck(entry, camp, release, pin):
     """Reasons a queue checked at the start of the chain may not run now: the full check again, right before its run,
-    and its queue.json still the file the chain was armed with (pin, its sha256 then)."""
+    and its queue.json and its judge's definition file still the files the chain was armed with (pin)."""
     _, why, _ = check_queue(entry, camp, release)
     if queue_sha256(entry) != pin:
         # Codex on #391: a queue re-planned or edited while an earlier one ran was never armed
-        why = [f"{os.path.join(entry.get('queue') or '', 'queue.json')} changed since the chain was armed"] + why
+        why = [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed since "
+               "the chain was armed"] + why
     return why
 
 
@@ -289,8 +335,9 @@ def chain(camp, path, release):
     if launch not in LAUNCHES:
         sys.exit(f"launch {launch!r}, want one of {LAUNCHES}")
     rel = ",".join(sorted(release))
-    lines = [f"# {camp.get('name')} chain, written by scripts/game/campaign_arm.py from {path} at "
-             f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}" + (f"; released: {rel}" if rel else ""),
+    # Codex on #391: no time in the chain, the same manifest and inputs write the same file
+    lines = [f"# {camp.get('name')} chain, written by scripts/game/campaign_arm.py from {path}"
+             + (f"; released: {rel}" if rel else ""),
              "# Every queue runs with one launch, stops at the first crash or dead start, and keeps "
              f"{caps['min_free_gb']:g} GB free on {caps['dump_drive']}.",
              "# The chain stops at the first queue whose run or gate fails. It types nothing itself.",
@@ -346,12 +393,17 @@ LAUNCHES = ("steam", "exe")
 
 
 def run_chain(camp, log=print, call=None):
-    """The chain in Python: 0 when every queue ran clean, else 1. call(argv, env) runs one
-    step and returns its exit code (subprocess in the repo by default)."""
+    """The chain in Python: 0 when every queue ran clean, else 1. call(argv, env) runs one step and returns its exit
+    code (by default a subprocess in the campaign's checkout, the same as the PowerShell chain's Set-Location)."""
     import subprocess
     if call is None:
+        # Codex on #391: the runner and the judges are the campaign checkout's, with its Python, not this module's
+        if not (camp.get("checkout") and os.path.isdir(camp["checkout"])):
+            log(f"REFUSED campaign: checkout {camp.get('checkout')!r} is not a folder here")
+            return 1
+
         def call(argv, env):
-            return subprocess.run(argv, cwd=os.path.dirname(os.path.dirname(HERE)), env=env).returncode
+            return subprocess.run(argv, cwd=camp["checkout"], env=env).returncode
     launch = camp.get("launch", "steam")
     if launch not in LAUNCHES:
         log(f"REFUSED campaign: launch {launch!r}, want one of {LAUNCHES}")
@@ -368,7 +420,7 @@ def run_chain(camp, log=print, call=None):
     if not ok:
         return 1
     env = dict(os.environ, FO4SF_LAUNCH=launch)
-    py, caps = sys.executable, camp["caps"]
+    py, caps = camp.get("python") or "python", camp["caps"]
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
     for (e, _, _), pin in zip(res["queues"], pins):
         why = recheck(e, camp, set(released), pin)

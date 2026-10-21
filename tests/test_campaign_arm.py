@@ -29,12 +29,17 @@ class Base(unittest.TestCase):
         with open(os.path.join(self.staging, "FO4Port.esm"), "wb") as f:
             f.write(b"port")
         self.exp = os.path.join(self.d, "v6e")
+        self.stage = os.path.join(self.d, "stage")                       # the judges' rounds.json and presence.json
+        os.makedirs(self.stage)
+        for n in ("rounds.json", "presence.json"):
+            with open(os.path.join(self.stage, n), "w") as f:
+                json.dump({"tests": []}, f)
 
     def queue(self, name, tests, pre=None, **extra):
         q = os.path.join(self.d, name)
         os.makedirs(q)
         digest = tq.sha256(os.path.join(self.staging, "FO4Port.esm"))
-        body = dict({"staging": self.staging, "plugin_sha256": digest, "build_id": digest[:8],
+        body = dict({"staging": self.staging, "plugin_sha256": digest, "build_id": digest[:8], "experiment": self.stage,
                      "tests": [dict(t, id=f"{i:04d}_t") for i, t in enumerate(tests)]}, **extra)
         if pre is not None:
             body["pre_launch"] = pre
@@ -294,6 +299,47 @@ class ScriptAndGateTests(Base):
             self.assertEqual(ca.main(["check", "--campaign", cp, "--only", "c", "--queue-sha256", pins[0][1]]), 1)
             self.assertEqual(ca.main(["check", "--campaign", cp, "--only", "a"]), 1)
 
+    def test_the_judges_definition_file_is_pinned_with_the_queue(self):
+        # Codex on #391: door_rounds.py and presence.py read their rounds or presence file only at judge time
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        other = os.path.join(self.d, "other_rounds.json")
+        with open(other, "w") as f:
+            json.dump({"tests": []}, f)
+        for judge, path in ((["--queue", q], os.path.join(self.stage, "rounds.json")), (["--queue", q, "--rounds", other], other)):
+            with self.subTest(judge=judge):
+                e = {"name": "a", "queue": q, "judge": ["scripts/bridge/door_rounds.py", "judge"] + judge}
+                c = self.camp([])
+                c["queues"] = [e]
+                self.assertTrue(self.check(c)[0])
+                pin = ca.queue_sha256(e)
+                self.assertEqual(ca.recheck(e, c, set(), pin), [])
+                with open(path, "w") as f:
+                    json.dump({"tests": [{"test": 0}]}, f)                 # edited while an earlier queue ran
+                self.assertIn("judge's definition file changed", " ".join(ca.recheck(e, c, set(), pin)))
+        e = {"name": "a", "queue": q, "judge": ["scripts/bridge/presence.py", "judge", "--queue", q]}
+        self.assertNotEqual(ca.queue_sha256(e), ca.queue_sha256({"name": "a", "queue": q}))
+        for bad, want in ((["--rounds", "rel.json"], "relative"), (["--rounds=" + other], "once"),
+                          (["--rounds", other, "--rounds", other], "once"), (["--rounds", other + ".gone"], "missing")):
+            with self.subTest(bad=bad):
+                c = self.camp([("a", q)])
+                c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q] + bad
+                self.assertIn(want, " ".join(self.check(c)[1]))
+
+    def test_the_chain_has_no_time_in_it(self):
+        # Codex on #391: the same manifest and inputs write the same chain
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp = os.path.join(self.d, "c.json")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)]), f)
+        texts = []
+        for n in ("one.ps1", "two.ps1"):
+            with redirect_stdout(io.StringIO()):
+                ca.main(["script", "--campaign", cp, "--out", os.path.join(self.d, n)])
+            with open(os.path.join(self.d, n), newline="") as f:
+                texts.append(f.read())
+        self.assertEqual(texts[0], texts[1])
+        self.assertNotRegex(texts[0], r"\d{4}-\d\d-\d\dT")
+
     def test_repeated_pre_launch_options_are_refused(self):
         # Codex on #391: argparse runs the last --exp-dir, the check read the first
         for extra in (["--exp-dir", os.path.join(self.d, "v6c")], ["--starfield", "E:\\SF"],
@@ -422,6 +468,31 @@ class RunChainTests(Base):
         self.assertEqual(len(self.calls), 1)                                  # b never started
         self.assertIn("b: STOP before the run", self.lines[-1])
         self.assertIn("changed since the chain was armed", self.lines[-1])
+
+    def test_run_uses_the_campaign_checkout_and_python(self):
+        # Codex on #391: run started the runner from this module's repo with this interpreter
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        self.assertEqual(ca.run_chain(self.camp([("a", q)], checkout=os.path.join(self.d, "nope")), self.lines.append), 1)
+        self.assertIn("checkout", self.lines[-1])
+        seen = []
+        import subprocess
+
+        class Done:
+            returncode = 0
+
+        def fake_run(argv, cwd=None, env=None):
+            seen.append((argv[0], cwd))
+            if "testqueue.py" in argv[1]:
+                with open(os.path.join(q, "state.json"), "w") as f:
+                    json.dump({"status": "finished"}, f)
+            return Done()
+        old, subprocess.run = subprocess.run, fake_run
+        try:
+            rc = ca.run_chain(self.camp([("a", q)], checkout=self.d), self.lines.append)
+        finally:
+            subprocess.run = old
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen, [("C:\\py\\python.exe", self.d)])
 
     def test_holds_launch_and_released_come_from_the_campaign(self):
         q = self.queue("walk", [{"coc": "FO4Core_RedRocketSpawn"}])
