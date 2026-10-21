@@ -131,8 +131,11 @@ def check_queue(entry, camp, release):
         elif tq.sha256(esm) != q.get("plugin_sha256"):
             why.append(f"{esm} changed since the plan (build {q.get('build_id')})")
     br = q.get("bridge")
-    if br:
-        if camp.get("bridge") and norm(br.get("dir") or "") != norm(camp["bridge"]):
+    if br and not camp.get("bridge"):
+        # Codex on #391: the runner installs a queue's bridge before launch: a campaign that names none would get one
+        why.append(f"pins the bridge {br.get('dir')}, and the campaign names no bridge")
+    elif br:
+        if norm(br.get("dir") or "") != norm(camp["bridge"]):
             why.append(f"pins the bridge {br.get('dir')}, the campaign's is {camp['bridge']}")
         else:
             m = tq.bridge_mismatch(br)
@@ -145,6 +148,11 @@ def check_queue(entry, camp, release):
     if not starts:
         why.append("no test names a coc: where it starts can not be checked")
     for hold, names in (camp.get("holds") or {}).items():
+        if not (isinstance(names, list) and all(isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9_]+", n)
+                                                for n in names)):
+            # Codex on #391: a string was read letter by letter and held nothing
+            why.append(f"hold {hold!r} is not a list of cell editor ids: {names!r}")
+            continue
         hit = [c for c in starts if c.casefold() in {n.casefold() for n in names}]
         if hit and hold not in release:
             why.append(f"starts at {', '.join(hit)}: held ({hold}); --release {hold} once the owner allows it")

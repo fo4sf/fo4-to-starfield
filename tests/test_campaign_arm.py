@@ -132,6 +132,19 @@ class CheckTests(Base):
         self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
 
 
+    def test_a_queue_bridge_needs_the_campaign_bridge_and_holds_need_lists(self):
+        # Codex on #391: a pinned bridge passed when the campaign named none; a hold written as a string held nothing
+        q = self.queue("a", [{"coc": "FO4Core_RedRocketSpawn"}], bridge={"dir": "C:\\b\\bridge_t4"})
+        ok, why = self.check(self.camp([("a", q)], holds={"red_rocket": "FO4Core_RedRocketSpawn"}))
+        self.assertFalse(ok)
+        self.assertTrue(any("campaign names no bridge" in w for w in why), why)
+        self.assertTrue(any("is not a list of cell editor ids" in w for w in why), why)
+        for bad in (["FO4Core_RedRocketSpawn", 3], ["coc X"], {"a": 1}):
+            with self.subTest(bad=bad):
+                self.assertIn("is not a list of cell editor ids", " ".join(self.check(self.camp([("a", q)],
+                              bridge="C:\\b\\bridge_t4", holds={"red_rocket": bad}))[1]))
+
+
 class PlanTerrainHoldTests(Base):
     def test_a_plan_terrain_door_in_leg_is_held(self):
         # review pass on #391: plan-terrain writes no "coc"; an IN leg starts at world_coc with an empty travel
