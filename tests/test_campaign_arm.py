@@ -148,7 +148,19 @@ class CheckTests(Base):
                 ok, why = self.check(self.camp([("q", q)]))
                 self.assertFalse(ok)
                 self.assertIn(want, why[0])
-        self.assertTrue(self.check(self.camp([("feat", feat)]))[0])
+        self.assertTrue(self.check(self.camp([("feat", feat)], checkout=ROOT))[0])
+        # Codex on #391: the features are the campaign checkout's, read from its runner_features.py
+        old = os.path.join(self.d, "old_checkout")
+        os.makedirs(os.path.join(old, "scripts", "game"))
+        with open(os.path.join(old, "scripts", "game", "runner_features.py"), "w") as f:
+            f.write('FEATURES = ("light", "console")\n')
+        ok, why = self.check(self.camp([("feat", feat)], checkout=old))
+        self.assertFalse(ok)
+        self.assertIn("needs runner features ['bridge'] the checkout", " ".join(why))
+        ok, why = self.check(self.camp([("feat", feat)], checkout=os.path.join(self.d, "none")))
+        self.assertIn("has no readable", " ".join(why))
+        bare = self.queue("bare", [{"coc": "FO4Port_X"}], pre=[PY, "scripts/game/runner_features.py", "check"])
+        self.assertIn("want check <features>", " ".join(self.check(self.camp([("q", bare)], checkout=ROOT))[1]))
 
     def test_another_or_changed_build_is_refused(self):
         q = self.queue("a", [{"coc": "FO4Port_X"}])
@@ -232,7 +244,9 @@ class PlanTerrainHoldTests(Base):
         ok, why = self.check(c)
         self.assertFalse(ok)
         self.assertIn("FO4Port_RedRocket01: held (red_rocket)", " ".join(why))
-        self.assertTrue(self.check(c, ["red_rocket"])[0])
+        self.assertTrue(self.check(dict(c, checkout=ROOT), ["red_rocket"])[0])
+        # Codex on #391: a door_trip queue needs the door_trip runner feature, which the checkout must have
+        self.assertIn("needs runner features", " ".join(self.check(c, ["red_rocket"])[1]))
 
 
     def test_a_travel_into_a_held_cell_is_held(self):
@@ -324,6 +338,10 @@ class PlanTerrainHoldTests(Base):
             self.assertIn("installed but not active", " ".join(why))
             self.plugins_txt(["*" + p for p in PLUGINS + [bi.PLUGIN]])
             self.assertEqual(self.check(c), (True, []))
+            with open(os.path.join(self.sf, "Data", "FO4SF.toggle.json"), "w") as f:
+                json.dump({"off": [bi.PLUGIN]}, f)                      # Codex on #391: bridge_install.py refuses
+            self.assertIn("held off by plugin_toggle.py", " ".join(self.check(c)[1]))
+            os.remove(os.path.join(self.sf, "Data", "FO4SF.toggle.json"))
             with open(os.path.join(self.sf, "Data", bi.RECORD), "w") as f:
                 json.dump(dict(rec, source_sha256={bi.PLUGIN: "0" * 64}), f)
             self.assertIn("is not the queue's", " ".join(self.check(c)[1]))
@@ -392,6 +410,15 @@ class PlanTerrainHoldTests(Base):
         self.assertIn("routes_file routes_A.json is not a full path", " ".join(self.check(self.camp([("a", q)]))[1]))
         os.remove(r)                                                     # Codex on #391: deleted after planning
         self.assertIn(f"routes_file {r} is missing", " ".join(self.check(self.camp([("a", e["queue"])]))[1]))
+
+    def test_an_unknown_launch_or_a_relative_python_path_is_refused(self):
+        # Codex on #391: chain() refused the launch only when writing; a relative python resolves in two folders
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        caps = lambda **over: " ".join(ca.check(self.camp([("a", q)], **over), set())[0]["caps"])
+        self.assertIn("launch 'cmd'", caps(launch="cmd"))
+        self.assertIn("is a relative path", caps(python=".\\venv\\Scripts\\python.exe"))
+        self.assertNotIn("python", caps(python="python"))
+        self.assertNotIn("python", caps())
 
     def test_a_relative_starfield_is_refused(self):
         # Codex on #391: the check reads it where it runs, the runner in the checkout
@@ -533,6 +560,7 @@ class ScriptAndGateTests(Base):
         self.assertIn("$env:FO4SF_LAUNCH = 'exe'", text)
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
         self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
+        self.assertIn("& $py -I @argv", text)                              # Codex on #391: isolated mode
         self.assertIn("$env:FO4SF_PYTHON = $py", text)                     # Codex on #391: never the caller's
         self.assertLess(text.index("FO4SF_PYTHON"), text.index("testqueue.py"))
 
@@ -704,6 +732,8 @@ class RunChainTests(Base):
 
     def fake(self, codes, state=None):
         def call(argv, env):
+            self.assertEqual(argv[1], "-I")                                 # Codex on #391: isolated mode
+            argv = argv[:1] + argv[2:]
             self.calls.append((argv[1:3], env.get("FO4SF_LAUNCH")))
             self.envpy.append(env.get("FO4SF_PYTHON"))
             if state is not None and "testqueue.py" in argv[1]:
@@ -854,7 +884,7 @@ class RunChainTests(Base):
 
         def fake_run(argv, cwd=None, env=None):
             seen.append((argv[0], cwd))
-            if "testqueue.py" in argv[1]:
+            if "testqueue.py" in argv[2]:
                 with open(os.path.join(q, "state.json"), "w") as f:
                     json.dump({"status": "finished"}, f)
             return Done()

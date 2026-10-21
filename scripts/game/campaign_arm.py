@@ -49,6 +49,7 @@ campaign.json:
                "--queue", "<queue folder>"]}]}
 """
 import argparse
+import ast
 import hashlib
 import json
 import math
@@ -60,6 +61,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import console_plan as cp  # noqa: E402
+import runner_features  # noqa: E402
 import testqueue as tq  # noqa: E402
 
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"   # testqueue.py's default --starfield
@@ -140,7 +142,7 @@ def pre_launch_why(pre, camp):
     args = [str(x) for x in pre[1:]]
     script = norm(args[0]) if args else ""
     if script == norm(os.path.join("scripts", "game", "runner_features.py")) and args[1:2] == ["check"]:
-        return None
+        return None if len(args) == 3 else f"pre_launch runs runner_features.py with {args[1:]}, want check <features>"
     if script != norm(os.path.join("scripts", "game", "exp_install.py")) or args[1:2] != ["install"]:
         return f"pre_launch runs {' '.join(args[:2])}, not a runner check or the installed experiment"
 
@@ -249,10 +251,29 @@ def bridge_installed_why(br, camp):
             if not os.path.isfile(t) or ei.digest(t) != h:
                 return f"the installed bridge file {t} changed since its install"
         lines, _, _ = ei.read_plugins(ei.plugins_txt())
+        held = bi.PLUGIN.casefold() in ei.held_off(data)
     except (OSError, ValueError, SystemExit) as error:
         return f"the installed bridge can not be checked: {error}"
+    if held:
+        # Codex on #391: bridge_install.py refuses a held-off bridge that is active, and leaves an inactive one off
+        return f"{bi.PLUGIN} is held off by plugin_toggle.py: the queue's bridge would not run; release it first"
     if bi.plugin_line_present(lines, bi.PLUGIN) is None:
         return f"{bi.PLUGIN} is installed but not active: the runner would activate it; order or activate it first"
+    return None
+
+
+def checkout_features(checkout):
+    """The runner features the campaign checkout's runner_features.py declares (read, never run), or None."""
+    p = os.path.join(checkout or "", "scripts", "game", "runner_features.py")
+    try:
+        with open(p, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "FEATURES" for t in node.targets):
+                v = ast.literal_eval(node.value)
+                return set(v) if isinstance(v, (tuple, list)) and all(isinstance(x, str) for x in v) else None
+    except (OSError, ValueError, SyntaxError):
+        return None
     return None
 
 
@@ -304,6 +325,21 @@ def check_queue(entry, camp, release):
     p = pre_launch_why(q.get("pre_launch"), camp)
     if p:
         why.append(p)
+    # Codex on #391: the runner in the campaign checkout stops (exit 3) on a feature it lacks, after the chain was armed
+    need = set(q.get("needs") or runner_features.needs(q["tests"]))
+    pre = [str(x) for x in q.get("pre_launch") or []]
+    if len(pre) > 3 and norm(pre[1]) == norm(os.path.join("scripts", "game", "runner_features.py")):
+        need |= {x.strip() for x in pre[3].split(",") if x.strip()}
+    if "--needs" in pre[:-1]:
+        need |= {x.strip() for x in pre[pre.index("--needs") + 1].split(",") if x.strip()}
+    if need:
+        have = checkout_features(camp.get("checkout"))
+        if have is None:
+            why.append(f"needs runner features {sorted(need)}: the checkout {camp.get('checkout')} has no readable "
+                       "scripts\\game\\runner_features.py")
+        elif need - have:
+            why.append(f"needs runner features {sorted(need - have)} the checkout {camp.get('checkout')} lacks: "
+                       "update it first")
     starts = cells(q)
     odd = sorted({str(t.get("travel")).strip() for t in q["tests"] if str(t.get("travel") or "").strip()
                   and not re.fullmatch(r"(?i)coc\s+[A-Za-z0-9_]+", str(t["travel"]).strip())})
@@ -446,6 +482,14 @@ def check(camp, release):
         if not rooted(camp.get(k)):
             # Codex on #391: the chain's Set-Location and the runner resolve a relative path where they are started
             caps.append(f"{k} {camp.get(k)!r} is not a full path")
+    if camp.get("launch", "steam") not in LAUNCHES:
+        # Codex on #391: chain() and run_chain() refuse it; the check must not pass it
+        caps.append(f"launch {camp.get('launch')!r}, want one of {LAUNCHES}")
+    py = str(camp.get("python") or "python")
+    if re.search(r"[\\/]", py) and not rooted(py):
+        # Codex on #391: the chain checks the python before Set-Location and runs it after; a bare command is found
+        # on PATH both times, a relative path would not be the same file
+        caps.append(f"python {py!r} is a relative path: give a full path or a bare command name")
     why = installed_exp_why(camp)
     if why:
         caps.append(why)
@@ -535,7 +579,7 @@ def chain(camp, path, release, digest=None):
              # ('Stop' makes an invocation error catchable; a native exit code never throws, also on PowerShell 7.4+)
              "function Py([string[]]$argv) { $ErrorActionPreference = 'Stop'; "
              "$PSNativeCommandUseErrorActionPreference = $false; $global:LASTEXITCODE = $null; "
-             "try { & $py @argv | Out-Host; $c = $global:LASTEXITCODE } "
+             "try { & $py -I @argv | Out-Host; $c = $global:LASTEXITCODE } "
              "catch { Write-Host \"$py could not be run: $_\"; $c = $null }; if ($null -eq $c) { 1 } else { $c } }",
              f"if (-not (Get-Command $py -ErrorAction SilentlyContinue)) {{ Write-Host 'no python at {py}: nothing run'; "
              "exit 1 }",
@@ -632,7 +676,7 @@ def run_chain(camp, log=print, call=None):
         if why:
             log(f"{e['name']}: STOP before the run: " + "; ".join(why))
             return 1
-        rc = call([py, os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
+        rc = call([py, "-I", os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
                   env)
         log(f"{e['name']}: run exit {rc}")
         jr = None
@@ -642,7 +686,7 @@ def run_chain(camp, log=print, call=None):
                 log(f"{e['name']}: STOP after the run: its queue.json or its judge's definition file changed during "
                     "the run: not judged")
                 return 1
-            jr = call([py, e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
+            jr = call([py, "-I", e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
         log(f"{e['name']}: {'OK' if good else 'STOP'} {why}")
