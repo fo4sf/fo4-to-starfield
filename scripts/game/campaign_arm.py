@@ -11,7 +11,9 @@ usage:
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
           (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing; the
-          Starfield folder's FO4SFExp.install.json must show that experiment and its plugins installed);
+          Starfield folder's FO4SFExp.install.json must show that experiment and its plugins installed), or runs
+          another program than the campaign's python;
+        - a test marked fresh would launch the game again (any but the first test left, or any retry of one);
         - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a travel test's
           dest_cell and a door_trip's "inside" cell count) not named in --release;
         - its state.json has used every launch the caps allow while tests are left (the run would stop at once);
@@ -127,6 +129,10 @@ def pre_launch_why(pre, camp):
     """Why a queue's pre_launch is not allowed, else None."""
     if not pre:
         return None
+    py = camp.get("python") or "python"
+    if norm(pre[0]) != norm(py):
+        # Codex on #391: the runner runs pre_launch verbatim, so its first element is the program that runs
+        return f"pre_launch runs {pre[0]!r}, not the campaign's python {py!r}"
     args = [str(x) for x in pre[1:]]
     script = norm(args[0]) if args else ""
     if script == norm(os.path.join("scripts", "game", "runner_features.py")) and args[1:2] == ["check"]:
@@ -245,6 +251,14 @@ def check_queue(entry, camp, release):
     if st.get("crashes") or st.get("start_deaths"):
         why.append(f"state.json counts {st.get('crashes', 0)} crash(es) and {st.get('start_deaths', 0)} dead start(s): "
                    f"plan a new queue folder for a clean budget")
+    todo = [t for t in q["tests"] if t["id"] not in (st.get("done") or {})]
+    tries = (camp.get("caps") or {}).get("max_attempts")
+    fresh = [t["id"] for i, t in enumerate(todo) if t.get("fresh") and (i or tries != 1)]
+    if fresh:
+        # Codex on #391: a fresh test closes a used game and launches again, outside --max-relaunch (Runner.run);
+        # only a first test with one attempt starts on the one launch
+        why.append(f"fresh test(s) {', '.join(fresh[:3])} would launch the game again outside the one-launch cap: "
+                   f"plan without --fresh, or one fresh test per queue with max_attempts 1")
     cap = (camp.get("caps") or {}).get("max_relaunch")
     if left and isinstance(cap, int) and (st.get("relaunches") or 0) >= cap:
         # Codex on #391: a queue that stopped after its launch has no launch left under --max-relaunch

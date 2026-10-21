@@ -15,6 +15,7 @@ import campaign_arm as ca  # noqa: E402
 import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
+PY = "C:\\py\\python.exe"
 PLUGINS = ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4ActorRaider.esm", "FO4SFMission.esm"]
 
 
@@ -55,7 +56,7 @@ class Base(unittest.TestCase):
         return q
 
     def camp(self, queues, **over):
-        c = {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": "C:\\py\\python.exe",
+        c = {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": PY,
              "staging": self.staging, "installed_exp": self.exp, "installed_plugins": PLUGINS, "caps": dict(CAPS),
              "holds": {"red_rocket": ["FO4Core_RedRocketSpawn"]},
              "queues": [{"name": n, "queue": q} for n, q in queues]}
@@ -90,7 +91,7 @@ class CheckTests(Base):
         self.assertIn("does not have", why[-1])
 
     def test_only_the_installed_experiment_may_be_installed_before_launch(self):
-        exp = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
+        exp = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
                "--plugins", ",".join(PLUGINS), "--pack"]
         q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
         self.assertEqual(self.check(self.camp([("walk", q)], starfield=self.sf + os.sep)), (True, []))
@@ -114,8 +115,8 @@ class CheckTests(Base):
         fewer = list(exp)
         fewer[8] = "FO4TerrainCore.esm"
         q3 = self.queue("walk3", [{"coc": "FO4Port_X"}], pre=fewer)
-        q4 = self.queue("walk4", [{"coc": "FO4Port_X"}], pre=[sys.executable, "scripts\\game\\bridge_install.py", "uninstall"])
-        feat = self.queue("feat", [{"coc": "FO4Port_X"}], pre=[sys.executable, "scripts/game/runner_features.py", "check", "bridge"])
+        q4 = self.queue("walk4", [{"coc": "FO4Port_X"}], pre=[PY, "scripts\\game\\bridge_install.py", "uninstall"])
+        feat = self.queue("feat", [{"coc": "FO4Port_X"}], pre=[PY, "scripts/game/runner_features.py", "check", "bridge"])
         for q, want in ((q2, "would install"), (q3, "would activate"), (q4, "not a runner check")):
             with self.subTest(q=q):
                 ok, why = self.check(self.camp([("q", q)]))
@@ -228,6 +229,27 @@ class PlanTerrainHoldTests(Base):
         # and a hold written without the prefix still holds the ported cell
         q = self.queue("bare", [{"coc": "FO4Port_RedRocket01"}])
         self.assertFalse(self.check(self.camp([("p", q)], holds={"red_rocket": ["RedRocket01"]}))[0])
+
+    def test_pre_launch_must_run_the_campaigns_python(self):
+        # Codex on #391: the runner runs pre_launch verbatim, its first element included
+        for prog in ("C:\\evil.exe", "cmd.exe"):
+            q = self.queue("pre_" + prog[:3].strip(":\\"), [{"coc": "FO4Port_X"}],
+                           pre=[prog, "scripts/game/runner_features.py", "check", "bridge"])
+            ok, why = self.check(self.camp([("p", q)]))
+            self.assertFalse(ok)
+            self.assertIn("not the campaign's python", " ".join(why))
+
+    def test_fresh_tests_that_would_relaunch_are_refused(self):
+        # Codex on #391: a fresh test after the first closes the game and launches again outside --max-relaunch
+        q = self.queue("fresh2", [{"coc": "FO4Port_X", "fresh": True}, {"coc": "FO4Port_Y", "fresh": True}])
+        ok, why = self.check(self.camp([("f", q)]))
+        self.assertFalse(ok)
+        self.assertIn("0001_t would launch the game again", " ".join(why))
+        # one fresh first test with one attempt starts on the one launch
+        q = self.queue("fresh1", [{"coc": "FO4Port_X", "fresh": True}, {"coc": "FO4Port_Y"}])
+        self.assertTrue(self.check(self.camp([("f", q)]))[0])
+        # a second attempt of a fresh test relaunches too
+        self.assertFalse(self.check(self.camp([("f", q)], caps=dict(CAPS, max_attempts=2)))[0])
 
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
@@ -437,11 +459,11 @@ class ScriptAndGateTests(Base):
         for extra in (["--exp-dir", os.path.join(self.d, "v6c")], ["--starfield", "E:\\SF"],
                       ["--plugins", "Other.esm"]):
             with self.subTest(extra=extra):
-                pre = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp,
+                pre = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp,
                        "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS), "--pack", *extra]
                 q = self.queue("w" + str(len(extra[1])), [{"coc": "FO4Port_X"}], pre=pre)
                 self.assertIn("each option once", " ".join(self.check(self.camp([("w", q)]))[1]))
-        pre = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir=" + self.exp,
+        pre = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir=" + self.exp,
                "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS)]
         q = self.queue("eq", [{"coc": "FO4Port_X"}], pre=pre)
         self.assertIn("--option=value", " ".join(self.check(self.camp([("w", q)]))[1]))
