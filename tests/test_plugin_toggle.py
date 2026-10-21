@@ -293,7 +293,21 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
         (self.data / "Mission.esm").unlink()               # gone while held
         out = self.run_cmd("on")
-        self.assertIn("back on: Core.esm; released, left unticked (plugin file missing): Mission.esm", out)
+        self.assertIn("back on: Core.esm; released, left unticked (plugin file missing or unreadable): Mission.esm", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
+    def test_a_held_plugin_with_an_unreadable_header_is_released(self):
+        # Codex on #407: a truncated held .esm made on fail on its header, and the hold blocked the uninstallers
+        (self.data / "Mission.esm").write_bytes(b"TES4")
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("off", "--plugins", "Mission.esm")
+        self.assertIn("the installed plugin file is unreadable", str(cm.exception))
+        (self.data / "Mission.esm").write_bytes(tes4("Core.esm"))
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        (self.data / "Mission.esm").write_bytes(b"TES4")     # damaged while held
+        out = self.run_cmd("on")
+        self.assertIn("released, left unticked (plugin file missing or unreadable): Mission.esm", out)
         self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
 

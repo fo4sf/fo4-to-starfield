@@ -14,9 +14,9 @@ record holds a plugin: exp_install.py order and bridge_install.py order leave it
 game ticked it again), exp_install.py active counts it as intended (and fails if it is ticked), the relaunch of the
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
 first, then empties the record; it refuses a plugin with a master (other than the game's implicit ones) that is
-neither active nor coming back, and a plugin with no line or several; a held plugin whose Data file is gone is
-released without ticking it. off refuses a plugin whose Data file is missing. A hold recorded for another user's
-Plugins.txt is refused everywhere.
+neither active nor coming back, and a plugin with no line or several; a held plugin the game cannot load (its Data
+file gone or its header unreadable) is released without ticking it, and off refuses to hold one. A hold recorded for
+another user's Plugins.txt is refused everywhere.
 off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
 """
 import argparse
@@ -60,6 +60,19 @@ def names(arg):
     return [x.strip() for x in (arg or "").split(",") if x.strip()]
 
 
+def unloadable(data, plugin):
+    """Why the installed plugin cannot be loaded (its Data file missing, or its TES4 header unreadable), else None:
+    off refuses to hold such a plugin and on releases it without ticking it."""
+    path = exp_install.data_path(data, plugin)
+    if not os.path.isfile(path):
+        return f"the installed plugin file is missing: {path}"
+    try:
+        exp_install.plugin_masters(path)
+    except (OSError, ValueError) as error:
+        return f"the installed plugin file is unreadable: {error}"
+    return None
+
+
 def off(a):
     data = os.path.join(a.starfield, "Data")
     rec = read_record(data)
@@ -79,11 +92,10 @@ def off(a):
         at = [k for k, ln in enumerate(lines) if name(ln) == p.casefold()]
         if len(at) != 1 or not lines[at[0]].strip().startswith("*"):
             raise ValueError(f"missing, inactive or duplicated in Plugins.txt: {p}")
-        # a hold on a plugin whose Data file is gone could never be put back on (Codex on #407): its header must read
-        path = exp_install.data_path(data, mine[p.casefold()])
-        if not os.path.isfile(path):
-            raise ValueError(f"the installed plugin file is missing: {path}")
-        exp_install.plugin_masters(path)
+        # a hold on a plugin the game cannot load could never be put back on (Codex on #407)
+        why = unloadable(data, mine[p.casefold()])
+        if why:
+            raise ValueError(why)
     going = held | {p.casefold() for p in new}
     active = {name(ln) for ln in lines if ln.strip().startswith("*")}
     for k, p in mine.items():                             # what stays on must not need what goes off
@@ -118,10 +130,10 @@ def on(a):
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
     mine = owned(data)
-    # a held plugin whose Data file is gone (a hold from before off checked it, or a file deleted since) is released
-    # without ticking its line: the game cannot load it, and the hold would otherwise block every uninstall
-    lost = {p.casefold() for p in want
-            if p.casefold() in mine and not os.path.isfile(exp_install.data_path(data, mine[p.casefold()]))}
+    # a held plugin the game cannot load (its Data file gone or its header unreadable: a hold from before off checked
+    # it, or a file deleted or damaged since) is released without ticking its line; the hold would otherwise block
+    # every uninstall
+    lost = {p.casefold() for p in want if p.casefold() in mine and unloadable(data, mine[p.casefold()])}
     tick = back - lost
     p_txt = exp_install.plugins_txt()
     original = exp_install.read_bytes(p_txt)
@@ -155,7 +167,7 @@ def on(a):
     rec = dict(rec, off=[p for p in held if p.casefold() not in back])
     deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
     print(f"back on: {', '.join(p for p in want if p.casefold() in tick) or 'none'}"
-          + (f"; released, left unticked (plugin file missing): {', '.join(p for p in want if p.casefold() in lost)}"
+          + (f"; released, left unticked (plugin file missing or unreadable): {', '.join(p for p in want if p.casefold() in lost)}"
              if lost else "")
           + (f"; still held off: {', '.join(rec['off'])}" if rec["off"] else ""))
 
