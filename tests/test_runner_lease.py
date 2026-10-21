@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import subprocess
 import re
 import shutil
 import sys
@@ -192,6 +193,16 @@ class RunnerLeaseTests(unittest.TestCase):
         with open(os.path.join(self.d, "cycle.log"), encoding="utf-8") as f:
             text = f.read()
         self.assertIn(": exit 9\n" + out, text)
+
+    def test_a_timed_out_script_keeps_what_it_printed(self):
+        # Codex on #439: a cycle.ps1 past its budget kept only "timeout", none of its launch lines
+        r = self.runner()
+        err = subprocess.TimeoutExpired(["cycle.ps1"], 900, output=b"main menu after 12 s\n", stderr=None)
+        with mock.patch.object(tq.subprocess, "run", side_effect=err):
+            code, out = tq.Runner._ps(r, "cycle.ps1", [], 900)
+        self.assertEqual((code, out), (124, "main menu after 12 s\ntimeout"))
+        with mock.patch.object(tq.subprocess, "run", side_effect=subprocess.TimeoutExpired(["x"], 1)):
+            self.assertEqual(tq.Runner._ps(r, "cycle.ps1", [], 1), (124, "timeout"))
 
     def _launch(self, codes, blocked=lambda launches: None):
         c.Controller(self.leader).claim("Claude", "window", 3600)

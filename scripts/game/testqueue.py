@@ -3011,8 +3011,11 @@ class Runner:
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
-        except subprocess.TimeoutExpired:
-            code, out = 124, "timeout"
+        except subprocess.TimeoutExpired as e:
+            # what the script printed before the timeout stays (Codex on #439: a stalled cycle.ps1 left no trace);
+            # "timeout" stays the last line, which run.log shows
+            part = "".join(x.decode("utf-8", "replace") if isinstance(x, bytes) else x for x in (e.stdout, e.stderr) if x)
+            code, out = 124, (part.rstrip() + "\ntimeout").lstrip("\n")
         self.ctl.mark_sent()
         return code, out
 
