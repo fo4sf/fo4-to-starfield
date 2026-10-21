@@ -76,6 +76,14 @@ def judge_bound(judge, qdir):
     return len(at) == 1 and at[0] + 1 < len(judge) and norm(judge[at[0] + 1]) == norm(qdir or "")
 
 
+def cell_key(c):
+    """A cell compared without case or the FO4Port_ prefix. Codex on #391: the runner adds FO4Port_ to a planned cell,
+    a dest_cell and the launch cell (Runner.ensure_game, coc.ps1), so "Vault95" in a queue enters FO4Port_Vault95, and
+    a hold may name either form."""
+    c = str(c).casefold()
+    return c[len("fo4port_"):] if c.startswith("fo4port_") else c
+
+
 def cells(q):
     """The cells every test of a queue starts in or goes to (a plan kind's cell, coc, plan-terrain's world_coc, which
     an empty travel starts at, a "coc X" travel, a travel test's dest_cell behind its load door, and a door_trip's
@@ -211,7 +219,8 @@ def check_queue(entry, camp, release):
             # Codex on #391: a string was read letter by letter and held nothing
             why.append(f"hold {hold!r} is not a list of cell editor ids: {names!r}")
             continue
-        hit = [c for c in starts if c.casefold() in {n.casefold() for n in names}]
+        held = {cell_key(n) for n in names}
+        hit = [c for c in starts if cell_key(c) in held]
         if hit and hold not in release:
             why.append(f"starts at {', '.join(hit)}: held ({hold}); --release {hold} once the owner allows it")
         elif hit:

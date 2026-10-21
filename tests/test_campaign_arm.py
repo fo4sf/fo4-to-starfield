@@ -215,6 +215,20 @@ class PlanTerrainHoldTests(Base):
         self.assertFalse(ok)
         self.assertIn("FO4Port_RedRocket01: held (red_rocket)", " ".join(why))
 
+    def test_a_planned_cell_is_held_under_its_ported_name(self):
+        # Codex on #391: the runner enters FO4Port_<cell> for a planned cell, a dest_cell and the launch cell
+        cases = (([{"kind": "travel", "cell": "RedRocket01"}], {}),
+                 ([{"kind": "travel", "cell": "SanctuaryExt", "dest_cell": "RedRocket01"}], {}),
+                 ([{"kind": "travel", "cell": "", "travel": "coc FO4Port_SanctuaryExt"}], {"launch_cell": "RedRocket01"}))
+        for n, (tests, extra) in enumerate(cases):
+            q = self.queue(f"p{n}", tests, **extra)
+            ok, why = self.check(self.camp([("p", q)], holds={"red_rocket": ["FO4Port_RedRocket01"]}))
+            self.assertFalse(ok, tests)
+            self.assertIn("RedRocket01: held (red_rocket)", " ".join(why))
+        # and a hold written without the prefix still holds the ported cell
+        q = self.queue("bare", [{"coc": "FO4Port_RedRocket01"}])
+        self.assertFalse(self.check(self.camp([("p", q)], holds={"red_rocket": ["RedRocket01"]}))[0])
+
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
         q = self.queue("a", [{"coc": "FO4Port_X"}, {"coc": "FO4Port_Y"}])
