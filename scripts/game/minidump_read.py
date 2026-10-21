@@ -15,8 +15,8 @@ With --exe (the faulting module's own file, the same version as in the dump; it 
 dump alone cannot give, because a minidump rarely holds the module's code and read-only data:
 - the code bytes around the fault and the start of the function it is in (the exe's .pdata), so the instruction can be
   disassembled elsewhere;
-- for each stack-scan entry into the exe, whether the bytes before it are a call (a real return address is; a stale
-  function pointer usually is not) and its function start;
+- for each stack-scan entry into the exe, whether the bytes before it look like a call (a real return address's do; a
+  stale function pointer's usually do not; a byte-pattern match, not a decode) and its function start;
 - the C++ class (MSVC RTTI) of every object a register or a stack slot points at, when the dump holds the object's first
   qword and that qword is a vtable in the exe: the vtable's complete object locator gives the class name.
 """
@@ -224,7 +224,9 @@ class Image:
         return None
 
     def after_call(self, rva):
-        """True when the bytes just before rva end with a call instruction, as a return address's do."""
+        """True when the bytes just before rva could end a call instruction, as a return address's do. A byte-pattern
+        match, not a decode from a known instruction boundary: an E8 or FF byte inside another instruction's immediate
+        or displacement matches too (Codex on #453), so it filters stale pointers out but does not prove a call."""
         b = self.read(rva - 7, 7) if rva >= 7 else None
         if b is None:
             return False
@@ -391,7 +393,7 @@ def main(argv=None):
             print(f"  fault function {im['fault_function']}; code from {im['code']['from']} "
                   f"(fault at byte {im['code']['fault_at_byte']}): {im['code']['hex']}")
             for c in im["stack_calls"][:a.top]:
-                print(f"  rsp+{c['rsp+']:<7} {c['at']:<28} {'call' if c['after_call'] else 'no call':<8} "
+                print(f"  rsp+{c['rsp+']:<7} {c['at']:<28} {'call?' if c['after_call'] else 'no call':<8} "
                       f"in {c['function']}")
             for o in im["objects"][:a.top]:
                 print(f"  object {o['in']:<10} {o['pointer']}  {o['class']}")
