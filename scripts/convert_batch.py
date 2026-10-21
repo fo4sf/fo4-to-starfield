@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -167,7 +167,18 @@ def static_pattern_models(pattern, names):
     return {n for n in names if re.search(pattern, n, re.I)}
 
 
-def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
+def triangle_count(src_archives, name):
+    """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
+    try:
+        raw = src_archives.mesh(name)
+        parsed = nif.parse(raw)
+        shapes = nif.fo4_trishapes(parsed)
+        return sum(len(s.triangles) for s in shapes if s.triangles)
+    except Exception:  # noqa: BLE001
+        return 0  # let the real converter report the failure
+
+
+# ... existing code ...
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
     of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
@@ -306,6 +317,11 @@ def main():
             skipped += 1
         else:
             ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            # Apply --max-tris: skip heavy meshes before the expensive conversion
+            if a.max_tris and triangle_count(src, name) > a.max_tris:
+                skipped += 1
+                print(f"  skip {name}: > {a.max_tris} triangles")
+                continue
             r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
