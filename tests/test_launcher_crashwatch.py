@@ -307,7 +307,8 @@ class CrashWatchTests(unittest.TestCase):
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
         self.play(self.values(bridge="off"), sys_)
-        self.assertEqual(len(sys_.ran), 1)                         # already held: status only
+        self.assertEqual(sys_.ran[1][:3], ["off", "--plugins", "FO4SFBridge.esm"])   # held: off again, the game
+        #                                                          may have ticked it since
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
         mg = os.path.join(self.dir, "mg")

@@ -161,7 +161,9 @@ def apply_bridge(values, starfield, system, say):
     if BRIDGE.casefold() not in owned:
         say(f"bridge: {BRIDGE} is not installed; nothing to turn {want}")
         return
-    if want == "off" and BRIDGE.casefold() not in held:
+    if want == "off":
+        # run off even for a recorded hold: the game may have ticked the bridge again, and a repeated off unticks it
+        # (plugin_toggle.py prints "already held off" when nothing needs doing) (Codex, #449)
         argv = [sys.executable, PLUGIN_TOGGLE, "off", "--plugins", BRIDGE, "--starfield", starfield,
                 "--why", "launcher setting bridge=off"]
     elif want == "on" and BRIDGE.casefold() in held:
