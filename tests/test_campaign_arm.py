@@ -89,6 +89,10 @@ class Base(unittest.TestCase):
         digest = tq.sha256(os.path.join(self.staging, "FO4Port.esm"))
         body = dict({"staging": self.staging, "plugin_sha256": digest, "build_id": digest[:8], "experiment": self.stage,
                      "tests": [dict(t, id=f"{i:04d}_t") for i, t in enumerate(tests)]}, **extra)
+        routes = {os.path.basename(t["routes_file"]): tq.sha256(t["routes_file"]) for t in body["tests"]
+                  if t.get("routes_file") and os.path.isfile(t["routes_file"])}   # plan pins the routes it read
+        if routes:
+            body.setdefault("routes_sha256", routes)
         for n in ("rounds", "presence"):                                 # plan-terrain pins the stage's judge files
             if os.path.isfile(os.path.join(self.stage, n + ".json")):
                 body.setdefault(n + "_sha256", tq.sha256(os.path.join(self.stage, n + ".json")))
@@ -585,6 +589,11 @@ class PlanTerrainHoldTests(Base):
         with open(r, "a") as f:
             f.write(" ")
         self.assertIn("routes_A.json changed since the queue was planned", " ".join(self.check(self.camp([("b", q2)]))[1]))
+        # Codex on #391: a queue without the planned digest (older, or the key removed) is planned again, not trusted
+        for name, rs in (("c", None), ("d", {"routes_B.json": "0" * 64})):
+            with self.subTest(routes_sha256=rs):
+                q3 = self.queue(name, [{"coc": "FO4Port_X", "routes_file": r, "route_index": 0}], routes_sha256=rs)
+                self.assertIn("routes_A.json has no planned digest", " ".join(self.check(self.camp([(name, q3)]))[1]))
 
     def test_an_unknown_launch_or_a_relative_python_path_is_refused(self):
         # Codex on #391: chain() refused the launch only when writing; a relative python resolves in two folders
@@ -764,7 +773,7 @@ class ScriptAndGateTests(Base):
         with open(out, newline="") as f:
             text = f.read()
         pins = re.findall(r"'--only', '(\w+)', '--queue-sha256', '([0-9a-f]{64})'", text)
-        self.assertEqual([n for n, _ in pins], ["a", "b"])
+        self.assertEqual([n for n, _ in pins], ["a", "a", "b", "b"])          # before and after each run
         self.assertLess(text.index("'--only', 'b'"), text.index("'--queue', '%s'" % qb))
         self.assertLess(text.index("'gate', '--queue', '%s'" % qa), text.index("'--only', 'b'"))
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
@@ -773,11 +782,11 @@ class ScriptAndGateTests(Base):
             with redirect_stdout(io.StringIO()) as buf:
                 return ca.main(["check", "--campaign", cp, "--sha256", digest, "--only", name,
                                 "--queue-sha256", pin]), buf.getvalue()
-        self.assertEqual(recheck("b", pins[1][1])[0], 0)
+        self.assertEqual(recheck("b", pins[2][1])[0], 0)
         with open(os.path.join(qb, "queue.json"), "w") as f:            # re-planned into the held arrival
             json.dump({"staging": self.staging, "plugin_sha256": tq.sha256(os.path.join(self.staging, "FO4Port.esm")),
                        "tests": [{"id": "0000_t", "coc": "FO4Core_RedRocketSpawn"}]}, f)
-        rc, outp = recheck("b", pins[1][1])
+        rc, outp = recheck("b", pins[2][1])
         self.assertEqual(rc, 1)
         self.assertIn("changed since the chain was armed", outp)
         self.assertIn("held (red_rocket)", outp)
@@ -1020,7 +1029,21 @@ class RunChainTests(Base):
                                ("the checkout moved" if len(n) >= 3 else None)):
             self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
         self.assertEqual([a[1] for a, _ in self.calls], ["run"])                  # never judged
-        self.assertEqual(self.lines[-1], "a: STOP after the run: the checkout moved: not judged")
+        self.assertEqual(self.lines[-1], "a: STOP after the run: the checkout moved")
+
+    def test_a_queue_without_a_judge_is_checked_again_after_its_run(self):
+        # Codex on #391: a route or checkout script changed during an unjudged run reached the gate unchecked
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([("a", qa)])
+        n = []
+        with mock.patch.object(ca, "checkout_rev_why", side_effect=lambda camp: n.append(1) or
+                               ("the checkout moved" if len(n) >= 3 else None)):
+            self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0], {"status": "finished"})), 1)
+        self.assertEqual(self.lines[-1], "a: STOP after the run: the checkout moved")
+        cp = os.path.join(self.d, "c.json")
+        with open(cp, "w") as f:
+            json.dump(c, f)
+        self.assertIn("'--pin-only'", ca.chain(c, cp, set()))
 
     def test_a_failed_judge_stops_the_chain(self):
         # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0

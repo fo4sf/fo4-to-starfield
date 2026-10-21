@@ -435,13 +435,20 @@ def check_queue(entry, camp, release):
         # Codex on #391: a missing routes_file would pin as "missing" and reach the game with no route
         why.append(f"routes_file {', '.join(gone[:3])} is missing")
     planned = q.get("routes_sha256")
-    if isinstance(planned, dict):
-        # Codex on #391: the pin hashes the route as it is at arming; the plan recorded the route it planned with
-        moved = sorted({os.path.basename(str(t["routes_file"])) for t in q["tests"] if t.get("routes_file")
-                        and rooted(t["routes_file"]) and os.path.isfile(t["routes_file"])
-                        and planned.get(os.path.basename(str(t["routes_file"]))) != tq.sha256(t["routes_file"])})
-        if moved:
-            why.append(f"routes_file {', '.join(moved[:3])} changed since the queue was planned (routes_sha256)")
+    planned = planned if isinstance(planned, dict) else {}
+    # Codex on #391: the pin hashes the route as it is at arming; the plan recorded the route it planned with, and a
+    # queue without that record (older, or the key removed) is planned again rather than trusted
+    unplanned = sorted({os.path.basename(str(t["routes_file"])) for t in q["tests"] if t.get("routes_file")
+                        and not planned.get(os.path.basename(str(t["routes_file"])))})
+    if unplanned:
+        why.append(f"routes_file {', '.join(unplanned[:3])} has no planned digest (queue.json routes_sha256): "
+                   f"plan the queue again")
+    moved = sorted({os.path.basename(str(t["routes_file"])) for t in q["tests"] if t.get("routes_file")
+                    and rooted(t["routes_file"]) and os.path.isfile(t["routes_file"])
+                    and planned.get(os.path.basename(str(t["routes_file"])))
+                    and planned[os.path.basename(str(t["routes_file"]))] != tq.sha256(t["routes_file"])})
+    if moved:
+        why.append(f"routes_file {', '.join(moved[:3])} changed since the queue was planned (routes_sha256)")
     br = q.get("bridge")
     if br and not camp.get("bridge"):
         # Codex on #391: the runner installs a queue's bridge before launch: a campaign that names none would get one
@@ -820,11 +827,12 @@ def chain(camp, path, release, digest=None):
                   "was armed'; exit 1 }",
                   "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
+        # Codex on #391: the judge reads queue.json and its definition file when it runs, hours after the check, and
+        # later tests read the routes and checkout scripts: the pins are checked again after every run, judged or not
+        lines += [f"if ((Py {psa(pin + ['--pin-only'])}) -ne 0) {{ Write-Host 'stopped after {e['name']}''s run: "
+                  "its queue, routes, judge definition or checkout changed during the run'; exit 1 }"]
         if e.get("judge"):
-            # Codex on #391: the judge reads queue.json and its definition file when it runs, hours after the check
-            lines += [f"if ((Py {psa(pin + ['--pin-only'])}) -ne 0) {{ Write-Host 'stopped after {e['name']}''s run: "
-                      "its queue or judge definition changed during the run: not judged'; exit 1 }",
-                      "$jr = Py " + psa([x.replace("/", "\\") if i == 0 else x for i, x in enumerate(e["judge"])])]
+            lines += ["$jr = Py " + psa([x.replace("/", "\\") if i == 0 else x for i, x in enumerate(e["judge"])])]
             judge = " --judge-exit $jr"
         gate_argv = psa(["scripts\\game\\campaign_arm.py", "gate", "--queue", e["queue"], "--run-exit"])[:-1]
         gate_argv += ', "$rc"' + (', \'--judge-exit\', "$jr"' if judge else "") + ")"
@@ -904,16 +912,17 @@ def run_chain(camp, log=print, call=None):
                   env)
         log(f"{e['name']}: run exit {rc}")
         jr = None
+        # Codex on #391: checked after every run, judged or not: later tests read the routes and checkout scripts too
+        rev = checkout_rev_why(camp)
+        if rev:
+            log(f"{e['name']}: STOP after the run: {rev}")
+            return 1
+        if queue_sha256(e) != pin:
+            # Codex on #391: the judge reads queue.json and its definition file now, hours after the check
+            log(f"{e['name']}: STOP after the run: its queue.json, routes or judge definition file changed during "
+                "the run")
+            return 1
         if e.get("judge"):
-            rev = checkout_rev_why(camp)
-            if rev:
-                log(f"{e['name']}: STOP after the run: {rev}: not judged")
-                return 1
-            if queue_sha256(e) != pin:
-                # Codex on #391: the judge reads queue.json and its definition file now, hours after the check
-                log(f"{e['name']}: STOP after the run: its queue.json or its judge's definition file changed during "
-                    "the run: not judged")
-                return 1
             jr = call([py, "-I", e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
@@ -980,8 +989,8 @@ def main(argv=None):
         if a.pin_only:
             # Codex on #391: after the run its state.json counts the launch; only the files the judge reads must hold
             why = ([] if queue_sha256(entry) == a.queue_sha256.lower() else
-                   [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed "
-                    "since the chain was armed"]) + [w for w in [checkout_rev_why(camp)] if w]
+                   [f"{os.path.join(entry.get('queue') or '', 'queue.json')}, its routes or its judge's definition "
+                    "file changed since the chain was armed"]) + [w for w in [checkout_rev_why(camp)] if w]
         else:
             why = check_caps(camp.get("caps")) + recheck(entry, camp, release, a.queue_sha256.lower())
         print(f"{'REFUSED' if why else 'OK':8s} {a.only}: {entry.get('queue')}")
