@@ -150,6 +150,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
                 problems.append(f"settlement {pid}: {key} must be in {lo}..{hi}")
         if not _is_int(beds) or beds < 0:
             problems.append(f"settlement {pid}: beds must be a non-negative integer")
+        pr = s.get("priority")
+        if pr is not None and pr not in GOODS:
+            problems.append(f"settlement {pid}: priority must be one of {', '.join(GOODS)} or null")
 
     edges = {frozenset((r.a, r.b)) for r in ws.routes} if ws else set()
     for r in routes:

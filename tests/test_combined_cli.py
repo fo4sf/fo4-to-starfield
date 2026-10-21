@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # sibling test module below
 
 from fo4sf.combined import __main__ as cli  # noqa: E402
+from fo4sf.combined import balance, news, present, sim  # noqa: E402
 from fo4sf.combined.fixtures import REGION_1, REGION_2  # noqa: E402
 from fo4sf.combined.model import WorldState  # noqa: E402
 from test_combined_seed import edid, grup, plugin, rec  # noqa: E402
@@ -101,6 +102,71 @@ class CliTests(unittest.TestCase):
         code, _, err = run(["seed", os.path.join(self.dir, "out"), junk])
         self.assertEqual(code, 1)
         self.assertIn("not a plugin", err)
+
+    # --- M3: balance, news, present ---------------------------------------------------------------
+
+    def test_balance_on_fixtures_prints_aggregate_and_exits_0(self):
+        code, out, _ = run(["balance", "--seeds", "3", "--days", "10"])
+        self.assertEqual(code, 0)
+        r = json.loads(out)
+        self.assertEqual((r["seeds"], r["days"], r["broken"], r["overrides"]), (3, 10, [], {}))
+        self.assertEqual(r["aggregate"]["seeds"], 3)
+        self.assertEqual(r["aggregate"]["story_lock_violations"], 0)
+        self.assertEqual(r["aggregate"], balance.sweep([REGION_1, REGION_2], range(3), 10)["aggregate"])
+
+    def test_balance_set_override_can_break_a_bound_and_is_restored(self):
+        code, out, _ = run(["balance", "--seeds", "2", "--days", "10", "--set", "sim.ATTACK_CHANCE_PER_AGGRESSION=0"])
+        self.assertEqual(code, 1)
+        r = json.loads(out)
+        self.assertEqual(r["overrides"], {"sim.ATTACK_CHANCE_PER_AGGRESSION": 0})
+        self.assertEqual(r["aggregate"]["attacks_per_day"], 0.0)
+        self.assertTrue(any(line.startswith("attacks_per_day") for line in r["broken"]), r["broken"])
+        self.assertEqual(sim.ATTACK_CHANCE_PER_AGGRESSION, 0.25)
+
+    def test_balance_takes_packs_and_rejects_bad_set(self):
+        code, out, _ = run(["balance", "--seeds", "2", "--days", "5", "--pack", self.r1, "--pack", self.r2])
+        self.assertEqual(code, 0)
+        self.assertIn("slavers", json.loads(out)["aggregate"]["home_only_share"])
+        for bad in ("NO_SUCH=1", "UPKEEP_PER_PLACE", "sim.UPKEEP_PER_PLACE=abc", "sim.UPKEEP_PER_PLACE=",
+                    'sim.UPKEEP_PER_PLACE="2"', "present.RADIUS_HOURS=0"):
+            code, _, err = run(["balance", "--seeds", "1", "--days", "1", "--set", bad])
+            self.assertEqual(code, 1, bad)
+            self.assertTrue(err.startswith("error:"), err)
+            self.assertEqual(sim.UPKEEP_PER_PLACE, 1, bad)
+
+    def test_news_from_resumed_state(self):
+        state = os.path.join(self.dir, "state.json")
+        run(["simulate", "--pack", self.r1, "--seed", "3", "--days", "20", "--out", state])
+        code, out, _ = run(["news", "--resume", state, "--place", "market"])
+        self.assertEqual(code, 0)
+        with open(state, encoding="utf-8") as f:
+            ws = WorldState.from_json(f.read())
+        self.assertEqual(out.rstrip("\n"), news.terminal_page(ws, "market"))
+        self.assertTrue(out.startswith("market news, Day 21, 00:00"))
+
+    def test_news_from_packs_alone_has_no_news_yet(self):
+        code, out, _ = run(["news", "--pack", self.r1, "--pack", self.r2, "--place", "river_town"])
+        self.assertEqual(code, 0)
+        self.assertIn("No news has reached river town.", out)
+
+    def test_present_from_resumed_state(self):
+        state = os.path.join(self.dir, "state.json")
+        run(["simulate", "--pack", self.r1, "--seed", "3", "--days", "20", "--out", state])
+        code, out, _ = run(["present", "--resume", state, "--place", "market"])
+        self.assertEqual(code, 0)
+        with open(state, encoding="utf-8") as f:
+            ws = WorldState.from_json(f.read())
+        self.assertEqual(json.loads(out), present.plan(ws, "market").to_dict())
+        self.assertEqual(json.loads(out)["centre"], "market")
+
+    def test_news_and_present_refuse_unknown_place_or_empty_world(self):
+        for cmd in ("news", "present"):
+            code, _, err = run([cmd, "--pack", self.r1, "--place", "nowhere"])
+            self.assertEqual(code, 2)
+            self.assertIn("unknown place 'nowhere'", err)
+            code, _, err = run([cmd, "--place", "market"])
+            self.assertEqual(code, 2)
+            self.assertIn("no places", err)
 
 
 if __name__ == "__main__":

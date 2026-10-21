@@ -44,6 +44,29 @@ PLAYER_DEFENCE_HOURS = 72            # a garrison the player leaves goes home af
 PLAYER_DEFENCE_FAME = 4
 TRADE_GOODS_PER_TIER = 10            # goods handed over per reputation tier step
 
+# Settlement production focus (placeholder; our own addition under CC-10 "both", where the player's management feeds
+# the same numbers the simulation grows; set via manage.set_priority): each worker of the role that makes the
+# prioritised good adds this much more of it per tick. Which role makes which good follows _settlement_tick; a
+# priority of None (the default) changes nothing, so saves made before the field existed replay exactly.
+PRIORITY_BONUS_PER_WORKER = 1
+PRIORITY_ROLE = {"food": "farmer", "water": "farmer", "scrap": "scavenger", "ammo": "crafter",
+                 "medicine": "doctor"}
+
+# Event kinds that change a place's holder and carry `previous`: place_taken (here and jobs' retake, `faction` is the
+# new holder) and place_cleared (jobs' clear: the holder becomes None, `faction` is the giver). Every reader of holder
+# history (here, jobs, balance) walks both, so a player-cleared place counts as lost to its old holder.
+HOLDER_CHANGE_KINDS = ("place_taken", "place_cleared")
+
+
+def holder_changes(ws: WorldState) -> list[dict]:
+    """The events that changed a holder, in log order."""
+    return [e for e in ws.events if e["kind"] in HOLDER_CHANGE_KINDS]
+
+
+def new_holder(e: dict) -> str | None:
+    """Who held the place after holder-change event `e`."""
+    return e["faction"] if e["kind"] == "place_taken" else None
+
 
 def _rng(ws: WorldState) -> random.Random:
     return random.Random(ws.seed * 1_000_003 + ws.hour)
@@ -88,6 +111,9 @@ def _settlement_tick(ws: WorldState) -> None:
         s.stock["scrap"] -= 2 * made
         s.stock["ammo"] += 3 * made
         s.stock["medicine"] += r["doctor"]
+        if s.priority is not None:   # focus bonus (manage.set_priority); ammo still needs the scrap
+            workers = made if s.priority == "ammo" else r[PRIORITY_ROLE[s.priority]]
+            s.stock[s.priority] += PRIORITY_BONUS_PER_WORKER * workers
         need = s.population
         short = 0
         for g in ("food", "water"):
@@ -183,11 +209,10 @@ def _hostile(ws: WorldState, a: str, b: str | None) -> bool:
 
 
 def _lost_places(ws: WorldState, fid: str) -> set[str]:
-    """Places `fid` once held and does not hold now, read back from the event log so a resumed
-    save knows them too (no extra model field needed)."""
-    return {e["place"] for e in ws.events
-            if e["kind"] == "place_taken" and e.get("previous") == fid
-            and ws.places[e["place"]].holder != fid}
+    """Places `fid` once held and does not hold now (taken from it, or cleared by the player), read back from
+    the event log so a resumed save knows them too (no extra model field needed)."""
+    return {e["place"] for e in holder_changes(ws)
+            if e.get("previous") == fid and ws.places[e["place"]].holder != fid}
 
 
 def _daily_strength(ws: WorldState, fid: str, held: list[str]) -> None:

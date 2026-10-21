@@ -47,6 +47,8 @@ class Settlement:
     morale: int = 50              # 0..100
     stage: int = 0                # growth stage, 0..4
     beds: int = 20                # population cap until the player or a stage adds more
+    priority: str | None = None   # good the settlement focuses on (manage.set_priority); sim adds a bonus.
+                                  # Defaults, so a schema-2 save without it still loads.
 
 
 @dataclass

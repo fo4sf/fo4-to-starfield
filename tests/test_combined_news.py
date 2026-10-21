@@ -7,7 +7,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-from fo4sf.combined import fixtures, model, news, sim  # noqa: E402
+from fo4sf.combined import fixtures, manage, model, news, sim  # noqa: E402
 from fo4sf.combined.model import WorldState  # noqa: E402
 
 SEEDS = range(8)
@@ -171,6 +171,36 @@ class FeedTests(unittest.TestCase):
         lines = news.headlines(ws, "market")
         self.assertIn("A traveller stood guard at market.", lines)
         self.assertIn("A traveller brought supplies to market.", lines)
+
+    def test_player_actions_have_lines(self):
+        samples = {
+            "place_cleared": ev("place_cleared", place="ruins", faction="settlers", previous="raiders", player=True),
+            "job_done": ev("job_done", faction="settlers", job="clear", target="ruins", fame=4),
+            "job_failed": ev("job_failed", faction="settlers", job="defend", target="farm_a", infamy=1),
+            "roles_changed": ev("roles_changed", from_role="farmer", to_role="guard", n=1),
+            "beds_added": ev("beds_added", n=3, beds=23),
+            "priority_set": ev("priority_set", old=None, new="food"),
+            "priority_cleared": ev("priority_set", old="food", new=None),
+            "supplies_sent": ev("supplies_sent", target="market", cargo={"food": 6}, squad="c1", eta=12),
+        }
+        for key, e in samples.items():
+            line = news.headline(e)
+            self.assertIsInstance(line, str, key)
+            self.assertTrue(line.endswith("."), line)
+            self.assertNotIn("{", line)
+            self.assertNotIn("_", line)
+        self.assertEqual(news.headline(samples["place_cleared"]), "Settlers drove raiders out of ruins.")
+        self.assertEqual(news.headline(samples["priority_set"]), "Farm a is now putting its effort into food.")
+        self.assertEqual(news.headline(samples["priority_cleared"]), "Farm a has gone back to working as usual.")
+        self.assertEqual(news.headline(samples["supplies_sent"]), "A caravan left farm a for market carrying 6 food.")
+        ws = world(1)
+        manage.add_beds(ws, "farm_a", 3)
+        manage.set_priority(ws, "farm_a", "food")
+        manage.assign_role(ws, "farm_a", "farmer", "guard")
+        self.assertEqual(news.headlines(ws, "farm_a"),                 # same hour: event order
+                         ["New beds were built at farm a.",
+                          "Farm a is now putting its effort into food.",
+                          "Settlers at farm a were moved from farmer work to guard work."])
 
 
 class TerminalPageTests(unittest.TestCase):

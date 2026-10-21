@@ -38,6 +38,16 @@ TEMPLATES = {
     "player_defended": "A traveller stood guard at {place}.",
     "player_gave": "A traveller brought supplies to {place}.",
     "player_took": "A traveller bought supplies at {place}.",
+    # jobs.py outcomes
+    "place_cleared": "{faction} drove {previous} out of {place}.",
+    "job_done": "A traveller finished a job for {faction} at {place}.",
+    "job_failed": "A traveller let {faction} down at {place}.",
+    # manage.py actions
+    "roles_changed": "Settlers at {place} were moved from {from_role} work to {to_role} work.",
+    "beds_added": "New beds were built at {place}.",
+    "priority_set": "{place} is now putting its effort into {good}.",
+    "priority_cleared": "{place} has gone back to working as usual.",
+    "supplies_sent": "A caravan left {place} for {target} carrying {cargo}.",
 }
 
 
@@ -68,15 +78,20 @@ def _template_key(e: dict) -> str | None:
     if kind == "player_traded":
         given = sum(n for n in (e.get("goods") or {}).values() if n > 0)
         return "player_gave" if given else "player_took"
+    if kind == "priority_set":
+        return "priority_cleared" if e.get("new") is None else "priority_set"
     return kind if kind in TEMPLATES else None
 
 
 def _fields(e: dict, names) -> dict[str, str]:
     out = {}
-    for k in ("place", "faction", "previous", "target", "origin", "raider", "defender", "holder"):
+    for k in ("place", "faction", "previous", "target", "origin", "raider", "defender", "holder",
+              "from_role", "to_role"):
         if k in e:
             out[k] = display_name(e[k], names)
     out["cargo"] = _cargo(e.get("cargo"))
+    if e.get("kind") == "priority_set":
+        out["good"] = display_name(e.get("new"), names)
     return out
 
 

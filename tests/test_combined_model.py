@@ -204,6 +204,17 @@ class PackValidationTests(unittest.TestCase):
         self.assertProblem(lambda p: p["settlements"][0].update(morale=101), "morale")
         self.assertProblem(lambda p: p["settlements"][0].update(stage=5), "stage")
 
+    def test_settlement_priority_is_a_good_or_null(self):
+        self.assertProblem(lambda p: p["settlements"][0].update(priority="gold"), "priority must be one of")
+        self.assertProblem(lambda p: p["settlements"][0].update(priority=7), "priority must be one of")
+        self.assertEqual(self.problems(lambda p: p["settlements"][0].update(priority="food")), [])
+        self.assertEqual(self.problems(lambda p: p["settlements"][0].update(priority=None)), [])
+        p = r1()
+        p["settlements"][0]["priority"] = "scrap"
+        ws = world(p)
+        sim.run(ws, 24)                                  # a validated priority runs; "gold" would be a KeyError
+        self.assertEqual(ws.settlements["farm_a"].priority, "scrap")
+
     def test_routes(self):
         self.assertProblem(lambda p: p["routes"][0].update(hours=0), "hours must be a positive integer")
         self.assertProblem(lambda p: p["routes"][0].update(hours=2.5), "hours must be a positive integer")

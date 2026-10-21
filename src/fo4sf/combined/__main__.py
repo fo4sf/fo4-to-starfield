@@ -3,6 +3,9 @@
   seed OUT_DIR PLUGIN...           read-only draft of a pack from the player's own plugins (seed.py)
   simulate --pack FILE [--pack FILE] --seed N --days D [--out STATE.json] [--resume STATE.json]
   demo --seed N --days D           the built-in synthetic fixtures (placeholder names, not game facts)
+  balance --seeds N --days D [--pack FILE ...] [--set NAME=VALUE ...]   tuning sweep (balance.py); exit 1 on a broken bound
+  news [--pack FILE ...] [--resume STATE.json] --place ID                the terminal page a place shows (news.py)
+  present [--pack FILE ...] [--resume STATE.json] --place ID             the presence plan around a place (present.py)
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import json
 import sys
 from collections import Counter
 
+from . import balance, news, present
 from . import seed as _seed
 from . import sim
 from .fixtures import REGION_1, REGION_2
@@ -48,16 +52,31 @@ def _load_json(path: str) -> dict:
         return json.load(f)
 
 
-def cmd_simulate(args) -> int:
-    if args.resume:
+def _world(args, seed: int = 1) -> WorldState | None:
+    """The world a command works on: --resume STATE.json, then every --pack added; None (and a message) if empty."""
+    if getattr(args, "resume", None):
         with open(args.resume, encoding="utf-8") as f:
             ws = WorldState.from_json(f.read())   # the save carries its own seed; --seed is ignored
     else:
-        ws = WorldState(seed=args.seed)
+        ws = WorldState(seed=seed)
     for path in args.pack or []:
         load_pack(ws, _load_json(path))          # raises ValueError listing every problem
     if not ws.places:
-        print("simulate: no places; give at least one --pack or a --resume state", file=sys.stderr)
+        print(f"{args.cmd}: no places; give at least one --pack or a --resume state", file=sys.stderr)
+        return None
+    return ws
+
+
+def _place(args, ws: WorldState) -> bool:
+    if args.place not in ws.places:
+        print(f"{args.cmd}: unknown place {args.place!r}; known: {', '.join(sorted(ws.places))}", file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_simulate(args) -> int:
+    ws = _world(args, args.seed)
+    if ws is None:
         return 2
     sim.run(ws, args.days * HOURS_PER_DAY)
     if args.out:
@@ -73,6 +92,47 @@ def cmd_demo(args) -> int:
     load_pack(ws, copy.deepcopy(REGION_2))
     sim.run(ws, args.days * HOURS_PER_DAY)
     _print(summary(ws))
+    return 0
+
+
+def _parse_set(item: str) -> tuple[str, object]:
+    """NAME=VALUE for --set; the value must be JSON (0.5, 3, true, "text"), so a typo is an error, not a string."""
+    name, eq, raw = item.partition("=")
+    if not eq or not name:
+        raise ValueError(f"--set wants NAME=VALUE, got {item!r}")
+    try:
+        return name, json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError(f"--set {name}: value {raw!r} is not JSON (quote a string: '\"text\"')") from None
+
+
+def cmd_balance(args) -> int:
+    packs = [_load_json(p) for p in args.pack] if args.pack else [copy.deepcopy(REGION_1), copy.deepcopy(REGION_2)]
+    overrides = dict(_parse_set(item) for item in args.set or [])
+    result = balance.sweep(packs, range(args.seeds), args.days, overrides)
+    broken = balance.check(result["aggregate"])
+    _print({"aggregate": result["aggregate"], "broken": broken, "days": args.days, "overrides": overrides,
+            "seeds": args.seeds})
+    return 1 if broken else 0
+
+
+def cmd_news(args) -> int:
+    ws = _world(args)
+    if ws is None:
+        return 2
+    if not _place(args, ws):
+        return 2
+    print(news.terminal_page(ws, args.place))
+    return 0
+
+
+def cmd_present(args) -> int:
+    ws = _world(args)
+    if ws is None:
+        return 2
+    if not _place(args, ws):
+        return 2
+    _print(present.plan(ws, args.place).to_dict())
     return 0
 
 
@@ -95,6 +155,20 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--days", type=int, default=30)
     s.set_defaults(fn=cmd_demo)
+    s = sub.add_parser("balance", help="sweep seeds and check the aggregate against DEFAULT_BOUNDS")
+    s.add_argument("--seeds", type=int, required=True, help="run seeds 0..N-1")
+    s.add_argument("--days", type=int, required=True)
+    s.add_argument("--pack", action="append", metavar="FILE", help="default: the built-in fixtures")
+    s.add_argument("--set", action="append", metavar="NAME=VALUE",
+                   help="override a sim constant for the sweep (VALUE as JSON), e.g. sim.UPKEEP_PER_PLACE=2")
+    s.set_defaults(fn=cmd_balance)
+    for name, fn, what in (("news", cmd_news, "print the terminal news page at a place"),
+                           ("present", cmd_present, "print the presence plan around a place")):
+        s = sub.add_parser(name, help=what)
+        s.add_argument("--pack", action="append", metavar="FILE")
+        s.add_argument("--resume", metavar="STATE.json")
+        s.add_argument("--place", required=True, metavar="ID")
+        s.set_defaults(fn=fn)
     return p
 
 
