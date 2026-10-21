@@ -26,7 +26,7 @@ python scripts/game/testqueue.py run --queue <dir>\tier2 <the usual caps>
 - `tier1/queue.json`: the smoke queue.
 - `promotion.json`: each cell `promoted` or `held`, with the reason (the first failing verdict, `not run`, or its tier 1
   state).
-- `tier2/queue.json`: the interaction queue.
+- `tier2/queue.json`: the interaction queue. A travel test is kept only when both of its cells were promoted.
 
 Both queues carry the staging fingerprint (`staging_files`, every staged file's sha256). `testqueue.py run` stops
 before a launch when any staged file changed since the plan, not only `FO4Port.esm`.

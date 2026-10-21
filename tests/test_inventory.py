@@ -181,6 +181,27 @@ class InventoryTests(unittest.TestCase):
                 self.assertTrue(r.pinned_ok())                   # the plugin alone would have let it run
                 os.remove(os.path.join(self.st, "Meshes.ba2"))
 
+    def test_tier2_travel_needs_both_cells_promoted(self):
+        # Codex on #405: plan builds travel from every staged cell, so a promoted cell's door led into a held one
+        def door(fk, other, pos):
+            return {"formkey": fk, "model": "D.nif", "pos": pos, "teleport_destination": {"door": other, "pos": pos}}
+        jdump({"cell": "CellA", "refs": [door("00000A:FO4Port.esm", "00000B:FO4Port.esm", [1, 0, 0]),
+                                         door("00000C:FO4Port.esm", "00000D:FO4Port.esm", [2, 0, 0])]},
+              os.path.join(self.st, "CellA.json"))
+        jdump({"cell": "CellB", "refs": [door("00000B:FO4Port.esm", "00000A:FO4Port.esm", [3, 0, 0])]},
+              os.path.join(self.st, "CellB.json"))
+        jdump({"cell": "CellC", "refs": [door("00000D:FO4Port.esm", "00000C:FO4Port.esm", [4, 0, 0])]},
+              os.path.join(self.st, "CellC.json"))
+        self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        ids = {c["cell"]: c.get("tests") for c in jload(os.path.join(self.out, "inventory.json"))["cells"]}
+        self.results([{"id": ids["CellA"][0], "verdict": "PASS", "class": "PASS"},
+                      {"id": ids["CellB"][0], "verdict": "PASS", "class": "PASS"}])   # CellC: no point, held
+        out = self.run_inv("promote", "--inventory", self.out, "--kinds", "travel")
+        q = jload(os.path.join(self.out, "tier2", "queue.json"))
+        self.assertEqual(sorted((t["cell"], t["dest_cell"]) for t in q["tests"]),
+                         [("CellA", "CellB"), ("CellB", "CellA")])
+        self.assertIn("1 travel test(s) into a held cell dropped", out)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,13 +75,21 @@ def wanted_cells(a):
 fingerprint = tq.staging_fingerprint                     # every staged file's sha256 (the probe points aside)
 
 
-def pin_staging(qdir, files, skip):
+def pin_staging(qdir, files, skip, cells=None):
     """Write the staging fingerprint into the planned queue, so testqueue.py run refuses a staging changed after the
-    plan, not only a changed FO4Port.esm (Runner.staging_mismatch; Codex on #405)."""
+    plan, not only a changed FO4Port.esm (Runner.staging_mismatch; Codex on #405). With `cells` (the promoted ones), a
+    travel test into a cell outside them is dropped: both ends of a trip must have passed smoke (Codex on #405).
+    Returns how many tests were dropped."""
     p = os.path.join(qdir, "queue.json")
     q = tq.load(p)
+    dropped = 0
+    if cells is not None:
+        keep = [t for t in q["tests"] if t["kind"] != "travel" or t.get("dest_cell") in cells]
+        dropped = len(q["tests"]) - len(keep)
+        q["tests"] = keep
     q["staging_files"], q["staging_skip"] = files, [os.path.abspath(x) for x in skip]
     tq.save_atomic(p, q)
+    return dropped
 
 
 def digest(files):
@@ -221,11 +229,11 @@ def promote(a):
     try:
         summary = run_plan(["--staging", inv["staging"], "--out", t2, "--kinds", ",".join(kinds), "--per-cell",
                             str(a.per_cell), "--cells", ",".join(up), "--plugin-index", inv["plugin_index"], *extra])
-        pin_staging(t2, pinned, [d])
+        dropped = pin_staging(t2, pinned, [d], set(up))
     except BaseException:                                 # a refused plan leaves no tier2/ to block the next promote
         shutil.rmtree(t2, ignore_errors=True)
         raise
-    print(f"tier 2: {summary}; cells {res['counts']}")
+    print(f"tier 2: {summary}; {dropped} travel test(s) into a held cell dropped; cells {res['counts']}")
 
 
 def main(argv=None):
