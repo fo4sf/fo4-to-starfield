@@ -930,6 +930,19 @@ class BuildFlowTests(unittest.TestCase):
         rec1 = ib.load(os.path.join(work, "exports", "sources.json"))
         self.assertEqual((rec1["sources"], rec1["cells"], rec1["history"]), (r1["sources"], {"One": ["Fallout4.esm"]}, []))
         self.assertEqual(r1["install"], {"files": ["FO4Port.esm"], "plugins_txt": ["FO4Port.esm"]})   # --no-pack: the plugin only
+        # the base exports the batch rebuilt its base cells from are pinned; a --prev pinned to other ones is refused
+        self.assertEqual(r1["pins"]["base_exports"], {c: ib.sha256(os.path.join(base, c + ".json")) for c in ib.base_cells(base)})
+        self.assertTrue(r1["pins"]["base_exports"])
+        first = os.path.join(base, ib.base_cells(base)[0] + ".json")
+        with open(first, "rb") as f:
+            kept = f.read()
+        with open(first, "ab") as f:
+            f.write(b" ")
+        with self.assertRaisesRegex(SystemExit, "--base-exports .* differs from the exports --prev was built from"):
+            build(2, os.path.join(t, "staging", "interiors_b02e"), prev=b1)
+        self.assertFalse(os.path.exists(os.path.join(t, "staging", "interiors_b02e")))
+        with open(first, "wb") as f:
+            f.write(kept)
         # batch 2 packed (Archive2 faked), with textures split at a tiny limit: two parts, one companion plugin
         for n, size in (("a.dds", 40), ("b.dds", 40), ("c.dds", 30)):
             os.makedirs(os.path.join(work, "textures"), exist_ok=True)

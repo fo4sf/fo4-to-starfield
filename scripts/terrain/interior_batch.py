@@ -557,6 +557,11 @@ def work_status_label(status, history):
     return f"{status} ({steps})"
 
 
+def base_export_pins(base_exports, cells):
+    """{base cell: sha256 of its <cell>.json under --base-exports}: what this batch's base cells were rebuilt from."""
+    return {c: sha256(os.path.join(base_exports, c + ".json")) for c in cells}
+
+
 def base_plugins(old_cells, base_exports, census):
     """{base cell: [plugins in load order]} for the pinned base cells a plugin other than Fallout4.esm holds, read from
     the census row of each export's formkey (the base cells are not in the plan): the locations sidecar reads their
@@ -608,6 +613,19 @@ def build(a):
             source_change[what] = diff
         if old and source_added(old, sources):
             added[what] = source_added(old, sources)
+    # The base exports too: the installed port's cell exports this batch rebuilds the base cells from. Their sha256s are
+    # pinned in result.json (pins.base_exports); a --prev pinned to other exports is refused like other game files,
+    # since compare tolerates changed records and would pass a batch whose base cells quietly differ.
+    base_pins = base_export_pins(a.base_exports, old_cells)
+    old_base_pins = ((prev_result or {}).get("pins") or {}).get("base_exports")
+    if old_base_pins is not None and old_base_pins != base_pins:
+        diff = [f"{c}.json {'missing' if c not in base_pins else 'sha256 ' + base_pins[c][:12]} (was "
+                f"{'missing' if c not in old_base_pins else old_base_pins[c][:12]})"
+                for c in sorted(set(base_pins) | set(old_base_pins)) if base_pins.get(c) != old_base_pins.get(c)]
+        if not a.allow_source_change:
+            sys.exit(f"--base-exports {a.base_exports} differs from the exports --prev was built from ({len(diff)} "
+                     f"difference(s): {'; '.join(diff[:5])}): refusing; pass --allow-source-change to build over it anyway")
+        source_change["--base-exports"] = diff
     # The work staging too: its cached exports and conversion checkpoints are reused only when it was made from these
     # game files; one from before the pins is adopted (recorded, not provable), one from other files refused.
     work_status, work_diff = check_work(a, sources)
@@ -1053,6 +1071,9 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     if os.path.isfile(os.path.join(port, PLUGIN)):
         pins["plugin"] = sha256(os.path.join(port, PLUGIN))
         pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))
+    pinned = os.path.join(a.out, "base_exports")              # the copies this build read, not --base-exports now
+    if os.path.isdir(pinned):
+        pins["base_exports"] = base_export_pins(pinned, base_cells(pinned))
     install = install_set(port)
     result = {"batch": a.batch, "name": os.path.basename(os.path.abspath(a.out)), "pass": error is None, "error": error,
               "installed": False, "base": os.path.abspath(a.base), "core": os.path.abspath(a.core),

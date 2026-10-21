@@ -46,7 +46,9 @@ public static class CellMergeTests
         other.Persistent.Add(otherDoor);
         untouched.Temporary.Add(Ref(new FormKey(masterKey, 0x1320), crate.FormKey, 20));
         untouched.Persistent.Add(Ref(new FormKey(masterKey, 0x1321), crate.FormKey, 21));
-        AddInterior(master, factory, other, untouched);
+        var gone = new Cell(new FormKey(masterKey, 0x1203), Fallout4Release.Fallout4) { EditorID = "Gone", Flags = Cell.Flag.IsInteriorCell };
+        gone.Temporary.Add(Ref(new FormKey(masterKey, 0x1330), crate.FormKey, 30));
+        AddInterior(master, factory, other, untouched, gone);
 
         var dlc = new Fallout4Mod(dlcKey, Fallout4Release.Fallout4);
         var zone = new EncounterZone(new FormKey(dlcKey, 0x801), Fallout4Release.Fallout4) { EditorID = "DlcFactoryZone", MinLevel = 7, MaxLevel = 9 };
@@ -59,7 +61,8 @@ public static class CellMergeTests
         factoryDlc.Temporary.Add(c2); factoryDlc.Temporary.Add(d); factoryDlc.Persistent.Add(b2);
         var otherDlc = new Cell(new FormKey(masterKey, 0x1201), Fallout4Release.Fallout4) { EditorID = "Other", Flags = Cell.Flag.IsInteriorCell };
         otherDlc.Temporary.Add(Ref(new FormKey(masterKey, 0x1305), crate.FormKey, 55));   // E moved here from Factory
-        AddInterior(dlc, factoryDlc, otherDlc);
+        var goneDlc = new Cell(new FormKey(masterKey, 0x1203), Fallout4Release.Fallout4) { EditorID = "Gone", Flags = Cell.Flag.IsInteriorCell, IsDeleted = true };
+        AddInterior(dlc, factoryDlc, otherDlc, goneDlc);
 
         var dir = Path.Combine(Path.GetTempPath(), "fo4sf-cell-merge-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -75,6 +78,8 @@ public static class CellMergeTests
         Require(keys[0].Count == 0 && keys[1].SetEquals(new[] { b.FormKey, c.FormKey, d.FormKey, e.FormKey }), "the later plugin's placed keys are not what it holds");
         var copies = CellMerge.Copies(mods, worldspaces: false);
         Require(copies[factory.FormKey].Count == 2 && copies[untouched.FormKey].Count == 1, "cell copies not counted per plugin");
+        Require(!copies.ContainsKey(gone.FormKey) && CellMerge.Copies(new IFallout4ModGetter[] { m }, false).ContainsKey(gone.FormKey),
+            "a cell the winning plugin deletes is still listed");
 
         var merged = CellMerge.Merge(copies[factory.FormKey], keys);
         Require(merged.Cell.Name?.String == "Factory (DLC)" && merged.Cell.EncounterZone.FormKey == zone.FormKey, "the winning CELL record is not the DLC's");

@@ -62,6 +62,9 @@ public static class CellMerge
                 if (!copies.TryGetValue(cell.FormKey, out var list)) copies[cell.FormKey] = list = new List<Copy>();
                 list.Add(new Copy(i, cell, worldspace));
             }
+        // A cell whose winning copy carries the Deleted flag is gone from the game: no list, location or export sees it.
+        foreach (var key in copies.Where(kv => kv.Value[^1].Cell.IsDeleted).Select(kv => kv.Key).ToList())
+            copies.Remove(key);
         return copies;
     }
 
