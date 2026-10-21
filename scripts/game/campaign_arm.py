@@ -10,7 +10,8 @@ usage:
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
-          (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing);
+          (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing; the
+          Starfield folder's FO4SFExp.install.json must show that experiment and its plugins installed);
         - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a travel test's
           dest_cell and a door_trip's "inside" cell count) not named in --release;
         - its state.json has used every launch the caps allow while tests are left (the run would stop at once);
@@ -144,6 +145,18 @@ def pre_launch_why(pre, camp):
     if opt("--starfield") is None or norm(opt("--starfield")) != norm(sf):
         # Codex on #391: the experiment and the launch must go to the same Starfield folder
         return f"pre_launch installs into {opt('--starfield')}, the campaign runs {sf}"
+    # Codex on #391: the reinstall is a no-op only while that same experiment is installed; with no record it installs
+    rec_p = os.path.join(opt("--starfield"), "Data", "FO4SFExp.install.json")
+    try:
+        with open(rec_p, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError) as error:
+        return f"pre_launch would install the experiment: no readable install record {rec_p} ({error.__class__.__name__})"
+    files = {str(k).casefold() for k in (rec.get("files") or {})} if isinstance(rec, dict) else set()
+    if not isinstance(rec, dict) or not rec.get("complete", True) or rec.get("cleanup_pending"):
+        return f"pre_launch: the install record {rec_p} is incomplete"
+    if norm(rec.get("exp_dir") or "") != norm(exp) or not want <= files:
+        return f"pre_launch would replace the installed experiment {rec.get('exp_dir')} ({rec_p})"
     return None
 
 
@@ -364,7 +377,10 @@ def chain(camp, path, release):
              "# Every queue runs with one launch, stops at the first crash or dead start, and keeps "
              f"{caps['min_free_gb']:g} GB free on {caps['dump_drive']}.",
              "# The chain stops at the first queue whose run or gate fails. It types nothing itself.",
-             f"$py = {ps(py)}", f"Set-Location {ps(camp['checkout'])}",
+             f"$py = {ps(py)}",
+             # Codex on #391: Set-Location's error does not stop a script; never run the caller's checkout's scripts
+             f"try {{ Set-Location -LiteralPath {ps(camp['checkout'])} -ErrorAction Stop }} catch {{ "
+             f"Write-Host 'no checkout at {camp['checkout']}: nothing run'; exit 1 }}",
              # Codex on #391: the launch mode is the campaign's, never the caller's environment
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
              # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing

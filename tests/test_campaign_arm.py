@@ -29,11 +29,18 @@ class Base(unittest.TestCase):
         with open(os.path.join(self.staging, "FO4Port.esm"), "wb") as f:
             f.write(b"port")
         self.exp = os.path.join(self.d, "v6e")
+        self.sf = os.path.join(self.d, "SF")                              # the experiment already installed there
+        os.makedirs(os.path.join(self.sf, "Data"))
+        self.receipt(self.exp)
         self.stage = os.path.join(self.d, "stage")                       # the judges' rounds.json and presence.json
         os.makedirs(self.stage)
         for n in ("rounds.json", "presence.json"):
             with open(os.path.join(self.stage, n), "w") as f:
                 json.dump({"tests": []}, f)
+
+    def receipt(self, exp, plugins=PLUGINS, **extra):
+        with open(os.path.join(self.sf, "Data", "FO4SFExp.install.json"), "w") as f:
+            json.dump(dict({"exp_dir": exp, "files": {p: {} for p in plugins}, "complete": True}, **extra), f)
 
     def queue(self, name, tests, pre=None, **extra):
         q = os.path.join(self.d, name)
@@ -83,12 +90,24 @@ class CheckTests(Base):
         self.assertIn("does not have", why[-1])
 
     def test_only_the_installed_experiment_may_be_installed_before_launch(self):
-        exp = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", "D:\\SF",
+        exp = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
                "--plugins", ",".join(PLUGINS), "--pack"]
         q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
-        self.assertEqual(self.check(self.camp([("walk", q)], starfield="d:\\sf\\")), (True, []))
+        self.assertEqual(self.check(self.camp([("walk", q)], starfield=self.sf + os.sep)), (True, []))
         # Codex on #391: the experiment goes into the Starfield folder the chain launches (the default when unset)
-        self.assertIn("pre_launch installs into D:\\SF, the campaign runs", " ".join(self.check(self.camp([("walk", q)]))[1]))
+        self.assertIn("pre_launch installs into %s, the campaign runs" % self.sf,
+                      " ".join(self.check(self.camp([("walk", q)]))[1]))
+        # Codex on #391: with no record, or another experiment's, the "reinstall" would change the installed set
+        for rec, want in ((None, "no readable install record"), ((os.path.join(self.d, "v6c"),), "would replace"),
+                          ((self.exp, PLUGINS[:1]), "would replace"), ((self.exp, PLUGINS, {"complete": False}), "incomplete")):
+            with self.subTest(rec=rec):
+                os.remove(os.path.join(self.sf, "Data", "FO4SFExp.install.json"))
+                if rec:
+                    self.receipt(rec[0], *(rec[1:2]), **(rec[2] if len(rec) > 2 else {}))
+                ok, why = self.check(self.camp([("walk", q)], starfield=self.sf))
+                self.assertFalse(ok)
+                self.assertIn(want, " ".join(why))
+                self.receipt(self.exp)
         other = list(exp)
         other[4] = os.path.join(self.d, "v6c")
         q2 = self.queue("walk2", [{"coc": "FO4Port_X"}], pre=other)
@@ -394,6 +413,9 @@ class ScriptAndGateTests(Base):
             with open(os.path.join(self.d, n), newline="") as f:
                 texts.append(f.read())
         self.assertEqual(texts[0], texts[1])
+        # Codex on #391: a missing checkout stops the chain before the first Python step
+        self.assertIn("try { Set-Location -LiteralPath 'D:\\Modding\\wt_nightrun' -ErrorAction Stop } catch {", texts[0])
+        self.assertLess(texts[0].index("Set-Location"), texts[0].index("& $py"))
         self.assertNotRegex(texts[0], r"\d{4}-\d\d-\d\dT")
 
     def test_repeated_pre_launch_options_are_refused(self):
