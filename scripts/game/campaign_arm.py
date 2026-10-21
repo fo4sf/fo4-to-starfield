@@ -12,7 +12,8 @@ usage:
           active in the campaign's Starfield folder (the runner would install or activate it);
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
           (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing; the
-          Starfield folder's FO4SFExp.install.json must show that experiment with exactly its plugins), or runs
+          Starfield folder's FO4SFExp.install.json must show that experiment with exactly its plugins, and exp_install.py's
+          own relaunch checks must pass), or runs
           another program than the campaign's python;
         - a test marked fresh would launch the game again (any but the first test left, or any retry of one);
         - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a travel test's
@@ -182,20 +183,26 @@ def pre_launch_why(pre, camp):
     have = {str(x).casefold() for x in sel} if isinstance(sel, list) else set()
     if have != want:
         return f"the install record {rec_p} selects {sorted(have)}, the installed set is {sorted(want)}"
-    # Codex on #391: the no-op reinstall stops when a plugin not held off is inactive, or a held one active
-    # (exp_install.verify_relaunch): the same reading here
+    if ("--pack" in args) != bool(rec.get("pack", False)):
+        # Codex on #391: exp_install.py stops when the packing mode differs from the installed one
+        return (f"pre_launch asks for {'a packed' if '--pack' in args else 'a loose'} experiment, the install record "
+                f"{rec_p} has {'a packed' if rec.get('pack') else 'a loose'} one")
+    # Codex on #391: the reinstall is a no-op only when exp_install.py's own relaunch path passes; run that path's
+    # checks here (held plugins, activation, packing policy, installed file digests, staged inputs) instead of copies
+    import types
     import exp_install as ei
+    names = [p.strip() for p in (plugins or "").split(",") if p.strip()]
+    data = os.path.join(opt("--starfield"), "Data")
     try:
-        held = ei.held_off(os.path.join(opt("--starfield"), "Data"))
-        active = {ln.strip()[1:].casefold() for ln in ei.read_plugins(ei.plugins_txt())[0] if ln.strip().startswith("*")}
-    except (OSError, ValueError, SystemExit) as error:
-        return f"pre_launch: the experiment's activation can not be read: {error}"
-    off = sorted(p for p in want if p not in active and p not in held)
-    if off:
-        return f"pre_launch would stop: {', '.join(off)} inactive in Plugins.txt and not held off"
-    again = sorted(p for p in want if p in held and p in active)
-    if again:
-        return f"pre_launch would stop: {', '.join(again)} held off by plugin_toggle.py but active in Plugins.txt"
+        if not all(p in rec["files"] for p in names):
+            return f"pre_launch would replace the installed experiment {rec.get('exp_dir')} ({rec_p})"
+        held = ei.held_off(data)
+        packed = "--pack" in args and any(rel not in names for _, rel in ei.staged_files(exp, names))
+        ei.verify_relaunch(types.SimpleNamespace(exp_dir=exp), data, names, packed, rec, held)
+    except SystemExit as stop:
+        return f"pre_launch would stop: {stop}"
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return f"pre_launch: the installed experiment can not be checked: {error}"
     return None
 
 
@@ -256,6 +263,10 @@ def check_queue(entry, camp, release):
             why.append(f"{esm} is missing")
         elif tq.sha256(esm) != q.get("plugin_sha256"):
             why.append(f"{esm} changed since the plan (build {q.get('build_id')})")
+    loose = sorted({str(t["routes_file"]) for t in q["tests"] if t.get("routes_file") and not rooted(t["routes_file"])})
+    if loose:
+        # Codex on #391: the pin hashes the routes where the check runs, the runner reads them in the checkout
+        why.append(f"routes_file {', '.join(loose[:3])} is not a full path")
     br = q.get("bridge")
     if br and not camp.get("bridge"):
         # Codex on #391: the runner installs a queue's bridge before launch: a campaign that names none would get one
@@ -368,8 +379,9 @@ def judge_def(judge, q):
 
 
 def queue_sha256(entry):
-    """The pin of a campaign entry: the sha256 of its queue.json and of the definition file its judge reads (Codex on
-    #391: the judge loads it only at judge time), or None when the queue.json is missing."""
+    """The pin of a campaign entry: the sha256 of its queue.json, of the definition file its judge reads (Codex on
+    #391: the judge loads it only at judge time) and of every routes_file its tests read, or None when the queue.json
+    is missing."""
     p = os.path.join(entry.get("queue") or "", "queue.json")
     if not os.path.isfile(p):
         return None
@@ -379,8 +391,12 @@ def queue_sha256(entry):
     except ValueError:
         q = None
     path, _ = judge_def(entry.get("judge"), q if isinstance(q, dict) else None)
-    if path:
-        h.update(b"\0" + norm(path).encode() + b"\0" + (campaign_sha256(path) if os.path.isfile(path) else "missing").encode())
+    files = [path] if path else []
+    # Codex on #391: a stairs or door test reads its route from routes_file when it runs and when it is judged
+    files += sorted({str(t["routes_file"]) for t in (q or {}).get("tests") or []
+                     if isinstance(t, dict) and t.get("routes_file")} if isinstance(q, dict) else set())
+    for f in files:
+        h.update(b"\0" + norm(f).encode() + b"\0" + (campaign_sha256(f) if os.path.isfile(f) else "missing").encode())
     return h.hexdigest()
 
 
@@ -398,7 +414,7 @@ def recheck(entry, camp, release, pin):
 def check(camp, release):
     """({"caps": [...], "queues": [(entry, why, notes)]}, ok)."""
     caps = check_caps(camp.get("caps"))
-    for k in ("checkout", "staging") + (("bridge",) if camp.get("bridge") else ()):
+    for k in ("checkout", "staging") + tuple(k for k in ("bridge", "starfield") if camp.get(k)):
         if not rooted(camp.get(k)):
             # Codex on #391: the chain's Set-Location and the runner resolve a relative path where they are started
             caps.append(f"{k} {camp.get(k)!r} is not a full path")

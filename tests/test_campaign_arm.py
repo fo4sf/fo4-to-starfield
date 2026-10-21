@@ -51,10 +51,20 @@ class Base(unittest.TestCase):
             f.write("".join(x + "\n" for x in lines))
 
     def receipt(self, exp, plugins=PLUGINS, **extra):
+        """The install record exp_install.py writes for exp with plugins, its files copied into Data."""
+        import exp_install as ei
+        names = list(plugins if plugins is not None else PLUGINS)
+        os.makedirs(exp, exist_ok=True)
+        for n in names:
+            for d in (exp, os.path.join(self.sf, "Data")):
+                with open(os.path.join(d, n), "wb") as f:
+                    f.write(n.encode())
+        rec = {"exp_dir": exp, "complete": True, "pack": True, "packing_policy": ei.PACKING_POLICY,
+               "files": {n: ei.digest(os.path.join(self.sf, "Data", n)) for n in names},
+               "source_inputs": ei.source_inventory(exp, names)}
+        if plugins is not None:
+            rec["plugins"] = list(plugins)
         with open(os.path.join(self.sf, "Data", "FO4SFExp.install.json"), "w") as f:
-            rec = {"exp_dir": exp, "files": {p: {} for p in plugins or ()}, "complete": True}
-            if plugins is not None:
-                rec["plugins"] = list(plugins)
             json.dump(dict(rec, **extra), f)
 
     def queue(self, name, tests, pre=None, **extra):
@@ -276,10 +286,10 @@ class PlanTerrainHoldTests(Base):
         self.assertFalse(ok)
         self.assertIn("selects", " ".join(why))
         # a legacy record without "plugins" is read from its added and replaced lines, as exp_install.py does
-        self.receipt(self.exp, plugins=None, files={p: {} for p in PLUGINS},
+        self.receipt(self.exp, plugins=None,
                      plugins_added=["*" + p for p in PLUGINS[1:]], plugins_replaced=[{"active": "*" + PLUGINS[0]}])
         self.assertEqual(self.check(c), (True, []))
-        self.receipt(self.exp, plugins=None, files={p: {} for p in PLUGINS}, plugins_added=["*" + p for p in PLUGINS])
+        self.receipt(self.exp, plugins=None, plugins_added=["*" + p for p in PLUGINS])
         self.assertTrue(self.check(c)[0])
 
     def test_a_queue_bridge_must_already_be_installed_and_active(self):
@@ -342,7 +352,7 @@ class PlanTerrainHoldTests(Base):
         self.plugins_txt(["*" + p for p in PLUGINS[1:]] + [PLUGINS[0]])
         ok, why = self.check(c)
         self.assertFalse(ok)
-        self.assertIn("inactive in Plugins.txt and not held off", " ".join(why))
+        self.assertIn("experiment plugin is inactive", " ".join(why))
         with open(os.path.join(self.sf, "Data", "FO4SF.toggle.json"), "w") as f:
             json.dump({"off": [PLUGINS[0]]}, f)
         self.assertTrue(self.check(c)[0])                                      # held off and unticked: as planned
@@ -350,6 +360,42 @@ class PlanTerrainHoldTests(Base):
         ok, why = self.check(c)
         self.assertFalse(ok)
         self.assertIn("held off by plugin_toggle.py but active", " ".join(why))
+
+    def test_the_reinstall_must_be_exp_installs_own_no_op(self):
+        # Codex on #391: exp_install.py stops on another packing mode, a changed installed file or changed inputs
+        exp = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
+               "--plugins", ",".join(PLUGINS), "--pack"]
+        q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
+        c = self.camp([("walk", q)], starfield=self.sf)
+        self.assertEqual(self.check(c), (True, []))
+        self.receipt(self.exp, pack=False)
+        self.assertIn("asks for a packed experiment", " ".join(self.check(c)[1]))
+        self.receipt(self.exp)
+        with open(os.path.join(self.sf, "Data", PLUGINS[1]), "ab") as f:
+            f.write(b"!")
+        self.assertIn("missing or changed", " ".join(self.check(c)[1]))
+        self.receipt(self.exp)
+        with open(os.path.join(self.exp, PLUGINS[2]), "ab") as f:
+            f.write(b"!")
+        self.assertIn("source inputs changed", " ".join(self.check(c)[1]))
+
+    def test_a_route_file_is_part_of_the_pin_and_must_be_a_full_path(self):
+        # Codex on #391: a stairs or door test reads routes_file when it runs and when it is judged
+        r = os.path.join(self.d, "routes_A.json")
+        with open(r, "w") as f:
+            json.dump({"routes": [[0, 0, 0]]}, f)
+        e = {"name": "a", "queue": self.queue("a", [{"coc": "FO4Port_X", "routes_file": r, "route_index": 0}])}
+        pin = ca.queue_sha256(e)
+        with open(r, "a") as f:
+            f.write(" ")
+        self.assertNotEqual(ca.queue_sha256(e), pin)
+        q = self.queue("rel", [{"coc": "FO4Port_X", "routes_file": "routes_A.json", "route_index": 0}])
+        self.assertIn("routes_file routes_A.json is not a full path", " ".join(self.check(self.camp([("a", q)]))[1]))
+
+    def test_a_relative_starfield_is_refused(self):
+        # Codex on #391: the check reads it where it runs, the runner in the checkout
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        self.assertIn("starfield 'SF' is not a full path", " ".join(self.check(self.camp([("a", q)], starfield="SF"))[1]))
 
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
