@@ -200,6 +200,19 @@ class ToggleTests(unittest.TestCase):
         self.assertIn("no Plugins.txt line left for Mission.esm", str(cm.exception))
         self.assertEqual(json.loads(self.run_cmd("status"))["off"], ["Mission.esm"])
 
+    def test_active_with_only_the_bridge_record(self):
+        # Codex on #407: cycle.ps1 now runs active after the load with only the bridge record; it reads the toggle record
+        # without assuming an experiment install
+        (self.data / exp.RECORD).unlink()                  # a bridge-only install
+        self.run_cmd("off", "--plugins", "FO4SFBridge.esm")
+        a = SimpleNamespace(starfield=str(self.game))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(exp.active(a), 0)
+        self.txt.write_bytes(self.original.encode())       # the game ticked the held bridge again
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.active(a), 8)
+        self.assertIn("held off by plugin_toggle.py but active in Plugins.txt: fo4sfbridge.esm", buf.getvalue())
+
 
 class CycleTests(unittest.TestCase):
     def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
@@ -211,6 +224,17 @@ class CycleTests(unittest.TestCase):
         self.assertIn("if ($bordCode -ne 0) {", block)
         self.assertIn("not launching\"; exit 7 }", block)
         self.assertLess(text.index("$bordCode -ne 0"), text.index("Start-Process"))
+
+    def test_cycle_checks_activation_after_the_load_with_only_the_bridge_installed(self):
+        # Codex on #407: the post-load active check ran only with the experiment record, so a bridge-only crash split
+        # went on after the game ticked the held bridge again (checked as text: no PowerShell here)
+        text = (ROOT / "scripts" / "game" / "cycle.ps1").read_text(encoding="utf-8")
+        at = text.index("exp_install.py\" active")
+        cond = text[text.rindex("\nif (", 0, at):at]
+        self.assertIn("FO4SFExp.install.json", cond)
+        self.assertIn("-or (Test-Path (Join-Path $sf 'Data\\FO4SFBridge.install.json'))", cond)
+        self.assertLess(text.index("Wait-Screen 'save loaded'"), at)
+
 
 if __name__ == "__main__":
     unittest.main()

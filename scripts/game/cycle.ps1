@@ -143,11 +143,13 @@ if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
 Send 'hold:e,300|wait:3000'
 Wait-Screen 'save loaded' 120 $HudShown | Out-Null
-if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can still have switched the load order
+# Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
+# split) the game ticked again must stop the run too (Codex on #407)
+if ((Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) -or (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json'))) {
   $act = python -I "$repo\scripts\game\exp_install.py" active --starfield $sf
   $actCode = $LASTEXITCODE
   $act | Select-Object -Last 1
-  if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
+  if ($actCode -ne 0) { "Starfield changed our plugins' activation while loading the save: not testing (exit $actCode)"; exit 8 }
 }
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it
