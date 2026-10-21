@@ -10,6 +10,8 @@
 //       scripts/terrain/make_cluster.py --names)
 //   dotnet run --project dotnet/Fo4Land -- <Fallout4.esm> export-furniture <out.json>
 //       every Furniture base with its sit / lean / lie markers (FurnitureExport.cs; docs/terrain/port-promotions.md)
+//   dotnet run --project dotnet/Fo4Land -- <Fallout4.esm> export-mapmarkers <out.json> [<WorldEditorId>]
+//       every map marker of a world, Commonwealth by default (MapMarkersExport.cs; docs/terrain/map-markers.md)
 //
 // VHGT layout as documented by fo76utils' fo4land (landdata.cpp): float offset, 33x33 signed byte gradients (row 0 =
 // south, column 0 = west; a row's first byte continues from the previous row's first vertex, the others from the
@@ -21,6 +23,7 @@ using Mutagen.Bethesda.Fallout4;
 if (args.Length >= 2 && args[1] == "export-exterior") return ExteriorExport.Run(args);
 if (args.Length >= 2 && args[1] == "export-names") return NamesExport.Run(args);
 if (args.Length >= 2 && args[1] == "export-furniture") return FurnitureExport.Run(args);
+if (args.Length >= 2 && args[1] == "export-mapmarkers") return MapMarkersExport.Run(args);
 if (args.Length != 7)
 {
     Console.Error.WriteLine("usage: Fo4Land <Fallout4.esm> <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>");

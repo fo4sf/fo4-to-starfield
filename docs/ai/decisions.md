@@ -463,3 +463,42 @@ decided the import path); keeping the order as a parameter (two orders in the co
   lists must read holders and reputation without SFSE (design CC-02, option C').
 - Alternatives: everything in Papyrus (save bloat, the Warzones lesson); everything in the sidecar (a broken SFSE after a
   patch would leave the game blind to territory instead of frozen).
+
+## 2026-10-19: the Fallout 4 new game is its own plugin, resolving the port and core at run time (Claude-cloud)
+- Decision: FO4SFNewGame.esm (master Starfield.esm only) holds the start quest; it finds Vault 111 and the core's exit
+  anchor with Game.GetFormFromFile on stable plugin-local ids, and stops MQ00 and MQ101 from Papyrus instead of editing
+  them (docs/newgame/vault111-start.md).
+- Why: the mission plugin is under test; ids in FO4Port and the core are stable, so the start survives their rebuilds;
+  stopping quests edits no Starfield record and goes away with the plugin.
+- Alternatives: changes to FO4SFMission.esm (rejected: it is under test); mastering the port and core with our own
+  markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
+  fallbacks, `--mq101debug`, for the owner's talk).
+
+## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
+- Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
+  bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
+  script (FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor). Every switch is off by default (docs/spikes/load-door-animations.md).
+- Why: the owner's phase 2 (doors with enter and exit animations); Starfield's own visible load doors animate, and its
+  own animations come first (owner 2026-10-19). A child script leaves the FO4SF_LoadDoor contract the passing round
+  trips use untouched.
+- Alternatives:
+  - A separate opening door beside each load door: rejected, two records per door and a prompt clash.
+  - A fade or sound only: rejected, it is not the animation the owner asked for.
+  - Changing FO4SF_LoadDoor itself: rejected while v6e's test runs on it.
+  - Moving the core's exterior ACTI to a DOOR now: deferred until the v6e test is done (the bugs thread owns that path).
+
+## 2026-10-20: one stable DOOR base per converted model and FO4 name (Claude-cloud)
+- **Decision:** PluginSpike's DoorNames.cs gives each FO4 name of a converted door model its own DOOR base, under the
+  identity `DOOR:<editor id>|name:<name>`, and moves that name's references to it. The model's own base
+  `DOOR:<editor id>` keeps the name "Door" and the references without a usable FO4 name, and it is emitted even when
+  no reference uses it. Copies keep the base's open and own-rig roles.
+- **Why:** the first version gave the model base the name most of its references had. Codex showed on #400 (review
+  5580232495) that a grown export with the same formids.json flips the winner. Old references then move to another
+  base, and a published base gets another name, while every REFR ID stays the same. Bases and their names are what
+  saves and other plugins see, so they must not depend on reference counts. The fix was confirmed in review 5581794458.
+- **Alternatives:**
+  - Keep the election and record each base's owner name in formids.json. This adds a map entry that is not a record,
+    and a new name can still win the election.
+  - Name the model base after the first name in ordinal order. A new name that sorts earlier still flips it.
+- **Boundary:** this is not a migration. A plugin or map built with the 4f0ad57 election is not compatible with it,
+  but no staged or installed build used that version. Not verified in game.
