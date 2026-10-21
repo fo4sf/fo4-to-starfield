@@ -15,11 +15,10 @@ import game_frame  # noqa: E402
 
 def visible(path):
     im = Image.open(path).convert("L")
-    for _, at in game_frame.layouts(im):                 # a letterboxed frame or a full 16:10 screen too
-        hist = im.crop(at(800, 176, 1040, 189)).histogram()
-        if sum(hist[216:]) / max(sum(hist), 1) > 0.6:
-            return True
-    return False
+    # the prompt is held to the screen's centre (game_frame.centred), never to the HUD's bottom edge: a bright strip in
+    # the bottom layout's box is not a prompt, and qstep's travel step presses E on a yes (Codex on #442)
+    hist = im.crop(game_frame.centred(im)(800, 176, 1040, 189)).histogram()
+    return sum(hist[216:]) / max(sum(hist), 1) > 0.6
 
 
 if __name__ == "__main__":

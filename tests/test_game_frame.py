@@ -91,7 +91,7 @@ class GameFrameTests(unittest.TestCase):
                 p = self.save(im, name + ".png")
                 self.assertEqual(game_frame.picture(Image.open(p)), (0, 0, 1280, 800))
                 self.assertTrue(hud_visible.visible(p))
-                self.assertTrue(prompt_visible.visible(p))
+                self.assertEqual(prompt_visible.visible(p), name == "centred")   # the prompt is centred only
                 got = {n: (r > hud_visible.RING[2] and b > hud_visible.BAR[2]) for n, r, b in hud_visible.readings(p)}
                 self.assertTrue(got[name], got)
         # the console overlay (everything dark) is still no in every layout
@@ -108,6 +108,14 @@ class GameFrameTests(unittest.TestCase):
         lb = self.boxed((1280, 800), (0, 40))                          # between bars: the crop, the same place
         self.assertEqual(game_frame.centred(lb)(800, 176, 1040, 189), (800, 216, 1040, 229))
         self.assertEqual(game_frame.centred(frame())(800, 176, 1040, 189), (800, 176, 1040, 189))
+
+    def test_a_bright_strip_where_only_the_bottom_layout_puts_the_prompt_is_no_prompt(self):
+        # Codex on #442: the prompt is centred; qstep's travel step would press E on a false yes
+        im = Image.new("RGB", (1280, 800), (60, 70, 80))
+        ImageDraw.Draw(im).rectangle((800, 256, 1040, 269), fill=(255, 255, 255))   # bottom layout: 176..189 + 80
+        self.assertFalse(prompt_visible.visible(self.save(im, "strip.png")))
+        ImageDraw.Draw(im).rectangle((800, 216, 1040, 229), fill=(255, 255, 255))   # centred: + 40
+        self.assertTrue(prompt_visible.visible(self.save(im, "prompt.png")))
 
     def test_no_hud_is_still_no_on_a_letterboxed_frame(self):
         im = Image.new("RGB", (1280, 800), (0, 0, 0))
