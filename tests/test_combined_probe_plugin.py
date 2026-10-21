@@ -231,7 +231,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertEqual((0x806, 0x807, 0x808, 0x820), (2054, 2055, 2056, 2080))
 
     def test_every_probe_logs_its_event_lines(self):
-        for line in ('"p2 set loc="', '"p2 link a="', '"p2 read loc="', '"p2 linkread a="', '"p3 set a="', '"p3 read ra="',
+        for line in ('"p2 set loc="', '"p2 link a="', '"p2 read loc="', '"p2 linkread a="', '"p3 set a="', '"p3 read a="',
                      '"where cell="', '"p4 start cycles="', '"p4 cycle n="', '"p4 done cycles="', '"p5 start ticks="',
                      '"p5 tick n="', '"p6 reset loc="', '"p8 move stage="', '"p8 stage="', '"p8 child stage="', '"p9 dest id="',
                      '"p9 sample t="', '"p9 done t="', '"p10 state id="'):

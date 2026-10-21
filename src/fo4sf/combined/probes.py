@@ -642,6 +642,11 @@ def check_p3(c: Collection) -> Verdict:
                 a_ok, b_ok = _close(rd.num("ra"), va), _close(rd.num("rb"), vb)
                 if _set_before(s2, "p3 set", rd, v):
                     kw = INCONCLUSIVE
+                elif (_local(rd, "a"), _local(rd, "b")) != (LOCAL["p3_noparent"], LOCAL["p3_chained"]):
+                    # The relaunch read names its locations too (Codex review of #431).
+                    v.reasons.append(f"p3 read a/b are missing or not the probe locations (locals "
+                                     f"{LOCAL['p3_noparent']} and {LOCAL['p3_chained']})")
+                    kw = INCONCLUSIVE
                 elif a_ok and b_ok:
                     v.reasons.append("keyword data persisted on both the unparented and the chained location")
                     kw = PASS

@@ -201,7 +201,7 @@ cgf "FOCC_Probe.P3Read"
 
 Copy the same two logs into `D:\Modding\testqueue\focc_P3_$date` as `focc_session1.log` / `focc_session2.log`; judge
 `probes p3`. Expect `p3 set a=<id> va=5.000000 ra=5.000000 b=<id> vb=6.000000 rb=6.000000` and, after relaunch,
-`p3 read ra=5.000000 rb=6.000000`. FAIL when one of the two reads 0 (the verdict says which: that alone decides whether
+`p3 read a=<id> ra=5.000000 b=<id> rb=6.000000` (both ids must be the probe locations, locals 2055 and 2056). FAIL when one of the two reads 0 (the verdict says which: that alone decides whether
 unparented locations are usable).
 
 **Job focc-P3b (cell half). Game: CLOSED for the swap.** Run focc-uninstall, then stage the variant into a new folder

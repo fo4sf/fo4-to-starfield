@@ -279,7 +279,7 @@ class P2Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P3
 
 S1_P3 = [INIT, f"FOCC rt=6.0 p3 set a={P3_NOPARENT} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
-S2_P3 = ["FOCC init", "FOCC rt=4.0 p3 read ra=5.000000 rb=6.000000"]
+S2_P3 = ["FOCC init", f"FOCC rt=4.0 p3 read a={P3_NOPARENT} ra=5.000000 b={P3_CHAINED} rb=6.000000"]
 CELLS = ["FOCC init variant=p3cells",
          f"FOCC rt=9.0 where cell=50333000 cellname=FO4Port_RedRocket01 loc={P3_NOPARENT} local=2055",
          f"FOCC rt=19.0 where cell=50333001 cellname=FO4Port_SuperDuperMart01 loc={P3_CHAINED} local=2056"]
@@ -299,7 +299,7 @@ class P3Tests(unittest.TestCase):
         self.assertEqual((v.verdict, v.extra["keyword_half"]), (PASS, PASS))
         self.assertEqual(v.extra["explored_state"]["status"], "unresolved")
         self.assertNotIn("cell_half", v.extra)
-        half = ["FOCC init", "FOCC p3 read ra=0.000000 rb=6.000000"]      # unparented one lost its datum
+        half = ["FOCC init", f"FOCC p3 read a={P3_NOPARENT} ra=0.000000 b={P3_CHAINED} rb=6.000000"]      # unparented one lost its datum
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=half)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(session1=S1_P3)).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, INCONCLUSIVE)
@@ -311,6 +311,11 @@ class P3Tests(unittest.TestCase):
         swapped = [INIT, f"FOCC p3 set a={P3_CHAINED} va=5.000000 ra=5.000000 b={P3_NOPARENT} vb=6.000000 rb=6.000000"]
         v = probes.check_p3(col(session1=swapped, session2=S2_P3))
         self.assertEqual((v.verdict, v.extra["keyword_half"]), (INCONCLUSIVE, INCONCLUSIVE))
+        for read in ("FOCC p3 read ra=5.000000 rb=6.000000",                  # the old shape: no identities
+                     "FOCC p3 read a=50331649 ra=5.000000 b=50331650 rb=6.000000",
+                     f"FOCC p3 read a={P3_CHAINED} ra=5.000000 b={P3_NOPARENT} rb=6.000000"):
+            v = probes.check_p3(col(session1=S1_P3, session2=["FOCC init", read]))
+            self.assertEqual((v.verdict, v.extra["keyword_half"]), (INCONCLUSIVE, INCONCLUSIVE), read)
         foreign = [INIT, f"FOCC p3 set a={RUNTIME_LOC} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
         self.assertEqual(probes.check_p3(col(session1=foreign, session2=S2_P3)).verdict, INCONCLUSIVE)
 

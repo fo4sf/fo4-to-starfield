@@ -173,7 +173,7 @@ Function P3Read()
         Trace("p3 refused a=" + Id(P3LocNoParent) + " b=" + Id(P3LocChained) + " holder=" + Id(Holder))
         return
     endif
-    Trace("p3 read ra=" + P3LocNoParent.GetKeywordData(Holder) + " rb=" + P3LocChained.GetKeywordData(Holder))
+    Trace("p3 read a=" + P3LocNoParent.GetFormID() + " ra=" + P3LocNoParent.GetKeywordData(Holder) + " b=" + P3LocChained.GetFormID() + " rb=" + P3LocChained.GetKeywordData(Holder))
 EndFunction
 
 Function Where()
