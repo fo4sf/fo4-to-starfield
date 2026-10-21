@@ -2,13 +2,14 @@
 # again on this build. DRAFT, cloud thread 2026-10-21, not run. Assumes the repo at main 88c5aad (or c60d9a7).
 # Usage (PowerShell, game closed):   .\plan.ps1        plan + dry run only
 #                                    .\plan.ps1 -Run   also run (one launch, caps below) and report
-param([switch]$Run)
+# -Tag <name>: a retest into NEW queue folders (<queue>_<name>); -PortStaging: the value the earlier v6e runs used.
+param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '')
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- pins and placeholders (check every line before use)
 $py          = 'C:\Modding\venv-render\Scripts\python.exe'
 $Repo        = 'D:\Modding\wt_nightrun'      # PLACEHOLDER (supported): campaign_arm.py example on the launchexe branch; must be at 88c5aad or later
-$PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>'   # PLACEHOLDER: its FO4Port.esm must hash 9AF962D2...
+if (-not $PortStaging) { $PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>' }
 $Starfield   = 'D:\SteamLibrary\steamapps\common\Starfield'
 $PluginsTxt  = "$env:LOCALAPPDATA\Starfield\Plugins.txt"
 $Fo4Data     = 'C:\Program Files (x86)\Steam\steamapps\content\app_377160\depot_377163\Data'
@@ -18,6 +19,8 @@ $Queue       = 'D:\Modding\testqueue_v6e\stairs'
 # the 20 stairs of queues-1019/stairs (stairs_fix_1014's library tests), in that order
 $Refs        = '0EBEDE,0EBEE3,0EBED6,0EBED7,0F032D,0EBEDD,0EBEE5,0EBEE7,0EF6A4,0EF797,0EF798,0EBECC,0EBEF2,0F0280,0EF8F8,0EBEE6,0EBEF1,0EF8F9,0EF8FB,0EF8FD'
 $Caps        = @('--max-attempts','1','--max-relaunch','1','--crash-budget','1','--min-free-gb','40','--dump-drive','D:\')
+
+if ($Tag) { $Queue += "_$Tag" }                           # a retest: a new queue, the same routes
 
 function Need($ok, $why) { if (-not $ok) { throw "STOP: $why" } }
 function Ok($what) { if ($LASTEXITCODE -ne 0) { throw "STOP: $what exit $LASTEXITCODE" } }
@@ -30,7 +33,8 @@ foreach ($f in "$Cell.json", 'manifest.json', 'formids.json') { Need (Test-Path 
 Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
-Write-Host "repo HEAD $(git rev-parse HEAD)  (expected 88c5aad... or c60d9a7...)"
+git merge-base --is-ancestor 6c7884b HEAD; Need ($LASTEXITCODE -eq 0) 'the repo checkout is older than 6c7884b (#446 and #447): git fetch and check out main first'
+Write-Host "repo HEAD $(git rev-parse HEAD)  (6c7884b or later)"
 # FO4Port's index in the runner's launch (cycle.ps1 deploys it after the other plugins; door_rounds.py order)
 $ord = & $py scripts\bridge\door_rounds.py order --plugins-txt $PluginsTxt
 $m = [regex]::Match(($ord -join "`n"), '--port-index ([0-9A-F]{2})')

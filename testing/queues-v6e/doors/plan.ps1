@@ -4,13 +4,14 @@
 # and doors_rounds (every door in, then out). Assumes the repo at main 88c5aad (or c60d9a7: convert_batch.py only).
 # Usage (PowerShell, game closed):   .\plan.ps1        plan + dry runs only
 #                                    .\plan.ps1 -Run   also run doors_out, judge it, then doors_rounds, judge it
-param([switch]$Run)
+# -Tag <name>: a retest into NEW queue folders (<queue>_<name>); -PortStaging: the value the earlier v6e runs used.
+param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '', [switch]$RoundsOnly)
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- pins and placeholders (check every line before use)
 $py          = 'C:\Modding\venv-render\Scripts\python.exe'
 $Repo        = 'D:\Modding\wt_nightrun'      # PLACEHOLDER (supported): campaign_arm.py example on the launchexe branch; must be at 88c5aad or later
-$PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>'   # PLACEHOLDER: its FO4Port.esm must hash 9AF962D2...
+if (-not $PortStaging) { $PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>' }
 $CoreBuild   = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11'   # door_rounds stage --core: needs objects.json,
                                              # formids.json, plan.json, overlays_params.json (checked below; else FILL the core build dir)
 $Bridge      = 'C:\Modding\staging\bridge_t4'
@@ -25,13 +26,16 @@ $QRounds     = 'D:\Modding\testqueue_v6e\doors_rounds'
 $Caps        = @('--max-attempts','1','--max-relaunch','1','--crash-budget','1','--min-free-gb','40','--dump-drive','D:\')
 $WorldPin    = @()   # after a first judge: e.g. @('--world-instance','FF00552F=02000803') ONLY for the pair that run shows
 
+if ($Tag) { $Stage += "_$Tag"; $QRounds += "_$Tag"; $QOut += "_$Tag" }   # a retest: a NEW stage (rounds.json core_worlds,
+                                             # #446: the judge then ties the runtime world itself) and new queues
+
 function Need($ok, $why) { if (-not $ok) { throw "STOP: $why" } }
 function Ok($what) { if ($LASTEXITCODE -ne 0) { throw "STOP: $what exit $LASTEXITCODE" } }
 function Sha8($p) { (Get-FileHash -Algorithm SHA256 $p).Hash.Substring(0,8) }
 
 # ---------------------------------------------------------------- 0. checks (read-only)
 Need (-not $PortStaging.StartsWith('<')) 'fill $PortStaging'
-Need (-not $OutMinM.StartsWith('<')) 'fill $OutMinM'
+Need ($RoundsOnly -or -not $OutMinM.StartsWith('<')) 'fill $OutMinM'
 Need ((Sha8 "$PortStaging\FO4Port.esm") -eq '9AF962D2') 'staged FO4Port.esm is not build 9AF962D2'
 Need ((Sha8 "$Starfield\Data\FO4TerrainCore.esm") -eq '06C0DECD') 'installed FO4TerrainCore.esm is not 06C0DECD'
 Need ((Sha8 "$Starfield\Data\FO4SFBridge.esm") -eq '63C746BB') 'installed bridge is not 63C746BB'
@@ -40,7 +44,8 @@ foreach ($f in 'objects.json','formids.json','plan.json','overlays_params.json')
 Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
-Write-Host "repo HEAD $(git rev-parse HEAD)  (expected 88c5aad... or c60d9a7...)"
+git merge-base --is-ancestor 6c7884b HEAD; Need ($LASTEXITCODE -eq 0) 'the repo checkout is older than 6c7884b (#446 and #447): git fetch and check out main first'
+Write-Host "repo HEAD $(git rev-parse HEAD)  (6c7884b or later)"
 
 # ---------------------------------------------------------------- 1. load indices of the runner's launch
 # cycle.ps1 re-deploys FO4Port.esm at the end of Plugins.txt and the bridge goes last (door_rounds.py order)
@@ -54,12 +59,14 @@ $CoreIndex = $m.Groups[1].Value; $PortIndex = $m.Groups[2].Value
 if (Test-Path $Stage) { Write-Host "stage exists, reused: $Stage" }
 else { & $py scripts\bridge\door_rounds.py stage --core $CoreBuild --core-plugin "$Starfield\Data\FO4TerrainCore.esm" `
           --port $PortStaging --core-index $CoreIndex --port-index $PortIndex --out $Stage; Ok 'scripts\bridge\door_rounds.py' }
-if (Test-Path $StageOut) { Write-Host "OUT stage exists, reused: $StageOut" }
+if ($RoundsOnly) { Write-Host 'doors_rounds only: no OUT stage or queue' }
+elseif (Test-Path $StageOut) { Write-Host "OUT stage exists, reused: $StageOut" }
 else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scripts\bridge\door_out_legs.py' }
 
 # ---------------------------------------------------------------- 3. queues: no --plugins, the installed set stays
 # (docs/terrain/door-rounds.md:37); --plugin-index = FO4Port's index in the runner's launch
-foreach ($p in @(@($StageOut, $QOut), @($Stage, $QRounds))) {
+$pairs = if ($RoundsOnly) { @(, @($Stage, $QRounds)) } else { @(@($StageOut, $QOut), @($Stage, $QRounds)) }
+foreach ($p in $pairs) {
   $exp = $p[0]; $qq = $p[1]
   if (Test-Path "$qq\results.jsonl") { Write-Host "queue has results: resuming, NOT re-planned: $qq"; continue }
   & $py scripts\game\testqueue.py plan-terrain --staging $PortStaging --exp-dir $exp --out $qq --bridge $Bridge --plugin-index $PortIndex; Ok 'scripts\game\testqueue.py'
@@ -69,7 +76,7 @@ foreach ($p in @(@($StageOut, $QOut), @($Stage, $QRounds))) {
 if (-not $Run) { Write-Host 'planned; re-run with -Run when the PC is idle'; return }
 
 # ---------------------------------------------------------------- 4. run + judge; doors_rounds only if doors_out ran clean
-foreach ($q in $QOut, $QRounds) {
+foreach ($q in $(if ($RoundsOnly) { @($QRounds) } else { @($QOut, $QRounds) })) {
   & $py scripts\game\testqueue.py run --queue $q --wait-for-idle --refocus @Caps
   $rc = $LASTEXITCODE; Write-Host "run $q exit $rc (0 all decided, 4 budget pause)"
   & $py scripts\bridge\door_rounds.py judge --queue $q @WorldPin      # writes $q\door_rounds_judge.json
