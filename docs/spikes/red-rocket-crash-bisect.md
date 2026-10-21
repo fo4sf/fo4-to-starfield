@@ -1,6 +1,6 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **in progress**. v6e is built and staged, waiting for the owner's swap line and test.
+Status: **in progress**. v6e (installed) still crashes at Red Rocket with the same fault; v6h is next.
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -32,6 +32,30 @@ How to read the results:
   side-door rig is a cause; build v6g to see whether the props are a second one.
 - v6e still crashes: neither change alone is the cause. Next, the counter and safe doors: add their meshes to
   `--no-rig-pattern` and keep the v6e switches.
+
+## v6e result (2026-10-21)
+- v6e crashes 15 s after the walk test moves the player to Red Rocket. ProcDump caught it at 15:44:33 local (two dumps,
+  identical). `scripts/game/minidump_read.py` (#451) gives: ACCESS_VIOLATION at **Starfield.exe+0x2bf016b** (game
+  1.16.244.0), reading 0x19a87db9280, with **rcx 0x3ca3d70a** and **r12 0x6666666666666600**, the same as the three v6c
+  dumps. **Verified.** The v6c dumps are gone, so the comparison uses the values recorded above.
+- rcx 0x3ca3d70a is exactly the bit pattern of the float 0.02, so the game is handling a number where it expects a
+  pointer or handle. That fits bad or mismatched record data more than low memory (**supported hypothesis**).
+- Memory: the dump records the process at 12.78 GiB commit (peak 14.66), 9.77 GiB working set. The dump has no system
+  memory stream. Install's snapshot of the PC with the game running was 46.7 of 61.2 GB commit. Nothing points to
+  running out of memory (**supported**); Card C's 1 s memory log around the Red Rocket move will confirm or rule it out.
+- So neither change v6e made is the cause: the 448 movable props (static in v6e) and the RedRPedDoor side-door rigs (off
+  in v6e) are both cleared, and v6f and v6g are dropped.
+
+## v6h (next)
+The bisect's own next step: v6e's switches plus no rig for the counter door 0232E0 and the safe door 1D1F0E.
+- Their model names are in D:\Modding\scratch\v6\near_redrocket.jsonl (the rows for 0232E0 and 1D1F0E). Add each model's
+  file name, without extension, to the v6e `--no-rig-pattern` value, joined with `|` (for example `redrped|name1|name2`).
+- Build it like v6f above: wt_v6 at 5a93beb, `--resume` into work_v6c2 (copy it aside first), so only those meshes
+  reconvert. Check that those two have no `door.rig` of `native` and that `reused` is all meshes but them. Then stage
+  `terrain_core64v6h_l125_mission_wfc11` the v6e way.
+- Reading it: v6h stable means one of those two rigs is the cause (split them next). If v6h still crashes, no door rig
+  near Red Rocket is left to blame; the next candidates are the remaining v5 to v6 differences near Red Rocket (the
+  resdoor and roofhatch load doors and the truckdoor) and anything outside that 300 m list.
 
 ## Building v6f cheaply
 `checkpoint_signature` (scripts/convert_batch.py) digests every `src/fo4sf/*.py` file and `convert_batch.py` itself, so
