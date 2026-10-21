@@ -3011,8 +3011,11 @@ class Runner:
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
-        except subprocess.TimeoutExpired:
-            code, out = 124, "timeout"
+        except subprocess.TimeoutExpired as e:
+            # what the script printed before the timeout stays (Codex on #439: a stalled cycle.ps1 left no trace);
+            # "timeout" stays the last line, which run.log shows
+            part = "".join(x.decode("utf-8", "replace") if isinstance(x, bytes) else x for x in (e.stdout, e.stderr) if x)
+            code, out = 124, (part.rstrip() + "\ntimeout").lstrip("\n")
         self.ctl.mark_sent()
         return code, out
 
@@ -3141,6 +3144,10 @@ class Runner:
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            # the whole output goes to cycle.log: its main menu, load order and "save loaded" lines say where a launch
+            # that never became playable stopped (v6e doors_out, 2026-10-21: only the last line was kept)
+            with open(os.path.join(self.qdir, "cycle.log"), "a", encoding="utf-8") as f:
+                f.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} launch into {launch}: exit {code}\n{out.rstrip()}\n")
             if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test

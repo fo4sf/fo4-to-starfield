@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import subprocess
 import re
 import shutil
 import sys
@@ -179,6 +180,29 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertTrue(self.status().startswith("stopped: lease refused by cycle.ps1 (exit 9)"), self.status())
         self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
         self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
+
+    def test_the_whole_cycle_output_is_kept_in_cycle_log(self):
+        # v6e doors_out, 2026-10-21: run.log kept only cycle.ps1's last line, so where the launch stopped was lost
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None
+        out = "main menu after 12 s\nsave loaded: not seen within 120 s, going on\nlease refused: not launching"
+        r._ps = lambda script, args, timeout, steal=False: (9, out) if script == "cycle.ps1" else (0, "")
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True):
+            r.run()
+        with open(os.path.join(self.d, "cycle.log"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(": exit 9\n" + out, text)
+
+    def test_a_timed_out_script_keeps_what_it_printed(self):
+        # Codex on #439: a cycle.ps1 past its budget kept only "timeout", none of its launch lines
+        r = self.runner()
+        err = subprocess.TimeoutExpired(["cycle.ps1"], 900, output=b"main menu after 12 s\n", stderr=None)
+        with mock.patch.object(tq.subprocess, "run", side_effect=err):
+            code, out = tq.Runner._ps(r, "cycle.ps1", [], 900)
+        self.assertEqual((code, out), (124, "main menu after 12 s\ntimeout"))
+        with mock.patch.object(tq.subprocess, "run", side_effect=subprocess.TimeoutExpired(["x"], 1)):
+            self.assertEqual(tq.Runner._ps(r, "cycle.ps1", [], 1), (124, "timeout"))
 
     def _launch(self, codes, blocked=lambda launches: None):
         c.Controller(self.leader).claim("Claude", "window", 3600)
