@@ -3,7 +3,8 @@
     python scripts/game/minidump_read.py <dump.dmp> [<dump.dmp> ...] [--scan 1024] [--json <out.json>]
 
 For each dump: the exception (code, flags, the faulting address as module+offset, and for an access violation whether it
-read or wrote and at which address), the faulting thread's registers, the loaded module's file version, and a stack
+read or wrote and at which address), the faulting thread's registers, the loaded module's file version, the process's
+and the system's memory when the dump was written (from the dump's own memory streams, when present), and a stack
 scan: the qwords from rsp upward that point into a loaded module, nearest first. A stack scan is not an unwound stack:
 stale return addresses and function pointers show up too, so read it as candidates. Two dumps with the same
 module+offset and the same top of scan are very likely the same crash. Standard library only; read-only, except --json,
@@ -15,6 +16,8 @@ import struct
 import sys
 
 THREAD_LIST, MODULE_LIST, MEMORY_LIST, EXCEPTION, MEMORY64_LIST = 3, 4, 5, 6, 9
+SYSTEM_MEMORY_INFO, PROCESS_VM_COUNTERS = 21, 22
+GIB = 1 << 30
 CODES = {0xC0000005: "ACCESS_VIOLATION", 0xC0000409: "STACK_BUFFER_OVERRUN", 0xC00000FD: "STACK_OVERFLOW",
          0x80000003: "BREAKPOINT", 0xC0000374: "HEAP_CORRUPTION", 0xC000001D: "ILLEGAL_INSTRUCTION",
          0xE06D7363: "C++ exception"}
@@ -105,6 +108,33 @@ class Dump:
             out["target"] = f"0x{params[1]:x}"
         return out, regs
 
+    def memory(self):
+        """The process's and the system's memory when the dump was written, in GiB, from the dump's own streams (Windows
+        10 and later write them): commit charge, private bytes and working set of the process; available memory, commit
+        charge and commit limit of the system. Missing streams are left out."""
+        out = {}
+        if PROCESS_VM_COUNTERS in self.streams:
+            at, size = self.streams[PROCESS_VM_COUNTERS]
+            if size >= 80:
+                peak_ws, ws = struct.unpack_from("<QQ", self.data, at + 8)
+                pagefile, peak_pagefile, private = struct.unpack_from("<QQQ", self.data, at + 56)
+                out["process"] = {"working_set": ws / GIB, "peak_working_set": peak_ws / GIB, "commit": pagefile / GIB,
+                                  "peak_commit": peak_pagefile / GIB, "private": private / GIB}
+        if SYSTEM_MEMORY_INFO in self.streams:
+            at, size = self.streams[SYSTEM_MEMORY_INFO]
+            if size >= 160:
+                # MINIDUMP_SYSTEM_MEMORY_INFO_1: basic information at 8 (PageSize at 12), the file cache at 64, the
+                # basic performance information at 128 (available pages, committed pages, commit limit, peak commit)
+                page, = struct.unpack_from("<I", self.data, at + 12)
+                avail, committed, limit, peak = struct.unpack_from("<4Q", self.data, at + 128)
+                if page in (4096, 8192, 16384, 65536):
+                    out["system"] = {"available": avail * page / GIB, "commit": committed * page / GIB,
+                                     "commit_limit": limit * page / GIB, "peak_commit": peak * page / GIB}
+        for part in out.values():
+            for k, v in part.items():
+                part[k] = round(v, 2)
+        return out
+
     def stack_scan(self, rsp, count):
         """[(slot offset from rsp, value, module+offset)] for qwords on the stack that point into a module."""
         out = []
@@ -128,7 +158,7 @@ def summary(path, scan):
     return {"dump": path, "exception": exc, "module_version": fault_module and fault_module["version"],
             "registers": {k: f"0x{v:x}" for k, v in regs.items()},
             "stack_scan": [{"rsp+": f"0x{o:x}", "value": f"0x{v:x}", "at": w} for o, v, w in stack],
-            "modules": len(d.modules), "memory_ranges": len(d.ranges)}
+            "memory_gib": d.memory(), "modules": len(d.modules), "memory_ranges": len(d.ranges)}
 
 
 def main(argv=None):
@@ -151,6 +181,12 @@ def main(argv=None):
         print(f"  {e['name']} ({e['code']}) at {e['at'] or e['address']} (module version {s['module_version']}), "
               f"thread {e['thread']}" + (f", {e['access']} of {e['target']}" if "access" in e else ""))
         print("  " + " ".join(f"{k} {v}" for k, v in s["registers"].items()))
+        mem = s["memory_gib"]
+        for part in ("process", "system"):
+            if part in mem:
+                print(f"  {part} memory (GiB): " + ", ".join(f"{k} {v}" for k, v in mem[part].items()))
+            else:
+                print(f"  {part} memory: not in the dump")
         for row in s["stack_scan"][:a.top]:
             print(f"  rsp+{row['rsp+']:<7} {row['value']}  {row['at']}")
         print(f"  {len(s['stack_scan'])} module pointer(s) in {a.scan} stack slots; {s['modules']} modules, "
