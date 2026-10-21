@@ -273,6 +273,21 @@ def bridge_installed_why(br, camp):
     return None
 
 
+def map_markers_why(camp):
+    """Why cycle.ps1's map_markers_install.py order would stop every launch, else None (no receipt: nothing to order).
+    Codex on #391: the same read-only master and core pin check order runs before it moves or reactivates the line."""
+    import map_markers_install as mm
+    data = os.path.join(camp.get("starfield") or STARFIELD, "Data")
+    rec_p = os.path.join(data, mm.RECORD)
+    if not os.path.exists(rec_p):
+        return None
+    try:
+        mm.require_masters(os.path.join(data, mm.PLUGIN), data, "ordered", mm.receipt_pins(rec_p))
+    except (OSError, ValueError, SystemExit) as error:
+        return f"map_markers_install.py order would stop every launch: {error}"
+    return None
+
+
 def checkout_features(checkout):
     """The runner features the campaign checkout's runner_features.py declares (read, never run), or None."""
     p = os.path.join(checkout or "", "scripts", "game", "runner_features.py")
@@ -521,6 +536,9 @@ def recheck(entry, camp, release, pin):
     if inst:
         # Codex on #391: an earlier queue's hours can change the installed experiment before this one launches
         why = why + [inst]
+    mm = map_markers_why(camp)
+    if mm:
+        why = why + [mm]
     rev = checkout_rev_why(camp)
     if rev:
         why = why + [rev]
@@ -550,6 +568,9 @@ def check(camp, release):
         # Codex on #391: cycle.ps1 runs a bare `python`; the chain puts this python's folder first on PATH for it
         caps.append(f"python {py!r} is not named python.exe: cycle.ps1's own python calls would not find it")
     why = installed_exp_why(camp)
+    if why:
+        caps.append(why)
+    why = map_markers_why(camp)
     if why:
         caps.append(why)
     why = checkout_rev_why(camp)

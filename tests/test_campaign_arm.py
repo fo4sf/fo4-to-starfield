@@ -968,6 +968,29 @@ class RunChainTests(Base):
         self.assertNotIn("& $py scripts", text)                               # every step goes through Py
         self.assertEqual(text.count("LASTEXITCODE"), 2)                        # only inside Py
 
+    def test_an_installed_map_markers_plugin_must_pass_its_order_check(self):
+        # Codex on #391: cycle.ps1 runs map_markers_install.py order before every launch; it stops on a core that is
+        # not the one the plugin was staged against, or on an inactive master
+        import exp_install as ei
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        data = os.path.join(self.sf, "Data")
+        with open(os.path.join(data, "FO4SFMapMarkers.esm"), "wb") as f:
+            f.write(tes4("FO4SFMapMarkers.esm", ("Starfield.esm", "FO4TerrainCore.esm")))
+        core = ei.digest(os.path.join(data, "FO4TerrainCore.esm"))
+        rec = os.path.join(data, "FO4SFMapMarkers.install.json")
+        with open(rec, "w") as f:
+            json.dump({"complete": True, "masters_sha256": {"fo4terraincore.esm": core}}, f)
+        self.assertEqual(self.check(self.camp([("a", q)])), (True, []))
+        with open(rec, "w") as f:
+            json.dump({"complete": True, "masters_sha256": {"fo4terraincore.esm": "0" * 64}}, f)
+        ok, why = self.check(self.camp([("a", q)]))
+        self.assertFalse(ok)
+        self.assertTrue(any("map_markers_install.py order would stop" in w and "not the core it was staged" in w
+                            for w in why), why)
+        entry = self.camp([("a", q)])["queues"][0]
+        self.assertTrue(any("map_markers_install.py order" in w
+                            for w in ca.recheck(entry, self.camp([("a", q)]), set(), ca.queue_sha256(entry))))
+
     def test_the_installed_experiment_is_checked_again_before_each_queue(self):
         # Codex on #391: an earlier queue's hours can change the installed experiment
         qa = self.queue("a", [{"coc": "FO4Port_X"}])
