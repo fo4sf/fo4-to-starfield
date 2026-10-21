@@ -709,13 +709,15 @@ def check_p4(c: Collection) -> Verdict:
         v.reasons.append("no log (focc.0.log)")
         return v
     starts = _by_kind(evs, "p4 start")
-    if starts:                                  # judge only the latest run: an older one never fills its gaps
-        evs = [e for e in evs if e.line >= starts[-1].line]
-        v.cite(starts[-1])
-        if _local(starts[-1], "marker") != LOCAL["p4_marker"]:   # the probe's own marker (Codex review of #431)
-            v.reasons.append(f"p4 start marker {starts[-1].fields.get('marker')} is not FOCC_P4_SpawnMarker "
-                             f"(local {LOCAL['p4_marker']})")
-            return v
+    if not starts:                              # no attempt boundary, no verdict (Codex review of #431)
+        v.reasons.append("no `p4 start` line: the cycles cannot be tied to one run of the probe's marker")
+        return v
+    evs = [e for e in evs if e.line >= starts[-1].line]   # the latest run only: an older one never fills its gaps
+    v.cite(starts[-1])
+    if _local(starts[-1], "marker") != LOCAL["p4_marker"]:   # the probe's own marker (Codex review of #431)
+        v.reasons.append(f"p4 start marker {starts[-1].fields.get('marker')} is not FOCC_P4_SpawnMarker "
+                         f"(local {LOCAL['p4_marker']})")
+        return v
     cycles = _by_kind(evs, "p4 cycle")
     done = _by_kind(evs, "p4 done")
     v.cite(*cycles, *done)
@@ -1051,11 +1053,12 @@ def check_p9(c: Collection) -> Verdict:
         v.reasons.append("no log (focc.0.log)")
         return v
     starts = _by_kind(evs, "p9 start")
-    if starts:                                  # judge only the latest attempt: a retry in one launch drops the old one
-        dest = [e for e in _by_kind(evs, "p9 dest") if e.line < starts[-1].line][-1:]   # P9Dest runs before P9Track
-        evs = [e for e in evs if e.line >= starts[-1].line]
-    else:
-        dest = _by_kind(evs, "p9 dest")[-1:]
+    if not starts:                              # no attempt boundary, no verdict (Codex review of #431)
+        v.reasons.append("no `p9 start` line: the samples cannot be tied to one walk to the destination")
+        return v
+    # judge only the latest attempt: a retry in one launch drops the old one
+    dest = [e for e in _by_kind(evs, "p9 dest") if e.line < starts[-1].line][-1:]   # P9Dest runs before P9Track
+    evs = [e for e in evs if e.line >= starts[-1].line]
     samples = _by_kind(evs, "p9 sample")
     done = _by_kind(evs, "p9 done")
     v.cite(*dest, *done)

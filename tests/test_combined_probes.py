@@ -356,6 +356,12 @@ def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
 
 
 class P4Tests(unittest.TestCase):
+    def test_a_start_line_is_required(self):
+        # Codex review of #431: cycles without a `p4 start` are not tied to one run.
+        c = col(log=[l for l in p4_log() if " p4 start " not in l])
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
     def test_another_marker_is_not_judged(self):
         # Codex review of #431: the logged marker must be FOCC_P4_SpawnMarker.
         log = [l.replace(f"marker={0x0300080B}", "marker=1") for l in p4_log()]
@@ -730,6 +736,11 @@ def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=
 
 
 class P9Tests(unittest.TestCase):
+    def test_a_start_line_is_required(self):
+        # Codex review of #431: samples without a `p9 start` are not tied to one walk.
+        self.assertEqual(probes.check_p9(col(log=[l for l in p9_log() if " p9 start " not in l])).verdict,
+                         INCONCLUSIVE)
+
     def test_another_destination_is_not_judged(self):
         # Codex review of #431: the logged destination must be FOCC_P9_Dest.
         log = [l.replace(f"id={0x0300081B}", "id=1") for l in p9_log()]
