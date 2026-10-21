@@ -355,6 +355,18 @@ class RunnerTests(unittest.TestCase):
         cyc = readf(os.path.join(ROOT, "scripts", "game", "cycle.ps1"))
         self.assertIn("if (Test-Path (Join-Path $sf 'Data\\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }", cyc)
 
+    def test_coc_ps1_hops_through_another_cell_when_the_first_coc_misses_the_marker(self):
+        # v6e stairs retest 2026-10-21: the save stood inside the library at its door's arrival, 54 m from the marker
+        src = readf(os.path.join(ROOT, "scripts", "game", "coc.ps1"))
+        self.assertIn("[string]$Via = ''", src)
+        tail = src[src.index("Enter-Cell $Cell\nTest-Arrival"):]
+        self.assertIn("if ($script:arrived) { exit 0 }", tail)
+        hop = tail[tail.index("Enter-Cell $Via"):]
+        self.assertTrue(hop.startswith("Enter-Cell $Via\nEnter-Cell $Cell\nTest-Arrival\nif ($script:arrived) { exit 0 }\nexit 1"))
+        self.assertIn("if ($f.BaseName -eq $Cell) { continue }", tail)  # never hops through the target itself
+        self.assertNotIn("if (Test-Arrival)", src)                       # its printed lines would make the if always true
+        self.assertNotIn("return $true", src)
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step

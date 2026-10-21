@@ -7,39 +7,75 @@
 # with no console and no OCR; readpos's OCR only when no such line comes. v6e stairs 2026-10-21: on the 2560x1600
 # display the HUD's O2/CO2 dial overlaps the console's last lines, the OCR read Z -1.81 as "81" and the nonce as
 # "f04sfr2De589b8", and every arrival in BostonPublicLibrary02 failed although the player stood on the marker.
-param([Parameter(Mandatory)][string]$Cell, [Parameter(Mandatory)][string]$CellJson, [int]$Wait = 30000, [switch]$Bridge)
+# Not at the marker on the first try: one hop through another converted cell (-Via, else the first other cell json
+# with a COC marker next to -CellJson), then the coc again and the same check. v6e stairs retest 2026-10-21: the save
+# Continue loaded stood inside BostonPublicLibrary02 at its load door's arrival (-9.14 97.37 11.88, where the doors
+# run left it), the coc left the player there, 54 m from the marker, and the stairs run stopped on its first test
+# (supported, not verified: a coc into the cell the player is already in, or a coc the console swallowed).
+param([Parameter(Mandatory)][string]$Cell, [Parameter(Mandatory)][string]$CellJson, [int]$Wait = 30000, [switch]$Bridge, [string]$Via = '')
 $env:LEGACY = '1'
 $i = Join-Path $PSScriptRoot 'input.ps1'
-powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'console_open.ps1') | Out-Null
-if ($LASTEXITCODE -ne 0) { "console not opened safely (code $LASTEXITCODE)"; exit $LASTEXITCODE }
-powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "type:coc FO4Port_$Cell|key:enter|wait:400|key:grave|wait:$Wait" | Out-Null
 $marker = (Get-Content $CellJson -Raw | ConvertFrom-Json).refs | Where-Object { $_.base_editor_id -eq 'COCMarkerHeading' } | Select-Object -First 1
 if (-not $marker) { "no COC marker in ${CellJson}: arrival not verifiable"; exit 1 }
 $mx = $marker.pos[0] / 70; $my = $marker.pos[1] / 70
-if ($Bridge) {
-  $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
-  $cmd = @((Join-Path $PSScriptRoot 'bridge_log.py'), 'latest', '--max-age', '2')
-  if ($env:FO4SF_BRIDGE_LOG) { $cmd += @('--log', $env:FO4SF_BRIDGE_LOG) }
-  for ($n = 0; $n -lt 12; $n++) {                    # about 8 s: the game resumes writing a few seconds after the console
-    $j = $null
-    try { $j = (& $py @cmd) | ConvertFrom-Json } catch { $j = $null }
-    if ($j -and $j.ok -and $j.loaded -eq $true -and @($j.pos).Count -eq 3) {
-      $d = [Math]::Sqrt([Math]::Pow([double]$j.pos[0] - $mx, 2) + [Math]::Pow([double]$j.pos[1] - $my, 2))
-      if ($d -le 5) { "at FO4Port_$Cell (bridge line $($j.n) rt $($j.rt): $(@($j.pos) -join ' '), {0:N1} m from the COC marker)" -f $d; exit 0 }
+
+function Enter-Cell([string]$name) {               # console_open.ps1's codes 2/3/4 end the script: nothing was typed
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'console_open.ps1') | Out-Null
+  if ($LASTEXITCODE -ne 0) { "console not opened safely (code $LASTEXITCODE)"; exit $LASTEXITCODE }
+  powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "type:coc FO4Port_$name|key:enter|wait:400|key:grave|wait:$Wait" | Out-Null
+}
+
+# sets $script:arrived when the player stands within 5 m of the marker and prints what was read either way (a value
+# returned with the printed lines would be an array, always true in an if)
+function Test-Arrival {
+  $script:arrived = $false
+  if ($Bridge) {
+    $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
+    $cmd = @((Join-Path $PSScriptRoot 'bridge_log.py'), 'latest', '--max-age', '2')
+    if ($env:FO4SF_BRIDGE_LOG) { $cmd += @('--log', $env:FO4SF_BRIDGE_LOG) }
+    $last = $null
+    for ($n = 0; $n -lt 12; $n++) {                  # about 8 s: the game resumes writing a few seconds after the console
+      $j = $null
+      try { $j = (& $py @cmd) | ConvertFrom-Json } catch { $j = $null }
+      if ($j -and $j.ok -and $j.loaded -eq $true -and @($j.pos).Count -eq 3) {
+        $last = $j
+        $d = [Math]::Sqrt([Math]::Pow([double]$j.pos[0] - $mx, 2) + [Math]::Pow([double]$j.pos[1] - $my, 2))
+        if ($d -le 5) { "at FO4Port_$Cell (bridge line $($j.n) rt $($j.rt): $(@($j.pos) -join ' '), {0:N1} m from the COC marker)" -f $d; $script:arrived = $true; return }
+      }
+      Start-Sleep -Milliseconds 700
     }
-    Start-Sleep -Milliseconds 700
+    if ($last) { "no fresh bridge line within 5 m of the COC marker (last: $(@($last.pos) -join ' ') cell $($last.cell) world $($last.world)): reading with the console" }
+    else { "no fresh bridge line within 5 m of the COC marker: reading with the console" }
   }
-  "no fresh bridge line within 5 m of the COC marker: reading with the console"
+  # up to 3 reads: OCR sometimes shifts a column ("0.00 29.26 60.11" for "29.26 60.11 ...") and a single read then
+  # looked like a failed jump (Vault 81 and the library were skipped although the player had arrived)
+  $d = 1e9
+  for ($n = 0; $n -lt 3 -and $d -gt 5; $n++) {
+    $p = powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'readpos.ps1')
+    if ("$p" -like 'fail console*') { "console not opened safely: $p"; exit 2 }
+    $v = "$p".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+    try { $d = [Math]::Sqrt([Math]::Pow([double]$v[0] - $mx, 2) + [Math]::Pow([double]$v[1] - $my, 2)) } catch { $d = 1e9 }
+  }
+  if ($d -gt 5) { "not at FO4Port_$Cell (last read $p, marker {0:N2} {1:N2})" -f $mx, $my; return }
+  "at FO4Port_$Cell (read $p, {0:N1} m from the COC marker)" -f $d
+  $script:arrived = $true
 }
-# up to 3 reads: OCR sometimes shifts a column ("0.00 29.26 60.11" for "29.26 60.11 ...") and a single read then
-# looked like a failed jump (Vault 81 and the library were skipped although the player had arrived)
-$d = 1e9
-for ($n = 0; $n -lt 3 -and $d -gt 5; $n++) {
-  $p = powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'readpos.ps1')
-  if ("$p" -like 'fail console*') { "console not opened safely: $p"; exit 2 }
-  $v = "$p".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-  try { $d = [Math]::Sqrt([Math]::Pow([double]$v[0] - $mx, 2) + [Math]::Pow([double]$v[1] - $my, 2)) } catch { $d = 1e9 }
+
+Enter-Cell $Cell
+Test-Arrival
+if ($script:arrived) { exit 0 }
+if (-not $Via) {                                     # another cell of the same staging that has its own COC marker
+  $dir = Split-Path -Parent $CellJson
+  foreach ($f in Get-ChildItem -Path $dir -Filter '*.json' | Sort-Object Name) {
+    if ($f.BaseName -eq $Cell) { continue }
+    try { $refs = (Get-Content $f.FullName -Raw | ConvertFrom-Json).refs } catch { continue }
+    if ($refs | Where-Object { $_.base_editor_id -eq 'COCMarkerHeading' }) { $Via = $f.BaseName; break }
+  }
 }
-if ($d -gt 5) { "not at FO4Port_$Cell (last read $p, marker {0:N2} {1:N2})" -f $mx, $my; exit 1 }
-"at FO4Port_$Cell (read $p, {0:N1} m from the COC marker)" -f $d
-exit 0
+if (-not $Via) { "no other cell with a COC marker next to ${CellJson}: no hop"; exit 1 }
+"hop: coc FO4Port_$Via, then FO4Port_$Cell again"
+Enter-Cell $Via
+Enter-Cell $Cell
+Test-Arrival
+if ($script:arrived) { exit 0 }
+exit 1
