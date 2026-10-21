@@ -40,6 +40,14 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(m["story_lock_violations"], 0)
         self.assertEqual(m["home_violations"], 0)
 
+    def test_settlements_without_beds_do_not_crash(self):
+        # Codex P2 on #431: validate_pack allows beds 0, and mean() of nothing raised StatisticsError.
+        ws = world()
+        for s in ws.settlements.values():
+            s.beds, s.population = 0, 0
+            s.roles = {r: 0 for r in s.roles}
+        self.assertEqual(balance.metrics(ws)["mean_population_share"], 0.0)
+
     def test_counts_match_the_event_log(self):
         ws = ran(4, 30)
         m = balance.metrics(ws)

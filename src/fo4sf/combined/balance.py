@@ -172,7 +172,8 @@ def metrics(ws: WorldState) -> dict:
         "places_lost_by": _count_by(taken, "previous", ws),
         "settlements_at_cap_share": (sum(s.population >= s.beds for s in settlements) / len(settlements)
                                      if settlements else 0.0),
-        "mean_population_share": mean(s.population / s.beds for s in settlements if s.beds) if settlements else 0.0,
+        "mean_population_share": mean(bedded) if (bedded := [s.population / s.beds for s in settlements if s.beds])
+                                 else 0.0,
         "caravans_raided_share": raided / finished if finished else 0.0,
         "empty_settlements": sum(s.population == 0 for s in settlements),
         "settlements_emptied": sum(e["kind"] == "settlement_emptied" for e in ws.events),
