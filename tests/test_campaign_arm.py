@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import re
 import unittest
 from contextlib import redirect_stdout
 
@@ -15,6 +16,9 @@ import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
 PLUGINS = ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4ActorRaider.esm", "FO4SFMission.esm"]
+
+
+STARFIELD_T = ca.STARFIELD
 
 
 class Base(unittest.TestCase):
@@ -200,6 +204,44 @@ class ScriptAndGateTests(Base):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 1)
         self.assertFalse(os.path.exists(out))
+
+    def test_the_chain_sets_the_launch_mode_and_runs_only_the_manifest_it_was_written_from(self):
+        # Codex on #391: the script ignored "launch", and a manifest edited after the script still passed the check
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp, out = os.path.join(self.d, "c.json"), os.path.join(self.d, "chain.ps1")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)], launch="exe"), f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
+        with open(out, newline="") as f:
+            text = f.read()
+        self.assertIn("$env:FO4SF_LAUNCH = 'exe'", text)
+        digest = re.search(r"--sha256 ([0-9a-f]{64})", text).group(1)
+        self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
+
+        def check(*extra):
+            with redirect_stdout(io.StringIO()) as buf:
+                return ca.main(["check", "--campaign", cp, *extra]), buf.getvalue()
+        self.assertEqual(check("--sha256", digest)[0], 0)
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)]), f)                              # edited after the script was written
+        rc, outp = check("--sha256", digest)
+        self.assertEqual(rc, 1)
+        self.assertIn("changed since the chain was written", outp)
+
+    def test_repeated_pre_launch_options_are_refused(self):
+        # Codex on #391: argparse runs the last --exp-dir, the check read the first
+        for extra in (["--exp-dir", os.path.join(self.d, "v6c")], ["--starfield", "E:\\SF"],
+                      ["--plugins", "Other.esm"]):
+            with self.subTest(extra=extra):
+                pre = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp,
+                       "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS), "--pack", *extra]
+                q = self.queue("w" + str(len(extra[1])), [{"coc": "FO4Port_X"}], pre=pre)
+                self.assertIn("each option once", " ".join(self.check(self.camp([("w", q)]))[1]))
+        pre = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir=" + self.exp,
+               "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS)]
+        q = self.queue("eq", [{"coc": "FO4Port_X"}], pre=pre)
+        self.assertIn("--option=value", " ".join(self.check(self.camp([("w", q)]))[1]))
 
     def test_the_gate_passes_only_a_clean_finished_run(self):
         q = self.queue("a", [{"coc": "FO4Port_X"}])

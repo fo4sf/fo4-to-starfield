@@ -3,7 +3,7 @@ without the crash and disk caps (docs/testing/campaign-arm.md). Offline: it read
 manifest, it never launches the game, installs or types anything.
 
 usage:
-  python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...]
+  python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...] [--sha256 HEX]
       every queue of the campaign, refused with the reason when:
         - its queue.json is missing, or its tests name no coc;
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
@@ -14,8 +14,9 @@ usage:
       and the campaign is refused when its caps are not the night-run caps (one launch, stop at the first crash, at
       least 40 GB free on the dump drive). Exit 0 only when every queue can be armed.
   python scripts/game/campaign_arm.py script --campaign <campaign.json> --out <NEW chain.ps1> [--release HOLD,...]
-      after the same check, the PowerShell chain: the check again at run time, then per queue the run with the caps,
-      its judge, and the gate; the chain stops at the first queue the gate refuses.
+      after the same check, the PowerShell chain: the campaign's launch mode (FO4SF_LAUNCH), the check again at run
+      time against the sha256 of the manifest it was written from, then per queue the run with the caps, its judge,
+      and the gate; the chain stops at the first queue the gate refuses.
   python scripts/game/campaign_arm.py run --campaign <campaign.json>
       the same chain without PowerShell: the check (holds
       lifted only by the campaign's "released" list), then per queue testqueue.py run with the caps, its judge and the
@@ -36,6 +37,7 @@ campaign.json:
                "--queue", "<queue folder>"]}]}
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -109,6 +111,12 @@ def pre_launch_why(pre, camp):
         return None
     if script != norm(os.path.join("scripts", "game", "exp_install.py")) or args[1:2] != ["install"]:
         return f"pre_launch runs {' '.join(args[:2])}, not a runner check or the installed experiment"
+
+    dup = [n for n in ("--exp-dir", "--plugins", "--starfield") if sum(1 for x in args if x == n or
+                                                                       x.startswith(n + "=")) > 1]
+    if dup or any(x.startswith(("--exp-dir=", "--plugins=", "--starfield=")) for x in args):
+        # Codex on #391: argparse keeps the last of a repeated option, this check read the first
+        return f"pre_launch gives {', '.join(dup) or 'an --option=value form'}: each option once, as --option value"
 
     def opt(name):
         return args[args.index(name) + 1] if name in args[:-1] else None
@@ -241,8 +249,16 @@ def run_args(qdir, caps, starfield=STARFIELD):
             "--min-free-gb", f"{caps['min_free_gb']:g}", "--dump-drive", caps["dump_drive"], "--wait-for-idle"]
 
 
+def campaign_sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def chain(camp, path, release):
     caps, py = camp["caps"], camp.get("python") or "python"
+    launch = camp.get("launch", "steam")
+    if launch not in LAUNCHES:
+        sys.exit(f"launch {launch!r}, want one of {LAUNCHES}")
     rel = ",".join(sorted(release))
     lines = [f"# {camp.get('name')} chain, written by scripts/game/campaign_arm.py from {path} at "
              f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}" + (f"; released: {rel}" if rel else ""),
@@ -250,7 +266,11 @@ def chain(camp, path, release):
              f"{caps['min_free_gb']:g} GB free on {caps['dump_drive']}.",
              "# The chain stops at the first queue whose run or gate fails. It types nothing itself.",
              f"$py = {ps(py)}", f"Set-Location {ps(camp['checkout'])}",
-             f"& $py scripts\\game\\campaign_arm.py check --campaign {ps(path)}" + (f" --release {ps(rel)}" if rel else ""),
+             # Codex on #391: the launch mode is the campaign's, never the caller's environment
+             f"$env:FO4SF_LAUNCH = {ps(launch)}",
+             # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing
+             f"& $py scripts\\game\\campaign_arm.py check --campaign {ps(path)} --sha256 {campaign_sha256(path)}"
+             + (f" --release {ps(rel)}" if rel else ""),
              "if ($LASTEXITCODE -ne 0) { Write-Host 'campaign check refused: nothing run'; exit 1 }"]
     for e, _, _ in check(camp, release)[0]["queues"]:
         lines += ["", f"# {e['name']}",
@@ -341,6 +361,9 @@ def main(argv=None):
         s = sub.add_parser(name)
         s.add_argument("--campaign", required=True)
         s.add_argument("--release", default="", help="holds the owner lifted, comma-separated")
+        if name == "check":
+            s.add_argument("--sha256", default="", help="refuse unless the campaign file still has this sha256 "
+                                                        "(the generated chain passes the one it was written from)")
         if name == "script":
             s.add_argument("--out", required=True)
     g = sub.add_parser("gate")
@@ -361,6 +384,9 @@ def main(argv=None):
             with open(logp, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         return run_chain(read_campaign(a.campaign), log)
+    if a.cmd == "check" and a.sha256 and campaign_sha256(a.campaign) != a.sha256.lower():
+        print(f"REFUSED campaign: {a.campaign} changed since the chain was written from it: write the chain again")
+        return 1
     camp, release = read_campaign(a.campaign), releases(a.release)
     res, ok = check(camp, release)
     show(res)
