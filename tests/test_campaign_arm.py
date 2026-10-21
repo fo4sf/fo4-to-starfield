@@ -236,7 +236,11 @@ class CheckTests(Base):
                          (dr + ["--rou", "x"], "is not one"),
                          (["scripts/game/testqueue.py", "report", "--queue", q, "--typo"], "is not one"),
                          (["scripts/bridge/presence.py", "judge", "--queue", q, "--rounds", "x"], "is not one"),
-                         (dr + ["--world-instance", "-x=1"], "needs a value")):
+                         (dr + ["--world-instance", "-x=1"], "needs a value"),
+                         (dr + ["--world-instance", "nope=also-nope"], "8 hex digits"),
+                         (dr + ["--world-instance", "02000803=FF00552F"], "created (FF) world"),
+                         (dr + ["--world-instance", "FF00552F=02000803", "--world-instance", "FF00552F=02000001"],
+                          "pins FF00552F to both")):
             with self.subTest(bad=bad):
                 c["queues"][0]["judge"] = bad
                 ok, why = self.check(c)
@@ -794,11 +798,19 @@ class ScriptAndGateTests(Base):
                 pre = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp,
                        "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS), "--pack", *extra]
                 q = self.queue("w" + str(len(extra[1])), [{"coc": "FO4Port_X"}], pre=pre)
-                self.assertIn("each option once", " ".join(self.check(self.camp([("w", q)]))[1]))
+                self.assertIn("2 times: at most 1", " ".join(self.check(self.camp([("w", q)]))[1]))
         pre = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir=" + self.exp,
                "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS)]
         q = self.queue("eq", [{"coc": "FO4Port_X"}], pre=pre)
-        self.assertIn("--option=value", " ".join(self.check(self.camp([("w", q)]))[1]))
+        self.assertIn("is not one it takes", " ".join(self.check(self.camp([("w", q)]))[1]))
+        # Codex on #391: any option exp_install.py install does not take (or a repeated flag) exits 2 at launch
+        base = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp,
+                "--starfield", STARFIELD_T, "--plugins", ",".join(PLUGINS), "--pack"]
+        for extra, msg in ((["--typo"], "is not one it takes"), (["--pack"], "2 times"),
+                           (["--needs", "a", "--needs", "b"], "2 times"), (["--needs"], "needs a value")):
+            with self.subTest(extra=extra):
+                q = self.queue("x" + str(len(extra)) + extra[-1][-1], [{"coc": "FO4Port_X"}], pre=base + extra)
+                self.assertIn(msg, " ".join(self.check(self.camp([("w", q)]))[1]))
 
     def test_the_gate_passes_only_a_clean_finished_run(self):
         q = self.queue("a", [{"coc": "FO4Port_X"}])

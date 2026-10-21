@@ -83,24 +83,49 @@ JUDGE_OPTS = {"scripts/bridge/door_rounds.py": {"--queue": (1, r".+"), "--rounds
                                                 "--world-instance": (None, r"[^=]+=[^=]+")},
               "scripts/bridge/presence.py": {"--queue": (1, r".+"), "--presence": (1, r".+")},
               "scripts/game/testqueue.py": {"--queue": (1, r".+")}}
+# exp_install.py install's options (its argparse): None as the pattern is a flag
+EXP_INSTALL_OPTS = {"--exp-dir": (1, r".+"), "--starfield": (1, r".+"), "--plugins": (1, r".+"),
+                    "--pack": (1, None), "--needs": (1, r".+")}
 
 
-def judge_args_why(judge):
-    """Why the judge's own parser would refuse its options (exit 2 after the run), else None. Codex on #391: every
-    option after the subcommand must be one it takes, spelled out, given as often as it may be, with a value."""
-    opts = next((v for k, v in JUDGE_OPTS.items() if norm(k) == norm(judge[0])), {})
-    seen, rest = {}, list(judge[2:])
+def options_why(args, opts, what):
+    """(why the options in args are not ones opts takes, else None; {option: [values]}). Every option spelled out,
+    given at most as often as it may be, and followed by a value unless it is a flag: what the command's own argparse
+    accepts, read the same way, so a typo stops the arming instead of the run (Codex on #391)."""
+    seen, rest = {}, list(args)
     while rest:
         opt = rest.pop(0)
         if opt not in opts:
-            return f"judge option {opt!r} is not one {judge[0]} {judge[1]} takes ({', '.join(opts)})"
+            return f"{what} option {opt!r} is not one it takes ({', '.join(opts)})", seen
         most, pattern = opts[opt]
-        if not rest or rest[0].startswith("-") or not re.fullmatch(pattern, rest[0]):
-            return f"judge option {opt} needs a value" + (f", not {rest[0]!r}" if rest else "")
-        rest.pop(0)
-        seen[opt] = seen.get(opt, 0) + 1
-        if most is not None and seen[opt] > most:
-            return f"judge gives {opt} {seen[opt]} times: at most {most}"
+        if pattern is None:
+            seen.setdefault(opt, []).append(True)
+        elif not rest or rest[0].startswith("-") or not re.fullmatch(pattern, rest[0]):
+            return f"{what} option {opt} needs a value" + (f", not {rest[0]!r}" if rest else ""), seen
+        else:
+            seen.setdefault(opt, []).append(rest.pop(0))
+        if most is not None and len(seen[opt]) > most:
+            return f"{what} gives {opt} {len(seen[opt])} times: at most {most}", seen
+    return None, seen
+
+
+def judge_args_why(judge):
+    """Why the judge would refuse its options (exit 2, or door_rounds.py's own --world-instance check) after the run,
+    else None."""
+    opts = next((v for k, v in JUDGE_OPTS.items() if norm(k) == norm(judge[0])), {})
+    why, seen = options_why(judge[2:], opts, f"judge {judge[0]} {judge[1]}")
+    if why or not seen.get("--world-instance"):
+        return why
+    # Codex on #391: door_rounds.py judge reads the pins with world_pairs, which stops on a malformed one
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_fo4sf_door_rounds_arm",
+                                                  os.path.join(os.path.dirname(HERE), "bridge", "door_rounds.py"))
+    dr = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(dr)
+        dr.world_pairs(seen["--world-instance"])
+    except (ValueError, ImportError, OSError) as error:
+        return f"judge {error}"
     return None
 
 
@@ -174,11 +199,11 @@ def pre_launch_why(pre, camp):
     if script != norm(os.path.join("scripts", "game", "exp_install.py")) or args[1:2] != ["install"]:
         return f"pre_launch runs {' '.join(args[:2])}, not a runner check or the installed experiment"
 
-    dup = [n for n in ("--exp-dir", "--plugins", "--starfield") if sum(1 for x in args if x == n or
-                                                                       x.startswith(n + "=")) > 1]
-    if dup or any(x.startswith(("--exp-dir=", "--plugins=", "--starfield=")) for x in args):
-        # Codex on #391: argparse keeps the last of a repeated option, this check read the first
-        return f"pre_launch gives {', '.join(dup) or 'an --option=value form'}: each option once, as --option value"
+    # Codex on #391: argparse keeps the last of a repeated option (this check read the first), and exits 2 on one it
+    # does not take: each option once, as --option value, and only exp_install.py install's own
+    why, _ = options_why(args[2:], EXP_INSTALL_OPTS, "pre_launch exp_install.py install")
+    if why:
+        return why
 
     def opt(name):
         return args[args.index(name) + 1] if name in args[:-1] else None
