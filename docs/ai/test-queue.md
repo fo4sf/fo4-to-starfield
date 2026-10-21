@@ -41,7 +41,9 @@ is final. A game crash during a test is recorded (class CRASH) and the game is r
 Crashes never trip the breaker, so night runs can set two limits, both off by default. Each is checked before every
 launch, and the run stops with `limit: ...` when one is hit:
 - `--crash-budget N`: stop after N crashes in the run. Both kinds count: a crash during a test, and a start that died
-  (cycle.ps1 exit 10).
+  (cycle.ps1 exit 10). A crash is the runner's game process gone, with or without a dump: during a step (even when the
+  step then failed its input or HUD check, which would otherwise read as the owner or a menu), during the travel to a
+  test's cell, or between tests (doors_rounds 2026-10-21: Starfield vanished with no WER event and no dump).
 - `--min-free-gb G`: stop while `--dump-drive` (default `D:\`) has less than G GB free. Each crash writes a dump there,
   18 GB as full dumps on 2026-10-19. A drive that can't be read counts as too full.
 
