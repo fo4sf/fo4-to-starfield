@@ -39,7 +39,8 @@ any code change makes the next run reconvert all 11,887 meshes (about 35 to 48 m
 was built from, worktree wt_v6 at 5a93beb), only `convert_batch.py`'s help text has changed on main. So:
 - Build v6f in wt_v6 **without** merging main. With `--resume`, only the RedRPedDoor meshes lose their `|no_rig` tag
   and reconvert; everything else is reused. Expect `reused` near 11,880.
-- Building v6f from main also works, but it reconverts everything.
+- Building v6f from main also works, but it reconverts everything. Use main at e079ac9 or later: between 5f2a065 and
+  e079ac9 `--max-tris` defaulted to 20000, which skips every model over 20,000 triangles and drops its base record.
 
 Steps (PC install thread; D: needs room for one more staged core, and keeps its 40 GB floor):
 1. Copy work_v6c2's manifest and checkpoints aside as `work_v6c2_before_v6f` (rollback for the work dir; v6e's staged
