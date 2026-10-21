@@ -7,10 +7,10 @@ usage:
 
 A test's final verdict is its last row in results.jsonl, read as the queue's report reads it (testqueue.report_verdict:
 an npc_nav CONTROL row is gated again). A door_rounds judge (door_rounds_judge.json) replaces the runner's verdicts of
-its queue, since the runner's terrain verdict does not judge the door; its recorded rounds source must be the queue's
-experiment folder or its rounds.json (by path, else by sha256); its rows for tests the queue does not hold are
-left out, every queued test needs exactly one row that names its door (door, leg, cell, FO4 src and ack, against the
-test's label and console_post), and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
+its queue, since the runner's terrain verdict does not judge the door; the rounds_sha256 it records must be the one
+the queue was planned from; its rows for tests the queue does not hold are left out, every queued test needs exactly
+one row that names its door (door, leg, cell, FO4 src and ack, against the test's label and console_post), and a judge
+older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
   door round legs     ("door", interior cell, leg, FO4 door src)
   terrain tests       ("terrain", "", coc, side, label): several walks can start from one coc
   every other test    (kind, cell, ref, side): a door's two sides are two tests
@@ -31,7 +31,6 @@ match can not tell apart), a missing or unreadable queue.json (no "tests" list),
 (scripts/bridge/door_rounds.py judge): the runner's terrain verdicts never stand in for a door's.
 """
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -80,33 +79,17 @@ def latest_attempt(qdir, test_id):
     return tries[-1][1] if tries else None
 
 
-def sha256(p):
-    try:
-        with open(p, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
-    except OSError:
-        return None
-
-
-def rounds_mismatch(q, rounds):
-    """Why the judge's recorded rounds source (door_rounds.py judge writes --rounds, else the queue's experiment) is
-    not this queue's, else None. The queue records its stage folder as "experiment" (plan-terrain --exp-dir); the
-    judge's source is that folder, its rounds.json, or a file with the same sha256 as that rounds.json (Codex on
-    #401: a judge of another rounds file with the same numbered doors)."""
-    exp = q.get("experiment")
-    if not rounds:
-        return "the judge records no rounds source"
-    if not exp:
-        return "the queue records no experiment folder to check the judge's rounds source against"
-    norm = lambda p: os.path.normcase(os.path.abspath(str(p)))     # noqa: E731
-    own = os.path.join(exp, "rounds.json")
-    if norm(rounds) in (norm(exp), norm(own)):
-        return None
-    a, b = sha256(rounds), sha256(own)
-    if a is None or b is None:
-        return f"the judge's rounds source {rounds} is not the queue's {own}, and the two can not both be read"
-    if a != b:
-        return f"the judge's rounds source {rounds} differs from the queue's {own}"
+def rounds_mismatch(q, judged):
+    """Why the rounds file the judge read is not the one the queue was planned from, else None: door_rounds.py judge
+    records the sha256 of the rounds file it read, plan-terrain the sha256 of the stage's rounds.json. A path proves
+    nothing, the file at it can be replaced after planning (Codex on #401)."""
+    want, got = q.get("rounds_sha256"), judged.get("rounds_sha256")
+    if not want:
+        return "the queue records no rounds_sha256 (planned before plan-terrain recorded it: plan it again)"
+    if not got:
+        return "the judge records no rounds_sha256 (judged before door_rounds.py recorded it)"
+    if got != want:
+        return f"the judge read rounds {got[:12]} ({judged.get('rounds')}), the queue was planned from {want[:12]}"
     return None
 
 
@@ -159,7 +142,7 @@ def results(qdir):
         raise Unavailable(f"{qdir}: a door rounds queue not judged yet; run scripts/bridge/door_rounds.py judge "
                           f"--queue {qdir} first")
     if judged is not None:
-        why = rounds_mismatch(q, judged.get("rounds"))
+        why = rounds_mismatch(q, judged)
         if why:
             raise Unavailable(f"{judge_p}: {why}; judge the queue again with its own rounds.json")
         ids = [t.get("id") for t in q["tests"] if isinstance(t, dict)]

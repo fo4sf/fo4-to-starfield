@@ -1,5 +1,6 @@
 """scripts/bridge/door_rounds.py: door round trips planned against the installed plugins and judged from the bridge's
 log (synthetic core and port plugins, synthetic logs)."""
+import hashlib
 import io
 import json
 import os
@@ -288,7 +289,10 @@ class JudgeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])
-        self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
+        with open(os.path.join(d, "door_rounds_judge.json")) as f:
+            judged = json.load(f)
+        with open(os.path.join(d, "rounds.json"), "rb") as f:          # the file it read, for regress (Codex on #401)
+            self.assertEqual(judged["rounds_sha256"], hashlib.sha256(f.read()).hexdigest())
 
 
 class OutLegsTests(unittest.TestCase):

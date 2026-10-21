@@ -29,6 +29,7 @@ usage:
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -420,7 +421,10 @@ def judge(a):
         sys.exit(str(e))
     qdir = os.path.abspath(a.queue)
     q = load(os.path.join(qdir, "queue.json"))
-    info = load(a.rounds or os.path.join(q["experiment"], "rounds.json"))
+    rounds_p = a.rounds or os.path.join(q["experiment"], "rounds.json")
+    info = load(rounds_p)
+    with open(rounds_p, "rb") as f:                       # the file this judge read: regress checks it against the plan
+        rounds_sha = hashlib.sha256(f.read()).hexdigest()
     tests, rows = q["tests"], []
     for exp in info["tests"]:
         t = tests[exp["test"]] if exp["test"] < len(tests) else None
@@ -436,7 +440,8 @@ def judge(a):
                                        pairs or None)
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
-    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "world_instances": pairs, "results": rows})
+    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
+                                                          "world_instances": pairs, "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}

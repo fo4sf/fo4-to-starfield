@@ -520,6 +520,9 @@ def plan_terrain(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
+    rounds = os.path.join(a.exp_dir, "rounds.json")
+    if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
+        q["rounds_sha256"] = sha256(rounds)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
     q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)

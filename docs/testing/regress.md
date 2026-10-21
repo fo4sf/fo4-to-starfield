@@ -18,8 +18,9 @@ python scripts/game/regress.py --old <queues of the old build> --new <queues of 
 - A door queue's `door_rounds_judge.json` replaces the runner's own verdicts for that queue. Its rows for tests the
   queue does not hold (a `plan-terrain --only` queue) are left out, a judge without exactly one row for every queued
   test (a `judge --rounds` subset) or with a row naming another door than the test's label and ack (a judge of
-  another rounds file) is refused, as is a judge whose recorded `rounds` source is neither the queue's `experiment`
-  folder nor its rounds.json (by path, else by sha256), and a judge whose recorded attempt of a test is not
+  another rounds file) is refused, as is a judge whose `rounds_sha256` (the rounds file `door_rounds.py judge` read)
+  is missing or is not the queue's `rounds_sha256` (the stage's rounds.json when `plan-terrain` planned it; a queue
+  planned before that is planned again), and a judge whose recorded attempt of a test is not
   the queue's newest (the queue ran again after it was judged) is refused with exit 2: judge it again.
 
 ## How each match is classed
