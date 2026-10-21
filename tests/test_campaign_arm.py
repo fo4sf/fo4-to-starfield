@@ -7,6 +7,7 @@ import sys
 import tempfile
 import re
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,7 +42,10 @@ class Base(unittest.TestCase):
 
     def receipt(self, exp, plugins=PLUGINS, **extra):
         with open(os.path.join(self.sf, "Data", "FO4SFExp.install.json"), "w") as f:
-            json.dump(dict({"exp_dir": exp, "files": {p: {} for p in plugins}, "complete": True}, **extra), f)
+            rec = {"exp_dir": exp, "files": {p: {} for p in plugins or ()}, "complete": True}
+            if plugins is not None:
+                rec["plugins"] = list(plugins)
+            json.dump(dict(rec, **extra), f)
 
     def queue(self, name, tests, pre=None, **extra):
         q = os.path.join(self.d, name)
@@ -250,6 +254,60 @@ class PlanTerrainHoldTests(Base):
         self.assertTrue(self.check(self.camp([("f", q)]))[0])
         # a second attempt of a fresh test relaunches too
         self.assertFalse(self.check(self.camp([("f", q)], caps=dict(CAPS, max_attempts=2)))[0])
+
+    def test_an_install_record_selecting_more_plugins_is_refused(self):
+        # Codex on #391: cycle.ps1 orders every plugin the record selected, not only the campaign's
+        exp = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
+               "--plugins", ",".join(PLUGINS), "--pack"]
+        q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
+        c = self.camp([("walk", q)], starfield=self.sf)
+        self.receipt(self.exp, plugins=PLUGINS + ["FO4Extra.esm"])
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("selects", " ".join(why))
+        # a legacy record without "plugins" is read from its added and replaced lines, as exp_install.py does
+        self.receipt(self.exp, plugins=None, files={p: {} for p in PLUGINS},
+                     plugins_added=["*" + p for p in PLUGINS[1:]], plugins_replaced=[{"active": "*" + PLUGINS[0]}])
+        self.assertEqual(self.check(c), (True, []))
+        self.receipt(self.exp, plugins=None, files={p: {} for p in PLUGINS}, plugins_added=["*" + p for p in PLUGINS])
+        self.assertTrue(self.check(c)[0])
+
+    def test_a_queue_bridge_must_already_be_installed_and_active(self):
+        # Codex on #391: Runner.ensure_game installs or reactivates a bridge that is not, before the launch
+        import bridge_install as bi
+        import exp_install as ei
+        bdir = os.path.join(self.d, "bridge_t4")
+        os.makedirs(os.path.join(bdir, "Data", "Scripts"))
+        for rel, body in ((bi.PLUGIN, b"esm"), (bi.PEX, b"pex")):
+            with open(os.path.join(bdir, rel), "wb") as f:
+                f.write(body)
+        pin = {"dir": bdir, "sha256": {rel: tq.sha256(os.path.join(bdir, rel)) for rel in (bi.PLUGIN, bi.PEX)}}
+        q = self.queue("b", [{"coc": "FO4Port_X"}], bridge=pin)
+        c = self.camp([("b", q)], starfield=self.sf, bridge=bdir)
+        local = os.path.join(self.d, "local")
+        os.makedirs(os.path.join(local, "Starfield"))
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": local}):
+            ok, why = self.check(c)
+            self.assertFalse(ok)
+            self.assertIn("the bridge is not installed", " ".join(why))
+            files = {}
+            for rel, body in ((bi.PLUGIN, b"esm"), (bi.ARCHIVE, b"ba2")):
+                with open(os.path.join(self.sf, "Data", rel), "wb") as f:
+                    f.write(body)
+                files[rel] = ei.digest(os.path.join(self.sf, "Data", rel))
+            rec = {"dir": bdir, "plugin": bi.PLUGIN, "source_sha256": bi.source_inventory(bdir), "files": files,
+                   "complete": True}
+            with open(os.path.join(self.sf, "Data", bi.RECORD), "w") as f:
+                json.dump(rec, f)
+            ok, why = self.check(c)
+            self.assertFalse(ok)
+            self.assertIn("installed but not active", " ".join(why))
+            with open(os.path.join(local, "Starfield", "Plugins.txt"), "w") as f:
+                f.write("*" + bi.PLUGIN + "\n")
+            self.assertEqual(self.check(c), (True, []))
+            with open(os.path.join(self.sf, "Data", bi.RECORD), "w") as f:
+                json.dump(dict(rec, source_sha256={bi.PLUGIN: "0" * 64}), f)
+            self.assertIn("is not the queue's", " ".join(self.check(c)[1]))
 
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once

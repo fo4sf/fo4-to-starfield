@@ -8,10 +8,11 @@ usage:
         - its queue folder is not a full path, its queue.json is missing, or its tests name no coc;
         - a test travels by anything but coc <cell>, or types FO4SF_Probe.MoveTo (both go where the holds can not see);
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
-        - its pinned bridge is not the campaign's, or changed since the plan;
+        - its pinned bridge is not the campaign's, changed since the plan, or is not that bridge already installed and
+          active in the campaign's Starfield folder (the runner would install or activate it);
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
           (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing; the
-          Starfield folder's FO4SFExp.install.json must show that experiment and its plugins installed), or runs
+          Starfield folder's FO4SFExp.install.json must show that experiment with exactly its plugins), or runs
           another program than the campaign's python;
         - a test marked fresh would launch the game again (any but the first test left, or any retry of one);
         - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a travel test's
@@ -171,6 +172,48 @@ def pre_launch_why(pre, camp):
         return f"pre_launch: the install record {rec_p} is incomplete"
     if norm(rec.get("exp_dir") or "") != norm(exp) or not want <= files:
         return f"pre_launch would replace the installed experiment {rec.get('exp_dir')} ({rec_p})"
+    # Codex on #391: cycle.ps1 orders every plugin the record selected, so the selected set must be the campaign's
+    # (the same reading as exp_install.py: "plugins", else a legacy record's added and replaced lines)
+    sel = rec.get("plugins")
+    if sel is None:
+        sel = [str(x).lstrip("*").strip() for x in rec.get("plugins_added") or []]
+        sel += [str(x.get("active", "")).lstrip("*").strip() for x in rec.get("plugins_replaced") or []
+                if isinstance(x, dict)]
+    have = {str(x).casefold() for x in sel} if isinstance(sel, list) else set()
+    if have != want:
+        return f"the install record {rec_p} selects {sorted(have)}, the installed set is {sorted(want)}"
+    return None
+
+
+def bridge_installed_why(br, camp):
+    """Why the campaign's Starfield folder does not already hold the queue's bridge, installed and active, else None.
+    Codex on #391: Runner.ensure_game runs bridge_install.py install, which installs or reactivates one that is not."""
+    import bridge_install as bi
+    import exp_install as ei
+    data = os.path.join(camp.get("starfield") or STARFIELD, "Data")
+    rec_p = os.path.join(data, bi.RECORD)
+    try:
+        with open(rec_p, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError) as error:
+        return f"the bridge is not installed: no readable {rec_p} ({error.__class__.__name__}); install it first"
+    if not isinstance(rec, dict) or rec.get("complete") is not True or rec.get("cleanup_pending"):
+        return f"the bridge install record {rec_p} is incomplete"
+    files = rec.get("files")
+    if not isinstance(files, dict) or set(files) != {bi.PLUGIN, bi.ARCHIVE}:
+        return f"the bridge install record {rec_p} does not cover {bi.PLUGIN} and its archive"
+    try:
+        if rec.get("source_sha256") != bi.source_inventory(br["dir"]):
+            return f"the installed bridge ({rec.get('dir')}) is not the queue's {br['dir']}: install it first"
+        for rel, h in files.items():
+            t = os.path.join(data, rel)
+            if not os.path.isfile(t) or ei.digest(t) != h:
+                return f"the installed bridge file {t} changed since its install"
+        lines, _, _ = ei.read_plugins(ei.plugins_txt())
+    except (OSError, ValueError, SystemExit) as error:
+        return f"the installed bridge can not be checked: {error}"
+    if bi.plugin_line_present(lines, bi.PLUGIN) is None:
+        return f"{bi.PLUGIN} is installed but not active: the runner would activate it; order or activate it first"
     return None
 
 
@@ -199,7 +242,7 @@ def check_queue(entry, camp, release):
         if norm(br.get("dir") or "") != norm(camp["bridge"]):
             why.append(f"pins the bridge {br.get('dir')}, the campaign's is {camp['bridge']}")
         else:
-            m = tq.bridge_mismatch(br)
+            m = tq.bridge_mismatch(br) or bridge_installed_why(br, camp)
             if m:
                 why.append(m)
     p = pre_launch_why(q.get("pre_launch"), camp)
