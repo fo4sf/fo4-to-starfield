@@ -53,7 +53,7 @@ class NifFloatScan(unittest.TestCase):
                 self.assertEqual(scan.main([tmp, "--names", "BldCounterDoor01|safedoor01", "--json", out]), 0)
             self.assertIn("1 NIFs scanned, 1 hold 0x3ca3d70a", text.getvalue())
             with open(out) as f:
-                self.assertEqual(list(json.load(f)["found"]), ["bldcounterdoor01.nif"])
+                self.assertEqual(list(json.load(f)["found"]), [os.path.join(tmp, "bldcounterdoor01.nif")])
 
 
     def test_near_keeps_models_placed_in_an_area(self):
@@ -76,8 +76,15 @@ class NifFloatScan(unittest.TestCase):
             self.assertIn("2 NIFs scanned, 2 hold", text.getvalue())
             with open(out) as f:
                 found = json.load(f)["found"]
-            self.assertEqual({k.replace("\\", "/"): v["areas"] for k, v in found.items()},
+            meshes = os.path.join(tmp, "meshes")
+            self.assertEqual({os.path.relpath(k, meshes).replace("\\", "/"): v["areas"] for k, v in found.items()},
                              {"fo4port/setdressing/bldcounterdoor01.nif": ["redrocket"], "fo4port/other.nif": ["museum"]})
+
+    def test_a_short_name_does_not_stand_for_a_longer_model(self):
+        placed = {"fo4port/setdressing/door.nif": ["redrocket"]}
+        self.assertEqual(scan.areas_of("door.nif", placed), [])
+        self.assertEqual(scan.areas_of("D:/x/meshes/FO4Port/SetDressing/Door.nif", placed), ["redrocket"])
+        self.assertEqual(scan.areas_of("D:/x/meshes/FO4Port/SetDressing/BigDoor.nif", placed), [])
 
 
 if __name__ == "__main__":

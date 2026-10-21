@@ -68,11 +68,12 @@ def area_models(objects, areas):
 
 
 def areas_of(name, placed):
-    """The areas placing a scanned NIF: its path (under any folder or archive prefix) ends with a placed model's path."""
+    """The areas placing a scanned NIF: its full path (input folder or archive included) ends with a placed model's
+    whole path, so a short name never stands for every model that ends the same way (Codex on #453)."""
     key = near_changes.model_key(name)
     hits = []
     for model, labels in placed.items():
-        if key == model or key.endswith("/" + model) or model.endswith("/" + key):
+        if key == model or key.endswith("/" + model):
             hits += [x for x in labels if x not in hits]
     return hits
 
@@ -102,7 +103,10 @@ def main(argv=None):
         placed = area_models(near_changes.load(a.objects), [_area(t) for t in a.near])
     found, types, n_nif, errors = {}, collections.Counter(), 0, 0
     for path in a.paths:
-        for name, data in meshcheck.iter_nifs(path, a.filter or None):
+        for rel, data in meshcheck.iter_nifs(path, a.filter or None):
+            # the input path stays in the name: two inputs with the same relative file do not share a JSON key
+            name = os.path.join(path, rel) if os.path.isdir(path) else (path if rel == os.path.basename(path)
+                                                                          else f"{path}::{rel}")
             stem = os.path.splitext(name.replace("\\", "/").rsplit("/", 1)[-1])[0].lower()
             if names is not None and stem not in names:
                 continue
