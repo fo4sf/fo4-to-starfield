@@ -400,7 +400,7 @@ python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior
   --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> --spec-mask-roughness ^
   --convert-arg=--door-anim-dll --convert-arg=<CALUMI.Animation.dll> --convert-arg=--mass-scale --convert-arg=0.2 ^
   --promote-arg=--names --promote-arg=<fo4_names.json> --promote-arg=--furniture --promote-arg=<fo4-furniture.json> ^
-  --promote-arg=--fo4-data --promote-arg=<FO4 Data> [--prev D:\Modding\staging\interiors_bMM] [--allow-source-change] [--pack-ratio R] ^
+  --promote-arg=--fo4-data --promote-arg=<FO4 Data> --prev D:\Modding\staging\interiors_bMM (batch N-1; required from batch 2) [--allow-source-change] [--pack-ratio R] ^
   --census docs\terrain\data\interior-census.json [--dlc-data <depot_435871\Data> --dlc-data <depot_435880\Data>]
 python scripts/terrain/interior_batch.py release --dir D:\Modding\staging\interiors_b03 --reason "superseded by b05" ^
   --successor D:\Modding\staging\interiors_b04 --archive <evidence archive folder> --check-refs <queue folder> --check-refs <recovery receipts folder> --starfield <Starfield>

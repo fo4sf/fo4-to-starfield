@@ -1002,6 +1002,10 @@ class BuildFlowTests(unittest.TestCase):
         self.assertFalse(ib.load(os.path.join(b2x, "result.json"))["steps"]["compare_prev"]["pass"])
         with self.assertRaises(SystemExit):                               # a failed batch is no --prev
             build(2, os.path.join(t, "staging", "interiors_b02y"), prev=b2x)
+        with self.assertRaisesRegex(SystemExit, "batch 2 needs --prev"):  # a later batch grows the one before it
+            build(2, os.path.join(t, "staging", "interiors_b02n"))
+        with self.assertRaisesRegex(SystemExit, "not a passing build of batch 2"):   # ... exactly that one
+            ib.check_prev(argparse.Namespace(prev=b1, base=base), 3)
         # X8: a --prev built from another Fallout4.esm is refused, unless --allow-source-change, which is recorded
         renumber[0] = False
         with open(os.path.join(t, "Fallout4.esm"), "wb") as f:

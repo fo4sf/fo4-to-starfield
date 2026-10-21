@@ -214,12 +214,13 @@ def disk_need(plan, n, work_started):
 
 
 def check_prev(a, n):
-    """The previous batch this one grows: a passing build of an earlier batch over the same base port. Returns
+    """The previous batch this one grows: a passing build of batch n - 1 over the same base port. Returns
     (its port folder, its result.json)."""
     r = load(os.path.join(a.prev, MARKER))
     port = os.path.join(a.prev, "port")
-    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] < n):
-        sys.exit(f"--prev {a.prev}: not a passing earlier batch (batch {r.get('batch')}, pass {r.get('pass')})")
+    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] == n - 1):
+        sys.exit(f"--prev {a.prev}: not a passing build of batch {n - 1} (batch {r.get('batch')}, pass {r.get('pass')}): "
+                 f"batch {n} grows exactly the batch before it, so every id a skipped batch gave out is kept")
     if r.get("pins", {}).get("base_plugin") != sha256(os.path.join(a.base, PLUGIN)):
         sys.exit(f"--prev {a.prev} was built over another base port")
     for need in (PLUGIN, "formids.json"):
@@ -597,6 +598,9 @@ def build(a):
     clash = sorted(set(c.casefold() for c in new_cells) & set(c.casefold() for c in old_cells))
     if clash:
         sys.exit(f"cells already in the base port: {clash}")
+    if a.batch > 1 and not a.prev:
+        sys.exit(f"batch {a.batch} needs --prev, the passing build of batch {a.batch - 1}: without it the ids would be "
+                 f"seeded from the base port alone and the earlier batches' records could be renumbered")
     prev_port, prev_result = check_prev(a, a.batch) if a.prev else (None, None)
     # the base cells a DLC overrides (none today): the sidecar reads their location data from the DLC too, so it is pinned
     old_plugins = base_plugins(old_cells, a.base_exports, a.census_data)
