@@ -22,7 +22,7 @@ byte layout was not checked here, so the list is a **supported hypothesis** unti
 | Hidden until a quest enables it | REFR initially disabled, enable parent XESP | `disabled`, `enable_parent` | disabled kept; **enable parent not written**, so such a door never appears or always appears |
 | Opened by something else (button, terminal, lever) | REFR activate parents XAPD, linked refs | `activate_parents`, `linked_references` | not written for doors |
 | Automatic, hidden, minimal use, sliding, no "to" text | DOOR FNAM flags | **new**: `door_bases[..].record.Flags` | not used |
-| Name in the prompt ("Open Roof Hatch") | DOOR FULL | **new**: `door_bases[..].record.Name` | interior load doors: graph-less DOOR; exterior: ACTI with the FO4 FULL or "Door" |
+| Name in the prompt ("Open Roof Hatch") | DOOR FULL | **new**: `door_bases[..].record.Name` | interiors: the FO4 FULL on the DOOR base (PluginSpike DoorNames.cs, 2026-10-19; each FO4 name of a model gets its own stable base, so growing exports never rebind old references; "Door" without an export that has door_bases); exterior: ACTI with the FO4 FULL or "Door". Not verified in game |
 | Open / close sounds | DOOR sound fields | **new**: in `door_bases[..].record` | none |
 | Scripted (elevators, quest doors, default lock scripts) | VMAD on the DOOR or the REFR | **new**: `scripts` on refs, `door_bases[..].scripts` | none, except FO4SF_LoadDoor |
 
@@ -54,5 +54,19 @@ move, not one load door; which records and scripts take part is **unresolved** u
 2. Write what the survey shows matters most, each with a synthetic test: locks (XLOC level and key on the reference),
    enable parents (so quest-hidden doors stay hidden and come back when FO4 would show them), the FO4 name in the prompt,
    and doors FO4 makes unusable (no-activation or inaccessible set-ups the survey finds).
+   Status 2026-10-19: names are written by PluginSpike (DoorNames.cs). Locks and enable parents are translated by
+   dotnet/ReferenceLinks, but **no port build runs it yet**: the port is PluginSpike's output alone, so FO4 locks are
+   counted only and a quest-hidden door stays disabled for good. Next step, read-only: run ReferenceLinks with
+   `--report-only` over the port plugin, its formids.json and the same cell exports, and read `relationships-report.json`
+   (enable parents, recreated markers, locks, issues). If the issues are few, the port build gains ReferenceLinks as its last
+   step, writing into a fresh directory and keeping its updated formids.json with the plugin (REFERENCE-LINKS.md).
+   Report-only run, 2026-10-19 (PC, main 447ec09, staged port integ_v6_specmask_doors_c with its formids.json and its
+   16 cell exports; nothing written to a plugin; report D:\Modding\scratch\reflinks_report): exit 2. It would write
+   233 enable parents, 543 recreated markers, 12 keywords, 429 linked refs, 835 persistent placements, 68 open states,
+   14 locks and 2 teleports. 93 blocking issues and 78 warnings. The issues seen are linked references whose target was
+   never placed (9,683 source references are unplaced: markers, actors and unconverted models). The warnings are locks on
+   non-door bases, keys with no key record, and terminal locks. **Verified** from the console summary; the issue list was
+   only sampled. Before ReferenceLinks joins the port build, decide what a link to an unplaced target should do: today
+   it blocks the whole run, so the 233 enable parents wait on links that are not about doors.
 3. Elevators and scripted doors: map FO4's scripts to a small Starfield script set as FO4SF_LoadDoor does for teleports;
    design after step 1, since it depends on which scripts appear and how often.

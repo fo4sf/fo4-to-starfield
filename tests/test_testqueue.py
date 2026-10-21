@@ -328,6 +328,93 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.results()[0]["class"], "CRASH")
         self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
 
+    def test_a_second_crash_in_the_same_test_is_a_final_fail(self):
+        def step(test, out):
+            self.ctl.pid = None                           # the game exits during every attempt
+            return 0
+        self.runner(step, max_tests=1).run()
+        first = self.results()[0]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"))
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()              # a later run of the same queue: the same test again
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (first["id"], "FAIL", "CRASH"))
+        st = jload(os.path.join(self.d, "state.json"))
+        self.assertEqual(st["done"][first["id"]]["verdict"], "FAIL")
+        self.assertEqual(st["test_crashes"][first["id"]], 2)
+        # review pass on #402: the FAIL CRASH counted as decided and closed the breaker for the kind for good
+        self.assertTrue(st.get("breaker"))
+        self.assertEqual({k: v["decided"] for k, v in st["breaker"].items()}, {k: 0 for k in st["breaker"]})
+
+    def test_a_crash_recorded_before_the_count_existed_still_counts(self):
+        # Codex on #402: a queue paused after an INCONCLUSIVE CRASH has no test_crashes in its state
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        del st["test_crashes"]
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["verdict"], second["class"]), ("FAIL", "CRASH"), second["detail"])
+        self.assertEqual(jload(p)["test_crashes"], {second["id"]: 2})
+
+    def test_a_crash_row_whose_checkpoint_was_lost_still_counts(self):
+        # Codex on #402: the row was recorded, then the run stopped before state.json kept the new count
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        tid = self.results()[0]["id"]
+        st["test_crashes"] = {tid: 0}                     # the checkpoint before the crash
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (tid, "FAIL", "CRASH"), second["detail"])
+
+    def test_a_recorded_fail_crash_is_final_after_a_lost_checkpoint(self):
+        # Codex on #402: the second (final) crash row was recorded, the checkpoint after it was not
+        calls = []
+
+        def step(test, out):
+            calls.append(test["id"])
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        before = jload(p)                                 # the state as the second crash found it
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        tid = self.results()[1]["id"]
+        self.assertEqual(self.results()[1]["verdict"], "FAIL")
+        jdump(before, p)                                  # that run's checkpoint lost
+        self.ctl.pid = self.ctl.owned_pid()
+        calls.clear()
+        self.runner(step, max_tests=1).run()
+        self.assertNotIn(tid, calls)                      # no third launch into the crash
+        self.assertEqual(jload(p)["done"][tid]["verdict"], "FAIL")
+
+    def test_a_count_kept_for_an_excluded_crash_does_not_count(self):
+        # Codex on #402: a state count with no eligible CRASH row behind it is dropped, not kept by max()
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        p = os.path.join(self.d, "state.json")
+        self.runner(lambda t, o: 0, max_tests=0).run()
+        st = jload(p)
+        st["test_crashes"] = {k["id"]: 1 for k in jload(os.path.join(self.d, "queue.json"))["tests"]}
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        first = self.results()[-1]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"), first["detail"])
+
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
         calls = []

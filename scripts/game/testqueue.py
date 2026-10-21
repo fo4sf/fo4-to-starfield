@@ -64,7 +64,10 @@ when one trips:
     eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
     lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
     refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
-    prints the checklist either way. Unset: not run.
+    prints the checklist either way. Unset: not run. --preflight-report (or FO4SF_PREFLIGHT_REPORT=1) runs the same
+    checks in report-only mode, the first step of switching the gate on: the checklist goes to run.log
+    and preflight.json in the queue folder, nothing is refused and nothing is written to the ledger; --preflight wins
+    when both are on.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -129,6 +132,7 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the same id fails the same way on every attempt
 FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
+CRASH_FAIL = 2          # crashes during one test that make it a final FAIL CRASH
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
 # actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
@@ -3254,6 +3258,33 @@ class Runner:
         self.checkpoint(f"stopped: preflight refused ({names})")
         return 3
 
+    def preflight_report(self):
+        """The same gate in report-only mode: the checklist goes to run.log and preflight.json, what it would refuse
+        is named, and the run goes on whatever it finds (no refusal, no ledger event). A probe that fails to start is
+        logged, preflight.json says so (ok false, nothing checked: never an earlier run's pass), and the run still goes on."""
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        try:
+            from fo4sf.core import preflight
+            rep = preflight.run_gate(self.preflight_probe(self))
+        except Exception as e:                             # report-only must never cost the run
+            why = f"{type(e).__name__}: {e}"
+            self.log(f"preflight (report only): not run: {why}")
+            out = {"at": now(), "mode": "report", "ok": False, "not_run": why, "would_refuse": [], "checks": []}
+        else:
+            failing = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+            self.log("preflight (report only): " + ("every check passed" if rep.ok else f"would refuse: {failing}"))
+            for c in rep.checks:
+                self.log("  " + c.line())
+            out = {"at": now(), "mode": "report", "ok": rep.ok, "would_refuse": [c.name for c in rep.failing],
+                   "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in rep.checks]}
+        try:
+            with open(os.path.join(self.qdir, "preflight.json"), "w", encoding="utf-8") as f:
+                json.dump(out, f, indent=1, default=str)
+        except OSError as e:
+            self.log(f"preflight (report only): preflight.json not written: {e}")
+
     @property
     def ledger_by(self):
         return f"testqueue:{self.lease.owner}" if self.lease else "testqueue"
@@ -3289,6 +3320,28 @@ class Runner:
             else:
                 self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
+    def crash_counts(self):
+        """state.json test_crashes: the crashes counted per test toward FAIL CRASH, derived on every call from the
+        results.jsonl CRASH rows, the durable record (Codex on #402): a lost checkpoint, a queue state from before the
+        count existed or a count kept for a crash no longer counted never decides it. A walk row recorded on another
+        install than the pinned one, or one marked not counted, is left out."""
+        tc = {}
+        p = os.path.join(self.qdir, "results.jsonl")
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                for x in f:
+                    try:
+                        r = json.loads(x)
+                    except ValueError:
+                        continue
+                    if not isinstance(r, dict) or r.get("class") != "CRASH" or "not counted" in str(r.get("detail")):
+                        continue
+                    if r.get("kind") == "walk" and install_mismatch(self.q, r.get("install")):
+                        continue
+                    tc[r.get("id")] = tc.get(r.get("id"), 0) + 1
+        self.state["test_crashes"] = tc
+        return tc
+
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
         the matching task_finished event (section 10). A torn last line (a power cut mid-row) is not a row: it is
@@ -3312,6 +3365,12 @@ class Runner:
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
         tests = self.q["tests"]
+        # a FAIL CRASH recorded before its checkpoint was lost is final already: never launch that test again
+        # (Codex on #402)
+        for tid, c in self.crash_counts().items():
+            if c >= CRASH_FAIL and tid not in self.state["done"] and any(t["id"] == tid for t in tests):
+                self.state["done"][tid] = {"verdict": "FAIL", "class": "CRASH",
+                                           "attempts": self.state["attempts"].get(tid, c)}
         pending = [t for t in tests if t["id"] not in self.state["done"]]
         self.log(f"run: {len(pending)} of {len(tests)} tests pending on build {self.q['build_id']} (commit {self.q['commit'][:8]})")
         miss = runner_features.missing(self.q.get("needs") or runner_features.needs(tests))
@@ -3331,6 +3390,8 @@ class Runner:
             code = self.preflight()
             if code:
                 return code
+        elif getattr(a, "preflight_report", False):        # report only: logged and written, never refuses
+            self.preflight_report()
         if self.lease:                                     # section 10: the queue's pin and tests into the ledger, once
             self.ledger_event(lambda: self.lease.events.build_pinned(self.qdir, self.q, self.ledger_by))
             for t in tests:
@@ -3458,6 +3519,7 @@ class Runner:
                 os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
+            crashed = False                               # the game exited during this test's step
             con = []                                      # console_pre / console_post replies (parsed OCR)
             if g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
@@ -3504,6 +3566,7 @@ class Runner:
                 if pid_before and not self.ctl.game_pid():
                     self.state["crashes"] += 1
                     self.session, self.cell = False, None
+                    crashed = True                        # counted below, once the install is known to be the pinned one
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
                     obs = load(os.path.join(out_dir, "obs.json"))
@@ -3523,6 +3586,19 @@ class Runner:
                 inst_why = install_mismatch(self.q, inst)
                 if inst_why and verdict != "INCONCLUSIVE":
                     verdict, cls, detail = "INCONCLUSIVE", "INSTALL", f"{inst_why}; raw verdict {verdict} {cls}: {detail}"
+            if crashed and inst_why:
+                # a crash on another install (Codex on #402): not counted toward FAIL CRASH, and not an attempt either,
+                # so the pinned install still gets every attempt it needs to reach FAIL CRASH
+                detail += f"; not counted toward FAIL CRASH or the attempts: {inst_why}"
+                self.state["attempts"][t["id"]] = n - 1
+            elif crashed:
+                # a test the game exited during CRASH_FAIL times (this run or an earlier one of the queue) is a final
+                # FAIL CRASH: the crash repeats there, and it goes on the bugs list instead of being retried every run
+                # (docs/ai/test-queue.md "Crashes")
+                tc = self.crash_counts()
+                tc[t["id"]] = tc.get(t["id"], 0) + 1
+                if tc[t["id"]] >= CRASH_FAIL:
+                    verdict, cls, detail = "FAIL", "CRASH", f"the game exited during this test {tc[t['id']]} times: final"
             rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                    "attempt": n, "verdict": verdict, "class": cls, "detail": detail, "exit": code, "dir": out_dir, "t": now()}
             if t.get("expect"):
@@ -3539,7 +3615,8 @@ class Runner:
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
             self.record(rec)
-            final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
+            final = verdict != "INCONCLUSIVE" or (n >= a.max_attempts and not (crashed and inst_why)) or \
+                cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
                 if cls == "CONTROL":
@@ -3547,7 +3624,7 @@ class Runner:
             k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
             if verdict == "INCONCLUSIVE" and cls not in NO_BREAKER + FINAL_INCONCLUSIVE:
                 k["inconclusive_run"] += 1
-            elif verdict != "INCONCLUSIVE":
+            elif verdict != "INCONCLUSIVE" and cls not in NO_BREAKER:   # a FAIL CRASH says nothing of the step
                 k["inconclusive_run"], k["decided"] = 0, k["decided"] + 1
             if k["decided"] == 0 and k["inconclusive_run"] >= BREAKER:
                 k["open"] = True                          # this kind's step is broken here: stop spending hours on it
@@ -3803,6 +3880,11 @@ def main(argv=None):
                    help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
                         "default on with FO4SF_PREFLIGHT=1 (true / yes / on), --no-preflight turns it off for one run; "
                         "off (the default): not run")
+    r.add_argument("--preflight-report", action=argparse.BooleanOptionalAction,
+                   default=os.environ.get("FO4SF_PREFLIGHT_REPORT", "").strip().lower() in ("1", "true", "yes", "on"),
+                   help="run the same checks in report-only mode: the checklist goes to run.log and preflight.json in "
+                        "the queue folder, nothing is refused, nothing goes to the ledger; default on with "
+                        "FO4SF_PREFLIGHT_REPORT=1; --preflight wins when both are on")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
