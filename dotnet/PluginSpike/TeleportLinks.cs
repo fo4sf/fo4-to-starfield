@@ -24,6 +24,7 @@ public sealed record TeleportIssue(string Source, string Target, string Reason);
 public sealed class TeleportReport
 {
     public int Linked { get; set; }                 // references that received an XTEL
+    public int LoadGraph { get; set; }              // of those, animated load doors moved onto their *_Load graph record
     public int Pairs { get; set; }                  // mutual pairs: both ends link each other (counted once per pair)
     public int OneWay { get; set; }                 // destination placed, but it has no XTEL back to the source
     public int DestinationNotInBuild { get; set; }  // destination reference not placed: its cell is not in this build or its model was not converted
@@ -40,9 +41,12 @@ public static class TeleportLinks
     /// <summary>placed: source Fallout 4 reference FormKey (as exported) -> the placed Starfield reference and its cell.
     /// ownRig: DOOR bases with their own opening rig (manifest rig "native"). An FO4 load reference that shares such a
     /// door's model (the vault / utility elevator load doors) would get an XTEL on a door that plays an opening graph;
-    /// until it has its own load record it is reported, not linked (review of PR #242).</summary>
+    /// until it has its own load record it is reported, not linked (review of PR #242).
+    /// loadGraphBases: animated load doors (manifest load_door.anim with xtel_anim_graph) -> the copy of their record that
+    /// plays the vanilla *_Load graph; a linked reference is moved onto that copy (same model and rig, so no offset).</summary>
     public static TeleportReport Apply(StarfieldMod mod, IReadOnlyDictionary<string, (PlacedObject obj, Cell cell)> placed,
-        IEnumerable<JsonElement> exports, IReadOnlySet<FormKey>? ownRig = null)
+        IEnumerable<JsonElement> exports, IReadOnlySet<FormKey>? ownRig = null,
+        IReadOnlyDictionary<FormKey, FormKey>? loadGraphBases = null)
     {
         var report = new TeleportReport();
         var doors = mod.Doors.Select(d => d.FormKey).ToHashSet();
@@ -87,6 +91,11 @@ public static class TeleportLinks
                     Flags = (TeleportDestination.Flag)flags,
                 };
                 from.obj.TeleportDestination.Door.SetTo(to.obj.FormKey);
+                if (loadGraphBases != null && loadGraphBases.TryGetValue(from.obj.Base.FormKey, out var loadBase))
+                {
+                    from.obj.Base.SetTo(loadBase);
+                    report.LoadGraph++;
+                }
                 // transition_interior (FO4 elevator doors) is dropped: no XTEL in Starfield.esm sets it.
                 MakePersistent(from);                                            // the engine resolves XTEL targets through the
                 MakePersistent(to);                                              // persistent groups: every vanilla XTEL ref is persistent
