@@ -102,6 +102,7 @@ def main(argv=None):
             ap.error("--near needs --objects")
         placed = area_models(near_changes.load(a.objects), [_area(t) for t in a.near])
     found, types, n_nif, errors = {}, collections.Counter(), 0, 0
+    lines = []                                           # printed sorted, so the report does not follow os.walk's order
     for path in a.paths:
         for rel, data in meshcheck.iter_nifs(path, a.filter or None):
             # the input path stays in the name: two inputs with the same relative file do not share a JSON key
@@ -126,13 +127,17 @@ def main(argv=None):
                     found[name] = {"areas": where, "hits": found[name]}
                 for _i, t, _o, w in hits:
                     types[f"{t} ({w})" if w.startswith("box") else t] += 1
-                print(f"{name}{' [' + ', '.join(where) + ']' if where else ''}: " + "; ".join(f"block {i} {t} +{o} {w}" for i, t, o, w in hits[:6])
-                      + (f"; +{len(hits) - 6} more" if len(hits) > 6 else ""))
+                lines.append(f"{name}{' [' + ', '.join(where) + ']' if where else ''}: "
+                             + "; ".join(f"block {i} {t} +{o} {w}" for i, t, o, w in hits[:6])
+                             + (f"; +{len(hits) - 6} more" if len(hits) > 6 else ""))
+    for line in sorted(lines):
+        print(line)
+    by_type = dict(sorted(types.items(), key=lambda kv: (-kv[1], kv[0])))
     print(f"{n_nif} NIFs scanned, {len(found)} hold 0x{value:08x}" + (f", {errors} read errors" if errors else "")
-          + f"; by block type: {dict(types.most_common())}")
+          + f"; by block type: {by_type}")
     if a.json:
         with open(a.json, "x", encoding="utf-8") as f:
-            json.dump({"value": f"0x{value:08x}", "nifs": n_nif, "found": found}, f, indent=1)
+            json.dump({"value": f"0x{value:08x}", "nifs": n_nif, "found": dict(sorted(found.items()))}, f, indent=1)
     return 1 if errors else 0
 
 
