@@ -206,8 +206,8 @@ def main(argv=None):
     s.add_argument("--lvln-a", default="Starfield.esm:2B211C")
     s.add_argument("--starfield", default=make_bridge.STARFIELD, help="the game folder (Starfield.esm, compiler and zip defaults)")
     s.add_argument("--sf", default="", help="Starfield.esm (default <starfield>\\Data\\Starfield.esm)")
-    s.add_argument("--compiler", default=os.path.join(make_bridge.STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
-    s.add_argument("--content-resources", default=os.path.join(make_bridge.STARFIELD, "Tools", "ContentResources.zip"))
+    s.add_argument("--compiler", default="", help="default <starfield>\\Tools\\Papyrus Compiler\\PapyrusCompiler.exe")
+    s.add_argument("--content-resources", default="", help="default <starfield>\\Tools\\ContentResources.zip")
     s.add_argument("--plugin", default=PLUGIN)
     s.add_argument("--world", default="FO4Core_Commonwealth")
     s.add_argument("--location", default="FO4Core_CommonwealthLocation")
@@ -215,6 +215,9 @@ def main(argv=None):
     s.add_argument("--port", default="", help="the installed FO4Port.esm (with --p3-cells)")
     s.add_argument("--skip", default="", help="lvln,sm: leave out the records whose Mutagen API failed to build")
     a = ap.parse_args(argv)
+    if a.cmd == "stage":                        # tool defaults follow the chosen game folder, not make_bridge's
+        a.compiler = a.compiler or os.path.join(a.starfield, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe")
+        a.content_resources = a.content_resources or os.path.join(a.starfield, "Tools", "ContentResources.zip")
     if a.cmd == "stage":
         if not a.lvln_b and "lvln" not in a.skip.split(","):
             sys.exit("--lvln-b <plugin:hexid> is required (a second vanilla NPC_ picked in xSFEdit), or --skip lvln")

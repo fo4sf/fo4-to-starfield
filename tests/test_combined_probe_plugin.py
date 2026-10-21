@@ -385,6 +385,15 @@ class StageTests(unittest.TestCase):
                 mcp.main(["stage", "--core", "c.esm", "--out", os.path.join(d, "y"), "--stat", "Starfield.esm:1", "--skip", "lvln", "--p3-cells"])
             self.assertFalse(os.path.exists(os.path.join(d, "y", "plan.json")))
 
+    def test_tool_defaults_follow_the_chosen_game_folder(self):
+        # Codex P2 on #431: --starfield elsewhere still looked for the compiler under make_bridge's default install.
+        seen = {}
+        with mock.patch.object(mcp, "stage", lambda a: seen.update(compiler=a.compiler, zip=a.content_resources)):
+            mcp.main(["stage", "--core", "c.esm", "--out", "x", "--stat", "Starfield.esm:1", "--skip", "lvln",
+                      "--starfield", "E:\\Games\\Starfield"])
+        self.assertEqual(seen["compiler"], os.path.join("E:\\Games\\Starfield", "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
+        self.assertEqual(seen["zip"], os.path.join("E:\\Games\\Starfield", "Tools", "ContentResources.zip"))
+
     def test_compile_commands_name_the_flags_and_both_include_folders(self):
         cmd = mcp.compile_cmd("PapyrusCompiler.exe", "FOCC_Probe", "SRC", "OUT")
         self.assertEqual(cmd, ["PapyrusCompiler.exe", "FOCC_Probe.psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={mcp.HERE};SRC", "-o=OUT"])

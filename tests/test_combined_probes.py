@@ -552,12 +552,22 @@ class P8Tests(unittest.TestCase):
         self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p8(col(log=p8_log())).verdict, INCONCLUSIVE)
 
+    def test_needs_the_1_2_0_sequence(self):
+        # Codex P1 on #431: one stage repeated three times passed without exercising stages 1 and 2.
+        for order in ((0, 0, 0), (0, 1, 2), (1, 1, 0)):
+            c = col(log=p8_log(order=order))
+            c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+            v = probes.check_p8(c)
+            self.assertEqual(v.verdict, INCONCLUSIVE, order)
+            self.assertTrue(any("1, 2, 0" in r for r in v.reasons), v.reasons)
+
 
 # ----------------------------------------------------------------------------------------------- P9
 
 def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=None, jump_at=None, unload=False,
            done=True):
-    lines = [INIT, "FOCC rt=1.0 p9 dest id=-16702651 pos=450.000000 0.000000 0.000000"]
+    lines = [INIT, "FOCC rt=1.0 p9 dest id=-16702651 pos=450.000000 0.000000 0.000000",
+             f"FOCC rt=1.5 p9 start actor=-16711680 seconds={seconds} dist={start:.6f}"]
     x = 0.0
     t = 0
     while t <= seconds:
@@ -617,6 +627,12 @@ class P9Tests(unittest.TestCase):
         self.assertTrue(any("never fell below" in r for r in v.reasons))
         few_cells = p9_log(cells_every_m=1000.0)              # arrives but through 1 cell id
         self.assertEqual(probes.check_p9(col(log=few_cells)).verdict, INCONCLUSIVE)
+
+    def test_only_the_latest_attempt_counts(self):
+        # Codex P1 on #431: an old successful run in the same log must not pass an interrupted retry.
+        retry = p9_log() + p9_log(done=False)[1:6]
+        self.assertEqual(probes.check_p9(col(log=retry)).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p9(col(log=p9_log(done=False)[:8] + p9_log()[1:])).verdict, PASS)
 
 
 # ----------------------------------------------------------------------------------------------- P10

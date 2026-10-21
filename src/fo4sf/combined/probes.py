@@ -911,6 +911,12 @@ def check_p8(c: Collection) -> Verdict:
     if len(stages) < 3 or len(children) < 36:
         v.reasons.append(f"{len(stages)} stage lines and {len(children)} child lines, want 3 and 36")
         return v
+    seq = [st.num("stage") for st in stages[-3:]]
+    if seq != [1.0, 2.0, 0.0]:
+        v.reasons.append(f"the last three stage commands were {seq}, the card asks for 1, 2, 0 in that order")
+        return v
+    stages = stages[-3:]
+    children = [e for e in children if e.line > stages[0].line]
     failed = []
     for i, st in enumerate(stages):
         s = st.num("stage")
@@ -951,7 +957,12 @@ def check_p9(c: Collection) -> Verdict:
     if evs is None:
         v.reasons.append("no log (focc.0.log)")
         return v
-    dest = _by_kind(evs, "p9 dest")
+    starts = _by_kind(evs, "p9 start")
+    if starts:                                  # judge only the latest attempt: a retry in one launch drops the old one
+        dest = [e for e in _by_kind(evs, "p9 dest") if e.line < starts[-1].line][-1:]   # P9Dest runs before P9Track
+        evs = [e for e in evs if e.line >= starts[-1].line]
+    else:
+        dest = _by_kind(evs, "p9 dest")[-1:]
     samples = _by_kind(evs, "p9 sample")
     done = _by_kind(evs, "p9 done")
     v.cite(*dest, *done)
