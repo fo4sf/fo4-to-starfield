@@ -524,6 +524,28 @@ def check_work(a, sources):
     return ("changed" if diff else "match"), diff
 
 
+def retire_stale_work(work, batch):
+    """An allowed source change (--allow-source-change over a staging made from other game files): nothing the staging
+    cached may reach this build, so its cell exports (<work>/exports/*.json but the record) and its conversion
+    checkpoints (<work>/.checkpoints) are moved aside, never deleted, into <work>/stale-<batch>/; every cell is then
+    exported again and every model converted again (--resume finds no checkpoint). Returns what was moved."""
+    dest = os.path.join(work, "stale-" + batch)
+    moved = []
+    exports = os.path.join(work, "exports")
+    names = sorted(n for n in os.listdir(exports) if n.lower().endswith(".json") and n != WORK_SOURCES) if os.path.isdir(exports) else []
+    if names:
+        os.makedirs(os.path.join(dest, "exports"), exist_ok=True)
+        for n in names:
+            os.replace(os.path.join(exports, n), os.path.join(dest, "exports", n))
+        moved.append(f"exports ({len(names)} cell(s))")
+    ck = os.path.join(work, ".checkpoints")
+    if os.path.isdir(ck):
+        os.makedirs(dest, exist_ok=True)
+        os.replace(ck, os.path.join(dest, ".checkpoints"))
+        moved.append(".checkpoints")
+    return moved
+
+
 def work_status_label(status, history):
     """steps.sources.work: this build's status, and every unproven step earlier builds put the staging through (sticky,
     from its record's history): "match (adopted by interiors_b05; changed by interiors_b02w)". A bare "match" means
@@ -595,6 +617,9 @@ def build(a):
     # every later build, so result.json never calls a staging proven that once was not)
     work_old = work_record(a.work)[0] or {}
     work_cells = dict(work_old.get("cells") or {})
+    stale_moved = retire_stale_work(a.work, os.path.basename(os.path.abspath(a.out))) if work_status == "changed" else []
+    if stale_moved:
+        work_cells = {}
     work_earlier = list(work_old.get("history") or [])
     work_history = work_earlier + ([{"batch": os.path.basename(os.path.abspath(a.out)), "status": work_status, "differences": work_diff}]
                                    if work_status in ("adopted", "changed") else [])
@@ -609,7 +634,8 @@ def build(a):
     steps, cells = {}, {}
     steps["sources"] = {"plugins": len(sources["plugins"]), "archives": len(sources["archives"]),
                         "allowed_change": source_change or None, "added": added or None,
-                        "work": work_status_label(work_status, work_earlier), "work_history": work_history or None}
+                        "work": work_status_label(work_status, work_earlier), "work_history": work_history or None,
+                        "work_retired": stale_moved or None}
     finish_ = lambda error: finish(a, plan, steps, cells, t0, error, sources)  # noqa: E731
 
     # 2. exports (the work staging now carries this build's pins: adopted, matched or allowed, they are what its

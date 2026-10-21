@@ -175,7 +175,10 @@ the pins the staging's cached exports and conversion checkpoints (`convert_batch
 models, in the same folder) were made from, written by every build before its export step and again after it. A
 build whose pins differ refuses to reuse the staging (`--work ... was built from other game files ... refusing to
 reuse its exports and checkpoints`) unless `--allow-source-change`, recorded under
-`steps.sources.allowed_change["--work"]`, and the override re-pins the staging to the current files. A staging that
+`steps.sources.allowed_change["--work"]`, and the override re-pins the staging to the current files. Nothing the
+staging cached from the old files reaches that build: its cell exports and `.checkpoints` are moved aside (never
+deleted) into `<work>/stale-<batch>/`, listed in `steps.sources.work_retired`, so every cell is exported and every
+model converted again. A staging that
 holds exports or a manifest but no usable record (used before the pins: batches 0 to 4's `interiors_work2`; or a
 record that is unreadable or pins no plugin, a partial write or a hand edit) is **adopted**: pinned to this build's
 files and recorded as `steps.sources.work = "adopted"`, which says only that it was not checked, since nothing can

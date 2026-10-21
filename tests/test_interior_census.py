@@ -925,7 +925,7 @@ class BuildFlowTests(unittest.TestCase):
         r1 = ib.load(os.path.join(b1, "result.json"))
         self.assertEqual(r1["sources"]["plugins"], {"Fallout4.esm": {"sha256": ib.sha256(os.path.join(t, "Fallout4.esm")), "bytes": 14}})
         self.assertEqual(list(r1["sources"]["archives"]), ["Fallout4 - Meshes.ba2"])
-        self.assertEqual(r1["steps"]["sources"], {"plugins": 1, "archives": 1, "allowed_change": None, "added": None, "work": "new", "work_history": None})
+        self.assertEqual(r1["steps"]["sources"], {"plugins": 1, "archives": 1, "allowed_change": None, "added": None, "work": "new", "work_history": None, "work_retired": None})
         # the work staging now carries the pins its exports were made from (X8), and what each export was made from
         rec1 = ib.load(os.path.join(work, "exports", "sources.json"))
         self.assertEqual((rec1["sources"], rec1["cells"], rec1["history"]), (r1["sources"], {"One": ["Fallout4.esm"]}, []))
@@ -974,6 +974,9 @@ class BuildFlowTests(unittest.TestCase):
             build(2, os.path.join(t, "staging", "interiors_b02z"), prev=b1)
         self.assertFalse(os.path.exists(os.path.join(t, "staging", "interiors_b02z")))
         b2w = os.path.join(t, "staging", "interiors_b02w")
+        os.makedirs(os.path.join(work, ".checkpoints"), exist_ok=True)
+        with open(os.path.join(work, ".checkpoints", "old.json"), "w") as f:
+            f.write("{}")
         self.assertEqual(build(2, b2w, prev=b1, extra=["--allow-source-change"]), 0)
         r2w = ib.load(os.path.join(b2w, "result.json"))
         allowed = r2w["steps"]["sources"]["allowed_change"]
@@ -982,6 +985,15 @@ class BuildFlowTests(unittest.TestCase):
         self.assertEqual(allowed["--work"], allowed["--prev"])
         self.assertEqual(r2w["steps"]["sources"]["work"], "changed")
         self.assertEqual(r2w["steps"]["sources"]["work_history"], [{"batch": "interiors_b02w", "status": "changed", "differences": allowed["--work"]}])
+        # nothing the staging cached from the old file reaches the build: its exports (and checkpoints, when it has
+        # any) are moved aside, not deleted, and every cell is exported again
+        retired = r2w["steps"]["sources"]["work_retired"]
+        self.assertTrue(retired and retired[0].startswith("exports ("))
+        stale = os.path.join(work, "stale-interiors_b02w", "exports")
+        self.assertTrue(os.listdir(stale))
+        self.assertEqual(retired[1:], [".checkpoints"])
+        self.assertTrue(os.path.isfile(os.path.join(work, "stale-interiors_b02w", ".checkpoints", "old.json")))
+        self.assertEqual(sorted(n for n in os.listdir(os.path.join(work, "exports")) if n != "sources.json"), sorted(os.listdir(stale)))
         # ... and the override re-pins the work staging to the patched file, so the next build over it matches, but the
         # allowed change stays on the staging's record: every later build's result.json says it happened
         wrec = ib.load(os.path.join(work, "exports", "sources.json"))
