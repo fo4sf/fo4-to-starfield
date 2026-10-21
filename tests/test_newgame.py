@@ -604,12 +604,12 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2 (quest items kept)",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
-        "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
-        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
-        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 held off [Quest < (00013579)>] running_after=False pass=2",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
+        "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",             # the looks script's Done, in its order
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 terminal prompt button=1",
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 special later",
         "[10/20/2026 - 09:00:58AM] FO4SF_NEWGAME rt=58.0 terminal prompt button=0",
@@ -640,6 +640,26 @@ class LogTests(unittest.TestCase):
         self.assertFalse(s["version_mismatch"])
         self.assertEqual(s["inventory_cleared"], "removed=14 left=2 (quest items kept)")
         self.assertEqual(s["vault_suit"], "equipped [Armor < (0A000820)>] worn=True")
+
+    def test_stage_20_is_traced_by_whichever_script_sets_it(self):
+        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n>" is traced, but the looks script sets
+        stage 20 itself (SetStage, not AdvanceTo), so a looks run logged no "stage 20" and the summary's "stages"
+        skipped it; the fixture above hid that with a line no script wrote. The looks script's Done now traces the same
+        line, to the same log in the same format, right after SetStage(20); the summary reads it, and a looks run
+        without it would still miss the stage."""
+        quest, looks = read(PSC), read(LOOKS)
+        self.assertIn('Trace("stage " + n)', quest[quest.index("Function AdvanceTo"):quest.index("EndFunction", quest.index("Function AdvanceTo"))])
+        done = looks[looks.index("Function Done"):]
+        done = done[:done.index("EndFunction")]
+        self.assertLess(done.index('Trace("looks done: " + how)'), done.index("SetStage(20)"))
+        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20")'))
+        # the same log and the same line format as the quest's Trace
+        self.assertIn('string LogName = "fo4sf_newgame"', quest)
+        self.assertIn('Debug.TraceUser(LogName, "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', quest)
+        self.assertIn('Debug.TraceUser("fo4sf_newgame", "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', looks)
+        self.assertIn(20, ng.summarize(self.LINES)["stages"])
+        without = [ln for ln in self.LINES if not ln.endswith(" stage 20")]
+        self.assertEqual(ng.summarize(without)["stages"], [10, 40, 200])
 
     def test_inventory_lines(self):
         """The inventory reset (NG-K8): a default build logs neither line (both None); a --clear-inventory build logs
@@ -774,11 +794,21 @@ class VerifyFoldTests(unittest.TestCase):
         for rel, data in files.items():
             with open(os.path.join(self.stage, *rel.split("/")), "wb") as f:
                 f.write(data)
+        with open(os.path.join(self.stage, "README.txt"), "w", encoding="utf-8") as f:
+            f.write("Fallout 4 new game (Claude-cloud). Install: not now.\n")
         self.core_dir = os.path.join(t, "core_set")
-        os.makedirs(self.core_dir)
-        for name, data in (("FO4TerrainCore.esm", b"core"), ("Mars.esm", b"mars")):
-            with open(os.path.join(self.core_dir, name), "wb") as f:
+        os.makedirs(os.path.join(self.core_dir, "Data", "Terrain"))
+        for name, data in (("FO4TerrainCore.esm", b"core"), ("Mars.esm", b"mars"), ("Data/Terrain/core.btd", b"btd")):
+            with open(os.path.join(self.core_dir, *name.split("/")), "wb") as f:
                 f.write(data)
+        # the core set's README as make_core64c.py readme() writes it: FO4TerrainCore first (it names the --pack archive)
+        self.core_install = ("scripts/game/exp_install.py install --exp-dir <this folder> --starfield <game> "
+                             "--plugins FO4TerrainCore.esm,Mars.esm --pack")
+        self.core_readme = ("Terrain core64c (Claude, 2026-10-12).\n\nInstall (game closed). The runner does it:\n  "
+                            + self.core_install + "\n  --pack builds \"FO4TerrainCore - Main.ba2\" from Data\\\n"
+                            "Queue: testqueue.py plan-terrain --exp-dir <this folder> --plugins FO4TerrainCore.esm,Mars.esm --fresh\n")
+        with open(os.path.join(self.core_dir, "README.txt"), "w", encoding="utf-8") as f:
+            f.write(self.core_readme)
         self.port = os.path.join(t, "FO4Port.esm")
         with open(self.port, "wb") as f:
             f.write(b"port")
@@ -803,6 +833,69 @@ class VerifyFoldTests(unittest.TestCase):
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(ng.main(["verify", "--exp-dir", out, "--plan", os.path.join(self.stage, "plan.json"),
                                       "--port", self.port]), 0)
+
+    def install_namespace(self, command):
+        """The folded README's command as exp_install.py's own parser reads it (install patched out: nothing is
+        installed), with the placeholders filled: the real CLI, not a string this test believes in."""
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import exp_install
+        argv = command.split()[1:]
+        self.assertEqual(argv[:3], ["install", "--exp-dir", "<this"])
+        argv = ["install", "--exp-dir", self.folded, "--starfield", os.path.join(self.tmp, "game")] + argv[6:]
+        with unittest.mock.patch.object(exp_install, "install", side_effect=lambda a: a) as install:
+            exp_install.main(argv)
+        return exp_install, install.call_args[0][0]
+
+    def test_folded_readme_installs_every_plugin(self):
+        """Codex review on #393 (P1): exp_install.py activates only the plugins of --plugins (none listed: the first
+        .esm alphabetically), so the core README's own install command, copied into the fold as it was, would install
+        the core set and never FO4SFNewGame.esm. The folded README's every install line names every plugin and
+        --pack, and carries the stage's README."""
+        self.folded = os.path.join(self.tmp, "folded")
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["fold", "--stage", self.stage, "--core-dir", self.core_dir, "--out", self.folded,
+                                      "--port", self.port]), 0)
+        every = "FO4TerrainCore.esm,Mars.esm,FO4SFNewGame.esm"
+        self.assertIn(f"--plugins {every} --pack", o.getvalue())
+        readme = read(os.path.join(self.folded, "README.txt"))
+        install_lines = [ln for ln in readme.splitlines() if "exp_install.py install" in ln]
+        self.assertEqual(len(install_lines), 2)              # the core's own line, widened, and the fold's
+        for ln in install_lines:
+            self.assertIn(f"--plugins {every} --pack", ln)
+        self.assertNotIn(self.core_install, readme)           # the core-only command is gone
+        self.assertIn("Terrain core64c (Claude, 2026-10-12).", readme)
+        self.assertIn("Fallout 4 new game (Claude-cloud). Install: not now.", readme)
+        # the real installer's reading of that command: every plugin selected, the new game's plugin and script staged
+        exp_install, a = self.install_namespace(install_lines[-1].strip())
+        self.assertTrue(a.pack)
+        plugins = a.plugins.split(",")
+        self.assertEqual(plugins, every.split(","))
+        staged = {rel for _, rel in exp_install.staged_files(self.folded, plugins)}
+        self.assertIn(ng.PLUGIN, staged)
+        self.assertIn(os.path.join("Scripts", "FO4SF_NewGameQuest.pex"), staged)
+        self.assertIn(os.path.join("Terrain", "core.btd"), staged)
+        # ...and what the review found: the core's list, or no list at all, never stages the new game's plugin
+        core_only = {rel for _, rel in exp_install.staged_files(self.folded, ["FO4TerrainCore.esm", "Mars.esm"])}
+        self.assertNotIn(ng.PLUGIN, core_only)
+        first = sorted(f for f in os.listdir(self.folded) if f.lower().endswith(".esm"))[:1]
+        self.assertEqual(len(first), 1)                       # --plugins omitted: one plugin of three
+
+    def test_fold_without_a_core_readme_lists_the_esm_files(self):
+        os.remove(os.path.join(self.core_dir, "README.txt"))
+        out = os.path.join(self.tmp, "folded")
+        self.assertEqual(self.fold(out, port=self.port), 0)
+        readme = read(os.path.join(out, "README.txt"))
+        self.assertIn("--plugins FO4TerrainCore.esm,Mars.esm,FO4SFNewGame.esm --pack", readme)
+        self.assertEqual(readme.count("exp_install.py install"), 1)
+
+    def test_fold_refuses_a_core_readme_that_installs_other_plugins(self):
+        with open(os.path.join(self.core_dir, "README.txt"), "w", encoding="utf-8") as f:
+            f.write(self.core_readme.replace("Mars.esm", "Venus.esm"))
+        out = os.path.join(self.tmp, "folded")
+        with self.assertRaises(SystemExit) as cm:
+            self.fold(out, port=self.port)
+        self.assertIn("Venus.esm", str(cm.exception))
+        self.assertFalse(os.path.exists(out))
 
     def test_fold_refuses_another_port(self):
         other = os.path.join(self.tmp, "other_port.esm")

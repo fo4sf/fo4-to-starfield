@@ -26,7 +26,10 @@ usage:
       else the paths given) are the bytes the ids were checked against. Exit 1 on any mismatch: re-stage, do not install.
   python make_newgame.py fold --stage <stage dir> --core-dir <core experiment dir> --out <new dir>
       exp_install.py holds one experiment, so the new game goes in WITH a core set: a copy of it plus the plugin and its
-      .pex, published only after verify passes on the result.
+      .pex, published only after verify passes on the result. Its README.txt is the core's with every exp_install.py
+      install line naming EVERY plugin (the core's and FO4SFNewGame.esm, --pack), then the stage's README: the
+      installer activates only the plugins listed (none listed: the first .esm alphabetically), so the core's own
+      command would never install the new game.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
       the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
       the SPECIAL ending, the save version lines, the inventory reset, moves, the landing); exit 0 when stage 200 was
@@ -161,6 +164,14 @@ def run(cmd, cwd=None, check=True):
         if check:
             sys.exit(f"{os.path.basename(cmd[0])} exit {r.returncode}")
     return r
+
+
+def read_text(path):
+    """The file's text, "" when there is none (a core set or stage without a README)."""
+    if not os.path.isfile(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def sha256(path):
@@ -391,7 +402,8 @@ Checked against (the ids it resolves at run time must stay): {json.dumps(before)
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON (quest items kept), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
 Options {json.dumps(plan['options'])}.
-Install: not now. When the owner says so (game closed): fold into a core set, verify, then exp_install.py.
+Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
+command, every plugin listed), verify, then exp_install.py.
 In game: a NEW game only (an existing save stands the quest down at stage 1). Read the run:
   python scripts\\newgame\\make_newgame.py log
 """)
@@ -436,6 +448,46 @@ def verify(a):
     return 0 if not problems else 1
 
 
+INSTALL_LINE = re.compile(r"exp_install\.py install\b.*--plugins (?P<plugins>\S+)")
+
+
+def core_plugins(core_dir, readme):
+    """The core set's plugins in install order: the --plugins list of its README's exp_install.py install line when it
+    has one (the first named plugin names the --pack archive), else its .esm files sorted. The README's list must be
+    exactly the .esm files present: a README naming another set is a core set that cannot be installed as it says."""
+    present = sorted(f for f in os.listdir(core_dir) if f.lower().endswith(".esm"))
+    if not present:
+        sys.exit(f"fold refused: {core_dir} holds no .esm")
+    m = INSTALL_LINE.search(readme)
+    if not m:
+        return present
+    listed = m.group("plugins").split(",")
+    if sorted(listed) != present:
+        sys.exit(f"fold refused: {core_dir}'s README installs {listed} but the folder holds {present}")
+    return listed
+
+
+def install_command(plugins):
+    return f"scripts/game/exp_install.py install --exp-dir <this folder> --starfield <game> --plugins {','.join(plugins)} --pack"
+
+
+def folded_readme(core_readme, stage_readme, plugins, plugin, stage):
+    """The folded set's README.txt: the core's, with the --plugins list of every exp_install.py install line widened to
+    the whole set, then the stage's README and the one install command. exp_install.py installs only the plugins
+    listed (none listed: the first .esm alphabetically), so the core's own command, copied as it was, would install the
+    core and never the new game (Codex review on #393)."""
+    def widen(line):
+        m = INSTALL_LINE.search(line)
+        return line[:m.start("plugins")] + ",".join(plugins) + line[m.end("plugins"):] if m else line
+
+    return "\n".join([widen(line) for line in core_readme.splitlines()] + ["", f"==== {plugin} folded in ({datetime.date.today().isoformat()}) from {stage} ====",
+                             stage_readme.rstrip("\n"), "",
+                             f"Install (game closed): this folder, EVERY plugin listed. exp_install.py activates only "
+                             f"the plugins of --plugins (none: the first .esm alphabetically), so a core-only or "
+                             f"plugin-less command never installs {plugin}:",
+                             "  " + install_command(plugins)]) + "\n"
+
+
 def fold(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
@@ -443,8 +495,13 @@ def fold(a):
     plan = load_plan(os.path.join(a.stage, "plan.json"))
     if os.path.exists(os.path.join(a.core_dir, plan["plugin"])):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
+    core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
+    stage_readme = read_text(os.path.join(a.stage, "README.txt"))
+    plugins = core_plugins(a.core_dir, core_readme) + [plan["plugin"]]
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
+    with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
+        f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
     for s in plan["scripts"]:
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
@@ -459,6 +516,7 @@ def fold(a):
         sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
     print(f"folded {final}: {a.core_dir} + {plan['plugin']} + {len(plan['scripts'])} script(s); verify ok")
+    print("install (game closed): " + install_command(plugins))
     return 0
 
 

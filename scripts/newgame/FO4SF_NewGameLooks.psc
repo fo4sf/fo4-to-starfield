@@ -2,8 +2,9 @@ Scriptname FO4SF_NewGameLooks extends Quest
 {Optional second script on FO4SF_NewGame (docs/newgame/vault111-start.md): once the player stands in Vault 111 (stage
  10) it asks "Create character" or "Quick start" (StartMessage, NG-6 / NG-C9). Create opens Starfield's character
  creation, in place of Fallout 4's bathroom mirror, and waits for the creator ("ChargenMenu") to close; quick start
- keeps the preset the player already has and skips the creator. Either way it sets stage 20; the quest sets stage 20
- itself after LooksWait if this script never does (the fallback), and the log says which ended the wait.
+ keeps the preset the player already has and skips the creator. Either way it sets stage 20 and traces "stage 20" to
+ the quest's log as the quest's AdvanceTo would; the quest sets stage 20 itself after LooksWait if this script never
+ does (the fallback), and the log says which ended the wait.
  Kept apart from FO4SF_NewGameQuest so that if a native here is not what Starfield's sources offer, only this script
  fails to compile and the build goes on without it (make_newgame.py stage --no-looks).
  Verified (PC read, 19 Oct): Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) and
@@ -71,12 +72,15 @@ EndEvent
 
 Function Done(string how)
 {Stage 20 once, with what ended the wait (the quest logs "looks done: LooksWait fallback after ..." when its LooksWait
- does, and this then logs nothing: the first ending is the one the log summary reads).}
+ does, and this then logs nothing: the first ending is the one the log summary reads). Then the "stage 20" line the
+ quest's AdvanceTo would have traced: the stage is set here, not through AdvanceTo, and the log summary's "stages"
+ reads only those lines (21 Oct review on #393).}
     if GetStage() >= 20
         return
     endif
     Trace("looks done: " + how)
     SetStage(20)
+    Trace("stage 20")
 EndFunction
 
 Function Trace(string msg)
