@@ -89,6 +89,19 @@ class DiffTests(unittest.TestCase):
         self.assertEqual([x["key"] for x in r["new"]], [["stairs", "X", "1", ""]])
         self.assertEqual([x["key"] for x in r["gone"]], [["movable_control", "", "C_can", ""]])
 
+    def test_fall_tests_match_by_their_probe_point(self):
+        # Codex on #401: plan_cell numbers fall probes pt0, pt1, ... per build, so ptN of two builds can be other points
+        d = tempfile.mkdtemp()
+        a, b = dict(FALL, ref="pt0", point=[1.0, 2.0, 3.0]), dict(FALL, ref="pt1", point=[7.0, 8.0, 9.0])
+        old = queue(d, "old", "a", [a, b], [(0, "PASS"), (1, "PASS")])
+        new = queue(d, "new", "b", [dict(b, ref="pt0"), dict(FALL, ref="pt1", point=[4.0, 5.0, 6.0])],
+                    [(0, "PASS"), (1, "FAIL")])
+        r = rg.diff([old], [new])
+        self.assertEqual(r["regressed"], [])
+        self.assertEqual([x["key"] for x in r["unchanged"]], [["fall", "BostonPublicLibrary02", "7.00 8.00 9.00", ""]])
+        self.assertEqual([x["key"] for x in r["gone"]], [["fall", "BostonPublicLibrary02", "1.00 2.00 3.00", ""]])
+        self.assertEqual([x["key"] for x in r["new"]], [["fall", "BostonPublicLibrary02", "4.00 5.00 6.00", ""]])
+
     def test_the_last_row_is_final_and_unrun_tests_count_as_lost(self):
         d = tempfile.mkdtemp()
         old = queue(d, "old", "a", [STAIRS], [(0, "INCONCLUSIVE"), (0, "PASS")])

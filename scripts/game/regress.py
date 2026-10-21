@@ -13,6 +13,7 @@ one row that names its door (door, leg, cell, FO4 src and ack, against the test'
 older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
   door round legs     ("door", interior cell, leg, FO4 door src)
   terrain tests       ("terrain", "", coc, side, label): several walks can start from one coc
+  fall tests          ("fall", cell, "x y z" of the probe point, side): ptN only numbers one build's picks
   every other test    (kind, cell, ref, side): a door's two sides are two tests
 Each match is one of:
   regressed     PASS before, FAIL now
@@ -174,7 +175,12 @@ def results(qdir):
         r = last.get(t["id"])
         if r:
             r = testqueue.report_verdict(qdir, q, t, r)    # an npc_nav CONTROL row gated again, as the report does
-        k = (t.get("kind"), t.get("cell") or "", t.get("ref") or "", "" if t.get("side") is None else str(t["side"]))
+        ref = t.get("ref") or ""
+        if t.get("kind") == "fall" and isinstance(t.get("point"), list):
+            # plan_cell names fall probes pt0, pt1, ... in the order probe_points.py picked them for that build: the
+            # point itself is what the test checks (Codex on #401)
+            ref = " ".join(f"{float(c):.2f}" for c in t["point"])
+        k = (t.get("kind"), t.get("cell") or "", ref, "" if t.get("side") is None else str(t["side"]))
         if t.get("kind") == "terrain":
             k += (t.get("model") or "",)
         put(k, {"verdict": r.get("verdict") if r else "NOT_RUN",

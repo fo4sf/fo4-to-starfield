@@ -10,7 +10,8 @@ python scripts/game/regress.py --old <queues of the old build> --new <queues of 
 ## How tests are matched
 - Tests are matched by what they check, not by test number, so a re-planned queue still lines up.
 - Door round legs are keyed by interior cell, leg and FO4 door. Terrain tests are keyed by their coc, side and label,
-  since several walks can start from one coc. Every other test is keyed by kind, cell, ref and side, so a door's two
+  since several walks can start from one coc. Fall tests are keyed by their probe point (x y z, to the centimetre),
+  since ptN only numbers one build's picks. Every other test is keyed by kind, cell, ref and side, so a door's two
   sides are two matches.
 - Two tests of one queue with the same key can not be told apart: the tool refuses (exit 2) rather than keep one.
 - A test's last row is read as the queue's report reads it (`testqueue.report_verdict`): an npc_nav INCONCLUSIVE
