@@ -131,7 +131,9 @@ if (-not $q) {
   "Starfield did not stay up 20 s after $launch (screen: $Shot): nothing tested"; exit 10
 }
 Start-Sleep 10
-Wait-Screen 'main menu' 120 $MenuShown | Out-Null
+# 240 s and 300 s (were 120 s): the first v6e launch (2026-10-21, doors_out and the evidence launch) reached gameplay
+# after both 120 s waits had run out, so coc.ps1 found no HUD; a wait ends as soon as its screen is seen
+Wait-Screen 'main menu' 240 $MenuShown | Out-Null
 
 function Send($seq) {
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
@@ -162,7 +164,7 @@ if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; ex
 if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
 Send 'hold:e,300|wait:3000'
-Wait-Screen 'save loaded' 120 $HudShown | Out-Null
+Wait-Screen 'save loaded' 300 $HudShown | Out-Null
 # Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
 # split) the game ticked again must stop the run too (Codex on #407)
 if ((Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) -or (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json'))) {

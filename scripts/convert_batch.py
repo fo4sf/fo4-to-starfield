@@ -48,6 +48,11 @@ def checkpoint_signature(a):
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
     if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
         sig["rig_load_doors"] = True
+    extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
+        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
+            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
+            key=lambda p: p.name.lower())]] for d in extra]
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -219,6 +224,10 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--extra-data", action="append", default=[],
+                    help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
+                         "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
+                         "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
     ap.add_argument("--rig-load-doors", action="store_true",
                     help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
                          "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
@@ -276,7 +285,7 @@ def main():
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data)
+    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
