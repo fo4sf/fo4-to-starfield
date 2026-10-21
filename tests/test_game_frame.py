@@ -138,14 +138,11 @@ class GameFrameTests(unittest.TestCase):
             with self.subTest(rgb=rgb):
                 self.assertEqual(luma(*rgb), Image.new("RGB", (1, 1), rgb).convert("L").getpixel((0, 0)))
         self.assertIn("$w * 9 * %g" % game_frame.TOLERANCE, ps)           # and the same 16:9 tolerance
-        src = read("shot.ps1")
-        self.assertIn(". (Join-Path $PSScriptRoot 'game_rect.ps1')", src)
-        self.assertRegex(src, r"\$r = Get-GameRect \$\w+")
-        # the console capture is of the whole screen: gameplay fills it, and a dark interior with the console open
-        # read as a letterbox (v6e stairs 2026-10-21, every readpos in the library failed)
-        region = read("shot_region.ps1")
-        self.assertNotIn("Get-GameRect", region)
-        self.assertIn("$x = [int]($b.Width * $FX); $y = [int]($b.Height * $FY)", region)
+        for name in ("shot.ps1", "shot_region.ps1"):
+            with self.subTest(script=name):
+                src = read(name)
+                self.assertIn(". (Join-Path $PSScriptRoot 'game_rect.ps1')", src)
+                self.assertRegex(src, r"\$r = Get-GameRect \$\w+")
         shot = read("shot.ps1")
         self.assertIn("$g2.DrawImage($bmp, (New-Object System.Drawing.Rectangle 0, 0, $w, $h), $r, 'Pixel')", shot)
 
