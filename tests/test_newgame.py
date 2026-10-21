@@ -680,7 +680,7 @@ STOOD_DOWN = "not a new game: days=41.200000 level=12 opening_stage=300 fresh=Fa
 
 class LogTests(unittest.TestCase):
     LINES = [
-        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
@@ -768,7 +768,7 @@ class LogTests(unittest.TestCase):
     def test_inventory_lines(self):
         """The inventory reset (NG-K8): a default build logs neither line (both None); a --clear-inventory build logs
         the count; a --vault-suit build the suit, or that it did not resolve."""
-        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=x\n")[1]
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0 (quest items kept)\n")[1]
@@ -791,6 +791,26 @@ class LogTests(unittest.TestCase):
             rest = rest[rest.index(literal) + len(literal):]
         self.assertEqual(rest, "")
         self.assertTrue(self.run_log(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n")[1]["stood_down"])
+
+    def test_the_init_line_is_the_scripts(self):
+        """The fixtures' init line must be one the script writes: OnQuestInit's trace gained the anchor's mode
+        (anchor_temporary=, 21 Oct), and a fixture without it was a line no script produced. Every init line of this
+        file's fixtures carries the literals of the script's trace in order, with a value between each pair."""
+        trace = ('Trace("init holdoff=" + HoldOff.Length + " vault=" + VaultPlugin + ":" + VaultAnchorId'
+                 ' + " anchor_temporary=" + AnchorTemporary + " core=" + CorePlugin + ":" + ExitAnchorId)')
+        self.assertIn(trace, read(PSC))
+        parts = re.findall(r'"([^"]*)"', trace[len('Trace('):])
+        self.assertEqual(parts, ["init holdoff=", " vault=", ":", " anchor_temporary=", " core=", ":"])
+        # every fixture posing as the script's init line (split_runs' "init x" placeholders test the prefix alone)
+        inits = re.findall(r'FO4SF_NEWGAME rt=[-\d.]+ (init holdoff=[^"\\]*)', read(__file__))
+        self.assertGreaterEqual(len(inits), 8)
+        for line in inits:
+            rest = line
+            for literal in parts:
+                self.assertIn(literal, rest, line)
+                rest = rest[rest.index(literal) + len(literal):]
+            self.assertRegex(rest, r"^\d+$", line)             # the exit anchor's id ends the line
+            self.assertRegex(line, r" anchor_temporary=(True|False) ", line)
 
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()
@@ -821,7 +841,7 @@ class LogTests(unittest.TestCase):
     def test_an_older_completion_never_passes_a_newer_run(self):
         """Codex review on #393: the log is appended across sessions, so only the latest run is judged."""
         done = "\n".join(self.LINES) + "\n"
-        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         cases = {
             "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
             "stood down": init + f"[y] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
@@ -839,7 +859,7 @@ class LogTests(unittest.TestCase):
         self.assertTrue(self.run_log(done + cases["stood down"])[1]["stood_down"])
 
     def test_the_latest_run_completing_passes(self):
-        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
+        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n" \
                  "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n"
         code, s = self.run_log(failed + "\n".join(self.LINES) + "\n")
         self.assertEqual(code, 0)
@@ -850,7 +870,7 @@ class LogTests(unittest.TestCase):
     def test_looks_done_endings(self):
         """What ended the looks wait: the creator's close event, the quick start, or the quest's LooksWait fallback;
         the first ending counts, and a run without one reads None."""
-        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         for ending, want in (("quick start", "quick start"), ("LooksWait fallback after 120.0 s", "LooksWait fallback after 120.0 s")):
             code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=9.0 looks done: {ending}\n[x] FO4SF_NEWGAME rt=9.0 stage 20\n")
             self.assertEqual(s["looks_done"], want)
@@ -862,7 +882,7 @@ class LogTests(unittest.TestCase):
     def test_special_endings(self):
         """The SPECIAL ending: set at the terminal, or skipped when the player left the vault without it; "later" and
         "left" are not endings, and a run without one reads None."""
-        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n[x] FO4SF_NEWGAME rt=12.0 special left: defaults kept, 21 points unspent\n"
                                       "[x] FO4SF_NEWGAME rt=90.0 stage 40\n[x] FO4SF_NEWGAME rt=91.0 special skipped: left the vault with SPECIAL unset\n")
         self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
@@ -871,7 +891,7 @@ class LogTests(unittest.TestCase):
     def test_version_lines(self):
         """The save version check (NG-15 / NG-L2): the version recorded at the new game, the last load's comparison
         (a load logs no "init", so its lines join the run before it) and whether any load found a mismatch."""
-        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n" \
                "[x] FO4SF_NEWGAME rt=2.0 version saved=1.000000 (new game)\n"
         code, s = self.run_log(head + "[y] FO4SF_NEWGAME rt=1.5 version load saved=1.000000 installed=1.000000\n")
         self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), ("1.000000", "saved=1.000000 installed=1.000000", False))
@@ -880,7 +900,7 @@ class LogTests(unittest.TestCase):
                                       "[z] FO4SF_NEWGAME rt=1.7 version mismatch\n")
         self.assertEqual((s["version_load"], s["version_mismatch"]), ("saved=1.000000 installed=2.000000", True))
         self.assertEqual(s["runs"], 1)
-        s = self.run_log("[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n")[1]
+        s = self.run_log("[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n")[1]
         self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), (None, None, False))
 
     def test_split_runs(self):
