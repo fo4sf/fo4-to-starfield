@@ -1,5 +1,6 @@
 """scripts/game/campaign_arm.py: a chain of planned queues is armed only with the night-run caps, on the installed set,
 away from held cells (synthetic queue folders; nothing launched)."""
+import hashlib
 import io
 import json
 import os
@@ -82,6 +83,7 @@ class Base(unittest.TestCase):
     def camp(self, queues, **over):
         c = {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": PY,
              "staging": self.staging, "installed_exp": self.exp, "installed_plugins": PLUGINS, "caps": dict(CAPS),
+             "starfield": self.sf,
              "holds": {"red_rocket": ["FO4Core_RedRocketSpawn"]},
              "queues": [{"name": n, "queue": q} for n, q in queues]}
         c.update(over)
@@ -121,7 +123,7 @@ class CheckTests(Base):
         self.assertEqual(self.check(self.camp([("walk", q)], starfield=self.sf + os.sep)), (True, []))
         # Codex on #391: the experiment goes into the Starfield folder the chain launches (the default when unset)
         self.assertIn("pre_launch installs into %s, the campaign runs" % self.sf,
-                      " ".join(self.check(self.camp([("walk", q)]))[1]))
+                      " ".join(self.check(self.camp([("walk", q)], starfield=None))[1]))
         # Codex on #391: with no record, or another experiment's, the "reinstall" would change the installed set
         for rec, want in ((None, "no readable install record"), ((os.path.join(self.d, "v6c"),), "would replace"),
                           ((self.exp, PLUGINS[:1]), "would replace"), ((self.exp, PLUGINS, {"complete": False}), "incomplete")):
@@ -304,9 +306,7 @@ class PlanTerrainHoldTests(Base):
         pin = {"dir": bdir, "sha256": {rel: tq.sha256(os.path.join(bdir, rel)) for rel in (bi.PLUGIN, bi.PEX)}}
         q = self.queue("b", [{"coc": "FO4Port_X"}], bridge=pin)
         c = self.camp([("b", q)], starfield=self.sf, bridge=bdir)
-        local = os.path.join(self.d, "local")
-        os.makedirs(os.path.join(local, "Starfield"))
-        with mock.patch.dict(os.environ, {"LOCALAPPDATA": local}):
+        if True:
             ok, why = self.check(c)
             self.assertFalse(ok)
             self.assertIn("the bridge is not installed", " ".join(why))
@@ -322,8 +322,7 @@ class PlanTerrainHoldTests(Base):
             ok, why = self.check(c)
             self.assertFalse(ok)
             self.assertIn("installed but not active", " ".join(why))
-            with open(os.path.join(local, "Starfield", "Plugins.txt"), "w") as f:
-                f.write("*" + bi.PLUGIN + "\n")
+            self.plugins_txt(["*" + p for p in PLUGINS + [bi.PLUGIN]])
             self.assertEqual(self.check(c), (True, []))
             with open(os.path.join(self.sf, "Data", bi.RECORD), "w") as f:
                 json.dump(dict(rec, source_sha256={bi.PLUGIN: "0" * 64}), f)
@@ -397,6 +396,20 @@ class PlanTerrainHoldTests(Base):
         q = self.queue("a", [{"coc": "FO4Port_X"}])
         self.assertIn("starfield 'SF' is not a full path", " ".join(self.check(self.camp([("a", q)], starfield="SF"))[1]))
 
+    def test_the_declared_experiment_is_checked_without_a_pre_launch(self):
+        # Codex on #391: cycle.ps1 launches whatever is installed, so every campaign checks it, not only a reinstall
+        q = self.queue("plain", [{"coc": "FO4Port_X"}])
+        c = self.camp([("p", q)])
+        self.assertEqual(self.check(c), (True, []))
+        self.plugins_txt(["*" + p for p in PLUGINS[1:]])
+        self.assertIn("experiment plugin is inactive", " ".join(self.check(c)[1]))
+        self.plugins_txt(["*" + p for p in PLUGINS])
+        self.receipt(os.path.join(self.d, "v6c"))
+        self.assertIn("another experiment is installed", " ".join(self.check(c)[1]))
+        os.remove(os.path.join(self.sf, "Data", "FO4SFExp.install.json"))
+        self.assertIn("no readable install record", " ".join(self.check(c)[1]))
+        self.assertIn("names no installed_exp", " ".join(self.check(self.camp([("p", q)], installed_exp=None))[1]))
+
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
         q = self.queue("a", [{"coc": "FO4Port_X"}, {"coc": "FO4Port_Y"}])
@@ -462,7 +475,7 @@ class ScriptAndGateTests(Base):
             text = f.read()
         self.assertIn("'--max-relaunch', '1', '--crash-budget', '1', '--min-free-gb', '43', '--dump-drive', 'D:\\'", text)
         self.assertIn("$jr = Py @('scripts\\bridge\\door_rounds.py', 'judge'", text)   # Codex on #391: the judge exit counts
-        self.assertIn("'run', '--queue', '%s', '--starfield', 'D:\\SteamLibrary\\steamapps\\common\\Starfield'" % q, text)
+        self.assertIn("'run', '--queue', '%s', '--starfield', '%s'" % (q, self.sf), text)
         self.assertIn("'--run-exit', \"$rc\", '--judge-exit', \"$jr\"", text)
         self.assertLess(text.index("$jr = Py"), text.index("'gate'"))
         # Codex on #391: the pin is checked again after the run, right before the judge reads its files
@@ -473,6 +486,28 @@ class ScriptAndGateTests(Base):
         self.assertIn("\r\n", text)
         with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):      # a new file only
             ca.main(["script", "--campaign", cp, "--out", out])
+
+    def test_the_chain_pins_the_manifest_bytes_it_was_written_from(self):
+        # Codex on #391: a manifest edited while the chain is written must not be pinned in place of the parsed one
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp, out = os.path.join(self.d, "c.json"), os.path.join(self.d, "chain.ps1")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)]), f)
+        with open(cp, "rb") as f:
+            parsed = hashlib.sha256(f.read()).hexdigest()
+        load = ca.load_campaign
+
+        def edited_after_load(path):
+            got = load(path)
+            with open(path, "w") as f:
+                json.dump(self.camp([("a", q)], checkout="E:\\other"), f)
+            return got
+        with mock.patch.object(ca, "load_campaign", edited_after_load), redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
+        with open(out) as f:
+            text = f.read()
+        self.assertEqual(set(re.findall(r"'--sha256', '([0-9a-f]{64})'", text)), {parsed})
+        self.assertIn("D:\\Modding\\wt_nightrun", text)
 
     def test_a_refused_campaign_writes_no_chain(self):
         q = self.queue("walk", [{"coc": "FO4Core_RedRocketSpawn"}])

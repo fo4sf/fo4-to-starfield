@@ -6,6 +6,8 @@ usage:
   python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...] [--sha256 HEX]
       every queue of the campaign, refused with the reason when:
         - its queue folder or staging is not a full path, its queue.json is missing, or its tests name no coc;
+        - (for the whole campaign) the Starfield folder does not hold installed_exp with exactly installed_plugins,
+          intact and active as exp_install.py reads it, with or without a pre_launch;
         - a test travels by anything but coc <cell>, or types FO4SF_Probe.MoveTo (both go where the holds can not see);
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
         - its pinned bridge is not the campaign's, changed since the plan, or is not that bridge already installed and
@@ -161,18 +163,34 @@ def pre_launch_why(pre, camp):
     if opt("--starfield") is None or norm(opt("--starfield")) != norm(sf):
         # Codex on #391: the experiment and the launch must go to the same Starfield folder
         return f"pre_launch installs into {opt('--starfield')}, the campaign runs {sf}"
-    # Codex on #391: the reinstall is a no-op only while that same experiment is installed; with no record it installs
-    rec_p = os.path.join(opt("--starfield"), "Data", "FO4SFExp.install.json")
+    # Codex on #391: the reinstall is a no-op only while that same experiment is installed, in its packing mode
+    names = [p.strip() for p in (plugins or "").split(",") if p.strip()]
+    why = installed_exp_why(camp, names, "--pack" in args)
+    return f"pre_launch would not be a no-op: {why}" if why else None
+
+
+def installed_exp_why(camp, names=None, pack=None):
+    """Why the campaign's Starfield folder does not hold its declared experiment (installed_exp with exactly
+    installed_plugins, intact and active as exp_install.py's own relaunch check reads it), else None. Codex on #391:
+    checked for every campaign, with or without a pre_launch, since cycle.ps1 launches whatever is installed.
+    names and pack are a pre_launch's --plugins order and --pack; by default the record's own."""
+    import types
+    import exp_install as ei
+    exp, want = camp.get("installed_exp"), {str(p).casefold() for p in camp.get("installed_plugins") or []}
+    if not exp or not want:
+        return "the campaign names no installed_exp and installed_plugins: what it runs on can not be checked"
+    data = os.path.join(camp.get("starfield") or STARFIELD, "Data")
+    rec_p = os.path.join(data, "FO4SFExp.install.json")
     try:
         with open(rec_p, encoding="utf-8") as f:
             rec = json.load(f)
     except (OSError, ValueError) as error:
-        return f"pre_launch would install the experiment: no readable install record {rec_p} ({error.__class__.__name__})"
-    files = {str(k).casefold() for k in (rec.get("files") or {})} if isinstance(rec, dict) else set()
+        return f"no readable install record {rec_p} ({error.__class__.__name__}): the experiment is not installed"
     if not isinstance(rec, dict) or not rec.get("complete", True) or rec.get("cleanup_pending"):
-        return f"pre_launch: the install record {rec_p} is incomplete"
+        return f"the install record {rec_p} is incomplete"
+    files = {str(k).casefold() for k in (rec.get("files") or {})}
     if norm(rec.get("exp_dir") or "") != norm(exp) or not want <= files:
-        return f"pre_launch would replace the installed experiment {rec.get('exp_dir')} ({rec_p})"
+        return f"another experiment is installed: {rec.get('exp_dir')} ({rec_p}), the campaign's is {exp}; it would replace it"
     # Codex on #391: cycle.ps1 orders every plugin the record selected, so the selected set must be the campaign's
     # (the same reading as exp_install.py: "plugins", else a legacy record's added and replaced lines)
     sel = rec.get("plugins")
@@ -183,26 +201,26 @@ def pre_launch_why(pre, camp):
     have = {str(x).casefold() for x in sel} if isinstance(sel, list) else set()
     if have != want:
         return f"the install record {rec_p} selects {sorted(have)}, the installed set is {sorted(want)}"
-    if ("--pack" in args) != bool(rec.get("pack", False)):
+    if pack is None:
+        pack = bool(rec.get("pack", False))
+    elif pack != bool(rec.get("pack", False)):
         # Codex on #391: exp_install.py stops when the packing mode differs from the installed one
-        return (f"pre_launch asks for {'a packed' if '--pack' in args else 'a loose'} experiment, the install record "
+        return (f"pre_launch asks for {'a packed' if pack else 'a loose'} experiment, the install record "
                 f"{rec_p} has {'a packed' if rec.get('pack') else 'a loose'} one")
-    # Codex on #391: the reinstall is a no-op only when exp_install.py's own relaunch path passes; run that path's
-    # checks here (held plugins, activation, packing policy, installed file digests, staged inputs) instead of copies
-    import types
-    import exp_install as ei
-    names = [p.strip() for p in (plugins or "").split(",") if p.strip()]
-    data = os.path.join(opt("--starfield"), "Data")
+    if names is None:
+        names = [str(x) for x in sel]
+    # Codex on #391: exp_install.py's own relaunch checks (held plugins, activation, packing policy, installed file
+    # digests, staged inputs) rather than copies of them
     try:
         if not all(p in rec["files"] for p in names):
-            return f"pre_launch would replace the installed experiment {rec.get('exp_dir')} ({rec_p})"
+            return f"another experiment is installed: {rec.get('exp_dir')} ({rec_p}); it would replace it"
         held = ei.held_off(data)
-        packed = "--pack" in args and any(rel not in names for _, rel in ei.staged_files(exp, names))
+        packed = pack and any(rel not in names for _, rel in ei.staged_files(exp, names))
         ei.verify_relaunch(types.SimpleNamespace(exp_dir=exp), data, names, packed, rec, held)
     except SystemExit as stop:
-        return f"pre_launch would stop: {stop}"
+        return f"exp_install.py would stop: {stop}"
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return f"pre_launch: the installed experiment can not be checked: {error}"
+        return f"the installed experiment can not be checked: {error}"
     return None
 
 
@@ -418,6 +436,9 @@ def check(camp, release):
         if not rooted(camp.get(k)):
             # Codex on #391: the chain's Set-Location and the runner resolve a relative path where they are started
             caps.append(f"{k} {camp.get(k)!r} is not a full path")
+    why = installed_exp_why(camp)
+    if why:
+        caps.append(why)
     unknown = sorted(set(release) - set(camp.get("holds") or {}))
     if unknown:
         caps.append(f"--release names holds the campaign does not have: {unknown}")
@@ -433,9 +454,16 @@ def check(camp, release):
     return {"caps": caps, "queues": rows}, not caps and all(not w for _, w, _ in rows)
 
 
+def load_campaign(path):
+    """(campaign, sha256 of the very bytes parsed). Codex on #391: a digest read again from disk could pin a manifest
+    edited after the one the chain's commands were written from."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    return json.loads(raw.decode("utf-8-sig")), hashlib.sha256(raw).hexdigest()
+
+
 def read_campaign(path):
-    with open(path, encoding="utf-8-sig") as f:
-        return json.load(f)
+    return load_campaign(path)[0]
 
 
 def releases(s):
@@ -477,13 +505,14 @@ def campaign_sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def chain(camp, path, release):
+def chain(camp, path, release, digest=None):
     caps, py = camp["caps"], camp.get("python") or "python"
     launch = camp.get("launch", "steam")
     if launch not in LAUNCHES:
         sys.exit(f"launch {launch!r}, want one of {LAUNCHES}")
     rel = ",".join(sorted(release))
     path = os.path.abspath(path)          # Codex on #391: the chain changes into the checkout before the check
+    digest = digest or campaign_sha256(path)
     # Codex on #391: no time in the chain, the same manifest and inputs write the same file
     lines = [f"# {camp.get('name')} chain, written by scripts/game/campaign_arm.py from {path}"
              + (f"; released: {rel}" if rel else ""),
@@ -507,10 +536,10 @@ def chain(camp, path, release):
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
              # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
-                                campaign_sha256(path)] + (["--release", rel] if rel else [])) + ") -ne 0) "
+                                digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
              "{ Write-Host 'campaign check refused: nothing run'; exit 1 }"]
     for e, _, _ in check(camp, release)[0]["queues"]:
-        pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", campaign_sha256(path),
+        pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", digest,
                "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
         lines += ["", f"# {e['name']}",
                   f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
@@ -647,10 +676,11 @@ def main(argv=None):
             with open(logp, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         return run_chain(read_campaign(a.campaign), log)
-    if a.cmd == "check" and a.sha256 and campaign_sha256(a.campaign) != a.sha256.lower():
+    camp, digest = load_campaign(a.campaign)
+    release = releases(a.release)
+    if a.cmd == "check" and a.sha256 and digest != a.sha256.lower():
         print(f"REFUSED campaign: {a.campaign} changed since the chain was written from it: write the chain again")
         return 1
-    camp, release = read_campaign(a.campaign), releases(a.release)
     if a.cmd == "check" and (a.only or a.queue_sha256):
         entry = next((e for e in camp.get("queues") or [] if e.get("name") == a.only), None)
         if entry is None or not a.queue_sha256:
@@ -675,7 +705,7 @@ def main(argv=None):
         sys.exit(f"{a.out} exists: the script writes a new file only")
     if not camp.get("checkout"):
         sys.exit("the campaign names no checkout to run from")
-    text = chain(camp, a.campaign, release)
+    text = chain(camp, a.campaign, release, digest)
     with open(a.out, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     print(f"wrote {a.out}")
