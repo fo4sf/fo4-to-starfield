@@ -6,6 +6,7 @@ Every setting starts at the value that changes nothing on the PC (crash watcher 
 as they are), so a fresh install plays exactly as before until the player turns something on.
 """
 import json
+import math
 import os
 
 from . import files
@@ -88,6 +89,10 @@ def coerce(key, value):
             v = float(value)
         except (TypeError, ValueError):
             raise ValueError(f"{key}: {value!r} is not a number") from None
+        # nan would make every comparison false (the free-space floor never stops play) and inf would hold the
+        # settle wait past the start timeout (Codex, #449)
+        if not math.isfinite(v):
+            raise ValueError(f"{key}: {value!r} is not a finite number")
         if v < 0:
             raise ValueError(f"{key}: must not be negative")
         return v

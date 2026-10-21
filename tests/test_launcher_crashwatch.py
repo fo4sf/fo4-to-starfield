@@ -131,6 +131,19 @@ class CrashWatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):                                          # a typo is never ignored
             settings.load(path)
 
+    def test_numbers_must_be_finite(self):
+        for key in ("crash_watch.min_free_gb", "crash_watch.settle_s"):
+            for bad in ("nan", "inf", "-inf", "NaN"):
+                with self.assertRaises(ValueError):
+                    settings.assign(settings.defaults(), [f"{key}={bad}"])
+        self.assertEqual(settings.assign(settings.defaults(), ["crash_watch.settle_s=5"])["crash_watch.settle_s"], 5.0)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.json")
+            with open(path, "w") as f:
+                f.write('{"crash_watch.min_free_gb": NaN}')
+            with self.assertRaises(ValueError):
+                settings.load(path)
+
     def test_problems(self):
         v = settings.assign(settings.defaults(), ["crash_watch.enabled=on", "bridge=on", "papyrus_logging=off"])
         p = settings.problems(v)
