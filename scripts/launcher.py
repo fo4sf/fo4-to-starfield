@@ -20,6 +20,8 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py bundle --out <support.zip> [--state-dir <dir> ...] [--manifest <json>] [--detect-report <json>]
                                       [--starfield <game dir>] [--plugins-txt <path>] [--my-games <dir>] [--file <path> ...]
     python scripts/launcher.py measure <folder> ...
+    python scripts/launcher.py settings [--set key=value ...] [--settings <json>]
+    python scripts/launcher.py play --starfield <game dir> [--settings <json>] [--dry-run]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -40,6 +42,10 @@ measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
            and refuses while the game runs or on any conflict.
+settings   shows the optional pieces (crash watcher, bridge, Papyrus logging, how the game starts) and what each one
+           costs; --set changes them. Saved per player (default %LOCALAPPDATA%\FO4SF\launcher_settings.json).
+play       applies the settings with the game closed, starts Starfield, and with the crash watcher on attaches
+           ProcDump once the game has settled and logs how it ended (src/fo4sf/launcher/crashwatch.py).
 """
 import argparse
 import json
@@ -48,8 +54,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (bundle, detect, driver, files, locate, manifest, plugin_checks, restore, runtimes,  # noqa: E402
-                            same_ids)
+from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, plugin_checks,  # noqa: E402
+                            restore, runtimes, same_ids, settings)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -260,6 +266,31 @@ def cmd_measure(a):
     return 0
 
 
+def default_settings_path():
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "FO4SF", "launcher_settings.json")
+
+
+def cmd_settings(a):
+    path = a.settings or default_settings_path()
+    values = settings.load(path)
+    if a.set:
+        values = settings.assign(values, a.set)
+        settings.save(path, values)
+        print(f"saved {path}")
+    for line in settings.describe(values):
+        print(line)
+    for p in settings.problems(values):
+        print(f"play would refuse: {p}")
+    return 0
+
+
+def cmd_play(a):
+    values = settings.load(a.settings or default_settings_path())
+    r = crashwatch.play(values, a.starfield, dry_run=a.dry_run)
+    return 0 if r.get("dry_run") or r.get("started") else 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -348,13 +379,20 @@ def main(argv=None):
     s.add_argument("--file", action="append", default=[])
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
+    s = sub.add_parser("settings")
+    s.add_argument("--settings", default="", help="default: %%LOCALAPPDATA%%\\FO4SF\\launcher_settings.json")
+    s.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    s = sub.add_parser("play")
+    s.add_argument("--starfield", required=True)
+    s.add_argument("--settings", default="")
+    s.add_argument("--dry-run", action="store_true", help="print what play would do; change and start nothing")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
-                "status": cmd_status}[a.cmd](a)
+                "status": cmd_status, "settings": cmd_settings, "play": cmd_play}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

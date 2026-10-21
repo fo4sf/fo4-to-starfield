@@ -129,6 +129,22 @@ problem.
 other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
 work folders). This is the measuring half of the unresolved full-build disk budget.
 
+### settings and play (crash watcher that follows the game)
+Owner, 2026-10-21: the crash watcher should start and close with the game, and the launcher is where its toggle and
+other memory-costly settings live. `launcher.py settings` shows each setting with its cost and `--set key=value`
+changes it (one JSON per player, default `%LOCALAPPDATA%\FO4SF\launcher_settings.json`; only changed values are
+written, and an unknown key is refused). Every default changes nothing: watcher off, bridge and Papyrus logging
+`unchanged`. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
+`papyrus_logging` (the three `[Papyrus]` keys in StarfieldCustom.ini, with a `.bak-<time>` copy) with the game closed,
+starts the game (`route`: Steam, as the runner does, or Starfield.exe, as the owner does), waits until a
+Starfield.exe has stayed up `crash_watch.settle_s` (a first process that ends within that time is skipped), then
+attaches ProcDump to that process id with the old watcher's triggers (`-e 1 -f 80000003`), `-mm` by default
+(`crash_watch.dump=full` for `-ma`), `-t` only when asked. It holds its own handle on the game and writes the exit
+code and its name, and the dumps of that run, to `crashwatch.log`, so a silent exit leaves at least its code.
+ProcDump ends on its own with the game and is never killed. Untested on Windows: the tasklist, handle and ProcDump
+calls run only on the PC; the flow is tested with a stand-in (`tests/test_launcher_crashwatch.py`). Whether `-t`
+combines with `-e 1 -f` in one ProcDump run is not verified (off by default).
+
 ### Determinism variants (framework B5)
 `tests/test_determinism_variants.py` runs a static mesh conversion and the driver's step fingerprint in fresh
 interpreters under string-hash seeds 0, 1, 4242 and 7, a German locale and `NPY_DISABLE_CPU_FEATURES="AVX2 AVX512F"`,
