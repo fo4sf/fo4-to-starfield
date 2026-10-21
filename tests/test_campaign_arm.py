@@ -14,6 +14,7 @@ from contextlib import redirect_stdout
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import campaign_arm as ca  # noqa: E402
+REAL_REV = ca.checkout_rev_why                                           # setUp mocks it for the other tests
 import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
@@ -22,6 +23,15 @@ PLUGINS = ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4ActorRaider.esm"
 
 
 STARFIELD_T = ca.STARFIELD
+
+
+def tes4(name, masters=("Starfield.esm",)):
+    """A plugin header: its masters (MAST + DATA) and its name (SNAM), so each plugin's bytes differ."""
+    import struct
+    sub = lambda t, b: t + struct.pack("<H", len(b)) + b
+    body = b"".join(sub(b"MAST", m.encode() + b"\0") + sub(b"DATA", b"\0" * 8) for m in masters)
+    body += sub(b"SNAM", name.encode() + b"\0")
+    return b"TES4" + struct.pack("<I", len(body)) + b"\0" * 16 + body
 
 
 class Base(unittest.TestCase):
@@ -41,6 +51,11 @@ class Base(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"LOCALAPPDATA": self.local})
         env.start()
         self.addCleanup(env.stop)
+        # the checkout's commit (checkout_rev_why) and a running game (game_running) have tests of their own
+        for name in ("checkout_rev_why", "game_running"):
+            m = mock.patch.object(ca, name, return_value=None)
+            m.start()
+            self.addCleanup(m.stop)
         self.stage = os.path.join(self.d, "stage")                       # the judges' rounds.json and presence.json
         os.makedirs(self.stage)
         for n in ("rounds.json", "presence.json"):
@@ -59,7 +74,7 @@ class Base(unittest.TestCase):
         for n in names:
             for d in (exp, os.path.join(self.sf, "Data")):
                 with open(os.path.join(d, n), "wb") as f:
-                    f.write(n.encode())
+                    f.write(tes4(n))
         rec = {"exp_dir": exp, "complete": True, "pack": True, "packing_policy": ei.PACKING_POLICY,
                "files": {n: ei.digest(os.path.join(self.sf, "Data", n)) for n in names},
                "source_inputs": ei.source_inventory(exp, names)}
@@ -290,6 +305,54 @@ class PlanTerrainHoldTests(Base):
         self.assertTrue(self.check(self.camp([("f", q)]))[0])
         # a second attempt of a fresh test relaunches too
         self.assertFalse(self.check(self.camp([("f", q)], caps=dict(CAPS, max_attempts=2)))[0])
+
+    def test_a_master_exp_install_order_would_refuse_is_refused(self):
+        # Codex on #391: cycle.ps1 runs exp_install.py order after deploying FO4Port.esm; it exits 7 on an inactive master
+        c = self.camp([("walk", self.queue("walk", [{"coc": "FO4Port_X"}]))], starfield=self.sf)
+        with open(os.path.join(self.sf, "Data", PLUGINS[0]), "wb") as f:
+            f.write(tes4(PLUGINS[0], ("Starfield.esm", "FO4Port.esm")))
+        self.receipt(self.exp)
+        for d in (self.exp, os.path.join(self.sf, "Data")):              # the record's digests follow the files
+            with open(os.path.join(d, PLUGINS[0]), "wb") as f:
+                f.write(tes4(PLUGINS[0], ("Starfield.esm", "FO4Port.esm")))
+        import exp_install as ei
+        rec_p = os.path.join(self.sf, "Data", "FO4SFExp.install.json")
+        with open(rec_p) as f:
+            rec = json.load(f)
+        rec["files"][PLUGINS[0]] = ei.digest(os.path.join(self.sf, "Data", PLUGINS[0]))
+        rec["source_inputs"] = ei.source_inventory(self.exp, PLUGINS)
+        with open(rec_p, "w") as f:
+            json.dump(rec, f)
+        self.assertEqual(self.check(c), (True, []))                       # FO4Port.esm: the deploy activates it
+        for d in (self.exp, os.path.join(self.sf, "Data")):
+            with open(os.path.join(d, PLUGINS[0]), "wb") as f:
+                f.write(tes4(PLUGINS[0], ("Starfield.esm", "Missing.esm")))
+        rec["files"][PLUGINS[0]] = ei.digest(os.path.join(self.sf, "Data", PLUGINS[0]))
+        rec["source_inputs"] = ei.source_inventory(self.exp, PLUGINS)
+        with open(rec_p, "w") as f:
+            json.dump(rec, f)
+        self.assertIn(f"{PLUGINS[0]} needs active master Missing.esm", " ".join(self.check(c)[1]))
+
+    def test_the_checkout_must_be_the_campaigns_commit_and_clean(self):
+        # Codex on #391: the pins covered data files, not the runner, judge and PowerShell code
+        import subprocess
+        co = os.path.join(self.d, "co")
+        os.makedirs(co)
+        git = lambda *a: subprocess.run(["git", "-C", co, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                        capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q")
+        with open(os.path.join(co, "testqueue.py"), "w") as f:
+            f.write("x = 1\n")
+        git("add", "-A")
+        git("commit", "-qm", "c")
+        head = git("rev-parse", "HEAD")
+        self.assertIsNone(REAL_REV({"checkout": co, "commit": head}))
+        self.assertIn("name the checkout's full git sha", REAL_REV({"checkout": co}))
+        self.assertIn("the campaign was armed on", REAL_REV({"checkout": co, "commit": "0" * 40}))
+        with open(os.path.join(co, "testqueue.py"), "w") as f:
+            f.write("x = 2\n")
+        self.assertIn("uncommitted changes", REAL_REV({"checkout": co, "commit": head}))
+        self.assertIn("not a git checkout", REAL_REV({"checkout": os.path.join(self.d, "none"), "commit": head}))
 
     def test_an_install_record_selecting_more_plugins_is_refused(self):
         # Codex on #391: cycle.ps1 orders every plugin the record selected, not only the campaign's
@@ -582,6 +645,7 @@ class ScriptAndGateTests(Base):
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
         self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
         self.assertIn("& $py -I @argv", text)                              # Codex on #391: isolated mode
+        self.assertLess(text.index("if (Get-Process Starfield"), text.index("testqueue.py"))
         self.assertLess(text.index("$env:PATH = (Split-Path -Parent $py)"), text.index("testqueue.py"))
         self.assertIn("$env:FO4SF_PYTHON = $py", text)                     # Codex on #391: never the caller's
         self.assertLess(text.index("FO4SF_PYTHON"), text.index("testqueue.py"))
@@ -796,6 +860,22 @@ class RunChainTests(Base):
         self.assertEqual({e for _, e in self.calls}, {"exe"})
         self.assertEqual(set(self.envpy), {PY})                          # Codex on #391: never the caller's python
         self.assertIn("a: STOP", self.lines[-1])
+
+    def test_a_running_game_or_a_moved_checkout_stops_the_chain(self):
+        # Codex on #391: the runner would reuse a game it started earlier, and run code the chain was not armed on
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([("a", qa)])
+        with mock.patch.object(ca, "game_running", return_value=4242):
+            self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0])), 1)
+        self.assertEqual(self.calls, [])
+        self.assertIn("Starfield is running", self.lines[-1])
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", qa]
+        n = []
+        with mock.patch.object(ca, "checkout_rev_why", side_effect=lambda camp: n.append(1) or
+                               ("the checkout moved" if len(n) >= 3 else None)):
+            self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
+        self.assertEqual([a[1] for a, _ in self.calls], ["run"])                  # never judged
+        self.assertEqual(self.lines[-1], "a: STOP after the run: the checkout moved: not judged")
 
     def test_a_failed_judge_stops_the_chain(self):
         # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0

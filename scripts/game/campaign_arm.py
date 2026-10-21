@@ -39,7 +39,7 @@ usage:
       exists, says finished and counts no crash and no dead start.
 
 campaign.json:
-  {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": "C:\\Modding\\venv-render\\Scripts\\python.exe",
+  {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "commit": "<the checkout's full git sha>", "python": "C:\\Modding\\venv-render\\Scripts\\python.exe",
    "staging": "<the installed FO4Port staging>", "bridge": "<the installed bridge staging>",
    "starfield": "<the Starfield folder; testqueue.py's default when left out>",
    "installed_exp": "<the installed experiment folder>", "installed_plugins": ["FO4TerrainCore.esm", ...],
@@ -56,6 +56,7 @@ import math
 import ntpath
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -220,6 +221,15 @@ def installed_exp_why(camp, names=None, pack=None):
         held = ei.held_off(data)
         packed = pack and any(rel not in names for _, rel in ei.staged_files(exp, names))
         ei.verify_relaunch(types.SimpleNamespace(exp_dir=exp), data, names, packed, rec, held)
+        # Codex on #391: cycle.ps1 runs exp_install.py order after deploying FO4Port.esm, and stops (exit 7) on a
+        # master that is not active: its own read-only check on the lines it will order
+        order = [p for p in names if p.casefold() not in held]
+        lines = ei.read_plugins(ei.plugins_txt())[0]
+        if not any(ln.strip().lstrip("*").strip().casefold() == "fo4port.esm" for ln in lines):
+            lines = lines + ["*FO4Port.esm"]
+        _, _, missing = ei.order_lines(lines, order, {p: ei.plugin_masters(ei.data_path(data, p)) for p in order})
+        if missing:
+            return "exp_install.py order would stop: " + "; ".join(f"{p} needs active master {m}" for p, m in missing)
     except SystemExit as stop:
         return f"exp_install.py would stop: {stop}"
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -473,6 +483,35 @@ def queue_sha256(entry):
     return h.hexdigest()
 
 
+def checkout_rev_why(camp):
+    """Why the campaign checkout is not the commit the campaign names, clean, else None. Codex on #391: the pins cover
+    the campaign, queue, route and judge files; the runner, judge and PowerShell code are the checkout's commit."""
+    want, co = str(camp.get("commit") or ""), str(camp.get("checkout") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", want):
+        return f"commit {camp.get('commit')!r}: name the checkout's full git sha the campaign was armed on"
+    try:
+        head = subprocess.run(["git", "-C", co, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
+        dirty = subprocess.run(["git", "-C", co, "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+                               text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"the checkout {co} can not be read with git: {error}"
+    if head.returncode or dirty.returncode:
+        return f"the checkout {co} is not a git checkout"
+    if head.stdout.strip() != want:
+        return f"the checkout {co} is at {head.stdout.strip()[:8]}, the campaign was armed on {want[:8]}"
+    if dirty.stdout.strip():
+        return f"the checkout {co} has uncommitted changes to tracked files"
+    return None
+
+
+def game_running():
+    """The Starfield process id, else None (None where tasklist does not exist)."""
+    try:
+        return tq.Controls.game_pid()
+    except OSError:
+        return None
+
+
 def recheck(entry, camp, release, pin):
     """Reasons a queue checked at the start of the chain may not run now: the full check again and the installed
     experiment, right before its run, and its queue.json and its judge's definition file still the files the chain
@@ -482,6 +521,9 @@ def recheck(entry, camp, release, pin):
     if inst:
         # Codex on #391: an earlier queue's hours can change the installed experiment before this one launches
         why = why + [inst]
+    rev = checkout_rev_why(camp)
+    if rev:
+        why = why + [rev]
     if queue_sha256(entry) != pin:
         # Codex on #391: a queue re-planned or edited while an earlier one ran was never armed
         why = [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed since "
@@ -508,6 +550,9 @@ def check(camp, release):
         # Codex on #391: cycle.ps1 runs a bare `python`; the chain puts this python's folder first on PATH for it
         caps.append(f"python {py!r} is not named python.exe: cycle.ps1's own python calls would not find it")
     why = installed_exp_why(camp)
+    if why:
+        caps.append(why)
+    why = checkout_rev_why(camp)
     if why:
         caps.append(why)
     unknown = sorted(set(release) - set(camp.get("holds") or {}))
@@ -603,6 +648,9 @@ def chain(camp, path, release, digest=None):
              # Codex on #391: Set-Location's error does not stop a script; never run the caller's checkout's scripts
              f"try {{ Set-Location -LiteralPath {ps(camp['checkout'])} -ErrorAction Stop }} catch {{ "
              f"Write-Host 'no checkout at {camp['checkout']}: nothing run'; exit 1 }}",
+             # Codex on #391: the runner reuses a game it started earlier; the first queue must launch the armed build
+             "if (Get-Process Starfield -ErrorAction SilentlyContinue) { Write-Host 'Starfield is running: close it "
+             "so the first queue launches the armed build; nothing run'; exit 1 }",
              # Codex on #391: the launch mode is the campaign's, never the caller's environment
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
              # Codex on #391: the runner's helpers use FO4SF_PYTHON; it is the campaign's python, never the caller's
@@ -691,6 +739,10 @@ def run_chain(camp, log=print, call=None):
     env = dict(os.environ, FO4SF_LAUNCH=launch, FO4SF_PYTHON=py)
     if ntpath.dirname(py):                                # Codex on #391: cycle.ps1's bare `python` is this one
         env["PATH"] = ntpath.dirname(py) + os.pathsep + env.get("PATH", "")
+    if game_running():
+        # Codex on #391: the runner reuses a game it started earlier; the first queue must launch the armed build
+        log("REFUSED campaign: Starfield is running: close it so the first queue launches the armed build")
+        return 1
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
     for (e, _, _), pin in zip(res["queues"], pins):
         why = recheck(e, camp, set(released), pin)
@@ -702,6 +754,10 @@ def run_chain(camp, log=print, call=None):
         log(f"{e['name']}: run exit {rc}")
         jr = None
         if e.get("judge"):
+            rev = checkout_rev_why(camp)
+            if rev:
+                log(f"{e['name']}: STOP after the run: {rev}: not judged")
+                return 1
             if queue_sha256(e) != pin:
                 # Codex on #391: the judge reads queue.json and its definition file now, hours after the check
                 log(f"{e['name']}: STOP after the run: its queue.json or its judge's definition file changed during "
@@ -774,7 +830,7 @@ def main(argv=None):
             # Codex on #391: after the run its state.json counts the launch; only the files the judge reads must hold
             why = ([] if queue_sha256(entry) == a.queue_sha256.lower() else
                    [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed "
-                    "since the chain was armed"])
+                    "since the chain was armed"]) + [w for w in [checkout_rev_why(camp)] if w]
         else:
             why = check_caps(camp.get("caps")) + recheck(entry, camp, release, a.queue_sha256.lower())
         print(f"{'REFUSED' if why else 'OK':8s} {a.only}: {entry.get('queue')}")
