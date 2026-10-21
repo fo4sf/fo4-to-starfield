@@ -2,6 +2,7 @@
 sidecar bodies and saves.json. Nothing here comes from a game; every PASS / FAIL / INCONCLUSIVE branch of each checker
 is exercised, empty input is never a PASS, and the P1 sidecar name/hash rule mirrors sidecar.py."""
 import contextlib
+import copy
 import io
 import json
 import os
@@ -475,7 +476,7 @@ def p6_log(pairs=((1.0, "A"), (2.0, "B")), loc=RUNTIME_LOC, baselocal=None):
     for datum, which in pairs:
         for k in range(1, 4):
             bl = (baselocal or {}).get(which, {"A": "a", "B": "b", "other": "other", "none": "none"}[which])
-            base = "none" if which == "none" else "2826524"
+            base = {"none": "none", "B": "4660"}.get(which, "2826524")
             lines.append(f"FOCC rt=2.0 p6 datum={datum:.6f} loc={loc} readback={datum:.6f} trial={k} base={base} baselocal={bl}")
     return lines
 
@@ -486,9 +487,19 @@ def p7_log(pairs=((3.0, "A"), (9.0, "B")), glob=None):
         for k in range(1, 4):
             g = tier if glob is None else glob
             bl = {"A": "a", "B": "b", "other": "other", "none": "none"}[which]
-            base = "none" if which == "none" else "2826524"
+            base = {"none": "none", "B": "4660"}.get(which, "2826524")
             lines.append(f"FOCC rt=1.0 p7 tier={tier:.6f} glob={g:.6f} trial={k} base={base} baselocal={bl}")
     return lines
+
+
+PLAN67 = {"bases": {"lvln_a": "Starfield.esm:2B211C", "lvln_b": "Starfield.esm:1234"}}   # 2826524 and 4660
+
+
+def pcol(log):
+    """A P6/P7 collection with the stage's plan.json base mapping, which the judges require."""
+    c = col(log=log)
+    c.plan = copy.deepcopy(PLAN67)
+    return c
 
 
 class LatestAttemptTests(unittest.TestCase):
@@ -504,7 +515,7 @@ class LatestAttemptTests(unittest.TestCase):
 
     def test_p6_a_partial_retry_is_not_backfilled(self):
         retry = p6_log()[1:3]                              # datum 1: trials 1 and 2 only
-        v = probes.check_p6(col(log=p6_log() + retry))
+        v = probes.check_p6(pcol(p6_log() + retry))
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("want 1, 2, 3" in r for r in v.reasons), v.reasons)
 
@@ -523,18 +534,20 @@ class P6P7Tests(unittest.TestCase):
         self.assertNotIn("match=", quest)
 
     def test_p6_pass_fail_inconclusive(self):
-        v = probes.check_p6(col(log=p6_log()))
-        self.assertEqual(v.verdict, PASS, v.reasons)                                           # no plan.json needed
-        self.assertEqual(probes.check_p6(col(log=p6_log(pairs=((1.0, "A"), (2.0, "A"))))).verdict, FAIL)
-        self.assertEqual(probes.check_p6(col(log=p6_log(pairs=((1.0, "A"), (2.0, "none"))))).verdict, FAIL)
-        v = probes.check_p6(col(log=p6_log(pairs=((1.0, "A"), (2.0, "other")))))              # neither entry
+        v = probes.check_p6(pcol(p6_log()))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        v = probes.check_p6(col(log=p6_log()))                     # Codex review of #431: no plan.json, no base check
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol(p6_log(pairs=((1.0, "A"), (2.0, "A"))))).verdict, FAIL)
+        self.assertEqual(probes.check_p6(pcol(p6_log(pairs=((1.0, "A"), (2.0, "none"))))).verdict, FAIL)
+        v = probes.check_p6(pcol(p6_log(pairs=((1.0, "A"), (2.0, "other")))))              # neither entry
         self.assertEqual(v.verdict, FAIL)
         self.assertTrue(any("neither entry" in r for r in v.reasons), v.reasons)
         upper = [l.replace("baselocal=a", "baselocal=A").replace("baselocal=b", "baselocal=B") for l in p6_log()]
-        self.assertEqual(probes.check_p6(col(log=upper)).verdict, PASS)
-        self.assertEqual(probes.check_p6(col(log=p6_log()[:5])).verdict, INCONCLUSIVE)          # 3 + 1 trials
-        self.assertEqual(probes.check_p6(col(log=p6_log(loc="none"))).verdict, INCONCLUSIVE)
-        self.assertEqual(probes.check_p6(col(log=[INIT, "FOCC p6 refused loc=none"])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol(upper)).verdict, PASS)
+        self.assertEqual(probes.check_p6(pcol(p6_log()[:5])).verdict, INCONCLUSIVE)          # 3 + 1 trials
+        self.assertEqual(probes.check_p6(pcol(p6_log(loc="none"))).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol([INIT, "FOCC p6 refused loc=none"])).verdict, INCONCLUSIVE)
         for plan in ({"lvln_conditions_written": False}, {"skip": ["lvln"]}, {"skip": ["lvln", "sm"]}):
             c = col(log=p6_log())
             c.plan = plan
@@ -543,10 +556,10 @@ class P6P7Tests(unittest.TestCase):
             v = probes.check_p7(c)
             self.assertEqual((v.verdict, v.extra.get("blocked")), (INCONCLUSIVE, True), plan)
         c = col(log=p6_log())
-        c.plan = {"skip": ["sm"], "lvln_conditions_written": True}
+        c.plan = {"skip": ["sm"], "lvln_conditions_written": True, **PLAN67}
         self.assertEqual(probes.check_p6(c).verdict, PASS)
         bad_rb = [INIT] + [l.replace("readback=1.000000", "readback=0.000000") for l in p6_log()[1:]]
-        self.assertEqual(probes.check_p6(col(log=bad_rb)).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol(bad_rb)).verdict, INCONCLUSIVE)
 
     def test_a_label_must_agree_with_a_starfield_base_id(self):
         # Codex review of #431 (the literal-label findings): a Starfield.esm entry's runtime id is its file id.
@@ -554,12 +567,13 @@ class P6P7Tests(unittest.TestCase):
         line = lambda base, label: probes.parse_line(f"FOCC p6 trial=1 base={base} baselocal={label}")  # noqa: E731
         self.assertEqual(probes._base_match(line(0x2B211C, "a"), plan, "lvln_a", "lvln_b"), "A")
         self.assertIsNone(probes._base_match(line(0x2B211D, "a"), plan, "lvln_a", "lvln_b"))
-        self.assertEqual(probes._base_match(line(123, "b"), plan, "lvln_a", "lvln_b"), "B")     # not checkable: label kept
-        self.assertEqual(probes._base_match(line(123, "a"), None, "lvln_a", "lvln_b"), "A")
+        self.assertEqual(probes._base_match(line(0x05000800, "b"), plan, "lvln_a", "lvln_b"), "B")   # other plugin: local id
+        self.assertIsNone(probes._base_match(line(123, "b"), plan, "lvln_a", "lvln_b"))
+        self.assertIsNone(probes._base_match(line(0x2B211C, "a"), None, "lvln_a", "lvln_b"))         # no plan: cannot tell
 
     def test_explicit_match_field_is_honoured(self):
         lines = [l + " match=" + ("A" if "datum=1" in l else "B") for l in p6_log(baselocal={"A": "x", "B": "y"})[1:]]
-        self.assertEqual(probes.check_p6(col(log=[INIT] + lines)).verdict, PASS)
+        self.assertEqual(probes.check_p6(pcol([INIT] + lines)).verdict, PASS)
 
     def test_p6_plugin_id_baselocal_needs_plan_mapping(self):
         ids = {"A": "Starfield.esm:2B211C", "B": "Starfield.esm:1234"}
@@ -575,20 +589,20 @@ class P6P7Tests(unittest.TestCase):
         self.assertEqual(probes.check_p6(c).verdict, FAIL)
 
     def test_p7(self):
-        v = probes.check_p7(col(log=p7_log()))
+        v = probes.check_p7(pcol(p7_log()))
         self.assertEqual(v.verdict, PASS, v.reasons)
-        self.assertEqual(probes.check_p7(col(log=p7_log(pairs=((3.0, "A"), (9.0, "other"))))).verdict, FAIL)
+        self.assertEqual(probes.check_p7(pcol(p7_log(pairs=((3.0, "A"), (9.0, "other"))))).verdict, FAIL)
         self.assertEqual(v.extra["p7b_vendor"]["status"], "deferred")
-        self.assertEqual(probes.check_p7(col(log=p7_log(pairs=((3.0, "B"), (9.0, "B"))))).verdict, FAIL)
-        self.assertEqual(probes.check_p7(col(log=p7_log(glob=0.0))).verdict, INCONCLUSIVE)     # GLOB readback differs
-        self.assertEqual(probes.check_p7(col(log=p7_log()[:4])).verdict, INCONCLUSIVE)
-        self.assertEqual(probes.check_p7(col(log=[INIT])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p7(pcol(p7_log(pairs=((3.0, "B"), (9.0, "B"))))).verdict, FAIL)
+        self.assertEqual(probes.check_p7(pcol(p7_log(glob=0.0))).verdict, INCONCLUSIVE)     # GLOB readback differs
+        self.assertEqual(probes.check_p7(pcol(p7_log()[:4])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p7(pcol([INIT])).verdict, INCONCLUSIVE)
 
 
 # ----------------------------------------------------------------------------------------------- P8
 
 def p8_log(order=(1, 2, 0), swap=None, detach=None):
-    lines = [INIT, "FOCC rt=1.0 p8 move parents=3 children=12"]
+    lines = [INIT] + [f"FOCC rt=1.0 p8 move stage={k} parent={50333728 + k} pos=0 {6 * k} 0" for k in range(3)]
     for s in order:
         lines.append(f"FOCC rt=2.0 p8 stage={s}")
         for k in range(3):
@@ -609,6 +623,14 @@ class P8Tests(unittest.TestCase):
         c = col(log=p8_log() + p8_log()[1:-1])                # latest run lost its last child line
         c.saves = saves(focc_p8_before=1, focc_p8_after=1)
         self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE)
+
+    def test_every_stage_must_be_moved(self):
+        # Codex review of #431: a P8Move that stopped after stage 0 never moved stages 1 and 2.
+        c = col(log=p8_log()[:2] + p8_log()[4:])
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        v = probes.check_p8(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("want 0, 1, 2" in r for r in v.reasons), v.reasons)
 
     def test_pass(self):
         c = col(log=p8_log())
@@ -632,7 +654,7 @@ class P8Tests(unittest.TestCase):
         self.assertEqual(probes.check_p8(c).verdict, FAIL)
 
     def test_inconclusive_branches(self):
-        c = col(log=p8_log()[:1] + p8_log()[2:])            # no move line
+        c = col(log=p8_log()[:1] + p8_log()[4:])            # no move line
         c.saves = saves(focc_p8_before=1, focc_p8_after=1)
         self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE)
         c = col(log=p8_log()[:-1])                          # 35 child lines
@@ -770,6 +792,9 @@ class P10Tests(unittest.TestCase):
         # Codex review of #431: the literal local=2080 never stands in for the logged id.
         labelled = [INIT, P10[1], "FOCC rt=10.5 p10 quest started id=1 local=2080", "FOCC rt=20.0 p10 state id=1 local=2080 running=True"]
         self.assertEqual(probes.check_p10(col(log=labelled)).verdict, INCONCLUSIVE)
+        early = P10[:2] + [f"FOCC rt=10.2 p10 state id={P10_QUEST} local=2080 running=False", P10[2]]
+        v = probes.check_p10(col(log=early))            # read before OnQuestInit: says nothing (Codex review of #431)
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
         other_state = P10[:3] + ["FOCC rt=20.0 p10 state id=1 local=2080 running=True"]
         self.assertEqual(probes.check_p10(col(log=other_state)).verdict, INCONCLUSIVE)
         for plan in ({"sm_nodes_written": False}, {"skip": ["sm"]}):

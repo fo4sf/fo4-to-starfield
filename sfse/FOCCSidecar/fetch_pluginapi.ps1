@@ -2,7 +2,8 @@
 # commit and verify both sha256s before placing them next to FOCCSidecar.cpp. The header is the only permissively
 # licensed SFSE file (MIT: the repo's LICENSE says "This applies to sfse/PluginAPI.h ... The remainder of the files are
 # currently not under a permissive license", read 2026-10-21); nothing else of SFSE is ever fetched by this project,
-# and the fetched copies stay out of git (.gitignore: sfse/FOCCSidecar/PluginAPI.h, PluginAPI.LICENSE.txt).
+# and the fetched copies stay out of git (.gitignore: sfse/FOCCSidecar/PluginAPI.h, PluginAPI.LICENSE.txt,
+# PluginAPI.pin.json, which records the commit for build.ps1).
 # usage: powershell -File fetch_pluginapi.ps1 [-Commit <sha>] [-Sha256 <hex>] [-LicenseSha256 <hex>] [-Dest <dir>]
 # The defaults pin ianpatt/sfse master as read on 2026-10-21; a hash mismatch leaves nothing behind and exits 1.
 param([string]$Commit = '48535cc4306ab345252bf740c20a1c6194929b0e',
@@ -34,5 +35,9 @@ try {
       "placed: $($it.out) (sha256 $($it.sha), commit $Commit)"
     }
   }
+  # The commit the bytes came from, for build.ps1's receipt (a hash pins the bytes, not where they came from).
+  [ordered]@{ commit = $Commit; pluginapi_h_sha256 = $Sha256.ToLower(); license_sha256 = $LicenseSha256.ToLower() } |
+    ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $Dest 'PluginAPI.pin.json')
+  "pinned: $(Join-Path $Dest 'PluginAPI.pin.json') (commit $Commit)"
 } finally { Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue }
 exit 0

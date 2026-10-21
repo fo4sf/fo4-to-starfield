@@ -11,8 +11,14 @@ param([Parameter(Mandatory)][string]$Out)
 $ErrorActionPreference = 'Stop'
 $src = $PSScriptRoot
 $sources = @('FOCCSidecar.cpp', 'sha256.cpp', 'sha256.h', 'codec.h')
-foreach ($s in $sources + @('PluginAPI.h')) {
-  if (-not (Test-Path (Join-Path $src $s))) { "missing $s in $src" + $(if ($s -eq 'PluginAPI.h') { ' (run fetch_pluginapi.ps1 first)' }); exit 1 }
+foreach ($s in $sources + @('PluginAPI.h', 'PluginAPI.pin.json')) {
+  if (-not (Test-Path (Join-Path $src $s))) { "missing $s in $src" + $(if ($s -like 'PluginAPI*') { ' (run fetch_pluginapi.ps1 first)' }); exit 1 }
+}
+# The commit PluginAPI.h was fetched from, as fetch_pluginapi.ps1 recorded it; the header must be the bytes it pinned.
+$pin = Get-Content -Raw (Join-Path $src 'PluginAPI.pin.json') | ConvertFrom-Json
+$headerSha = (Get-FileHash -Algorithm SHA256 (Join-Path $src 'PluginAPI.h')).Hash.ToLower()
+if ($pin.commit -notmatch '^[0-9a-f]{40}$' -or $pin.pluginapi_h_sha256 -ne $headerSha) {
+  "PluginAPI.pin.json does not match PluginAPI.h (pin $($pin.pluginapi_h_sha256), header $headerSha): run fetch_pluginapi.ps1 again"; exit 1
 }
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) { 'vswhere.exe not found; run check_toolchain.ps1'; exit 1 }
@@ -48,7 +54,7 @@ $build = [ordered]@{
   plugin = 'FOCCSidecar'; plugin_version = 1; built_at = (Get-Date).ToUniversalTime().ToString('o')
   compiler = $clVersion; vs_instance = $inst
   sources = [ordered]@{}
-  pluginapi_h = [ordered]@{ sha256 = (& $hash (Join-Path $src 'PluginAPI.h')); pinned_commit = 'see fetch_pluginapi.ps1 defaults' }
+  pluginapi_h = [ordered]@{ sha256 = $headerSha; commit = $pin.commit }
   output = [ordered]@{ path = $dll; sha256 = (& $hash $dll); bytes = (Get-Item $dll).Length }
   install_to = 'Data\SFSE\Plugins\FOCCSidecar.dll (copied by hand, game closed; uninstall = delete that one file)'
 }

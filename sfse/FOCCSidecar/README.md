@@ -109,7 +109,7 @@ Game closed. The repo checked out on the PC; `$sf` = the Starfield folder (the o
    1.16.244 (SFSE's `sfse_whatsnew.txt` and readme: "SFSE will support the latest version of Starfield available on
    Steam, currently 1.16.244"; Steam only, no Gamepass/MS Store). The docs record that no MSVC, vswhere or Visual Studio
    was on the PC on 2026-10-07/11 (`docs/terrain/source-patch.md` line 30), so exit 1 is the expected first result.
-1. **Header.** `powershell -File sfse\FOCCSidecar\fetch_pluginapi.ps1` places `PluginAPI.h` and `PluginAPI.LICENSE.txt`
+1. **Header.** `powershell -File sfse\FOCCSidecar\fetch_pluginapi.ps1` places `PluginAPI.h`, `PluginAPI.LICENSE.txt` and `PluginAPI.pin.json` (the commit, which build.json records)
    beside the sources (pinned commit `48535cc4306ab345252bf740c20a1c6194929b0e`, header sha256
    `10b834f1490b12fcab965d9c7a49f87bac3a102ed0f25a71611d499bd506c442`, licence sha256
    `4a4b6926786f261e0c19178af304190c645b1b820b7722a6973c9b2a64b8a860`). A mismatch places nothing. Both files are

@@ -1,6 +1,7 @@
 """Combined-core L3 news (news.py) on the synthetic REGION_1/REGION_2 packs: placeholder names, not game facts."""
 import copy
 import os
+import re
 import sys
 import unittest
 
@@ -14,7 +15,7 @@ SEEDS = range(8)
 DAYS = 12
 KINDS_WRITTEN = ("place_taken", "attack_launched", "attack_failed", "caravan_raided", "caravan_arrived",
                  "caravan_lost", "stage_changed", "settler_left", "settler_arrived", "player_defended",
-                 "player_traded")
+                 "player_traded", "roles_changed", "settlement_emptied", "settlement_resettled")
 
 
 def world(seed=1):
@@ -49,8 +50,15 @@ class TemplateTests(unittest.TestCase):
             "settler_arrived": ev("settler_arrived"),
             "player_defended": ev("player_defended", holder="settlers", bonus=10),
             "player_traded": ev("player_traded", goods={"food": 10}),
+            "roles_changed": ev("roles_changed", from_role="guard", to_role="farmer", n=1),
+            "settlement_emptied": ev("settlement_emptied", holder="settlers"),
+            "settlement_resettled": ev("settlement_resettled", faction="settlers"),
         }
         self.assertEqual(set(samples), set(KINDS_WRITTEN))
+        # Codex review of #431: every kind sim.py emits is written about, so a new kind cannot go silent.
+        with open(os.path.join(ROOT, "src", "fo4sf", "combined", "sim.py"), encoding="utf-8") as f:
+            emitted = set(re.findall(r'_event\(ws, "([a-z_]+)"', f.read()))
+        self.assertEqual(emitted, set(KINDS_WRITTEN))
         for kind, e in samples.items():
             line = news.headline(e)
             self.assertIsInstance(line, str, kind)

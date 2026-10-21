@@ -845,18 +845,23 @@ def _base_match(e: Event, plan: dict | None, key_a: str, key_b: str):
         return "none"
     bases = _plan_bases(plan)
     if bl.lower() in ("a", "b"):
-        # The label is the script's comparison; when the entry is a Starfield.esm base (load index 00, so its runtime
-        # id is its file id) the logged id must agree, so a mis-bound property never settles P6 / P7 (Codex, #431).
+        # The label is only the script's comparison with its own properties, so the logged runtime id must agree with
+        # plan.json's base (Codex review of #431): a Starfield.esm base (load index 00) by its whole id, a base in
+        # another plugin by its local id. No plan, no base mapping or a mismatch: cannot be told.
         want = str(bases.get(key_a if bl.lower() == "a" else key_b) or "")
         plugin, _, hexid = want.rpartition(":")
+        got = e.form("base")
+        try:
+            want_id, got_id = int(hexid, 16), int(got, 16) if got is not None else None
+        except ValueError:
+            return None
+        if not plugin or got_id is None:
+            return None
         if plugin.lower() == "starfield.esm":
-            got = e.form("base")
-            try:
-                if got is None or int(got, 16) != int(hexid, 16):
-                    return None
-            except ValueError:
-                return None
-        return bl.upper()
+            ok = got_id == want_id
+        else:
+            ok = _local(e, "base") == (want_id & (0xFFF if got_id >> 24 == 0xFE else 0xFFFFFF))
+        return bl.upper() if ok else None
     if bl.lower() == "other":
         return "other"
     if bases.get(key_a) and bases.get(key_b):
@@ -954,15 +959,25 @@ def check_p8(c: Collection) -> Verdict:
         v.reasons.append("no log (focc.0.log)")
         return v
     moves = _by_kind(evs, "p8 move")
-    if moves:                                   # judge only after the latest move: an older run's lines never count
+    firsts = [e for e in moves if e.num("stage") == 0.0]
+    if firsts:                                  # judge only the latest P8Move: an older run's lines never count
+        evs = [e for e in evs if e.line >= firsts[-1].line]
+    elif moves:
         evs = [e for e in evs if e.line >= moves[-1].line]
     move = _by_kind(evs, "p8 move")
-    stages = [e for e in evs if e.kind == "p8" and set(e.fields) == {"stage"}]      # `FOCC p8 stage=<s>`
-    children = _by_kind(evs, "p8 child")
-    v.cite(*move, *stages, *children)
+    v.cite(*move)
     if not move:
         v.reasons.append("no `p8 move` line: the refs were not brought into the player's merged frame")
         return v
+    # P8Move logs stage 0, 1, 2 in one call; a call that stopped early leaves stages unmoved (Codex review of #431).
+    moved = [e.num("stage") for e in move]
+    if moved[:3] != [0.0, 1.0, 2.0]:
+        v.reasons.append(f"the latest P8Move logged stages {moved}, want 0, 1, 2: not every stage was moved")
+        return v
+    evs = [e for e in evs if e.line > move[2].line]
+    stages = [e for e in evs if e.kind == "p8" and set(e.fields) == {"stage"}]      # `FOCC p8 stage=<s>`
+    children = _by_kind(evs, "p8 child")
+    v.cite(*stages, *children)
     if len(stages) < 3 or len(children) < 36:
         v.reasons.append(f"{len(stages)} stage lines and {len(children)} child lines, want 3 and 36")
         return v
@@ -1148,6 +1163,8 @@ def check_p10(c: Collection) -> Verdict:
     running = state[-1].flag("running") if state and state[-1].line > s.line else None
     if after:
         e = after[0]
+        # IsRunning counts only when read after that OnQuestInit; an earlier read says nothing (Codex review of #431).
+        running = state[-1].flag("running") if state and state[-1].line > e.line else None
         if s.rt is not None and e.rt is not None and e.rt - s.rt > PLACEHOLDERS["p10_start_window_s"]:
             v.reasons.append(f"the quest started {e.rt - s.rt:.1f} s after the send, outside the placeholder "
                              f"{PLACEHOLDERS['p10_start_window_s']} s window")

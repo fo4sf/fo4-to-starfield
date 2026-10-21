@@ -35,6 +35,8 @@ TEMPLATES = {
     "stage_shrank": "{place} has shrunk.",
     "settler_left": "A settler left {place}.",
     "settler_arrived": "A new settler arrived at {place}.",
+    "settlement_emptied": "The last settler has left {place}; it stands empty.",
+    "settlement_resettled": "Settlers of {faction} have moved back into {place}.",
     "player_defended": "A traveller stood guard at {place}.",
     "player_gave": "A traveller brought supplies to {place}.",
     "player_took": "A traveller bought supplies at {place}.",
