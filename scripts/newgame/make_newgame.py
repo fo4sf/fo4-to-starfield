@@ -114,7 +114,7 @@ NATIVES = {
                             "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen", "RemoveAllItems", "GetItemCount",
                             "AddItem"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
-                  "SetObjectiveCompleted", "SetActive"],
+                  "SetObjectiveCompleted", "SetActive", "IsCompleted", "IsStopped"],
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
@@ -194,6 +194,16 @@ def is_new_game(days, level, max_days=0.25, max_level=1):
     """FO4SF_NewGameQuest.IsNewGame: fewer than max_days game days passed and the player at most max_level. An
     existing save that gains the plugin stands down."""
     return days < max_days and level <= max_level
+
+
+SAVEABLE_STAGE = 105   # MQ101's stage that turns saving back on (QF_MQ101_00003448.psc, PC read 19 Oct)
+
+
+def is_fresh_start(opening_stage, opening_completed, opening_stopped, saveable=SAVEABLE_STAGE):
+    """FO4SF_NewGameQuest.IsFreshStart: the opening (MQ101) below the stage that turns saving back on, not completed,
+    and not stopped after it began. A save the player made cannot have it there, so an early level-1 save under six
+    game hours still stands down (21 Oct review on #393)."""
+    return opening_stage < saveable and not opening_completed and not (opening_stopped and opening_stage > 0)
 
 
 def declared_properties(psc_text):

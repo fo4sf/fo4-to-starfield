@@ -369,6 +369,20 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(ng.is_new_game(0.0, 2))
         self.assertFalse(ng.is_new_game(12.5, 30))           # the owner's test saves
 
+    def test_an_early_existing_save_is_not_a_fresh_start(self):
+        """21 Oct review on #393: days and level alone let an early level-1 save under six hours through."""
+        psc = read(PSC)
+        self.assertIn("return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)", psc)
+        self.assertIn(f"int Property SaveableStage = {ng.SAVEABLE_STAGE} Auto Const", psc)
+        self.assertIn("if !fresh || !IsNewGame(days, level)", psc)
+        self.assertTrue(ng.is_fresh_start(0, False, True))     # MQ101 not started yet
+        self.assertTrue(ng.is_fresh_start(0, False, False))    # MQ101 at its stage 0, saving still off
+        self.assertFalse(ng.is_fresh_start(105, False, False))  # saving is back on: a save could exist
+        self.assertFalse(ng.is_fresh_start(300, False, False))
+        self.assertFalse(ng.is_fresh_start(0, True, True))     # completed
+        self.assertFalse(ng.is_fresh_start(30, False, True))   # stopped after it began
+        self.assertIn('Obj("Opening", opening.FormKey)', read(CS))
+
     def test_every_native_the_script_calls_is_prechecked(self):
         psc = read(PSC)
         calls = set(re.findall(r"\.(\w+)\(", psc))

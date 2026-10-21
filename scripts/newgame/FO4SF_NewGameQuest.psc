@@ -19,6 +19,13 @@ Scriptname FO4SF_NewGameQuest extends Quest
 GlobalVariable Property GameDaysPassed Auto Const Mandatory
 {Starfield.esm 000039, 0 on a new game. Part of the new-game guard (IsNewGame).}
 
+Quest Property Opening Auto Const Mandatory
+{Starfield's MQ101. Part of the new-game guard: the opening turns saving off at its stage 0 and back on at 105 (PC read
+ 19 Oct), so a save the player made has it at 105 or later, or stopped, and only a fresh start reaches us below 105.}
+
+int Property SaveableStage = 105 Auto Const
+{MQ101's stage that turns saving back on (SetInChargen(false, ...), QF_MQ101_00003448.psc, PC read 19 Oct).}
+
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
  MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts). Walked twice: before the
@@ -138,8 +145,9 @@ Event OnTimer(int aiTimerID)
         endif
         float days = GameDaysPassed.GetValue()
         int level = player.GetLevel()
-        if !IsNewGame(days, level)
-            Trace("not a new game: days=" + days + " level=" + level + ": standing down")
+        bool fresh = IsFreshStart(Opening.GetStage(), Opening.IsCompleted(), Opening.IsStopped())
+        if !fresh || !IsNewGame(days, level)
+            Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
             AdvanceTo(1)
             Stop()
             return
@@ -183,6 +191,13 @@ EndEvent
 bool Function IsNewGame(float days, int level)
 {The new-game guard (make_newgame.py is_new_game is the same rule, tested there).}
     return days < MaxNewGameDays && level <= MaxNewGameLevel
+EndFunction
+
+bool Function IsFreshStart(int openingStage, bool openingCompleted, bool openingStopped)
+{The rest of the guard (21 Oct review on #393: an early level-1 save under six hours passed days and level alone). A
+ save the player made has the opening at SaveableStage or later, or stopped; a fresh start has it below, still running
+ or not yet started (stage 0). make_newgame.py is_fresh_start is the same rule, tested there.}
+    return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)
 EndFunction
 
 Function HoldOffPass(int pass)

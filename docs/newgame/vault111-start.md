@@ -15,8 +15,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 
 1. **Start:** our quest starts with the game (start game enabled, run once) and waits each second until the player's 3D
    is loaded (Starfield's Utility.psc has no IsInMenuMode, so open menus are not awaited).
-2. **Guard:** it acts only on a new game (fewer than 0.25 game days passed and the player at level 1). An existing save
-   that gains the plugin stands the quest down at stage 1 and nothing moves. The owner's test saves are safe.
+2. **Guard:** it acts only on a new game. That means fewer than 0.25 game days have passed, the player is at level 1, and
+   Starfield's opening (`MQ101`) is still below stage 105, where it turns saving back on, and is neither completed nor
+   stopped after it began. A save the player made always has the opening at 105 or later, so even an early level-1 save
+   stands down (21 Oct review). An existing save that gains the plugin stands the quest down at stage 1 and nothing
+   moves. The owner's test saves are safe.
 3. **Starfield's opening is held off:** the quest stops `MQ00` (the main-quest start), `MQ101` (the opening),
    `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they run, and logs each stop. The list is walked twice: once before
    the move, and once one tick later, because stopping MQ101 runs its stage 9000, which starts the last two (section 2).

@@ -144,6 +144,7 @@ static class NewGame
     // the quests held off on a new game: the main-quest start and the opening, and the two MQ101's stage 9000 starts
     // when MQ101 is stopped (MQ101PostQuest always, MQ_TutorialQuest_Misc04 unless the player entered the Unity; PC
     // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass one tick later
+    const string OpeningEdid = "MQ101";
     public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04" };
     // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the wait for the player's 3D, is no record)
     public static readonly ushort[] Stages = { 1, 10, 20, 30, 40, 200 };
@@ -472,6 +473,8 @@ static class NewGame
         var days = sf.Globals.FirstOrDefault(g => g.FormKey == new FormKey(SfEsm, GameDaysPassedId) && g.EditorID == GameDaysPassedEdid)
                    ?? throw new Refusal($"Starfield.esm {GameDaysPassedId:X6} is not the GLOB {GameDaysPassedEdid}");
         var hold = o.Hold.Select(e => sf.Quests.FirstOrDefault(q => q.EditorID == e) ?? throw new Refusal($"Starfield.esm has no quest {e}")).ToList();
+        // the new-game guard's fresh-start test reads the opening quest's stage (21 Oct review on #393)
+        var opening = sf.Quests.FirstOrDefault(q => q.EditorID == OpeningEdid) ?? throw new Refusal($"Starfield.esm has no quest {OpeningEdid}");
 
         var msg = new SF.Message(new FormKey(modKey, MessageId), SF.StarfieldRelease.Starfield)
         {
@@ -535,6 +538,7 @@ static class NewGame
             Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
         };
         script.Properties.Add(Obj("GameDaysPassed", days.FormKey));
+        script.Properties.Add(Obj("Opening", opening.FormKey));
         var list = new SF.ScriptObjectListProperty { Name = "HoldOff", Flags = SF.ScriptProperty.Flag.Edited };
         foreach (var q in hold) list.Objects.Add(Obj("", q.FormKey));
         script.Properties.Add(list);
@@ -747,6 +751,8 @@ static class NewGame
                 Console.WriteLine($"  script {s.Name}: {props.Count} properties");
                 Need(props.TryGetValue("GameDaysPassed", out var gp) && gp is SF.IScriptObjectPropertyGetter go && go.Object.FormKey == new FormKey(SfEsm, GameDaysPassedId),
                      "property GameDaysPassed");
+                Need(props.TryGetValue("Opening", out var op) && op is SF.IScriptObjectPropertyGetter oq &&
+                     oq.Object.FormKey == sf.Quests.FirstOrDefault(x => x.EditorID == OpeningEdid)?.FormKey, $"property Opening is not {OpeningEdid}");
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
@@ -754,7 +760,7 @@ static class NewGame
                 var expected = Properties(pts, places, o);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 3, $"{props.Count} properties, expected {expected.Count + 3}");
+                Need(props.Count == expected.Count + 4, $"{props.Count} properties, expected {expected.Count + 4}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}");
@@ -992,6 +998,7 @@ static class NewGame
             ("a position changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ArrivalX")).Data += 1),
             ("the merge offset changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "MergeOffsetY")).Data = 0),
             ("a property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PodHeading")),
+            ("the Opening property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Opening")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
             ("the MQ101Debug override reads 0", m => m.Globals.First(g => g.EditorID == "MQ101Debug").Data = 0),
