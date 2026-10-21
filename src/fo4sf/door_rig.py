@@ -215,3 +215,13 @@ def slides(source, degrees=5.0, units=5.0):
         return False
     return bool(rows) and all(r['rotation_deg'] < degrees for r in rows) and \
         any(math.sqrt(sum(x * x for x in r['travel_m'])) > units for r in rows)
+
+
+def flips(source, degrees=5.0, max_vertical=0.7):
+    """True when an FO4 door's Open turns a part about a horizontal axis (a trapdoor or hatch leaf: the axis's z component
+    is below max_vertical), which the vertical-hinge template cannot reproduce. False when the motion cannot be read."""
+    try:
+        rows = open_motion(plan(source, placed=True), 1.0)
+    except (nif.NifError, KeyError, ValueError, IndexError, struct.error):
+        return False
+    return any(r['rotation_deg'] > degrees and r['axis'] and abs(r['axis'][2]) < max_vertical for r in rows)

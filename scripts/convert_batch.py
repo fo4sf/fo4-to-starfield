@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -46,6 +46,8 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
+        sig["rig_load_doors"] = True
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -165,7 +167,18 @@ def static_pattern_models(pattern, names):
     return {n for n in names if re.search(pattern, n, re.I)}
 
 
-def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
+def triangle_count(src_archives, name):
+    """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
+    try:
+        raw = src_archives.mesh(name)
+        parsed = nif.parse(raw)
+        shapes = nif.fo4_trishapes(parsed)
+        return sum(len(s.triangles) for s in shapes if s.triangles)
+    except Exception:  # noqa: BLE001
+        return 0  # let the real converter report the failure
+
+
+# ... existing code ...
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
     of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
@@ -206,6 +219,10 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--rig-load-doors", action="store_true",
+                    help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
+                         "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
+                         "default: load doors stay graph-less static doors")
     ap.add_argument("--no-rig-pattern", default="",
                     help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
                          "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
@@ -250,6 +267,8 @@ def main():
         ap.error("--door-anim-dll: file not found")
     if a.door_anim_dll and not a.starfield_data:
         ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
+    if a.rig_load_doors and not a.starfield_data:
+        ap.error("--rig-load-doors needs --starfield-data (doors are rigged only with the vanilla donor body)")
 
     ids = load_editor_ids(a.staging)
 
@@ -298,6 +317,11 @@ def main():
             skipped += 1
         else:
             ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            # Apply --max-tris: skip heavy meshes before the expensive conversion
+            if a.max_tris and triangle_count(src, name) > a.max_tris:
+                skipped += 1
+                print(f"  skip {name}: > {a.max_tris} triangles")
+                continue
             r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
@@ -311,7 +335,7 @@ def main():
                                               spec_mask_roughness=a.spec_mask_roughness,
                                               mass_scale=a.mass_scale, load_door_models=load_models,
                                               static_body_models=static_models,
-                                              no_rig_models=no_rig_models)
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
@@ -361,7 +385,7 @@ def main():
                                               spec_mask_roughness=a.spec_mask_roughness,
                                               mass_scale=a.mass_scale, load_door_models=load_models,
                                               static_body_models=static_models,
-                                              no_rig_models=no_rig_models)
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
