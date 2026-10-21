@@ -115,16 +115,28 @@ class Dump:
         out = {}
         if PROCESS_VM_COUNTERS in self.streams:
             at, size = self.streams[PROCESS_VM_COUNTERS]
-            if size >= 80:
+            rev, flags = struct.unpack_from("<HH", self.data, at) if size >= 4 else (0, 0)
+            # revision 1: PrivateUsage at 72. Revision 2: the basic counters only with flag 0x1 (VM_COUNTERS),
+            # PeakVirtualSize and VirtualSize at 72 and 80 with 0x2 (VIRTUALSIZE), PrivateUsage at 88 with 0x4 (EX)
+            if size >= 72 and (rev == 1 or flags & 0x1):
                 peak_ws, ws = struct.unpack_from("<QQ", self.data, at + 8)
-                pagefile, peak_pagefile, private = struct.unpack_from("<QQQ", self.data, at + 56)
-                out["process"] = {"working_set": ws / GIB, "peak_working_set": peak_ws / GIB, "commit": pagefile / GIB,
-                                  "peak_commit": peak_pagefile / GIB, "private": private / GIB}
+                pagefile, peak_pagefile = struct.unpack_from("<QQ", self.data, at + 56)
+                proc = {"working_set": ws / GIB, "peak_working_set": peak_ws / GIB, "commit": pagefile / GIB,
+                        "peak_commit": peak_pagefile / GIB}
+                if rev == 1 and size >= 80:
+                    proc["private"] = struct.unpack_from("<Q", self.data, at + 72)[0] / GIB
+                if rev >= 2 and flags & 0x2 and size >= 88:
+                    proc["virtual"] = struct.unpack_from("<Q", self.data, at + 80)[0] / GIB
+                if rev >= 2 and flags & 0x4 and size >= 96:
+                    proc["private"] = struct.unpack_from("<Q", self.data, at + 88)[0] / GIB
+                out["process"] = proc
         if SYSTEM_MEMORY_INFO in self.streams:
             at, size = self.streams[SYSTEM_MEMORY_INFO]
-            if size >= 160:
+            flags, = struct.unpack_from("<H", self.data, at + 2) if size >= 4 else (0,)
+            if size >= 160 and flags & 0x2:
                 # MINIDUMP_SYSTEM_MEMORY_INFO_1: basic information at 8 (PageSize at 12), the file cache at 64, the
-                # basic performance information at 128 (available pages, committed pages, commit limit, peak commit)
+                # basic performance information at 128 (available pages, committed pages, commit limit, peak commit),
+                # valid only with flag 0x2 (MINIDUMP_SYSMEMINFO1_BASICPERF)
                 page, = struct.unpack_from("<I", self.data, at + 12)
                 avail, committed, limit, peak = struct.unpack_from("<4Q", self.data, at + 128)
                 if page in (4096, 8192, 16384, 65536):

@@ -21,7 +21,7 @@ RSP = 0x10000
 GIB = 1 << 30
 
 
-def build(memory_list=False):
+def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
     """A minidump: Starfield.exe and ntdll.dll, an access violation reading 0x3ca3d70a at Starfield.exe+0x2bf016b,
     and four stack slots at rsp: a plain number, ntdll+0x1234, Starfield.exe+0x10, and 0."""
     stack = struct.pack("<4Q", 42, DLL + 0x1234, BASE + 0x10, 0)
@@ -58,11 +58,14 @@ def build(memory_list=False):
         add(mem)
         add(stack)
         entries.append((md.MEMORY64_LIST, len(mem), mem_at))
-    vm = bytearray(80)
+    vm = bytearray(96)                                             # MINIDUMP_PROCESS_VM_COUNTERS_2
+    struct.pack_into("<HH", vm, 0, 2, vm_flags)
     struct.pack_into("<QQ", vm, 8, 13 * GIB, 12 * GIB)            # peak working set, working set
-    struct.pack_into("<QQQ", vm, 56, 14 * GIB, 15 * GIB, 14 * GIB)  # commit, peak commit, private
+    struct.pack_into("<QQ", vm, 56, 14 * GIB, 15 * GIB)           # commit, peak commit
+    struct.pack_into("<QQQ", vm, 72, 200 * GIB, 100 * GIB, 13 * GIB)  # peak virtual, virtual, private
     entries.append((md.PROCESS_VM_COUNTERS, len(vm), add(bytes(vm))))
     sysmem = bytearray(160)
+    struct.pack_into("<HH", sysmem, 0, 1, sys_flags)
     struct.pack_into("<I", sysmem, 12, 4096)
     struct.pack_into("<4Q", sysmem, 128, GIB // 4096 // 2, 40 * GIB // 4096, 48 * GIB // 4096, 44 * GIB // 4096)
     entries.append((md.SYSTEM_MEMORY_INFO, len(sysmem), add(bytes(sysmem))))
@@ -84,9 +87,17 @@ class MinidumpRead(unittest.TestCase):
                              [(8, "ntdll.dll+0x1234"), (16, "Starfield.exe+0x10")])
             self.assertEqual(d.modules[0]["version"], "1.16.244.0")
             self.assertEqual(d.memory(), {"process": {"working_set": 12.0, "peak_working_set": 13.0, "commit": 14.0,
-                                                      "peak_commit": 15.0, "private": 14.0},
+                                                      "peak_commit": 15.0, "virtual": 100.0, "private": 13.0},
                                           "system": {"available": 0.5, "commit": 40.0, "commit_limit": 48.0,
                                                      "peak_commit": 44.0}})
+
+    def test_memory_fields_follow_the_stream_flags(self):
+        # Codex on #451: revision 2 puts PeakVirtualSize at 72; PrivateUsage (88) needs flag 0x4, and the system's
+        # basic performance numbers need MINIDUMP_SYSMEMINFO1_BASICPERF (0x2)
+        mem = md.Dump(build(vm_flags=0x1, sys_flags=0x0)).memory()
+        self.assertEqual(sorted(mem), ["process"])
+        self.assertEqual(sorted(mem["process"]), ["commit", "peak_commit", "peak_working_set", "working_set"])
+        self.assertEqual(md.Dump(build(vm_flags=0x0)).memory().get("process"), None)
 
     def test_main_reports_each_dump_and_refuses_a_non_dump(self):
         with tempfile.TemporaryDirectory() as tmp:
