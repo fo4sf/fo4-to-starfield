@@ -80,7 +80,7 @@ int p4Deleted = 0
 ObjectReference[] p4Spawned
 
 ; P5
-int p5Tick = 0
+int p5TickCount = 0
 int p5Ticks = 0
 
 ; P9
@@ -278,7 +278,7 @@ Function P5Tick(int ticks)
         return
     endif
     p5Ticks = ticks
-    p5Tick = 0
+    p5TickCount = 0
     Trace("p5 start ticks=" + ticks + " places=" + P5Globals.Length)
     StartTimer(0.1, TIMER_P5)
 EndFunction
@@ -297,12 +297,12 @@ Function P5One()
         i += 1
     endwhile
     float ms = (Utility.GetCurrentRealTime() - t0) * 1000.0
-    p5Tick += 1
-    Trace("p5 tick n=" + p5Tick + " places=" + n + " ms=" + ms + " sum=" + sum)
-    if p5Tick < p5Ticks
+    p5TickCount += 1
+    Trace("p5 tick n=" + p5TickCount + " places=" + n + " ms=" + ms + " sum=" + sum)
+    if p5TickCount < p5Ticks
         StartTimer(0.5, TIMER_P5)
     else
-        Trace("p5 done ticks=" + p5Tick)
+        Trace("p5 done ticks=" + p5TickCount)
     endif
 EndFunction
 
@@ -386,14 +386,14 @@ Function P8Move()
     Actor player = Game.GetPlayer()
     int k = 0
     while k < 3
-        ObjectReference parent = P8Parents[k]
-        parent.MoveTo(player, 0.0, 6.0 * k, 0.0, True, False)
+        ObjectReference stageParent = P8Parents[k]
+        stageParent.MoveTo(player, 0.0, 6.0 * k, 0.0, True, False)
         int j = 0
         while j < 4
             P8Children[4 * k + j].MoveTo(player, 2.0 * j, 6.0 * k, 0.0, True, False)
             j += 1
         endwhile
-        Trace("p8 move stage=" + k + " parent=" + parent.GetFormID() + " pos=" + parent.GetPositionX() + " " + parent.GetPositionY() + " " + parent.GetPositionZ())
+        Trace("p8 move stage=" + k + " parent=" + stageParent.GetFormID() + " pos=" + stageParent.GetPositionX() + " " + stageParent.GetPositionY() + " " + stageParent.GetPositionZ())
         k += 1
     endwhile
 EndFunction
@@ -427,7 +427,7 @@ EndFunction
 
 ; ---------------------------------------------------------------- P9: long-route pathing tracker
 
-Function P9Dest(float dx, float dy)
+Function P9PlaceDest(float dx, float dy)
     if P9Dest == None
         Trace("p9 refused dest=none")
         return

@@ -137,7 +137,7 @@ EndFunction
 Function P9Dest(float dx, float dy) global
     FOCC_ProbeQuest q = Q("p9")
     if q != None
-        q.P9Dest(dx, dy)
+        q.P9PlaceDest(dx, dy)
     endif
 EndFunction
 
