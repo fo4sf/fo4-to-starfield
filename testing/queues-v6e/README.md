@@ -10,6 +10,17 @@ DRAFT by the cloud thread, 2026-10-21. Not run and not dry-run. The planner hash
 | doors/ | `f1e9b528fc4c0ef28fc9ff0afd7275d38e262349c780bca578b140e56dc9a09c` | `...\doors_out`, then `...\doors_rounds` | OUT legs (as v6c doors_out2), then every door IN + OUT | The load door put the player within 3 m of the other side's marker, in the right cell/world, with activation, ack and resolve proven (door-rounds.md:42-47) | v6 baseline: 5/8 OUT PASS. FAIL: Vault95 STAYED, MuseumOfWitchcraft01 16.4 m in z, PrydwenHull01 71.7 m in z (research-log.md:1457-1486). No locks, prompts, auto-load doors. |
 | stairs/ | `59bf5bc42290ac5d78607f12248b0ecdd6c92b8f0ddbfc5d6cf8954e3c482c6d` | `D:\Modding\testqueue_v6e\stairs` | the 20 BostonPublicLibrary02 stairs of queues-1019 | The player climbs at least 80 % of each flight with no STUCK or FALL | Interior only. A stair that routes.py now skips is dropped from the queue (the script prints n of 20). |
 
+## RETEST NEEDED, with the crash watcher on (owner, 2026-10-21 19:05Z)
+The owner will turn the crash watcher on when they test. These runs ended without a usable result, so each one is
+flagged for a retest **with the crash watcher running**. The Launcher thread is rebuilding the watcher to start and stop
+with the game, with an on/off toggle in the launcher; the retest cards assume it is running. The runner side is merged
+in #446 and #447, so retest on a runner checkout at or after that merge.
+| Queue | What happened | Retest |
+|---|---|---|
+| `D:\Modding\testqueue_v6e\doors_rounds` | Starfield exited silently as 0000_terrain_FO4Core_RedRocketSpawn began (11:03:25). There was no WER event and no dump, and the watcher was off. 1 INCONCLUSIVE, 29 NOT_RUN. | All 30 tests, re-planned into a NEW queue folder |
+| `D:\Modding\testqueue_v6e\walk` | Held, never run. It starts at Red Rocket, the same area as the silent exit. | Both tests |
+| `D:\Modding\testqueue_v6e\stairs` | All 20 tests were INCONCLUSIVE NOCELL. The player arrived, but the HUD's O2 dial spoiled the console OCR of each arrival (fixed by #447: the arrival is read from the bridge). | All 20 tests, in a NEW queue folder |
+
 ## Run order (one queue at a time, game closed, PC idle)
 1. `doors\plan.ps1`, then `doors\plan.ps1 -Run`. doors_out runs first: its legs coc into interiors, away from the Red Rocket crash area. doors_rounds runs only if doors_out ended with exit 0, no crash and no dead start. doors_rounds' IN legs start at `FO4Core_RedRocketSpawn`.
 2. `stairs\plan.ps1`, then `-Run`.
