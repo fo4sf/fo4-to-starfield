@@ -8,7 +8,7 @@ if (-not ('FO4SF.Frame' -as [type])) {
 using System; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices;
 namespace FO4SF {
   public static class Frame {
-    // the brightest pixel of a rectangle, as luminance (ITU-R 601, as PIL's "L"): every pixel, not a sample (Codex, #442)
+    // the brightest pixel of a rectangle, as luminance rounded as Pillow's "L": every pixel, not a sample (Codex, #442)
     public static int MaxLuma(Bitmap bmp, int x0, int y0, int x1, int y1) {
       var d = bmp.LockBits(new Rectangle(x0, y0, x1 - x0, y1 - y0), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
       try {
@@ -16,7 +16,7 @@ namespace FO4SF {
         for (int y = 0; y < y1 - y0; y++) {
           Marshal.Copy(IntPtr.Add(d.Scan0, y * d.Stride), row, 0, row.Length);
           for (int i = 0; i < row.Length; i += 4) {
-            int l = (row[i + 2] * 299 + row[i + 1] * 587 + row[i] * 114) / 1000;
+            int l = (row[i + 2] * 19595 + row[i + 1] * 38470 + row[i] * 7471 + 0x8000) >> 16;   // Pillow's own "L"
             if (l > max) max = l;
           }
         }

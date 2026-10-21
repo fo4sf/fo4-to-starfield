@@ -121,6 +121,14 @@ class GameFrameTests(unittest.TestCase):
         self.assertIn("[FO4SF.Frame]::MaxLuma($bmp, $bar[0], $bar[1], $bar[2], $bar[3]) -gt", ps)
         self.assertIn("for (int i = 0; i < row.Length; i += 4)", ps)
         self.assertNotIn("GetPixel", ps)
+        # and each pixel's luminance rounded as Pillow's "L" (Codex on #442: (0, 22, 0) is 13 there, 12 truncated)
+        m = re.search(r"int l = \(row\[i \+ 2\] \* (\d+) \+ row\[i \+ 1\] \* (\d+) \+ row\[i\] \* (\d+) \+ 0x8000\) >> 16;", ps)
+        self.assertIsNotNone(m)
+        wr, wg, wb = (int(x) for x in m.groups())
+        luma = lambda r, g, b: (r * wr + g * wg + b * wb + 0x8000) >> 16
+        for rgb in ((0, 22, 0), (0, 21, 0), (12, 12, 12), (13, 13, 13), (255, 0, 0), (0, 0, 255), (40, 200, 7)):
+            with self.subTest(rgb=rgb):
+                self.assertEqual(luma(*rgb), Image.new("RGB", (1, 1), rgb).convert("L").getpixel((0, 0)))
         self.assertIn("$w * 9 * %g" % game_frame.TOLERANCE, ps)           # and the same 16:9 tolerance
         for name in ("shot.ps1", "shot_region.ps1"):
             with self.subTest(script=name):
