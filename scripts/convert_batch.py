@@ -309,18 +309,21 @@ def main():
     items, failures, reused = [], [], 0
     attempted_so_far = 0
     skipped = 0
+    skip_reasons = []
     progress_every = 10
     for name in names:
         if len(items) >= a.limit:
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
+            skip_reasons.append({"nif": name, "reason": "lod_or_damaged"})
         else:
             ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
             # Apply --max-tris: skip heavy meshes before the expensive conversion
             if a.max_tris and triangle_count(src, name) > a.max_tris:
                 skipped += 1
                 print(f"  skip {name}: > {a.max_tris} triangles")
+                skip_reasons.append({"nif": name, "reason": f">{a.max_tris}_triangles"})
                 continue
             r = cache.load(ckey) if cache else None
             if r is not None:
@@ -435,6 +438,12 @@ def main():
                 print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
         print("  Failure summary: 0 failures")
+    if skipped:
+        from collections import Counter
+        skip_counts = Counter(s["reason"] for s in skip_reasons)
+        print(f"  Skip summary: {skipped} skipped")
+        for reason, count in skip_counts.most_common(3):
+            print(f"    {count:4d}  {reason}")
     if items:
         print(f"  Asset mix: doors={doors} load_doors={load_doors} movables={movables} avg_shapes={avg_shapes}")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
@@ -447,6 +456,7 @@ def main():
         "unique_reasons": unique,
         "reused": reused,
         "skipped": skipped,
+        "skip_reasons": skip_reasons[:50],  # cap to avoid huge files
         "seconds": elapsed,
         "limit": a.limit,
         "pattern": a.pattern,
