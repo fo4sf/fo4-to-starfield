@@ -555,3 +555,49 @@ Console.WriteLine("Interior promotion checks passed.");
     finally { Console.SetOut(stdout); Environment.SetEnvironmentVariable("LOCATION_AS_NAME", null); Directory.Delete(locDir, true); }
 }
 Console.WriteLine("Location (LCTN) checks passed.");
+
+// The coc arrival marker (COCMarkerHeading) is written to the cell's persistent group, so scripts reach it before the cell
+// loads; the cell's other references stay temporary, and the marker keeps its FormID across a rebuild.
+{
+    var cocDir = Path.Combine(Path.GetTempPath(), "fo4sf-coc-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(cocDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        var manifest = Path.Combine(cocDir, "manifest.json");
+        File.WriteAllText(manifest, """{"items":[{"editor_id":"FO4Port_Wall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}""");
+        File.WriteAllText(Path.Combine(cocDir, "Cryo.json"), """
+            {"schema_version":3,"cell":"Cryo","formkey":"Cryo-cell","refs":[
+             {"formkey":"000901:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
+             {"formkey":"000902:Fallout4.esm","base_editor_id":"COCMarkerHeading","type":"Static","model":"","pos":[100,0,0],"rot":[0,0,1],"scale":1}]}
+            """);
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", cocDir);
+        var cocArgs = new[] { outDir, manifest, Path.Combine(cocDir, "Cryo.json") };
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var cryo = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single(c => c.EditorID == "FO4Port_Cryo");
+            var persistent = cryo.Persistent.OfType<IPlacedObjectGetter>().ToList();
+            var temporary = cryo.Temporary.OfType<IPlacedObjectGetter>().ToList();
+            Require(persistent.Count == 1 && persistent[0].Base.FormKey == new FormKey(sfKey, 0x000032)
+                    && persistent[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000902:Fallout4.esm"], "the coc marker is not a persistent reference with its keyed FormID");
+            Require(temporary.Count == 1 && temporary[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000901:Fallout4.esm"], "a non-marker reference left the temporary group");
+        }
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var rebuilt = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        Require(ids.All(kv => rebuilt.TryGetValue(kv.Key, out var v) && v == kv.Value) && rebuilt.Count == ids.Count, "a rebuild renumbered the coc marker");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(cocDir, true); }
+}
+Console.WriteLine("Persistent coc marker checks passed.");
