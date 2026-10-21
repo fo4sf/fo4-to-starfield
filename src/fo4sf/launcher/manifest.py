@@ -7,6 +7,7 @@ recorded by size, modification time and BA2 version unless hash_archives is set:
 set reads tens of GB. Paths/timestamps are informational in cross-PC comparison; content proof requires hashes.
 """
 import glob
+import mmap
 import os
 import platform
 import re
@@ -83,6 +84,29 @@ def ba2_header_version(path):
     return int.from_bytes(head[4:8], "little")
 
 
+_VERSION_KEY = "VS_VERSION_INFO".encode("utf-16-le")
+_FIXED_SIG = (0xFEEF04BD).to_bytes(4, "little")
+
+
+def exe_version(path):
+    """{"file", "product"} versions ("a.b.c.d") from a Windows executable's version resource (VS_FIXEDFILEINFO,
+    the numbers Explorer shows under Details), or None when there is none. Read only; no Windows API needed."""
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return None
+    with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+        at = m.find(_VERSION_KEY)
+        while at != -1:
+            sig = m.find(_FIXED_SIG, at, at + 128)      # the fixed block follows the key after alignment padding
+            if sig != -1 and sig + 24 <= len(m):
+                ms, ls, pms, pls = (int.from_bytes(m[sig + 8 + 4 * i:sig + 12 + 4 * i], "little") for i in range(4))
+
+                def dotted(hi, lo):
+                    return f"{hi >> 16}.{hi & 0xFFFF}.{lo >> 16}.{lo & 0xFFFF}"
+                return {"file": dotted(ms, ls), "product": dotted(pms, pls)}
+            at = m.find(_VERSION_KEY, at + 1)
+    return None
+
+
 def game_pins(starfield_dir, hash_game_esm=False):
     """Starfield's own files: executable, SFSE loader, Starfield.esm, Creation Kit and Archive2 presence."""
     root = os.path.abspath(starfield_dir)
@@ -97,6 +121,7 @@ def game_pins(starfield_dir, hash_game_esm=False):
     out["sfse_dlls"] = {n: files.identity(os.path.join(root, n)) for n in sorted(os.listdir(root))
                         if n.casefold().startswith("sfse_") and n.casefold().endswith(".dll")
                         and os.path.isfile(os.path.join(root, n))} if os.path.isdir(root) else {}
+    out["exe_version"] = exe_version(os.path.join(root, "Starfield.exe"))
     out["sfse"] = out["files"]["sfse_loader.exe"] is not None
     out["creation_kit"] = out["files"]["CreationKit.exe"] is not None
     return out

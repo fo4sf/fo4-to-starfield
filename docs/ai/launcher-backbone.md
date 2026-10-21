@@ -88,9 +88,11 @@ next to it, by hash, with names read from the folder and never assumed. Detect r
 listed ("keep Steam set to update Starfield only when launched until support is published"); `--allow-unknown-runtime`
 reports instead. For a listed runtime, an SFSE loader or DLL other than the listed one is refused, and so is a path
 under `XboxGames` or `WindowsApps` (Steam only for version 1). The table ships empty: an entry is added only by
-`launcher.py runtimes-add --manifest <manifest of a real install> --label <text>`, which refuses a manifest without a
+`launcher.py runtimes-add --manifest <manifest of a real install> [--label <text>]`, which refuses a manifest without a
 hashed Starfield.exe or without SFSE. Until the owner's PC is measured, detect refuses every Starfield, which is the
-intended answer. The build manifest now records the `sfse_*.dll` hashes too.
+intended answer. The build manifest now records the `sfse_*.dll` hashes too, and Starfield.exe's own file and
+product version from its version resource (`game.exe_version`); without `--label`, runtimes-add names the entry
+"Steam, Starfield.exe <file version>". An `sfse_*.dll` the listed build lacks is refused as well.
 
 Work folders (A6): detect refuses an `--out-dir` that is a drive root or sits under Program Files, Windows,
 ProgramData, OneDrive or the Users folder, as Wabbajack and GAMMA do (Controlled Folder Access guards Documents and

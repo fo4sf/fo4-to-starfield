@@ -31,9 +31,10 @@ def _sha(identity):
     return (identity or {}).get("sha256")
 
 
-def add_runtime(table, man, label):
+def add_runtime(table, man, label=None):
     """Add the Starfield runtime a build manifest recorded, with the SFSE files it found. Returns 1 if added, 0 if
-    that executable is already listed. Refuses a manifest without a hashed Starfield.exe or without SFSE."""
+    that executable is already listed. Refuses a manifest without a hashed Starfield.exe or without SFSE. Without a
+    label the exe's own file version names it ("Steam, Starfield.exe <version>")."""
     game = man.get("game") or {}
     exe = _sha((game.get("files") or {}).get("Starfield.exe"))
     if not exe:
@@ -45,7 +46,12 @@ def add_runtime(table, man, label):
                          "listed only with the SFSE build that works on it")
     if any(r["exe_sha256"] == exe for r in table["runtimes"]):
         return 0
-    table["runtimes"].append({"label": label, "exe_sha256": exe,
+    version = (game.get("exe_version") or {}).get("file")
+    if not label:
+        if not version:
+            raise ValueError("the manifest records no Starfield.exe version; pass --label")
+        label = f"Steam, Starfield.exe {version}"
+    table["runtimes"].append({"label": label, "exe_version": version, "exe_sha256": exe,
                               "exe_size": ((game.get("files") or {}).get("Starfield.exe") or {}).get("size"),
                               "sfse": {"loader_sha256": loader, "dlls": dlls}})
     return 1

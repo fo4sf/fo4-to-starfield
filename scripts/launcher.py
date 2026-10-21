@@ -14,7 +14,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
                                       [--my-games <Documents\My Games\Starfield>] [--allow-unknown-runtime]
                                       [--allow-missing-sfse]
     python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
-    python scripts/launcher.py runtimes-add --manifest <build manifest.json> --label <text> [--table <json>]
+    python scripts/launcher.py runtimes-add --manifest <build manifest.json> [--label <text>] [--table <json>]
     python scripts/launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>] [--also <master> ...]
     python scripts/launcher.py find [--steam <Steam folder>] [--gog <GOG Fallout 4 folder>] [--json <out.json>]
     python scripts/launcher.py bundle --out <support.zip> [--state-dir <dir> ...] [--manifest <json>] [--detect-report <json>]
@@ -64,7 +64,8 @@ def cmd_manifest(a):
         print(f"Fallout 4: {len(m['fo4']['masters'])} masters, {len(m['fo4']['archives'])} archives; "
               f"DLC missing: {', '.join(m['fo4']['dlc_missing']) or 'none'}")
     if "game" in m:
-        print(f"Starfield: SFSE {'yes' if m['game']['sfse'] else 'no'}, Creation Kit "
+        ver = (m["game"].get("exe_version") or {}).get("file") or "unknown"
+        print(f"Starfield: exe version {ver}, SFSE {'yes' if m['game']['sfse'] else 'no'}, Creation Kit "
               f"{'yes' if m['game']['creation_kit'] else 'no'}")
     print(f"tools: commit {m['tools']['repo_commit']} dirty={m['tools']['repo_dirty']}; {a.out}")
     return 0
@@ -326,7 +327,7 @@ def main(argv=None):
     s.add_argument("--table", default=SOURCES)
     s = sub.add_parser("runtimes-add")
     s.add_argument("--manifest", required=True)
-    s.add_argument("--label", required=True)
+    s.add_argument("--label", help="default: the exe's own file version")
     s.add_argument("--table", default=runtimes.DEFAULT_TABLE)
     s = sub.add_parser("check-plugins")
     s.add_argument("folder")

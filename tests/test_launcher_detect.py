@@ -129,6 +129,25 @@ class DetectTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtimes.add_runtime({"schema": 1, "runtimes": []}, {"game": {}}, "x")
 
+    def test_exe_version_names_a_runtime_without_a_label(self):
+        import struct
+        fixed = struct.pack("<13I", 0xFEEF04BD, 0x10000, (9 << 16) | 8, (7 << 16) | 6, (9 << 16) | 8,
+                            (7 << 16) | 6, 0x3F, 0, 0x40004, 1, 0, 0, 0)
+        exe = b"MZ" + b"\0" * 64 + "VS_VERSION_INFO".encode("utf-16-le") + b"\0\0\0\0" + fixed + b"\0" * 32
+        write(os.path.join(self.sf, "Starfield.exe"), exe)          # synthetic; the real version is read on the PC
+        game = manifest.game_pins(self.sf)
+        self.assertEqual(game["exe_version"], {"file": "9.8.7.6", "product": "9.8.7.6"})
+        table = {"schema": 1, "runtimes": []}
+        self.assertEqual(runtimes.add_runtime(table, {"game": game}), 1)
+        self.assertEqual((table["runtimes"][0]["label"], table["runtimes"][0]["exe_version"]),
+                         ("Steam, Starfield.exe 9.8.7.6", "9.8.7.6"))
+        write(os.path.join(self.sf, "Starfield.exe"), b"MZ no version resource")
+        game = manifest.game_pins(self.sf)
+        self.assertIsNone(game["exe_version"])
+        with self.assertRaises(ValueError):
+            runtimes.add_runtime({"schema": 1, "runtimes": []}, {"game": game})
+        self.assertEqual(runtimes.add_runtime({"schema": 1, "runtimes": []}, {"game": game}, "labelled"), 1)
+
     def test_shipped_runtime_table_is_well_formed(self):
         t = runtimes.load_runtimes()
         for r in t["runtimes"]:
