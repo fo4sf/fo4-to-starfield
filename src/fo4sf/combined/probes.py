@@ -499,6 +499,16 @@ def _set_before(s2: list[Event], set_kind: str, rd: Event, v: Verdict) -> bool:
     return False
 
 
+def _local(e: Event, key: str):
+    """The plugin-local id of a form id field, or None: a full plugin's ids carry its load index in the top byte
+    (local = low 24 bits), a light plugin's are FE + a 12-bit slot (local = low 12 bits)."""
+    f = e.form(key)
+    if f is None:
+        return None
+    n = int(f, 16)
+    return n & 0xFFF if n >> 24 == 0xFE else n & 0xFFFFFF
+
+
 def check_p2(c: Collection) -> Verdict:
     v = Verdict("p2", INCONCLUSIVE)
     v.extra["settles"] = "CC-02: location keyword data persists across save/load, linked locations (P2)"
@@ -521,8 +531,8 @@ def check_p2(c: Collection) -> Verdict:
     st = sets[-1]
     v.cite(st)
     value, readback = st.num("value"), st.num("readback")
-    if st.num("local") != LOCAL["p2_loc"]:
-        v.reasons.append(f"p2 set is not on local {LOCAL['p2_loc']}")
+    if _local(st, "loc") != LOCAL["p2_loc"]:
+        v.reasons.append(f"p2 set loc {st.fields.get('loc')} is not the probe location (local {LOCAL['p2_loc']})")
         return v
     if readback is None:
         v.reasons.append("p2 set has no readback")
@@ -532,8 +542,12 @@ def check_p2(c: Collection) -> Verdict:
         v.verdict = FAIL
         return v
     link_ok = None
+    want_link = (LOCAL["p2_loc"], LOCAL["p3_chained"])
     if links:
         v.cite(links[-1])
+        if (_local(links[-1], "a"), _local(links[-1], "b")) != want_link:
+            v.reasons.append(f"p2 link a/b are not the probe locations (locals {want_link[0]} and {want_link[1]})")
+            return v
         link_ok = links[-1].flag("linked")
     init = _has_init(s2)
     if init is None:
@@ -550,8 +564,8 @@ def check_p2(c: Collection) -> Verdict:
     if _set_before(s2, "p2 set", rd, v):
         return v
     rv = rd.num("value")
-    if rd.num("local") != LOCAL["p2_loc"] or rv is None:
-        v.reasons.append("p2 read lacks local=2054 or a value")
+    if _local(rd, "loc") != LOCAL["p2_loc"] or rv is None:
+        v.reasons.append(f"p2 read is not on the probe location (local {LOCAL['p2_loc']}) or lacks a value")
         return v
     if not _close(rv, value):
         v.reasons.append(f"after relaunch the datum reads {rv}, set value was {value}: keyword data did not persist")
@@ -563,6 +577,10 @@ def check_p2(c: Collection) -> Verdict:
             v.reasons.append("p2 link was True in session1 but session2 has no `p2 linkread`")
             return v
         v.cite(linkreads[-1])
+        if (_local(linkreads[-1], "a"), _local(linkreads[-1], "b")) != want_link:
+            v.reasons.append(f"p2 linkread a/b are not the probe locations (locals {want_link[0]} and "
+                             f"{want_link[1]})")
+            return v
         if linkreads[-1].flag("linked") is not True:
             v.reasons.append("linked location was True in session1 and not True after relaunch")
             v.verdict = FAIL
@@ -597,7 +615,11 @@ def check_p3(c: Collection) -> Verdict:
         st = _by_kind(s1, "p3 set")[-1]
         v.cite(st)
         va, ra, vb, rb = st.num("va"), st.num("ra"), st.num("vb"), st.num("rb")
-        if None in (va, ra, vb, rb):
+        if (_local(st, "a"), _local(st, "b")) != (LOCAL["p3_noparent"], LOCAL["p3_chained"]):
+            v.reasons.append(f"p3 set a/b are not the probe locations (locals {LOCAL['p3_noparent']} and "
+                             f"{LOCAL['p3_chained']})")
+            kw = INCONCLUSIVE
+        elif None in (va, ra, vb, rb):
             v.reasons.append("p3 set lacks va/ra/vb/rb")
             kw = INCONCLUSIVE
         elif not (_close(va, ra) and _close(vb, rb)):
@@ -1099,8 +1121,8 @@ def check_p10(c: Collection) -> Verdict:
         v.reasons.append("no `p10 sent` line")
         return v
     s = sent[-1]
-    if s.flag("result") is not True:
-        v.reasons.append(f"SendStoryEvent returned {s.fields.get('result')}")
+    if s.flag("result") is False:           # older stages logged a bool result; Starfield's is not a bool (2d53642)
+        v.reasons.append("SendStoryEvent returned False")
         v.verdict = FAIL
         return v
     after = [e for e in started if e.line > s.line and e.num("local") == LOCAL["p10_quest"]]
@@ -1116,18 +1138,18 @@ def check_p10(c: Collection) -> Verdict:
             v.verdict = FAIL
             return v
         if running is None:
-            v.reasons.append("SendStoryEvent returned True and FOCC_P10_Quest's OnQuestInit fired, but there is no "
+            v.reasons.append("SendStoryEvent ran and FOCC_P10_Quest's OnQuestInit fired, but there is no "
                              "`p10 state` line after the send: run cgf \"FOCC_Probe.P10State\" (the card's PASS needs "
                              "running=True)")
             return v
-        v.reasons.append("SendStoryEvent returned True, FOCC_P10_Quest's OnQuestInit fired and IsRunning is True")
+        v.reasons.append("SendStoryEvent ran, FOCC_P10_Quest's OnQuestInit fired and IsRunning is True")
         v.verdict = PASS
         return v
     if running is False:
-        v.reasons.append("SendStoryEvent returned True but the quest never started and IsRunning is False")
+        v.reasons.append("SendStoryEvent ran but the quest never started and IsRunning is False")
         v.verdict = FAIL
         return v
-    v.reasons.append("SendStoryEvent returned True; no `p10 quest started` line and no state line")
+    v.reasons.append("SendStoryEvent ran; no `p10 quest started` line and no state line")
     return v
 
 

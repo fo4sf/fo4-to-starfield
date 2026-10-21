@@ -151,7 +151,8 @@ EndFunction
 Function P10Send() global
     {Keyword.SendStoryEvent with FO4's signature (akLoc, akRef1, akRef2, aiValue1, aiValue2): whether Starfield's
      Keyword.psc declares it is settled by this script's compile (engine-feasibility.md P10); the Story Manager half
-     by the "p10 quest started" line FOCC_P10Quest logs.}
+     by the "p10 quest started" line FOCC_P10Quest logs. Called as a statement: the PC compile at 2d53642 refused
+     assigning its result to a bool (FOCC_Probe.psc(164,9), type mismatch), so Starfield's return is not a bool.}
     FOCC_ProbeQuest q = Q("p10")
     if q == None
         return
@@ -161,8 +162,8 @@ Function P10Send() global
         Debug.TraceUser("focc", "FOCC rt=" + Utility.GetCurrentRealTime() + " p10 refused event=none")
         return
     endif
-    bool r = k.SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)
-    Debug.TraceUser("focc", "FOCC rt=" + Utility.GetCurrentRealTime() + " p10 sent result=" + r + " event=" + k.GetFormID())
+    k.SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)
+    Debug.TraceUser("focc", "FOCC rt=" + Utility.GetCurrentRealTime() + " p10 sent event=" + k.GetFormID())
 EndFunction
 
 Function P10State() global

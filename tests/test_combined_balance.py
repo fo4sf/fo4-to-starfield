@@ -121,6 +121,23 @@ class MetricsTests(unittest.TestCase):
                 hours[sid] += sim.TICK_HOURS * (s.population == 0)
         self.assertEqual(balance.empty_hours(ws), hours)
 
+    def test_settlements_that_start_empty_count_from_hour_zero(self):
+        # Codex review of #431: no `settlement_emptied` opens their span, so hour 0 does.
+        ws = world()
+        ws.hour = 100
+        ws.settlements["farm_b"].population = 0                                  # empty all run, no events
+        ws.events.append({"hour": 40, "kind": "settlement_resettled", "place": "farm_a", "region": "R1"})
+        ws.events.append({"hour": 70, "kind": "settlement_emptied", "place": "farm_a", "region": "R1"})
+        self.assertEqual(balance.empty_hours(ws), {"farm_a": 40 + 30, "farm_b": 100, "market": 0, "river_town": 0})
+        trace = world(9)
+        trace.settlements[sorted(trace.settlements)[0]].population = 0
+        hours = {sid: 0 for sid in trace.settlements}
+        for _ in range(60 * 24 // sim.TICK_HOURS):
+            for sid, st in trace.settlements.items():
+                hours[sid] += sim.TICK_HOURS * (st.population == 0)
+            sim.tick(trace)
+        self.assertEqual(balance.empty_hours(trace), hours)
+
     def test_raided_share_is_raided_over_finished_caravans(self):
         ws = world()
         for kind in ("caravan_raided", "caravan_arrived", "caravan_arrived", "caravan_lost"):

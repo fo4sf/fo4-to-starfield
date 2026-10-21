@@ -118,18 +118,26 @@ def frozen_regions(ws: WorldState) -> list[str]:
 def empty_hours(ws: WorldState) -> dict[str, int]:
     """Hours each settlement spent with nobody in it, rebuilt from the log: a `settlement_emptied` event opens a span
     and the next `settlement_resettled` or `settler_arrived` at that place closes it (an open span runs to ws.hour).
-    A settlement that starts a run empty has no opening event, so its hours before the first arrival do not count;
-    saves written before those events existed measure 0 here."""
+    A settlement that starts the run empty has no opening event, so its span opens at hour 0: when its first
+    population event is a `settlement_resettled` (only an empty place resettles), or when it logged none and is empty
+    now (Codex review of #431)."""
     out = {sid: 0 for sid in sorted(ws.settlements)}
     open_since: dict[str, int] = {}
+    seen: set[str] = set()
     for e in ws.events:
         sid = e["place"]
-        if sid not in out:
+        if sid not in out or e["kind"] not in ("settlement_emptied", "settlement_resettled", "settler_arrived"):
             continue
+        if sid not in seen and e["kind"] == "settlement_resettled":
+            open_since[sid] = 0
+        seen.add(sid)
         if e["kind"] == "settlement_emptied":
             open_since.setdefault(sid, e["hour"])
-        elif e["kind"] in ("settlement_resettled", "settler_arrived") and sid in open_since:
+        elif sid in open_since:
             out[sid] += e["hour"] - open_since.pop(sid)
+    for sid, s in ws.settlements.items():
+        if sid not in seen and s.population == 0:
+            open_since[sid] = 0
     for sid, since in open_since.items():
         out[sid] += ws.hour - since
     return out

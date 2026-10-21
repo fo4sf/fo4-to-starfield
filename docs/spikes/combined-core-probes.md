@@ -259,7 +259,7 @@ cgf "FOCC_Probe.P10State"
 
 Quit. Collect `focc.0.log`, and from the stage `offline_check.txt`, `plan.json` and `FOCC_Probe.psc` (stage root,
 not Data\Scripts; copy, the judge reads the call from the source) into `D:\Modding\testqueue\focc_P10_$date`; judge `probes p10`.
-Expect `p10 sent result=True`, within 10 s (rt) `p10 quest started id=<id> local=2080` (FOCC_P10Quest.OnQuestInit) and
+Expect `p10 sent event=<id>` (the call's return is not logged: Starfield's SendStoryEvent does not return a bool, PC compile at 2d53642), within 10 s (rt) `p10 quest started id=<id> local=2080` (FOCC_P10Quest.OnQuestInit) and
 `p10 state running=True`. FAIL = `result=False`, or True with no start and `running=False`. The verdict's
 `sendstoryevent_compiles` is the compile answer on its own. Send back: the four files and the verdict.
 

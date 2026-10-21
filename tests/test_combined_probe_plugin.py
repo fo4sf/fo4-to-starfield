@@ -236,7 +236,8 @@ class ScriptContractTests(unittest.TestCase):
                      '"p5 tick n="', '"p6 reset loc="', '"p8 move stage="', '"p8 stage="', '"p8 child stage="', '"p9 dest id="',
                      '"p9 sample t="', '"p9 done t="', '"p10 state id="'):
             self.assertIn(line, QUEST, line)
-        self.assertIn('" p10 sent result="', PROBE)
+        self.assertIn('" p10 sent event="', PROBE)
+        self.assertNotRegex(PROBE, r"bool \w+ = k\.SendStoryEvent")     # PC compile 2d53642: its return is not a bool
         self.assertIn('" p10 quest started id="', P10)
         self.assertIn('Event OnQuestInit()', P10)
         # P6 / P7 trials share one line shape, with the base named a / b / other / none
