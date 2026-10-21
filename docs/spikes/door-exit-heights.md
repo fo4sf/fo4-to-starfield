@@ -1,6 +1,7 @@
 # Door exits that land in the wrong place (v6e, 2026-10-21)
 
-Status: **unresolved**. The terrain check ran on the PC (2026-10-21); the object check below has not run yet.
+Status: **unresolved**. The terrain and object checks both ran on the PC (2026-10-21); the collision of the pieces they
+named is the next read.
 
 ## Results
 The v6e door rounds ran on core 06C0DECD and port 9AF962D2, judged with `--world-instance FF005511=02000803`, on
@@ -39,6 +40,31 @@ What this narrows (**supported hypotheses**, not tested):
   carried the player up: an object whose collision covers the spot, or a lift out of geometry.
 - **Cambridge:** both points are on the ground, 34.6 m apart. This is not a height problem. The engine moved the player
   off a blocked arrival, or the arrival marker points at the wrong place.
+
+### Object check results
+arrival_objects.py ran on the same core at 4df9c1d (radius 20 m; skipped.json present). The nearest objects are
+**verified**. No reference near any arrival is disabled. Collision "fo4-none" means FO4 itself ships the model with no
+collision (scripts/oracles/placed_collision.py), so those are not conversion losses.
+- **Fort Hagen 02:** the marker stands on a rooftop elevator exit. The roof piece decoroof1x1str01 (FO4 1958F3, collision
+  fo4-native) sits 0.4 m away at exactly the marker's height (95.09). The elevator door utilmetalelevatorout01 (16852D,
+  rigged-door-box) is 1.2 m away at the same height, with its buttons and meters. The player still fell 12.2 m.
+- **Museum:** the marker stands on the floor piece bldwlpsmflronly01 (16D3E0, fo4-native, z 10.31, the marker's exact
+  height), between wall pieces at the same height. The ceiling piece bldwlpsmceilonly01 (16D3EC, fo4-native) is 1.8 m
+  above the floor (z 12.14). The player ended at z 26.67.
+- **Cambridge:** the marker stands at the double door frame decomaina1x2doordouble01 (0AAD19, fo4-native, 0.4 m away),
+  next to the load door itself (058D90, 0.6 m). The player ended 34.6 m away, on the ground.
+- Skipped references nearby are mostly texture sets, sound and acoustic markers, and a few models with no mesh; none is a
+  floor or roof piece. That is **verified** by type only, since skipped refs carry no position.
+
+What this narrows (**supported hypotheses**, not tested):
+- **Museum:** the room's clear height is 1.8 m (the ceiling's origin minus the floor's). If the converted player capsule
+  is taller than that, the arrival overlaps the ceiling's collision and the engine pushes the player out, here up onto the
+  building. That would also explain the same +16.4 m on v6c.
+- **Fort Hagen 02:** the roof piece is listed as native collision, so either its converted collision does not cover the
+  arrival spot (a part left out, or offset), or the player arrives before that body is in the world and falls through.
+- **Cambridge:** the arrival overlaps the door frame's collision, and the engine moves the player to the nearest open spot.
+- The next offline read is the conversion report of those pieces (collision source, parts left out, bounds) and the
+  rigged door box of the elevator exit.
 
 ## Object check (read-only, PC)
 `scripts/terrain/arrival_objects.py <core staging dir> <arrival_ground.json> [--radius 20]` reads the core's
