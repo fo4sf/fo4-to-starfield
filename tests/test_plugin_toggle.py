@@ -72,6 +72,26 @@ class ToggleTests(unittest.TestCase):
         self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
         self.assertIn("nothing held off", self.run_cmd("on"))
 
+    def test_off_again_unticks_a_held_plugin_the_game_ticked_again(self):
+        # Codex on #407: the retry the order and relaunch checks advise reported success and changed nothing
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes(self.original.encode())       # the game ticked it again
+        self.assertIn("held off", self.run_cmd("off", "--plugins", "Mission.esm"))
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
+        self.assertIn("already held off", self.run_cmd("off", "--plugins", "Mission.esm"))
+
+    def test_on_refuses_a_plugin_whose_master_the_game_unticked(self):
+        # Codex on #407: Core.esm unticked by the game while Mission.esm was held
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes("# keep\r\n*FO4Port.esm\r\nCore.esm\r\nMission.esm\r\n*FO4SFBridge.esm\r\n".encode())
+        before = self.txt.read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("on", "--plugins", "Mission.esm")
+        self.assertIn("Core.esm as a master, which is not active", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
+
     def test_off_refusals_change_nothing(self):
         for plugins, why in (("FO4Port.esm", "not a plugin our installers own"),
                              ("Core.esm", "Mission.esm stays active and needs Core.esm"),

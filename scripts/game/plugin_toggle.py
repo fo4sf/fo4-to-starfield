@@ -13,7 +13,8 @@ guarded Plugins.txt rewrite), so an interruption leaves the record ahead of Plug
 record holds a plugin: exp_install.py order and bridge_install.py order leave it unticked (and refuse, exit 6, when the
 game ticked it again), exp_install.py active counts it as intended (and fails if it is ticked), the relaunch of the
 same installed experiment or bridge (a campaign's pre_launch) keeps it off (and refuses it ticked), and a new install or any uninstall refuses until `on`. on ticks the lines
-first, then empties the record. Run it with the game closed, as the installers.
+first, then empties the record; it refuses a plugin whose master is one of ours that is neither active nor coming back.
+off run again unticks a held plugin the game ticked again. Run it with the game closed, as the installers.
 """
 import argparse
 import json
@@ -83,11 +84,13 @@ def off(a):
         needs = [m for m in exp_install.plugin_masters(exp_install.data_path(data, p)) if m.casefold() in going]
         if needs:
             raise ValueError(f"{p} stays active and needs {', '.join(needs)} as a master: hold it off too")
-    if not new:
+    ticked = [p for p in rec["off"] if p.casefold() in active]   # held, but the game ticked it again
+    if not new and not ticked:
         print(f"already held off: {', '.join(want)}")
         return
-    rec = {"off": rec["off"] + new, "plugins_txt": p_txt, "at": utc_now(), "why": a.why or ""}
-    deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
+    if new:
+        rec = {"off": rec["off"] + new, "plugins_txt": p_txt, "at": utc_now(), "why": a.why or ""}
+        deployment.write_manifest(os.path.join(data, exp_install.TOGGLE), rec)
     out = [ln.strip().lstrip("*").strip() if name(ln) in going and ln.strip().startswith("*") else ln for ln in lines]
     exp_install.write_plugins(p_txt, out, bom, nl, original)
     print(f"held off: {', '.join(rec['off'])}")
@@ -106,20 +109,27 @@ def on(a):
         return
     back = {p.casefold() for p in want}
     still = {p.casefold() for p in held} - back
-    mine = owned(data)
-    for p in want:                                        # what comes back must not need what stays off
-        if p.casefold() not in mine:
-            continue
-        needs = [m for m in exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
-                 if m.casefold() in still]
-        if needs:
-            raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
-                             f"bring them back together")
     p_txt = rec.get("plugins_txt") or exp_install.plugins_txt()
     if os.path.normcase(os.path.abspath(p_txt)) != os.path.normcase(os.path.abspath(exp_install.plugins_txt())):
         raise ValueError("the record's Plugins.txt is not the current user's")
     original = exp_install.read_bytes(p_txt)
     lines, bom, nl = exp_install.plugin_lines(original)
+    active = {name(ln) for ln in lines if ln.strip().startswith("*")}
+    mine = owned(data)
+    for p in want:                                        # what comes back must not need what stays off or unticked
+        if p.casefold() not in mine:
+            continue
+        masters = exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
+        needs = [m for m in masters if m.casefold() in still]
+        if needs:
+            raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
+                             f"bring them back together")
+        # one of our plugins the game unticked meanwhile (exp_install.active) is no master to load against
+        # (Codex on #407)
+        inactive = [m for m in masters if m.casefold() in mine and m.casefold() not in active | back]
+        if inactive:
+            raise ValueError(f"{p} needs {', '.join(inactive)} as a master, which is not active in Plugins.txt: "
+                             f"bring them back together or reinstall")
     gone = [p for p in want if not any(name(ln) == p.casefold() for ln in lines)]
     if gone:
         raise ValueError(f"no Plugins.txt line left for {', '.join(gone)}: restore it by hand, then run on again")
