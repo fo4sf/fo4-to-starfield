@@ -346,6 +346,22 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(st.get("breaker"))
         self.assertEqual({k: v["decided"] for k, v in st["breaker"].items()}, {k: 0 for k in st["breaker"]})
 
+    def test_a_crash_recorded_before_the_count_existed_still_counts(self):
+        # Codex on #402: a queue paused after an INCONCLUSIVE CRASH has no test_crashes in its state
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        del st["test_crashes"]
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["verdict"], second["class"]), ("FAIL", "CRASH"), second["detail"])
+        self.assertEqual(jload(p)["test_crashes"], {second["id"]: 2})
+
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
         calls = []

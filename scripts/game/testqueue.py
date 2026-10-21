@@ -3217,6 +3217,28 @@ class Runner:
             else:
                 self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
+    def crash_counts(self):
+        """state.json test_crashes: the crashes counted per test toward FAIL CRASH. A queue state from before the count
+        existed is seeded from its results.jsonl CRASH rows, so a crash recorded then still counts (Codex on #402);
+        a walk row recorded on another install than the pinned one, or one marked not counted, is left out."""
+        if "test_crashes" not in self.state:
+            tc = {}
+            p = os.path.join(self.qdir, "results.jsonl")
+            if os.path.exists(p):
+                with open(p, encoding="utf-8") as f:
+                    for x in f:
+                        try:
+                            r = json.loads(x)
+                        except ValueError:
+                            continue
+                        if not isinstance(r, dict) or r.get("class") != "CRASH" or "not counted" in str(r.get("detail")):
+                            continue
+                        if r.get("kind") == "walk" and install_mismatch(self.q, r.get("install")):
+                            continue
+                        tc[r.get("id")] = tc.get(r.get("id"), 0) + 1
+            self.state["test_crashes"] = tc
+        return self.state["test_crashes"]
+
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
         the matching task_finished event (section 10). A torn last line (a power cut mid-row) is not a row: it is
@@ -3386,6 +3408,7 @@ class Runner:
                 os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
+            crashed = False                               # the game exited during this test's step
             con = []                                      # console_pre / console_post replies (parsed OCR)
             if g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
@@ -3432,16 +3455,8 @@ class Runner:
                 if pid_before and not self.ctl.game_pid():
                     self.state["crashes"] += 1
                     self.session, self.cell = False, None
-                    # a test the game exited during CRASH_FAIL times (this run or an earlier one of the queue) is a
-                    # final FAIL CRASH: the crash repeats there, and it goes on the bugs list instead of being retried
-                    # every run (docs/ai/test-queue.md "Crashes")
-                    tc = self.state.setdefault("test_crashes", {})
-                    tc[t["id"]] = tc.get(t["id"], 0) + 1
-                    if tc[t["id"]] >= CRASH_FAIL:
-                        verdict, cls, detail = "FAIL", "CRASH", (f"the game exited during this test {tc[t['id']]} "
-                                                                 f"times: final")
-                    else:
-                        verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
+                    crashed = True                        # counted below, once the install is known to be the pinned one
+                    verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
                     obs = load(os.path.join(out_dir, "obs.json"))
                     raw = judge(t, obs, out_dir)
@@ -3460,6 +3475,16 @@ class Runner:
                 inst_why = install_mismatch(self.q, inst)
                 if inst_why and verdict != "INCONCLUSIVE":
                     verdict, cls, detail = "INCONCLUSIVE", "INSTALL", f"{inst_why}; raw verdict {verdict} {cls}: {detail}"
+            if crashed and inst_why:
+                detail += f"; not counted toward FAIL CRASH: {inst_why}"   # a crash on another install (Codex on #402)
+            elif crashed:
+                # a test the game exited during CRASH_FAIL times (this run or an earlier one of the queue) is a final
+                # FAIL CRASH: the crash repeats there, and it goes on the bugs list instead of being retried every run
+                # (docs/ai/test-queue.md "Crashes")
+                tc = self.crash_counts()
+                tc[t["id"]] = tc.get(t["id"], 0) + 1
+                if tc[t["id"]] >= CRASH_FAIL:
+                    verdict, cls, detail = "FAIL", "CRASH", f"the game exited during this test {tc[t['id']]} times: final"
             rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                    "attempt": n, "verdict": verdict, "class": cls, "detail": detail, "exit": code, "dir": out_dir, "t": now()}
             if t.get("expect"):
