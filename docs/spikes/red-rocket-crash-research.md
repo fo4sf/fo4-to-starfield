@@ -39,7 +39,29 @@ Disassembled here from the 96 code bytes the PC returned (capstone), **verified*
   memory was reused) rather than a stale table. Where the index came from is before the window; `--code-before -1`
   prints the whole function from +0x2bf00f0. Object types need a full dump (-ma, owner's call).
 
-## New lead: the mission script moves actors exactly where the crashes happen
+## The whole fault function (--code-before -1 on the PC, minidump_read at ccec077)
+Disassembled here, **verified** (Starfield.exe+0x2bf00f0, 123 bytes before the fault):
+```
+mov rdi, rdx ; mov rsi, rcx              ; rsi = a load context (a stack object of the caller), rdi = the out pointer
+mov rbx, [rcx+0x358]                     ; the context's stream
+mov r8d, 4 ; lea rdx, [rsp+0x30] ; mov rcx, rbx ; call [vtable+0x28]   ; read 4 bytes
+add [rbx+8], rax                         ; advance the stream position
+mov eax, [rsp+0x30] ; cmp eax, -1 ; jne  ; -1: clear the out pointer, return
+mov rcx, rax ; mov rax, [rsi+0x340] ; mov rdx, [rax+rcx*8]   ; FAULT: objects[index]
+... lock xadd [rdx+0x10], eax            ; take a reference, store in the out pointer
+```
+This is a link-id reader: read a 4-byte object index from a stream (-1 = none) and resolve it against the table of
+objects already read, the way a NIF stream resolves block references. **Supported hypothesis:** a file the game is
+loading on a worker thread (models load on background threads as cells stream in) has the float 0.02 where the reader
+expects a reference, i.e. its layout differs from what the engine reads by at least one field. That moves a converted
+file (most likely a NIF) to the top, ahead of the mission's actor moves. One converted value is exactly 0.02 by
+construction: `convert_static` clamps a door leaf's box-collision half-extent to `max(0.02, ...)`, so a thin leaf (the
+counter door's flap, a safe door) gets 0.02 in its bhkPhysicsSystem blob. Whether the game reads that blob through this
+reader is not known.
+
+`scripts/game/nif_float_scan.py` (this PR) lists every NIF and block holding 0x3ca3d70a, and flags box half-extents.
+
+## Earlier lead: the mission script moves actors exactly where the crashes happen
 **Verified from source** (scripts/mission/FO4SF_Min00Quest.psc, Relocate, KeepCodsworth, MoveOver):
 - FO4SFMission's start-game-enabled quest checks every second (Codsworth every CodsworthCheck = 5 s, and still after stage 200) and
   MoveTo's Preston, the raiders and Codsworth from their unmerged local spot into the merged world when the player is
@@ -53,18 +75,13 @@ Disassembled here from the 96 code bytes the PC returned (capstone), **verified*
 - **Supported hypothesis, not tested:** moving persistent actors between the base world and the runtime merged world
   (or the Garden Mini Bot body, or the raider fight) leaves an object freed while a worker thread still uses it.
 
-## Ranked suspects and cheap tests
-1. Mission actor moves (FO4SFMission). Test A, read only: the fo4sf_mission.*.log of the 15:44:33 and 16:38 sessions;
-   look for `world`/`moved` lines in the 30 s before each crash. Test B, no build: plugin_toggle.py holds FO4SFMission off,
-   repeat the Vault111Cryo to Red Rocket move three times, wait 60 s each. Stable means the mission; then split
-   Codsworth (`write --no-codsworth`) from Preston and the raiders.
-2. Name the faulting object. First run done (above): the index is the float. Next, `--code-before -1` for the whole
-   function, then a full dump on the next crash if the owner agrees. `minidump_read.py --exe <Starfield.exe>` (this PR) prints the code bytes and function start
-   at the fault, which stack entries follow a call, and the C++ class (RTTI) of every object a register or stack slot
-   points at, when the dump holds it. An Actor, a Character or an animation-graph class there supports suspect 1; a
-   geometry or skin class supports suspect 3.
-3. Counter and safe door rigs (v6h, the bisect's next step): costs a resumed build; run after A and B.
-4. Load-door VMAD targets and teleports near Red Rocket (BACUP's dangling-teleport note): a cell-load crash would come
-   at the load, not 15 s later, so low.
-5. NVIDIA Streamline (DLSS or frame generation) on that thread: a general Starfield crash source, but the fault is in
-   Starfield.exe at the same offset every time, so low; one run with frame generation off is the owner's call.
+## Ranked suspects and cheap tests (revised after the function read)
+1. A converted NIF with the float 0.02 where a reference is read. Test, read only and offline: `nif_float_scan.py` over
+   the v6e core's converted meshes, with `--names` from near_redrocket.jsonl's models and again for the museum's
+   cells. A model on both lists, or a door rig with a 0.02 half-extent, is the prime suspect. Then v6h (no rig on the
+   counter and safe doors) tests it in game; if a box half-extent is the hit, raising the clamp is a cheaper variant.
+2. Mission actor moves (FO4SFMission): Card D, mission off, three Red Rocket arrivals. Still worth running: if the game
+   stays up with the mission off, the stream is not a mesh after all (a save or reference-handle stream).
+3. A full dump (-ma, about 18 GB, owner's call) on the next crash: the stream object at [rsi+0x358] names the file.
+4. Load-door VMAD targets and teleports (BACUP's note): low.
+5. NVIDIA Streamline: low.
