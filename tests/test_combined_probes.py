@@ -548,6 +548,15 @@ class P6P7Tests(unittest.TestCase):
         bad_rb = [INIT] + [l.replace("readback=1.000000", "readback=0.000000") for l in p6_log()[1:]]
         self.assertEqual(probes.check_p6(col(log=bad_rb)).verdict, INCONCLUSIVE)
 
+    def test_a_label_must_agree_with_a_starfield_base_id(self):
+        # Codex review of #431 (the literal-label findings): a Starfield.esm entry's runtime id is its file id.
+        plan = {"bases": {"lvln_a": "Starfield.esm:2B211C", "lvln_b": "Other.esm:000800"}}
+        line = lambda base, label: probes.parse_line(f"FOCC p6 trial=1 base={base} baselocal={label}")  # noqa: E731
+        self.assertEqual(probes._base_match(line(0x2B211C, "a"), plan, "lvln_a", "lvln_b"), "A")
+        self.assertIsNone(probes._base_match(line(0x2B211D, "a"), plan, "lvln_a", "lvln_b"))
+        self.assertEqual(probes._base_match(line(123, "b"), plan, "lvln_a", "lvln_b"), "B")     # not checkable: label kept
+        self.assertEqual(probes._base_match(line(123, "a"), None, "lvln_a", "lvln_b"), "A")
+
     def test_explicit_match_field_is_honoured(self):
         lines = [l + " match=" + ("A" if "datum=1" in l else "B") for l in p6_log(baselocal={"A": "x", "B": "y"})[1:]]
         self.assertEqual(probes.check_p6(col(log=[INIT] + lines)).verdict, PASS)
@@ -719,8 +728,9 @@ class P9Tests(unittest.TestCase):
 
 # ----------------------------------------------------------------------------------------------- P10
 
-P10 = [INIT, "FOCC rt=10.0 p10 sent event=-16702650", "FOCC rt=10.4 p10 quest started id=-16702651 local=2080",
-       "FOCC rt=20.0 p10 state running=True"]
+P10_QUEST = str(0x03000820)                 # FOCC_P10_Quest, local 2080, at load index 03
+P10 = [INIT, "FOCC rt=10.0 p10 sent event=50333729", f"FOCC rt=10.4 p10 quest started id={P10_QUEST} local=2080",
+       f"FOCC rt=20.0 p10 state id={P10_QUEST} local=2080 running=True"]
 PSC = "Scriptname FOCC_Probe Hidden\nFunction P10Send() global\n  bool r = Q().P10Event.SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)\nEndFunction\n"
 
 
@@ -741,8 +751,8 @@ class P10Tests(unittest.TestCase):
 
     def test_fail_branches(self):
         self.assertEqual(probes.check_p10(col(log=[INIT, "FOCC rt=1.0 p10 sent result=False"])).verdict, FAIL)
-        self.assertEqual(probes.check_p10(col(log=[P10[0], P10[1], "FOCC rt=25.0 p10 state running=False"])).verdict, FAIL)
-        self.assertEqual(probes.check_p10(col(log=P10[:3] + ["FOCC rt=25.0 p10 state running=False"])).verdict, FAIL)
+        self.assertEqual(probes.check_p10(col(log=[P10[0], P10[1], f"FOCC rt=25.0 p10 state id={P10_QUEST} local=2080 running=False"])).verdict, FAIL)
+        self.assertEqual(probes.check_p10(col(log=P10[:3] + [f"FOCC rt=25.0 p10 state id={P10_QUEST} local=2080 running=False"])).verdict, FAIL)
 
     def test_inconclusive_branches(self):
         self.assertEqual(probes.check_p10(col(log=[INIT, P10[2]])).verdict, INCONCLUSIVE)               # no sent line
@@ -750,12 +760,18 @@ class P10Tests(unittest.TestCase):
         v = probes.check_p10(col(log=P10[:3]))                                                            # started, no state line
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("P10State" in r for r in v.reasons), v.reasons)
-        late = [INIT, P10[1], "FOCC rt=40.0 p10 quest started id=1 local=2080", "FOCC rt=41.0 p10 state running=True"]
+        late = [INIT, P10[1], f"FOCC rt=40.0 p10 quest started id={P10_QUEST} local=2080",
+                f"FOCC rt=41.0 p10 state id={P10_QUEST} local=2080 running=True"]
         v = probes.check_p10(col(log=late))
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("window" in r for r in v.reasons))
         wrong_quest = [INIT, P10[1], "FOCC rt=10.5 p10 quest started id=1 local=2048", P10[3]]
         self.assertEqual(probes.check_p10(col(log=wrong_quest)).verdict, INCONCLUSIVE)   # another quest's start line does not count
+        # Codex review of #431: the literal local=2080 never stands in for the logged id.
+        labelled = [INIT, P10[1], "FOCC rt=10.5 p10 quest started id=1 local=2080", "FOCC rt=20.0 p10 state id=1 local=2080 running=True"]
+        self.assertEqual(probes.check_p10(col(log=labelled)).verdict, INCONCLUSIVE)
+        other_state = P10[:3] + ["FOCC rt=20.0 p10 state id=1 local=2080 running=True"]
+        self.assertEqual(probes.check_p10(col(log=other_state)).verdict, INCONCLUSIVE)
         for plan in ({"sm_nodes_written": False}, {"skip": ["sm"]}):
             c = col(log=P10)
             c.plan = plan

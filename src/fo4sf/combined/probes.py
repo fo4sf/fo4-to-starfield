@@ -843,11 +843,22 @@ def _base_match(e: Event, plan: dict | None, key_a: str, key_b: str):
     bl = e.fields.get("baselocal", "none")
     if bl.lower() == "none" or e.fields.get("base", "none").lower() == "none":
         return "none"
+    bases = _plan_bases(plan)
     if bl.lower() in ("a", "b"):
+        # The label is the script's comparison; when the entry is a Starfield.esm base (load index 00, so its runtime
+        # id is its file id) the logged id must agree, so a mis-bound property never settles P6 / P7 (Codex, #431).
+        want = str(bases.get(key_a if bl.lower() == "a" else key_b) or "")
+        plugin, _, hexid = want.rpartition(":")
+        if plugin.lower() == "starfield.esm":
+            got = e.form("base")
+            try:
+                if got is None or int(got, 16) != int(hexid, 16):
+                    return None
+            except ValueError:
+                return None
         return bl.upper()
     if bl.lower() == "other":
         return "other"
-    bases = _plan_bases(plan)
     if bases.get(key_a) and bases.get(key_b):
         if bl.lower() == str(bases[key_a]).lower():
             return "A"
@@ -1131,7 +1142,9 @@ def check_p10(c: Collection) -> Verdict:
         v.reasons.append("SendStoryEvent returned False")
         v.verdict = FAIL
         return v
-    after = [e for e in started if e.line > s.line and e.num("local") == LOCAL["p10_quest"]]
+    # Only lines whose logged id is FOCC_P10_Quest count: local=2080 is a literal the scripts print (Codex, #431).
+    after = [e for e in started if e.line > s.line and _local(e, "id") == LOCAL["p10_quest"]]
+    state = [e for e in state if _local(e, "id") == LOCAL["p10_quest"]]
     running = state[-1].flag("running") if state and state[-1].line > s.line else None
     if after:
         e = after[0]

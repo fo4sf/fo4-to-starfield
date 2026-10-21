@@ -168,6 +168,13 @@ class ProbeInstallTests(unittest.TestCase):
             self.quiet(probe_install.install, self.a)
         self.assertIn("plan.json missing", str(cm.exception))
 
+    def test_a_file_the_plan_does_not_pin_is_refused(self):
+        # Codex review of #431: install packs the whole Data tree, so an extra file would ride along unreviewed.
+        write(os.path.join(self.staged, "Data", "Scripts", "Extra.pex"), b"unreviewed")
+        with self.assertRaises(SystemExit) as cm:
+            self.quiet(probe_install.install, self.a)
+        self.assertIn("Data/Scripts/Extra.pex not in plan.json outputs", str(cm.exception))
+
     def test_uninstall_removes_only_what_it_added(self):
         write(self.plugins, b"*FO4Port.esm\r\nFO4SFCombinedProbe.esm\r\n")   # an inactive line from before: put back
         self.quiet(probe_install.install, self.a)

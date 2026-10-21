@@ -74,6 +74,11 @@ def staged(a):
             sys.exit(f"stage changed after it was built: {rel} does not match plan.json (runbook rule 6)")
     if outputs.get(PLUGIN) != plan.get("plugin_sha256"):
         sys.exit("plan.json: outputs and plugin_sha256 disagree")
+    # install() packs the whole staged Data tree, so a file plan.json does not pin is refused (Codex review of #431).
+    staged_files = {k.replace(os.sep, "/") for k in _source_inventory(d)}
+    extra = sorted(staged_files - {k.replace("\\", "/") for k in outputs})
+    if extra:
+        sys.exit(f"stage changed after it was built: {', '.join(extra)} not in plan.json outputs (runbook rule 6)")
     return d, plugin, plan
 
 
