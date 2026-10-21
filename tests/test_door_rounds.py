@@ -210,6 +210,35 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
 
+    def test_out_crosses_worlds_only_for_a_pinned_runtime_instance(self):
+        # doors_out2 (2026-10-19): the player stood in FF00552F, the marker resolved in our WRLD 02000803, 0.0 to
+        # 0.3 m off. Codex on #383: an FF prefix does not say which WRLD it instantiates, so only a pinned pair crosses
+        runtime, base = str(0xFF00552F - (1 << 32)), str(0x02000803)
+        out = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base),
+               pos(-1669.3, -2063.8, 42.4, cell="-6", world=runtime))
+        pin = {"FF00552F": "02000803"}
+        self.assertEqual(verdict(out, EXP_OUT), ("INCONCLUSIVE", "WORLD"))      # no pin: as before daff232
+
+        def v(lines, pins=pin):
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins)
+            return r, why
+        self.assertEqual(v(out)[0], "PASS")
+        self.assertIn("taken as 02000803 by --world-instance", v(out)[1])
+        far = out[:2] + (pos(-469, 636, 42, cell="-6", world=runtime),)
+        self.assertEqual(v(far)[0], "FAIL")                                       # a pin never excuses distance
+        other_rt = out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=str(0xFF123456 - (1 << 32))),)
+        self.assertEqual(v(other_rt)[0], "INCONCLUSIVE")                          # an unpinned runtime world
+        other_base = (out[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0x04000803)), out[2])
+        self.assertEqual(v(other_base)[0], "INCONCLUSIVE")                        # pinned to another WRLD
+        self.assertIn("no --world-instance pins the pair", v(other_base)[1])
+        self.assertEqual(v(out[:2] + (pos(-1669.3, -2063.8, 42.4),))[0], "FAIL")  # still inside: STAYED
+
+    def test_world_pins_are_checked(self):
+        self.assertEqual(dr.world_pairs(["ff00552f=02000803", "FF00552F=02000803"]), {"FF00552F": "02000803"})
+        for bad in (["FF00552F"], ["02000803=FF00552F"], ["FF00552F=FF000001"], ["FF00552F=02000803", "FF00552F=02000804"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                dr.world_pairs(bad)
+
     def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
         # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
         wrong = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace(f"form={(2 << 24) | 2304}", f"form={(2 << 24) | 2305}"),
@@ -260,6 +289,68 @@ class JudgeTests(unittest.TestCase):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])
         self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
+
+
+class OutLegsTests(unittest.TestCase):
+    def setUp(self):
+        import door_out_legs
+        self.dol = door_out_legs
+        self.d = tempfile.mkdtemp()
+        core, port, _ = build(self.d)
+        self.st = os.path.join(self.d, "st")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", self.st])
+        self.plan, self.rounds = (self.load(self.st, n) for n in ("plan.json", "rounds.json"))
+
+    @staticmethod
+    def load(d, name):
+        with open(os.path.join(d, name)) as f:
+            return json.load(f)
+
+    def run_on(self, plan, rounds, min_m, name):
+        src = os.path.join(self.d, name + "_src")
+        os.makedirs(src)
+        for n, v in (("plan.json", plan), ("rounds.json", rounds)):
+            with open(os.path.join(src, n), "w") as f:
+                json.dump(v, f)
+        out = os.path.join(self.d, name)
+        with redirect_stdout(io.StringIO()):
+            self.dol.main([src, out, str(min_m)])
+        return self.load(out, "plan.json"), self.load(out, "rounds.json")
+
+    def test_keeps_the_far_out_legs_renumbered(self):
+        kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
+        self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
+        self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
+        with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
+            self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
+
+    def test_the_distance_comes_from_the_geometry_not_the_label(self):
+        # Codex's review of #383: 728.53 m from the spawn; labels are display only
+        plan = json.loads(json.dumps(self.plan))
+        plan[0]["label"] = plan[0]["label"].replace("729 m", "99999 m")
+        self.assertEqual(self.run_on(plan, self.rounds, 728.6, "label")[0], [])
+        self.assertEqual(len(self.run_on(plan, self.rounds, 728.5, "exact")[0]), 1)
+
+    def test_a_mismatched_stage_is_refused_before_anything_is_written(self):
+        def bad(change):
+            plan, rounds = json.loads(json.dumps(self.plan)), json.loads(json.dumps(self.rounds))
+            change(plan, rounds)
+            return plan, rounds
+        cases = {
+            "out_points_at_in": lambda p, r: r["tests"][1].update(test=0),
+            "coc": lambda p, r: p[1].update(coc="FO4Core_RedRocketSpawn"),
+            "activation": lambda p, r: p[1]["activate"].update(ref="02000701"),
+            "ack": lambda p, r: p[1]["console_post"].__setitem__(0, dr.ack("door-fwd-0")),
+            "spawn": lambda p, r: p[0].update(spawn_local=[float("nan"), 0.0, 0.0]),
+            "in_leg": lambda p, r: p[0].update(coc="FO4Port_SuperDuperMart01"),
+        }
+        for name, change in cases.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.run_on(*bad(change), 0, name)
+            self.assertFalse(os.path.exists(os.path.join(self.d, name)))
 
 
 if __name__ == "__main__":
