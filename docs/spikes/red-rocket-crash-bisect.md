@@ -1,6 +1,7 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **in progress**. v6e (installed) still crashes at Red Rocket with the same fault; v6h is next.
+Status: **in progress**. v6e (installed) still crashes at Red Rocket with the same fault. v6h is staged, and its walk
+test (Card E) is next. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes").
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -26,6 +27,7 @@ differ. `movables.txt` lists the 448 meshes that v6c made movable, one per line
 | v6e (installed, crashes) | off | static | `--no-rig-pattern "redrped" --static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
 | v6f (dropped) | on | static | `--static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
 | v6g (dropped) | off | movable | `--no-rig-pattern "redrped"` |
+| v6h (staged, Card E next) | off | static | v6e's, with `--no-rig-pattern "redrped\|bldcounterdoor01\|safedoor01"` |
 
 How to read the results:
 - v6e stable: build v6f. If v6f is stable too, the props caused it and the side door is safe. If v6f crashes, the
@@ -80,4 +82,27 @@ Steps (PC install thread; D: needs room for one more staged core, and keeps its 
 5. Superseded builds are listed for the owner's cleanup; nothing is deleted from here. The swap goes through the
    coordinator like v6e's.
 
-v6c and v6e are tested in game (both crash at Red Rocket); v6h has not been built or tested yet.
+## v6h build (2026-10-21)
+- Staged as D:\Modding\staging\terrain_core64v6h_l125_mission_wfc11 with the mission restaged against it
+  (mission_wfc11_v6h); nothing is installed. The CHECK, l125 and fold steps passed, and compare-ids is identical to v6e.
+  FO4TerrainCore is DC751664. **Verified** (PC report).
+- `--resume` reconverted 62 meshes, not 3. `checkpoints.reusable_result` never reuses a result that has fallback
+  materials or a `door_error`, so every resume retries those (16 with fallbacks this run, plus the doors with rig
+  errors). With the same code and inputs, the retries should come out unchanged (**inference**; compare-ids agrees).
+
+## The 0.02 in the door boxes
+- `scripts/research/nif_float_scan.py` (#453) over the core's 11,768 NIFs finds 0x3ca3d70a in 6 of them. All 6 are door
+  leaf boxes whose half-extent was clamped: `convert_static` gives a flat leaf (no depth on one axis) a box half-extent
+  of `max(0.02, ...)`. **Verified.**
+- Within 300 m of both crash sites (Red Rocket and the museum), only bldcounterdoor01 (the counter door 0232E0) holds
+  it: block 9, a bhkPhysicsSystem, half-extent x. v6h removed that door's rig but kept the box. **Verified.**
+- Door boxes with a real thickness never show up in a crash, and every crash reads exactly 0.02. So the thin, clamped
+  box itself looks like the cause, not door boxes in general (**supported hypothesis**). A possible mechanism, not
+  checked: a half-extent below the Havok box's convex radius leaves the shape inconsistent.
+- Reading Card E: if v6h is stable, the counter or safe door rig was the cause and the box is cleared. If it crashes with
+  rcx 0x3ca3d70a again, the rigs are cleared and the box is the lead. In that case, build v6i with the leaf floor raised
+  (`sfcollision.MIN_LEAF_HALF`, 0.05) and rescan: 0 hits is the gate. That is a code change, so v6i reconverts all 11,887
+  meshes. Staging it needs about 10 GB on D:, and D: is at 45.5 GB against its 40 GB floor, so it waits on the owner's
+  cleanup list.
+
+v6c and v6e are tested in game (both crash at Red Rocket); v6h is built but not yet tested.
