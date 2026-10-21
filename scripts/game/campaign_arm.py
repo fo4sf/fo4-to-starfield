@@ -701,7 +701,8 @@ def check(camp, release):
         # Codex on #391: the chain checks the python before Set-Location and runs it after; a bare command is found
         # on PATH both times, a relative path would not be the same file
         caps.append(f"python {py!r} is a relative path: give a full path or a bare command name")
-    elif rooted(py) and re.split(r"[\\/]", py)[-1].lower() not in ("python", "python.exe"):
+    elif re.split(r"[\\/]", py)[-1].lower() not in ("python", "python.exe"):
+        # Codex on #391: a bare alias (the py launcher) is not what cycle.ps1's bare `python` finds either
         # Codex on #391: cycle.ps1 runs a bare `python`; the chain puts this python's folder first on PATH for it
         caps.append(f"python {py!r} is not named python.exe: cycle.ps1's own python calls would not find it")
     why = installed_exp_why(camp)
@@ -952,7 +953,18 @@ def run_chain(camp, log=print, call=None):
     return 0
 
 
+def run_python_why(camp):
+    """None when this process runs on the campaign's python, else (python, why). Codex on #391: the arming checks
+    import the judges and the runner, so they run on the interpreter the chain runs them with."""
+    py = str(camp.get("python") or "python")
+    exe = py if rooted(py) else shutil.which(py)
+    if exe and norm(os.path.abspath(exe)) == norm(os.path.abspath(sys.executable)):
+        return None
+    return exe, f"this is {sys.executable}, the campaign's python is {py}" + ("" if exe else " (not found)")
+
+
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     rn = sub.add_parser("run")
@@ -994,6 +1006,18 @@ def main(argv=None):
             # Codex on #391: the checks below are this checkout's, the runner the campaign's: one checkout for both
             log(f"REFUSED campaign: run campaign_arm.py from the campaign checkout {camp.get('checkout')}, not {here}")
             return 1
+        exe, why = run_python_why(camp) or (None, None)
+        if why:
+            if not exe or os.environ.get("FO4SF_ARM_REEXEC") == "1":
+                log(f"REFUSED campaign: {why}")
+                return 1
+            log(f"{why}: running the checks and the chain again on it")
+            try:
+                return subprocess.run([exe, "-I", os.path.abspath(__file__)] + argv,
+                                      env=dict(os.environ, FO4SF_ARM_REEXEC="1")).returncode
+            except OSError as error:
+                log(f"REFUSED campaign: {exe} could not be run: {error}")
+                return 1
         return run_chain(camp, log)
     camp, digest = load_campaign(a.campaign)
     release = releases(a.release)

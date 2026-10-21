@@ -614,6 +614,7 @@ class PlanTerrainHoldTests(Base):
         self.assertIn("launch 'cmd'", caps(launch="cmd"))
         self.assertIn("is a relative path", caps(python=".\\venv\\Scripts\\python.exe"))
         self.assertNotIn("python", caps(python="python"))
+        self.assertIn("is not named python.exe", caps(python="py"))           # Codex on #391: the py launcher
         self.assertIn("is not named python.exe", caps(python="C:\\py\\pythonw.exe"))
         self.assertNotIn("python", caps())
 
@@ -1007,10 +1008,31 @@ class RunChainTests(Base):
         rc.assert_not_called()
         self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
         with open(cp_, "w") as f:
-            json.dump(self.camp([("a", q)], checkout=ROOT), f)
+            json.dump(self.camp([("a", q)], checkout=ROOT, python=sys.executable), f)
         with redirect_stdout(io.StringIO()), mock.patch.object(ca, "run_chain", return_value=0) as rc:
             self.assertEqual(ca.main(["run", "--campaign", cp_]), 0)
         rc.assert_called_once()
+
+    def test_run_runs_again_on_the_campaigns_python(self):
+        # Codex on #391: the arming checks import the judges; on another python they could refuse or pass otherwise
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp_ = os.path.join(self.d, "c.json")
+        with open(cp_, "w") as f:
+            json.dump(self.camp([("a", q)], checkout=ROOT), f)
+        done = mock.Mock(returncode=0)
+        with redirect_stdout(io.StringIO()), mock.patch.object(ca, "run_chain") as rc, \
+                mock.patch.object(ca.subprocess, "run", return_value=done) as sp:
+            self.assertEqual(ca.main(["run", "--campaign", cp_]), 0)
+        rc.assert_not_called()
+        argv, kw = sp.call_args
+        self.assertEqual(argv[0][:2], [PY, "-I"])
+        self.assertEqual(argv[0][-3:], ["run", "--campaign", cp_])
+        self.assertEqual(kw["env"]["FO4SF_ARM_REEXEC"], "1")
+        with redirect_stdout(io.StringIO()) as buf, mock.patch.object(ca, "run_chain") as rc, \
+                mock.patch.dict(os.environ, {"FO4SF_ARM_REEXEC": "1"}):  # still not it after the re-run: no loop
+            self.assertEqual(ca.main(["run", "--campaign", cp_]), 1)
+        rc.assert_not_called()
+        self.assertIn("the campaign's python is", buf.getvalue())
 
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
         os.environ["FO4SF_PYTHON"] = "C:\\other\\python.exe"
