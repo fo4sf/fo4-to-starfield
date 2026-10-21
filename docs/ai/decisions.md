@@ -454,6 +454,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
   copy for restore (untested at this size / too much disk); a Mutagen check in C# (needs a load order, GPL-3).
   Listed for the owner's talk in launcher-backbone.md.
 
+## 2026-10-19: the Fallout 4 new game is its own plugin, resolving the port and core at run time (Claude-cloud)
+- Decision: FO4SFNewGame.esm (master Starfield.esm only) holds the start quest; it finds Vault 111 and the core's exit
+  anchor with Game.GetFormFromFile on stable plugin-local ids, and stops MQ00 and MQ101 from Papyrus instead of editing
+  them (docs/newgame/vault111-start.md).
+- Why: the mission plugin is under test; ids in FO4Port and the core are stable, so the start survives their rebuilds;
+  stopping quests edits no Starfield record and goes away with the plugin.
+- Alternatives: changes to FO4SFMission.esm (rejected: it is under test); mastering the port and core with our own
+  markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
+  fallbacks, `--mq101debug`, for the owner's talk).
+
 ## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
 - Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
   bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child

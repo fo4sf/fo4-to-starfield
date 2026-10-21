@@ -1,5 +1,6 @@
 """scripts/bridge/door_rounds.py: door round trips planned against the installed plugins and judged from the bridge's
 log (synthetic core and port plugins, synthetic logs)."""
+import hashlib
 import io
 import json
 import os
@@ -101,6 +102,8 @@ class StageTests(unittest.TestCase):
         for got, want in zip(t1["pos"], back):
             self.assertAlmostEqual(got, want, places=3)
         self.assertEqual(t0["hops"], 3)                        # 728 m at 185 m a hop
+        with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
 
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
@@ -288,7 +291,10 @@ class JudgeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])
-        self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
+        with open(os.path.join(d, "door_rounds_judge.json")) as f:
+            judged = json.load(f)
+        with open(os.path.join(d, "rounds.json"), "rb") as f:          # the file it read, for regress (Codex on #401)
+            self.assertEqual(judged["rounds_sha256"], hashlib.sha256(f.read()).hexdigest())
 
 
 class OutLegsTests(unittest.TestCase):
@@ -323,6 +329,8 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
         with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
             self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
