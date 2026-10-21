@@ -75,6 +75,16 @@ def save(p, obj):
         json.dump(obj, f, indent=1)
 
 
+def save_stage(out, plan, info):
+    """A stage's plan.json, then its rounds.json carrying plan_sha256, the sha256 of that plan.json: one rounds digest
+    (queue.json rounds_sha256, the judge's rounds_sha256) then covers both files, and plan-terrain refuses a plan.json
+    edited after staging (Codex on #401)."""
+    save(os.path.join(out, "plan.json"), plan)
+    with open(os.path.join(out, "plan.json"), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    save(os.path.join(out, "rounds.json"), dict(info, plan_sha256=digest))
+
+
 # ------------------------------------------------------------------------------------------------------------ plugins
 def finite(v, n=3):
     """True for a list of n finite numbers."""
@@ -271,11 +281,10 @@ def stage(a):
         plan += [f, b]
         expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
     os.makedirs(out)
-    save(os.path.join(out, "plan.json"), plan)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
             "tests": expect}
-    save(os.path.join(out, "rounds.json"), info)
+    save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")

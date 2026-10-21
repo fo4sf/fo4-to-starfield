@@ -66,10 +66,7 @@ def main(argv=None):
         rounds = json.load(f)
     kept = select(plan, rounds, min_m)                    # every check before anything is written
     os.makedirs(dst)                                      # a NEW folder only
-    with open(os.path.join(dst, "plan.json"), "w", encoding="utf-8") as f:
-        json.dump([p for p, _, _ in kept], f, indent=1)
-    with open(os.path.join(dst, "rounds.json"), "w", encoding="utf-8") as f:
-        json.dump(dict(rounds, tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]), f, indent=1)
+    dr.save_stage(dst, [p for p, _, _ in kept], dict(rounds, tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]))
     for i, (_, e, d) in enumerate(kept):
         print(i, e["cell_edid"], f"{d:.1f}", "m")
     print(len(kept), "OUT tests kept of", len(rounds["doors"]))

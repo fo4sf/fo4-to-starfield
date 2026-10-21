@@ -102,6 +102,8 @@ class StageTests(unittest.TestCase):
         for got, want in zip(t1["pos"], back):
             self.assertAlmostEqual(got, want, places=3)
         self.assertEqual(t0["hops"], 3)                        # 728 m at 185 m a hop
+        with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
 
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
@@ -327,6 +329,8 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
         with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
             self.dol.main([self.st, os.path.join(self.d, "near"), "0"])

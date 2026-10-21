@@ -21,7 +21,8 @@ python scripts/game/regress.py --old <queues of the old build> --new <queues of 
   test (a `judge --rounds` subset) or with a row naming another door than the test's label and ack (a judge of
   another rounds file) is refused, as is a judge whose `rounds_sha256` (the rounds file `door_rounds.py judge` read)
   is missing or is not the queue's `rounds_sha256` (the stage's rounds.json when `plan-terrain` planned it; a queue
-  planned before that is planned again), and a judge whose recorded attempt of a test is not
+  planned before that is planned again; rounds.json carries `plan_sha256` of the plan.json staged with it, and
+  `plan-terrain` refuses a stage whose plan.json does not match, so the one digest covers both files), and a judge whose recorded attempt of a test is not
   the queue's newest (the queue ran again after it was judged) is refused with exit 2: judge it again.
 
 ## How each match is classed

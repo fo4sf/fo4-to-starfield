@@ -478,6 +478,15 @@ def plan_terrain(a):
     #   "points": [{"label", "x", "y", "expect"}], "beyond": {"x", "y"} (optional)}]  (metres, world coordinates)
     # plus the optional time-of-day / weather fields (sky_light.LIGHT_KEYS)
     own = load(os.path.join(a.exp_dir, "plan.json"))
+    rounds = os.path.join(a.exp_dir, "rounds.json")
+    if os.path.exists(rounds):
+        # a door rounds stage: its judge reads rounds.json against these tests, so the plan.json must be the one staged
+        # with it (door_rounds.save_stage: rounds.json plan_sha256; Codex on #401)
+        want = (load(rounds, {}) or {}).get("plan_sha256")
+        if not want or not os.path.exists(os.path.join(a.exp_dir, "plan.json")) \
+                or sha256(os.path.join(a.exp_dir, "plan.json")) != want:
+            sys.exit(f"{a.exp_dir}: plan.json is not the one its rounds.json was staged with "
+                     f"({'no plan_sha256 in rounds.json' if not want else 'plan_sha256 differs'}): stage it again")
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
@@ -520,7 +529,6 @@ def plan_terrain(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    rounds = os.path.join(a.exp_dir, "rounds.json")
     if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
         q["rounds_sha256"] = sha256(rounds)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
