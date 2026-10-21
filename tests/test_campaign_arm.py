@@ -766,6 +766,22 @@ class RunChainTests(Base):
             return codes.pop(0)
         return call
 
+    def test_run_refuses_a_campaign_whose_checkout_is_not_this_one(self):
+        # Codex on #391: the arm checks would be this checkout's and the runner another's
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp_ = os.path.join(self.d, "c.json")
+        with open(cp_, "w") as f:
+            json.dump(self.camp([("a", q)]), f)
+        with redirect_stdout(io.StringIO()) as buf, mock.patch.object(ca, "run_chain", return_value=0) as rc:
+            self.assertEqual(ca.main(["run", "--campaign", cp_]), 1)
+        rc.assert_not_called()
+        self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
+        with open(cp_, "w") as f:
+            json.dump(self.camp([("a", q)], checkout=ROOT), f)
+        with redirect_stdout(io.StringIO()), mock.patch.object(ca, "run_chain", return_value=0) as rc:
+            self.assertEqual(ca.main(["run", "--campaign", cp_]), 0)
+        rc.assert_called_once()
+
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
         os.environ["FO4SF_PYTHON"] = "C:\\other\\python.exe"
         self.addCleanup(os.environ.pop, "FO4SF_PYTHON", None)

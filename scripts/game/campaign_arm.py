@@ -753,7 +753,13 @@ def main(argv=None):
             print(line)
             with open(logp, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
-        return run_chain(read_campaign(a.campaign), log)
+        camp = read_campaign(a.campaign)
+        here = os.path.dirname(os.path.dirname(HERE))
+        if norm(os.path.abspath(here)) != norm(os.path.abspath(str(camp.get("checkout") or ""))):
+            # Codex on #391: the checks below are this checkout's, the runner the campaign's: one checkout for both
+            log(f"REFUSED campaign: run campaign_arm.py from the campaign checkout {camp.get('checkout')}, not {here}")
+            return 1
+        return run_chain(camp, log)
     camp, digest = load_campaign(a.campaign)
     release = releases(a.release)
     if a.cmd == "check" and a.sha256 and digest != a.sha256.lower():
