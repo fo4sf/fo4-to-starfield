@@ -54,7 +54,7 @@ static class NewGameRecords
         var text = Report(inputs);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, text);
-        Console.WriteLine($"records ok: {text.Split('\n').Length} lines, {Sections(text).Count(s => s.Contains("missing"))} section(s) with a missing input; report {outPath}");
+        Console.WriteLine($"records ok: {text.Split('\n').Length} lines, {Sections(text).Count(s => s.Contains("\nmissing: "))} section(s) with a missing input; report {outPath}");
         return 0;
     }
 
@@ -66,16 +66,18 @@ static class NewGameRecords
     {
         var o = new Out();
         o.Line($"newgame records: {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC; Fallout4.esm {ins.Fo4 ?? "(none)"}; Starfield.esm {ins.Sf ?? "(none)"}; port {ins.Port ?? "(none)"}");
-        o.Line("Every section names the newgame.md question it answers. Positions: Fallout 4's in its units and in metres (/70); the port's in metres.");
+        o.Line("Every section names the newgame.md question it answers. Positions are in metres, the port's frame (Fallout 4's pod position / 70).");
         using var fo4Mod = Open(ins.Fo4, p => F4.Fallout4Mod.CreateFromBinaryOverlay(p, F4.Fallout4Release.Fallout4), o, "Fallout4.esm");
         using var sfMod = Open(ins.Sf, p => SF.StarfieldMod.CreateFromBinaryOverlay(p, SF.StarfieldRelease.Starfield), o, "Starfield.esm");
         using var portMod = Open(ins.Port, p => SF.StarfieldMod.CreateFromBinaryOverlay(p, SF.StarfieldRelease.Starfield, NewGame.Full(SfEsm)), o, "FO4Port.esm");
         var fo4 = fo4Mod as F4.IFallout4ModGetter;
         var sf = sfMod as SF.IStarfieldModGetter;
         var port = portMod as SF.IStarfieldModGetter;
-        var f4Names = fo4 is null ? null : new Names(fo4);
-        var sfNames = sf is null ? null : new Names(sf);
-        var portNames = port is null ? null : new Names(port, sfNames);
+        // the name indexes are one pass over every record of each plugin: a record Mutagen cannot parse must not
+        // take the whole report down, so a failed pass leaves an index that names by id alone, and says so
+        var f4Names = Index(fo4, null, o, "Fallout4.esm");
+        var sfNames = Index(sf, null, o, "Starfield.esm");
+        var portNames = Index(port, sfNames, o, "FO4Port.esm");
 
         o.Section("NG-K1 MQ102 (Fallout4.esm): the full stage table and which stage completes it", () =>
         {
@@ -139,8 +141,8 @@ static class NewGameRecords
             var all = cell.Persistent.Concat(cell.Temporary).ToList();
             // the origin: FO4's player pod / 70 (the port's frame), else the COC marker
             P3Float origin; string from;
-            var pods = fo4?.EnumerateMajorRecords<F4.ICellGetter>().FirstOrDefault(c => c.FormKey.ID == NewGame.Fo4VaultCell)?.Temporary.Concat(fo4.EnumerateMajorRecords<F4.ICellGetter>().First(c => c.FormKey.ID == NewGame.Fo4VaultCell).Persistent)
-                           .OfType<F4.IPlacedObjectGetter>().Where(r => NewGame.IsPlayerPod(r.EditorID)).ToList() ?? new();
+            var f4Cell = fo4?.EnumerateMajorRecords<F4.ICellGetter>().FirstOrDefault(c => c.FormKey.ID == NewGame.Fo4VaultCell);
+            var pods = f4Cell?.Temporary.Concat(f4Cell.Persistent).OfType<F4.IPlacedObjectGetter>().Where(r => NewGame.IsPlayerPod(r.EditorID)).ToList() ?? new();
             var coc = all.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.Base.FormKey == new FormKey(SfEsm, NewGame.CocMarkerId));
             if (pods.Count > 0)
             {
@@ -168,6 +170,17 @@ static class NewGameRecords
             }
         });
         return o.Text();
+    }
+
+    static Names? Index(IModGetter? mod, Names? fallback, Out o, string what)
+    {
+        if (mod is null) return null;
+        try { return new Names(mod, fallback); }
+        catch (Exception e)
+        {
+            o.Line($"ERROR indexing {what}'s records (links print as ids; the sections still run): {e.GetType().Name}: {e.Message}");
+            return new Names(fallback);
+        }
     }
 
     static IDisposable? Open(string? path, Func<string, IModDisposeGetter> open, Out o, string what)
@@ -221,9 +234,9 @@ static class NewGameRecords
 
     static void Alias(Out o, object a, Names names, string indent)
     {
-        var id = Prop(a, "ID"); var name = Prop(a, "Name"); var flags = Prop(a, "Flags");
+        var id = Prop(a, "ID"); var name = Prop(a, "Name"); var flags = Prop(a, "Flags")?.ToString();
         var lists = ConditionLists(a, "alias").Where(l => l.Conds.Count > 0).ToList();
-        o.Line($"{indent}alias {id} {name}{(flags is null ? "" : $" [{flags}]")}: {lists.Sum(l => l.Conds.Count)} condition(s)");
+        o.Line($"{indent}alias {id} {name}{(flags is null || flags == "0" ? "" : $" [{flags}]")}: {lists.Sum(l => l.Conds.Count)} condition(s)");
         foreach (var (_, conds) in lists) foreach (var c in conds) o.Line(indent + "  " + Condition(c, names));
     }
 
@@ -255,7 +268,15 @@ static class NewGameRecords
         }
     }
 
-    static object? Prop(object? o, string name) => o?.GetType().GetProperty(name)?.GetValue(o) ?? Getter(o, name);
+    /// A property by name, on the class or any interface it implements (an overlay class can hide a member under
+    /// the same name, which makes the class lookup ambiguous: then the interface lookup decides).
+    static object? Prop(object? o, string name)
+    {
+        if (o is null) return null;
+        try { if (o.GetType().GetProperty(name) is { } p && p.GetIndexParameters().Length == 0 && p.GetValue(o) is { } v) return v; }
+        catch (AmbiguousMatchException) { }
+        return Getter(o, name);
+    }
     static object? Getter(object? o, string name)
     {
         if (o is null) return null;
@@ -409,6 +430,8 @@ static class NewGameRecords
         readonly Dictionary<FormKey, (string? Edid, string Type)> map = new();
         readonly Dictionary<FormKey, IMajorRecordGetter> wanted = new();
         readonly Names? fallback;
+        /// The empty index: every name is its id (or the fallback's name).
+        public Names(Names? fallback) { this.fallback = fallback; }
         public Names(IModGetter mod, Names? fallback = null)
         {
             this.fallback = fallback;
@@ -630,6 +653,13 @@ static class NewGameRecords
         var cocOnly = Path.Combine(outDir, "coc.txt");
         if (Run(Path.Combine(dir, "nowhere"), cocOnly, dir, null, 5) != 0 || !File.ReadAllText(cocOnly).Contains("origin (60, 15, 1) m: the cell's COC marker (Fallout4.esm missing)"))
             { Console.WriteLine("FAIL  the COC marker fallback"); return 1; }
+        // a plugin that is there but cannot be read is reported like a missing one, not fatal
+        var badDir = Path.Combine(dir, "bad");
+        Directory.CreateDirectory(badDir);
+        File.WriteAllBytes(Path.Combine(badDir, Fo4Esm), new byte[] { 0x54, 0x45, 0x53, 0x34, 1, 2, 3 });
+        var badPath = Path.Combine(outDir, "bad.txt");
+        if (Run(badDir, badPath, dir, null, 5) != 0 || !File.ReadAllText(badPath).Contains($"missing: Fallout4.esm {Path.Combine(badDir, Fo4Esm)} could not be read: "))
+            { Console.WriteLine("FAIL  an unreadable Fallout4.esm was not reported as missing"); return 1; }
         try { Run(dir, null, dir, null, 5); Console.WriteLine("FAIL  records ran without --out"); return 1; }
         catch (NewGame.Refusal e) { Console.WriteLine($"refused as expected (no --out): {e.Message}"); }
         Console.WriteLine("records selftest pass");

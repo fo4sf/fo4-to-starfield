@@ -43,6 +43,8 @@
 //        the read-only PC record reader for newgame.md sections K and N (NG-K1, K2, K4, K9, N4 and the anchor
 //        picks): Records.cs. Writes only --out.
 //   records-selftest <scratch dir>
+//        synthetic plugins covering each records section; the report, the missing-input reports and that only --out
+//        is written are checked.
 // Nothing is deployed and no game file is written.
 using System.Globalization;
 using System.Text.Json;
