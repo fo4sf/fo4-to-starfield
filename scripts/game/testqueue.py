@@ -64,7 +64,10 @@ when one trips:
     eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
     lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
     refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
-    prints the checklist either way. Unset: not run.
+    prints the checklist either way. Unset: not run. --preflight-report (or FO4SF_PREFLIGHT_REPORT=1) runs the same
+    checks in report-only mode, the first step of switching the gate on: the checklist goes to run.log
+    and preflight.json in the queue folder, nothing is refused and nothing is written to the ledger; --preflight wins
+    when both are on.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -3181,6 +3184,33 @@ class Runner:
         self.checkpoint(f"stopped: preflight refused ({names})")
         return 3
 
+    def preflight_report(self):
+        """The same gate in report-only mode: the checklist goes to run.log and preflight.json, what it would refuse
+        is named, and the run goes on whatever it finds (no refusal, no ledger event). A probe that fails to start is
+        logged, preflight.json says so (ok false, nothing checked: never an earlier run's pass), and the run still goes on."""
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        try:
+            from fo4sf.core import preflight
+            rep = preflight.run_gate(self.preflight_probe(self))
+        except Exception as e:                             # report-only must never cost the run
+            why = f"{type(e).__name__}: {e}"
+            self.log(f"preflight (report only): not run: {why}")
+            out = {"at": now(), "mode": "report", "ok": False, "not_run": why, "would_refuse": [], "checks": []}
+        else:
+            failing = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+            self.log("preflight (report only): " + ("every check passed" if rep.ok else f"would refuse: {failing}"))
+            for c in rep.checks:
+                self.log("  " + c.line())
+            out = {"at": now(), "mode": "report", "ok": rep.ok, "would_refuse": [c.name for c in rep.failing],
+                   "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in rep.checks]}
+        try:
+            with open(os.path.join(self.qdir, "preflight.json"), "w", encoding="utf-8") as f:
+                json.dump(out, f, indent=1, default=str)
+        except OSError as e:
+            self.log(f"preflight (report only): preflight.json not written: {e}")
+
     @property
     def ledger_by(self):
         return f"testqueue:{self.lease.owner}" if self.lease else "testqueue"
@@ -3258,6 +3288,8 @@ class Runner:
             code = self.preflight()
             if code:
                 return code
+        elif getattr(a, "preflight_report", False):        # report only: logged and written, never refuses
+            self.preflight_report()
         if self.lease:                                     # section 10: the queue's pin and tests into the ledger, once
             self.ledger_event(lambda: self.lease.events.build_pinned(self.qdir, self.q, self.ledger_by))
             for t in tests:
@@ -3730,6 +3762,11 @@ def main(argv=None):
                    help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
                         "default on with FO4SF_PREFLIGHT=1 (true / yes / on), --no-preflight turns it off for one run; "
                         "off (the default): not run")
+    r.add_argument("--preflight-report", action=argparse.BooleanOptionalAction,
+                   default=os.environ.get("FO4SF_PREFLIGHT_REPORT", "").strip().lower() in ("1", "true", "yes", "on"),
+                   help="run the same checks in report-only mode: the checklist goes to run.log and preflight.json in "
+                        "the queue folder, nothing is refused, nothing goes to the ledger; default on with "
+                        "FO4SF_PREFLIGHT_REPORT=1; --preflight wins when both are on")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
