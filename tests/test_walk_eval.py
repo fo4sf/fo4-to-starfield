@@ -312,7 +312,7 @@ class WalkPlanTests(unittest.TestCase):
 
         def run():
             ctl.pid = ctl.owned_pid()
-            r = tq.Runner(out, tt.args(starfield=sf, max_attempts=3), ctl=ctl, step=crash)
+            r = tq.Runner(out, tt.args(starfield=sf), ctl=ctl, step=crash)   # max_attempts 2 (Codex on #402)
             r.session, r.cell = True, "C"
             r._ps = lambda *a, **k: (0, "at the cell")
             code = r.run()
@@ -320,8 +320,9 @@ class WalkPlanTests(unittest.TestCase):
                 return code, [json.loads(x) for x in f][-1], r.state
         code, rec, st = run()                                          # no install record yet
         self.assertEqual((code, rec["verdict"], rec["class"]), (3, "INCONCLUSIVE", "CRASH"), rec["detail"])
-        self.assertIn("not counted toward FAIL CRASH: no install record", rec["detail"])
+        self.assertIn("not counted toward FAIL CRASH or the attempts: no install record", rec["detail"])
         self.assertEqual(st.get("test_crashes", {}), {})
+        self.assertEqual((st["attempts"].get(rec["id"], 0), st["done"]), (0, {}))   # no attempt spent, not done
         install_record(sf, core)                                       # the pinned experiment installed
         code, rec, st = run()
         self.assertEqual((rec["verdict"], rec["class"]), ("INCONCLUSIVE", "CRASH"), rec["detail"])

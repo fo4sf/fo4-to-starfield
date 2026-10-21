@@ -3476,7 +3476,10 @@ class Runner:
                 if inst_why and verdict != "INCONCLUSIVE":
                     verdict, cls, detail = "INCONCLUSIVE", "INSTALL", f"{inst_why}; raw verdict {verdict} {cls}: {detail}"
             if crashed and inst_why:
-                detail += f"; not counted toward FAIL CRASH: {inst_why}"   # a crash on another install (Codex on #402)
+                # a crash on another install (Codex on #402): not counted toward FAIL CRASH, and not an attempt either,
+                # so the pinned install still gets every attempt it needs to reach FAIL CRASH
+                detail += f"; not counted toward FAIL CRASH or the attempts: {inst_why}"
+                self.state["attempts"][t["id"]] = n - 1
             elif crashed:
                 # a test the game exited during CRASH_FAIL times (this run or an earlier one of the queue) is a final
                 # FAIL CRASH: the crash repeats there, and it goes on the bugs list instead of being retried every run
@@ -3501,7 +3504,8 @@ class Runner:
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
             self.record(rec)
-            final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
+            final = verdict != "INCONCLUSIVE" or (n >= a.max_attempts and not (crashed and inst_why)) or \
+                cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
                 if cls == "CONTROL":
