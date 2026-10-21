@@ -66,7 +66,7 @@ Test-Arrival
 if ($script:arrived) { exit 0 }
 if (-not $Via) {                                     # another cell of the same staging with its own COC marker
   $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
-  $Via = "$(& $py (Join-Path $PSScriptRoot 'coc_hop.py') $CellJson)".Trim()
+  $Via = "$(& $py -I (Join-Path $PSScriptRoot 'coc_hop.py') $CellJson)".Trim()   # -I: it reads game data (CONTRIBUTING.md)
 }
 if (-not $Via) { "no other cell with a COC marker next to ${CellJson}: no hop"; exit 1 }
 "hop: coc FO4Port_$Via, then FO4Port_$Cell again"

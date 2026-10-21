@@ -58,7 +58,7 @@ class HopCellTest(StagingCase):
     def test_coc_ps1_hops_through_the_helper_pick_and_checks_again(self):
         src = open(os.path.join(GAME, "coc.ps1"), encoding="utf-8").read()
         self.assertIn("[string]$Via = ''", src)
-        self.assertIn("(Join-Path $PSScriptRoot 'coc_hop.py') $CellJson", src)
+        self.assertIn("& $py -I (Join-Path $PSScriptRoot 'coc_hop.py') $CellJson", src)   # isolated: it reads game data
         tail = src[src.index("Enter-Cell $Cell\nTest-Arrival"):]
         self.assertIn("if ($script:arrived) { exit 0 }", tail)
         hop = tail[tail.index("Enter-Cell $Via"):]
