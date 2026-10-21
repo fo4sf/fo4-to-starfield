@@ -152,6 +152,12 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can 
   $act | Select-Object -Last 1
   if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
 }
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {   # the same check for the map markers plugin (Codex, #399)
+  $mmAct = python -I "$repo\scripts\game\map_markers_install.py" active --starfield $sf
+  $mmActCode = $LASTEXITCODE
+  $mmAct | Select-Object -Last 1
+  if ($mmActCode -ne 0) { "Starfield deactivated the map markers plugin while loading the save: not testing (exit $mmActCode)"; exit 8 }
+}
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it
   $tmp = Join-Path $env:TEMP 'fo4sf_prompt.png'

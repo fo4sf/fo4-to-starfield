@@ -264,7 +264,8 @@ own record, `Data\FO4SFMapMarkers.install.json`, beside exp_install's one experi
 `bridge_install.py` does, and packs the .pex into `FO4SFMapMarkers - Main.ba2` (this install reads no loose scripts).
 It refuses unless the core is an active Plugins.txt line and its file in Data has the sha256 the stage pinned in
 `core.json` (the plugin names that core build's records by FormID; a stage from before the pin is staged again).
-`order` repeats those checks before it writes, and cycle.ps1 stops with exit 7 when it refuses. Its `order` command moves its line to the end; cycle.ps1
+`order` repeats those checks before it writes, and cycle.ps1 stops with exit 7 when it refuses. After the save loads,
+cycle.ps1 runs `active` (read-only) and stops with exit 8 if the save's load order turned the plugin off. Its `order` command moves its line to the end; cycle.ps1
 runs it before the bridge's, so the experiment's and FO4Port's load indexes stay as they were. Before a core swap,
 `uninstall` it (its only master leaves Plugins.txt for the length of the swap, and exp_install refuses missing
 masters), then install it again after; and keep it out of runner runs on a commit older than this installer.

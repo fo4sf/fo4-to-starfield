@@ -7,11 +7,11 @@ Plugins.txt, and Data\\FO4SFMapMarkers.install.json records what was added. It i
 experiment record, so it rides along with the installed core set. install refuses unless every master of the staged
 plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line and a readable plugin in Data with the sha256 the
 stage pinned (core.json; the receipt keeps a copy); order refuses the same way before it moves or reactivates the line. order moves its line to the end; cycle.ps1 runs it
-before the bridge's order, so the planned reads' load indexes (the experiment's, FO4Port's) stay as they were.
+before the bridge's order (and active after the save loads, as exp_install's), so the planned reads' load indexes (the experiment's, FO4Port's) stay as they were.
 Uninstall it before a core swap (exp_install uninstall + install): its only master leaves Plugins.txt meanwhile, and
 exp_install refuses missing masters. Install it again after the swap.
 
-usage: python map_markers_install.py install|uninstall|status|order --dir <staged dir> --starfield <game dir>
+usage: python map_markers_install.py install|uninstall|status|order|active --dir <staged dir> --starfield <game dir>
        (the staged dir: scripts/mapmarkers/make_map_markers.py stage, e.g. D:\\Modding\\staging\\mapmarkers_v6e_wfc10)
 """
 import argparse
@@ -95,9 +95,22 @@ def receipt_pins(rec_p):
     return read_pin(rec.get("dir") or "")
 
 
+def active(a):
+    """Read-only, after the save has loaded (cycle.ps1): exit 1 unless the installed plugin's line is still active.
+    Loading a save can make Starfield restore the save's own load order, after order ran."""
+    data, rec_p = kit.record_path(a)
+    if not os.path.exists(rec_p):
+        print(f"{PLUGIN} not installed")
+        return
+    lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
+    if kit.plugin_line_present(lines, PLUGIN) is None:
+        sys.exit(f"{PLUGIN} is installed but not active in Plugins.txt (the save's load order replaced it?)")
+    print(f"{PLUGIN} active")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order"))
+    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order", "active"))
     ap.add_argument("--dir", default="", help="the staged map markers folder (install)")
     ap.add_argument("--starfield", required=True)
     a = ap.parse_args(argv)
@@ -117,6 +130,8 @@ def main(argv=None):
         if os.path.exists(rec_p):                         # never reactivate or move the line while a master is held
             require_masters(os.path.join(data, PLUGIN), data, "ordered", receipt_pins(rec_p))
         kit.order(a)
+    elif a.cmd == "active":
+        active(a)
     else:
         kit.status(a)
 

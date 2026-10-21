@@ -165,6 +165,17 @@ class MapMarkersInstallTests(unittest.TestCase):
         self.assertIn("is not the core it was staged against", str(cm.exception))
         self.assertEqual(Path(self.plugins).read_bytes(), before)
 
+    def test_active_reports_a_line_the_save_dropped(self):
+        self.run_cmd("active")                                             # not installed: nothing to check
+        self.run_cmd("install")
+        self.run_cmd("active")
+        write(self.plugins, b"*FO4TerrainCore.esm\r\nFO4SFMapMarkers.esm\r\n")   # the save's order, markers off
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("active")
+        self.assertIn("not active in Plugins.txt", str(cm.exception))
+        self.assertEqual(Path(self.plugins).read_bytes(), before)          # read-only
+
     def test_order_reactivates_when_the_core_is_active(self):
         self.run_cmd("install")
         write(self.plugins, b"*FO4TerrainCore.esm\r\n*FO4Port.esm\r\n")     # a deploy dropped the markers line
@@ -205,6 +216,9 @@ class CycleOrderTests(unittest.TestCase):
         block = text[markers:text.index("bridge_install.py\" order")]
         self.assertIn("$mmCode = $LASTEXITCODE", block)                   # a refused order stops the launch
         self.assertIn("exit 7", block)
+        after = text[text.index("exp_install.py\" active"):]
+        self.assertIn("map_markers_install.py\" active", after)            # rechecked after the save loads
+        self.assertIn("$mmActCode -ne 0", after)
 
 
 if __name__ == "__main__":
