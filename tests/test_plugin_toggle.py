@@ -270,6 +270,33 @@ class ToggleTests(unittest.TestCase):
         self.run_cmd("on")
         self.assertEqual(self.lines(), ["# keep", "FO4Port.esm", "*Core.esm", "*Mission.esm", "*FO4SFBridge.esm"])
 
+    def test_on_refuses_a_duplicated_line(self):
+        # Codex on #407: on ticked both lines of a held plugin and cleared the hold
+        self.run_cmd("off", "--plugins", "Mission.esm")
+        self.txt.write_bytes((self.txt.read_bytes().decode() + "Mission.esm\r\n").encode())
+        before = self.txt.read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("on")
+        self.assertIn("Mission.esm has 2 lines in Plugins.txt", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], ["Mission.esm"])
+
+    def test_a_missing_plugin_file_is_never_held_and_a_stuck_hold_is_released(self):
+        # Codex on #407: off held a plugin whose Data file was gone, and on then failed on its masters for good
+        (self.data / "Mission.esm").unlink()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("off", "--plugins", "Mission.esm")
+        self.assertIn("the installed plugin file is missing", str(cm.exception))
+        self.assertEqual(self.txt.read_bytes().decode(), self.original)
+        self.assertFalse((self.data / exp.TOGGLE).exists())
+        (self.data / "Mission.esm").write_bytes(tes4("Core.esm"))
+        self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
+        (self.data / "Mission.esm").unlink()               # gone while held
+        out = self.run_cmd("on")
+        self.assertIn("back on: Core.esm; released, left unticked (plugin file missing): Mission.esm", out)
+        self.assertEqual(self.lines(), ["# keep", "*FO4Port.esm", "*Core.esm", "Mission.esm", "*FO4SFBridge.esm"])
+        self.assertEqual(json.loads((self.data / exp.TOGGLE).read_text())["off"], [])
+
 class CycleTests(unittest.TestCase):
     def test_cycle_does_not_launch_when_the_bridge_order_refuses(self):
         # Codex on #407: bridge_install.py order exits nonzero on a held bridge the game ticked again, and cycle.ps1
