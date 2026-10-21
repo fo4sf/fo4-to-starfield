@@ -262,6 +262,31 @@ class CrashWatchTests(unittest.TestCase):
         r = crashwatch.watch(self.values(), system=FakeSystem([]), say=self.said.append, dry_run=True)
         self.assertIn("a dump on every exit", r[0]["plan"][1])
 
+    def test_procdump_output_is_folded_into_the_log_decoded(self):
+        os.makedirs(self.dumps, exist_ok=True)
+        out, log = os.path.join(self.dumps, "procdump_7.out"), os.path.join(self.dumps, "crashwatch.log")
+        with open(out, "wb") as f:
+            f.write("\ufeffProcDump v11.0 - Sysinternals process dump utility\r\n\r\nDump 1 initiated\r\n"
+                    .encode("utf-16-le"))
+        crashwatch.fold_output(out, log)
+        text = self.log()
+        self.assertIn("  procdump: ProcDump v11.0 - Sysinternals process dump utility\n", text)
+        self.assertIn("  procdump: Dump 1 initiated\n", text)
+        self.assertNotIn("\x00", text)
+        self.assertFalse(os.path.exists(out))
+        with open(out, "wb") as f:
+            f.write(b"plain line\n")
+        crashwatch.fold_output(out, log)
+        self.assertIn("  procdump: plain line", self.log())
+        crashwatch.fold_output(out, log)                          # no file: nothing happens
+
+    def test_watch_counts_seconds_from_when_the_game_appeared(self):
+        sys_ = FakeSystem([(31, 300, 900, 0)])
+        sys_.started_at = sys_.t                                  # the watch begins 300 s before the game shows up
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(r[0]["seconds"], 600)
+        self.assertIn("after 600 s up", self.log())
+
     def test_silent_exit_is_logged_with_its_code(self):
         sys_ = FakeSystem([(10, 1, 900, 0xC0000409)])
         r = self.play(self.values(), sys_)

@@ -121,8 +121,8 @@ class System:
         k.CloseHandle(handle)
         return code.value if ok else None
 
-    def spawn(self, argv, log_path):
-        with open(log_path, "ab") as log:                 # the child keeps its own copy of the handle
+    def spawn(self, argv, out_path):
+        with open(out_path, "ab") as log:                 # the child keeps its own copy of the handle
             return subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
 
     def run(self, argv):
@@ -140,6 +140,29 @@ class System:
                 return {ln.strip()[1:].strip().casefold() for ln in f if ln.strip().startswith("*")}
         except OSError:
             return None
+
+
+def fold_output(out_path, log_path):
+    """Append a finished child's output file to crashwatch.log, decoded (ProcDump writes UTF-16 when its output is
+    redirected), then remove the side file. Nothing happens when there is no file."""
+    try:
+        with open(out_path, "rb") as f:
+            data = f.read()
+    except (OSError, TypeError):
+        return
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in data[:200]:
+        text = data.decode("utf-16-le" if not data.startswith(b"\xfe\xff") else "utf-16", errors="replace")
+    else:
+        text = data.decode("utf-8", errors="replace")
+    text = text.lstrip("\ufeff")
+    with open(log_path, "a", encoding="utf-8") as f:
+        for line in text.splitlines():
+            if line.strip():
+                f.write(f"  procdump: {line.rstrip()}\n")
+    try:
+        os.remove(out_path)
+    except OSError:
+        pass
 
 
 def _log(path, line):
@@ -340,6 +363,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             system.sleep(1)
             continue
         cand = found[0]
+        seen_at = system.now()                     # "after S s" counts from here, not from when the watch began
         h = system.open_process(cand)
         settle_end = system.now() + values["crash_watch.settle_s"]
         while system.now() < settle_end and cand in system.pids():
@@ -352,7 +376,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             if log_path:
                 _log(log_path, f"process {cand} ended before it settled: {exit_name(code)}")
             continue
-        pid, handle = cand, h
+        pid, handle, up_since = cand, h, seen_at
     if pid is None:
         say(f"Starfield did not stay up within {start_timeout_s:g} s; nothing to watch")
         if log_path:
@@ -360,10 +384,14 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         return {"started": False, "early": [p for p in early if p not in seen]}
     say(f"Starfield running (process {pid})")
     armed = False
+    out_path = None
     if cw:
         argv = procdump_argv(values, pid)
+        # ProcDump's own output goes to a side file first: it writes UTF-16 when redirected, which would leave
+        # crashwatch.log spaced out; fold_output appends it decoded once ProcDump has ended
+        out_path = os.path.join(values["crash_watch.folder"], f"procdump_{pid}.out")
         try:
-            proc = system.spawn(argv, log_path)
+            proc = system.spawn(argv, out_path)
         except OSError as e:
             proc = None
             why = f"ProcDump did not start ({e.strerror or e})"
@@ -374,6 +402,8 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             rc = proc.poll()
             why = f"ProcDump exited at once (code {rc})" if rc is not None and pid in system.pids() else ""
             armed = not why
+            if rc is not None:
+                fold_output(out_path, log_path)
         if armed:
             _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
             say(f"crash watcher armed on process {pid} ({values['crash_watch.dump']} dumps)")
@@ -388,11 +418,12 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             system.sleep(2)
         code = None
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
-              "seconds": round(system.now() - t0), "armed": armed}
-    say(f"Starfield ended after {result['seconds']} s: {result['exit']}")
+              "seconds": round(system.now() - up_since), "armed": armed}
+    say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
+            fold_output(out_path, log_path)
         except subprocess.TimeoutExpired:
             say(f"ProcDump is still running {dump_wait_s:g} s after the game ended (a dump still being written?); "
                 "left running: never kill it mid-dump")
@@ -400,7 +431,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     if cw:
         result["dumps"] = dumps_since(values["crash_watch.folder"], t0)
         note = " (a crash code and no dump)" if code not in (None, 0) and not result["dumps"] else ""
-        _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s, dumps: "
+        _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s up, dumps: "
                        f"{', '.join(result['dumps']) or 'none'}{note}"
                        + (f", ProcDump exit {result['procdump_exit']}" if "procdump_exit" in result else ""))
         if result["dumps"]:
