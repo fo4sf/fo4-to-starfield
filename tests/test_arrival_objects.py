@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import arrival_objects  # noqa: E402
 
 OBJECTS = {"world": "W", "edid_prefix": "FO4Core_",
-           "bases": [{"model": "fo4port/roof01", "collision": "none"}, {"model": "fo4port/rock01", "collision": "fo4-native"}],
+           "bases": [{"model": "fo4port/roof01", "collision": "none"}, {"model": "fo4port/rock01", "collision": "fo4-native"},
+                     {"model": "fo4port/door01", "collision": "none"}],
            "refs": [{"src": "000A01:Fallout4.esm", "base": 0, "pos": [100.0, 200.0, 94.0]},          # 0 m from the marker
                     {"src": "000A02:Fallout4.esm", "base": 1, "pos": [110.0, 200.0, 75.0], "scale": 2.0},  # 10 m
                     {"src": "000A03:Fallout4.esm", "base": 1, "pos": [160.0, 200.0, 75.0]}],              # 60 m: far
@@ -29,7 +30,7 @@ class ArrivalObjects(unittest.TestCase):
         self.assertEqual([e["src"] for e in placed], ["000A01:Fallout4.esm", "000D01:Fallout4.esm", "000A02:Fallout4.esm"])
         roof, door, rock = placed
         self.assertEqual((roof["collision"], roof["dz_marker"], roof["dz_got"]), ("none", -1.0, 11.1))
-        self.assertEqual((door["class"], door["collision"], door["disabled"]), ("doors", None, True))
+        self.assertEqual((door["class"], door["collision"], door["disabled"]), ("doors", "none", True))   # promoted: matched by model
         self.assertEqual((rock["dist"], rock["scale"]), (10.0, 2.0))
 
     def test_skipped_refs_come_from_the_fo4_cells_touching_the_radius(self):

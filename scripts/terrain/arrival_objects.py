@@ -32,15 +32,19 @@ def load(path):
 
 
 def collision_of(objects):
-    """{src: collision kind} from objects.json's bases (STAT references; promoted classes carry no base index)."""
+    """({src: collision kind} of STAT references, {model: collision kind}) from objects.json's bases. Promoted classes
+    (doors, containers, activators, ...) leave refs and carry no base index, only the base's model, so they are matched
+    by model."""
     bases = objects.get("bases") or []
-    return {r["src"]: bases[r["base"]].get("collision") for r in objects.get("refs") or []
-            if isinstance(r.get("base"), int) and 0 <= r["base"] < len(bases)}
+    by_src = {r["src"]: bases[r["base"]].get("collision") for r in objects.get("refs") or []
+              if isinstance(r.get("base"), int) and 0 <= r["base"] < len(bases)}
+    by_model = {near_changes.model_key(b.get("model")): b.get("collision") for b in bases if b.get("model")}
+    return by_src, by_model
 
 
 def placed_near(objects, points, radius):
     """[{src, class, model, collision, pos, dist, dz_marker, dz_got, scale, disabled}] within radius of any point."""
-    coll = collision_of(objects)
+    by_src, by_model = collision_of(objects)
     out = []
     for src, p in near_changes.placements(objects).items():
         pos = p.get("pos")
@@ -49,7 +53,8 @@ def placed_near(objects, points, radius):
         dist = min(math.hypot(pos[0] - q[0], pos[1] - q[1]) for q in points.values())
         if dist > radius:
             continue
-        out.append({"src": src, "class": p["class"], "model": p.get("model"), "collision": coll.get(src),
+        collision = by_src.get(src, by_model.get(near_changes.model_key(p.get("model"))))
+        out.append({"src": src, "class": p["class"], "model": p.get("model"), "collision": collision,
                     "pos": [round(v, 3) for v in pos], "dist": round(dist, 2),
                     **{f"dz_{k}": round(pos[2] - q[2], 2) for k, q in points.items()},
                     "scale": p.get("scale", 1.0), "disabled": bool(p.get("disabled"))})
