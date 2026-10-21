@@ -71,9 +71,10 @@ class GameFrameTests(unittest.TestCase):
         im = frame().resize((1280, 800))
         self.assertEqual(game_frame.picture(im), (0, 0, 1280, 800))
         # a bar that is not black (a HUD pixel, a scene) is part of the picture
-        im = self.boxed((1280, 800), (0, 40))
-        im.putpixel((5, 5), (40, 40, 40))
-        self.assertEqual(game_frame.picture(im), (0, 0, 1280, 800))
+        for xy in ((5, 5), (1277, 797), (641, 13)):                    # anywhere in either bar, off any grid
+            im = self.boxed((1280, 800), (0, 40))
+            im.putpixel(xy, (40, 40, 40))
+            self.assertEqual(game_frame.picture(im), (0, 0, 1280, 800), xy)
 
     def test_the_hud_of_a_game_drawn_over_a_whole_16_10_screen_is_found(self):
         # doors retry 3 (2026-10-21): in play the game filled the 2560x1600 screen, no bars, and the stretched boxes
@@ -116,6 +117,10 @@ class GameFrameTests(unittest.TestCase):
     def test_the_capture_scripts_crop_to_the_same_rectangle(self):
         ps = read("game_rect.ps1")
         self.assertIn("-gt %d" % game_frame.DARK, ps)                     # the same black threshold
+        # every pixel of a bar, not a sample of them (Codex on #442): one off-grid HUD pixel keeps the whole frame
+        self.assertIn("[FO4SF.Frame]::MaxLuma($bmp, $bar[0], $bar[1], $bar[2], $bar[3]) -gt", ps)
+        self.assertIn("for (int i = 0; i < row.Length; i += 4)", ps)
+        self.assertNotIn("GetPixel", ps)
         self.assertIn("$w * 9 * %g" % game_frame.TOLERANCE, ps)           # and the same 16:9 tolerance
         for name in ("shot.ps1", "shot_region.ps1"):
             with self.subTest(script=name):
