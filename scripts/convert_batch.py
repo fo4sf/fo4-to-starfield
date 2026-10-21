@@ -178,7 +178,7 @@ def triangle_count(src_archives, name):
         return 0  # let the real converter report the failure
 
 
-# ... existing code ...
+def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
     of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
