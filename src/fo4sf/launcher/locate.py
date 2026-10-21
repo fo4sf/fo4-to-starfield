@@ -7,7 +7,7 @@ library's steamapps\\appmanifest_<appid>.acf ("installdir", under steamapps\\com
 Fallout 4 sits in steamapps\\content\\app_377160\\depot_*) are listed too: detect accepts several data folders.
 
 Version 1 supports Steam Starfield only (owner, RE-12) and Steam, then GOG, Fallout 4 (LA-5). GOG Fallout 4 is found
-the way LOOT finds it (stores.md, gog.cpp:36-45): HKLM\Software\GOG.com\Games\1998527297 value "path", else the
+the way LOOT finds it (stores.md, gog.cpp:36-45): HKLM\\Software\\GOG.com\\Games\\1998527297 value "path", else the
 uninstall key 1998527297_is1 value "InstallLocation". GOG ships only 1.10.163.0.
 """
 import os

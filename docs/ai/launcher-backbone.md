@@ -188,6 +188,12 @@ wired to any install yet; the format is for the talk (it targets a core master t
   4 GiB per fold build (a make_mission.py change for its owner, not done here). For the owner's delete list: the
   fold folders free the most; det_v6e_b frees under 1 GiB.
 
+### Starfield runtime on the owner's PC (2026-10-21 01:1xZ, read only, manifests at 434e8ef and ccc31a1)
+Steam, Starfield.exe file and product version 1.16.244.0, 102,476,200 bytes, sha256
+`7e9adb1414a8e1b325e5e1f097b9b17b78deb7eebeda37a333351a43a60f9d28`. No SFSE (no loader, no `sfse_*.dll`); Creation
+Kit present. Not in `known_runtimes.json`: an entry needs the SFSE build measured with it, so it waits for the owner
+to install SFSE and a `runtimes-add` run on that manifest.
+
 ## Alternatives for the owner's talk
 
 1. **Driver: recipe over existing scripts (taken)** vs one Python build graph that imports the converters directly.
