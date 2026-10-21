@@ -15,6 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import campaign_arm as ca  # noqa: E402
 REAL_REV = ca.checkout_rev_why                                           # setUp mocks it for the other tests
+REAL_KEPT = ca.game_kept_why
 import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
@@ -44,6 +45,8 @@ class Base(unittest.TestCase):
         self.exp = os.path.join(self.d, "v6e")
         self.sf = os.path.join(self.d, "SF")                              # the experiment already installed there
         os.makedirs(os.path.join(self.sf, "Data"))
+        with open(os.path.join(self.sf, "Starfield.exe"), "wb") as f:   # an exe launch starts it (cycle.ps1)
+            f.write(b"MZ")
         self.receipt(self.exp)
         self.local = os.path.join(self.d, "appdata")                     # Plugins.txt: the experiment ticked
         os.makedirs(os.path.join(self.local, "Starfield"))
@@ -52,7 +55,7 @@ class Base(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         # the checkout's commit (checkout_rev_why) and a running game (game_running) have tests of their own
-        for name in ("checkout_rev_why", "game_running"):
+        for name in ("checkout_rev_why", "game_running", "game_kept_why"):
             m = mock.patch.object(ca, name, return_value=None)
             m.start()
             self.addCleanup(m.stop)
@@ -595,6 +598,15 @@ class PlanTerrainHoldTests(Base):
                 q3 = self.queue(name, [{"coc": "FO4Port_X", "routes_file": r, "route_index": 0}], routes_sha256=rs)
                 self.assertIn("routes_A.json has no planned digest", " ".join(self.check(self.camp([(name, q3)]))[1]))
 
+    def test_an_exe_launch_needs_starfield_exe(self):
+        # Codex on #391: cycle.ps1 refuses FO4SF_LAUNCH=exe with no Starfield.exe before any test
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        caps = lambda **over: " ".join(ca.check(self.camp([("a", q)], **over), set())[0]["caps"])
+        self.assertNotIn("Starfield.exe", caps(launch="exe"))
+        os.remove(os.path.join(self.sf, "Starfield.exe"))
+        self.assertIn("Starfield.exe is missing", caps(launch="exe"))
+        self.assertNotIn("Starfield.exe", caps(launch="steam"))
+
     def test_an_unknown_launch_or_a_relative_python_path_is_refused(self):
         # Codex on #391: chain() refused the launch only when writing; a relative python resolves in two folders
         q = self.queue("a", [{"coc": "FO4Port_X"}])
@@ -1044,6 +1056,25 @@ class RunChainTests(Base):
         with open(cp, "w") as f:
             json.dump(c, f)
         self.assertIn("'--pin-only'", ca.chain(c, cp, set()))
+
+    def test_a_game_gone_between_queues_stops_the_chain(self):
+        # Codex on #391: a fresh runner does not know the game it should find and would launch another
+        qa, qb = self.queue("a", [{"coc": "FO4Port_X"}]), self.queue("b", [{"coc": "FO4Port_Y"}])
+        c = self.camp([("a", qa), ("b", qb)])
+        with mock.patch.object(ca, "game_kept_why", return_value="Starfield exited after the previous queue"):
+            self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
+        self.assertEqual([a[1] for a, _ in self.calls], ["run"])                  # b never ran
+        self.assertIn("b: STOP before the run: Starfield exited after the previous queue", self.lines[-1])
+        with mock.patch.object(ca, "game_running", return_value=None):
+            self.assertIn("exited", REAL_KEPT())
+        with mock.patch.object(ca, "game_running", return_value=4242):
+            self.assertIsNone(REAL_KEPT())
+        cp = os.path.join(self.d, "c.json")
+        with open(cp, "w") as f:
+            json.dump(c, f)
+        text = ca.chain(c, cp, set())
+        self.assertNotIn("Get-Process Starfield -ErrorAction SilentlyContinue)) { Write-Host 'stopped before a", text)
+        self.assertIn("Get-Process Starfield -ErrorAction SilentlyContinue)) { Write-Host 'stopped before b", text)
 
     def test_a_failed_judge_stops_the_chain(self):
         # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0

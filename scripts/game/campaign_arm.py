@@ -643,6 +643,15 @@ def game_running():
         return None
 
 
+def game_kept_why():
+    """Why the game the previous queue's runner launched is gone, else None. Each queue's runner keeps its game
+    running for the next one; a fresh runner does not know the game it should find (its live_pid starts empty), so a
+    game that exited between two queues would be launched again, not counted as a crash (Codex on #391)."""
+    if not game_running():
+        return "Starfield exited after the previous queue (counted as a crash: the campaign stops at the first)"
+    return None
+
+
 def recheck(entry, camp, release, pin):
     """Reasons a queue checked at the start of the chain may not run now: the full check again and the installed
     experiment, right before its run, and its queue.json and its judge's definition file still the files the chain
@@ -682,6 +691,11 @@ def check(camp, release):
     if camp.get("launch", "steam") not in LAUNCHES:
         # Codex on #391: chain() and run_chain() refuse it; the check must not pass it
         caps.append(f"launch {camp.get('launch')!r}, want one of {LAUNCHES}")
+    elif camp.get("launch") == "exe":
+        exe = os.path.join(camp.get("starfield") or STARFIELD, "Starfield.exe")
+        if not os.path.isfile(exe):
+            # Codex on #391: cycle.ps1 refuses an exe launch with no Starfield.exe (exit 10) before any test
+            caps.append(f"launch 'exe' and {exe} is missing")
     py = str(camp.get("python") or "python")
     if re.search(r"[\\/]", py) and not rooted(py):
         # Codex on #391: the chain checks the python before Set-Location and runs it after; a bare command is found
@@ -819,11 +833,16 @@ def chain(camp, path, release, digest=None):
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
                                 digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
              "{ Write-Host 'campaign check refused: nothing run'; exit 1 }"]
-    for e, _, _ in check(camp, release)[0]["queues"]:
+    for n, (e, _, _) in enumerate(check(camp, release)[0]["queues"]):
         pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", digest,
                "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
-        lines += ["", f"# {e['name']}",
-                  f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
+        lines += ["", f"# {e['name']}"]
+        if n:
+            # Codex on #391: the previous queue's runner keeps its game for this one; a fresh runner would launch
+            # another over a game that exited between them instead of counting the crash
+            lines += [f"if (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped before "
+                      f"{e['name']}: Starfield exited after the previous queue (counted as a crash)'; exit 1 }}"]
+        lines += [f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
                   "was armed'; exit 1 }",
                   "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
@@ -903,8 +922,8 @@ def run_chain(camp, log=print, call=None):
         log("REFUSED campaign: Starfield is running: close it so the first queue launches the armed build")
         return 1
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
-    for (e, _, _), pin in zip(res["queues"], pins):
-        why = recheck(e, camp, set(released), pin)
+    for n, ((e, _, _), pin) in enumerate(zip(res["queues"], pins)):
+        why = ([w for w in [game_kept_why()] if w] if n else []) + recheck(e, camp, set(released), pin)
         if why:
             log(f"{e['name']}: STOP before the run: " + "; ".join(why))
             return 1
