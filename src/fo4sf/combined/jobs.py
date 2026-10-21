@@ -105,7 +105,7 @@ def _defend(ws, giver, place, names) -> list[Offer]:
         q = ws.squads[qid]
         if q.kind != "attack" or q.goal not in held or q.eta <= ws.hour or sim._garrisons(ws, q.goal):
             continue
-        tier = reputation.tier_for(q.size, DEFEND_SIZE_PER_TIER)
+        tier = reputation.tier_number(q.size, DEFEND_SIZE_PER_TIER)
         text = _text("defend", names, giver=giver, target=q.goal, attacker=q.faction, due=news._stamp(q.eta))
         out.append(Offer(f"defend:{qid}", "defend", giver, place, q.goal, tier, ws.hour, q.eta, text,
                          {"squad": qid, "attacker": q.faction}))
@@ -119,7 +119,7 @@ def _escort(ws, giver, place, names) -> list[Offer]:
         if q.kind != "caravan" or q.faction != giver or q.at != place or q.eta <= ws.hour:
             continue
         total = sum(q.cargo.values())
-        tier = reputation.tier_for(total, ESCORT_GOODS_PER_TIER)
+        tier = reputation.tier_number(total, ESCORT_GOODS_PER_TIER)
         text = _text("escort", names, giver=giver, place=place, target=q.goal, cargo=news._cargo(q.cargo))
         out.append(Offer(f"escort:{qid}", "escort", giver, place, q.goal, tier, ws.hour, q.eta, text,
                          {"squad": qid, "cargo": dict(sorted(q.cargo.items()))}))
@@ -166,7 +166,7 @@ def _resupply(ws, giver, place, names) -> list[Offer]:
             amount = _shortfall(ws, sid, good)
             if not amount:
                 continue
-            tier = reputation.tier_for(amount, RESUPPLY_GOODS_PER_TIER)
+            tier = reputation.tier_number(amount, RESUPPLY_GOODS_PER_TIER)
             text = _text("resupply", names, giver=giver, target=sid, good=good, amount=amount)
             out.append(Offer(f"resupply:{giver}:{sid}:{good}", "resupply", giver, place, sid, tier, ws.hour,
                              ws.hour + RESUPPLY_OFFER_HOURS, text, {"good": good, "amount": amount}))

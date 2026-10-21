@@ -64,6 +64,11 @@ def tier_points(tier: int) -> int:
     return GAIN_TIERS[min(len(GAIN_TIERS), max(1, tier)) - 1]
 
 
+def tier_number(amount: int, unit: int) -> int:
+    """Editor tier 1..5 for `amount` units of help, one tier per `unit` (tier_points turns it into points)."""
+    return min(len(GAIN_TIERS), max(0, amount) // max(1, unit) + 1)
+
+
 def tier_for(amount: int, unit: int) -> int:
     """Points for `amount` units of help, one tier per `unit` (tier 1 below one unit, tier 5 from four up)."""
     return GAIN_TIERS[min(len(GAIN_TIERS) - 1, max(0, amount) // max(1, unit))]

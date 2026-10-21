@@ -241,9 +241,9 @@ class P2Tests(unittest.TestCase):
         v = probes.check_p2(col(session1=S1_P2, session2=S2_P2[:2]))     # link set, no linkread
         self.assertEqual(v.verdict, INCONCLUSIVE)
 
-    def test_keyword_half_alone_passes_and_says_so(self):
+    def test_keyword_half_alone_is_inconclusive(self):
         v = probes.check_p2(col(session1=S1_P2[:2], session2=S2_P2[:2]))
-        self.assertEqual(v.verdict, PASS)
+        self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertEqual(v.extra["linked_locations"], "not run")
 
 

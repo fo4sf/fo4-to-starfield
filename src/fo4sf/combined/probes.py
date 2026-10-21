@@ -569,8 +569,10 @@ def check_p2(c: Collection) -> Verdict:
         v.verdict = FAIL
         return v
     else:
-        v.reasons.append("no `p2 link` line: the linked-location half was not run (keyword half judged alone)")
+        v.reasons.append("no `p2 link` line: the linked-location half was not run, so P2 is not settled (run "
+                         "P2Set in full; PASS needs set, link, read and linkread)")
         v.extra["linked_locations"] = "not run"
+        return v
     v.verdict = PASS
     return v
 

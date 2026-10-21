@@ -125,6 +125,15 @@ class OfferTests(unittest.TestCase):
             self.assertEqual(jobs.offers(a, "market", limit=50), jobs.offers(c, "market", limit=50))
 
 
+class TierTests(unittest.TestCase):
+    def test_reward_tier_is_a_tier_number_not_points(self):
+        # Codex P2 on #431: a size-9 defend once stored the points (7) as the tier and paid 12 fame.
+        unit = jobs.DEFEND_SIZE_PER_TIER
+        self.assertEqual([reputation.tier_number(n * unit, unit) for n in range(7)], [1, 2, 3, 4, 5, 5, 5])
+        self.assertEqual([reputation.tier_points(reputation.tier_number(n * unit, unit)) for n in range(5)],
+                         [reputation.tier_for(n * unit, unit) for n in range(5)])
+
+
 class DefendTests(unittest.TestCase):
     def test_offer_from_incoming_attack_and_garrison_on_complete(self):
         ws = quiet(world())
@@ -133,7 +142,7 @@ class DefendTests(unittest.TestCase):
         self.assertEqual([o.id for o in found], [f"defend:{qid}"])
         o = found[0]
         self.assertEqual((o.target, o.expires_hour, o.detail["attacker"]), ("farm_a", ws.squads[qid].eta, "raiders"))
-        self.assertEqual(o.reward_tier, reputation.tier_for(6, jobs.DEFEND_SIZE_PER_TIER))
+        self.assertEqual(o.reward_tier, reputation.tier_number(6, jobs.DEFEND_SIZE_PER_TIER))
         base = sim._defence(ws, "farm_a")
         fame0 = ws.reputation["settlers"].fame
         changed = jobs.complete(ws, o)
@@ -171,7 +180,7 @@ class EscortTests(unittest.TestCase):
         self.assertEqual(by_kind(jobs.offers(ws, "market"), "escort"), [])
         o = by_kind(jobs.offers(ws, "farm_a"), "escort")[0]
         self.assertEqual((o.id, o.target, o.detail["cargo"]), (f"escort:{qid}", "market", {"food": 12, "water": 3}))
-        self.assertEqual(o.reward_tier, reputation.tier_for(15, jobs.ESCORT_GOODS_PER_TIER))
+        self.assertEqual(o.reward_tier, reputation.tier_number(15, jobs.ESCORT_GOODS_PER_TIER))
         food, water = ws.settlements["market"].stock["food"], ws.settlements["market"].stock["water"]
         changed = jobs.complete(ws, o)
         self.assertNotIn(qid, ws.squads)
