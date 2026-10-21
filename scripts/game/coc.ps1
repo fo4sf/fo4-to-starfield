@@ -7,8 +7,8 @@
 # with no console and no OCR; readpos's OCR only when no such line comes. v6e stairs 2026-10-21: on the 2560x1600
 # display the HUD's O2/CO2 dial overlaps the console's last lines, the OCR read Z -1.81 as "81" and the nonce as
 # "f04sfr2De589b8", and every arrival in BostonPublicLibrary02 failed although the player stood on the marker.
-# Not at the marker on the first try: one hop through another converted cell (-Via, else the first other cell json
-# with a COC marker next to -CellJson), then the coc again and the same check. v6e stairs retest 2026-10-21: the save
+# Not at the marker on the first try: one hop through another converted cell (-Via, else coc_hop.py's pick: the first
+# other cell export with a COC marker next to -CellJson), then the coc again and the same check. v6e stairs retest 2026-10-21: the save
 # Continue loaded stood inside BostonPublicLibrary02 at its load door's arrival (-9.14 97.37 11.88, where the doors
 # run left it), the coc left the player there, 54 m from the marker, and the stairs run stopped on its first test
 # (supported, not verified: a coc into the cell the player is already in, or a coc the console swallowed).
@@ -64,13 +64,9 @@ function Test-Arrival {
 Enter-Cell $Cell
 Test-Arrival
 if ($script:arrived) { exit 0 }
-if (-not $Via) {                                     # another cell of the same staging that has its own COC marker
-  $dir = Split-Path -Parent $CellJson
-  foreach ($f in Get-ChildItem -Path $dir -Filter '*.json' | Sort-Object Name) {
-    if ($f.BaseName -eq $Cell) { continue }
-    try { $refs = (Get-Content $f.FullName -Raw | ConvertFrom-Json).refs } catch { continue }
-    if ($refs | Where-Object { $_.base_editor_id -eq 'COCMarkerHeading' }) { $Via = $f.BaseName; break }
-  }
+if (-not $Via) {                                     # another cell of the same staging with its own COC marker
+  $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
+  $Via = "$(& $py (Join-Path $PSScriptRoot 'coc_hop.py') $CellJson)".Trim()
 }
 if (-not $Via) { "no other cell with a COC marker next to ${CellJson}: no hop"; exit 1 }
 "hop: coc FO4Port_$Via, then FO4Port_$Cell again"
