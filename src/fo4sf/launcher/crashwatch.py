@@ -283,7 +283,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
             f"start: {values['route']}",
-            "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}"
+            "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
+                                 + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
+                                    else "log only when the game exits without a crash")
                                  if cw else "off")]
     if dry_run:
         for p in plan:

@@ -118,6 +118,9 @@ class CrashWatchTests(unittest.TestCase):
         self.assertFalse(d["crash_watch.enabled"])
         self.assertEqual((d["bridge"], d["papyrus_logging"], d["crash_watch.dump"]), ("unchanged", "unchanged", "mini"))
         self.assertTrue(d["crash_watch.dump_on_exit"])           # the owner's choice: silent exits leave a dump
+        self.assertEqual(set(settings.LABELS), set(settings.KEYS))
+        shown = "\n".join(settings.describe(d))
+        self.assertIn("Crash dump on every exit (off = log only): crash_watch.dump_on_exit = true", shown)
         path = os.path.join(self.dir, "s", "launcher_settings.json")
         v = settings.assign(settings.load(path), ["crash_watch.enabled=on", "crash_watch.dump=full",
                                                   "crash_watch.min_free_gb=30"])
@@ -297,6 +300,9 @@ class CrashWatchTests(unittest.TestCase):
         sys_ = FakeSystem([(5, 0, 100, 0)])
         r = self.play(self.values(bridge="off"), sys_, dry_run=True)
         self.assertTrue(r["dry_run"])
+        self.assertIn("a dump on every exit", r["plan"][-1])
+        r = self.play(self.values(crash_watch__dump_on_exit=False), FakeSystem([(5, 0, 100, 0)]), dry_run=True)
+        self.assertIn("log only", r["plan"][-1])
         self.assertEqual((sys_.calls, sys_.ran, sys_.spawned), ([], [], []))
 
     def test_bridge_setting_goes_through_plugin_toggle(self):

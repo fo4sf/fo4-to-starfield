@@ -47,6 +47,21 @@ SPEC = (
      "directly, as the owner does)."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
+# the plain name `settings` shows first on each line, so a toggle reads without knowing its key
+LABELS = {
+    "crash_watch.enabled": "Crash watcher (starts and ends with the game)",
+    "crash_watch.dump": "Crash dump size",
+    "crash_watch.catch_assertion": "Dump on the engine's assertion stop",
+    "crash_watch.dump_on_exit": "Crash dump on every exit (off = log only)",
+    "crash_watch.folder": "Dump folder",
+    "crash_watch.procdump": "ProcDump path",
+    "crash_watch.min_free_gb": "Free space needed for dumps (GB)",
+    "crash_watch.settle_s": "Seconds before the watcher attaches",
+    "bridge": "Test bridge plugin",
+    "papyrus_logging": "Papyrus script logging",
+    "my_games": "My Games folder",
+    "route": "How the game starts",
+}
 
 
 def defaults():
@@ -143,5 +158,5 @@ def describe(values):
     lines = []
     for k, _d, _t, why in SPEC:
         mark = "" if values[k] == d[k] else "  (changed)"
-        lines.append(f"{k} = {json.dumps(values[k])}{mark}\n    {why}")
+        lines.append(f"{LABELS[k]}: {k} = {json.dumps(values[k])}{mark}\n    {why}")
     return lines
