@@ -17,6 +17,8 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py runtimes-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>] [--also <master> ...]
     python scripts/launcher.py find [--steam <Steam folder>] [--gog <GOG Fallout 4 folder>] [--json <out.json>]
+    python scripts/launcher.py bundle --out <support.zip> [--state-dir <dir> ...] [--manifest <json>] [--detect-report <json>]
+                                      [--starfield <game dir>] [--plugins-txt <path>] [--my-games <dir>] [--file <path> ...]
     python scripts/launcher.py measure <folder> ...
 
 manifest   what a build was made from and what it made (read only).
@@ -32,6 +34,8 @@ check-plugins  each built plugin's masters: refuses BlueprintShips-Starfield.esm
            neither in the build nor in the Starfield Data folder (read only; exit 1 on a problem).
 find       finds Steam's Fallout 4 (normal install and depot downloads) and Starfield, and prints the detect line
            (read only).
+bundle     a local support zip (driver state and newest logs, manifest, detect report, install records, Plugins.txt,
+           INIs) with the home folder and user name taken out; nothing is sent.
 measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
@@ -44,7 +48,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (detect, driver, files, locate, manifest, plugin_checks, restore, runtimes,  # noqa: E402
+from fo4sf.launcher import (bundle, detect, driver, files, locate, manifest, plugin_checks, restore, runtimes,  # noqa: E402
                             same_ids)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
@@ -235,6 +239,17 @@ def cmd_find(a):
     return 0 if data and r["starfield"] else 1
 
 
+def cmd_bundle(a):
+    pt = a.plugins_txt or (restore.plugins_txt_default() if a.starfield else None)
+    lines = bundle.make(a.out, state_dirs=a.state_dir, manifest=a.manifest or None,
+                        detect_report=a.detect_report or None, starfield=a.starfield or None, plugins_txt=pt,
+                        my_games=a.my_games or None, extra=a.file)
+    for line in lines[3:]:
+        print(line)
+    print(f"bundle written: {a.out} (nothing was sent; look inside before attaching it to an issue)")
+    return 0
+
+
 def cmd_measure(a):
     for p in a.paths:
         m = detect.measure(p)
@@ -321,16 +336,29 @@ def main(argv=None):
     s.add_argument("--steam", default="")
     s.add_argument("--gog", default="", help="GOG Fallout 4's folder, when the registry does not have it")
     s.add_argument("--json", default="")
+    s = sub.add_parser("bundle")
+    s.add_argument("--out", required=True)
+    s.add_argument("--state-dir", action="append", default=[])
+    s.add_argument("--manifest", default="")
+    s.add_argument("--detect-report", default="")
+    s.add_argument("--starfield", default="")
+    s.add_argument("--plugins-txt", default="")
+    s.add_argument("--my-games", default="")
+    s.add_argument("--file", action="append", default=[])
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
-                "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add, "check-plugins": cmd_check_plugins, "find": cmd_find, "measure": cmd_measure,
+                "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
+                "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
+        return 2
+    except (ValueError, FileExistsError) as e:          # runtimes-add's refusals, bundle's no-overwrite
+        print(f"{a.cmd}: {e}")
         return 2
 
 

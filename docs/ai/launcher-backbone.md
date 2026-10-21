@@ -105,6 +105,15 @@ Fallout 4, GOG's is used (LA-5: Steam, then GOG), found the way LOOT does (`HKLM
 "path", else the uninstall key's "InstallLocation") or given with `--gog`. The VDF reader and the paths are tested on
 synthetic files only; neither registry lookup has run on a real Windows install.
 
+### bundle
+`launcher.py bundle --out <support.zip> [--state-dir ...] [--manifest ...] [--detect-report ...] [--starfield ...]
+[--my-games ...]` writes one local zip for a GitHub issue (framework A11; the owner's RE-18 answer, GitHub only):
+driver state and each step's newest log, the build manifest and detect report, the three install records,
+Plugins.txt, and the game's INIs from the game folder and My Games. Text only, no game data. The home folder becomes
+`%USERPROFILE%` and the user name `<user>`, in either slash style and JSON's doubled backslashes; a name under three
+letters is left alone so ordinary words survive. A file over 2 MiB keeps its tail and says so. BUNDLE.txt lists
+what is inside and what was looked for and not found. Nothing is sent, and an existing zip is never overwritten.
+
 ### check-plugins
 `launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>]` reads each built plugin's TES4 header
 only and refuses `BlueprintShips-Starfield.esm` as a master (blueprint plugins load last and cannot be depended on,
