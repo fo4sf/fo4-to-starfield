@@ -15,9 +15,11 @@ import game_frame  # noqa: E402
 
 def visible(path):
     im = Image.open(path).convert("L")
-    box = game_frame.mapper(im)(800, 176, 1040, 189)
-    hist = im.crop(box).histogram()
-    return sum(hist[216:]) / max(sum(hist), 1) > 0.6
+    for _, at in game_frame.layouts(im):                 # a letterboxed frame or a full 16:10 screen too
+        hist = im.crop(at(800, 176, 1040, 189)).histogram()
+        if sum(hist[216:]) / max(sum(hist), 1) > 0.6:
+            return True
+    return False
 
 
 if __name__ == "__main__":

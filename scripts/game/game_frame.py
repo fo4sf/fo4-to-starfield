@@ -35,6 +35,29 @@ def picture(im):
 
 def mapper(im):
     """f(x0, y0, x1, y1) -> the same box, given in shot.ps1's 1280x720 coordinates, in this image's pixels."""
-    left, top, pw, ph = picture(im)
+    return at(picture(im))
+
+
+def at(rect):
+    """f(x0, y0, x1, y1) -> a box given in 1280x720 coordinates, in the pixels of a 16:9 rect (left, top, w, h)."""
+    left, top, pw, ph = rect
     sx, sy = pw / 1280.0, ph / 720.0
     return lambda x0, y0, x1, y1: (int(left + x0 * sx), int(top + y0 * sy), int(left + x1 * sx), int(top + y1 * sy))
+
+
+def layouts(im):
+    """[(name, mapper)]: where the in-game HUD may sit. The menus draw a 16:9 picture between bars (picture); in play
+    the game fills a 2560x1600 screen (doors retry 3, 2026-10-21: no bars, the oxygen dial bottom left and the health
+    bar bottom right, but hud_visible.py's stretched boxes missed both). On a full screen that is not 16:9 the HUD is
+    read as a 16:9 layout across the width, centred or held to the bottom edge, besides the stretched one."""
+    w, h = im.size
+    rect = picture(im)
+    out = [("picture", at(rect))]
+    if rect == (0, 0, w, h) and abs(w * 9 - h * 16) > w * 9 * TOLERANCE:
+        if w * 9 < h * 16:                               # taller than 16:9: a width-wide 16:9 layout
+            ph = int(round(w * 9 / 16.0))
+            out += [("centred", at((0, (h - ph) // 2, w, ph))), ("bottom", at((0, h - ph, w, ph)))]
+        else:                                            # wider: a height-high 16:9 layout, centred
+            pw = int(round(h * 16 / 9.0))
+            out += [("centred", at(((w - pw) // 2, 0, pw, h)))]
+    return out

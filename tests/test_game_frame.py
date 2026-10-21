@@ -75,6 +75,29 @@ class GameFrameTests(unittest.TestCase):
         im.putpixel((5, 5), (40, 40, 40))
         self.assertEqual(game_frame.picture(im), (0, 0, 1280, 800))
 
+    def test_the_hud_of_a_game_drawn_over_a_whole_16_10_screen_is_found(self):
+        # doors retry 3 (2026-10-21): in play the game filled the 2560x1600 screen, no bars, and the stretched boxes
+        # missed the HUD; a width-wide 16:9 layout, centred or held to the bottom edge, is read too
+        hud = Image.new("RGB", (1280, 720), (60, 70, 80))
+        d = ImageDraw.Draw(hud)
+        d.ellipse((70, 550, 185, 670), outline=(255, 255, 255), width=12)
+        d.rectangle((1020, 628, 1210, 638), fill=(255, 255, 255))
+        d.rectangle((800, 176, 1040, 189), fill=(255, 255, 255))
+        for top, name in ((40, "centred"), (80, "bottom")):
+            with self.subTest(layout=name):
+                im = Image.new("RGB", (1280, 800), (60, 70, 80))       # scene to every edge: no bars to crop
+                im.paste(hud.crop((0, 0, 1280, 720)), (0, top))
+                p = self.save(im, name + ".png")
+                self.assertEqual(game_frame.picture(Image.open(p)), (0, 0, 1280, 800))
+                self.assertTrue(hud_visible.visible(p))
+                self.assertTrue(prompt_visible.visible(p))
+                got = {n: (r > hud_visible.RING[2] and b > hud_visible.BAR[2]) for n, r, b in hud_visible.readings(p)}
+                self.assertTrue(got[name], got)
+        # the console overlay (everything dark) is still no in every layout
+        dark = self.save(Image.new("RGB", (1280, 800), (20, 20, 20)), "dark.png")
+        self.assertFalse(hud_visible.visible(dark))
+        self.assertFalse(prompt_visible.visible(dark))
+
     def test_no_hud_is_still_no_on_a_letterboxed_frame(self):
         im = Image.new("RGB", (1280, 800), (0, 0, 0))
         im.paste(Image.new("RGB", (1280, 720), (60, 70, 80)), (0, 40))
