@@ -800,7 +800,11 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(f"the run asked for {want} ticks, the probe asks {P5_TICKS} (cgf \"FOCC_Probe.P5Tick\" "
                          f"{P5_TICKS}): too few for a baseline")
         return v
-    ms = [e.num("ms") for e in ticks if e.num("ms") is not None and (e.num("places") or 0) == 50]
+    good = [e for e in ticks if e.num("ms") is not None and (e.num("places") or 0) == 50]
+    ms = [e.num("ms") for e in good]
+    if len(ms) >= want and sorted(e.num("n") for e in good)[:want] != [float(n) for n in range(1, want + 1)]:
+        v.reasons.append(f"the tick lines are not numbered 1..{want} once each: repeated or missing ticks")
+        return v                                # P5's own form of the P8 duplicate-row finding (Codex, #431)
     if len(ms) < want:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE
@@ -1005,6 +1009,10 @@ def check_p8(c: Collection) -> Verdict:
         rows = [e for e in children if st.line < e.line < end]
         if len(rows) != 12:
             v.reasons.append(f"stage={s}: {len(rows)} child lines, want 12")
+            return v
+        pairs = {(e.num("stage"), e.num("j")) for e in rows}
+        if pairs != {(float(k), float(j)) for k in range(3) for j in range(4)}:   # every child once (Codex, #431)
+            v.reasons.append(f"stage={s}: the child lines do not name each of the 12 children once")
             return v
         for e in rows:
             k, dis, pdis = e.num("stage"), e.flag("disabled"), e.flag("parent_disabled")

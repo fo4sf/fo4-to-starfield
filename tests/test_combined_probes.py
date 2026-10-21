@@ -432,6 +432,10 @@ def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
 
 
 class P5Tests(unittest.TestCase):
+    def test_repeated_ticks_do_not_count(self):
+        log = p5_log()
+        self.assertEqual(probes.check_p5(col(log=log[:3] + [log[2]] * 9)).verdict, INCONCLUSIVE)
+
     def test_pass_records_baseline_and_cap(self):
         c = col(log=p5_log())
         c.files["compile_p5_array129.txt"] = "FOCC_P5_Array129.psc(3,9): array size 129 exceeds maximum of 128\nNo output generated"
@@ -638,6 +642,16 @@ class P8Tests(unittest.TestCase):
             c = col(log=[l.replace(old, new) for l in p8_log()])
             c.saves = saves(focc_p8_before=1, focc_p8_after=1)
             self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE, new)
+
+    def test_each_child_must_be_observed(self):
+        # Codex review of #431: twelve copies of one valid row are not twelve children.
+        log = p8_log()
+        first = [i for i, l in enumerate(log) if " p8 stage=" in l][0]
+        row = log[first + 1]
+        c = col(log=log[:first + 1] + [row] * 12 + log[first + 13:])
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        v = probes.check_p8(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
 
     def test_every_stage_must_be_moved(self):
         # Codex review of #431: a P8Move that stopped after stage 0 never moved stages 1 and 2.
