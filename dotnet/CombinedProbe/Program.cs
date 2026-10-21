@@ -128,7 +128,7 @@ static class CombinedProbe
             if (lvlnB == "" && !skip.Contains("lvln"))
                 throw new Refusal("--lvln-b <plugin:hexid> is required: a second, visually distinct vanilla NPC_ for the P6 / P7 lists (or --skip lvln)");
             var npc = Arg(rest, "--npc", DefaultNpc);
-            return new Options(sf, core, p3 ? port : null, Arg(rest, "--plugin", Plugin), Arg(rest, "--world", World),
+            return new Options(sf, core, p3 ? port : null, Arg(rest, "--plugin", CombinedProbe.Plugin), Arg(rest, "--world", CombinedProbe.World),
                                Arg(rest, "--location", CoreLocation), Key(npc, "--npc"), Key(Arg(rest, "--lvln-a", npc), "--lvln-a"),
                                lvlnB == "" ? FormKey.Null : Key(lvlnB, "--lvln-b"), Key(stat, "--stat"), p3, skip);
         }
@@ -155,7 +155,7 @@ static class CombinedProbe
         var core = StarfieldMod.CreateFromBinaryOverlay(o.Core, Release, Styles(SfEsm));
         IStarfieldModGetter? port = o.Port is null ? null : StarfieldMod.CreateFromBinaryOverlay(o.Port, Release, Styles(SfEsm, core.ModKey));
         var mods = new List<IStarfieldModGetter> { sf, core };
-        if (port is not null) mods.Add(port);
+        if (port is not null && mods.All(m => m.ModKey != port.ModKey)) mods.Add(port);   // the link cache refuses duplicate keys
         var cache = mods.ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>();
         return new Masters(sf, core, port, cache);
     }
@@ -397,7 +397,7 @@ static class CombinedProbe
     static Condition KeywordDataIs(FormKey keyword, float value)
     {
         var data = new GetKeywordDataForCurrentLocationConditionData();
-        data.Keyword.SetTo(keyword);
+        data.FirstParameter.Link.SetTo(keyword);
         return new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = value, Data = data };
     }
 
@@ -405,7 +405,7 @@ static class CombinedProbe
     static Condition GlobalCompare(FormKey global, CompareOperator op, float value)
     {
         var data = new GetGlobalValueConditionData();
-        data.Global.SetTo(global);
+        data.FirstParameter.Link.SetTo(global);
         return new ConditionFloat { CompareOperator = op, ComparisonValue = value, Data = data };
     }
 
@@ -416,8 +416,8 @@ static class CombinedProbe
         l.Entries ??= new ExtendedList<LeveledNpcEntry>();
         foreach (var (b, c) in entries)
         {
-            var e = new LeveledNpcEntry { Data = new LeveledNpcEntryData { Level = 1, Count = 1 } };
-            e.Data.Reference.SetTo(b);
+            var e = new LeveledNpcEntry { Level = 1, Count = 1 };
+            e.Reference.SetTo(b);
             e.Conditions.Add(c);
             l.Entries.Add(e);
         }
@@ -431,8 +431,8 @@ static class CombinedProbe
         if (e.Conditions.FirstOrDefault() is not IConditionFloatGetter c) return null;
         var param = c.Data switch
         {
-            IGetKeywordDataForCurrentLocationConditionDataGetter k => k.Keyword.FormKey,
-            IGetGlobalValueConditionDataGetter g => g.Global.FormKey,
+            IGetKeywordDataForCurrentLocationConditionDataGetter k => k.FirstParameter.Link.FormKey,
+            IGetGlobalValueConditionDataGetter g => g.FirstParameter.Link.FormKey,
             _ => FormKey.Null,
         };
         return ((int)c.Data.Function, c.CompareOperator, c.ComparisonValue, param);
@@ -441,7 +441,7 @@ static class CombinedProbe
     /// Starfield.esm's Script Event node and the last of its children (the one no sibling names as its previous node).
     static (IStoryManagerEventNodeGetter? Event, FormKey Tail) ScriptEventNode(IStarfieldModGetter sf)
     {
-        var smen = sf.StoryManagerEventNodes.FirstOrDefault(n => n.Type == ScriptEvent);
+        var smen = sf.StoryManagerEventNodes.FirstOrDefault(n => n.Type == StoryManagerEventNode.Types.ScriptEvent);
         if (smen is null) return (null, FormKey.Null);
         var children = sf.StoryManagerBranchNodes.Cast<IAStoryManagerNodeGetter>().Concat(sf.StoryManagerQuestNodes)
             .Where(n => n.Parent.FormKeyNullable == smen.FormKey).ToList();
@@ -590,14 +590,14 @@ static class CombinedProbe
                 if (!lists.TryGetValue(K(id), out var l)) { problems.Add($"LVLN 0x{id:X} {edid} missing"); return; }
                 var entries = l.Entries?.ToList() ?? new List<ILeveledNpcEntryGetter>();
                 Console.WriteLine($"  LVLN {l.EditorID} {l.FormKey}: " + string.Join("; ", entries.Select(e =>
-                    $"{e.Data?.Reference.FormKey} L{e.Data?.Level} x{e.Data?.Count} cond " + (ReadCondition(e) is { } c ? $"fn={c.Fn} {c.Op} {F(c.Value)} param={c.Param}" : "none"))));
+                    $"{e.Reference.FormKey} L{e.Level} x{e.Count} cond " + (ReadCondition(e) is { } c ? $"fn={c.Fn} {c.Op} {F(c.Value)} param={c.Param}" : "none"))));
                 Need(l.EditorID == edid, $"LVLN 0x{id:X} is {l.EditorID}, not {edid}");
                 Need(entries.Count == want.Length, $"LVLN {edid} has {entries.Count} entries, not {want.Length}");
                 for (int i = 0; i < Math.Min(entries.Count, want.Length); i++)
                 {
                     var e = entries[i];
                     var c = ReadCondition(e);
-                    Need(e.Data is not null && e.Data.Reference.FormKey == want[i].Base && e.Data.Level == 1 && e.Data.Count == 1, $"LVLN {edid}[{i}] is not {want[i].Base} level 1 count 1");
+                    Need(e.Reference.FormKey == want[i].Base && e.Level == 1 && e.Count == 1, $"LVLN {edid}[{i}] is not {want[i].Base} level 1 count 1");
                     Need(c is not null && c.Value.Fn == want[i].Fn && c.Value.Op == want[i].Op && c.Value.Value == want[i].Value && c.Value.Param == want[i].Param,
                          $"LVLN {edid}[{i}] condition is not function {want[i].Fn} {want[i].Op} {F(want[i].Value)} on {want[i].Param}");
                 }
