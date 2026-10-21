@@ -134,12 +134,12 @@ class Dump:
         if SYSTEM_MEMORY_INFO in self.streams:
             at, size = self.streams[SYSTEM_MEMORY_INFO]
             flags, = struct.unpack_from("<H", self.data, at + 2) if size >= 4 else (0,)
-            if size >= 160 and flags & 0x2:
-                # MINIDUMP_SYSTEM_MEMORY_INFO_1: basic information at 8 (PageSize at 12), the file cache at 64, the
-                # basic performance information at 128 (available pages, committed pages, commit limit, peak commit),
-                # valid only with flag 0x2 (MINIDUMP_SYSMEMINFO1_BASICPERF)
-                page, = struct.unpack_from("<I", self.data, at + 12)
-                avail, committed, limit, peak = struct.unpack_from("<4Q", self.data, at + 128)
+            if size >= 148 and flags & 0x2:
+                # MINIDUMP_SYSTEM_MEMORY_INFO_1, 4-byte packed (minidumpapiset.h): basic information at 4 (PageSize at
+                # 8), the file cache at 56, the basic performance information at 116 (available pages, committed
+                # pages, commit limit, peak commit), valid only with flag 0x2 (MINIDUMP_SYSMEMINFO1_BASICPERF)
+                page, = struct.unpack_from("<I", self.data, at + 8)
+                avail, committed, limit, peak = struct.unpack_from("<4Q", self.data, at + 116)
                 if page in (4096, 8192, 16384, 65536):
                     out["system"] = {"available": avail * page / GIB, "commit": committed * page / GIB,
                                      "commit_limit": limit * page / GIB, "peak_commit": peak * page / GIB}

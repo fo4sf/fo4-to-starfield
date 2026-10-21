@@ -66,8 +66,9 @@ def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
     entries.append((md.PROCESS_VM_COUNTERS, len(vm), add(bytes(vm))))
     sysmem = bytearray(160)
     struct.pack_into("<HH", sysmem, 0, 1, sys_flags)
-    struct.pack_into("<I", sysmem, 12, 4096)
-    struct.pack_into("<4Q", sysmem, 128, GIB // 4096 // 2, 40 * GIB // 4096, 48 * GIB // 4096, 44 * GIB // 4096)
+    struct.pack_into("<II", sysmem, 4, 156250, 4096)              # 4-byte packed: TimerResolution, PageSize
+    struct.pack_into("<I", sysmem, 12, 8 << 20)                   # NumberOfPhysicalPages (an unpacked read sees it)
+    struct.pack_into("<4Q", sysmem, 116, GIB // 4096 // 2, 40 * GIB // 4096, 48 * GIB // 4096, 44 * GIB // 4096)
     entries.append((md.SYSTEM_MEMORY_INFO, len(sysmem), add(bytes(sysmem))))
     struct.pack_into("<4sIIIIIQ", blob, 0, b"MDMP", 0xA793, len(entries), 32, 0, 0, 0)
     for i, e in enumerate(entries):
