@@ -362,6 +362,22 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((second["verdict"], second["class"]), ("FAIL", "CRASH"), second["detail"])
         self.assertEqual(jload(p)["test_crashes"], {second["id"]: 2})
 
+    def test_a_crash_row_whose_checkpoint_was_lost_still_counts(self):
+        # Codex on #402: the row was recorded, then the run stopped before state.json kept the new count
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        tid = self.results()[0]["id"]
+        st["test_crashes"] = {tid: 0}                     # the checkpoint before the crash
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (tid, "FAIL", "CRASH"), second["detail"])
+
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
         calls = []

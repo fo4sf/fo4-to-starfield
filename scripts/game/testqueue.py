@@ -3218,26 +3218,28 @@ class Runner:
                 self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
     def crash_counts(self):
-        """state.json test_crashes: the crashes counted per test toward FAIL CRASH. A queue state from before the count
-        existed is seeded from its results.jsonl CRASH rows, so a crash recorded then still counts (Codex on #402);
-        a walk row recorded on another install than the pinned one, or one marked not counted, is left out."""
-        if "test_crashes" not in self.state:
-            tc = {}
-            p = os.path.join(self.qdir, "results.jsonl")
-            if os.path.exists(p):
-                with open(p, encoding="utf-8") as f:
-                    for x in f:
-                        try:
-                            r = json.loads(x)
-                        except ValueError:
-                            continue
-                        if not isinstance(r, dict) or r.get("class") != "CRASH" or "not counted" in str(r.get("detail")):
-                            continue
-                        if r.get("kind") == "walk" and install_mismatch(self.q, r.get("install")):
-                            continue
-                        tc[r.get("id")] = tc.get(r.get("id"), 0) + 1
-            self.state["test_crashes"] = tc
-        return self.state["test_crashes"]
+        """state.json test_crashes: the crashes counted per test toward FAIL CRASH, merged (the larger count per test)
+        with the results.jsonl CRASH rows on every call: a queue state from before the count existed, or one whose
+        checkpoint was lost after a crash row was recorded, still counts every recorded crash (Codex on #402). A walk
+        row recorded on another install than the pinned one, or one marked not counted, is left out."""
+        tc = self.state.setdefault("test_crashes", {})
+        seen = {}
+        p = os.path.join(self.qdir, "results.jsonl")
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                for x in f:
+                    try:
+                        r = json.loads(x)
+                    except ValueError:
+                        continue
+                    if not isinstance(r, dict) or r.get("class") != "CRASH" or "not counted" in str(r.get("detail")):
+                        continue
+                    if r.get("kind") == "walk" and install_mismatch(self.q, r.get("install")):
+                        continue
+                    seen[r.get("id")] = seen.get(r.get("id"), 0) + 1
+        for k, v in seen.items():
+            tc[k] = max(tc.get(k, 0), v)
+        return tc
 
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
