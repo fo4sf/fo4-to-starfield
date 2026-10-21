@@ -30,6 +30,8 @@ bool done = false
 int fragmentStage = 0
 float fragmentAt = 0.0
 int stageEvents = 0
+bool event10 = false
+bool event20 = false
 string stageEventList = ""
 float setAt = 0.0
 ObjectReference target = None
@@ -43,6 +45,11 @@ EndEvent
 Event OnStageSet(int auiStageID, int auiItemID)
     stageEvents += 1
     stageEventList += " " + auiStageID
+    if auiStageID == 10
+        event10 = true
+    elseif auiStageID == 20
+        event20 = true
+    endif
     Trace("onstageset stage=" + auiStageID + " item=" + auiItemID + " after=" + (Utility.GetCurrentRealTime() - setAt))
 EndEvent
 
@@ -115,9 +122,11 @@ Function Report()
     if fragmentStage == 10
         e1 = "PASS"
     endif
-    string e2 = "FAIL"
-    if stageEvents > 0
+    string e2 = "FAIL"                                       ; E2 asks for both stages: one alone is its own answer
+    if event10 && event20
         e2 = "PASS"
+    elseif event10 || event20
+        e2 = "PARTIAL"
     endif
     string e3 = "FAIL"
     if target != None && TargetAlias.GetReference() == target

@@ -151,8 +151,9 @@ LOGTEXT = """[10/20/2026 - 10:00:00AM] FO4SF_QPROBE rt=1.0 init anchor=FO4Port.e
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.2 alias target=[ObjectReference] filled=True distance=40.0
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.3 sm quest started
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.3 story event started=1 ours=True sm_running=True
+[10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.2 onstageset stage=10 item=0 after=0.1
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.4 onstageset stage=20 item=0 after=0.3
-[10/20/2026 - 10:00:10AM] FO4SF_QPROBE rt=11.0 result E1_fragment=PASS E2_onstageset=PASS (1: 20) E3_alias=FILLED E4_questtype=LOOK E5_storymanager=PASS
+[10/20/2026 - 10:00:10AM] FO4SF_QPROBE rt=11.0 result E1_fragment=PASS E2_onstageset=PASS (2: 10 20) E3_alias=FILLED E4_questtype=LOOK E5_storymanager=PASS
 [10/20/2026 - 10:00:10AM] FO4SF_NEWGAME rt=11.0 status stage=200
 [10/20/2026 - 10:01:00AM] FO4SF_QPROBE rt=60.0 reached target distance=2.5
 """
@@ -163,9 +164,20 @@ class LogTests(unittest.TestCase):
         s = qp.summarize(LOGTEXT.splitlines())
         self.assertTrue(s["started"] and s["sm_started"] and s["reached"])
         self.assertEqual(s["fragment"], 10)
-        self.assertEqual(s["stage_events"], [20])
+        self.assertEqual(s["stage_events"], [10, 20])
         self.assertEqual(s["result"], {"E1_fragment": "PASS", "E2_onstageset": "PASS", "E3_alias": "FILLED",
                                        "E4_questtype": "LOOK", "E5_storymanager": "PASS"})
+
+    def test_e2_needs_both_stages(self):
+        """21 Oct review on #393: one stage's event alone passed E2."""
+        psc = open(PSC, encoding="utf-8").read()
+        self.assertIn("if event10 && event20", psc)
+        self.assertIn('e2 = "PARTIAL"', psc)
+        self.assertEqual(qp.e2_verdict([10, 20]), "PASS")
+        self.assertEqual(qp.e2_verdict([20]), "PARTIAL")
+        self.assertEqual(qp.e2_verdict([10]), "PARTIAL")
+        self.assertEqual(qp.e2_verdict([100]), "FAIL")
+        self.assertEqual(qp.e2_verdict([]), "FAIL")
 
     def test_no_result_line(self):
         s = qp.summarize(LOGTEXT.splitlines()[:3])

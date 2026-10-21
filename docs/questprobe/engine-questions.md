@@ -72,7 +72,8 @@ FO4SF_QPROBE rt=... result E1_fragment=PASS E2_onstageset=FAIL (0:) E3_alias=FIL
 
 - **E1.** If the fragment ran, recompiling FO4's fragments is the route. If not, the converter must drive stage
   actions itself, as the mission and the new game already do with AdvanceTo.
-- **E2.** An event for 10, 20 and 100 means OnStageSet works and the mission's failure has another cause. No events
+- **E2.** PASS needs an event for both 10 and 20; PARTIAL means only one arrived, which is its own engine answer and
+  not a pass (21 Oct review). Both means OnStageSet works and the mission's failure has another cause. No events
   confirms that nothing should rely on OnStageSet.
 - **E3.** A marker on the compass means FO4 objectives convert as they are. No marker, with the alias FILLED, means
   objective targets need more than an alias (a flag or a keyword, still unresolved).

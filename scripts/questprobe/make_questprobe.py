@@ -40,6 +40,13 @@ STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_qprobe.0.log")
 LINE = re.compile(r"FO4SF_QPROBE rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
+def e2_verdict(stage_events):
+    """FO4SF_QProbeQuest.Report's E2: PASS only when OnStageSet arrived for both 10 and 20 (21 Oct review on #393),
+    PARTIAL for one of them, FAIL for neither."""
+    seen = {10, 20} & set(stage_events)
+    return "PASS" if len(seen) == 2 else "PARTIAL" if seen else "FAIL"
+
+
 ANSWERS = ("E1_fragment", "E2_onstageset", "E3_alias", "E4_questtype", "E5_storymanager")
 # the natives (and events) each script uses, by the base script that must declare them (precheck)
 NATIVES = {
