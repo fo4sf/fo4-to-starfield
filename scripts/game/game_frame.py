@@ -4,8 +4,8 @@ letterboxed or pillarboxed frame.
 On a display that is not 16:9 Starfield draws its 16:9 picture centred between black bars: the v6e doors retry
 (2026-10-21) ran on a 2560x1600 (16:10) desktop, and shot.ps1 saved 1280x800 frames with 40 px black bars top and
 bottom, so every 1280x720 box (the main menu text, hud_visible.py's oxygen ring and health bar) was read 40 px too high
-and scaled by 800/720, and no screen check matched. shot.ps1 and shot_region.ps1 crop to the same rectangle
-(game_rect.ps1); this module lets the Python readers accept either kind of frame.
+and scaled by 800/720, and no screen check matched. shot.ps1 crops to the same rectangle (game_rect.ps1); this module
+lets the Python readers accept either kind of frame. shot_region.ps1 (console OCR) captures the whole screen.
 """
 
 DARK = 12            # a letterbox bar is black; a game drawn over the whole screen has HUD or scene pixels there
