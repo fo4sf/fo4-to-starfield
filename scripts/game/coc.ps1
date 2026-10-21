@@ -8,8 +8,9 @@
 # display the HUD's O2/CO2 dial overlaps the console's last lines, the OCR read Z -1.81 as "81" and the nonce as
 # "f04sfr2De589b8", and every arrival in BostonPublicLibrary02 failed although the player stood on the marker.
 # Not at the marker on the first try: one hop through another converted cell (-Via, else coc_hop.py's pick: the first
-# other cell export with a COC marker next to -CellJson), then the coc again and the same check. v6e stairs retest 2026-10-21: the save
-# Continue loaded stood inside BostonPublicLibrary02 at its load door's arrival (-9.14 97.37 11.88, where the doors
+# other cell export next to -CellJson whose COC marker is at least 20 m from the target's, so a return coc the game
+# ignored cannot pass the position check), then the coc again and the same check. v6e stairs retest 2026-10-21: the
+# save Continue loaded stood inside BostonPublicLibrary02 at its load door's arrival (-9.14 97.37 11.88, where the doors
 # run left it), the coc left the player there, 54 m from the marker, and the stairs run stopped on its first test
 # (supported, not verified: a coc into the cell the player is already in, or a coc the console swallowed).
 param([Parameter(Mandatory)][string]$Cell, [Parameter(Mandatory)][string]$CellJson, [int]$Wait = 30000, [switch]$Bridge, [string]$Via = '')

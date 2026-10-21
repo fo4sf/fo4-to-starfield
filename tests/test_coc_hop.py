@@ -21,8 +21,8 @@ MARKER = {"base_editor_id": "COCMarkerHeading", "pos": [2048.2, 4207.7, -126.7]}
 DOOR_ARRIVAL = [-9.14, 97.37, 11.88]
 
 
-def cell(name, marker=True, extra=()):
-    refs = [dict(MARKER)] if marker else []
+def cell(name, marker=True, extra=(), at=None):
+    refs = [dict(MARKER, pos=at or [0.0, 0.0, 0.0])] if marker else []
     return {"cell": name, "refs": refs + list(extra)}
 
 
@@ -39,7 +39,7 @@ class StagingCase(unittest.TestCase):
 class HopCellTest(StagingCase):
     def test_skips_merged_helpers_the_target_and_cells_without_a_marker(self):
         # Codex on #450: merged.json aggregates refs and can hold a COC marker; FO4Port_merged is not a cell
-        d = self.staging({"BostonPublicLibrary02.json": cell("BostonPublicLibrary02"),
+        d = self.staging({"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]),
                           "AAA.json": cell("AAA", marker=False),
                           "BB_broken.json": "{not json",
                           "Abc.json": cell("BostonPublicLibrary02"),     # another export of the target itself
@@ -47,11 +47,20 @@ class HopCellTest(StagingCase):
                           "build_x.json": cell("build_x"), "routes_y.json": cell("routes_y"),
                           "manifest.json": {"items": []},
                           "merged.json": cell("merged"), "a_merged_copy.json": cell("merged"),
+                          "Vault111.json": cell("Vault111", at=[2048.2 + 700.0, 4207.7, 0.0]),   # 10 m away: too close
                           "Vault111Cryo.json": cell("Vault111Cryo"), "Vault114.json": cell("Vault114")})
         self.assertEqual(coc_hop.hop_cell(os.path.join(d, "BostonPublicLibrary02.json")), "Vault111Cryo")
 
+    def test_a_marker_near_the_targets_is_never_the_hop(self):
+        # Codex on #450: a return coc the game ignored would leave the player at the hop cell's marker, and the
+        # position-only check would take that for the target's
+        d = self.staging({"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]),
+                          "Vault111Cryo.json": cell("Vault111Cryo", at=MARKER["pos"])})
+        self.assertIsNone(coc_hop.hop_cell(os.path.join(d, "BostonPublicLibrary02.json")))
+
     def test_none_when_the_target_is_the_only_cell(self):
-        d = self.staging({"BostonPublicLibrary02.json": cell("BostonPublicLibrary02"), "merged.json": cell("merged")})
+        d = self.staging({"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]),
+                          "merged.json": cell("merged")})
         self.assertIsNone(coc_hop.hop_cell(os.path.join(d, "BostonPublicLibrary02.json")))
         self.assertEqual(coc_hop.main([os.path.join(d, "BostonPublicLibrary02.json")]), 1)
 
@@ -91,7 +100,7 @@ class CocSandboxTest(StagingCase):
 
     def test_a_save_inside_the_target_hops_and_arrives(self):
         r, cocs = self.run_coc({"cell": "FO4Port_BostonPublicLibrary02", "player": DOOR_ARRIVAL, "coc_same_cell_stays": True},
-                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02"), "merged.json": cell("merged"),
+                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]), "merged.json": cell("merged"),
                                 "Vault111Cryo.json": cell("Vault111Cryo")})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(cocs, ["coc FO4Port_BostonPublicLibrary02", "coc FO4Port_Vault111Cryo",
@@ -100,14 +109,14 @@ class CocSandboxTest(StagingCase):
 
     def test_a_first_arrival_needs_no_hop(self):
         r, cocs = self.run_coc({"cell": "Elsewhere", "coc_same_cell_stays": True},
-                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02"),
+                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]),
                                 "Vault111Cryo.json": cell("Vault111Cryo")})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(cocs, ["coc FO4Port_BostonPublicLibrary02"])
 
     def test_no_other_cell_fails_without_a_hop(self):
         r, cocs = self.run_coc({"cell": "FO4Port_BostonPublicLibrary02", "player": DOOR_ARRIVAL, "coc_same_cell_stays": True},
-                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02"), "merged.json": cell("merged")})
+                               {"BostonPublicLibrary02.json": cell("BostonPublicLibrary02", at=MARKER["pos"]), "merged.json": cell("merged")})
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertEqual(cocs, ["coc FO4Port_BostonPublicLibrary02"])
 
