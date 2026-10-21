@@ -96,5 +96,62 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(rc, 0)
 
 
+    def test_validate_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            # Create dummy dirs so some checks pass
+            fo4 = Path(td) / "fo4"
+            sf = Path(td) / "sf"
+            work = Path(td) / "work"
+            stage = Path(td) / "stage"
+            fo4.mkdir()
+            sf.mkdir()
+            work.mkdir()
+            stage.mkdir()
+            cfg.write_text(f"""
+[fo4]
+data_dirs = ["{fo4}"]
+
+[starfield]
+data_dir = "{sf}"
+
+[paths]
+work_dir = "{work}"
+staging_dir = "{stage}"
+""")
+            with patch("sys.stdout"), patch("sys.stderr"):
+                rc = main(["--config", str(cfg), "validate"])
+            # May fail on missing texconv/numpy, but should not crash
+            self.assertIn(rc, (0, 1))
+
+if __name__ == "__main__":
+    def test_validate_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            fo4 = Path(td) / "fo4"
+            sf = Path(td) / "sf"
+            work = Path(td) / "work"
+            stage = Path(td) / "stage"
+            fo4.mkdir()
+            sf.mkdir()
+            work.mkdir()
+            stage.mkdir()
+            cfg.write_text(f"""
+[fo4]
+data_dirs = ["{fo4}"]
+
+[starfield]
+data_dir = "{sf}"
+
+[paths]
+work_dir = "{work}"
+staging_dir = "{stage}"
+""")
+            with patch("sys.stdout"), patch("sys.stderr"):
+                rc = main(["--config", str(cfg), "validate"])
+            # May fail on missing texconv/numpy, but should not crash
+            self.assertIn(rc, (0, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
