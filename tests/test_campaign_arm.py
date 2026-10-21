@@ -119,9 +119,32 @@ class CheckTests(Base):
         self.assertIn("is not door_rounds.py judge", self.check(c)[1][0])
         c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q3]
         self.assertTrue(self.check(c)[0])
+        # Codex on #391: a judge of another queue folder (or of none, or of two) is refused
+        q4 = self.queue("d", [{"coc": "FO4Port_X"}])
+        for bad in (["--queue", q4], [], ["--queue", q3, "--queue", q4], ["--queue=" + q3], ["--queue"]):
+            with self.subTest(bad=bad):
+                c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge"] + bad
+                self.assertIn("does not judge this queue", " ".join(self.check(c)[1]))
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q3.upper() + "\\"]
+        self.assertTrue(self.check(c)[0])                                   # the same folder, written otherwise
         self.assertIn("no planned queue", self.check(self.camp([("x", os.path.join(self.d, "nope"))]))[1][0])
         self.assertIn("no queues", self.check(self.camp([]))[1][0])
         self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
+
+
+class PlanTerrainHoldTests(Base):
+    def test_a_plan_terrain_door_in_leg_is_held(self):
+        # review pass on #391: plan-terrain writes no "coc"; an IN leg starts at world_coc with an empty travel
+        # (testqueue.py plan-terrain, door_rounds.py's IN leg), so the red_rocket hold never saw it
+        q = self.queue("doors", [{"kind": "terrain", "cell": "", "ref": "FO4Core_RedRocketSpawn",
+                                  "world_coc": "FO4Core_RedRocketSpawn", "travel": ""},
+                                 {"kind": "terrain", "cell": "", "ref": "FO4Port_SuperDuperMart01",
+                                  "world_coc": "FO4Port_SuperDuperMart01", "travel": "coc FO4Port_SuperDuperMart01"}])
+        self.assertEqual(ca.cells(ca.tq.load(os.path.join(q, "queue.json"))),
+                         ["FO4Core_RedRocketSpawn", "FO4Port_SuperDuperMart01"])
+        ok, why = self.check(self.camp([("doors", q)]))
+        self.assertFalse(ok)
+        self.assertIn("FO4Core_RedRocketSpawn", " ".join(why))
 
 
 class ScriptAndGateTests(Base):
@@ -138,6 +161,9 @@ class ScriptAndGateTests(Base):
             text = f.read()
         self.assertIn("'--max-relaunch' '1' '--crash-budget' '1' '--min-free-gb' '43' '--dump-drive' 'D:\\'", text)
         self.assertIn("'scripts\\bridge\\door_rounds.py' 'judge'", text)
+        self.assertIn("$jr = $LASTEXITCODE", text)                          # Codex on #391: the judge exit counts
+        self.assertIn("--run-exit $rc --judge-exit $jr", text)
+        self.assertLess(text.index("$jr = $LASTEXITCODE"), text.index("gate --queue"))
         self.assertLess(text.index("campaign_arm.py check"), text.index("testqueue.py"))
         self.assertLess(text.index("testqueue.py"), text.index("gate --queue"))
         self.assertIn("\r\n", text)
@@ -162,6 +188,33 @@ class ScriptAndGateTests(Base):
         with open(os.path.join(q, "state.json"), "w") as f:
             json.dump({"status": "finished", "crashes": 1}, f)                 # a crash in the last test
         self.assertFalse(ca.gate(q, 0)[0])
+
+    def test_the_gate_refuses_a_missing_unfinished_or_torn_state_and_a_failed_judge(self):
+        # Codex on #391: a missing state.json or a running one passed as "clean: None" / "clean: running"
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        sp = os.path.join(q, "state.json")
+
+        def cli(*extra):
+            with redirect_stdout(io.StringIO()) as buf:
+                rc = ca.main(["gate", "--queue", q, "--run-exit", "0", *extra])
+            return rc, buf.getvalue()
+        self.assertEqual(cli(), (1, f"STOP no readable state.json in {q}: nothing proves the queue ran\n"))
+        for st, why in (({"status": "running", "crashes": 0}, "'running', not finished"),
+                        ({"status": "new"}, "'new', not finished"), (["finished"], "no readable state.json")):
+            with self.subTest(st=st):
+                with open(sp, "w") as f:
+                    json.dump(st, f)
+                rc, out = cli()
+                self.assertEqual(rc, 1)
+                self.assertIn(why, out)
+        with open(sp, "w") as f:
+            f.write('{"status": "fini')
+        self.assertIn("no readable state.json", ca.gate(q, 0)[1])
+        with open(sp, "w") as f:
+            json.dump({"status": "finished", "crashes": 0, "start_deaths": 0}, f)
+        self.assertEqual(cli(), (0, "OK ran clean: finished (the verdicts are in the judge's report)\n"))
+        self.assertEqual(cli("--judge-exit", "0")[0], 0)
+        self.assertEqual(cli("--judge-exit", "2"), (1, "STOP the judge exited 2\n"))
 
 
 if __name__ == "__main__":
@@ -194,6 +247,27 @@ class RunChainTests(Base):
                                                       [os.path.join("scripts", "bridge", "door_rounds.py"), "judge"]])
         self.assertEqual({e for _, e in self.calls}, {"exe"})
         self.assertIn("a: STOP", self.lines[-1])
+
+    def test_a_failed_judge_stops_the_chain(self):
+        # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qb = self.queue("b", [{"coc": "FO4Port_Y"}])
+        c = self.camp([("a", qa), ("b", qb)])
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", qa]
+        rc = ca.run_chain(c, self.lines.append, self.fake([0, 2], {"status": "finished", "crashes": 0}))
+        self.assertEqual(rc, 1)
+        self.assertEqual([a[1] for a, _ in self.calls], ["run", "judge"])          # b never started
+        self.assertEqual(self.lines[-1], "a: STOP the judge exited 2")
+        with open(os.path.join(qa, "state.json")) as f:                         # the run's evidence stays
+            self.assertEqual(json.load(f)["status"], "finished")
+
+    def test_a_run_that_wrote_no_state_stops_the_chain(self):
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qb = self.queue("b", [{"coc": "FO4Port_Y"}])
+        rc = ca.run_chain(self.camp([("a", qa), ("b", qb)]), self.lines.append, self.fake([0]))
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("a: STOP no readable state.json", self.lines[-1])
 
     def test_a_clean_chain_runs_every_queue(self):
         qa = self.queue("a", [{"coc": "FO4Port_X"}])
