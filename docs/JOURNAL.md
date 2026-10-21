@@ -1891,3 +1891,23 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+### 2026-10-20 Codex: preserve ETA correctness without repeated suffix scans
+
+Owner-authorized isolated Grok takeover, stacked on PR184/1f7604a. Original success-rate/zero-success/exhausted
+ETA correction replays pass. The new actual-main cost regression first failed:2,000 candidates caused201,000
+LOD checks even with no displayed ETA. A running eligible-candidate count reduces the same4,000-input benchmark
+from802,000 to8,000 checks (three-trial median0.509489s to0.031557s); result records/stdout remain byte-equivalent
+by digest. Three new actual-main controls cover linear cost, skipped LOD candidates and cell-mode LOD names;
+18 focused batch tests pass. See optimization notes for scope and measurements. Original branches/evidence remain;
+no native test, asset, private stage, install or main merge. Independent QA remains required.
+
+### 2026-10-20 Codex: reconcile progress with current batch checkpoint and pose handling
+
+Resolved the two current-main conflicts in isolated425 by starting from main4a434761's full batch caller and
+adding only progress accounting/output. Classified checkpoint keys, cache load/save and converter options,
+source identity, manifest publication and the complete pose path remain unchanged. Both original425/e6f6199
+and main are retained as real parents; original Grok/main branches are untouched. Main's journal history and
+the prior own progress entry are retained.93 relevant synthetic methods pass (one Windows symlink case skips);
+AST/source comparisons prove12 helpers, classified conversion statements and full pose block unchanged.
+Full-size private builds, installed/current PEX, native return/save and independent QA remain separate gates.

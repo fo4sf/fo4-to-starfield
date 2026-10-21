@@ -310,12 +310,16 @@ def main():
     attempted_so_far = 0
     skipped = 0
     progress_every = 10
+    lod_skip = re.compile(r"(lod|_dmg|damaged|destr)", re.I)
+    remaining_candidates = (sum(1 for name in names if a.cell_json or not lod_skip.search(name))
+                            if a.limit > 0 else 0)
     for name in names:
         if len(items) >= a.limit:
             break
-        if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
+        if not a.cell_json and lod_skip.search(name):
             skipped += 1
         else:
+            remaining_candidates -= 1
             ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
             # Apply --max-tris: skip heavy meshes before the expensive conversion
             if a.max_tris and triangle_count(src, name) > a.max_tris:
@@ -362,8 +366,20 @@ def main():
         if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            pct = ""
+            eta = ""
+            if a.limit > 0:
+                pct = f" ({100.0 * len(items) / a.limit:.0f}% of limit)"
+                success_rate = len(items) / elapsed_now if elapsed_now > 0 else 0
+                remaining_successes = a.limit - len(items)
+                if success_rate > 0 and remaining_successes > 0 and remaining_candidates >= remaining_successes:
+                    eta_s = remaining_successes / success_rate
+                    if eta_s > 60:
+                        eta = f", ~{eta_s/60:.0f}m left"
+                    elif eta_s > 5:
+                        eta = f", ~{eta_s:.0f}s left"
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s){pct}{eta}")
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
