@@ -390,6 +390,8 @@ class PlanTerrainHoldTests(Base):
         self.assertNotEqual(ca.queue_sha256(e), pin)
         q = self.queue("rel", [{"coc": "FO4Port_X", "routes_file": "routes_A.json", "route_index": 0}])
         self.assertIn("routes_file routes_A.json is not a full path", " ".join(self.check(self.camp([("a", q)]))[1]))
+        os.remove(r)                                                     # Codex on #391: deleted after planning
+        self.assertIn(f"routes_file {r} is missing", " ".join(self.check(self.camp([("a", e["queue"])]))[1]))
 
     def test_a_relative_starfield_is_refused(self):
         # Codex on #391: the check reads it where it runs, the runner in the checkout
@@ -531,6 +533,8 @@ class ScriptAndGateTests(Base):
         self.assertIn("$env:FO4SF_LAUNCH = 'exe'", text)
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
         self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
+        self.assertIn("$env:FO4SF_PYTHON = $py", text)                     # Codex on #391: never the caller's
+        self.assertLess(text.index("FO4SF_PYTHON"), text.index("testqueue.py"))
 
         def check(*extra):
             with redirect_stdout(io.StringIO()) as buf:
@@ -696,11 +700,12 @@ if __name__ == "__main__":
 class RunChainTests(Base):
     def setUp(self):
         super().setUp()
-        self.calls, self.lines = [], []
+        self.calls, self.lines, self.envpy = [], [], []
 
     def fake(self, codes, state=None):
         def call(argv, env):
             self.calls.append((argv[1:3], env.get("FO4SF_LAUNCH")))
+            self.envpy.append(env.get("FO4SF_PYTHON"))
             if state is not None and "testqueue.py" in argv[1]:
                 q = argv[argv.index("--queue") + 1]
                 with open(os.path.join(q, "state.json"), "w") as f:
@@ -709,6 +714,8 @@ class RunChainTests(Base):
         return call
 
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
+        os.environ["FO4SF_PYTHON"] = "C:\\other\\python.exe"
+        self.addCleanup(os.environ.pop, "FO4SF_PYTHON", None)
         qa = self.queue("a", [{"coc": "FO4Port_X"}])
         qb = self.queue("b", [{"coc": "FO4Port_Y"}])
         c = self.camp([("a", qa), ("b", qb)], launch="exe")
@@ -718,6 +725,7 @@ class RunChainTests(Base):
         self.assertEqual([a for a, _ in self.calls], [[os.path.join("scripts", "game", "testqueue.py"), "run"],
                                                       [os.path.join("scripts", "bridge", "door_rounds.py"), "judge"]])
         self.assertEqual({e for _, e in self.calls}, {"exe"})
+        self.assertEqual(set(self.envpy), {PY})                          # Codex on #391: never the caller's python
         self.assertIn("a: STOP", self.lines[-1])
 
     def test_a_failed_judge_stops_the_chain(self):

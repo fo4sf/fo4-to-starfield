@@ -285,6 +285,11 @@ def check_queue(entry, camp, release):
     if loose:
         # Codex on #391: the pin hashes the routes where the check runs, the runner reads them in the checkout
         why.append(f"routes_file {', '.join(loose[:3])} is not a full path")
+    gone = sorted({str(t["routes_file"]) for t in q["tests"] if t.get("routes_file") and rooted(t["routes_file"])
+                   and not os.path.isfile(t["routes_file"])})
+    if gone:
+        # Codex on #391: a missing routes_file would pin as "missing" and reach the game with no route
+        why.append(f"routes_file {', '.join(gone[:3])} is missing")
     br = q.get("bridge")
     if br and not camp.get("bridge"):
         # Codex on #391: the runner installs a queue's bridge before launch: a campaign that names none would get one
@@ -539,6 +544,8 @@ def chain(camp, path, release, digest=None):
              f"Write-Host 'no checkout at {camp['checkout']}: nothing run'; exit 1 }}",
              # Codex on #391: the launch mode is the campaign's, never the caller's environment
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
+             # Codex on #391: the runner's helpers use FO4SF_PYTHON; it is the campaign's python, never the caller's
+             "$env:FO4SF_PYTHON = $py",
              # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
                                 digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
@@ -616,8 +623,9 @@ def run_chain(camp, log=print, call=None):
         log(f"{'REFUSED' if why else 'OK'} {e.get('name')}: " + "; ".join(why + notes))
     if not ok:
         return 1
-    env = dict(os.environ, FO4SF_LAUNCH=launch)
     py, caps = camp.get("python") or "python", camp["caps"]
+    # Codex on #391: the runner's helpers use FO4SF_PYTHON; it is the campaign's python, never the caller's
+    env = dict(os.environ, FO4SF_LAUNCH=launch, FO4SF_PYTHON=py)
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
     for (e, _, _), pin in zip(res["queues"], pins):
         why = recheck(e, camp, set(released), pin)
