@@ -10,17 +10,19 @@ usage:
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
           (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing);
-        - a test starts in a held cell (campaign "holds", e.g. the Red Rocket arrival) not named in --release;
+        - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a door_trip's
+          "inside" cell counts) not named in --release;
       and the campaign is refused when its caps are not the night-run caps (one launch, stop at the first crash, at
       least 40 GB free on the dump drive). Exit 0 only when every queue can be armed.
   python scripts/game/campaign_arm.py script --campaign <campaign.json> --out <NEW chain.ps1> [--release HOLD,...]
       after the same check, the PowerShell chain: the campaign's launch mode (FO4SF_LAUNCH), the check again at run
-      time against the sha256 of the manifest it was written from, then per queue the run with the caps, its judge,
-      and the gate; the chain stops at the first queue the gate refuses.
+      time against the sha256 of the manifest it was written from, then per queue the check of that queue again
+      (check --only NAME --queue-sha256 HEX: its queue.json must still be the file the chain was armed with), the run
+      with the caps, its judge, and the gate; the chain stops at the first queue the recheck or the gate refuses.
   python scripts/game/campaign_arm.py run --campaign <campaign.json>
       the same chain without PowerShell: the check (holds
-      lifted only by the campaign's "released" list), then per queue testqueue.py run with the caps, its judge and the
-      gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
+      lifted only by the campaign's "released" list), then per queue the check again with its queue.json pinned,
+      testqueue.py run with the caps, its judge and the gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
       FO4SF_LAUNCH for cycle.ps1. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
   python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N [--judge-exit N]
       exit 0 only when the run ended with exit 0, the judge (when given) with exit 0, and the queue's state.json
@@ -70,15 +72,19 @@ def judge_bound(judge, qdir):
 
 
 def cells(q):
-    """The cells every test of a queue starts in (a plan kind's cell, coc, plan-terrain's world_coc, which an empty
-    travel starts at, and a "coc X" travel), in order, no repeats. A test with no cell launches into the queue's
-    launch cell first (Runner.ensure_game: launch_cell, else Vault111Cryo), so that cell is listed too."""
+    """The cells every test of a queue starts in or goes to (a plan kind's cell, coc, plan-terrain's world_coc, which
+    an empty travel starts at, a "coc X" travel, and a door_trip's sides, the "inside" cell the door leads to), in
+    order, no repeats. A test with no cell launches into the queue's launch cell first (Runner.ensure_game:
+    launch_cell, else Vault111Cryo), so that cell is listed too."""
     out = []
     tests = q.get("tests") or []
     if any(not t.get("cell") for t in tests):
         out.append(q.get("launch_cell") or "Vault111Cryo")       # Codex on #391
     for t in tests:
-        for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
+        # Codex on #391: a door_trip enters its "inside" cell through the door, so a held interior is checked too
+        sides = [t[k].get("cell") for k in ("outside", "inside") if isinstance(t.get(k), dict)]
+        for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), *sides,
+                  *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
             if c and c not in out:
                 out.append(c)
     return out
@@ -197,6 +203,22 @@ def check_queue(entry, camp, release):
     return q, why, notes
 
 
+def queue_sha256(entry):
+    """The sha256 of a campaign entry's queue.json, or None when it is missing."""
+    p = os.path.join(entry.get("queue") or "", "queue.json")
+    return campaign_sha256(p) if os.path.isfile(p) else None
+
+
+def recheck(entry, camp, release, pin):
+    """Reasons a queue checked at the start of the chain may not run now: the full check again, right before its run,
+    and its queue.json still the file the chain was armed with (pin, its sha256 then)."""
+    _, why, _ = check_queue(entry, camp, release)
+    if queue_sha256(entry) != pin:
+        # Codex on #391: a queue re-planned or edited while an earlier one ran was never armed
+        why = [f"{os.path.join(entry.get('queue') or '', 'queue.json')} changed since the chain was armed"] + why
+    return why
+
+
 def check(camp, release):
     """({"caps": [...], "queues": [(entry, why, notes)]}, ok)."""
     caps = check_caps(camp.get("caps"))
@@ -274,6 +296,10 @@ def chain(camp, path, release):
              "if ($LASTEXITCODE -ne 0) { Write-Host 'campaign check refused: nothing run'; exit 1 }"]
     for e, _, _ in check(camp, release)[0]["queues"]:
         lines += ["", f"# {e['name']}",
+                  f"& $py scripts\\game\\campaign_arm.py check --campaign {ps(path)} --sha256 {campaign_sha256(path)}"
+                  f" --only {ps(e['name'])} --queue-sha256 {queue_sha256(e)}" + (f" --release {ps(rel)}" if rel else ""),
+                  f"if ($LASTEXITCODE -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
+                  "was armed'; exit 1 }",
                   "& $py " + " ".join(ps(x) for x in run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)),
                   "$rc = $LASTEXITCODE"]
         judge = ""
@@ -336,7 +362,12 @@ def run_chain(camp, log=print, call=None):
         return 1
     env = dict(os.environ, FO4SF_LAUNCH=launch)
     py, caps = sys.executable, camp["caps"]
-    for e, _, _ in res["queues"]:
+    pins = [queue_sha256(e) for e, _, _ in res["queues"]]
+    for (e, _, _), pin in zip(res["queues"], pins):
+        why = recheck(e, camp, set(released), pin)
+        if why:
+            log(f"{e['name']}: STOP before the run: " + "; ".join(why))
+            return 1
         rc = call([py, os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
                   env)
         log(f"{e['name']}: run exit {rc}")
@@ -364,6 +395,9 @@ def main(argv=None):
         if name == "check":
             s.add_argument("--sha256", default="", help="refuse unless the campaign file still has this sha256 "
                                                         "(the generated chain passes the one it was written from)")
+            s.add_argument("--only", default="", help="check this one queue of the campaign (the chain, before its run)")
+            s.add_argument("--queue-sha256", default="", help="with --only: refuse unless that queue.json still has "
+                                                              "this sha256 (the one the chain was armed with)")
         if name == "script":
             s.add_argument("--out", required=True)
     g = sub.add_parser("gate")
@@ -388,6 +422,17 @@ def main(argv=None):
         print(f"REFUSED campaign: {a.campaign} changed since the chain was written from it: write the chain again")
         return 1
     camp, release = read_campaign(a.campaign), releases(a.release)
+    if a.cmd == "check" and (a.only or a.queue_sha256):
+        entry = next((e for e in camp.get("queues") or [] if e.get("name") == a.only), None)
+        if entry is None or not a.queue_sha256:
+            print(f"REFUSED campaign: --only {a.only!r} needs a queue of the campaign and its --queue-sha256")
+            return 1
+        caps = check_caps(camp.get("caps"))
+        why = caps + recheck(entry, camp, release, a.queue_sha256.lower())
+        print(f"{'REFUSED' if why else 'OK':8s} {a.only}: {entry.get('queue')}")
+        for w in why:
+            print(f"    - {w}")
+        return 1 if why else 0
     res, ok = check(camp, release)
     show(res)
     if a.cmd == "check" or not ok:

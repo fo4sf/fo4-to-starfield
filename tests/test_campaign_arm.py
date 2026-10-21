@@ -172,6 +172,18 @@ class PlanTerrainHoldTests(Base):
         self.assertIn("FO4Core_RedRocketSpawn", " ".join(why))
 
 
+    def test_a_door_trip_into_a_held_interior_is_held(self):
+        # Codex on #391: the test starts outside, then enters its "inside" cell through the door
+        q = self.queue("doors", [{"kind": "door_trip", "cell": "", "travel": "coc FO4Port_SuperDuperMart01",
+                                  "outside": {"start": [0, 0, 0]}, "inside": {"cell": "FO4Port_RedRocket01"}}])
+        self.assertIn("FO4Port_RedRocket01", ca.cells(ca.tq.load(os.path.join(q, "queue.json"))))
+        c = self.camp([("doors", q)], holds={"red_rocket": ["FO4Port_RedRocket01"]})
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("FO4Port_RedRocket01: held (red_rocket)", " ".join(why))
+        self.assertTrue(self.check(c, ["red_rocket"])[0])
+
+
 class ScriptAndGateTests(Base):
     def test_the_chain_carries_the_caps_and_stops_on_the_gate(self):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95"}])
@@ -228,6 +240,39 @@ class ScriptAndGateTests(Base):
         rc, outp = check("--sha256", digest)
         self.assertEqual(rc, 1)
         self.assertIn("changed since the chain was written", outp)
+
+    def test_each_queue_is_checked_again_against_its_pin_right_before_its_run(self):
+        # Codex on #391: a later queue re-planned while an earlier one ran was loaded unchecked
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qb = self.queue("b", [{"coc": "FO4Port_Y"}])
+        cp, out = os.path.join(self.d, "c.json"), os.path.join(self.d, "chain.ps1")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", qa), ("b", qb)]), f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
+        with open(out, newline="") as f:
+            text = f.read()
+        pins = re.findall(r"--only '(\w+)' --queue-sha256 ([0-9a-f]{64})", text)
+        self.assertEqual([n for n, _ in pins], ["a", "b"])
+        self.assertLess(text.index("--only 'b'"), text.index("'--queue' '%s'" % qb))
+        self.assertLess(text.index("gate --queue '%s'" % qa), text.index("--only 'b'"))
+        digest = re.search(r"--sha256 ([0-9a-f]{64})", text).group(1)
+
+        def recheck(name, pin):
+            with redirect_stdout(io.StringIO()) as buf:
+                return ca.main(["check", "--campaign", cp, "--sha256", digest, "--only", name,
+                                "--queue-sha256", pin]), buf.getvalue()
+        self.assertEqual(recheck("b", pins[1][1])[0], 0)
+        with open(os.path.join(qb, "queue.json"), "w") as f:            # re-planned into the held arrival
+            json.dump({"staging": self.staging, "plugin_sha256": tq.sha256(os.path.join(self.staging, "FO4Port.esm")),
+                       "tests": [{"id": "0000_t", "coc": "FO4Core_RedRocketSpawn"}]}, f)
+        rc, outp = recheck("b", pins[1][1])
+        self.assertEqual(rc, 1)
+        self.assertIn("changed since the chain was armed", outp)
+        self.assertIn("held (red_rocket)", outp)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["check", "--campaign", cp, "--only", "c", "--queue-sha256", pins[0][1]]), 1)
+            self.assertEqual(ca.main(["check", "--campaign", cp, "--only", "a"]), 1)
 
     def test_repeated_pre_launch_options_are_refused(self):
         # Codex on #391: argparse runs the last --exp-dir, the check read the first
@@ -341,6 +386,22 @@ class RunChainTests(Base):
         self.assertEqual(rc, 0)
         self.assertEqual(len(self.calls), 2)
         self.assertEqual({e for _, e in self.calls}, {"steam"})
+
+    def test_a_queue_changed_while_an_earlier_one_ran_stops_the_chain(self):
+        # Codex on #391: the chain checked every queue once at the start
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qb = self.queue("b", [{"coc": "FO4Port_Y"}])
+        inner = self.fake([0, 0], {"status": "finished", "crashes": 0})
+
+        def call(argv, env):
+            with open(os.path.join(qb, "queue.json"), "a") as f:          # b re-planned while a runs
+                f.write(" ")
+            return inner(argv, env)
+        rc = ca.run_chain(self.camp([("a", qa), ("b", qb)]), self.lines.append, call)
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(self.calls), 1)                                  # b never started
+        self.assertIn("b: STOP before the run", self.lines[-1])
+        self.assertIn("changed since the chain was armed", self.lines[-1])
 
     def test_holds_launch_and_released_come_from_the_campaign(self):
         q = self.queue("walk", [{"coc": "FO4Core_RedRocketSpawn"}])
