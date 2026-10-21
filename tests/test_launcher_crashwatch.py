@@ -266,7 +266,8 @@ class CrashWatchTests(unittest.TestCase):
         self.assertTrue(settings.load(path)["crash_watch.enabled"])
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 2)  # no folder
         cli.main(["settings", "--settings", path, "--set", f"crash_watch.folder={self.dumps}",
-                  "--set", f"crash_watch.procdump={self.procdump}"])
+                  "--set", f"crash_watch.procdump={self.procdump}",
+                  "--set", "crash_watch.min_free_gb=0"])           # the real disk check: CI runners have little free
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 0)
 
 
