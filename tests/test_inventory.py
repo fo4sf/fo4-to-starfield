@@ -239,6 +239,22 @@ class InventoryTests(unittest.TestCase):
             f.write(" ")
         self.assertIn("CellA.json", r.staging_mismatch())
 
+    def test_the_archives_the_deploy_packs_are_not_a_build_change(self):
+        # Codex on #405: deploy_starfield.py install writes "FO4Port - Main.ba2" into the staging on the first launch
+        self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        r = tq.Runner(os.path.join(self.out, "tier1"), tt.args(), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        for n in ("FO4Port - Main.ba2", "FO4Port - Textures.ba2"):
+            with open(os.path.join(self.st, n), "wb") as f:
+                f.write(b"BTDX packed")
+        os.makedirs(os.path.join(self.st, ".fo4port-archive-x1"))
+        with open(os.path.join(self.st, ".fo4port-archive-x1", "FO4Port - Main.ba2"), "wb") as f:
+            f.write(b"BTDX")
+        self.assertIsNone(r.staging_mismatch())
+        os.makedirs(os.path.join(self.st, "meshes"))
+        with open(os.path.join(self.st, "meshes", "FO4Port - Main.ba2"), "wb") as f:
+            f.write(b"x")                                                # the same name below the root is an input
+        self.assertIn("meshes/FO4Port - Main.ba2", r.staging_mismatch())
+
 
 if __name__ == "__main__":
     unittest.main()

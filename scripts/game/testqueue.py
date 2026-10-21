@@ -222,14 +222,27 @@ def load(p, default=None):
         return json.load(f)
 
 
+# what deploy_starfield.py install writes into the staging root on the first launch: the archives it packs from the
+# pinned loose meshes/geometries/materials/textures (ARCHIVE, TEX_ARCHIVE), and the temporary folder it builds them in
+DEPLOY_ARCHIVES = ("FO4Port - Main.ba2", "FO4Port - Textures.ba2")
+DEPLOY_TEMP = ".fo4port-archive-"
+
+
 def staging_paths(staging, skip=()):
-    """{relative path: full path} of every staged file staging_fingerprint hashes (probe points and `skip` aside)."""
+    """{relative path: full path} of every staged file staging_fingerprint hashes. Left out: the probe points, the
+    folders in `skip`, and what the deploy generates in the staging root (DEPLOY_ARCHIVES, packed from files that are
+    pinned; Codex on #405: the first launch's deploy otherwise read as a changed build)."""
     out = {}
     skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
+    top = os.path.normcase(os.path.abspath(staging))
     for root, dirs, files in os.walk(staging):
-        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip)
+        at_top = os.path.normcase(os.path.abspath(root)) == top
+        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip
+                         and not (at_top and x.startswith(DEPLOY_TEMP)))
         for n in sorted(files):
             if n.startswith("probe_") and n.endswith(".txt"):
+                continue
+            if at_top and n in DEPLOY_ARCHIVES:
                 continue
             p = os.path.join(root, n)
             out[os.path.relpath(p, staging).replace(os.sep, "/")] = p
