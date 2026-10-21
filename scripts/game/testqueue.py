@@ -577,6 +577,9 @@ def plan_terrain(a):
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
     if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
         q["rounds_sha256"] = sha256(rounds)
+    presence = os.path.join(a.exp_dir, "presence.json")
+    if os.path.exists(presence):                          # what presence.py judge must read (campaign_arm, Codex on #391)
+        q["presence_sha256"] = sha256(presence)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
     q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)

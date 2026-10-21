@@ -89,6 +89,9 @@ class Base(unittest.TestCase):
         digest = tq.sha256(os.path.join(self.staging, "FO4Port.esm"))
         body = dict({"staging": self.staging, "plugin_sha256": digest, "build_id": digest[:8], "experiment": self.stage,
                      "tests": [dict(t, id=f"{i:04d}_t") for i, t in enumerate(tests)]}, **extra)
+        for n in ("rounds", "presence"):                                 # plan-terrain pins the stage's judge files
+            if os.path.isfile(os.path.join(self.stage, n + ".json")):
+                body.setdefault(n + "_sha256", tq.sha256(os.path.join(self.stage, n + ".json")))
         if pre is not None:
             body["pre_launch"] = pre
         with open(os.path.join(q, "queue.json"), "w") as f:
@@ -823,6 +826,24 @@ class ScriptAndGateTests(Base):
         ok, why = self.check(c)
         self.assertFalse(ok)
         self.assertIn("not the rounds.json this queue was planned from", " ".join(why))
+
+    def test_a_presence_judge_reads_the_presence_its_queue_was_planned_from(self):
+        # Codex on #391: presence.py judge exits 0 on an emptied presence.json, so the file is pinned at planning
+        presence = os.path.join(self.stage, "presence.json")
+        with open(presence, "w") as f:
+            json.dump({"tests": [{"ref": "0001"}]}, f)
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([])
+        c["queues"] = [{"name": "a", "queue": q, "judge": ["scripts/bridge/presence.py", "judge", "--queue", q]}]
+        self.assertTrue(self.check(c)[0])
+        with open(presence, "w") as f:
+            json.dump({"tests": []}, f)
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("not the presence.json this queue was planned from", " ".join(why))
+        q2 = self.queue("b", [{"coc": "FO4Port_X"}], presence_sha256=None)   # planned before the digest existed
+        c["queues"] = [{"name": "b", "queue": q2, "judge": ["scripts/bridge/presence.py", "judge", "--queue", q2]}]
+        self.assertIn("records no presence_sha256", " ".join(self.check(c)[1]))
 
     def test_the_campaign_name_is_one_plain_line(self):
         # Codex on #391: chain() writes the name into its header comment; a line break would end the comment

@@ -513,11 +513,17 @@ def check_queue(entry, camp, release):
                 why.append(bad)
             elif path and not os.path.isfile(path):
                 why.append(f"the judge's definition file {path} is missing")
-            elif path and q.get("rounds_sha256") and norm(judge[0]) == norm("scripts/bridge/door_rounds.py") and \
-                    tq.sha256(path) != q["rounds_sha256"]:
-                # Codex on #391: the judge would read other door definitions than the ones the tests were planned from
-                why.append(f"the judge's definition file {path} is not the rounds.json this queue was planned from "
-                           f"(queue.json rounds_sha256 differs): plan the queue again")
+            elif path:
+                # Codex on #391: the judge would score the run against other definitions than the ones the tests were
+                # planned from (an emptied presence.json judges zero rows and exits 0)
+                name = JUDGE_DEFS[next(k for k in JUDGE_DEFS if norm(k) == norm(judge[0]))][1]
+                key = name.replace(".json", "_sha256")
+                if not q.get(key):
+                    why.append(f"queue.json records no {key}: planned before plan-terrain pinned its {name}, "
+                               f"plan the queue again")
+                elif tq.sha256(path) != q[key]:
+                    why.append(f"the judge's definition file {path} is not the {name} this queue was planned from "
+                               f"(queue.json {key} differs): plan the queue again")
     st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
     left = len([t for t in q["tests"] if t["id"] not in (st.get("done") or {})])
     if st.get("crashes") or st.get("start_deaths"):
