@@ -6,7 +6,8 @@ usage:
   python scripts/game/regress.py --old <queue> [<queue> ...] --new <queue> [<queue> ...] [--out <report.json>]
 
 A test's final verdict is its last row in results.jsonl. A door_rounds judge (door_rounds_judge.json) replaces the
-runner's verdicts of its queue, since the runner's terrain verdict does not judge the door. Tests are matched by:
+runner's verdicts of its queue, since the runner's terrain verdict does not judge the door; its rows for tests the queue
+does not hold are left out, and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
   door round legs     ("door", interior cell, leg, FO4 door src)
   terrain tests       ("terrain", "", coc, side, label): several walks can start from one coc
   every other test    (kind, cell, ref, side): a door's two sides are two tests
@@ -63,6 +64,14 @@ def rows(qdir):
     return out
 
 
+def latest_attempt(qdir, test_id):
+    """The newest attempt folder name (aN) of a test, as door_rounds.py judge records it, else None."""
+    d = os.path.join(qdir, "tests", test_id)
+    tries = sorted((int(n[1:]), n) for n in (os.listdir(d) if os.path.isdir(d) else [])
+                   if n.startswith("a") and n[1:].isdigit())
+    return tries[-1][1] if tries else None
+
+
 def is_door_queue(q):
     """A door rounds queue, from the queue itself: its tests carry door_rounds.py's "door round N IN/OUT" labels
     (plan-terrain copies them into model), so an archived queue whose stage folder moved still counts; or its
@@ -93,7 +102,15 @@ def results(qdir):
         raise Unavailable(f"{qdir}: a door rounds queue not judged yet; run scripts/bridge/door_rounds.py judge "
                           f"--queue {qdir} first")
     if judged is not None:
+        ids = {t.get("id") for t in q["tests"] if isinstance(t, dict)}
         for r in judged["results"]:
+            if r.get("id") not in ids:
+                continue                                   # an expectation the queue never planned (plan-terrain --only)
+            now = latest_attempt(qdir, r["id"])
+            if now != r.get("attempt"):                    # the queue ran again after it was judged (Codex on #401)
+                raise Unavailable(f"{judge_p}: judged at attempt {r.get('attempt') or 'none'} of {r['id']}, the "
+                                  f"queue now has {now or 'none'}; judge the queue again (scripts/bridge/"
+                                  f"door_rounds.py judge --queue {qdir})")
             k = ("door", r.get("cell_edid"), r.get("leg"), r.get("src"))
             put(k, {"verdict": r.get("verdict"), "detail": r.get("why", ""), "id": r.get("id"), "queue": qdir})
         return out, build, dup

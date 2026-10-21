@@ -139,6 +139,44 @@ class DiffTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
 
+    def test_judge_rows_of_tests_the_queue_never_planned_are_left_out(self):
+        # Codex on #401: plan-terrain --only queues got an id-less INCONCLUSIVE row for every unplanned expectation
+        d = tempfile.mkdtemp()
+        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
+        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
+               "id": "0000_terrain"}
+        phantom = {"cell_edid": "FO4Port_Museum", "leg": "in", "src": "2:Fallout4.esm", "verdict": "INCONCLUSIVE",
+                   "why": "the queue has no such test"}
+        partial = queue(d, "partial", "b", doors, [(0, "PASS")], judged=[row, phantom])
+        full = queue(d, "full", "a", doors, [(0, "PASS")], judged=[row, dict(phantom, id="0000_terrain", verdict="PASS")])
+        r = rg.diff([full], [partial])
+        self.assertEqual(r["lost"], [])
+        self.assertEqual([x["key"] for x in r["gone"]], [["door", "FO4Port_Museum", "in", "2:Fallout4.esm"]])
+
+    def test_a_judge_older_than_the_queue_is_refused(self):
+        # Codex on #401: a queue judged, then resumed, compared on the old judge's verdicts
+        d = tempfile.mkdtemp()
+        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
+        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "INCONCLUSIVE",
+               "why": "", "id": "0000_terrain", "attempt": "a1"}
+        old = queue(d, "old", "a", doors, [(0, "PASS")], judged=[dict(row, verdict="PASS")])
+        os.makedirs(os.path.join(old, "tests", "0000_terrain", "a1"))
+        new = queue(d, "new", "b", doors, [(0, "PASS")], judged=[row])
+        for a in ("a1", "a2"):
+            os.makedirs(os.path.join(new, "tests", "0000_terrain", a))
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+        self.assertIn("judged at attempt a1 of 0000_terrain, the queue now has a2", buf.getvalue())
+        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
+            json.dump({"results": [dict(row, attempt="a2")]}, f)           # judged again: compared
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
+        unrun = queue(d, "unrun", "c", doors, [], judged=[{k: v for k, v in row.items() if k != "attempt"}])
+        os.makedirs(os.path.join(unrun, "tests", "0000_terrain", "a1"))   # judged NOT_RUN, ran since
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", unrun]), 2)
+        self.assertIn("judged at attempt none", buf.getvalue())
+
     def test_repeated_keys_are_reported(self):
         d = tempfile.mkdtemp()
         a = queue(d, "a", "x", [STAIRS], [(0, "PASS")])

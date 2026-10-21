@@ -13,7 +13,9 @@ python scripts/game/regress.py --old <queues of the old build> --new <queues of 
   since several walks can start from one coc. Every other test is keyed by kind, cell, ref and side, so a door's two
   sides are two matches.
 - Two tests of one queue with the same key can not be told apart: the tool refuses (exit 2) rather than keep one.
-- A door queue's `door_rounds_judge.json` replaces the runner's own verdicts for that queue.
+- A door queue's `door_rounds_judge.json` replaces the runner's own verdicts for that queue. Its rows for tests the
+  queue does not hold (a `plan-terrain --only` queue) are left out, and a judge whose recorded attempt of a test is not
+  the queue's newest (the queue ran again after it was judged) is refused with exit 2: judge it again.
 
 ## How each match is classed
 | Class | Meaning |
