@@ -19,16 +19,17 @@ usage:
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
-  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json]
+  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json] [--world-instance FF......=02......]
       PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
-      cell (in) or the world it resolves in (out), within TOL_M of the marker (its record position; out: + the
+      cell (in) or the world it resolves in, or the runtime world --world-instance pins to it (out), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -72,6 +73,16 @@ def load(p):
 def save(p, obj):
     with open(p, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=1)
+
+
+def save_stage(out, plan, info):
+    """A stage's plan.json, then its rounds.json carrying plan_sha256, the sha256 of that plan.json: one rounds digest
+    (queue.json rounds_sha256, the judge's rounds_sha256) then covers both files, and plan-terrain refuses a plan.json
+    edited after staging (Codex on #401)."""
+    save(os.path.join(out, "plan.json"), plan)
+    with open(os.path.join(out, "plan.json"), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    save(os.path.join(out, "rounds.json"), dict(info, plan_sha256=digest))
 
 
 # ------------------------------------------------------------------------------------------------------------ plugins
@@ -270,11 +281,10 @@ def stage(a):
         plan += [f, b]
         expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
     os.makedirs(out)
-    save(os.path.join(out, "plan.json"), plan)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
             "tests": expect}
-    save(os.path.join(out, "rounds.json"), info)
+    save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")
@@ -328,7 +338,27 @@ def latest_attempt(qdir, test_id):
     return os.path.join(d, tries[-1][1]) if tries else None
 
 
-def judge_test(events, obs, exp, tol=TOL_M):
+def world_pairs(specs):
+    """{runtime world: base world} from --world-instance RUNTIME=BASE (8 hex each): the operator's pin, for one
+    session, of the runtime instance the player stood in to the plugin WRLD the markers resolve in. A persistent
+    reference reports the base WRLD while the player stands in a created instance (index FF): docs/JOURNAL.md
+    2026-10-16 "Step 0 probes" (a) and (e). Nothing in an attempt's logs ties the two ids together, so the judge
+    never crosses them on its own (Codex on #383: an FF prefix does not say which WRLD it instantiates)."""
+    out = {}
+    for spec in specs or []:
+        m = re.fullmatch(r"([0-9A-Fa-f]{8})=([0-9A-Fa-f]{8})", spec.strip())
+        if not m:
+            raise ValueError(f"--world-instance {spec!r}: want RUNTIME=BASE, 8 hex digits each")
+        rt, base = m.group(1).upper(), m.group(2).upper()
+        if not rt.startswith("FF") or base.startswith("FF"):
+            raise ValueError(f"--world-instance {spec}: the first id must be a created (FF) world, the second a plugin's")
+        if out.get(rt, base) != base:
+            raise ValueError(f"--world-instance pins {rt} to both {out[rt]} and {base}")
+        out[rt] = base
+    return out
+
+
+def judge_test(events, obs, exp, tol=TOL_M, instances=None):
     """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
     proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
     resolved after it at the planned index, a loaded player position after it, in the marker's cell (in) or world (out)
@@ -381,18 +411,29 @@ def judge_test(events, obs, exp, tol=TOL_M):
             return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
         if not last.get("world"):
             return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
-        if last["world"] != target["world"]:
+        pinned = last["world"] != target["world"] and (instances or {}).get(last["world"]) == target["world"]
+        if last["world"] != target["world"] and not pinned:
             return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
-                                    f"{target['world']} ({dxy:.1f} m off)"), last
+                                    f"{target['world']} ({dxy:.1f} m off)"
+                                    + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
         return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
-    return "PASS", f"{dxy:.2f} m off in xy, {dz:.2f} m in z", last
+    return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
+                    + (f" (world {last['world']} taken as {target['world']} by --world-instance)" if not exp["cell"]
+                       and last.get("world") != target.get("world") else "")), last
 
 
 def judge(a):
+    try:
+        pairs = world_pairs(getattr(a, "world_instance", None))
+    except ValueError as e:
+        sys.exit(str(e))
     qdir = os.path.abspath(a.queue)
     q = load(os.path.join(qdir, "queue.json"))
-    info = load(a.rounds or os.path.join(q["experiment"], "rounds.json"))
+    rounds_p = a.rounds or os.path.join(q["experiment"], "rounds.json")
+    info = load(rounds_p)
+    with open(rounds_p, "rb") as f:                       # the file this judge read: regress checks it against the plan
+        rounds_sha = hashlib.sha256(f.read()).hexdigest()
     tests, rows = q["tests"], []
     for exp in info["tests"]:
         t = tests[exp["test"]] if exp["test"] < len(tests) else None
@@ -404,10 +445,12 @@ def judge(a):
             rows.append(dict(exp, id=t["id"], verdict="NOT_RUN", why="no attempt folder"))
             continue
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
-        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"])
+        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
+                                       pairs or None)
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
-    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "results": rows})
+    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
+                                                          "world_instances": pairs, "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}
@@ -433,6 +476,9 @@ def main(argv=None):
     j = sub.add_parser("judge")
     j.add_argument("--queue", required=True)
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")
+    j.add_argument("--world-instance", action="append", default=[], metavar="RUNTIME=BASE",
+                   help="pin a created world (FF...) to the plugin WRLD it instantiates, for this queue's session "
+                        "(repeatable; e.g. FF00552F=02000803); without it an OUT leg in another world is INCONCLUSIVE")
     a = ap.parse_args(argv)
     {"order": cmd_order, "stage": stage, "judge": judge}[a.cmd](a)
     return 0
