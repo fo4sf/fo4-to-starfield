@@ -36,6 +36,16 @@ those folders.
 Copy `config.example.toml` to `config.toml` (git-ignored) and fill in your paths. `work_dir` and
 `staging_dir` must be outside the repository.
 
+
+## CLI status and validation
+
+After configuring `config.toml`:
+
+- `python -m fo4sf status` — print config summary and, if present, manifest coverage (counts by type/tier).
+- `python -m fo4sf validate` — check that configured data directories exist, common tools are found, and required Python packages (numpy, Pillow) are importable. Exits non-zero on problems. Useful before the first conversion.
+
+Both are offline and require no game files.
+
 ## Extracting Fallout 4 data
 
 If your Fallout 4 `Data` folder is mixed with mods, point `fo4.data_dirs` at a **clean copy** of the
