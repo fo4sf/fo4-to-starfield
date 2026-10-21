@@ -3179,10 +3179,10 @@ class Runner:
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
-            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs); 300 s
-            # covers its hop through another cell when the first coc misses the marker (two more cocs and reads)
+            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs); 480 s
+            # covers its retries when the first coc misses the marker (four more cocs and two more reads)
             code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
-                                                                                       else []), 300)
+                                                                                       else []), 480)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code == 2 and not self.game_gone():        # a game gone fails the input guard too: a crash, below
                 return "owner"
