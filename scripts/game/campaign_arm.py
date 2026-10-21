@@ -419,9 +419,14 @@ def queue_sha256(entry):
 
 
 def recheck(entry, camp, release, pin):
-    """Reasons a queue checked at the start of the chain may not run now: the full check again, right before its run,
-    and its queue.json and its judge's definition file still the files the chain was armed with (pin)."""
+    """Reasons a queue checked at the start of the chain may not run now: the full check again and the installed
+    experiment, right before its run, and its queue.json and its judge's definition file still the files the chain
+    was armed with (pin)."""
     _, why, _ = check_queue(entry, camp, release)
+    inst = installed_exp_why(camp)
+    if inst:
+        # Codex on #391: an earlier queue's hours can change the installed experiment before this one launches
+        why = why + [inst]
     if queue_sha256(entry) != pin:
         # Codex on #391: a queue re-planned or edited while an earlier one ran was never armed
         why = [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed since "

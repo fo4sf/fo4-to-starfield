@@ -811,6 +811,28 @@ class RunChainTests(Base):
         self.assertNotIn("& $py scripts", text)                               # every step goes through Py
         self.assertEqual(text.count("LASTEXITCODE"), 2)                        # only inside Py
 
+    def test_the_installed_experiment_is_checked_again_before_each_queue(self):
+        # Codex on #391: an earlier queue's hours can change the installed experiment
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qb = self.queue("b", [{"coc": "FO4Port_Y"}])
+        inner = self.fake([0, 0], {"status": "finished", "crashes": 0})
+
+        def call(argv, env):
+            self.plugins_txt(["*" + p for p in PLUGINS[1:]])                # a plugin unticked while a runs
+            return inner(argv, env)
+        self.assertEqual(ca.run_chain(self.camp([("a", qa), ("b", qb)]), self.lines.append, call), 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("b: STOP before the run", self.lines[-1])
+        self.assertIn("experiment plugin is inactive", self.lines[-1])
+        # and the chain's per-queue check (check --only) says the same
+        cp = os.path.join(self.d, "c.json")
+        c = self.camp([("a", qa), ("b", qb)])
+        with open(cp, "w") as f:
+            json.dump(c, f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["check", "--campaign", cp, "--only", "b",
+                                      "--queue-sha256", ca.queue_sha256(c["queues"][1])]), 1)
+
     def test_run_uses_the_campaign_checkout_and_python(self):
         # Codex on #391: run started the runner from this module's repo with this interpreter
         q = self.queue("a", [{"coc": "FO4Port_X"}])
