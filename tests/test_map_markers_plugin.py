@@ -3,6 +3,7 @@ test_terrain_reference_identity with the map-marker template), never a game: the
 MapMarker REFRs in FormID order and LocalX / LocalY / LocalZ their written positions (docs/terrain/map-markers.md
 "Markers in the merged world"); plus the Papyrus script's contract (it cannot be compiled here)."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -247,16 +248,22 @@ class StageTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d, mock.patch.object(mm.make_bridge, "run", fake_run), \
                 mock.patch.object(mm.make_bridge, "extract_sources", lambda z, w: w):
-            out = os.path.join(d, "stage")
-            mm.main(["stage", "--core", "core.esm", "--out", out, "--compiler", "PapyrusCompiler.exe"])
+            out, core = os.path.join(d, "stage"), os.path.join(d, "FO4TerrainCore.esm")
+            with open(core, "wb") as f:
+                f.write(b"core bytes")
+            mm.main(["stage", "--core", core, "--out", out, "--compiler", "PapyrusCompiler.exe"])
+            with open(os.path.join(out, "core.json"), encoding="utf-8") as f:   # the installer's pin on this core
+                self.assertEqual(json.load(f), {"masters": {"FO4TerrainCore.esm": hashlib.sha256(b"core bytes").hexdigest()}})
             self.assertTrue(os.path.exists(os.path.join(out, "README.txt")))
             self.assertTrue(os.path.exists(os.path.join(out, "Data", "Scripts", "FO4SF_MapMarkers.pex")))
             with self.assertRaises(SystemExit):                # never into a used folder
-                mm.main(["stage", "--core", "core.esm", "--out", out])
+                mm.main(["stage", "--core", core, "--out", out])
+            with self.assertRaises(SystemExit):                # one plugin name, the one the installer knows
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s2"), "--plugin", "Custom.esm"])
         build, comp, check = calls
-        self.assertEqual(build[0][-7:], ["build", "--core", "core.esm", "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
+        self.assertEqual(build[0][-7:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
         self.assertEqual(comp[0][1], "FO4SF_MapMarkers.psc")
-        self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), "core.esm"])
+        self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core])
 
 
 if __name__ == "__main__":

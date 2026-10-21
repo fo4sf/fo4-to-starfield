@@ -5,8 +5,8 @@ names): FO4SFMapMarkers.esm and "FO4SFMapMarkers - Main.ba2" (the compiled FO4SF
 scripts are not read on this install) go into the game's Data folder, "*FO4SFMapMarkers.esm" goes to the end of
 Plugins.txt, and Data\\FO4SFMapMarkers.install.json records what was added. It is independent of exp_install.py's one
 experiment record, so it rides along with the installed core set. install refuses unless every master of the staged
-plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line and a readable plugin in Data; order refuses the
-same way before it moves or reactivates the line. order moves its line to the end; cycle.ps1 runs it
+plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line and a readable plugin in Data with the sha256 the
+stage pinned (core.json; the receipt keeps a copy); order refuses the same way before it moves or reactivates the line. order moves its line to the end; cycle.ps1 runs it
 before the bridge's order, so the planned reads' load indexes (the experiment's, FO4Port's) stay as they were.
 Uninstall it before a core swap (exp_install uninstall + install): its only master leaves Plugins.txt meanwhile, and
 exp_install refuses missing masters. Install it again after the swap.
@@ -16,6 +16,7 @@ usage: python map_markers_install.py install|uninstall|status|order --dir <stage
 """
 import argparse
 import importlib.util
+import json
 import os
 import sys
 
@@ -33,12 +34,27 @@ kit.ARCHIVE = ARCHIVE = "FO4SFMapMarkers - Main.ba2"
 kit.PEX = PEX = os.path.join("Data", "Scripts", "FO4SF_MapMarkers.pex")
 kit.KIT = "map markers plugin"
 kit.STAGE_HINT = "scripts/mapmarkers/make_map_markers.py stage"
+PIN = "core.json"     # make_map_markers.py stage: {"masters": {core file name: sha256}}
+PIN_KEY = "masters_sha256"   # the same pins, copied into this install's receipt
 
 
-def require_masters(plugin, data, action):
+def read_pin(directory):
+    """{master name casefolded: sha256} from a staged folder's core.json; exits when it is missing or malformed (a
+    stage made before the pin: stage it again)."""
+    p = os.path.join(directory, PIN)
+    try:
+        with open(p, encoding="utf-8") as f:
+            masters = json.load(f)["masters"]
+        return {str(k).casefold(): str(v).lower() for k, v in masters.items()}
+    except (OSError, ValueError, KeyError, AttributeError) as error:
+        sys.exit(f"map markers plugin: no core pin in {p} ({error}); stage it again with make_map_markers.py")
+
+
+def require_masters(plugin, data, action, pins):
     """Every master of `plugin` is an active Plugins.txt line (or one the game loads by itself) AND a readable plugin
-    in this Data folder, and no main-build recovery is pending: an active line alone does not prove the file is there.
-    Exits before anything is written."""
+    in this Data folder whose sha256 is the pinned build (the plugin names that core's records by FormID: another build
+    under the same name would bind its quests to other records), and no main-build recovery is pending. Exits before
+    anything is written."""
     try:
         exp_install.require_complete_master(data)
         masters = exp_install.plugin_masters(plugin)
@@ -52,9 +68,31 @@ def require_masters(plugin, data, action):
             sys.exit(f"map markers plugin not {action}: its master {m} is not active in Plugins.txt "
                      "(install the core set first)")
         try:
-            exp_install.plugin_masters(exp_install.data_path(data, m))
+            path = exp_install.data_path(data, m)
+            exp_install.plugin_masters(path)
+            got = exp_install.digest(path)
         except (OSError, ValueError) as error:
             sys.exit(f"map markers plugin not {action}: its master {m} is not a readable plugin in Data ({error})")
+        want = pins.get(m.casefold())
+        if want != got:
+            sys.exit(f"map markers plugin not {action}: Data\\{m} is not the core it was staged against "
+                     f"(sha256 {got[:12]}..., pinned {(want or 'none')[:12]}...): stage it again against this core")
+
+
+def pin_receipt(rec_p, pins):
+    """Copy the stage's pins into the receipt, so order checks the core even after the staged folder is gone."""
+    rec = kit.read_record(rec_p)
+    if rec.get(PIN_KEY) != pins:
+        rec[PIN_KEY] = pins
+        kit.deployment.write_manifest(rec_p, rec)
+
+
+def receipt_pins(rec_p):
+    """The receipt's pins, else the recorded staged folder's (an install interrupted before pin_receipt)."""
+    rec = kit.read_record(rec_p)
+    if isinstance(rec.get(PIN_KEY), dict):
+        return rec[PIN_KEY]
+    return read_pin(rec.get("dir") or "")
 
 
 def main(argv=None):
@@ -66,15 +104,18 @@ def main(argv=None):
     if a.cmd == "install":
         if not a.dir:
             sys.exit("install needs --dir")
-        _d, plugin, _pex = kit.staged(a)
-        require_masters(plugin, kit.record_path(a)[0], "installed")
+        d, plugin, _pex = kit.staged(a)
+        pins = read_pin(d)
+        data, rec_p = kit.record_path(a)
+        require_masters(plugin, data, "installed", pins)
         kit.install(a)
+        pin_receipt(rec_p, pins)
     elif a.cmd == "uninstall":
         kit.uninstall(a)
     elif a.cmd == "order":
         data, rec_p = kit.record_path(a)
         if os.path.exists(rec_p):                         # never reactivate or move the line while a master is held
-            require_masters(os.path.join(data, PLUGIN), data, "ordered")
+            require_masters(os.path.join(data, PLUGIN), data, "ordered", receipt_pins(rec_p))
         kit.order(a)
     else:
         kit.status(a)

@@ -45,6 +45,7 @@ class MapMarkersInstallTests(unittest.TestCase):
         self.staged = os.path.join(root, "mapmarkers_v6e")
         write(os.path.join(self.staged, mm.PLUGIN), plugin("FO4TerrainCore.esm"))
         write(os.path.join(self.staged, mm.PEX), b"pex")
+        self.pin(self.staged)
         self.local = os.path.join(root, "local")
         self.plugins = os.path.join(self.local, "Starfield", "Plugins.txt")
         write(self.plugins, b"# header\r\n*FO4Port.esm\r\n*FO4TerrainCore.esm\r\n*FO4SFBridge.esm\r\n")
@@ -58,6 +59,12 @@ class MapMarkersInstallTests(unittest.TestCase):
             return out
         exp_install.build_ba2 = stub_build
         self.a = SimpleNamespace(dir=self.staged, starfield=self.game)
+
+    def pin(self, staged, core=None):
+        """The stage's core.json, pinning the core in Data (or `core`, a path)."""
+        core = core or os.path.join(self.data, "FO4TerrainCore.esm")
+        write(os.path.join(staged, mm.PIN), json.dumps(
+            {"masters": {"FO4TerrainCore.esm": exp_install.digest(core)}}).encode())
 
     def tearDown(self):
         exp_install.build_ba2 = self.old_build
@@ -127,6 +134,35 @@ class MapMarkersInstallTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             self.run_cmd("order")
         self.assertIn("not a readable plugin in Data", str(cm.exception))
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_install_refuses_another_build_of_the_core(self):
+        write(os.path.join(self.data, "FO4TerrainCore.esm"), plugin() + b"rebuilt")   # same name, other build
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("install")
+        self.assertIn("is not the core it was staged against", str(cm.exception))
+        self.assertEqual(os.listdir(self.data), ["FO4TerrainCore.esm"])
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_install_refuses_a_stage_without_a_core_pin(self):
+        os.remove(os.path.join(self.staged, mm.PIN))
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("install")
+        self.assertIn("no core pin", str(cm.exception))
+        self.assertEqual(os.listdir(self.data), ["FO4TerrainCore.esm"])
+
+    def test_the_receipt_keeps_the_pin_and_order_refuses_a_swapped_core(self):
+        self.run_cmd("install")
+        with open(os.path.join(self.data, mm.RECORD), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)[mm.PIN_KEY], mm.read_pin(self.staged))
+        os.remove(os.path.join(self.staged, mm.PIN))                       # order reads the receipt, not the stage
+        write(os.path.join(self.data, "FO4TerrainCore.esm"), plugin() + b"rebuilt")   # a core swap kept the line
+        write(self.plugins, b"*FO4TerrainCore.esm\r\n*FO4SFMapMarkers.esm\r\n*FO4Port.esm\r\n")
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("order")
+        self.assertIn("is not the core it was staged against", str(cm.exception))
         self.assertEqual(Path(self.plugins).read_bytes(), before)
 
     def test_order_reactivates_when_the_core_is_active(self):
