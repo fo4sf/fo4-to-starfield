@@ -593,6 +593,11 @@ class PrecheckTests(unittest.TestCase):
         self.assertIn("--no-looks", o.getvalue())
 
 
+# the guard's stand-down line as the quest script writes it since the fresh-start check joined the guard (days and level,
+# then the opening's stage and the verdict); test_the_stand_down_line_is_the_scripts holds the fixture to the script
+STOOD_DOWN = "not a new game: days=41.200000 level=12 opening_stage=300 fresh=False: standing down"
+
+
 class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
@@ -673,12 +678,27 @@ class LogTests(unittest.TestCase):
                                 "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
         self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")
 
+    def test_the_stand_down_line_is_the_scripts(self):
+        """The fixtures' stand-down line must be one the script writes: the guard's trace gained the opening's stage and
+        the fresh verdict (21 Oct), and a fixture still naming days and level alone was a line no script produced."""
+        trace = ('Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage()'
+                 ' + " fresh=" + fresh + ": standing down")')
+        self.assertIn(trace, read(PSC))
+        parts = re.findall(r'"([^"]*)"', trace[len('Trace('):])
+        self.assertEqual(parts, ["not a new game: days=", " level=", " opening_stage=", " fresh=", ": standing down"])
+        rest = STOOD_DOWN
+        for literal in parts:                                # the literals in order, with a value between each pair
+            self.assertIn(literal, rest)
+            rest = rest[rest.index(literal) + len(literal):]
+        self.assertEqual(rest, "")
+        self.assertTrue(self.run_log(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n")[1]["stood_down"])
+
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         path = os.path.join(tmp, "fo4sf_newgame.0.log")
         with open(path, "w", encoding="utf-8") as f:
-            f.write("[x] FO4SF_NEWGAME rt=3.0 not a new game: days=41.2 level=12: standing down\n"
+            f.write(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
                     "[x] FO4SF_NEWGAME rt=3.0 stage 1\n")
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             self.assertEqual(ng.main(["log", "--file", path]), 1)
@@ -705,7 +725,7 @@ class LogTests(unittest.TestCase):
         init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
         cases = {
             "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
-            "stood down": init + "[y] FO4SF_NEWGAME rt=3.0 not a new game: days=41.2 level=12: standing down\n"
+            "stood down": init + f"[y] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
                                  "[y] FO4SF_NEWGAME rt=3.0 stage 1\n",
             "init only": init,
         }
