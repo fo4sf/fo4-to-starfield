@@ -170,6 +170,29 @@ class CensusTests(unittest.TestCase):
         self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"]), (4, 2))
         self.assertEqual(by["Lobby"]["plugins"], ["Fallout4.esm", "DLCRobot.esm", "DLCAgain.esm"])
 
+    def test_a_deleted_cell_leaves_the_census(self):
+        # The DLC deletes Vault's CELL (record flag 0x20, no DATA): Vault, its references and its door back to Lobby
+        # are gone; Lobby's door into it now names a door that no longer exists. A later plugin re-adds it: it is back.
+        def plugin(name, recs, nmast=1):
+            masts = [(b"MAST", b"Fallout4.esm\0"), (b"DATA", bytes(8))] + ([(b"MAST", b"DLCRobot.esm\0"), (b"DATA", bytes(8))] if nmast > 1 else [])
+            tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 2, 0x800))] + masts, flags=1)
+            sub = G(struct.pack("<I", 0), 3, bytes(8), recs)
+            cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+            path = os.path.join(self.tmp.name, name)
+            with open(path, "wb") as f:
+                f.write(tes4.serialize() + cells.serialize())
+            return path
+        dlc = plugin("DLCRobot.esm", [rec(b"CELL", 0x210, [(b"EDID", b"Vault\0")], flags=ic.DELETED)])
+        r = ic.census([self.esm, dlc])
+        by = {c["editor_id"]: c for c in r["cells"]}
+        self.assertNotIn("Vault", by)
+        self.assertEqual(r["totals"]["cells_deleted"], 1)
+        self.assertEqual(r["totals"]["interiors"], 3)
+        self.assertEqual(sorted((d["to"] or "") for d in by["Lobby"]["load_doors_out"]), ["", "world:Commonwealth"])
+        again = plugin("DLCAgain.esm", cell(0x210, "Vault", [ref(0x312, 0x103)]), nmast=2)
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc, again])["cells"]}
+        self.assertEqual((by["Vault"]["refs"], by["Vault"]["plugins"]), (1, ["DLCAgain.esm"]))
+
     def test_navmesh_overrides_count_once_and_deleted_ones_not_at_all(self):
         # DLCRobot adds two navmeshes to Lobby; DLCAgain re-saves the first (same FormKey) and deletes the second.
         def plugin(name, kids, nmast=1):

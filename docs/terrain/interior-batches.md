@@ -344,7 +344,8 @@ interior_census.py) and takes a later plugin's record over an earlier one's: a p
 leaves the cell the earlier copy stood in wherever the later copy lands (a measured cell, an unmeasured interior, a
 worldspace cell), and one re-saved with the Deleted record flag (0x20) is dropped (interior_census.py does the same
 since Codex's review on #396: a deleted override removes the reference, its base and its load-door edge and adds
-nothing, `totals.refs_deleted` counts them). Form keys spell the owner plugin
+nothing, `totals.refs_deleted` counts them; a CELL whose winning copy is deleted leaves the census with its
+references, navmeshes and door edges, as CellMerge drops it, `totals.cells_deleted`). Form keys spell the owner plugin
 as the later plugins' MAST subrecords do (`Fallout4.esm` however the command line spells the file), so they match
 the census's.
 

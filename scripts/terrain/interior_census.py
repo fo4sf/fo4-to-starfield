@@ -151,11 +151,19 @@ def walk_cells(buf, start, end, world, K, plugin, out):
             elif gtype == GROUP_CELL and cell is not None and K(u32(label)) == cell["formkey"]:
                 read_children(buf, off + 24, gend, cell, K, out)
             continue
-        typ, off, _flags, fid = item
+        typ, off, rflags, fid = item
         if typ != b"CELL":
             cell = None
             continue
         key = K(fid)
+        if rflags & DELETED:
+            # A later plugin deletes the cell (CellMerge drops it too): it leaves the census with every reference,
+            # navmesh and door edge its earlier copies added; its own children, if any, are not read.
+            drop_cell(out, key)
+            out.setdefault("deleted_cells", set()).add(key)
+            cell = None
+            continue
+        out.get("deleted_cells", set()).discard(key)
         fields = list(fl.iter_subrecords(fl.record_data(buf, off)))
         flags = next((struct.unpack_from("<H", d)[0] for s, d in fields if s == b"DATA" and len(d) >= 2), 0)
         interior = world is None and bool(flags & CELL_INTERIOR)
@@ -178,6 +186,16 @@ def walk_cells(buf, start, end, world, K, plugin, out):
                 cell["location"] = K(u32(d))
             elif s == b"XEZN" and len(d) >= 4 and u32(d):
                 cell["zone"] = K(u32(d))
+
+
+def drop_cell(out, key):
+    """Forget a cell (interior or worldspace) and what its earlier copies added to the shared tables."""
+    gone = [c for c in (out["cells"].pop(key, None), out["ext"].pop(key, None)) if c is not None]
+    for table in ("refs", "navms"):
+        seen = out.get(table, {})
+        for ref in [r for r, v in seen.items() if any((v[0] if isinstance(v, tuple) else v) is c for c in gone)]:
+            del seen[ref]
+            out["door_cell"].pop(ref, None)
 
 
 def read_children(buf, start, end, cell, K, out):
@@ -248,6 +266,7 @@ def census(paths, port_cells=(), backlog=None):
         read_plugin(path, pi, keys, out)
     result = summarize(out, [os.path.basename(p) for p in paths], port_cells, backlog)
     result["totals"]["refs_deleted"] = len(out.get("deleted", ()))
+    result["totals"]["cells_deleted"] = len(out.get("deleted_cells", ()))
     return result
 
 
