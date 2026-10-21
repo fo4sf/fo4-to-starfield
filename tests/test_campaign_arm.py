@@ -34,11 +34,21 @@ class Base(unittest.TestCase):
         self.sf = os.path.join(self.d, "SF")                              # the experiment already installed there
         os.makedirs(os.path.join(self.sf, "Data"))
         self.receipt(self.exp)
+        self.local = os.path.join(self.d, "appdata")                     # Plugins.txt: the experiment ticked
+        os.makedirs(os.path.join(self.local, "Starfield"))
+        self.plugins_txt(["*" + p for p in PLUGINS])
+        env = mock.patch.dict(os.environ, {"LOCALAPPDATA": self.local})
+        env.start()
+        self.addCleanup(env.stop)
         self.stage = os.path.join(self.d, "stage")                       # the judges' rounds.json and presence.json
         os.makedirs(self.stage)
         for n in ("rounds.json", "presence.json"):
             with open(os.path.join(self.stage, n), "w") as f:
                 json.dump({"tests": []}, f)
+
+    def plugins_txt(self, lines):
+        with open(os.path.join(self.local, "Starfield", "Plugins.txt"), "w") as f:
+            f.write("".join(x + "\n" for x in lines))
 
     def receipt(self, exp, plugins=PLUGINS, **extra):
         with open(os.path.join(self.sf, "Data", "FO4SFExp.install.json"), "w") as f:
@@ -322,6 +332,25 @@ class PlanTerrainHoldTests(Base):
         self.assertFalse(ok)
         self.assertIn("not a full path", " ".join(why))
 
+    def test_an_inactive_or_held_and_active_experiment_plugin_is_refused(self):
+        # Codex on #391: the no-op reinstall stops on either (exp_install.verify_relaunch)
+        exp = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
+               "--plugins", ",".join(PLUGINS), "--pack"]
+        q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
+        c = self.camp([("walk", q)], starfield=self.sf)
+        self.assertTrue(self.check(c)[0])
+        self.plugins_txt(["*" + p for p in PLUGINS[1:]] + [PLUGINS[0]])
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("inactive in Plugins.txt and not held off", " ".join(why))
+        with open(os.path.join(self.sf, "Data", "FO4SF.toggle.json"), "w") as f:
+            json.dump({"off": [PLUGINS[0]]}, f)
+        self.assertTrue(self.check(c)[0])                                      # held off and unticked: as planned
+        self.plugins_txt(["*" + p for p in PLUGINS])
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("held off by plugin_toggle.py but active", " ".join(why))
+
     def test_a_queue_with_no_launch_left_is_refused(self):
         # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
         q = self.queue("a", [{"coc": "FO4Port_X"}, {"coc": "FO4Port_Y"}])
@@ -385,14 +414,16 @@ class ScriptAndGateTests(Base):
             self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
         with open(out, newline="") as f:
             text = f.read()
-        self.assertIn("'--max-relaunch' '1' '--crash-budget' '1' '--min-free-gb' '43' '--dump-drive' 'D:\\'", text)
-        self.assertIn("'scripts\\bridge\\door_rounds.py' 'judge'", text)
-        self.assertIn("$jr = $LASTEXITCODE", text)                          # Codex on #391: the judge exit counts
-        self.assertIn("'run' '--queue' '%s' '--starfield' 'D:\\SteamLibrary\\steamapps\\common\\Starfield'" % q, text)
-        self.assertIn("--run-exit $rc --judge-exit $jr", text)
-        self.assertLess(text.index("$jr = $LASTEXITCODE"), text.index("gate --queue"))
-        self.assertLess(text.index("campaign_arm.py check"), text.index("testqueue.py"))
-        self.assertLess(text.index("testqueue.py"), text.index("gate --queue"))
+        self.assertIn("'--max-relaunch', '1', '--crash-budget', '1', '--min-free-gb', '43', '--dump-drive', 'D:\\'", text)
+        self.assertIn("$jr = Py @('scripts\\bridge\\door_rounds.py', 'judge'", text)   # Codex on #391: the judge exit counts
+        self.assertIn("'run', '--queue', '%s', '--starfield', 'D:\\SteamLibrary\\steamapps\\common\\Starfield'" % q, text)
+        self.assertIn("'--run-exit', \"$rc\", '--judge-exit', \"$jr\"", text)
+        self.assertLess(text.index("$jr = Py"), text.index("'gate'"))
+        # Codex on #391: the pin is checked again after the run, right before the judge reads its files
+        self.assertLess(text.index("$rc = Py"), text.index("'--pin-only'"))
+        self.assertLess(text.index("'--pin-only'"), text.index("$jr = Py"))
+        self.assertLess(text.index("campaign_arm.py', 'check'"), text.index("testqueue.py"))
+        self.assertLess(text.index("testqueue.py"), text.index("'gate'"))
         self.assertIn("\r\n", text)
         with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):      # a new file only
             ca.main(["script", "--campaign", cp, "--out", out])
@@ -417,7 +448,7 @@ class ScriptAndGateTests(Base):
         with open(out, newline="") as f:
             text = f.read()
         self.assertIn("$env:FO4SF_LAUNCH = 'exe'", text)
-        digest = re.search(r"--sha256 ([0-9a-f]{64})", text).group(1)
+        digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
         self.assertLess(text.index("FO4SF_LAUNCH"), text.index("testqueue.py"))
 
         def check(*extra):
@@ -441,11 +472,11 @@ class ScriptAndGateTests(Base):
             self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
         with open(out, newline="") as f:
             text = f.read()
-        pins = re.findall(r"--only '(\w+)' --queue-sha256 ([0-9a-f]{64})", text)
+        pins = re.findall(r"'--only', '(\w+)', '--queue-sha256', '([0-9a-f]{64})'", text)
         self.assertEqual([n for n, _ in pins], ["a", "b"])
-        self.assertLess(text.index("--only 'b'"), text.index("'--queue' '%s'" % qb))
-        self.assertLess(text.index("gate --queue '%s'" % qa), text.index("--only 'b'"))
-        digest = re.search(r"--sha256 ([0-9a-f]{64})", text).group(1)
+        self.assertLess(text.index("'--only', 'b'"), text.index("'--queue', '%s'" % qb))
+        self.assertLess(text.index("'gate', '--queue', '%s'" % qa), text.index("'--only', 'b'"))
+        digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
 
         def recheck(name, pin):
             with redirect_stdout(io.StringIO()) as buf:
@@ -504,7 +535,7 @@ class ScriptAndGateTests(Base):
             os.chdir(old)
         with open(os.path.join(self.d, "chain.ps1"), newline="") as f:
             text = f.read()
-        self.assertIn("check --campaign '%s' --sha256" % os.path.abspath(cp), text)
+        self.assertIn("'check', '--campaign', '%s', '--sha256'" % os.path.abspath(cp), text)
         self.assertNotIn("--campaign 'c.json'", text)
 
     def test_the_chain_has_no_time_in_it(self):
@@ -522,7 +553,7 @@ class ScriptAndGateTests(Base):
         self.assertEqual(texts[0], texts[1])
         # Codex on #391: a missing checkout stops the chain before the first Python step
         self.assertIn("try { Set-Location -LiteralPath 'D:\\Modding\\wt_nightrun' -ErrorAction Stop } catch {", texts[0])
-        self.assertLess(texts[0].index("Set-Location"), texts[0].index("& $py"))
+        self.assertLess(texts[0].index("Set-Location"), texts[0].index("(Py @("))
         self.assertNotRegex(texts[0], r"\d{4}-\d\d-\d\dT")
 
     def test_repeated_pre_launch_options_are_refused(self):
@@ -653,6 +684,51 @@ class RunChainTests(Base):
         self.assertEqual(len(self.calls), 1)                                  # b never started
         self.assertIn("b: STOP before the run", self.lines[-1])
         self.assertIn("changed since the chain was armed", self.lines[-1])
+
+    def test_a_judge_definition_changed_during_the_run_is_not_judged(self):
+        # Codex on #391: the judge reads queue.json and rounds.json when it runs, hours after the pin was checked
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([("a", qa)])
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", qa]
+        inner = self.fake([0, 0], {"status": "finished", "crashes": 0})
+
+        def call(argv, env):
+            with open(os.path.join(self.stage, "rounds.json"), "a") as f:   # re-planned while a runs
+                f.write(" ")
+            return inner(argv, env)
+        self.assertEqual(ca.run_chain(c, self.lines.append, call), 1)
+        self.assertEqual(len(self.calls), 1)                                  # the judge never ran
+        self.assertIn("a: STOP after the run", self.lines[-1])
+        # the chain's --pin-only check: after the run state.json counts the launch, only the pin is compared
+        cp = os.path.join(self.d, "c.json")
+        with open(cp, "w") as f:
+            json.dump(c, f)
+        pin = ca.queue_sha256(c["queues"][0])
+        with open(os.path.join(qa, "state.json"), "w") as f:
+            json.dump({"done": {}, "relaunches": 1, "crashes": 1, "status": "stopped"}, f)
+        argv = ["check", "--campaign", cp, "--only", "a", "--queue-sha256", pin]
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(argv + ["--pin-only"]), 0)
+            self.assertEqual(ca.main(argv), 1)                                 # the full check refuses the used queue
+            with open(os.path.join(self.stage, "rounds.json"), "a") as f:
+                f.write(" ")
+            self.assertEqual(ca.main(argv + ["--pin-only"]), 1)
+
+    def test_the_chain_fails_closed_when_python_can_not_be_run(self):
+        # Codex on #391: a python that can not be run leaves $LASTEXITCODE as it was
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        cp, out = os.path.join(self.d, "c.json"), os.path.join(self.d, "chain.ps1")
+        with open(cp, "w") as f:
+            json.dump(self.camp([("a", q)]), f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["script", "--campaign", cp, "--out", out]), 0)
+        with open(out) as f:
+            text = f.read()
+        self.assertIn("$global:LASTEXITCODE = $null", text)
+        self.assertIn("if ($null -eq $c) { 1 } else { $c }", text)
+        self.assertIn("Get-Command $py", text)
+        self.assertNotIn("& $py scripts", text)                               # every step goes through Py
+        self.assertEqual(text.count("LASTEXITCODE"), 2)                        # only inside Py
 
     def test_run_uses_the_campaign_checkout_and_python(self):
         # Codex on #391: run started the runner from this module's repo with this interpreter

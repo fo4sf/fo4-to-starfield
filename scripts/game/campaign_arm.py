@@ -182,6 +182,20 @@ def pre_launch_why(pre, camp):
     have = {str(x).casefold() for x in sel} if isinstance(sel, list) else set()
     if have != want:
         return f"the install record {rec_p} selects {sorted(have)}, the installed set is {sorted(want)}"
+    # Codex on #391: the no-op reinstall stops when a plugin not held off is inactive, or a held one active
+    # (exp_install.verify_relaunch): the same reading here
+    import exp_install as ei
+    try:
+        held = ei.held_off(os.path.join(opt("--starfield"), "Data"))
+        active = {ln.strip()[1:].casefold() for ln in ei.read_plugins(ei.plugins_txt())[0] if ln.strip().startswith("*")}
+    except (OSError, ValueError, SystemExit) as error:
+        return f"pre_launch: the experiment's activation can not be read: {error}"
+    off = sorted(p for p in want if p not in active and p not in held)
+    if off:
+        return f"pre_launch would stop: {', '.join(off)} inactive in Plugins.txt and not held off"
+    again = sorted(p for p in want if p in held and p in active)
+    if again:
+        return f"pre_launch would stop: {', '.join(again)} held off by plugin_toggle.py but active in Plugins.txt"
     return None
 
 
@@ -430,6 +444,11 @@ def ps(s):
     return f"'{s}'"
 
 
+def psa(args):
+    """A PowerShell array of single-quoted strings, for Py."""
+    return "@(" + ", ".join(ps(x) for x in args) + ")"
+
+
 def run_args(qdir, caps, starfield=STARFIELD):
     return ["scripts\\game\\testqueue.py", "run", "--queue", qdir, "--starfield", starfield,
             "--max-attempts", str(caps["max_attempts"]),
@@ -456,30 +475,41 @@ def chain(camp, path, release):
              f"{caps['min_free_gb']:g} GB free on {caps['dump_drive']}.",
              "# The chain stops at the first queue whose run or gate fails. It types nothing itself.",
              f"$py = {ps(py)}",
+             # Codex on #391: a python that can not be run leaves $LASTEXITCODE as it was (cycle.ps1's lease gate):
+             # every step goes through Py, which clears it, catches the invocation error and fails closed
+             # ('Stop' makes an invocation error catchable; a native exit code never throws, also on PowerShell 7.4+)
+             "function Py([string[]]$argv) { $ErrorActionPreference = 'Stop'; "
+             "$PSNativeCommandUseErrorActionPreference = $false; $global:LASTEXITCODE = $null; "
+             "try { & $py @argv | Out-Host; $c = $global:LASTEXITCODE } "
+             "catch { Write-Host \"$py could not be run: $_\"; $c = $null }; if ($null -eq $c) { 1 } else { $c } }",
+             f"if (-not (Get-Command $py -ErrorAction SilentlyContinue)) {{ Write-Host 'no python at {py}: nothing run'; "
+             "exit 1 }",
              # Codex on #391: Set-Location's error does not stop a script; never run the caller's checkout's scripts
              f"try {{ Set-Location -LiteralPath {ps(camp['checkout'])} -ErrorAction Stop }} catch {{ "
              f"Write-Host 'no checkout at {camp['checkout']}: nothing run'; exit 1 }}",
              # Codex on #391: the launch mode is the campaign's, never the caller's environment
              f"$env:FO4SF_LAUNCH = {ps(launch)}",
              # Codex on #391: the commands below were written from this exact manifest; a changed one runs nothing
-             f"& $py scripts\\game\\campaign_arm.py check --campaign {ps(path)} --sha256 {campaign_sha256(path)}"
-             + (f" --release {ps(rel)}" if rel else ""),
-             "if ($LASTEXITCODE -ne 0) { Write-Host 'campaign check refused: nothing run'; exit 1 }"]
+             "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
+                                campaign_sha256(path)] + (["--release", rel] if rel else [])) + ") -ne 0) "
+             "{ Write-Host 'campaign check refused: nothing run'; exit 1 }"]
     for e, _, _ in check(camp, release)[0]["queues"]:
+        pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", campaign_sha256(path),
+               "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
         lines += ["", f"# {e['name']}",
-                  f"& $py scripts\\game\\campaign_arm.py check --campaign {ps(path)} --sha256 {campaign_sha256(path)}"
-                  f" --only {ps(e['name'])} --queue-sha256 {queue_sha256(e)}" + (f" --release {ps(rel)}" if rel else ""),
-                  f"if ($LASTEXITCODE -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
+                  f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
                   "was armed'; exit 1 }",
-                  "& $py " + " ".join(ps(x) for x in run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)),
-                  "$rc = $LASTEXITCODE"]
+                  "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
         if e.get("judge"):
-            lines += ["& $py " + " ".join(ps(x.replace("/", "\\") if i == 0 else x) for i, x in enumerate(e["judge"])),
-                      "$jr = $LASTEXITCODE"]
+            # Codex on #391: the judge reads queue.json and its definition file when it runs, hours after the check
+            lines += [f"if ((Py {psa(pin + ['--pin-only'])}) -ne 0) {{ Write-Host 'stopped after {e['name']}''s run: "
+                      "its queue or judge definition changed during the run: not judged'; exit 1 }",
+                      "$jr = Py " + psa([x.replace("/", "\\") if i == 0 else x for i, x in enumerate(e["judge"])])]
             judge = " --judge-exit $jr"
-        lines += [f"& $py scripts\\game\\campaign_arm.py gate --queue {ps(e['queue'])} --run-exit $rc{judge}",
-                  f"if ($LASTEXITCODE -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
+        gate_argv = psa(["scripts\\game\\campaign_arm.py", "gate", "--queue", e["queue"], "--run-exit"])[:-1]
+        gate_argv += ', "$rc"' + (', \'--judge-exit\', "$jr"' if judge else "") + ")"
+        lines += [f"if ((Py {gate_argv}) -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
     lines += ["", "Write-Host 'chain finished: every queue ran clean (the verdicts are in each judge report)'"]
     return "\r\n".join(lines) + "\r\n"
 
@@ -549,6 +579,11 @@ def run_chain(camp, log=print, call=None):
         log(f"{e['name']}: run exit {rc}")
         jr = None
         if e.get("judge"):
+            if queue_sha256(e) != pin:
+                # Codex on #391: the judge reads queue.json and its definition file now, hours after the check
+                log(f"{e['name']}: STOP after the run: its queue.json or its judge's definition file changed during "
+                    "the run: not judged")
+                return 1
             jr = call([py, e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
@@ -574,6 +609,8 @@ def main(argv=None):
             s.add_argument("--only", default="", help="check this one queue of the campaign (the chain, before its run)")
             s.add_argument("--queue-sha256", default="", help="with --only: refuse unless that queue.json still has "
                                                               "this sha256 (the one the chain was armed with)")
+            s.add_argument("--pin-only", action="store_true", help="with --only: compare only the pin (the chain, "
+                                                                   "after the run and before the judge)")
         if name == "script":
             s.add_argument("--out", required=True)
     g = sub.add_parser("gate")
@@ -603,8 +640,13 @@ def main(argv=None):
         if entry is None or not a.queue_sha256:
             print(f"REFUSED campaign: --only {a.only!r} needs a queue of the campaign and its --queue-sha256")
             return 1
-        caps = check_caps(camp.get("caps"))
-        why = caps + recheck(entry, camp, release, a.queue_sha256.lower())
+        if a.pin_only:
+            # Codex on #391: after the run its state.json counts the launch; only the files the judge reads must hold
+            why = ([] if queue_sha256(entry) == a.queue_sha256.lower() else
+                   [f"{os.path.join(entry.get('queue') or '', 'queue.json')} or its judge's definition file changed "
+                    "since the chain was armed"])
+        else:
+            why = check_caps(camp.get("caps")) + recheck(entry, camp, release, a.queue_sha256.lower())
         print(f"{'REFUSED' if why else 'OK':8s} {a.only}: {entry.get('queue')}")
         for w in why:
             print(f"    - {w}")
