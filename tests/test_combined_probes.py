@@ -281,8 +281,8 @@ class P2Tests(unittest.TestCase):
 S1_P3 = [INIT, f"FOCC rt=6.0 p3 set a={P3_NOPARENT} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
 S2_P3 = ["FOCC init", "FOCC rt=4.0 p3 read ra=5.000000 rb=6.000000"]
 CELLS = ["FOCC init variant=p3cells",
-         "FOCC rt=9.0 where cell=50333000 cellname=FO4Port_RedRocket01 loc=50331651 local=2055",
-         "FOCC rt=19.0 where cell=50333001 cellname=FO4Port_SuperDuperMart01 loc=50331652 local=2056"]
+         f"FOCC rt=9.0 where cell=50333000 cellname=FO4Port_RedRocket01 loc={P3_NOPARENT} local=2055",
+         f"FOCC rt=19.0 where cell=50333001 cellname=FO4Port_SuperDuperMart01 loc={P3_CHAINED} local=2056"]
 
 
 class P3Tests(unittest.TestCase):
@@ -322,6 +322,9 @@ class P3Tests(unittest.TestCase):
         other = CELLS[:2] + ["FOCC where cell=50333001 cellname=FO4Port_SuperDuperMart01 loc=16779266 local=2055"]
         self.assertEqual(probes.check_p3(col(log=other)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(log=CELLS[:2])).verdict, INCONCLUSIVE)
+        labelled = [CELLS[0], "FOCC where cell=1 cellname=FO4Port_RedRocket01 loc=1 local=2055",
+                    "FOCC where cell=2 cellname=FO4Port_SuperDuperMart01 loc=2 local=2056"]
+        self.assertEqual(probes.check_p3(col(log=labelled)).verdict, FAIL)    # the label alone never passes
         self.assertEqual(probes.check_p3(col(log=[INIT] + CELLS[1:])).verdict, INCONCLUSIVE)   # default variant: no cell half
 
     def test_cell_half_retry_does_not_borrow_the_older_second_cell(self):

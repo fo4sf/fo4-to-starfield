@@ -129,6 +129,15 @@ Get-FileHash -Algorithm SHA256 "$out\*"
 The game rewrites `focc.0.log` on every launch, so copy it **before** the next launch. First line of every log is
 `FOCC init variant=default` (or `variant=p3cells`); the judge needs it to prove a relaunch.
 
+## Compile answers so far (PC stage at 1b23a26, D:\Modding\staging\focc_probe_20261021d, Oct 21)
+
+- P5 array cap: Starfield's compiler refuses `new float[129]` with "Array size of 129 is invalid. Must be between 0
+  and 128 (inclusive)" (FOCC_P5_Array129.psc(8,15)). Papyrus arrays stay capped at 128 entries.
+- P10 compile half: `Keyword.SendStoryEvent(None, akRef1, None, 0, 0)` compiles as a statement; assigning its result
+  to a bool does not (FOCC_Probe.psc(164,9) at 2d53642, type mismatch), so its return is not a bool.
+- P2 compile half: FOCC_ProbeQuest.psc, which calls the Location keyword-data and linked-location functions, compiles.
+- The in-game halves wait for the probe install (a session with FO4SFMission.esm off, on the owner's word).
+
 ## Order
 
 P2, P3, P5, P10, P6, P7, P8, P4, P9, then P1 (P1 needs a toolchain decision and an SFSE launch; it goes last so a

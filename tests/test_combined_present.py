@@ -134,6 +134,16 @@ class SquadSlotTests(unittest.TestCase):
         ws.squads["s1"].eta = ws.hour + 6
         self.assertEqual(slot().place, "farm_a")
 
+    def test_multi_hop_caravan_moves_to_its_goal_half_way(self):
+        # Codex review of #431: farm_a -> farm_b has no direct route (12 h via market); it is timed by the shortest path.
+        ws = quiet(world(1))
+        ws.squads.clear()
+        q = self.squad(ws, id="c1", faction="settlers", size=2, at="farm_a", goal="farm_b", kind="caravan",
+                       cargo={"food": 5}, eta=ws.hour + 12)
+        self.assertEqual(present._squad_place(ws, q), "farm_a")
+        ws.hour += 6
+        self.assertEqual(present._squad_place(ws, q), "farm_b")
+
     def test_squad_shown_at_in_range_end_when_nearer_end_is_outside(self):
         ws = quiet(world(1))
         self.squad(ws)                                        # near raider_camp, 12h from market; farm_a is 6h

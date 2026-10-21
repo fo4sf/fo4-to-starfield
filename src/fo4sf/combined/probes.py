@@ -675,7 +675,8 @@ def check_p3(c: Collection) -> Verdict:
             v.reasons.append("cell half: both `where` lines (FO4Port_RedRocket01, FO4Port_SuperDuperMart01) are needed")
             cell = INCONCLUSIVE
         else:
-            bad = [n for n, w in seen.items() if w.form("loc") is None or w.num("local") != want[n]]
+            # The logged form id, not the script's local= label, names the location (Codex review of #431).
+            bad = [n for n, w in seen.items() if _local(w, "loc") != want[n]]
             if bad:
                 v.reasons.append(f"cell half: current location is none or another location for {bad}")
                 cell = FAIL

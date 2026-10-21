@@ -89,10 +89,11 @@ def garrison_size(ws: WorldState, place: str) -> int:
 
 
 def _squad_place(ws: WorldState, q) -> str:
-    """The end of its route a travelling squad is nearer to, from its departure (eta minus route hours)."""
+    """The end of its route a travelling squad is nearer to, from its departure (eta minus route hours). Route hours
+    are the shortest path, as manage.send_supplies times a multi-hop caravan (Codex review of #431)."""
     if q.goal is None or q.goal == q.at:
         return q.at
-    hours = dict(ws.neighbours(q.at)).get(q.goal)
+    hours = _distances(ws, q.at).get(q.goal)
     if not hours:
         return q.at
     elapsed = ws.hour - (q.eta - hours)

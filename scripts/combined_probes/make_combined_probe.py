@@ -5,7 +5,7 @@ usage:
   python scripts/combined_probes/make_combined_probe.py stage --core <installed FO4TerrainCore.esm> --out <NEW folder>
         --stat <plugin:hexid> --lvln-b <plugin:hexid> [--npc Starfield.esm:2B211C] [--lvln-a Starfield.esm:2B211C]
         [--starfield <game dir>] [--sf <Starfield.esm>] [--compiler <PapyrusCompiler.exe>] [--content-resources <zip>]
-        [--plugin FO4SFCombinedProbe.esm] [--world FO4Core_Commonwealth] [--location FO4Core_CommonwealthLocation]
+        [--world FO4Core_Commonwealth] [--location FO4Core_CommonwealthLocation]
         [--p3-cells --port <installed FO4Port.esm>] [--skip lvln,sm]
       1. dotnet/CombinedProbe build: the plugin (records in the header of dotnet/CombinedProbe/Program.cs);
       2. the Papyrus compile of FOCC_ProbeQuest.psc, FOCC_Probe.psc and FOCC_P10Quest.psc (base sources from the
@@ -130,7 +130,7 @@ def stage(a):
     work = os.path.join(out, "work")
     sf = a.sf or os.path.join(a.starfield, "Data", "Starfield.esm")
     tool = os.path.join(REPO, "dotnet", "CombinedProbe")
-    opts = ["--sf", sf, "--core", a.core, "--stat", a.stat, "--npc", a.npc, "--lvln-a", a.lvln_a, "--plugin", a.plugin,
+    opts = ["--sf", sf, "--core", a.core, "--stat", a.stat, "--npc", a.npc, "--lvln-a", a.lvln_a, "--plugin", PLUGIN,
             "--world", a.world, "--location", a.location]
     if a.lvln_b:
         opts += ["--lvln-b", a.lvln_b]
@@ -144,12 +144,12 @@ def stage(a):
     src = extract_sources(a.content_resources, work)
     pexes = compile_packed(a.compiler, src, os.path.join(out, "Data", "Scripts"))
     array129 = compile_array129(a.compiler, src, work, out)
-    check = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "check", os.path.join(out, a.plugin)] + opts)
+    check = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "check", os.path.join(out, PLUGIN)] + opts)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(built + check)
     for name in sources():                                 # the source of every .pex, beside the stage
         shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
-    plugin_path = os.path.join(out, a.plugin)
+    plugin_path = os.path.join(out, PLUGIN)
     plugin_sha = sha256(plugin_path)
     inputs = {"core": {"path": os.path.abspath(a.core), "sha256": sha256(a.core)},
               "starfield_esm": {"path": os.path.abspath(sf), "sha256": sha256(sf) if os.path.exists(sf) else None},
@@ -159,12 +159,12 @@ def stage(a):
               "sources": {n: sha256(os.path.join(HERE, n)) for n in sources()}}
     if a.p3_cells:
         inputs["port"] = {"path": os.path.abspath(a.port), "sha256": sha256(a.port)}
-    outputs = {a.plugin: plugin_sha}
+    outputs = {PLUGIN: plugin_sha}
     for pex in pexes:
         outputs[os.path.relpath(pex, out).replace("\\", "/")] = sha256(pex)
     variant = "p3cells" if a.p3_cells else "default"
     skips = sorted({s.strip() for s in a.skip.split(",") if s.strip()})
-    plan = {"kind": "combined-probe", "plugin": a.plugin, "build_id": plugin_sha[:8], "plugin_sha256": plugin_sha,
+    plan = {"kind": "combined-probe", "plugin": PLUGIN, "build_id": plugin_sha[:8], "plugin_sha256": plugin_sha,
             "variant": variant, "skip": skips, "world": a.world, "location": a.location,
             # the judge's blocked flags (probes.check_p6 / p7 / p10 and the runbook): a skipped group was never built
             "lvln_conditions_written": "lvln" not in skips, "sm_nodes_written": "sm" not in skips,
@@ -180,7 +180,7 @@ def stage(a):
     scripts = ", ".join(f"Data\\Scripts\\{n}.pex" for n in PACKED)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Combined core engine probes P2 to P10 (Claude-cloud, {datetime.date.today().isoformat()}). docs/spikes/combined-core-probes.md.
-{a.plugin} (build {plugin_sha[:8]}, variant {variant}{', skip ' + a.skip if a.skip else ''}): the records listed in dotnet/CombinedProbe/Program.cs,
+{PLUGIN} (build {plugin_sha[:8]}, variant {variant}{', skip ' + a.skip if a.skip else ''}): the records listed in dotnet/CombinedProbe/Program.cs,
   built against {os.path.abspath(a.core)} (its {a.location} and {a.world} by FormID: rebuild with every core build).
 {scripts}: compiled from the .psc files here. compile_p5_array129.txt: the array-cap compile (never packed).
 Install (game closed), after the core, one probe plugin at a time, never beside FO4SFMission.esm (both override the core's persistent cell):
@@ -190,7 +190,7 @@ In game, after loading a save: cgf "FOCC_Probe.Hello" then the probe's commands 
 Collect the log into D:\\Modding\\testqueue\\focc_<probe>_<date>\\ and judge: python -m fo4sf.combined.probes <pN> --collect <folder>
 Uninstall (game closed) before any core swap or another experiment: python scripts\\combined_probes\\probe_install.py uninstall --starfield <game>
 """)
-    print(f"staged {out}: {a.plugin} ({plugin_sha[:8]}), {', '.join(os.path.relpath(p, out) for p in pexes)}, "
+    print(f"staged {out}: {PLUGIN} ({plugin_sha[:8]}), {', '.join(os.path.relpath(p, out) for p in pexes)}, "
           f"compile_p5_array129.txt ({'compiled' if array129['compiled'] else 'refused'}), offline_check.txt, plan.json, README.txt")
 
 
@@ -208,7 +208,6 @@ def main(argv=None):
     s.add_argument("--sf", default="", help="Starfield.esm (default <starfield>\\Data\\Starfield.esm)")
     s.add_argument("--compiler", default="", help="default <starfield>\\Tools\\Papyrus Compiler\\PapyrusCompiler.exe")
     s.add_argument("--content-resources", default="", help="default <starfield>\\Tools\\ContentResources.zip")
-    s.add_argument("--plugin", default=PLUGIN)
     s.add_argument("--world", default="FO4Core_Commonwealth")
     s.add_argument("--location", default="FO4Core_CommonwealthLocation")
     s.add_argument("--p3-cells", action="store_true", help="the P3 cell variant: CELL overrides of FO4Port.esm's two interiors")
