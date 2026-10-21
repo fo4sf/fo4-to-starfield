@@ -185,6 +185,7 @@ def walk_cells(buf, start, end, world, K, plugin, out):
                                         "load_doors": []}
         cell["plugins"].append(plugin)
         cell["flags"] = flags                                   # the last plugin's record wins, as in the game
+        cell["location"] = cell["zone"] = None                  # ... so links it omits (or zeroes) are gone
         for s, d in fields:
             if s == b"EDID":
                 cell["editor_id"] = fl.zstring(d)

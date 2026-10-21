@@ -193,6 +193,20 @@ class CensusTests(unittest.TestCase):
         by = {c["editor_id"]: c for c in ic.census([self.esm, dlc, again])["cells"]}
         self.assertEqual((by["Vault"]["refs"], by["Vault"]["plugins"]), (1, ["DLCAgain.esm"]))
 
+    def test_an_override_without_location_or_zone_clears_them(self):
+        # The DLC re-saves Lobby without XLCN and with a zero XEZN: the winning record names neither.
+        tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 1, 0x800)), (b"MAST", b"Fallout4.esm\0"),
+                                (b"DATA", bytes(8))], flags=1)
+        lobby = cell(0x200, "Lobby", [], fields=[(b"XEZN", struct.pack("<I", 0))])
+        sub = G(struct.pack("<I", 0), 3, bytes(8), lobby)
+        cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+        dlc = os.path.join(self.tmp.name, "DLCPlain.esm")
+        with open(dlc, "wb") as f:
+            f.write(tes4.serialize() + cells.serialize())
+        by = {c["editor_id"]: c for c in ic.census([self.esm, dlc])["cells"]}
+        self.assertEqual((by["Lobby"]["location"], by["Lobby"]["encounter_zone"]), (None, None))
+        self.assertEqual(by["Vault"]["location"], "VaultLocation")
+
     def test_a_deleted_base_record_is_no_light(self):
         # The DLC deletes the LIGH base 0x101: Lobby's two refs to it stay references but are no lights any more.
         tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 1, 0x800)), (b"MAST", b"Fallout4.esm\0"),
