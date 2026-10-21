@@ -148,10 +148,27 @@ class DiffTests(unittest.TestCase):
         phantom = {"cell_edid": "FO4Port_Museum", "leg": "in", "src": "2:Fallout4.esm", "verdict": "INCONCLUSIVE",
                    "why": "the queue has no such test"}
         partial = queue(d, "partial", "b", doors, [(0, "PASS")], judged=[row, phantom])
-        full = queue(d, "full", "a", doors, [(0, "PASS")], judged=[row, dict(phantom, id="0000_terrain", verdict="PASS")])
+        two = doors + [{"kind": "terrain", "cell": "", "ref": "door round 1 IN"}]
+        full = queue(d, "full", "a", two, [(0, "PASS")], judged=[row, dict(phantom, id="0001_terrain", verdict="PASS")])
         r = rg.diff([full], [partial])
         self.assertEqual(r["lost"], [])
         self.assertEqual([x["key"] for x in r["gone"]], [["door", "FO4Port_Museum", "in", "2:Fallout4.esm"]])
+
+    def test_a_judge_missing_a_queued_door_is_refused(self):
+        # Codex on #401: a judge --rounds subset left doors out, so a PASS became "gone", exit 0
+        d = tempfile.mkdtemp()
+        two = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"},
+               {"kind": "terrain", "cell": "", "ref": "door round 1 IN"}]
+        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
+               "id": "0000_terrain"}
+        row1 = dict(row, cell_edid="FO4Port_Museum", leg="in", id="0001_terrain")
+        old = queue(d, "old", "a", two, [], judged=[row, row1])
+        subset = queue(d, "subset", "b", two, [], judged=[row])
+        twice = queue(d, "twice", "c", two, [], judged=[row, row1, dict(row1, verdict="FAIL")])
+        for new, why in ((subset, "0001_terrain (0 rows)"), (twice, "0001_terrain (2 rows)")):
+            with self.subTest(why=why), redirect_stdout(io.StringIO()) as buf:
+                self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+            self.assertIn(why, buf.getvalue())
 
     def test_a_judge_older_than_the_queue_is_refused(self):
         # Codex on #401: a queue judged, then resumed, compared on the old judge's verdicts

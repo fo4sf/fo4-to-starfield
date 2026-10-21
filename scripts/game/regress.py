@@ -7,7 +7,7 @@ usage:
 
 A test's final verdict is its last row in results.jsonl. A door_rounds judge (door_rounds_judge.json) replaces the
 runner's verdicts of its queue, since the runner's terrain verdict does not judge the door; its rows for tests the queue
-does not hold are left out, and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
+does not hold are left out, every queued test needs exactly one row, and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
   door round legs     ("door", interior cell, leg, FO4 door src)
   terrain tests       ("terrain", "", coc, side, label): several walks can start from one coc
   every other test    (kind, cell, ref, side): a door's two sides are two tests
@@ -102,9 +102,14 @@ def results(qdir):
         raise Unavailable(f"{qdir}: a door rounds queue not judged yet; run scripts/bridge/door_rounds.py judge "
                           f"--queue {qdir} first")
     if judged is not None:
-        ids = {t.get("id") for t in q["tests"] if isinstance(t, dict)}
+        ids = [t.get("id") for t in q["tests"] if isinstance(t, dict)]
+        rows_of = {i: [r for r in judged["results"] if r.get("id") == i] for i in ids}
+        bad = [f"{i} ({len(v)} rows)" for i, v in rows_of.items() if len(v) != 1]
+        if bad:                                            # a judge of a subset (judge --rounds) leaves doors out
+            raise Unavailable(f"{judge_p}: every queued test needs exactly one judge row; "
+                              f"{', '.join(bad[:5])}{'...' if len(bad) > 5 else ''}; judge the whole queue again")
         for r in judged["results"]:
-            if r.get("id") not in ids:
+            if r.get("id") not in rows_of:
                 continue                                   # an expectation the queue never planned (plan-terrain --only)
             now = latest_attempt(qdir, r["id"])
             if now != r.get("attempt"):                    # the queue ran again after it was judged (Codex on #401)
