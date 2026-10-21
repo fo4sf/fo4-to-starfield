@@ -119,6 +119,14 @@ class CheckTests(Base):
         self.assertIn("is not door_rounds.py judge", self.check(c)[1][0])
         c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q3]
         self.assertTrue(self.check(c)[0])
+        # Codex on #391: a judge of another queue folder (or of none, or of two) is refused
+        q4 = self.queue("d", [{"coc": "FO4Port_X"}])
+        for bad in (["--queue", q4], [], ["--queue", q3, "--queue", q4], ["--queue=" + q3], ["--queue"]):
+            with self.subTest(bad=bad):
+                c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge"] + bad
+                self.assertIn("does not judge this queue", " ".join(self.check(c)[1]))
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q3.upper() + "\\"]
+        self.assertTrue(self.check(c)[0])                                   # the same folder, written otherwise
         self.assertIn("no planned queue", self.check(self.camp([("x", os.path.join(self.d, "nope"))]))[1][0])
         self.assertIn("no queues", self.check(self.camp([]))[1][0])
         self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
@@ -204,7 +212,7 @@ class ScriptAndGateTests(Base):
         self.assertIn("no readable state.json", ca.gate(q, 0)[1])
         with open(sp, "w") as f:
             json.dump({"status": "finished", "crashes": 0, "start_deaths": 0}, f)
-        self.assertEqual(cli(), (0, "PASS clean: finished\n"))
+        self.assertEqual(cli(), (0, "OK ran clean: finished (the verdicts are in the judge's report)\n"))
         self.assertEqual(cli("--judge-exit", "0")[0], 0)
         self.assertEqual(cli("--judge-exit", "2"), (1, "STOP the judge exited 2\n"))
 

@@ -57,6 +57,14 @@ def norm(p):
     return str(p).replace("/", "\\").rstrip("\\").casefold()
 
 
+def judge_bound(judge, qdir):
+    """Whether a judge's argv names exactly one --queue, and that it is the campaign entry's own queue folder."""
+    if any(str(x).startswith("--queue=") for x in judge):
+        return False
+    at = [i for i, x in enumerate(judge) if x == "--queue"]
+    return len(at) == 1 and at[0] + 1 < len(judge) and norm(judge[at[0] + 1]) == norm(qdir or "")
+
+
 def cells(q):
     """The cells every test of a queue starts in (a plan kind's cell, coc, plan-terrain's world_coc, which an empty
     travel starts at, and a "coc X" travel), in order, no repeats."""
@@ -148,6 +156,9 @@ def check_queue(entry, camp, release):
                 norm(judge[0]) not in {norm(j) for j in JUDGES} or \
                 tuple(judge[1:2]) not in {JUDGE_CMDS[j] for j in JUDGES if norm(j) == norm(judge[0])}:
             why.append(f"judge {judge!r} is not door_rounds.py judge, presence.py judge or testqueue.py report")
+        elif not judge_bound(judge, entry.get("queue")):
+            # Codex on #391: a judge of another folder would leave this queue unjudged while its gate passed
+            why.append(f"judge {judge!r} does not judge this queue: it needs exactly one --queue {entry.get('queue')}")
     st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
     left = len([t for t in q["tests"] if t["id"] not in (st.get("done") or {})])
     if st.get("crashes") or st.get("start_deaths"):
@@ -232,13 +243,15 @@ def chain(camp, path, release):
             judge = " --judge-exit $jr"
         lines += [f"& $py scripts\\game\\campaign_arm.py gate --queue {ps(e['queue'])} --run-exit $rc{judge}",
                   f"if ($LASTEXITCODE -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
-    lines += ["", "Write-Host 'chain finished'"]
+    lines += ["", "Write-Host 'chain finished: every queue ran clean (the verdicts are in each judge report)'"]
     return "\r\n".join(lines) + "\r\n"
 
 
 def gate(qdir, rc, judge_rc=None):
     """(ok, why) for one run: ok only for exit 0, a judge (when one ran) that exited 0, and a state.json that
-    says finished with no crash and no dead start. A missing or unfinished state is no proof the queue ran."""
+    says finished with no crash and no dead start. A missing or unfinished state is no proof the queue ran.
+    The gate decides whether the night goes on to the next queue, not whether the tests passed: a FAIL or
+    INCONCLUSIVE verdict is a result for the judge's report, and the next queue still runs."""
     try:
         st = tq.load(os.path.join(qdir, "state.json"))
     except ValueError:
@@ -253,7 +266,7 @@ def gate(qdir, rc, judge_rc=None):
         return False, f"the queue is {st.get('status')!r}, not finished"
     if st.get("crashes") or st.get("start_deaths"):
         return False, f"{st.get('crashes', 0)} crash(es), {st.get('start_deaths', 0)} dead start(s)"
-    return True, "clean: finished"
+    return True, "ran clean: finished (the verdicts are in the judge's report)"
 
 
 LAUNCHES = ("steam", "exe")
@@ -291,10 +304,10 @@ def run_chain(camp, log=print, call=None):
             jr = call([py, e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
-        log(f"{e['name']}: {'PASS' if good else 'STOP'} {why}")
+        log(f"{e['name']}: {'OK' if good else 'STOP'} {why}")
         if not good:
             return 1
-    log("chain finished")
+    log("chain finished: every queue ran clean (the verdicts are in each judge's report)")
     return 0
 
 
@@ -316,7 +329,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "gate":
         ok, why = gate(a.queue, a.run_exit, a.judge_exit)
-        print(("PASS " if ok else "STOP ") + why)
+        print(("OK " if ok else "STOP ") + why)
         return 0 if ok else 1
     if a.cmd == "run":
         logp = a.campaign + ".run.log"
