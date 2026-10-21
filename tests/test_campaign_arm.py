@@ -56,7 +56,13 @@ class CheckTests(Base):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95", "travel": "coc FO4Port_Vault95"}])
         self.assertEqual(self.check(self.camp([("doors_out", q)])), (True, []))
         stairs = self.queue("stairs", [{"kind": "stairs", "cell": "BostonPublicLibrary02"}, {"kind": "walk", "cell": ""}])
-        self.assertEqual(ca.cells(tq.load(os.path.join(stairs, "queue.json"))), ["BostonPublicLibrary02"])
+        # Codex on #391: the walk (no cell) launches into the queue's launch cell first, so that cell counts too
+        self.assertEqual(ca.cells(tq.load(os.path.join(stairs, "queue.json"))), ["Vault111Cryo", "BostonPublicLibrary02"])
+        held = self.queue("held", [{"kind": "terrain", "cell": "", "world_coc": "FO4Port_X"}],
+                          launch_cell="FO4Core_RedRocketSpawn")
+        ok, why = self.check(self.camp([("held", held)]))
+        self.assertFalse(ok)
+        self.assertIn("FO4Core_RedRocketSpawn: held (red_rocket)", " ".join(why))
 
     def test_a_red_rocket_start_is_held_until_released(self):
         q = self.queue("walk", [{"travel": "coc FO4Core_RedRocketSpawn"}])
@@ -71,7 +77,9 @@ class CheckTests(Base):
         exp = [sys.executable, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", "D:\\SF",
                "--plugins", ",".join(PLUGINS), "--pack"]
         q = self.queue("walk", [{"coc": "FO4Port_X"}], pre=exp)
-        self.assertEqual(self.check(self.camp([("walk", q)])), (True, []))
+        self.assertEqual(self.check(self.camp([("walk", q)], starfield="d:\\sf\\")), (True, []))
+        # Codex on #391: the experiment goes into the Starfield folder the chain launches (the default when unset)
+        self.assertIn("pre_launch installs into D:\\SF, the campaign runs", " ".join(self.check(self.camp([("walk", q)]))[1]))
         other = list(exp)
         other[4] = os.path.join(self.d, "v6c")
         q2 = self.queue("walk2", [{"coc": "FO4Port_X"}], pre=other)
@@ -154,7 +162,7 @@ class PlanTerrainHoldTests(Base):
                                  {"kind": "terrain", "cell": "", "ref": "FO4Port_SuperDuperMart01",
                                   "world_coc": "FO4Port_SuperDuperMart01", "travel": "coc FO4Port_SuperDuperMart01"}])
         self.assertEqual(ca.cells(ca.tq.load(os.path.join(q, "queue.json"))),
-                         ["FO4Core_RedRocketSpawn", "FO4Port_SuperDuperMart01"])
+                         ["Vault111Cryo", "FO4Core_RedRocketSpawn", "FO4Port_SuperDuperMart01"])
         ok, why = self.check(self.camp([("doors", q)]))
         self.assertFalse(ok)
         self.assertIn("FO4Core_RedRocketSpawn", " ".join(why))
@@ -175,6 +183,7 @@ class ScriptAndGateTests(Base):
         self.assertIn("'--max-relaunch' '1' '--crash-budget' '1' '--min-free-gb' '43' '--dump-drive' 'D:\\'", text)
         self.assertIn("'scripts\\bridge\\door_rounds.py' 'judge'", text)
         self.assertIn("$jr = $LASTEXITCODE", text)                          # Codex on #391: the judge exit counts
+        self.assertIn("'run' '--queue' '%s' '--starfield' 'D:\\SteamLibrary\\steamapps\\common\\Starfield'" % q, text)
         self.assertIn("--run-exit $rc --judge-exit $jr", text)
         self.assertLess(text.index("$jr = $LASTEXITCODE"), text.index("gate --queue"))
         self.assertLess(text.index("campaign_arm.py check"), text.index("testqueue.py"))

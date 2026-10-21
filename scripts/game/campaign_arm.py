@@ -28,6 +28,7 @@ usage:
 campaign.json:
   {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": "C:\\Modding\\venv-render\\Scripts\\python.exe",
    "staging": "<the installed FO4Port staging>", "bridge": "<the installed bridge staging>",
+   "starfield": "<the Starfield folder; testqueue.py's default when left out>",
    "installed_exp": "<the installed experiment folder>", "installed_plugins": ["FO4TerrainCore.esm", ...],
    "caps": {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"},
    "holds": {"red_rocket": ["FO4Core_RedRocketSpawn"]},
@@ -46,6 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import testqueue as tq  # noqa: E402
 
+STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"   # testqueue.py's default --starfield
 FLOOR_GB = 40.0                  # the coordinator's night-run floor (2026-10-19): at least 40 GB free on D:
 JUDGES = ("scripts/bridge/door_rounds.py", "scripts/bridge/presence.py", "scripts/game/testqueue.py")
 JUDGE_CMDS = {"scripts/bridge/door_rounds.py": ("judge",), "scripts/bridge/presence.py": ("judge",),
@@ -67,9 +69,13 @@ def judge_bound(judge, qdir):
 
 def cells(q):
     """The cells every test of a queue starts in (a plan kind's cell, coc, plan-terrain's world_coc, which an empty
-    travel starts at, and a "coc X" travel), in order, no repeats."""
+    travel starts at, and a "coc X" travel), in order, no repeats. A test with no cell launches into the queue's
+    launch cell first (Runner.ensure_game: launch_cell, else Vault111Cryo), so that cell is listed too."""
     out = []
-    for t in q.get("tests") or []:
+    tests = q.get("tests") or []
+    if any(not t.get("cell") for t in tests):
+        out.append(q.get("launch_cell") or "Vault111Cryo")       # Codex on #391
+    for t in tests:
         for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
             if c and c not in out:
                 out.append(c)
@@ -113,6 +119,10 @@ def pre_launch_why(pre, camp):
     got = {p.strip().casefold() for p in (plugins or "").split(",") if p.strip()}
     if not got or got != want:
         return f"pre_launch would activate {sorted(got)}, the installed set is {sorted(want)}"
+    sf = camp.get("starfield") or STARFIELD
+    if opt("--starfield") is None or norm(opt("--starfield")) != norm(sf):
+        # Codex on #391: the experiment and the launch must go to the same Starfield folder
+        return f"pre_launch installs into {opt('--starfield')}, the campaign runs {sf}"
     return None
 
 
@@ -224,8 +234,9 @@ def ps(s):
     return f"'{s}'"
 
 
-def run_args(qdir, caps):
-    return ["scripts\\game\\testqueue.py", "run", "--queue", qdir, "--max-attempts", str(caps["max_attempts"]),
+def run_args(qdir, caps, starfield=STARFIELD):
+    return ["scripts\\game\\testqueue.py", "run", "--queue", qdir, "--starfield", starfield,
+            "--max-attempts", str(caps["max_attempts"]),
             "--max-relaunch", str(caps["max_relaunch"]), "--crash-budget", str(caps["crash_budget"]),
             "--min-free-gb", f"{caps['min_free_gb']:g}", "--dump-drive", caps["dump_drive"], "--wait-for-idle"]
 
@@ -243,7 +254,8 @@ def chain(camp, path, release):
              "if ($LASTEXITCODE -ne 0) { Write-Host 'campaign check refused: nothing run'; exit 1 }"]
     for e, _, _ in check(camp, release)[0]["queues"]:
         lines += ["", f"# {e['name']}",
-                  "& $py " + " ".join(ps(x) for x in run_args(e["queue"], caps)), "$rc = $LASTEXITCODE"]
+                  "& $py " + " ".join(ps(x) for x in run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)),
+                  "$rc = $LASTEXITCODE"]
         judge = ""
         if e.get("judge"):
             lines += ["& $py " + " ".join(ps(x.replace("/", "\\") if i == 0 else x) for i, x in enumerate(e["judge"])),
@@ -305,7 +317,8 @@ def run_chain(camp, log=print, call=None):
     env = dict(os.environ, FO4SF_LAUNCH=launch)
     py, caps = sys.executable, camp["caps"]
     for e, _, _ in res["queues"]:
-        rc = call([py, os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps)[1:], env)
+        rc = call([py, os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
+                  env)
         log(f"{e['name']}: run exit {rc}")
         jr = None
         if e.get("judge"):
