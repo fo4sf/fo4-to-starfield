@@ -19,7 +19,7 @@ MARGIN = 25          # the highlighted row is this much brighter than the other 
 
 def row(path):
     im = Image.open(path).convert("L")
-    at = game_frame.mapper(im)
+    at = game_frame.centred(im)
     mean = lambda y0, y1: ImageStat.Stat(im.crop(at(520, y0, 750, y1))).mean[0]
     save, current = mean(340, 356), mean(368, 384)
     if save - current > MARGIN:

@@ -98,6 +98,16 @@ class GameFrameTests(unittest.TestCase):
         self.assertFalse(hud_visible.visible(dark))
         self.assertFalse(prompt_visible.visible(dark))
 
+    def test_centre_ui_reads_the_centred_layout_on_a_whole_16_10_screen(self):
+        # the real frames (PR #443): the prompt bar sat 40 px lower in 1280x800 (centred), the HUD 80 px (bottom)
+        im = Image.new("RGB", (1280, 800), (60, 70, 80))
+        im.paste(frame(), (0, 40))
+        self.assertEqual(game_frame.centred(im)(800, 176, 1040, 189), (800, 216, 1040, 229))
+        self.assertEqual(loadorder_row.row(self.save(im, "c.png")), "current")
+        lb = self.boxed((1280, 800), (0, 40))                          # between bars: the crop, the same place
+        self.assertEqual(game_frame.centred(lb)(800, 176, 1040, 189), (800, 216, 1040, 229))
+        self.assertEqual(game_frame.centred(frame())(800, 176, 1040, 189), (800, 176, 1040, 189))
+
     def test_no_hud_is_still_no_on_a_letterboxed_frame(self):
         im = Image.new("RGB", (1280, 800), (0, 0, 0))
         im.paste(Image.new("RGB", (1280, 720), (60, 70, 80)), (0, 40))

@@ -61,3 +61,11 @@ def layouts(im):
             pw = int(round(h * 16 / 9.0))
             out += [("centred", at(((w - pw) // 2, 0, pw, h)))]
     return out
+
+
+def centred(im):
+    """f(x0, y0, x1, y1) for UI held to the screen's centre (the activation prompt, dialogs): the picture between bars,
+    or on a whole non-16:9 screen the centred 16:9 layout. The real 16:10 frames of 2026-10-21 (PR #443) put the
+    prompt's title bar 40 px lower in 1280x800, the centred layout, and the oxygen dial and health bar 80 px lower,
+    the bottom one (layouts)."""
+    return dict(layouts(im)).get("centred") or at(picture(im))

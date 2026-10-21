@@ -16,7 +16,7 @@ THRESHOLD = 150
 
 def prep(src, dst):
     im = Image.open(src).convert("L")
-    crop = im.crop(game_frame.mapper(im)(950, 203, 1036, 222))                     # verb left of the [E] key box
+    crop = im.crop(game_frame.centred(im)(950, 203, 1036, 222))                   # verb left of the [E] key box
     big = crop.resize((crop.width * 5, crop.height * 5), Image.LANCZOS)             # smooth first: thin glyph strokes
     bw = big.point(lambda p: 0 if p > THRESHOLD else 255)                           # white text -> black on white
     canvas = Image.new("L", (bw.width + 40, bw.height + 40), 255)                   # margin helps the OCR engine
