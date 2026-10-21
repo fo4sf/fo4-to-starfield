@@ -196,6 +196,42 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIn("ended: process 4242, 0xC0000005 ACCESS_VIOLATION", log)
         self.assertIn("Starfield.exe_261021_120000.dmp", log)
 
+    def test_watch_attaches_to_a_game_it_did_not_start(self):
+        sys_ = FakeSystem([(31, 0, 400, 0xC0000409)])
+        sys_.started_at = sys_.t                                    # the test runner launched it
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(sys_.calls, [])                            # started nothing, changed nothing
+        self.assertEqual(sys_.ran, [])
+        self.assertEqual((r[0]["pid"], r[0]["armed"]), (31, True))
+        self.assertIn("-t", sys_.spawned[0])                        # a dump at every exit, as the settings say
+        log = self.log()
+        self.assertIn("watch: waiting for the next Starfield.exe", log)
+        self.assertIn("ended: process 31, 0xC0000409", log)
+
+    def test_watch_repeat_follows_each_game_of_a_queue(self):
+        sys_ = FakeSystem([(10, 0, 100, 0), (11, 130, 132, 0), (20, 150, 300, 0xC0000005)])
+        sys_.started_at = sys_.t
+        r = crashwatch.watch(self.values(crash_watch__dump_on_exit=False), system=sys_, say=self.said.append,
+                             repeat=True, start_timeout_s=60)
+        self.assertEqual([x.get("pid") for x in r], [10, 20, None])  # the last search found no next game
+        self.assertEqual(r[1]["early"], [11])                       # a short-lived launcher process is skipped
+        self.assertEqual([a[-2] for a in sys_.spawned], ["10", "20"])
+        self.assertNotIn("-t", sys_.spawned[0])
+        self.assertIn("ended: process 20, 0xC0000005", self.log())
+
+    def test_watch_pid_and_refusals(self):
+        sys_ = FakeSystem([(10, 0, 100, 0), (12, 0, 200, 0)])
+        sys_.started_at = sys_.t
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append, pid=12)
+        self.assertEqual(r[0]["pid"], 12)
+        with self.assertRaises(ValueError) as e:
+            crashwatch.watch(self.values(crash_watch__enabled=False), system=FakeSystem([]), say=self.said.append)
+        self.assertIn("crash watcher is off", str(e.exception))
+        with self.assertRaises(ValueError):
+            crashwatch.watch(self.values(), system=FakeSystem([], free=3.0), say=self.said.append)
+        r = crashwatch.watch(self.values(), system=FakeSystem([]), say=self.said.append, dry_run=True)
+        self.assertIn("a dump on every exit", r[0]["plan"][1])
+
     def test_silent_exit_is_logged_with_its_code(self):
         sys_ = FakeSystem([(10, 1, 900, 0xC0000409)])
         r = self.play(self.values(), sys_)
@@ -373,6 +409,7 @@ class CrashWatchTests(unittest.TestCase):
                   "--set", f"crash_watch.procdump={self.procdump}",
                   "--set", "crash_watch.min_free_gb=0"])           # the real disk check: CI runners have little free
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 0)
+        self.assertEqual(cli.main(["watch", "--settings", path, "--repeat", "--dry-run"]), 0)
 
 
 if __name__ == "__main__":

@@ -309,10 +309,17 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
 
     t0 = system.now()
     system.start_game(values["route"], starfield)
-    early = []                     # processes that ended before they settled (a first launch can end within ~2 s)
+    return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s)
+
+
+def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=()):
+    """Find a Starfield.exe that stays up settle_s, attach ProcDump when the watcher is on, wait for its end and log
+    it. only_pid follows that one process; seen are process ids already watched (never picked again)."""
+    cw = values["crash_watch.enabled"]
+    early = list(seen)             # processes that ended before they settled (a first launch can end within ~2 s)
     pid = handle = proc = None
     while pid is None and system.now() - t0 < start_timeout_s:
-        found = [p for p in system.pids() if p not in early]
+        found = [p for p in system.pids() if p not in early and (only_pid is None or p == only_pid)]
         if not found:
             system.sleep(1)
             continue
@@ -334,7 +341,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         say(f"Starfield did not stay up within {start_timeout_s:g} s; nothing to watch")
         if log_path:
             _log(log_path, "game did not stay up; watcher not armed")
-        return {"started": False, "early": early}
+        return {"started": False, "early": [p for p in early if p not in seen]}
     say(f"Starfield running (process {pid})")
     armed = False
     if cw:
@@ -364,7 +371,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         while pid in system.pids():
             system.sleep(2)
         code = None
-    result = {"started": True, "pid": pid, "early": early, "exit_code": code, "exit": exit_name(code),
+    result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - t0), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s: {result['exit']}")
     if proc is not None:
@@ -383,3 +390,47 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         if result["dumps"]:
             say("dumps: " + ", ".join(result["dumps"]) + " (never upload a dump; docs/PLAY-AND-TEST.md)")
     return result
+
+
+def watch(values, system=None, say=print, pid=None, repeat=False, start_timeout_s=600.0, dump_wait_s=3600.0,
+          dry_run=False):
+    """Watch a game something else starts (the test runner's own launch): wait for Starfield.exe (or process pid),
+    let it settle, attach ProcDump as play does and log its end. Changes no setting and starts nothing. With repeat,
+    goes on to the next game until none appears within start_timeout_s. Returns the list of results; raises
+    ValueError on a refusal."""
+    system = system or System()
+    if not values["crash_watch.enabled"]:
+        raise ValueError("crash watcher is off in the launcher settings (crash_watch.enabled): nothing to watch with")
+    bad = [p for p in settings_mod.problems(values) if p.startswith("crash_watch.")]
+    if values["crash_watch.procdump"] and not os.path.isfile(values["crash_watch.procdump"]):
+        bad.append(f"crash_watch.procdump: {values['crash_watch.procdump']} not found")
+    if values["crash_watch.folder"]:
+        free = system.free_gb(values["crash_watch.folder"])
+        if free < values["crash_watch.min_free_gb"]:
+            bad.append(f"crash watcher: {free:.1f} GB free for dumps, under crash_watch.min_free_gb "
+                       f"{values['crash_watch.min_free_gb']:g}")
+    if bad:
+        raise ValueError("; ".join(bad))
+    log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log")
+    what = f"process {pid}" if pid is not None else "the next Starfield.exe" + (" and each one after" if repeat else "")
+    plan = [f"watch: {what}, attaching after {values['crash_watch.settle_s']:g} s",
+            f"crash watcher: on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
+            + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
+               else "log only when the game exits without a crash")]
+    if dry_run:
+        for p in plan:
+            say(p)
+        return [{"dry_run": True, "plan": plan}]
+    try:
+        os.makedirs(values["crash_watch.folder"], exist_ok=True)
+        _log(log_path, f"watch: waiting for {what}")
+    except OSError as e:
+        raise ValueError(f"crash watcher: cannot write to {values['crash_watch.folder']} ({e.strerror or e})") from None
+    results, seen = [], []
+    while True:
+        t0 = system.now()
+        r = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=pid, seen=seen)
+        results.append(r)
+        seen += r.get("early", []) + ([r["pid"]] if r.get("started") else [])
+        if not (repeat and r.get("started") and pid is None):
+            return results

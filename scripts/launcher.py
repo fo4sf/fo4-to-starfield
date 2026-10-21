@@ -22,6 +22,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py measure <folder> ...
     python scripts/launcher.py settings [--set key=value ...] [--settings <json>]
     python scripts/launcher.py play --starfield <game dir> [--settings <json>] [--dry-run]
+    python scripts/launcher.py watch [--pid N] [--repeat] [--timeout S] [--settings <json>] [--dry-run]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -46,6 +47,9 @@ settings   shows the optional pieces (crash watcher, bridge, Papyrus logging, ho
            costs; --set changes them. Saved per player (default %LOCALAPPDATA%\FO4SF\launcher_settings.json).
 play       applies the settings with the game closed, starts Starfield, and with the crash watcher on attaches
            ProcDump once the game has settled and logs how it ended (src/fo4sf/launcher/crashwatch.py).
+watch      the same watcher for a game something else starts (the test runner): waits for Starfield.exe (or --pid),
+           attaches after it settles, logs its end; --repeat goes on to each next game until none appears within
+           --timeout. Starts nothing and changes no setting; refuses while the watcher is off in the settings.
 """
 import argparse
 import json
@@ -291,6 +295,12 @@ def cmd_play(a):
     return 0 if r.get("dry_run") or r.get("started") else 1
 
 
+def cmd_watch(a):
+    values = settings.load(a.settings or default_settings_path())
+    r = crashwatch.watch(values, pid=a.pid, repeat=a.repeat, start_timeout_s=a.timeout, dry_run=a.dry_run)
+    return 0 if r[0].get("dry_run") or any(x.get("started") for x in r) else 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -386,13 +396,20 @@ def main(argv=None):
     s.add_argument("--starfield", required=True)
     s.add_argument("--settings", default="")
     s.add_argument("--dry-run", action="store_true", help="print what play would do; change and start nothing")
+    s = sub.add_parser("watch", help="watch a game something else starts (the test runner): ProcDump as play attaches it")
+    s.add_argument("--settings", default="")
+    s.add_argument("--pid", type=int, default=None, help="follow this process only (default: the next Starfield.exe)")
+    s.add_argument("--repeat", action="store_true", help="go on to each next game until none appears within --timeout")
+    s.add_argument("--timeout", type=float, default=600.0, help="seconds to wait for a game to appear (default 600)")
+    s.add_argument("--dry-run", action="store_true", help="print what watch would do; attach nothing")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
-                "status": cmd_status, "settings": cmd_settings, "play": cmd_play}[a.cmd](a)
+                "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
+                "watch": cmd_watch}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

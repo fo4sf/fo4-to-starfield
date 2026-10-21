@@ -256,6 +256,8 @@ project). The filter means it only catches that one exception, not crashes in ge
   `python scripts/launcher.py play --starfield "<game folder>"`. It attaches once the game has stayed up 20 seconds,
   writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
   `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
+  For a game started some other way (the test runner), `python scripts/launcher.py watch --repeat` attaches the same
+  watcher to each game it sees.
 - **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
   give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
   what they need from it.

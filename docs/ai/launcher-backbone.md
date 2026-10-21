@@ -147,6 +147,11 @@ ProcDump ends on its own with the game and is never killed. Untested on Windows:
 calls run only on the PC; the flow is tested with a stand-in (`tests/test_launcher_crashwatch.py`). Whether `-t`
 combines with `-e 1 -f` in one ProcDump run is not verified; the first PC run is the test.
 
+`launcher.py watch` is the same watcher for a game it did not start, such as the test runner's own Steam launch: it
+waits for Starfield.exe (or `--pid N`), attaches after `settle_s` with the same ProcDump line, and logs the end;
+`--repeat` follows each next game of a queue until none appears within `--timeout` (600 s). It changes no setting,
+and it refuses while `crash_watch.enabled` is off, so the owner's toggle still decides.
+
 ### Determinism variants (framework B5)
 `tests/test_determinism_variants.py` runs a static mesh conversion and the driver's step fingerprint in fresh
 interpreters under string-hash seeds 0, 1, 4242 and 7, a German locale and `NPY_DISABLE_CPU_FEATURES="AVX2 AVX512F"`,
