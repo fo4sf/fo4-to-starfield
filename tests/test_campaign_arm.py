@@ -184,6 +184,26 @@ class PlanTerrainHoldTests(Base):
         self.assertTrue(self.check(c, ["red_rocket"])[0])
 
 
+    def test_a_travel_into_a_held_cell_is_held(self):
+        # Codex on #391: plan's travel test records the cell behind its load door in dest_cell
+        q = self.queue("travel", [{"kind": "travel", "cell": "SanctuaryExt", "dest_cell": "FO4Port_RedRocket01"}])
+        ok, why = self.check(self.camp([("travel", q)], holds={"red_rocket": ["FO4Port_RedRocket01"]}))
+        self.assertFalse(ok)
+        self.assertIn("FO4Port_RedRocket01: held (red_rocket)", " ".join(why))
+
+    def test_a_queue_with_no_launch_left_is_refused(self):
+        # Codex on #391: a clean stop after the launch leaves relaunches 1, and --max-relaunch 1 refuses at once
+        q = self.queue("a", [{"coc": "FO4Port_X"}, {"coc": "FO4Port_Y"}])
+        with open(os.path.join(q, "state.json"), "w") as f:
+            json.dump({"done": {"0000_t": "PASS"}, "relaunches": 1, "crashes": 0, "status": "stopped"}, f)
+        ok, why = self.check(self.camp([("a", q)]))
+        self.assertFalse(ok)
+        self.assertIn("used 1 of 1 launch(es)", " ".join(why))
+        with open(os.path.join(q, "state.json"), "w") as f:
+            json.dump({"done": {"0000_t": "PASS"}, "relaunches": 0, "crashes": 0, "status": "stopped"}, f)
+        self.assertTrue(self.check(self.camp([("a", q)]))[0])
+
+
 class ScriptAndGateTests(Base):
     def test_the_chain_carries_the_caps_and_stops_on_the_gate(self):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95"}])

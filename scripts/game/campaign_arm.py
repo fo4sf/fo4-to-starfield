@@ -10,8 +10,9 @@ usage:
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
           (a walk queue's exp_install.py install of the set already installed is allowed: it changes nothing);
-        - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a door_trip's
-          "inside" cell counts) not named in --release;
+        - a test starts in or goes to a held cell (campaign "holds", e.g. the Red Rocket arrival; a travel test's
+          dest_cell and a door_trip's "inside" cell count) not named in --release;
+        - its state.json has used every launch the caps allow while tests are left (the run would stop at once);
       and the campaign is refused when its caps are not the night-run caps (one launch, stop at the first crash, at
       least 40 GB free on the dump drive). Exit 0 only when every queue can be armed.
   python scripts/game/campaign_arm.py script --campaign <campaign.json> --out <NEW chain.ps1> [--release HOLD,...]
@@ -73,8 +74,8 @@ def judge_bound(judge, qdir):
 
 def cells(q):
     """The cells every test of a queue starts in or goes to (a plan kind's cell, coc, plan-terrain's world_coc, which
-    an empty travel starts at, a "coc X" travel, and a door_trip's sides, the "inside" cell the door leads to), in
-    order, no repeats. A test with no cell launches into the queue's launch cell first (Runner.ensure_game:
+    an empty travel starts at, a "coc X" travel, a travel test's dest_cell behind its load door, and a door_trip's
+    sides, the "inside" cell the door leads to), in order, no repeats. A test with no cell launches into the queue's launch cell first (Runner.ensure_game:
     launch_cell, else Vault111Cryo), so that cell is listed too."""
     out = []
     tests = q.get("tests") or []
@@ -83,7 +84,8 @@ def cells(q):
     for t in tests:
         # Codex on #391: a door_trip enters its "inside" cell through the door, so a held interior is checked too
         sides = [t[k].get("cell") for k in ("outside", "inside") if isinstance(t.get(k), dict)]
-        for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), *sides,
+        # Codex on #391: a travel test goes through its load door into dest_cell
+        for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), t.get("dest_cell"), *sides,
                   *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
             if c and c not in out:
                 out.append(c)
@@ -196,6 +198,11 @@ def check_queue(entry, camp, release):
     if st.get("crashes") or st.get("start_deaths"):
         why.append(f"state.json counts {st.get('crashes', 0)} crash(es) and {st.get('start_deaths', 0)} dead start(s): "
                    f"plan a new queue folder for a clean budget")
+    cap = (camp.get("caps") or {}).get("max_relaunch")
+    if left and isinstance(cap, int) and (st.get("relaunches") or 0) >= cap:
+        # Codex on #391: a queue that stopped after its launch has no launch left under --max-relaunch
+        why.append(f"state.json has used {st.get('relaunches')} of {cap} launch(es): the run would stop at once; "
+                   f"plan a new queue folder for the {left} test(s) left")
     if not left:
         why.append("every test is already done")
     notes.append(f"{left} of {len(q['tests'])} tests to run; starts: {', '.join(starts[:6])}"
