@@ -78,6 +78,32 @@ def norm(p):
     return str(p).replace("/", "\\").rstrip("\\").casefold()
 
 
+# each judge's own argparse options after its subcommand: (how many times it may be given, a value pattern)
+JUDGE_OPTS = {"scripts/bridge/door_rounds.py": {"--queue": (1, r".+"), "--rounds": (1, r".+"),
+                                                "--world-instance": (None, r"[^=]+=[^=]+")},
+              "scripts/bridge/presence.py": {"--queue": (1, r".+"), "--presence": (1, r".+")},
+              "scripts/game/testqueue.py": {"--queue": (1, r".+")}}
+
+
+def judge_args_why(judge):
+    """Why the judge's own parser would refuse its options (exit 2 after the run), else None. Codex on #391: every
+    option after the subcommand must be one it takes, spelled out, given as often as it may be, with a value."""
+    opts = next((v for k, v in JUDGE_OPTS.items() if norm(k) == norm(judge[0])), {})
+    seen, rest = {}, list(judge[2:])
+    while rest:
+        opt = rest.pop(0)
+        if opt not in opts:
+            return f"judge option {opt!r} is not one {judge[0]} {judge[1]} takes ({', '.join(opts)})"
+        most, pattern = opts[opt]
+        if not rest or rest[0].startswith("-") or not re.fullmatch(pattern, rest[0]):
+            return f"judge option {opt} needs a value" + (f", not {rest[0]!r}" if rest else "")
+        rest.pop(0)
+        seen[opt] = seen.get(opt, 0) + 1
+        if most is not None and seen[opt] > most:
+            return f"judge gives {opt} {seen[opt]} times: at most {most}"
+    return None
+
+
 def judge_bound(judge, qdir):
     """Whether a judge's argv names exactly one --queue, and that it is the campaign entry's own queue folder."""
     if any(str(x).startswith("--queue=") for x in judge):
@@ -416,6 +442,7 @@ def check_queue(entry, camp, release):
             why.append(f"judge {judge!r} does not judge this queue: it needs exactly one --queue {entry.get('queue')}")
         else:
             path, bad = judge_def(judge, q)
+            bad = bad or judge_args_why(judge)
             if bad:
                 why.append(bad)
             elif path and not os.path.isfile(path):
@@ -427,12 +454,17 @@ def check_queue(entry, camp, release):
                    f"plan a new queue folder for a clean budget")
     todo = [t for t in q["tests"] if t["id"] not in (st.get("done") or {})]
     tries = (camp.get("caps") or {}).get("max_attempts")
-    fresh = [t["id"] for i, t in enumerate(todo) if t.get("fresh") and (i or tries != 1)]
+    first = next(iter(camp.get("queues") or []), None)
+    first = isinstance(first, dict) and first.get("name") == entry.get("name") and \
+        norm(first.get("queue") or "") == norm(entry.get("queue") or "")
+    fresh = [t["id"] for i, t in enumerate(todo) if t.get("fresh") and (i or tries != 1 or not first)]
     if fresh:
         # Codex on #391: a fresh test closes a used game and launches again, outside --max-relaunch (Runner.run);
-        # only a first test with one attempt starts on the one launch
-        why.append(f"fresh test(s) {', '.join(fresh[:3])} would launch the game again outside the one-launch cap: "
-                   f"plan without --fresh, or one fresh test per queue with max_attempts 1")
+        # only a first test with one attempt starts on the one launch, and only in the chain's first queue: a later
+        # queue's runner reuses the game the queue before it left running (its own game_used is unset)
+        why.append(f"fresh test(s) {', '.join(fresh[:3])} would launch the game again outside the one-launch cap, "
+                   f"or run in the game the queue before left: plan without --fresh, or one fresh test with "
+                   f"max_attempts 1 as the chain's first queue")
     cap = (camp.get("caps") or {}).get("max_relaunch")
     if left and isinstance(cap, int) and (st.get("relaunches") or 0) >= cap:
         # Codex on #391: a queue that stopped after its launch has no launch left under --max-relaunch

@@ -222,6 +222,37 @@ class CheckTests(Base):
         self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
 
 
+    def test_a_judge_option_its_parser_would_refuse_is_refused(self):
+        # Codex on #391: the judge's argparse exits 2 on an unknown, repeated or valueless option, after the run
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        c = self.camp([("a", q)])
+        dr = ["scripts/bridge/door_rounds.py", "judge", "--queue", q]
+        for good in (dr, dr + ["--world-instance", "FF00552F=02000803", "--world-instance", "FF000001=02000001"]):
+            with self.subTest(good=good):
+                c["queues"][0]["judge"] = good
+                self.assertTrue(self.check(c)[0], self.check(c)[1])
+        for bad, msg in ((dr + ["--typo"], "is not one"), (dr + ["--world-instance"], "needs a value"),
+                         (dr + ["--world-instance", "FF00552F"], "needs a value"),
+                         (dr + ["--rou", "x"], "is not one"),
+                         (["scripts/game/testqueue.py", "report", "--queue", q, "--typo"], "is not one"),
+                         (["scripts/bridge/presence.py", "judge", "--queue", q, "--rounds", "x"], "is not one"),
+                         (dr + ["--world-instance", "-x=1"], "needs a value")):
+            with self.subTest(bad=bad):
+                c["queues"][0]["judge"] = bad
+                ok, why = self.check(c)
+                self.assertFalse(ok)
+                self.assertIn(msg, " ".join(why))
+
+    def test_a_fresh_test_only_starts_the_chains_first_queue(self):
+        # Codex on #391: a later queue's runner reuses the game the queue before it left running, so its fresh first
+        # test would run in a used session
+        qa = self.queue("a", [{"coc": "FO4Port_X"}])
+        qf = self.queue("f", [{"coc": "FO4Port_Y", "fresh": True}])
+        self.assertTrue(self.check(self.camp([("f", qf), ("a", qa)]))[0])
+        ok, why = self.check(self.camp([("a", qa), ("f", qf)]))
+        self.assertFalse(ok)
+        self.assertIn("0000_t would launch the game again", " ".join(why))
+
     def test_a_queue_bridge_needs_the_campaign_bridge_and_holds_need_lists(self):
         # Codex on #391: a pinned bridge passed when the campaign named none; a hold written as a string held nothing
         q = self.queue("a", [{"coc": "FO4Core_RedRocketSpawn"}], bridge={"dir": "C:\\b\\bridge_t4"})
