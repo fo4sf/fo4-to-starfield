@@ -23,9 +23,24 @@ def queue(d, name, build, tests, results=(), judged=None, torn=False):
         if torn:
             f.write('{"id": "0000_st')
     if judged is not None:
-        with open(os.path.join(q, "door_rounds_judge.json"), "w") as f:
-            json.dump({"results": judged}, f)
+        exp = os.path.join(q, "exp")                    # the stage folder plan-terrain --exp-dir records
+        os.makedirs(exp)
+        with open(os.path.join(exp, "rounds.json"), "w") as f:
+            json.dump({"tests": []}, f)
+        with open(os.path.join(q, "queue.json")) as f:
+            qq = json.load(f)
+        with open(os.path.join(q, "queue.json"), "w") as f:
+            json.dump(dict(qq, experiment=exp), f)
+        write_judge(q, judged)
     return q
+
+
+def write_judge(q, rows, rounds=None):
+    """door_rounds_judge.json as door_rounds.py judge writes it: its rounds source (--rounds, else the experiment)."""
+    with open(os.path.join(q, "queue.json")) as f:
+        exp = json.load(f).get("experiment")
+    with open(os.path.join(q, "door_rounds_judge.json"), "w") as f:
+        json.dump({"rounds": rounds or exp, "world_instances": {}, "results": rows}, f)
 
 
 def door(k, leg, edid, src="1:Fallout4.esm"):
@@ -145,8 +160,7 @@ class DiffTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as buf:
             self.assertEqual(rg.main(["--old", old, "--new", archived]), 2)
         self.assertIn("not judged yet", buf.getvalue())
-        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
-            json.dump({"results": [dict(row, verdict="NOT_RUN")]}, f)    # judged, never run: lost, exit 1
+        write_judge(new, [dict(row, verdict="NOT_RUN")])                # judged, never run: lost, exit 1
         with redirect_stdout(io.StringIO()):
             self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
 
@@ -191,8 +205,7 @@ class DiffTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as buf:
             self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
         self.assertIn("judged at attempt a1 of 0000_terrain, the queue now has a2", buf.getvalue())
-        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
-            json.dump({"results": [dict(row, attempt="a2")]}, f)           # judged again: compared
+        write_judge(new, [dict(row, attempt="a2")])                     # judged again: compared
         with redirect_stdout(io.StringIO()):
             self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
         unrun = queue(d, "unrun", "c", doors, [], judged=[{k: v for k, v in row.items() if k != "attempt"}])
@@ -237,6 +250,32 @@ class DiffTests(unittest.TestCase):
         self.assertEqual([x["key"] for x in r["regressed"]], [["npc_nav", "C", "walk", ""]])
         self.assertIn("stopped 9 m short (control 0001_npc_nav passed) (gated again at report time)",
                       r["regressed"][0]["detail"])
+
+    def test_a_judge_of_another_rounds_source_is_refused(self):
+        # Codex on #401: the judge's recorded rounds source was never checked, and OUT legs do not carry src
+        d = tempfile.mkdtemp()
+        doors = [door(0, "out", "FO4Port_Vault95")]
+        row = jrow(0, "out", "FO4Port_Vault95")
+        old = queue(d, "old", "a", doors, [], judged=[row])
+        new = queue(d, "new", "b", doors, [], judged=[row])
+        own = os.path.join(new, "exp", "rounds.json")
+        other = os.path.join(d, "other_rounds.json")
+        with open(other, "w") as f:
+            json.dump({"tests": [{"test": 0, "leg": "out", "src": "9:Fallout4.esm"}]}, f)
+        copy = os.path.join(d, "copy_rounds.json")
+        with open(own) as f, open(copy, "w") as g:
+            g.write(f.read())
+        for rounds, code, why in ((own, 0, ""), (copy, 0, ""), (other, 2, "differs from the queue's"),
+                                  (os.path.join(d, "gone.json"), 2, "can not both be read")):
+            write_judge(new, [row], rounds)
+            with self.subTest(rounds=rounds), redirect_stdout(io.StringIO()) as buf:
+                self.assertEqual(rg.main(["--old", old, "--new", new]), code)
+            self.assertIn(why, buf.getvalue())
+        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
+            json.dump({"results": [row]}, f)                               # no rounds source recorded
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+        self.assertIn("records no rounds source", buf.getvalue())
 
     def test_repeated_keys_are_reported(self):
         d = tempfile.mkdtemp()
