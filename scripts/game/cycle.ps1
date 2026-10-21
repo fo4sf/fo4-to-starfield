@@ -67,8 +67,13 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {
 }
 # The observation bridge (bridge_install.py) goes LAST: the planned reads address the experiment's records by load
 # index, and a bridge line above them shifted every index by one (cave_core64c_1015 a1, 2026-10-15)
+# A bridge held off by plugin_toggle.py that the game ticked again makes order exit nonzero: no launch, or a bridge-off
+# run would be judged with the bridge active (Codex on #407)
 if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
-  python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf | Select-Object -Last 1
+  $bord = python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf
+  $bordCode = $LASTEXITCODE
+  $bord | Select-Object -Last 1
+  if ($bordCode -ne 0) { "bridge plugin order refused (exit $bordCode): not launching"; exit 7 }
 }
 function Wait-Screen($label, $maxSec, $check) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
@@ -158,11 +163,13 @@ if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
 Send 'hold:e,300|wait:3000'
 Wait-Screen 'save loaded' 120 $HudShown | Out-Null
-if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can still have switched the load order
+# Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
+# split) the game ticked again must stop the run too (Codex on #407)
+if ((Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) -or (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json'))) {
   $act = python -I "$repo\scripts\game\exp_install.py" active --starfield $sf
   $actCode = $LASTEXITCODE
   $act | Select-Object -Last 1
-  if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
+  if ($actCode -ne 0) { "Starfield changed our plugins' activation while loading the save: not testing (exit $actCode)"; exit 8 }
 }
 if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {   # the same check for the map markers plugin (Codex, #399)
   $mmAct = python -I "$repo\scripts\game\map_markers_install.py" active --starfield $sf
