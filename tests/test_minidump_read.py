@@ -21,9 +21,10 @@ RSP = 0x10000
 GIB = 1 << 30
 
 
-def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
+def build(memory_list=False, vm_flags=0x7, sys_flags=0x2, extra=(), regs_extra=None):
     """A minidump: Starfield.exe and ntdll.dll, an access violation reading 0x3ca3d70a at Starfield.exe+0x2bf016b,
-    and four stack slots at rsp: a plain number, ntdll+0x1234, Starfield.exe+0x10, and 0."""
+    and four stack slots at rsp: a plain number, ntdll+0x1234, Starfield.exe+0x10, and 0. extra adds captured memory
+    (address, bytes) after the stack; regs_extra sets more registers."""
     stack = struct.pack("<4Q", 42, DLL + 0x1234, BASE + 0x10, 0)
     names = [("C:\\Games\\Starfield.exe", BASE, SIZE, (1 << 16 | 16, 244 << 16)), ("C:\\Windows\\ntdll.dll", DLL, DLL_SIZE, (0, 0))]
     blob = bytearray(32 + 12 * 5)                # header, then up to 5 directory entries
@@ -42,7 +43,7 @@ def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
     entries.append((md.MODULE_LIST, len(mods), add(mods)))
     ctx = bytearray(1232)
     regs = dict.fromkeys(md.REGS, 0)
-    regs.update(rcx=0x3CA3D70A, r12=0x6666666666666600, rsp=RSP, rip=BASE + 0x2BF016B)
+    regs.update(rcx=0x3CA3D70A, r12=0x6666666666666600, rsp=RSP, rip=BASE + 0x2BF016B, **(regs_extra or {}))
     struct.pack_into("<17Q", ctx, 0x78, *(regs[k] for k in md.REGS))
     ctx_rva = add(bytes(ctx))
     exc = struct.pack("<II", 7, 0) + struct.pack("<IIQQII", 0xC0000005, 0, 0, BASE + 0x2BF016B, 2, 0) \
@@ -54,9 +55,12 @@ def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
         entries.append((md.MEMORY_LIST, len(mem), add(mem)))
     else:
         mem_at = len(blob)
-        mem = struct.pack("<QQ", 1, mem_at + 16 + 16) + struct.pack("<QQ", RSP, len(stack))
+        ranges = [(RSP, stack)] + list(extra)
+        mem = struct.pack("<QQ", len(ranges), mem_at + 16 + 16 * len(ranges))
+        mem += b"".join(struct.pack("<QQ", a, len(b)) for a, b in ranges)
         add(mem)
-        add(stack)
+        for _a, b in ranges:
+            add(b)
         entries.append((md.MEMORY64_LIST, len(mem), mem_at))
     vm = bytearray(96)                                             # MINIDUMP_PROCESS_VM_COUNTERS_2
     struct.pack_into("<HH", vm, 0, 2, vm_flags)
@@ -115,6 +119,107 @@ class MinidumpRead(unittest.TestCase):
             with open(out) as f:
                 self.assertEqual([s["exception"]["at"] for s in json.load(f)], ["Starfield.exe+0x2bf016b"])
 
+
+TEXT, RDATA, PDATA = 0x2BF0000, 0x4000000, 0x4001000   # section RVAs in the synthetic exe
+IMAGE_BASE = 0x140000000                                 # the file's preferred base; the dump's is BASE (ASLR)
+VTABLE = RDATA + 0x100                                   # a vtable whose locator names "BSGeometry"
+HEAP = 0x198B55AC188                                     # rdi's object: its first qword is that vtable
+
+
+def build_exe():
+    """A PE32+ "Starfield.exe" with SizeOfImage SIZE: .text holding the fault and a call before Starfield.exe+0x2bf0200,
+    .rdata holding a complete object locator, its type descriptor and the vtable, and .pdata with one function
+    (0x2bf0100 to 0x2bf0300)."""
+    head = bytearray(0x400)
+    head[:2] = b"MZ"
+    struct.pack_into("<I", head, 0x3C, 0x80)
+    head[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<HH", head, 0x84, 0x8664, 3)                # machine, sections
+    struct.pack_into("<H", head, 0x80 + 20, 240)                  # optional header size
+    opt = 0x80 + 24
+    struct.pack_into("<H", head, opt, 0x20B)
+    struct.pack_into("<Q", head, opt + 24, IMAGE_BASE)
+    struct.pack_into("<I", head, opt + 56, SIZE)
+    struct.pack_into("<II", head, opt + 112 + 24, PDATA, 12)
+    text = bytearray(0x1000)
+    text[0x16B] = 0x8B                                           # the fault byte, for the code window
+    text[0x1FB:0x200] = b"\xE8\0\0\0\0"                          # call rel32, returning to +0x2bf0200
+    rdata = bytearray(0x1000)
+    col, td = RDATA + 0x10, RDATA + 0x40
+    struct.pack_into("<IIIIII", rdata, 0x10, 1, 0, 0, td, 0, col)
+    rdata[0x50:0x50 + 17] = b".?AVBSGeometry@@\0"
+    struct.pack_into("<Q", rdata, 0xF8, IMAGE_BASE + col)        # vtable[-1]: the locator, against ImageBase
+    pdata = struct.pack("<III", TEXT + 0x100, TEXT + 0x300, 0)
+    body, sections = bytes(head), []
+    for va, data in ((TEXT, bytes(text)), (RDATA, bytes(rdata)), (PDATA, pdata)):
+        sections.append((va, len(data), len(body)))
+        body += data
+    body = bytearray(body)
+    for i, (va, n, off) in enumerate(sections):
+        struct.pack_into("<IIII", body, opt + 240 + 40 * i + 8, n, va, n, off)
+    return bytes(body)
+
+
+class MinidumpWithExe(unittest.TestCase):
+    def dump(self):
+        obj = struct.pack("<QQ", BASE + VTABLE, 0)
+        return build(extra=[(HEAP, obj)], regs_extra={"rdi": HEAP, "r13": HEAP + 8})
+
+    def test_function_call_check_and_rtti(self):
+        img = md.Image(build_exe())
+        self.assertEqual(img.function(TEXT + 0x16B), TEXT + 0x100)
+        self.assertIsNone(img.function(TEXT + 0x50))               # before the one .pdata entry
+        self.assertEqual(img.function(TEXT + 0x200), TEXT + 0x100)
+        self.assertTrue(img.after_call(TEXT + 0x200))
+        self.assertFalse(img.after_call(TEXT + 0x180))
+        self.assertEqual(md.rtti_name(img, BASE, BASE + VTABLE), ".?AVBSGeometry@@")
+        self.assertIsNone(md.rtti_name(img, BASE, BASE + RDATA + 0x200))   # no locator before it
+        self.assertIsNone(md.rtti_name(img, BASE, 0x3CA3D70A))               # rcx's float is not a vtable
+
+    def test_call_forms(self):
+        self.assertEqual(md._modrm_length(bytes([0xD0])), 1)               # call rax
+        self.assertEqual(md._modrm_length(bytes([0x15, 0, 0, 0, 0])), 5)   # call [rip+disp32]
+        self.assertEqual(md._modrm_length(bytes([0x50, 8])), 2)            # call [rax+disp8]
+        self.assertEqual(md._modrm_length(bytes([0x54, 0x24, 8])), 3)      # call [rsp+disp8], with SIB
+
+    def test_main_with_exe_names_the_object_and_the_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dmp, exe, out = (os.path.join(tmp, n) for n in ("a.dmp", "Starfield.exe", "out.json"))
+            with open(dmp, "wb") as f:
+                f.write(self.dump())
+            with open(exe, "wb") as f:
+                f.write(build_exe())
+            with contextlib.redirect_stdout(io.StringIO()) as text:
+                self.assertEqual(md.main([dmp, "--exe", exe, "--json", out]), 0)
+            self.assertIn("object rdi        0x198b55ac188  .?AVBSGeometry@@", text.getvalue())
+            with open(out) as f:
+                im = json.load(f)[0]["image"]
+            self.assertEqual(im["code"]["from"], "Starfield.exe+0x2bf012b")
+            self.assertEqual(bytes.fromhex(im["code"]["hex"])[64], 0x8B)
+            self.assertEqual([o["in"] for o in im["objects"]], ["rdi"])     # r13 points past the vtable qword
+
+    def test_code_from_the_function_start(self):
+        img = md.Image(build_exe())
+        im = md._summary("a.dmp", md.Dump(self.dump()), 64, img, -1)["image"]
+        self.assertEqual((im["code"]["from"], im["code"]["fault_at_byte"]), ("Starfield.exe+0x2bf0100", 0x6B))
+        self.assertEqual(bytes.fromhex(im["code"]["hex"])[0x6B], 0x8B)
+
+    def test_exe_of_another_size_is_refused(self):
+        exe = bytearray(build_exe())
+        struct.pack_into("<I", exe, 0x80 + 24 + 56, SIZE + 0x1000)
+        with self.assertRaises(ValueError):
+            md._summary("a.dmp", md.Dump(self.dump()), 64, md.Image(bytes(exe)))
+
+
+    def test_exe_of_another_build_is_refused(self):
+        exe = bytearray(build_exe())
+        struct.pack_into("<I", exe, 0x84 + 4, 0x5F000001)             # COFF TimeDateStamp
+        d = md.Dump(self.dump())
+        d.modules[0]["stamp"] = 0x5F000002
+        with self.assertRaises(ValueError):
+            md._summary("a.dmp", d, 64, md.Image(bytes(exe)))
+        d.modules[0]["stamp"] = 0x5F000001
+        self.assertIn("image", md._summary("a.dmp", d, 64, md.Image(bytes(exe))))
 
 if __name__ == "__main__":
     unittest.main()

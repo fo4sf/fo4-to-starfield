@@ -1,6 +1,7 @@
 """Read the crash out of Windows minidumps, with no debugger (docs/spikes/red-rocket-crash-bisect.md).
 
     python scripts/game/minidump_read.py <dump.dmp> [<dump.dmp> ...] [--scan 1024] [--json <out.json>]
+        [--exe <Starfield.exe>]
 
 For each dump: the exception (code, flags, the faulting address as module+offset, and for an access violation whether it
 read or wrote and at which address), the faulting thread's registers, the loaded module's file version, the process's
@@ -9,6 +10,15 @@ scan: the qwords from rsp upward that point into a loaded module, nearest first.
 stale return addresses and function pointers show up too, so read it as candidates. Two dumps with the same
 module+offset and the same top of scan are very likely the same crash. Standard library only; read-only, except --json,
 which writes a new file.
+
+With --exe (the faulting module's own file, the same version as in the dump; it is only read) the report adds what the
+dump alone cannot give, because a minidump rarely holds the module's code and read-only data:
+- the code bytes around the fault and the start of the function it is in (the exe's .pdata), so the instruction can be
+  disassembled elsewhere;
+- for each stack-scan entry into the exe, whether the bytes before it look like a call (a real return address's do; a
+  stale function pointer's usually do not; a byte-pattern match, not a decode) and its function start;
+- the C++ class (MSVC RTTI) of every object a register or a stack slot points at, when the dump holds the object's first
+  qword and that qword is a vtable in the exe: the vtable's complete object locator gives the class name.
 """
 import argparse
 import json
@@ -53,10 +63,10 @@ class Dump:
         out = []
         for i in range(n):
             o = at + 4 + 108 * i
-            base, size, _crc, _stamp, name_rva = struct.unpack_from("<QIIII", self.data, o)
+            base, size, _crc, stamp, name_rva = struct.unpack_from("<QIIII", self.data, o)
             ms, ls = struct.unpack_from("<II", self.data, o + 24 + 8)    # VS_FIXEDFILEINFO dwFileVersionMS, LS
             name = self._string(name_rva)
-            out.append({"name": name.replace("/", "\\").rsplit("\\", 1)[-1], "path": name, "base": base, "size": size,
+            out.append({"name": name.replace("/", "\\").rsplit("\\", 1)[-1], "path": name, "base": base, "size": size, "stamp": stamp,
                         "version": f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}" if ms or ls else None})
         return sorted(out, key=lambda m: m["base"])
 
@@ -162,20 +172,189 @@ class Dump:
         return out
 
 
-def summary(path, scan):
+class Image:
+    """A PE32+ file on disk, read by RVA: its sections, its .pdata function table and the MSVC RTTI behind a vtable."""
+
+    def __init__(self, data):
+        if data[:2] != b"MZ":
+            raise ValueError("not a PE file (no MZ signature)")
+        self.data = data
+        pe, = struct.unpack_from("<I", data, 0x3C)
+        if data[pe:pe + 4] != b"PE\0\0":
+            raise ValueError("not a PE file (no PE signature)")
+        nsec, self.stamp = struct.unpack_from("<HI", data, pe + 6)   # COFF NumberOfSections, TimeDateStamp
+        opt_size, = struct.unpack_from("<H", data, pe + 20)
+        opt = pe + 24
+        if struct.unpack_from("<H", data, opt)[0] != 0x20B:
+            raise ValueError("not a 64-bit PE file")
+        self.image_base, = struct.unpack_from("<Q", data, opt + 24)   # the preferred base the file's pointers assume
+        self.size_of_image, = struct.unpack_from("<I", data, opt + 56)
+        # data directory 3 is the exception table (.pdata): RUNTIME_FUNCTION {begin, end, unwind} RVAs, sorted by begin
+        self.pdata = struct.unpack_from("<II", data, opt + 112 + 8 * 3)
+        self.sections = []
+        for i in range(nsec):
+            o = opt + opt_size + 40 * i
+            vsize, va, rsize, roff = struct.unpack_from("<IIII", data, o + 8)
+            self.sections.append((va, max(vsize, rsize), rsize, roff))
+
+    def read(self, rva, length):
+        for va, vsize, rsize, roff in self.sections:
+            if va <= rva and rva + length <= va + vsize:
+                if rva + length > va + rsize:
+                    return None
+                return bytes(self.data[roff + rva - va:roff + rva - va + length])
+        return None
+
+    def function(self, rva):
+        """The begin RVA of the .pdata entry holding rva, or None (a leaf function has no entry)."""
+        at, size = self.pdata
+        lo, hi = 0, size // 12
+        while lo < hi:
+            mid = (lo + hi) // 2
+            raw = self.read(at + 12 * mid, 8)
+            if raw is None:
+                return None
+            begin, end = struct.unpack("<II", raw)
+            if rva < begin:
+                hi = mid
+            elif rva >= end:
+                lo = mid + 1
+            else:
+                return begin
+        return None
+
+    def after_call(self, rva):
+        """True when the bytes just before rva could end a call instruction, as a return address's do. A byte-pattern
+        match, not a decode from a known instruction boundary: an E8 or FF byte inside another instruction's immediate
+        or displacement matches too (Codex on #453), so it filters stale pointers out but does not prove a call."""
+        b = self.read(rva - 7, 7) if rva >= 7 else None
+        if b is None:
+            return False
+        if b[-5] == 0xE8:                                    # call rel32
+            return True
+        for n in (2, 3, 4, 6, 7):                            # call r/m64: FF /2, then SIB and displacement bytes
+            if b[-n] == 0xFF and (b[-n + 1] >> 3) & 7 == 2 and _modrm_length(b[-n + 1:]) == n - 1:
+                return True
+        return False
+
+
+def _modrm_length(b):
+    """The length of a ModRM byte with its SIB and displacement (64-bit addressing), from the bytes that follow it."""
+    mod, rm = b[0] >> 6, b[0] & 7
+    if mod == 3:
+        return 1
+    n = 1
+    if rm == 4:
+        n += 1
+        if mod == 0 and len(b) > 1 and b[1] & 7 == 5:      # SIB with no base: disp32
+            return n + 4
+    if mod == 0:
+        return n + 4 if rm == 5 else n                       # rm 5: RIP-relative disp32
+    return n + (1 if mod == 1 else 4)
+
+
+def rtti_name(img, base, vtable):
+    """The decorated class name (".?AVBSGeometry@@") for a vtable address in the image loaded at base, or None."""
+    if not (base <= vtable < base + img.size_of_image):
+        return None
+    raw = img.read(vtable - base - 8, 8)
+    if raw is None:
+        return None
+    # vtable[-1] holds the locator's address against the file's preferred ImageBase, not the module's runtime base
+    # (Codex on #453: Starfield is ASLR-relocated), so it becomes an RVA through ImageBase
+    col = struct.unpack("<Q", raw)[0] - img.image_base
+    if not (0 <= col < img.size_of_image):
+        return None
+    # x64 RTTICompleteObjectLocator: signature 1, offset, cdOffset, then the type descriptor's RVA
+    head = img.read(col, 16)
+    if head is None:
+        return None
+    sig, _off, _cd, td = struct.unpack("<IIII", head)
+    if sig != 1:
+        return None
+    # TypeDescriptor: pVFTable, spare, then the zero-ended decorated name
+    name = img.read(td + 16, 256)
+    if not name or not name.startswith(b".?A"):
+        return None
+    return name.split(b"\0", 1)[0].decode("ascii", "replace")
+
+
+def code_around(d, img, base, rip, before=64, after=32):
+    """The bytes from rip-before to rip+after, from the dump when it holds them, else from the exe."""
+    raw = d.read(rip - before, before + after)
+    if raw is None and img is not None and base <= rip < base + img.size_of_image:
+        raw = img.read(rip - base - before, before + after)
+    return raw
+
+
+def objects(d, img, base, regs, stack_slots):
+    """[(where, pointer, class)] for registers and stack slots that point at an object whose vtable has RTTI."""
+    out = []
+    seen = set()
+    for where, v in [(k, regs[k]) for k in REGS if k in regs and k != "rip"] + stack_slots:
+        raw = d.read(v, 8) if v > 0x10000 else None
+        if raw is None:
+            continue
+        vt, = struct.unpack("<Q", raw)
+        name = rtti_name(img, base, vt)
+        if name and (where, v) not in seen:
+            seen.add((where, v))
+            out.append((where, v, name))
+    return out
+
+
+def summary(path, scan, exe=None, before=64):
     # memory-mapped, not read: a full (-ma) dump can be many GB, and only a few small structures are touched
     with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-        return _summary(path, Dump(data), scan)
+        if not exe:
+            return _summary(path, Dump(data), scan)
+        with open(exe, "rb") as g, mmap.mmap(g.fileno(), 0, access=mmap.ACCESS_READ) as pe:
+            return _summary(path, Dump(data), scan, Image(pe), before)
 
 
-def _summary(path, d, scan):
+def _summary(path, d, scan, img=None, before=64):
     exc, regs = d.exception()
     fault_module = next((m for m in d.modules if exc["at"] and exc["at"].startswith(m["name"] + "+")), None)
     stack = d.stack_scan(regs["rsp"], scan) if "rsp" in regs else []
-    return {"dump": path, "exception": exc, "module_version": fault_module and fault_module["version"],
+    out = {"dump": path, "exception": exc, "module_version": fault_module and fault_module["version"],
             "registers": {k: f"0x{v:x}" for k, v in regs.items()},
             "stack_scan": [{"rsp+": f"0x{o:x}", "value": f"0x{v:x}", "at": w} for o, v, w in stack],
             "memory_gib": d.memory(), "modules": len(d.modules), "memory_ranges": len(d.ranges)}
+    if img is not None and fault_module:
+        out["image"] = _image_report(d, img, fault_module, regs, stack, scan, before)
+    return out
+
+
+def _image_report(d, img, mod, regs, stack, scan, before=64):
+    base, name = mod["base"], mod["name"]
+    if img.size_of_image != mod["size"]:
+        raise ValueError(f"--exe is not the dump's {name}: SizeOfImage 0x{img.size_of_image:x}, "
+                         f"the dump's 0x{mod['size']:x}")
+    if img.stamp and mod.get("stamp") and img.stamp != mod["stamp"]:   # another build of the same size (Codex on #453)
+        raise ValueError(f"--exe is not the dump's {name}: PE timestamp 0x{img.stamp:08x}, the dump's 0x{mod['stamp']:08x}")
+    rip = regs.get("rip", 0)
+    fn = img.function(rip - base) if base <= rip < base + img.size_of_image else None
+    if before < 0 and fn is not None:                    # -1: from the start of the fault's function
+        before = rip - base - fn
+    before = max(before, 0)
+    code = code_around(d, img, base, rip, before)
+    calls = []
+    for o, v, w in stack:
+        if base <= v < base + img.size_of_image:
+            f = img.function(v - base)
+            calls.append({"rsp+": f"0x{o:x}", "at": w, "after_call": img.after_call(v - base),
+                          "function": f"{name}+0x{f:x}" if f is not None else None})
+    slots = []
+    for i in range(scan):
+        raw = d.read(regs["rsp"] + 8 * i, 8) if "rsp" in regs else None
+        if raw is None:
+            break
+        slots.append((f"rsp+0x{8 * i:x}", struct.unpack("<Q", raw)[0]))
+    return {"fault_function": f"{name}+0x{fn:x}" if fn is not None else None,
+            "code": {"from": f"{name}+0x{rip - base - before:x}", "fault_at_byte": before,
+                     "hex": code.hex() if code else None},
+            "stack_calls": calls,
+            "objects": [{"in": w, "pointer": f"0x{v:x}", "class": c} for w, v, c in objects(d, img, base, regs, slots)]}
 
 
 def main(argv=None):
@@ -184,11 +363,14 @@ def main(argv=None):
     ap.add_argument("--scan", type=int, default=1024, help="stack qwords to scan from rsp")
     ap.add_argument("--top", type=int, default=24, help="stack scan entries to print per dump")
     ap.add_argument("--json", default="")
+    ap.add_argument("--exe", default="", help="the faulting module's file (same version): code bytes, call checks, RTTI")
+    ap.add_argument("--code-before", type=int, default=64,
+                    help="code bytes to print before the fault with --exe; -1 starts at the fault's function")
     a = ap.parse_args(argv)
     found = []
     for p in a.dumps:
         try:
-            s = summary(p, a.scan)
+            s = summary(p, a.scan, a.exe or None, a.code_before)
         except (OSError, ValueError, struct.error) as e:
             print(f"{p}: {e}")
             continue
@@ -208,6 +390,17 @@ def main(argv=None):
             print(f"  rsp+{row['rsp+']:<7} {row['value']}  {row['at']}")
         print(f"  {len(s['stack_scan'])} module pointer(s) in {a.scan} stack slots; {s['modules']} modules, "
               f"{s['memory_ranges']} memory ranges")
+        im = s.get("image")
+        if im:
+            print(f"  fault function {im['fault_function']}; code from {im['code']['from']} "
+                  f"(fault at byte {im['code']['fault_at_byte']}): {im['code']['hex']}")
+            for c in im["stack_calls"][:a.top]:
+                print(f"  rsp+{c['rsp+']:<7} {c['at']:<28} {'call?' if c['after_call'] else 'no call':<8} "
+                      f"in {c['function']}")
+            for o in im["objects"][:a.top]:
+                print(f"  object {o['in']:<10} {o['pointer']}  {o['class']}")
+            if not im["objects"]:
+                print("  objects: none found (the dump may not hold the heap, or no pointed-at qword is a vtable)")
     if a.json:
         with open(a.json, "x", encoding="utf-8") as f:
             json.dump(found, f, indent=1)
