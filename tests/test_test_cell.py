@@ -50,15 +50,17 @@ class TestCellTests(unittest.TestCase):
 
     def test_build_succeeds_and_reports_the_missing(self):
         self.assertEqual(self.proc.returncode, 0, self.proc.stdout + self.proc.stderr)
-        self.assertIn("5 objects in 7 spots (2 missing)", self.proc.stdout)
+        self.assertIn("6 objects in 8 spots (2 missing)", self.proc.stdout)
         missing = [s["spot"] for s in self.sheet["spots"] if s["missing"]]
-        self.assertEqual(missing, ["A4", "B3"])
+        self.assertEqual(missing, ["A5", "B3"])
 
     def test_spots_resolve_in_order(self):
         spots = {s["spot"]: s for s in self.sheet["spots"]}
         self.assertEqual(spots["A1"]["base"], "0AA24A:Starfield.esm")
-        # the cell's distinct doors in placement order (VltDoor01 twice, the stair is not a door)
-        self.assertEqual((spots["A2"]["name"], spots["A3"]["name"]), ("FO4Port_VltDoor01", "FO4Port_VltDoor02"))
+        # the cell's distinct doors in placement order (VltDoor01 twice, the stair is not a door), the persistent load
+        # door between the temporary ones (review of #430)
+        self.assertEqual([spots[k]["name"] for k in ("A2", "A3", "A4")],
+                         ["FO4Port_VltDoor01", "FO4Port_VltLoadDoor01", "FO4Port_VltDoor02"])
         self.assertEqual(spots["B1"]["type"], "MSTT")
         self.assertEqual(spots["B2"]["name"], "FO4Port_PryDoor01")                 # the clash-suffixed editor ID
         self.assertEqual(spots["B2"]["base"], "000804:FO4Port.esm")
@@ -77,7 +79,7 @@ class TestCellTests(unittest.TestCase):
         self.assertGreater(names.count(0x050776), 0)                               # floor tiles
         self.assertGreater(names.count(0x03D38C), 0)                               # lights
         self.assertEqual(names.count(0x0AA24A), 1)                                 # the vanilla door, master index 0
-        self.assertEqual(sorted(n for n in names if n >> 24 == 1), [0x01000800, 0x01000801, 0x01000803, 0x01000804])
+        self.assertEqual(sorted(n for n in names if n >> 24 == 1), [0x01000800, 0x01000801, 0x01000803, 0x01000804, 0x01000805])
         self.assertIn(b"FO4Port.esm", plugin.read_bytes()[:400])                   # the port is the second master
 
 

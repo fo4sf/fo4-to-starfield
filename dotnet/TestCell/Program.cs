@@ -13,7 +13,8 @@
 //   {"edid": "FO4Port_X"}            a converted base by editor ID (or the one "FO4Port_X_<hash>" convert_batch gives on a clash)
 //   {"vanilla": "0AA24A"}            a Starfield.esm base, by its FormID
 //   {"from_cell": "FO4Port_Vault95", "type": "DOOR", "max": 4}
-//                                    the distinct bases of that type the port places in that cell, in placement order
+//                                    the distinct bases of that type the port places in that cell (temporary and
+//                                    persistent), in placement (FormID) order
 // plus "name" and "note" for the sheet. Missing items are listed as MISSING and leave their spot empty.
 //
 // usage: TestCell build <FO4Port.esm> <layout.json> <out dir>   writes FO4SFTestCell.esm, spots.json and spots.md
@@ -82,13 +83,18 @@ if (args.Length == 2 && args[0] == "fixture")
     var st = new Static(K(), release) { EditorID = "FO4Port_BldDecoSmStairs01", Model = new Model { File = "FO4Port\\BldDecoSmStairs01.nif" } };
     var mv = new MoveableStatic(K(), release) { EditorID = "FO4Port_TrashcanMetalOffice01", Model = new Model { File = "FO4Port\\TrashcanMetalOffice01.nif" } };
     var hx = new Door(K(), release) { EditorID = "FO4Port_PryDoor01_0123456789abcdef", Model = new Model { File = "FO4Port\\PryDoor01.nif" } };
-    foreach (var d in new[] { d1, d2, hx }) fmod.Doors.Add(d);
+    var d3 = new Door(K(), release) { EditorID = "FO4Port_VltLoadDoor01", Model = new Model { File = "FO4Port\\VltLoadDoor01.nif" } };
+    foreach (var d in new[] { d1, d2, hx, d3 }) fmod.Doors.Add(d);
     fmod.Statics.Add(st);
     fmod.MoveableStatics.Add(mv);
     var fcell = new Cell(K(), release) { EditorID = "FO4Port_Vault95", Flags = Cell.Flag.IsInteriorCell };
-    foreach (var (b, x) in new IMajorRecordGetter[] { st, d1, d1, d2 }.Select((b, i) => (b, i)))
-        fcell.Temporary.Add(new PlacedObject(K(), release)
-            { Base = new FormLinkNullable<IPlaceableObjectGetter>(b.FormKey), Position = new P3Float(x * 5, 0, 0) });
+    // the load door is persistent, as TeleportLinks makes linked load doors, and placed between the temporary doors
+    foreach (var (b, x) in new IMajorRecordGetter[] { st, d1, d3, d1, d2 }.Select((b, i) => (b, i)))
+    {
+        var r = new PlacedObject(K(), release) { Base = new FormLinkNullable<IPlaceableObjectGetter>(b.FormKey), Position = new P3Float(x * 5, 0, 0) };
+        if (b == d3) { r.MajorRecordFlagsRaw |= 0x400; fcell.Persistent.Add(r); }
+        else fcell.Temporary.Add(r);
+    }
     AddCell(fmod, fcell);
     fmod.ModHeader.Stats.NextFormID = n;
     Write(fmod, args[1], sfKey);
@@ -166,7 +172,9 @@ foreach (var row in layout.GetProperty("rows").EnumerateArray())
             var type = S("type");
             var max = it.TryGetProperty("max", out var m) ? m.GetInt32() : int.MaxValue;
             if (!cells.TryGetValue(src, out var c)) { Spot(null, type, $"{type} from {src}", $"FO4Port.esm cell {src}", "no such cell in the port"); continue; }
-            var picked = c.Temporary.Concat(c.Persistent).OfType<IPlacedObjectGetter>()
+            // placement order is FormID order: PluginSpike allocates one per reference as it places them, and TeleportLinks
+            // later moves linked load doors into the persistent group, so neither group alone keeps that order
+            var picked = c.Temporary.Concat(c.Persistent).OfType<IPlacedObjectGetter>().OrderBy(r => r.FormKey.ID)
                 .Select(r => r.Base.FormKey).Where(k => typeOf.TryGetValue(k, out var ty) && (type == "" || ty == type))
                 .Distinct().Take(max).ToList();
             if (picked.Count == 0) Spot(null, type, $"{type} from {src}", $"FO4Port.esm cell {src}", "none placed there");
