@@ -200,6 +200,44 @@ references). The landing-overlay marker 003A866E is 0x400 (persistent only). The
 and `check` fails a marker that is initially disabled or listed in `LCID`. **Supported hypothesis** until the
 in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4TerrainCore's load-order slot).
 
+## Every Commonwealth marker (Claude-cloud, 2026-10-19, offline only)
+
+Status: **built and tested on synthetic plugins; the PC export ran (2026-10-19)**: 310 Commonwealth markers, all
+named; 307 left after the fixed four's own records, all inside the overlay. Nothing has run in game.
+
+1. On the PC, `dotnet run --project dotnet/Fo4Land -c Release -- <Fallout4.esm> export-mapmarkers <out.json>` lists
+   every placed object of the Commonwealth worldspace that carries map-marker data (`MapMarkersExport.cs`):
+   its FormID, editor id, name, FO4 position and whether it is persistent, in FormID order. The name is the marker's
+   own FULL, which Mutagen reads from the Strings files next to the localized plugin, as `export-names` does. The
+   output is derived game data and stays outside the repository.
+2. `make_core64c.py stage ... --fo4-map-markers <out.json>` adds every named marker that lies more than 200 m inside
+   the overlay (`map_markers.load_fo4_markers`, `extra_markers`, FO4 position / 70, z = BTD ground). The fixed four
+   come first, so their FormIDs stay. The others follow in FO4 FormID order, tagged `M<FO4 id>`. Markers left out
+   (no name, one of the fixed four, no finite position, outside the overlay, or within 100 m of a fixed marker of the
+   same name: FO4's Red Rocket Truck Stop marker 024FBE, since the core's Red Rocket sits on the COC arrival) go to `map_markers_left_out.json` with
+   their reason. `check` judges every marker the same way as the four.
+3. `dotnet/MapMarkers` splits the core's markers into quests of at most 100 (`FO4SF_MapMarkersQuest`,
+   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...). Papyrus arrays made in script hold at most 128 entries;
+   whether a plugin-filled property may hold more is **unresolved**, so no quest goes near that limit. Above 20
+   markers, a quest's `MaxMoves` is twice its marker count, so one session can place them all. `check` matches the
+   quests, in FormID order, against the core.
+
+Every new marker keeps LC172's `FNAM` 0x1B and `TNAM` 0x17, so they all draw one icon type; FO4's own marker types
+are not mapped yet. The export carries each FO4 marker's type (`type`, `type_id`) for that later table.
+
+Marker data in the two games (Claude-cloud, 2026-10-19). Mutagen 0.55.0-alpha.67, read by reflection on
+`PlacedObjectMapMarker`:
+- Fallout 4: `Flags` (Visible 1, CanTravelTo 2, ShowAllIsHidden 4, UseLocationName 8), `Name`, `Type` (an enum of
+  66 FO4 icons: Cave 0, City 1, DiamondCity 2, MetroStation 6, Vault 15, ... Minutemen 57, ...), then one unknown
+  byte. This is **verified** as Mutagen's layout. The byte widths on disk are **unresolved** (no `Fallout4.esm` here;
+  the synthetic test writes `FNAM` 1 byte and `TNAM` 2 bytes).
+- Starfield: the same `Flags`, plus `Name`, `Type` as a bare signed byte (no enum), one unknown byte, `VNAM` (u16),
+  `UNAM` (a string) and `VISI` (a byte). LC172's bytes above agree: `FNAM` is u32, and `TNAM` `1700` is type 0x17
+  plus the unknown 0x00 (**verified**).
+- The Interiors thread reports that no Starfield marker type matches FO4's Vault, Metro or Diamond City icons. That
+  is **unresolved**: Mutagen names no Starfield types, so checking it takes a census of `TNAM` values in
+  `Starfield.esm` or the in-game check. Either way, a lossy FO4-to-Starfield type table is the likely shape. This takes a new core build, so it waits for the current phase's tests.
+
 ## Acceptance
 
 Claude: scratch overlay from this writer, `coc` Red Rocket, open the planet / overlay map, confirm one icon at the
@@ -221,6 +259,17 @@ the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`
 REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
 extent check cannot tell another world with the same coordinates apart (as the mission).
 
+Install: `scripts/game/map_markers_install.py install --dir <staged> --starfield <game>` (game closed). It keeps its
+own record, `Data\FO4SFMapMarkers.install.json`, beside exp_install's one experiment record (the core set), the way
+`bridge_install.py` does, and packs the .pex into `FO4SFMapMarkers - Main.ba2` (this install reads no loose scripts).
+It refuses unless the core is an active Plugins.txt line and its file in Data has the sha256 the stage pinned in
+`core.json` (the plugin names that core build's records by FormID; a stage from before the pin is staged again).
+`order` repeats those checks before it writes, and cycle.ps1 stops with exit 7 when it refuses. After the save loads,
+cycle.ps1 runs `active` (read-only) and stops with exit 8 if the save's load order turned the plugin off. Its `order` command moves its line to the end; cycle.ps1
+runs it before the bridge's, so the experiment's and FO4Port's load indexes stay as they were. Before a core swap,
+`uninstall` it (its only master leaves Plugins.txt for the length of the swap, and exp_install refuses missing
+masters), then install it again after; and keep it out of runner runs on a commit older than this installer.
+
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
 hand, then the map shows whether a moved marker draws.
@@ -237,3 +286,32 @@ to that world, build, load order, save and session. A merged probe read says a p
 merge there, so the cause is likely in our WRLD / LCTN records (diff them next). A local read with a merged control
 says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
 door script, #353, this quest) as the design, but does not prove no record shape can merge.
+
+## BACUP's FO4 to Starfield world writer (Claude-cloud, 2026-10-19, read only)
+
+[BACUP](https://github.com/Bryant-21/bacup) (GPL-3) was read at commit `cfa3d0d` (2026-10-17). Nothing was run, and
+no code is copied here. Its `fo4:starfield` pair has no evidence of loading in game; its own test is a synthetic
+2x2-cell slice (`bacup_lib/tests/test_fo4_starfield_vertical_slice.py`). Findings below are **verified** against its
+source:
+- **Its own world, no overlay.** `native/conversion/src/phase/starfield_cells.rs` writes the FO4 worldspace as a new
+  `WRLD`: a world persistent cell plus a re-latticed 100 m exterior grid (FO4's 4096-unit cells do not divide into
+  100 m, so refs are bucketed by position and `XCLC` is rebuilt). It notes `Starfield.esm` measurements: block =
+  grid div 32, sub-block = grid div 8, label `[y, x]` (its claim, not rechecked here).
+- **Persistent refs keep their own position.** The persistent cell "never re-lattices; its children keep their
+  (rescaled) positions verbatim" (FO4 position / 69.99125, our 70). No world is merged into another, so it never
+  meets our case: an overlay whose runtime world places records at local + (-1200, -2700). It has no answer for the
+  merge probe's question.
+- **No map markers and no locations.** `embedded/translation_maps/fo4_to_starfield.yaml` drops `XMRK`, `FNAM`,
+  `TNAM` and `XLOC` from every `REFR` ("codec differs between games") and drops `WRLD` `XLCN`, `TNAM`, `UNAM`,
+  `ICON`. `LCTN` is not translated. Its marker-type code (`fullscreen_map_markers.py`) is for FO76 to FO4 and draws
+  icons in a map mod, not in Starfield.
+- **Scale.** 69.99125 FO4 units per metre against our 70 is a 0.0125 % difference: about 0.4 m across the core's
+  6.4 km. Not worth a change on its own; **unresolved** which figure is exact.
+
+Nothing to borrow for markers, locations or the merge question. Its standalone-world approach would sidestep the
+offset entirely, but it is a different design from our overlay and is a decision for the world threads.
+
+**Decided by the owner, 2026-10-19 (22:04Z, in the next-phase talk-through):** reuse BACUP's GPL-3 code, with credit,
+for three ideas rather than writing our own: zero a door's transition cell when that cell is not built, keep each
+cell's FO4 lighting template, and texture land per quadrant from `VTXT` / `ATXT`. None of them touches markers,
+locations or the merge probe; they belong to the doors, lighting and terrain work.
