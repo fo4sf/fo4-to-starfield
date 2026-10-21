@@ -127,6 +127,7 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
 - Build it in wt_v6, not from main. main has moved a long way since 039a44e (2,600 lines in src/fo4sf), and a build
   from main would change more than one thing. In wt_v6's `src\fo4sf\convert_static.py`, replace `max(0.02, ` with
   `max(0.05, `: exactly 2 replacements, at lines 432 and 654, and nothing else.
+- First break the work folder's hard links (see "Hard links" above).
 - That edit changes `checkpoint_signature`, so `--resume` reconverts all 11,887 meshes (35 to 48 min) in place in
   work_v6c2. Run v6h's exact convert command, switches included.
 - Gate: `nif_float_scan.py` over the v6i convert output finds 0x3ca3d70a in 0 NIFs. Any hit, stop.
@@ -136,5 +137,19 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
 - Reading it, with the same walk: v6i stable means the thin box caused the crash, and this PR ships the fix. A crash
   with rcx 0x3ca3d70a and 0 scan hits would mean the 0.02 comes from somewhere else (not a NIF float); a crash with a
   different rcx would mean the game still misreads the box, now with 0.05.
+
+## Hard links: the work folder writes through to staged builds (found 2026-10-21)
+- `make_core64c.py stage` hard-links each staged core's Data tree to `work_v6c2\convert` (`link_tree`), and the
+  converter wrote its files in place (`open(..., "wb")`, `shutil.copy2`). So v6h's `--resume` rewrote its 62 meshes inside
+  every staged build that shares them: the v6c and v6e stagings, l125 included, now hold v6h's counter and safe doors.
+  **Verified** (PC: fsutil shows one file across work and six staged folders). The installed tests are unaffected: they
+  ran from archives packed at install time.
+- Fix (this PR): `pipeline.write_staged` writes a new file and renames it over the old one, so a rewrite gets its own
+  file and every other link keeps the old bytes. Every converter write into staging goes through it.
+- The v6c and v6e stagings are no longer what they were checked as (`make_core64c.py verify-data` will say so). Both
+  crash anyway, so they are retired, not repaired, and go on the owner's cleanup list. v6h's staging is the rollback.
+- v6i is built in wt_v6, which does not have the fix, so break the links first: in `work_v6c2\convert`, give every file
+  with more than one link its own copy. Copy it to a temporary name in the same folder, then move that copy over the
+  original (a rename). Never copy onto the existing file: that writes through the link too. About 3.65 GB.
 
 v6c, v6e and v6h are tested in game (all crash at Red Rocket); v6i has not been built.
