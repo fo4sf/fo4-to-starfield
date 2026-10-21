@@ -451,3 +451,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: changes to FO4SFMission.esm (rejected: it is under test); mastering the port and core with our own
   markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
   fallbacks, `--mq101debug`, for the owner's talk).
+
+## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
+- Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
+  bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
+  script (FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor). Every switch is off by default (docs/spikes/load-door-animations.md).
+- Why: the owner's phase 2 (doors with enter and exit animations); Starfield's own visible load doors animate, and its
+  own animations come first (owner 2026-10-19). A child script leaves the FO4SF_LoadDoor contract the passing round
+  trips use untouched.
+- Alternatives:
+  - A separate opening door beside each load door: rejected, two records per door and a prompt clash.
+  - A fade or sound only: rejected, it is not the animation the owner asked for.
+  - Changing FO4SF_LoadDoor itself: rejected while v6e's test runs on it.
+  - Moving the core's exterior ACTI to a DOOR now: deferred until the v6e test is done (the bugs thread owns that path).

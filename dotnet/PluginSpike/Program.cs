@@ -48,6 +48,21 @@ FormKey Id(string key)
     }
     return new FormKey(modKey, v);
 }
+// load_door_anim.py sounds: a vanilla door's open / close sound (WWise start / stop events; condition and event mapping
+// FormKeys of Starfield.esm) on a rig entry of the manifest; null when the entry has none (every manifest before 2026-10-19)
+SoundReference? VanillaSound(JsonElement rig, string name)
+{
+    if (rig.ValueKind != JsonValueKind.Object || !rig.TryGetProperty(name, out var s) || s.ValueKind != JsonValueKind.Object) return null;
+    var r = new SoundReference { Start = Guid.Parse(s.GetProperty("start").GetString()!), Stop = Guid.Parse(s.GetProperty("stop").GetString()!) };
+    if (s.TryGetProperty("condition", out var c) && c.GetString() is string ck) r.Condition.SetTo(FormKey.Factory(ck));
+    if (s.TryGetProperty("mapping", out var m) && m.GetString() is string mk) r.EventMapping.SetTo(FormKey.Factory(mk));
+    return r;
+}
+
+// load_door_anim.py flags: the FO4 DOOR's FNAM flags (fo4_door_flags; same bits in Starfield, D13), only the six FO4 has;
+// 0 when the entry has none (every manifest before 2026-10-20), as before
+Door.Flag Fo4DoorFlags(JsonElement entry) =>
+    entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("fo4_door_flags", out var f) ? (Door.Flag)(f.GetInt32() & 0x7E) : 0;
 
 // ---- statics ----------------------------------------------------------------------------------------------------------
 var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable,
@@ -64,9 +79,10 @@ var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringCompa
 // FO4 reference FormKey -> the base of its own posed model (manifest "pose"); wins over bySource for that reference
 var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
+var xtelLoadBases = new Dictionary<FormKey, FormKey>();   // animated load door -> its copy with the vanilla load graph (XTEL refs)
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
 var modelOf = new Dictionary<FormKey, string>();   // STAT / MSTT base -> its model: what a promoted reference's new base carries
-int doors = 0, loadDoors = 0, movables = 0, posed = 0;
+int doors = 0, loadDoors = 0, animatedLoadDoors = 0, movables = 0, posed = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
     if (posedRefs.Count > 0 && (door is not null || loadDoor is not null))
@@ -84,6 +100,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         {
             EditorID = editorId, Model = new Model { File = model }, Name = "Door",
             SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+            Flags = Fo4DoorFlags(ld),
         };
         // newer manifests carry the model's bounds (metres, NIF space); older ones hold only a note string
         if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("bounds", out var lb))
@@ -92,8 +109,54 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
                 First = new P3Float(lb[0][0].GetSingle(), lb[0][1].GetSingle(), lb[0][2].GetSingle()),
                 Second = new P3Float(lb[1][0].GetSingle(), lb[1][1].GetSingle(), lb[1][2].GetSingle()),
             };
+        // load_door.anim (scripts/door_bridge/load_door_anim.py, convert_batch.py --rig-load-doors): the load door opens
+        // before the trip, as Starfield's own visible load doors do. The record takes the rig's graph, skeleton and
+        // clips (and the twin's rigged model when the rig is borrowed); references shift by the rig's origin offset as
+        // the opening doors' do. Without "anim" (every manifest before 2026-10-19) nothing here changes.
+        var loadOffset = new P3Float(0, 0, 0);
+        if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("anim", out var la) && la.ValueKind == JsonValueKind.Object)
+        {
+            var animModel = la.TryGetProperty("model", out var lm) && lm.GetString() is string twinModel ? twinModel : model;
+            rec.Model = new Model { File = animModel };
+            if (la.TryGetProperty("bounds", out var ab))
+                rec.ObjectBounds = new ObjectBounds
+                {
+                    First = new P3Float(ab[0][0].GetSingle(), ab[0][1].GetSingle(), ab[0][2].GetSingle()),
+                    Second = new P3Float(ab[1][0].GetSingle(), ab[1][1].GetSingle(), ab[1][2].GetSingle()),
+                };
+            rec.Components.Add(new AnimationGraphComponent
+            {
+                ANAM = la.GetProperty("anim_graph").GetString(), BNAM = la.GetProperty("skeleton").GetString(),
+                CNAM = la.GetProperty("animations").GetString(),
+            });
+            if (la.TryGetProperty("origin_offset", out var lo))
+                loadOffset = new P3Float(lo[0].GetSingle(), lo[1].GetSingle(), lo[2].GetSingle());
+            animatedLoadDoors++;
+            rec.OpenSound = VanillaSound(la, "open_sound");
+            rec.CloseSound = VanillaSound(la, "close_sound");
+            // xtel_anim_graph: the vanilla load graph of this rig (the Akila template's AK_Ext_Bld_WallA_DoorA_Load_01 1C42C2
+            // plays SimpleOpenClose02_Load.agx on the same skeleton and clips; PC read A1). Vanilla XTEL doors play a *_Load
+            // graph and scripted doors carry no XTEL, so the references that get an XTEL (TeleportLinks) are moved onto this
+            // copy of the record with the load graph, and the scripted ones (FO4SF_AnimatedLoadDoor) keep the record above.
+            if (la.TryGetProperty("xtel_anim_graph", out var xg) && xg.GetString() is string xtelGraph)
+            {
+                var xtel = new Door(Id("DOOR:" + editorId + ":xtel"), release)
+                {
+                    EditorID = editorId + "_XtelLoad", Model = new Model { File = animModel },
+                    Name = "Door", SoundLevel = rec.SoundLevel, FacingAxisOverride = rec.FacingAxisOverride, Flags = rec.Flags,
+                    ObjectBounds = rec.ObjectBounds.DeepCopy(),
+                    OpenSound = VanillaSound(la, "open_sound"), CloseSound = VanillaSound(la, "close_sound"),
+                };
+                xtel.Components.Add(new AnimationGraphComponent
+                {
+                    ANAM = xtelGraph, BNAM = la.GetProperty("skeleton").GetString(), CNAM = la.GetProperty("animations").GetString(),
+                });
+                mod.Doors.Add(xtel);
+                xtelLoadBases[rec.FormKey] = xtel.FormKey;
+            }
+        }
         mod.Doors.Add(rec);
-        bySource[source.Replace('/', '\\')] = (rec.FormKey, new P3Float(0, 0, 0));
+        bySource[source.Replace('/', '\\')] = (rec.FormKey, loadOffset);
         loadDoors++;
         continue;
     }
@@ -117,7 +180,10 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
             Name = "Door",
             SoundLevel = SoundLevel.Normal,                                     // DEVT 1, as vanilla doors
             FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,     // trailing ANAM, as vanilla doors
+            Flags = Fo4DoorFlags(d),
         };
+        rec.OpenSound = VanillaSound(d, "open_sound");                         // load_door_anim.py sounds --ordinary-doors
+        rec.CloseSound = VanillaSound(d, "close_sound");
         if (d.TryGetProperty("bounds", out var bj))                            // vanilla doors have real bounds
             rec.ObjectBounds = new ObjectBounds
             {
@@ -144,7 +210,8 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
     modelOf[stat.FormKey] = model;
     PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
-Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
+Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors" +
+                  (animatedLoadDoors > 0 ? $" ({animatedLoadDoors} open before the trip)" : "") + "; " +
                   $"{posed} of these are posed models for {byRef.Count} references");
 
 // FO4 / Starfield reference rotation (radians): Bethesda angles turn CLOCKWISE seen from the positive axis, so the matrix
@@ -294,10 +361,11 @@ if (chains.ChildrenWithParents > 0)
 }
 
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
-var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors);
+var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors, xtelLoadBases);
 foreach (var d in cellDocs) d.Dispose();
 Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
-                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues");
+                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues" +
+                  (teleports.LoadGraph > 0 ? $", {teleports.LoadGraph} animated load doors on their load graph" : ""));
 foreach (var issue in teleports.Issues) Console.WriteLine($"  issue {issue.Source} -> {issue.Target}: {issue.Reason}");
 File.WriteAllText(Path.Combine(outDir, "teleports.json"), JsonSerializer.Serialize(teleports, new JsonSerializerOptions { WriteIndented = true }));
 
