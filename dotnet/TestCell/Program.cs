@@ -14,7 +14,9 @@
 //   {"vanilla": "0AA24A"}            a Starfield.esm base, by its FormID
 //   {"from_cell": "FO4Port_Vault95", "type": "DOOR", "max": 4}
 //                                    the distinct bases of that type the port places in that cell (temporary and
-//                                    persistent), in placement (FormID) order
+//                                    persistent), in the port's FormID order; that is allocation order, which a rebuild
+//                                    with new references no longer matches to FO4 placement, so "max" (optional) picks
+//                                    by FormID, not by any FO4 meaning
 // plus "name" and "note" for the sheet. Missing items are listed as MISSING and leave their spot empty.
 //
 // usage: TestCell build <FO4Port.esm> <layout.json> <out dir>   writes FO4SFTestCell.esm, spots.json and spots.md
@@ -172,8 +174,8 @@ foreach (var row in layout.GetProperty("rows").EnumerateArray())
             var type = S("type");
             var max = it.TryGetProperty("max", out var m) ? m.GetInt32() : int.MaxValue;
             if (!cells.TryGetValue(src, out var c)) { Spot(null, type, $"{type} from {src}", $"FO4Port.esm cell {src}", "no such cell in the port"); continue; }
-            // placement order is FormID order: PluginSpike allocates one per reference as it places them, and TeleportLinks
-            // later moves linked load doors into the persistent group, so neither group alone keeps that order
+            // FormID order across both groups: TeleportLinks moves linked load doors into the persistent group, so neither
+            // group alone keeps the allocation order (PluginSpike's stable map gives new references max + 1)
             var picked = c.Temporary.Concat(c.Persistent).OfType<IPlacedObjectGetter>().OrderBy(r => r.FormKey.ID)
                 .Select(r => r.Base.FormKey).Where(k => typeOf.TryGetValue(k, out var ty) && (type == "" || ty == type))
                 .Distinct().Take(max).ToList();

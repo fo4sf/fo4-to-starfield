@@ -9,7 +9,8 @@ or only where it sits in its home cell (placement, neighbours, the terrain or st
   the port is (the port's FormIDs are stable, but a rebuild can add or drop bases).
 - **Layout:** `layout.json`, rows of items. Each item is a converted base by editor ID (`edid`), a vanilla
   `Starfield.esm` base by FormID (`vanilla`), or the distinct bases of one type the port places in a cell
-  (`from_cell` + `type` + `max`). Anything not found is listed as MISSING and its spot stays empty.
+  (`from_cell` + `type`, with an optional `max` that keeps the first ones in the port's FormID order, which is not FO4's
+  placement order). Anything not found is listed as MISSING and its spot stays empty.
 - **Placement:** spot `<row><n>` at x = (n - 1) * spacing, y = row index * spacing, z 0, unrotated, scale 1. `coc
   FO4SF_TestCell` arrives one spacing before A1, facing along row A; rows B, C, ... lie to the left. There are no labels in
   the room: `spots.md` (written next to the plugin) names every spot, so a screenshot can say "B4".
@@ -23,7 +24,7 @@ or only where it sits in its home cell (placement, neighbours, the terrain or st
 
 | Row | What | Why |
 |---|---|---|
-| A | The Akila door (vanilla), then up to 4 door bases each from Vault95, MuseumOfWitchcraft01 and PrydwenHull01 | Job 6's three failed exit legs (research log, #383): is the door itself at fault, or its landing? |
+| A | The Akila door (vanilla), then every door base the port places in Vault95, MuseumOfWitchcraft01 and PrydwenHull01 | Job 6's three failed exit legs (research log, #383): is the door itself at fault, or its landing? |
 | B | Four vanilla movable items, each next to the converted item the movable queue pairs it with | Walking contact versus applied impulse, without QASmoke's own clutter |
 | C | The five stair models of the library stairs queue | Climb each flight on a flat floor, away from the helper and floor crossings of BostonPublicLibrary02 |
 
