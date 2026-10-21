@@ -7,8 +7,11 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-from fo4sf.combined import balance, fixtures, jobs, model, sim  # noqa: E402
+from fo4sf.combined import balance, fixtures, jobs, model, seedpack, sim  # noqa: E402
 from fo4sf.combined.model import WorldState  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_combined_seedpack import commonwealth_scale_draft  # noqa: E402
 
 PACKS = [fixtures.REGION_1, fixtures.REGION_2]
 
@@ -54,6 +57,37 @@ class MetricsTests(unittest.TestCase):
             self.assertTrue(0.0 <= v <= 1.0, v)
         self.assertEqual(sorted(m["frozen_regions"]), m["frozen_regions"])
         self.assertEqual(m["frozen_region_count"], len(m["frozen_regions"]))
+        # scale-free rates and per-faction tables
+        self.assertAlmostEqual(m["changes_per_30_days_per_place"], m["changes_per_30_days"] / len(ws.places))
+        self.assertAlmostEqual(m["attacks_per_day_per_faction"], m["attacks_per_day"] / len(ws.factions))
+        captures = [e for e in taken if e["place"] in ws.settlements]
+        self.assertEqual(m["settlement_captures"], len(captures))
+        self.assertAlmostEqual(m["settlement_captures_per_30_days"], len(captures))
+        self.assertEqual(set(m["places_taken_by"]), set(ws.factions))
+        self.assertEqual(sum(m["places_taken_by"].values()), len(taken))
+        self.assertEqual(sum(m["places_lost_by"].values()), sum(1 for e in taken if e["previous"]))
+        self.assertAlmostEqual(m["settlements_at_cap_share"],
+                               sum(s.population >= s.beds for s in ws.settlements.values()) / 4)
+        self.assertAlmostEqual(m["mean_population_share"],
+                               sum(s.population / s.beds for s in ws.settlements.values()) / 4)
+
+    def test_enemy_rates_count_every_faction_but_the_one_holding_most_settlements(self):
+        ws = world()
+        self.assertEqual(balance._settler_faction(ws), "settlers")              # 3 of 4 settlements
+        ws.hour = 24 * 30
+        for faction, previous, place in (("raiders", "settlers", "farm_a"), ("settlers", "raiders", "farm_a"),
+                                         ("order", None, "ruins"), ("slavers", "traders", "river_town")):
+            ws.events.append({"hour": 6, "kind": "place_taken", "place": place, "region": "R1", "faction": faction,
+                              "previous": previous, "retaken": False})
+        m = balance.metrics(ws)
+        self.assertEqual(m["enemy_takes_per_30_days"], 3)                       # raiders, order, slavers
+        self.assertEqual(m["enemy_losses_per_30_days"], 2)                      # raiders and traders lost one each
+        self.assertEqual(m["settlement_captures"], 3)
+        self.assertEqual(m["places_taken_by"], {"order": 1, "raiders": 1, "settlers": 1, "slavers": 1, "traders": 0})
+        self.assertEqual(m["places_lost_by"], {"order": 0, "raiders": 1, "settlers": 1, "slavers": 0, "traders": 1})
+        empty = WorldState(seed=1)
+        self.assertIsNone(balance._settler_faction(empty))
+        self.assertEqual(balance.metrics(empty)["places_taken_by"], {})
 
     def test_empty_hours_are_rebuilt_from_emptied_and_resettled_events(self):
         ws = world()
@@ -218,6 +252,7 @@ class SweepTests(unittest.TestCase):
         self.assertAlmostEqual(agg["home_only_share"]["raiders"],
                                sum(m["home_only_share"]["raiders"] for m in runs) / 3)
         self.assertEqual(set(agg["frozen_regions"]), set.intersection(*(set(m["frozen_regions"]) for m in runs)))
+        self.assertAlmostEqual(agg["places_taken_by"]["raiders"], sum(m["places_taken_by"]["raiders"] for m in runs) / 3)
         self.assertEqual(balance.aggregate({}), {"seeds": 0})
 
     def test_overrides_change_the_numbers_and_are_restored(self):
@@ -238,6 +273,41 @@ class SweepTests(unittest.TestCase):
         self.assertGreater(agg["resettlements"], 0)   # places fall and are resettled (sim.RESETTLE_*)
         self.assertGreater(agg["settlements_emptied"], 0)
         self.assertLess(agg["empty_settlements"], 1.0)
+
+
+class CommonwealthScaleSweepTests(unittest.TestCase):
+    """The synthetic Commonwealth-scale pack (test_combined_seedpack.commonwealth_scale_draft) over 5 seeds x 90 days
+    sits inside balance.SCALE_BOUNDS: settlements grow but do not all saturate, enemies take and lose places. The
+    numbers are the "after" column of docs/combined-core.md "Commonwealth-scale baseline"."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pack, _ = seedpack.generate(commonwealth_scale_draft())
+        cls.sweep = balance.sweep([cls.pack], range(5), 90)
+
+    def test_inside_the_scale_envelope(self):
+        agg = self.sweep["aggregate"]
+        self.assertEqual(balance.check(agg, balance.SCALE_BOUNDS), [])
+        self.assertEqual((agg["story_lock_violations"], agg["home_violations"]), (0, 0))
+        self.assertLess(agg["settlements_at_cap_share"], 0.3)
+        self.assertGreater(agg["mean_population_share"], 0.5)
+        self.assertTrue(40 < agg["mean_morale"] < 95)
+        self.assertEqual(agg["empty_settlements"], 0)
+
+    def test_every_enemy_faction_takes_and_loses_ground(self):
+        agg = self.sweep["aggregate"]
+        for fid in ("creatures", "ghouls", "gunners", "raiders", "robots", "supermutants"):
+            self.assertGreater(agg["places_taken_by"][fid], 0, fid)
+            self.assertGreater(agg["places_lost_by"][fid], 0, fid)
+        self.assertGreater(agg["settlement_captures"], 0)
+
+    def test_first_prototype_rules_saturate_the_same_pack(self):
+        old = {"sim.FARM_SLOTS_PER_BEDS": 0, "sim.LEAVE_ONLY_WHEN_SHORT": 0, "sim.MORALE_DRIFT": 0,
+               "sim.ARRIVAL_SLOWDOWN_POP": 0}
+        agg = balance.sweep([self.pack], range(2), 90, old)["aggregate"]
+        self.assertGreater(agg["settlements_at_cap_share"], 0.9)
+        self.assertGreater(agg["mean_morale"], 95)
+        self.assertIn("settlements_at_cap_share", " ".join(balance.check(agg, balance.SCALE_BOUNDS)))
 
 
 class CheckTests(unittest.TestCase):

@@ -86,23 +86,28 @@ The combined core is game runtime; its records and packages are kept apart from 
 
 Fixtures, 20 seeds x 90 days, `PYTHONPATH=src python3 -m fo4sf.combined balance --seeds 20 --days 90` (under a
 second). "Before" is the M3 constants, 2026-10-20; "after" is the same command on 2026-10-21 with the two settlement
-rules added below (`sim.REROLE_ON_SHORTAGE`, `sim.RESETTLE_*`), everything else unchanged. Later tuning changes add a
-column the same way.
+rules added below (`sim.REROLE_ON_SHORTAGE`, `sim.RESETTLE_*`), everything else unchanged; "scale rules" is the same
+command later that day with the four growth rules from the Commonwealth-scale baseline below (`sim.FARM_SLOTS_PER_BEDS`,
+`LEAVE_ONLY_WHEN_SHORT`, `MORALE_DRIFT`, `ARRIVAL_SLOWDOWN_POP`). Later tuning changes add a column the same way.
 
-| Metric | Before (2026-10-20) | After (2026-10-21) | Reads as |
-|---|---|---|---|
-| changes_per_30_days | 15.0 | 12.5 | places change hands about every two and a half days across 11 places |
-| attacks_per_day | 1.08 | 1.09 | about one attack squad launched per game day (unchanged) |
-| caravans_raided_share | 0.13 | 0.10 | one caravan in ten is intercepted |
-| empty_settlements | 1.6 of 4 | 0.0 of 4 | no run ends with an empty settlement |
-| settlements_emptied (new) | 2.3 | 2.35 | a settlement still falls empty about twice per run (per 4 settlements, 90 days) |
-| resettlements (new) | 0 | 1.75 | and is resettled; the rest refill through the older arrival rule |
-| empty_share (new) | 0.32 | 0.024 | share of settlement-hours with nobody home: a third of the run, now one fortieth |
-| mean_morale | 48.2 | 85.9 | settlers were flat or starving; now most settlements are fed and growing |
-| landless_share_max | 0.0 | 0.0 | 0 by construction while homes never change hands |
-| home_only_share | slavers 1.0, traders 0.62, order 0.53, raiders 0.35, settlers 0.0 | slavers 1.0, traders 0.62, order 0.47, raiders 0.40, settlers 0.0 | see note |
-| story_lock_violations, home_violations | 0, 0 | 0, 0 | invariants hold over all seeds |
-| frozen_regions | none | none | both regions saw a change of holder in every seed |
+| Metric | Before (2026-10-20) | After (2026-10-21) | Scale rules (2026-10-21) | Reads as |
+|---|---|---|---|---|
+| changes_per_30_days | 15.0 | 12.5 | 12.6 | places change hands about every two and a half days across 11 places |
+| attacks_per_day | 1.08 | 1.09 | 1.04 | about one attack squad launched per game day (unchanged) |
+| caravans_raided_share | 0.13 | 0.10 | 0.135 | one caravan in ten is intercepted |
+| empty_settlements | 1.6 of 4 | 0.0 of 4 | 0.0 of 4 | no run ends with an empty settlement |
+| settlements_emptied (new) | 2.3 | 2.35 | 2.2 | a settlement still falls empty about twice per run (per 4 settlements, 90 days) |
+| resettlements (new) | 0 | 1.75 | 1.25 | and is resettled; the rest refill through the older arrival rule |
+| empty_share (new) | 0.32 | 0.024 | 0.025 | share of settlement-hours with nobody home: a third of the run, now one fortieth |
+| mean_morale | 48.2 | 85.9 | 90.2 | settlers were flat or starving; now most settlements are fed and growing |
+| landless_share_max | 0.0 | 0.0 | 0.0 | 0 by construction while homes never change hands |
+| home_only_share | slavers 1.0, traders 0.62, order 0.53, raiders 0.35, settlers 0.0 | slavers 1.0, traders 0.62, order 0.47, raiders 0.40, settlers 0.0 | slavers 1.0, traders 0.59, order 0.60, raiders 0.36, settlers 0.0 | see note |
+| story_lock_violations, home_violations | 0, 0 | 0, 0 | 0, 0 | invariants hold over all seeds |
+| frozen_regions | none | none | none | both regions saw a change of holder in every seed |
+
+The fixtures barely move under the scale rules (their settlements are small and fought over; `river_town` now stops
+at its food edge of 15 instead of its 20 beds) and `DEFAULT_BOUNDS` still passes; `mean_morale` rises because the new
+drift lifts a fed place that has no surplus.
 
 The three new metrics are rebuilt from two new event kinds, `settlement_emptied` (the last settler leaves, or a
 capture removes the last people; carries `holder`) and `settlement_resettled` (carries `faction`, the holder), so a
@@ -149,6 +154,85 @@ findings; a water cargo or a lower morale threshold would be a tuning question. 
 whether settlements should thrive this easily between raids is for the lead to judge against the design, and
 `RAID`/`ATTACK` pressure and `REROLE_ON_SHORTAGE` are the knobs.
 
+### Commonwealth-scale baseline (synthetic fixture, before and after)
+
+The first real `simulate --seed 1 --days 30` on the generated pack (owner's PC, 2026-10-21, 233 places, 38
+settlements) ended with 36 of 38 settlements at morale 100, population 20 (the bed cap) and stage 3, and 441 of
+446 routes at 1 hour. To work on that offline, `tests/test_combined_seedpack.py` has `commonwealth_scale_draft()`:
+a synthetic seed draft that mirrors only that run's **counts** (38 settlement candidates of which 6 have no marker,
+29 + 22 + 19 + 12 enemy bases, 7 unheld bases, 106 landmarks carrying the run's unmapped keyword counts, 164 places
+without a marker that are dropped) with invented ids and uniformly random marker positions on a plane. It says
+nothing about any map; it is a load at the right scale. The sweeps below are 5 seeds x 90 days on the pack
+`seedpack.generate` makes from it (`balance.sweep`; about 10 s).
+
+**Diagnosis (throwaway traces, not kept).** Not the caravans. A settlement alone, with no routes at all, reaches 20
+of 20 beds on day 18 with food at 440 and climbing: three farmers make 9 food and 9 water a tick against 5 eaten,
+`_add_settler` keeps farmers at about a third of the population, so production always beats consumption, stock
+only grows, morale gains 2 a tick to 100, and one settler arrives every day until the beds are full (the real run's
+583 arrivals over 38 settlements in 30 days is 15 each: 5 to 20). Route hours did not matter for that; the 1-hour
+collapse (a placeholder speed of 20000 units an hour against real marker distances) only made caravans and attacks
+instant. Captures (a dozen per 90 days over 38 settlements) halve a population that is back at the cap within weeks.
+
+**Routes first (`seedpack.py`).** Hours are now data-relative: in each world the median k-nearest route distance
+maps to `median_route_hours` (3, placeholder), the rest scale linearly, rounded half up, never below
+`min_route_hours` (1). No claim about what a marker unit measures is needed, and scaling every marker by 1000 changes
+no hour (tested). On the synthetic fixture the histogram goes from {1: 359, 2: 54, 3: 4} to {1: 53, 2: 96, 3: 120,
+4: 90, 5: 40, 6: 13, 7: 1, 8: 2, 9: 2}. Measured alone (column C below) it changes nothing about saturation, as the
+diagnosis predicted, so the simulation rules changed too.
+
+**Sim rules added (placeholder constants, overridable in sweeps; every random draw still comes from the (seed, hour)
+RNG and none of these add a draw):**
+- `FARM_SLOTS_PER_BEDS = 4`: only `beds // 4` farmers find land to work, so a place feeds about three quarters of
+  its beds on its own (3 food per farmer) and fills the rest only with caravans or the player's beds
+  (`manage.add_beds` adds slots too). Arrivals beyond the slots take the other roles. 0 disables. Alone it gives boom
+  and bust (83 emptyings per run at scale: the old "morale 10, one leaves every tick" rule cascades a place at its
+  food edge to zero), hence the next two.
+- `LEAVE_ONLY_WHEN_SHORT = 1`: at morale 10 a settler leaves only on a tick that was short of food or water.
+- `MORALE_DRIFT = 1`: a tick that is neither short nor in surplus adds 1 morale, so a fed place at its edge climbs
+  back to the arrival threshold instead of freezing at 10 (without it: mean morale 27 at scale).
+- `ARRIVAL_SLOWDOWN_POP = 3`: a settler may arrive only every `1 + population // 3` days, days counted from hour 0 so
+  a resumed save judges the same. A place fills fast while small and slowly when nearly full, and the larder gets
+  time to build the surplus caravans carry (caravans finished per run at scale: 509 without it, 1391 with it).
+- `SETTLEMENT_TARGET_WEIGHT = 1`: a hostile or empty settlement counts this many times when a faction picks a
+  target. Left at 1 (unchanged behaviour); measured at 3 it raises settlement captures from 19 to 39 per 90 days and
+  cuts enemy takes, a knob for the lead, not a change made here.
+
+Variants rejected, same sweep: the slowdown alone (2, 3 or 4) only delays the saturation (cap share 0.64 to 0.90,
+median population still 20, morale 98); farm slots per 5 beds (with the leave and drift rules, no slowdown) leaves
+the median population at 9 of 20; the full set with slowdown 2 or 4 gives mean morale 55 or 62 against 81 with 3.
+
+| Metric (5 seeds, synthetic Commonwealth fixture) | A: 1 h routes, old sim, 30 d | B: same, 90 d | C: median-3 h routes, old sim, 90 d | D: median-3 h routes, new sim, 90 d |
+|---|---|---|---|---|
+| settlements_at_cap_share | 0.91 | 0.97 | 0.98 | 0.14 |
+| mean_population_share (of beds) | 0.97 | 0.99 | 0.99 | 0.75 |
+| population quartiles at day 90 (min, p25, median, p75, max) | - | 14.6, 20, 20, 20, 20 | 14.6, 20, 20, 20, 20 | 6, 13, 13.6, 17.8, 20 |
+| mean_morale | 98.7 | 98.9 | 99.5 | 80.8 |
+| settlement_captures_per_30_days | 8.0 | 4.6 | 4.1 | 6.5 |
+| enemy_takes_per_30_days / enemy_losses_per_30_days | 75 / 21 | 58 / 27 | 57 / 28 | 59 / 28 |
+| changes_per_30_days_per_place | 0.34 | 0.26 | 0.26 | 0.27 |
+| attacks_per_day_per_faction | 0.56 | 0.56 | 0.56 | 0.55 |
+| caravans_raided_share | 0.42 | 0.38 | 0.40 | 0.35 |
+| empty_settlements, settlements_emptied | 0, 0 | 0, 0 | 0, 0 | 0, 0 |
+| story_lock_violations, home_violations | 0, 0 | 0, 0 | 0, 0 | 0, 0 |
+| `check(agg, SCALE_BOUNDS)` | - | - | 3 broken (cap share, population share, morale) | clean |
+
+Column A is the offline stand-in for the real 30-day run (`median_route_hours` 1 emulates the collapse; the real run's
+36 of 38 at the cap reads as 0.95 here against 0.91). In D every enemy faction both takes and loses ground over the
+sweep (per-faction `places_taken_by` and `places_lost_by` are in the metrics now), settlements are captured about
+every five days somewhere, and the settlements spread from 6 to 20 people instead of all sitting at 20.
+
+New in `balance.py` for this: scale-free metrics (`changes_per_30_days_per_place`, `attacks_per_day_per_faction`,
+`settlement_captures[_per_30_days]`, `enemy_takes_per_30_days`, `enemy_losses_per_30_days`, where "enemy" is every
+faction but the one holding the most settlements at the end, `settlements_at_cap_share`, `mean_population_share`,
+`places_taken_by`, `places_lost_by`), the aggregate averaging any per-faction table, and `SCALE_BOUNDS`, a placeholder
+envelope around column D that the test `CommonwealthScaleSweepTests` holds the synthetic fixture inside (and shows
+the old rules breaking). `DEFAULT_BOUNDS` stays the fixtures' envelope; the `balance` command still checks only that.
+
+Open for the lead: the equilibrium is uniform where the data is uniform (every generated settlement has 20 beds and
+the same start, so most settle near 13 to 15 people); real variation needs per-settlement beds or stats, which the
+draft has no data for. The model has no "runs no caravans" flag, so a settlement a wild faction takes trades like
+any other. `caravans_raided_share` 0.35 at scale is high for a world with no player.
+
 ## From draft to a pack that runs (`seedpack.py`)
 
 The first real `seed` run (owner's PC, 2026-10-21, `Fallout4.esm` + `DLCRobot.esm` + `DLCworkshop01.esm`; the other
@@ -172,24 +256,45 @@ Two additions close that gap, both offline and stdlib only:
   supports it:
   - keep a place if it is a settlement candidate or has a marker position; drop the rest (quest and virtual
     locations, unplaced parents) and count each drop reason;
+  - story locks (CC-21: a story place is locked to its story holder until the story passes it): `story_lock` maps
+    a placeholder story id to a regex searched on place ids; a matching place gets `story_lock` set, kind landmark,
+    no holder and no settlement stats, so no pack faction claims it and it never changes hands. The placeholder
+    patterns are `^Prydwen`, `^Vault111`, `^Institute`, `^DiamondCity`, `^Goodneighbor`: the first two ids are ones
+    the first run's report listed (`PrydwenLocation`, which the settlement regex had turned into a settlers
+    settlement that the 30-day run then held as settlers, and `Goodneighbor`), the other three the lead named.
+    `Vault81` and `TheCastle` were left unlocked: nothing in the run's report needs them, and a lock also removes a
+    place from growth and jobs and shields its neighbours under story mode. Unheld rather than a placeholder
+    faction because the story holder is the owner's call (CC-20) and the pack's factions are only those holding
+    sandbox ground. The report's `story_locked` lists which ids matched, so an over-wide pattern is visible;
   - holders: a place with a `LocEnc<X>` keyword is held by the pack faction `enc_factions` maps `<X>` to
-    (`Raiders`, `SuperMutants`, `Ghouls` from the first run; `Gunners` is a guess at a keyword name); settlement
-    candidates start held by `settlers`; the rest are unheld, and unmapped `<X>` values are reported, not guessed;
-  - factions are the pack's own small set (`settlers` plus each mapped enemy that holds a place), not the 710 FACT
+    (`Raiders`, `SuperMutants`, `Ghouls` from the first run's keyword counts, `Gunners` from its seed-pack report);
+    the creature keywords that report listed as unmapped (`Bugs`, `Deathclaw`, `Mirelurks`, `Molerats`, `Wildlife`,
+    17 places) share one placeholder `creatures` faction and `Robots` (8) a placeholder `robots` faction, both
+    "wild": hostile to every faction at -80 both ways, aggression 50 and 40. A place with keywords for several mapped
+    factions goes to the first in `enc_priority` (the organised enemies before the wild ones). Deliberately still
+    unmapped and reported: `BoS` (2) and `CoA` (2), player factions whose holder is the owner's design decision
+    (CC-20), and `Synths` (5), the same kind of decision. Settlement candidates start held by `settlers`; the rest are
+    unheld. The model has no "runs no caravans" flag, so a settlement a wild faction takes trades like any other;
+  - factions are the pack's own small set (`settlers` plus each mapped faction that holds a place), not the 710 FACT
     records. FACT relation data is carried only where a FACT editor id matches a `fact_patterns` regex (unverified
-    guesses); otherwise the placeholder applies (enemy of settlers at -80, enemies neutral to one another);
+    guesses); otherwise the placeholder applies (enemy of settlers at -80, enemies neutral to one another, wild
+    factions hostile to all);
   - each faction's home is its held place with the most neighbours held by the same faction, ties to the smaller
     id; strength is `8 + 2 * places held`, capped by the model; aggression 20 for settlers, 70 for enemies;
   - routes: per worldspace, each place with a marker joins its 3 nearest by marker distance, undirected and
-    deduplicated; hours are distance / 20000 units per hour, rounded half up, at least 1 (the unit is the marker's
-    own, no claim about what it measures; the report's `route_hours` histogram is what to tune against). A kept
-    place without a marker joins its parent location's place at 1 hour when that is kept; isolated places are listed;
+    deduplicated; hours are data-relative: the world's median route distance maps to `median_route_hours` (3), the
+    rest scale linearly, rounded half up, never below `min_route_hours` (1). The unit is the marker's own and no
+    claim about what it measures is needed (the first run's absolute 20000 units an hour put 441 of 446 routes at 1
+    hour). The report's `route_scale` gives, per world, the distance quantiles, the derived units per hour and the
+    hour histogram; `route_hours` is the histogram over all routes. A kept place without a marker joins its parent
+    location's place at the minimum when that is kept; isolated places are listed;
   - settlements get the fixtures' `farm_a` starting stats (population 5, 3 farmers, 1 guard, 1 trader, food and
     water 20, ammo 10, 20 beds, morale 50); defence 2 for settlements, 4 for bases.
 
   `python -m fo4sf.combined seed-pack DRAFT.json OUT_DIR` writes `commonwealth.pack.json` and
-  `seedpack_report.json` (drop reasons, holders per faction, homes, route count and hour histogram, isolated places,
-  unmapped keywords, FACT ids matched, validation problems, the rules used) and prints one line.
+  `seedpack_report.json` (drop reasons, holders per faction, homes, story-locked ids, route count, hour histogram
+  and per-world route scale, isolated places, unmapped keywords, FACT ids matched, validation problems, the rules
+  used) and prints one line.
 
 ### PC rerun card (read-only on game files)
 

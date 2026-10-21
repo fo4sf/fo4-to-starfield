@@ -27,6 +27,8 @@ NEWS_HOURS_PER_ROUTE_HOUR = 1        # news travels at travel speed
 STRENGTH_INCOME_PER_PLACE = 2        # strength gained per held place per day
 UPKEEP_PER_PLACE = 1                 # strength paid per held place per day, floor 0
 RETAKE_WEIGHT = 3                    # a lost place counts this many times when picking a target
+SETTLEMENT_TARGET_WEIGHT = 1         # a hostile or empty settlement counts this many times when picking a target
+                                     # (multiplies RETAKE_WEIGHT); placeholder, see "Commonwealth-scale baseline"
 ATTACK_CHANCE_PER_AGGRESSION = 0.25  # percent chance per tick per aggression point, times the raid-pressure
                                      # multiplier from ws.settings (modes.py, CC-41)
 
@@ -69,6 +71,26 @@ RESETTLE_SAFE_HOURS = 48
 RESETTLE_KIT = 6
 RESETTLE_MORALE = 50
 ATTACK_EVENT_KINDS = ("place_taken", "attack_failed", "place_cleared")   # events that mean fighting at a place
+
+# Growth brake (placeholder, deterministic, no random draw). Alone, a settlement with the generated starting stats
+# saturates: three farmers make 9 food a tick against 5 eaten, _add_settler keeps farmers ahead of mouths, so stock
+# only grows, morale pins at 100 and one settler arrives every day until the beds are full (day 18 from population 5
+# with 20 beds; docs/combined-core.md "Commonwealth-scale baseline"). With this, a settler may arrive only every
+# 1 + population // ARRIVAL_SLOWDOWN_POP days (days counted from hour 0, so a resumed save judges the same): a place
+# fills fast while small and slowly when nearly full, and the larder gets time to build the surplus caravans carry.
+# 0 disables (the first prototype's daily arrival). Measured 2026-10-21, see the doc's Commonwealth-scale table.
+ARRIVAL_SLOWDOWN_POP = 3
+
+# Farm capacity (placeholder, the structural brake): only `beds // FARM_SLOTS_PER_BEDS` farmers find land to work, so
+# a place feeds about three quarters of its beds on its own (3 food per farmer) and fills the rest only with caravans
+# or the player's management (manage.add_beds also adds slots). Extra arrivals take the other roles (guards, then
+# scavengers, ...). 0 disables (every farmer produces). LEAVE_ONLY_WHEN_SHORT keeps a settlement at its food edge
+# instead of cascading to empty: at morale 10 a settler leaves only on a tick that was short of food or water, not
+# every tick until morale recovers (1 on, 0 off). MORALE_DRIFT is the morale gained on a tick that is neither short
+# nor in surplus, so a fed place at its edge climbs slowly back to the arrival threshold instead of freezing.
+FARM_SLOTS_PER_BEDS = 4
+LEAVE_ONLY_WHEN_SHORT = 1
+MORALE_DRIFT = 1
 
 # Event kinds that change a place's holder and carry `previous`: place_taken (here and jobs' retake, `faction` is the
 # new holder) and place_cleared (jobs' clear: the holder becomes None, `faction` is the giver). Every reader of holder
@@ -122,8 +144,9 @@ def _settlement_tick(ws: WorldState) -> None:
     for sid in sorted(ws.settlements):
         s = ws.settlements[sid]
         r = s.roles
-        s.stock["food"] += 3 * r["farmer"]
-        s.stock["water"] += 3 * r["farmer"]
+        farming = r["farmer"] if _farm_slots(s) is None else min(r["farmer"], _farm_slots(s))
+        s.stock["food"] += 3 * farming
+        s.stock["water"] += 3 * farming
         s.stock["scrap"] += 2 * r["scavenger"]
         made = min(r["crafter"], s.stock["scrap"] // 2)
         s.stock["scrap"] -= 2 * made
@@ -146,13 +169,15 @@ def _settlement_tick(ws: WorldState) -> None:
                 _event(ws, "roles_changed", sid, from_role=role, to_role="farmer", n=n)
         elif s.stock["food"] > 2 * need and s.stock["water"] > 2 * need:
             s.morale = min(100, s.morale + 2)
-        if s.morale <= 10 and s.population > 0:
+        else:
+            s.morale = min(100, s.morale + MORALE_DRIFT)
+        if s.morale <= 10 and s.population > 0 and (short or not LEAVE_ONLY_WHEN_SHORT):
             _remove_settler(s)
             _event(ws, "settler_left", sid)
             if s.population == 0:
                 _event(ws, "settlement_emptied", sid, holder=ws.places[sid].holder)
         elif (s.morale >= 70 and ws.hour % 24 == 0 and not short
-              and s.population < s.beds):
+              and s.population < s.beds and _arrival_due(ws, s)):
             _add_settler(s)
             _event(ws, "settler_arrived", sid)
         elif (s.population == 0 and s.beds > 0 and ws.hour % 24 == 0
@@ -168,15 +193,33 @@ def _settlement_tick(ws: WorldState) -> None:
             s.stage = stage
 
 
+def _farm_slots(s) -> int | None:
+    """Farmers that find land to work (FARM_SLOTS_PER_BEDS), None when the rule is off."""
+    return None if FARM_SLOTS_PER_BEDS <= 0 else s.beds // FARM_SLOTS_PER_BEDS
+
+
+def _wants_farmer(s) -> bool:
+    """The food rule: farmers stay ahead of mouths (3 * farmers < population + 2) while land remains for them."""
+    slots = _farm_slots(s)
+    return 3 * s.roles["farmer"] < s.population + 2 and (slots is None or s.roles["farmer"] < slots)
+
+
 def _add_settler(s) -> None:
     s.population += 1
     # keep food ahead of mouths, then fill the scarcest other role
-    if 3 * s.roles["farmer"] < s.population + 2:
+    if _wants_farmer(s):
         s.roles["farmer"] += 1
         return
     order = sorted(("guard", "scavenger", "trader", "crafter", "doctor"),
                    key=lambda r: (s.roles[r], r))
     s.roles[order[0]] += 1
+
+
+def _arrival_due(ws: WorldState, s) -> bool:
+    """Whether the growth brake lets a settler arrive on this day tick (ARRIVAL_SLOWDOWN_POP)."""
+    if ARRIVAL_SLOWDOWN_POP <= 0:
+        return True
+    return (ws.hour // 24) % (1 + s.population // ARRIVAL_SLOWDOWN_POP) == 0
 
 
 def _remove_settler(s) -> None:
@@ -192,7 +235,7 @@ def _reroles_to_farming(s, n: int) -> dict[str, int]:
     Same fields as manage.set_roles's roles_changed event, so news shows it with that template."""
     moved: dict[str, int] = {}
     for _ in range(max(0, n)):
-        if 3 * s.roles["farmer"] >= s.population + 2:
+        if not _wants_farmer(s):
             break
         others = [r for r in sorted(s.roles) if r != "farmer" and s.roles[r] > 0]
         if not others:
@@ -300,7 +343,9 @@ def _faction_tick(ws: WorldState, rng: random.Random) -> None:
                 if pl.story_lock or n in shielded or any(x.home == n for x in ws.factions.values()):
                     continue
                 if pl.holder is None or _hostile(ws, fid, pl.holder):
-                    targets.extend([(n, hours, p)] * (RETAKE_WEIGHT if n in lost else 1))
+                    weight = (RETAKE_WEIGHT if n in lost else 1) * (SETTLEMENT_TARGET_WEIGHT if n in ws.settlements
+                                                                     else 1)
+                    targets.extend([(n, hours, p)] * weight)
         if not targets:
             continue
         target, hours, origin = rng.choice(sorted(targets))

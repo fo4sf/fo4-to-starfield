@@ -46,6 +46,26 @@ DEFAULT_BOUNDS = {
     "caravans_raided_share": (None, 0.6),  # supply lines are breakable, not broken
 }
 
+# Placeholders for a Commonwealth-scale pack (a few hundred places, a few dozen settlements, several factions), as
+# an envelope around the synthetic scale fixture's measured baseline (tests/test_combined_seedpack.py
+# commonwealth_scale_draft; docs/combined-core.md "Commonwealth-scale baseline"). Per-place and per-faction rates,
+# because the fixture bounds above are written for 11 places. Not balance decisions either.
+SCALE_BOUNDS = {
+    "story_lock_violations": (0, 0),
+    "home_violations": (0, 0),
+    "changes_per_30_days_per_place": (0.02, 0.6),   # territory moves, but the map does not churn every tick
+    "attacks_per_day_per_faction": (0.1, 2.0),
+    "settlements_at_cap_share": (None, 0.5),        # most settlements are not pinned at their beds
+    "mean_population_share": (0.3, 0.95),           # but they do grow
+    "settlement_captures_per_30_days": (1.0, None),  # settlements are fought over
+    "enemy_takes_per_30_days": (3.0, None),         # factions other than the settlers take ground
+    "enemy_losses_per_30_days": (1.0, None),        # and lose it
+    "empty_settlements": (None, 2.0),
+    "empty_share": (None, 0.15),
+    "mean_morale": (40, 95),                        # neither despairing nor pinned at 100
+    "caravans_raided_share": (None, 0.6),
+}
+
 
 # --- one world -------------------------------------------------------------------
 
@@ -116,10 +136,13 @@ def empty_hours(ws: WorldState) -> dict[str, int]:
 
 
 def metrics(ws: WorldState) -> dict:
-    """Numbers for one finished world: scalars plus the per-faction `landless_share` and `home_only_share` and the
-    `frozen_regions` list. A place changing hands is any holder change, a player clear included. Rates are per
-    day of ws.hour, so a resumed save measures its whole history. `empty_share` is the share of settlement-hours
-    with nobody home (empty_hours), the span metric behind the end-state count `empty_settlements`."""
+    """Numbers for one finished world: scalars plus the per-faction tables (`landless_share`, `home_only_share`,
+    `places_taken_by`, `places_lost_by`) and the `frozen_regions` list. A place changing hands is any holder change,
+    a player clear included. Rates are per day of ws.hour, so a resumed save measures its whole history.
+    `empty_share` is the share of settlement-hours with nobody home (empty_hours), the span metric behind the
+    end-state count `empty_settlements`. The `_per_place` and `_per_faction` rates and the settlement shares are
+    scale-free, for packs of any size (SCALE_BOUNDS); `enemy_*` counts every faction but the one holding the most
+    settlements at the end (_settler_faction)."""
     days = ws.hour / HOURS_PER_DAY
     taken = sim.holder_changes(ws)
     empties = empty_hours(ws)
@@ -128,11 +151,28 @@ def metrics(ws: WorldState) -> dict:
     share = landless_share(ws)
     home_only = home_only_share(ws)
     settlements = sorted(ws.settlements.values(), key=lambda s: s.place)
+    settlers = _settler_faction(ws)
+    captures = [e for e in taken if e["place"] in ws.settlements]
+    enemy_takes = [e for e in taken if e["kind"] == "place_taken" and e["faction"] != settlers]
+    enemy_losses = [e for e in taken if e.get("previous") not in (None, settlers)]
+    attacks = sum(e["kind"] == "attack_launched" for e in ws.events)
+    per_window = (lambda n: n * WINDOW_DAYS / days) if days else (lambda n: 0.0)
     return {
         "days": days,
         "places_changed_hands": len(taken),
-        "changes_per_30_days": len(taken) * WINDOW_DAYS / days if days else 0.0,
-        "attacks_per_day": sum(e["kind"] == "attack_launched" for e in ws.events) / days if days else 0.0,
+        "changes_per_30_days": per_window(len(taken)),
+        "changes_per_30_days_per_place": per_window(len(taken)) / len(ws.places) if ws.places else 0.0,
+        "attacks_per_day": attacks / days if days else 0.0,
+        "attacks_per_day_per_faction": (attacks / days / len(ws.factions)) if days and ws.factions else 0.0,
+        "settlement_captures": len(captures),
+        "settlement_captures_per_30_days": per_window(len(captures)),
+        "enemy_takes_per_30_days": per_window(len(enemy_takes)),
+        "enemy_losses_per_30_days": per_window(len(enemy_losses)),
+        "places_taken_by": _count_by(taken, "faction", ws, kind="place_taken"),
+        "places_lost_by": _count_by(taken, "previous", ws),
+        "settlements_at_cap_share": (sum(s.population >= s.beds for s in settlements) / len(settlements)
+                                     if settlements else 0.0),
+        "mean_population_share": mean(s.population / s.beds for s in settlements if s.beds) if settlements else 0.0,
         "caravans_raided_share": raided / finished if finished else 0.0,
         "empty_settlements": sum(s.population == 0 for s in settlements),
         "settlements_emptied": sum(e["kind"] == "settlement_emptied" for e in ws.events),
@@ -148,6 +188,25 @@ def metrics(ws: WorldState) -> dict:
         "frozen_regions": frozen_regions(ws),
         "frozen_region_count": len(frozen_regions(ws)),
     }
+
+
+def _settler_faction(ws: WorldState) -> str | None:
+    """The faction holding the most settlements at the end (ties to the smaller id): the "settlers" the enemy rates
+    are measured against. Not a game fact, a reading of the state; None without settlements."""
+    held = [ws.places[sid].holder for sid in sorted(ws.settlements) if ws.places[sid].holder]
+    if not held:
+        return None
+    counts = {fid: held.count(fid) for fid in set(held)}
+    return min(counts, key=lambda fid: (-counts[fid], fid))
+
+
+def _count_by(events: list[dict], key: str, ws: WorldState, kind: str | None = None) -> dict[str, int]:
+    """{faction: count} of `events` by their `key` field over every faction of the world (0 where none)."""
+    out = {fid: 0 for fid in sorted(ws.factions)}
+    for e in events:
+        if (kind is None or e["kind"] == kind) and e.get(key) in out:
+            out[e[key]] += 1
+    return out
 
 
 # --- many worlds -----------------------------------------------------------------
@@ -209,7 +268,7 @@ def world(packs: list[dict], seed: int) -> WorldState:
 
 
 def aggregate(per_seed: dict[int, dict]) -> dict:
-    """Means over seeds. Scalars average; the per-faction shares average per faction; `frozen_regions` keeps the
+    """Means over seeds. Scalars average; the per-faction tables average per faction; `frozen_regions` keeps the
     regions frozen in every seed. `seeds` counts the runs."""
     runs = [per_seed[s] for s in sorted(per_seed)]
     if not runs:
@@ -217,7 +276,7 @@ def aggregate(per_seed: dict[int, dict]) -> dict:
     out: dict = {"seeds": len(runs)}
     for key in sorted(runs[0]):
         vals = [r[key] for r in runs]
-        if key in ("landless_share", "home_only_share"):
+        if isinstance(vals[0], dict):               # per-faction tables: landless_share, places_taken_by, ...
             factions = sorted({f for v in vals for f in v})
             out[key] = {f: mean(v.get(f, 0.0) for v in vals) for f in factions}
         elif key == "frozen_regions":

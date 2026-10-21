@@ -437,6 +437,121 @@ class ResettlementTests(unittest.TestCase):
             self.assertTrue(kinds(ws, "settlement_resettled") or kinds(ws, "settler_arrived"))
 
 
+class GrowthBrakeTests(unittest.TestCase):
+    """The Commonwealth-scale rules (sim.FARM_SLOTS_PER_BEDS, LEAVE_ONLY_WHEN_SHORT, MORALE_DRIFT, ARRIVAL_SLOWDOWN_POP,
+    SETTLEMENT_TARGET_WEIGHT): a settlement alone no longer pins at its beds with morale 100."""
+
+    def lone(self, beds=20):
+        pack = {"places": [{"id": "lone", "region": "R", "kind": "settlement", "holder": "settlers", "defence": 2}],
+                "settlements": [{"place": "lone", "population": 5, "beds": beds,
+                                 "roles": {"farmer": 3, "guard": 1, "trader": 1, "crafter": 0, "scavenger": 0,
+                                           "doctor": 0},
+                                 "stock": {"food": 20, "water": 20, "scrap": 0, "ammo": 10, "medicine": 0}}],
+                "factions": [{"id": "settlers", "strength": 8, "home": "lone", "aggression": 0}], "routes": []}
+        ws = WorldState(seed=1)
+        model.load_pack(ws, pack)
+        return ws, ws.settlements["lone"]
+
+    def test_farm_slots_cap_production_and_the_farmer_rule(self):
+        ws, s = self.lone()
+        self.assertEqual(sim._farm_slots(s), 5)                                 # 20 beds // 4
+        s.roles["farmer"], s.population = 8, 8
+        for r in ("guard", "trader"):
+            s.roles[r] = 0
+        sim.tick(ws)
+        self.assertEqual(s.stock["food"], 20 + 3 * 5 - 8)                      # five farm, eight eat
+        self.assertFalse(sim._wants_farmer(s))                                  # no land left
+        sim._add_settler(s)
+        self.assertEqual(s.roles["farmer"], 8)                                  # the newcomer took another role
+        self.assertEqual(sim._reroles_to_farming(s, 3), {})
+        with mock.patch.object(sim, "FARM_SLOTS_PER_BEDS", 0):
+            self.assertIsNone(sim._farm_slots(s))
+            ws2, s2 = self.lone()
+            s2.roles["farmer"], s2.population = 8, 8
+            s2.roles["guard"] = s2.roles["trader"] = 0
+            sim.tick(ws2)
+            self.assertEqual(s2.stock["food"], 20 + 24 - 8)                     # off: every farmer produces
+
+    def test_lone_settlement_grows_but_stops_at_its_food_not_its_beds(self):
+        ws, s = self.lone()
+        sim.run(ws, 90 * 24)
+        self.assertGreater(s.population, 5)                                     # still grows
+        self.assertLess(s.population, s.beds)                                   # but not to the beds
+        self.assertLessEqual(s.population, 3 * sim._farm_slots(s) + 1)         # the food edge (15 of 20 beds)
+        self.assertLess(s.morale, 100)
+        self.assertEqual(sum(1 for e in ws.events if e["kind"] == "settlement_emptied"), 0)   # no boom and bust
+        old = {"FARM_SLOTS_PER_BEDS": 0, "LEAVE_ONLY_WHEN_SHORT": 0, "MORALE_DRIFT": 0, "ARRIVAL_SLOWDOWN_POP": 0}
+        ws2, s2 = self.lone()
+        with mock.patch.multiple(sim, **old):
+            sim.run(ws2, 30 * 24)
+        self.assertEqual((s2.population, s2.morale), (20, 100))                # the first prototype's saturation
+
+    def test_leave_only_when_short(self):
+        ws, s = self.lone()
+        s.morale, s.stock["food"], s.stock["water"] = 8, 100, 100
+        sim.tick(ws)                                                            # fed (morale 8 + 2 = 10): nobody leaves
+        self.assertEqual((s.population, s.morale), (5, 10))
+        s.stock["food"] = s.stock["water"] = 0
+        s.roles["farmer"], s.roles["guard"] = 0, 4                              # short this tick
+        s.morale = 10
+        sim.tick(ws)
+        self.assertEqual(s.population, 4)
+        ws2, s2 = self.lone()
+        s2.morale, s2.stock["food"], s2.stock["water"] = 8, 100, 100
+        with mock.patch.object(sim, "LEAVE_ONLY_WHEN_SHORT", 0):
+            sim.tick(ws2)
+        self.assertEqual(s2.population, 4)                                      # off: the old every-tick rule
+
+    def test_morale_drifts_up_when_fed_without_surplus(self):
+        ws, s = self.lone()
+        s.roles["farmer"], s.population = 5, 15                                # 15 made, 15 eaten: no surplus
+        s.roles["guard"], s.roles["trader"] = 5, 5
+        s.stock["food"] = s.stock["water"] = 15
+        s.morale = 40
+        sim.tick(ws)
+        self.assertEqual(s.morale, 41)
+        s.stock["food"] = s.stock["water"] = 200                                # surplus: the old +2
+        sim.tick(ws)
+        self.assertEqual(s.morale, 43)
+        with mock.patch.object(sim, "MORALE_DRIFT", 0):
+            s.stock["food"] = s.stock["water"] = 15
+            sim.tick(ws)
+            self.assertEqual(s.morale, 43)
+
+    def test_arrival_slowdown_schedule(self):
+        ws, s = self.lone()
+        for pop, days in ((2, 1), (3, 2), (5, 2), (6, 3), (9, 4), (14, 5)):
+            s.population = pop
+            due = [day for day in range(60) if (setattr(ws, "hour", day * 24) or sim._arrival_due(ws, s))]
+            self.assertEqual(due[:3], [0, days, 2 * days], pop)
+        with mock.patch.object(sim, "ARRIVAL_SLOWDOWN_POP", 0):
+            ws.hour = 24 * 7
+            self.assertTrue(sim._arrival_due(ws, s))
+
+    def test_settlement_target_weight_is_a_knob_on_target_choice(self):
+        counts = {}
+        for weight in (1, 5):
+            n = 0
+            for seed in range(12):
+                ws = world(seed)
+                with mock.patch.object(sim, "SETTLEMENT_TARGET_WEIGHT", weight):
+                    sim.run(ws, 30 * 24)
+                n += sum(1 for e in ws.events if e["kind"] == "attack_launched" and e["target"] in ws.settlements)
+            counts[weight] = n
+        self.assertGreater(counts[5], counts[1])
+
+    def test_new_rules_keep_the_fixture_tests_alive_and_resumable(self):
+        a = world(5)
+        sim.run(a, 60 * 24)
+        b = world(5)
+        sim.run(b, 31 * 24)
+        b = WorldState.from_json(b.to_json())
+        sim.run(b, 29 * 24)
+        self.assertEqual(a.to_json(), b.to_json())
+        for kind in ("settler_arrived", "caravan_arrived", "place_taken"):
+            self.assertTrue(kinds(a, kind), kind)
+
+
 class NewsTests(unittest.TestCase):
     def test_news_travels_along_routes(self):
         ws = world(1)
