@@ -104,6 +104,18 @@ class StageTests(unittest.TestCase):
         self.assertEqual(t0["hops"], 3)                        # 728 m at 185 m a hop
         with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
+        self.assertEqual(rounds["core_worlds"], [])           # the synthetic core has no WRLD record
+
+    def test_the_stage_records_the_cores_worldspaces(self):
+        d = tempfile.mkdtemp()
+        core, port, _ = build(d)
+        p = os.path.join(core, "FO4TerrainCore.esm")
+        with open(p, "ab") as f:                               # one WRLD top group after the cells
+            f.write(vp.Group(b"WRLD", 0, bytes(8), [rec(b"WRLD", OWN | 0x803, [(b"EDID", b"FO4Core_Commonwealth\0")])]).serialize())
+        self.assertEqual(dr.Installed(p).worlds(), ["000803"])
+        rounds, _ = stage(core, port, os.path.join(d, "out"))
+        self.assertEqual(rounds["core_worlds"], ["000803"])
+        self.assertEqual(dr.core_world(rounds), {"index": "03", "world": "03000803"})
 
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
@@ -235,6 +247,38 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(v(other_base)[0], "INCONCLUSIVE")                        # pinned to another WRLD
         self.assertIn("no --world-instance pins the pair", v(other_base)[1])
         self.assertEqual(v(out[:2] + (pos(-1669.3, -2063.8, 42.4),))[0], "FAIL")  # still inside: STAYED
+
+    def test_out_crosses_worlds_when_the_players_cell_is_the_cores(self):
+        # doors_out retry 4 (2026-10-21): the runtime world changed per launch (FF00552F, then FF005511) and needed a hand
+        # pin each time; the player's cell is one of the core's own (JOURNAL 2026-10-16 (e): 0x02000DAF in the runtime
+        # world), and a cell belongs to one WRLD
+        runtime, base = str(0xFF005511 - (1 << 32)), str(0x03000803)
+        core = {"index": "03", "world": "03000803"}
+        tgt = res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base)
+
+        def v(cell, pins=None, c=core, world=runtime, x=-1669.3):
+            lines = (OUT_OK[0], tgt, pos(x, -2063.8, 42.4, cell=cell, world=world))
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins, core=c)
+            return r, why
+        r, why = v(str(0x03000DAF))
+        self.assertEqual(r, "PASS")
+        self.assertIn("taken as 03000803 because the player's cell 03000DAF is the core's", why)
+        self.assertEqual(v(str(0x03000DAF), x=-469)[0], "FAIL")                     # the tie never excuses distance
+        self.assertEqual(v(str(0x04000DAF))[0], "INCONCLUSIVE")                     # another plugin's cell
+        self.assertEqual(v(str(0x03000DAF), c=None)[0], "INCONCLUSIVE")             # no single core world recorded
+        self.assertEqual(v(str(0x03000DAF), c={"index": "03", "world": "03000900"})[0], "INCONCLUSIVE")
+        self.assertEqual(v(str(0x03000DAF), world=str(0x05000001))[0], "INCONCLUSIVE")   # not a runtime (FF) world
+        other_pin = {"FF005511": "03000900"}                                        # the operator's pin decides
+        self.assertEqual(v(str(0x03000DAF), pins=other_pin)[0], "INCONCLUSIVE")
+        self.assertIn("by --world-instance", v(str(0x03000DAF), pins={"FF005511": "03000803"})[1])
+
+    def test_the_core_world_needs_exactly_one_core_worldspace(self):
+        self.assertEqual(dr.core_world({"core_index": "02", "core_worlds": ["000803"]}),
+                         {"index": "02", "world": "02000803"})
+        for info in ({"core_index": "02"}, {"core_index": "02", "core_worlds": []},
+                     {"core_index": "02", "core_worlds": ["000803", "000900"]}, {"core_index": "2", "core_worlds": ["000803"]}):
+            with self.subTest(info=info):
+                self.assertIsNone(dr.core_world(info))
 
     def test_world_pins_are_checked(self):
         self.assertEqual(dr.world_pairs(["ff00552f=02000803", "FF00552F=02000803"]), {"FF00552F": "02000803"})

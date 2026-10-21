@@ -375,6 +375,46 @@ class PortPassTests(unittest.TestCase):
         res = vp.check_port(before, moved, doors, "FO4TerrainCore.esm", merge)
         self.assertFalse(all(ok for w, ok in res if "marker" in w))
 
+    def test_keep_markers_reapplies_the_doors_to_a_grown_port(self):
+        # the first doors build (marker 0x804), then a later port that grew (a REFR at 0x806, next 0x807) and kept every
+        # earlier id; --keep-markers puts the marker back at 0x804, below the grown plugin's next id
+        self.assertEqual(vp.main(["port", "--port", self.port, "--core", self.core, "--out", self.out]), 0)
+        grown = os.path.join(self.tmp.name, "grown")
+        os.makedirs(grown)
+        extra = rec(b"REFR", OWN | 0x806, [(b"NAME", struct.pack("<I", OWN | 0x800)), (b"DATA", struct.pack("<6f", 9, 9, 9, 0, 0, 0))])
+        with open(os.path.join(grown, "FO4Port.esm"), "wb") as f:
+            f.write(tiny_plugin(next_id=0x807, extra=[extra]))
+        with open(os.path.join(self.out, "formids.json"), encoding="utf-8") as f:
+            ids = json.load(f)
+        ids["REFR:FO4Port_Test:000099:Fallout4.esm"] = 0x806
+        with open(os.path.join(grown, "formids.json"), "w", encoding="utf-8") as f:
+            json.dump(ids, f)
+        kept = os.path.join(self.out, "doors.json")
+        out2 = os.path.join(self.tmp.name, "grown_doors")
+        with self.assertRaisesRegex(SystemExit, "promised marker id"):        # without --keep-markers: next + k = 0x807
+            vp.main(["port", "--port", grown, "--core", self.core, "--out", out2])
+        self.assertEqual(vp.main(["port", "--port", grown, "--core", self.core, "--out", out2, "--keep-markers", kept]), 0)
+        self.assertEqual(vp.main(["check", "--port", grown, "--out", out2]), 0)
+        new = vp.Plugin.read(os.path.join(out2, "FO4Port.esm"))
+        self.assertEqual(new.hedr()[1:], (6, 0x807))
+        self.assertEqual(new.find(OWN | 0x804)[2].sig, b"REFR")
+        with open(os.path.join(out2, "formids.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["MARK:FO4Port_Test:0EE661:Fallout4.esm"], 0x804)
+        # a kept id a record of the grown plugin already uses is refused
+        clash = os.path.join(self.tmp.name, "clash")
+        os.makedirs(clash)
+        taken = rec(b"REFR", OWN | 0x804, [(b"NAME", struct.pack("<I", OWN | 0x800)), (b"DATA", struct.pack("<6f", 0, 0, 0, 0, 0, 0))])
+        with open(os.path.join(clash, "FO4Port.esm"), "wb") as f:
+            f.write(tiny_plugin(extra=[taken]))
+        with open(os.path.join(clash, "formids.json"), "w", encoding="utf-8") as f:
+            json.dump(ids, f)
+        with self.assertRaisesRegex(SystemExit, "already used"):
+            vp.main(["port", "--port", clash, "--core", self.core, "--out", os.path.join(self.tmp.name, "c2"), "--keep-markers", kept])
+        # the core promising another id than the kept build is refused
+        core_folder(self.core, [door_entry(dest_id=0x805)])
+        with self.assertRaisesRegex(SystemExit, "kept doors build has 000804"):
+            vp.main(["port", "--port", grown, "--core", self.core, "--out", os.path.join(self.tmp.name, "c3"), "--keep-markers", kept])
+
     def test_decode_prints_the_destination(self):
         self.assertEqual(vp.main(["port", "--port", self.port, "--core", self.core, "--out", self.out]), 0)
         import contextlib

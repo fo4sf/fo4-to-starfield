@@ -115,7 +115,7 @@ float arrivedAt = 0.0
 bool asked = false
 int applied = 0
 int holdPasses = 0
-int centerTicks = 0
+int centerTries = 0
 int centered = 0
 
 Event OnQuestInit()
@@ -270,13 +270,13 @@ bool Function CenterOnVault()
  retry resolves the now-loaded marker and does the MoveTo. Bounded: the first call centers; after CenterTicks ticks
  without the anchor resolving one more centering at most; past that a failure line every 10 ticks, never a loop. The
  guard and the hold-off have run before the first call (OnTimer's order), so a centering never re-judges them.}
-    centerTicks += 1
-    if centered == 0 || (centered == 1 && centerTicks > CenterTicks)
+    centerTries += 1
+    if centered == 0 || (centered == 1 && centerTries > CenterTicks)
         centered += 1
         Debug.CenterOnCell(VaultCell)
-        Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTicks + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")
-    elseif centerTicks > CenterTicks && centerTicks % 10 == 0
-        Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve after " + centerTicks + " ticks and " + centered + " centerings on " + VaultCell + ": the temporary-anchor start failed")
+        Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTries + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")
+    elseif centerTries > CenterTicks && centerTries % 10 == 0
+        Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve after " + centerTries + " ticks and " + centered + " centerings on " + VaultCell + ": the temporary-anchor start failed")
     endif
     return false
 EndFunction

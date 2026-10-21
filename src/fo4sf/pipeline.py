@@ -108,14 +108,25 @@ def _palette_scale_ident(scale: float) -> str:
 
 
 class Fo4Archives:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, extra_dirs=()):
+        """Fallout4 - *.ba2 from data_dir, then (extra_dirs, e.g. a DLC's own Data folder) every DLC*.ba2 there. Lookups
+        try the base game's archives first, so a model the base game holds converts byte-identically with or without
+        the DLC archives (a DLC replacing a base-game file is not followed; supported: none seen in DLCRobot or
+        DLCworkshop01's own cells)."""
         self.meshes, self.materials, self.textures = [], [], []
+        self._add(data_dir, lambda low: low.startswith("fallout4 - "))
+        for d in extra_dirs:
+            self._add(d, lambda low: low.startswith("dlc"))
+
+    def _add(self, data_dir, wanted):
         for fn in sorted(os.listdir(data_dir)):
             low = fn.lower()
-            if not (low.endswith(".ba2") and low.startswith("fallout4 - ")):
+            if not (low.endswith(".ba2") and wanted(low)):
                 continue
-            if "meshes" in low:
+            if "meshes" in low or low.endswith(" - main.ba2"):
                 self.meshes.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
+                if low.endswith(" - main.ba2"):       # DLC "Main" archives hold meshes and materials together
+                    self.materials.append(self.meshes[-1])
             elif "materials" in low:
                 self.materials.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
             elif "textures" in low:

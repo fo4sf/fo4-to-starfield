@@ -119,7 +119,9 @@ if (-not $q) {
   "Starfield did not stay up 20 s after steam://rungameid/1716740 (screen: $Shot): nothing tested"; exit 10
 }
 Start-Sleep 10
-Wait-Screen 'main menu' 120 $MenuShown | Out-Null
+# 240 s and 300 s (were 120 s): the first v6e launch (2026-10-21, doors_out and the evidence launch) reached gameplay
+# after both 120 s waits had run out, so coc.ps1 found no HUD; a wait ends as soon as its screen is seen
+Wait-Screen 'main menu' 240 $MenuShown | Out-Null
 
 function Send($seq) {
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
@@ -149,8 +151,20 @@ $lo = $LASTEXITCODE
 if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
 if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
-Send 'hold:e,300|wait:3000'
-Wait-Screen 'save loaded' 120 $HudShown | Out-Null
+# No blind E here: Continue loads the newest save, and on the owner's vanilla save the player faces Vasco. An E sent
+# after the load most likely opened his dialogue and hid the HUD for the whole 300 s wait (v6e retry 4, 2026-10-21:
+# "save loaded: not seen within 300 s", then the runner's recover got the HUD back with one Escape; supported, not
+# seen on screen). E now only closes the achievements popup, when its text is read.
+Clear-AchievementsPopup | Out-Null
+if (-not (Wait-Screen 'save loaded' 300 $HudShown)) {
+  # a dialogue, menu or popup hides the HUD: up to two Escapes, each followed by a check. Two, not recover's three: if
+  # the HUD check itself missed, the first Escape opens the pause menu and the second closes it again
+  $n = 0
+  while ($n -lt 2) {
+    Send 'key:esc|wait:2000'; $n++
+    if (Wait-Screen "save loaded after $n Escape(s)" 15 $HudShown) { break }
+  }
+}
 # Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
 # split) the game ticked again must stop the run too (Codex on #407)
 if ((Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) -or (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json'))) {
@@ -184,7 +198,9 @@ Send 'hold:e,300|wait:1500'
 Clear-AchievementsPopup | Out-Null
 if ($CellJson) {
   $name = $Cell -replace '^FO4Port_', ''
-  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') -Cell $name -CellJson $CellJson
+  $cocArgs = @('-Cell', $name, '-CellJson', $CellJson)
+  if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }   # the arrival read from the bridge
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') @cocArgs
   if ($LASTEXITCODE -ne 0) { "coc.ps1 could not verify the arrival in $Cell (exit $LASTEXITCODE)"; exit 4 }
 } else {
   $clear = 'key:back|' * 40                                    # empties the console line, whatever was left in it

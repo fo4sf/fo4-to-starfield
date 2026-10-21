@@ -22,7 +22,8 @@ usage:
   python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json] [--world-instance FF......=02......]
       PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
-      cell (in) or the world it resolves in, or the runtime world --world-instance pins to it (out), within TOL_M of the marker (its record position; out: + the
+      cell (in) or the world it resolves in, or a runtime world tied to it (out: --world-instance, or on its own when the
+      player's cell is one of the core's and the stage found one worldspace in the core), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
@@ -126,6 +127,10 @@ class Installed:
                 "base_full": base, "pos": out["pos"], "rot": out["rot"],
                 "cell": cell & 0xFFFFFF if cell is not None else None,
                 "vmad": next((d for s, d in fs if s == b"VMAD"), None)}
+
+    def worlds(self):
+        """The local ids (6 hex) of this plugin's own WRLD records, sorted."""
+        return sorted(f"{local:06X}" for local, r in self.recs.items() if r[0] == "WRLD")
 
     def edid(self, local):
         r = self.recs.get(local)
@@ -283,7 +288,7 @@ def stage(a):
     os.makedirs(out)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
-            "tests": expect}
+            "tests": expect, "core_worlds": core.worlds()}
     save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
@@ -358,11 +363,38 @@ def world_pairs(specs):
     return out
 
 
-def judge_test(events, obs, exp, tol=TOL_M, instances=None):
+def core_world(info):
+    """{"index", "world"}: the core's one worldspace at its load index, from the stage's core_worlds; None when the
+    stage recorded none (a stage from before the field) or more than one (a cell id would not say which)."""
+    worlds = info.get("core_worlds")
+    idx = str(info.get("core_index", ""))
+    if not isinstance(worlds, list) or len(worlds) != 1 or not re.fullmatch(r"[0-9A-F]{2}", idx) or \
+            not re.fullmatch(r"[0-9A-F]{6}", str(worlds[0])):
+        return None
+    return {"index": idx, "world": idx + worlds[0]}
+
+
+def cell_tie(last, target, core):
+    """Why the runtime world of `last` instantiates the marker's world, or None. Starfield reports a player in our
+    overlay's runtime instance (an FF world) inside the core's own CELL ids (docs/JOURNAL.md 2026-10-16 "Step 0
+    probes" (e): cell 0x02000DAF of the runtime world): a cell belongs to exactly one WRLD, so a core cell under the
+    player ties the instance to the core's worldspace when the core has only one, without the operator's pin and
+    without the position under test (Codex on #383 held that an FF prefix alone says nothing)."""
+    if not core or target.get("world") != core["world"] or not str(last.get("world") or "").startswith("FF"):
+        return None
+    cell = str(last.get("cell") or "")
+    if len(cell) != 8 or cell[:2] != core["index"]:
+        return None
+    return f"the player's cell {cell} is the core's, whose only worldspace is {core['world']}"
+
+
+def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
     """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
     proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
     resolved after it at the planned index, a loaded player position after it, in the marker's cell (in) or world (out)
-    and within tol. Missing or contradictory evidence is INCONCLUSIVE, never a PASS (Codex's review of #358)."""
+    and within tol. Out: a runtime world counts as the marker's when --world-instance pins the pair (instances) or the
+    player's cell ties it (cell_tie, with core = core_world(rounds)). Missing or contradictory evidence is INCONCLUSIVE,
+    never a PASS (Codex's review of #358)."""
     if not finite(exp.get("pos")) or not (isinstance(tol, (int, float)) and math.isfinite(tol) and tol > 0):
         return "INCONCLUSIVE", f"BAD_PLAN: expected position {exp.get('pos')} or tolerance {tol} is not finite", None
     act = (obs or {}).get("activate")
@@ -411,15 +443,21 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None):
             return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
         if not last.get("world"):
             return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
-        pinned = last["world"] != target["world"] and (instances or {}).get(last["world"]) == target["world"]
-        if last["world"] != target["world"] and not pinned:
-            return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
-                                    f"{target['world']} ({dxy:.1f} m off)"
-                                    + ("" if instances is None else "; no --world-instance pins the pair")), last
+        tie = None
+        if last["world"] != target["world"]:
+            pin = (instances or {}).get(last["world"])
+            if pin == target["world"]:
+                tie = "by --world-instance"
+            elif pin is None and cell_tie(last, target, core):
+                tie = f"because {cell_tie(last, target, core)}"   # the operator's pin, when given, decides
+            else:
+                return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']} (cell {last.get('cell')}), "
+                                        f"the marker resolves in {target['world']} ({dxy:.1f} m off)"
+                                        + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
         return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
     return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
-                    + (f" (world {last['world']} taken as {target['world']} by --world-instance)" if not exp["cell"]
+                    + (f" (world {last['world']} taken as {target['world']} {tie})" if not exp["cell"]
                        and last.get("world") != target.get("world") else "")), last
 
 
@@ -446,11 +484,12 @@ def judge(a):
             continue
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
         verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
-                                       pairs or None)
+                                       pairs or None, core_world(info))
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
     save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
-                                                          "world_instances": pairs, "results": rows})
+                                                          "world_instances": pairs, "core_world": core_world(info),
+                                                          "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}
@@ -478,7 +517,8 @@ def main(argv=None):
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")
     j.add_argument("--world-instance", action="append", default=[], metavar="RUNTIME=BASE",
                    help="pin a created world (FF...) to the plugin WRLD it instantiates, for this queue's session "
-                        "(repeatable; e.g. FF00552F=02000803); without it an OUT leg in another world is INCONCLUSIVE")
+                        "(repeatable; e.g. FF00552F=02000803); without it an OUT leg in another world passes only when "
+                        "the player's cell is the core's and the stage found one core worldspace, else INCONCLUSIVE")
     a = ap.parse_args(argv)
     {"order": cmd_order, "stage": stage, "judge": judge}[a.cmd](a)
     return 0
