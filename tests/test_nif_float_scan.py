@@ -56,5 +56,29 @@ class NifFloatScan(unittest.TestCase):
                 self.assertEqual(list(json.load(f)["found"]), ["bldcounterdoor01.nif"])
 
 
+    def test_near_keeps_models_placed_in_an_area(self):
+        objects = {"bases": [{"model": "FO4Port\\SetDressing\\BldCounterDoor01.nif"}, {"model": "FO4Port\\Other.nif"}],
+                   "refs": [{"src": "a", "base": 0, "pos": [-1000, 1130, 5]}, {"src": "b", "base": 1, "pos": [0, 0, 0]}],
+                   "doors": [{"src": "c", "model": "FO4Port\\Other.nif", "pos": [-820, 1000, 0]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "meshes", "fo4port")
+            os.makedirs(os.path.join(root, "setdressing"))
+            for rel in ("setdressing/bldcounterdoor01.nif", "other.nif", "unplaced.nif"):
+                with open(os.path.join(root, rel), "wb") as f:
+                    f.write(build())
+            obj = os.path.join(tmp, "objects.json")
+            with open(obj, "w") as f:
+                json.dump(objects, f)
+            out = os.path.join(tmp, "out.json")
+            with contextlib.redirect_stdout(io.StringIO()) as text:
+                self.assertEqual(scan.main([os.path.join(tmp, "meshes"), "--objects", obj, "--near=redrocket=-1005,1136,200",
+                                            "--near=museum=-811,1002,200", "--json", out]), 0)
+            self.assertIn("2 NIFs scanned, 2 hold", text.getvalue())
+            with open(out) as f:
+                found = json.load(f)["found"]
+            self.assertEqual({k.replace("\\", "/"): v["areas"] for k, v in found.items()},
+                             {"fo4port/setdressing/bldcounterdoor01.nif": ["redrocket"], "fo4port/other.nif": ["museum"]})
+
+
 if __name__ == "__main__":
     unittest.main()
