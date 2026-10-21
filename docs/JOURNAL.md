@@ -1891,3 +1891,14 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+### 2026-10-20 Codex: enforce archive ranking count and stored-byte contracts
+
+Owner-authorized Grok follow-up on the two351 P3 observations still present in main4a434761. Negative counts
+silently used Python tail slicing; three actual synthetic-archive subcases fail before the correction. Ranking
+now accepts the existing integer-index protocol and refuses negative counts, retaining zero/positive/oversized
+and boolean/index-object behavior. Corrected the existing `packed` field documentation: it counts stored payload
+bytes even for raw chunks, not a zero sentinel. No result schema, ranking or read/decompression algorithm changed.
+Six focused methods cover count refusal/preservation, raw/compressed-empty GNRL and mixed-chunk DX10 readback
+with DDS-header exclusion. Inputs are synthetic only; payload totals do not establish peak disk/RAM requirements.
+Original Grok/main branches remain; independent QA and lead integration are pending. No private archive or game action.
