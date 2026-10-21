@@ -211,5 +211,15 @@ class MinidumpWithExe(unittest.TestCase):
             md._summary("a.dmp", md.Dump(self.dump()), 64, md.Image(bytes(exe)))
 
 
+    def test_exe_of_another_build_is_refused(self):
+        exe = bytearray(build_exe())
+        struct.pack_into("<I", exe, 0x84 + 4, 0x5F000001)             # COFF TimeDateStamp
+        d = md.Dump(self.dump())
+        d.modules[0]["stamp"] = 0x5F000002
+        with self.assertRaises(ValueError):
+            md._summary("a.dmp", d, 64, md.Image(bytes(exe)))
+        d.modules[0]["stamp"] = 0x5F000001
+        self.assertIn("image", md._summary("a.dmp", d, 64, md.Image(bytes(exe))))
+
 if __name__ == "__main__":
     unittest.main()

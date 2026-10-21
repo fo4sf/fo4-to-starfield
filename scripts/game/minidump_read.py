@@ -63,10 +63,10 @@ class Dump:
         out = []
         for i in range(n):
             o = at + 4 + 108 * i
-            base, size, _crc, _stamp, name_rva = struct.unpack_from("<QIIII", self.data, o)
+            base, size, _crc, stamp, name_rva = struct.unpack_from("<QIIII", self.data, o)
             ms, ls = struct.unpack_from("<II", self.data, o + 24 + 8)    # VS_FIXEDFILEINFO dwFileVersionMS, LS
             name = self._string(name_rva)
-            out.append({"name": name.replace("/", "\\").rsplit("\\", 1)[-1], "path": name, "base": base, "size": size,
+            out.append({"name": name.replace("/", "\\").rsplit("\\", 1)[-1], "path": name, "base": base, "size": size, "stamp": stamp,
                         "version": f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}" if ms or ls else None})
         return sorted(out, key=lambda m: m["base"])
 
@@ -182,7 +182,7 @@ class Image:
         pe, = struct.unpack_from("<I", data, 0x3C)
         if data[pe:pe + 4] != b"PE\0\0":
             raise ValueError("not a PE file (no PE signature)")
-        nsec, = struct.unpack_from("<H", data, pe + 6)
+        nsec, self.stamp = struct.unpack_from("<HI", data, pe + 6)   # COFF NumberOfSections, TimeDateStamp
         opt_size, = struct.unpack_from("<H", data, pe + 20)
         opt = pe + 24
         if struct.unpack_from("<H", data, opt)[0] != 0x20B:
@@ -330,6 +330,8 @@ def _image_report(d, img, mod, regs, stack, scan, before=64):
     if img.size_of_image != mod["size"]:
         raise ValueError(f"--exe is not the dump's {name}: SizeOfImage 0x{img.size_of_image:x}, "
                          f"the dump's 0x{mod['size']:x}")
+    if img.stamp and mod.get("stamp") and img.stamp != mod["stamp"]:   # another build of the same size (Codex on #453)
+        raise ValueError(f"--exe is not the dump's {name}: PE timestamp 0x{img.stamp:08x}, the dump's 0x{mod['stamp']:08x}")
     rip = regs.get("rip", 0)
     fn = img.function(rip - base) if base <= rip < base + img.size_of_image else None
     if before < 0 and fn is not None:                    # -1: from the start of the fault's function
