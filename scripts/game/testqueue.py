@@ -3173,7 +3173,9 @@ class Runner:
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
-            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json], 180)
+            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs)
+            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
+                                                                                       else []), 180)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code == 2:
                 return "owner"
