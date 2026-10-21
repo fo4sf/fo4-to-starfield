@@ -222,10 +222,8 @@ def load(p, default=None):
         return json.load(f)
 
 
-def staging_fingerprint(staging, skip=()):
-    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
-    out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
-    planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build (Codex on #405)."""
+def staging_paths(staging, skip=()):
+    """{relative path: full path} of every staged file staging_fingerprint hashes (probe points and `skip` aside)."""
     out = {}
     skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
     for root, dirs, files in os.walk(staging):
@@ -234,8 +232,15 @@ def staging_fingerprint(staging, skip=()):
             if n.startswith("probe_") and n.endswith(".txt"):
                 continue
             p = os.path.join(root, n)
-            out[os.path.relpath(p, staging).replace(os.sep, "/")] = sha256(p)
+            out[os.path.relpath(p, staging).replace(os.sep, "/")] = p
     return out
+
+
+def staging_fingerprint(staging, skip=()):
+    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
+    out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
+    planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build (Codex on #405)."""
+    return {k: sha256(p) for k, p in staging_paths(staging, skip).items()}
 
 
 def save_atomic(p, obj):
@@ -2991,18 +2996,27 @@ class Runner:
     def staging_mismatch(self):
         """Why the staging no longer matches the full fingerprint the queue pinned (staging_files: every file's sha256,
         written by inventory.py), else None. A queue without the pin is checked on FO4Port.esm alone (pinned_ok). A
-        changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405)."""
+        changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405).
+        Checked before every test (ensure_game), the live game reused or not. Every file is hashed only when the
+        staging's stat signature (each file's size and mtime) differs from the last one that matched the pin, so a run
+        on an unchanged staging pays one stat walk per test."""
         pin = self.q.get("staging_files")
         if pin is None:
             return None
         try:
-            now_ = staging_fingerprint(self.q["staging"], self.q.get("staging_skip") or [])
+            paths = staging_paths(self.q["staging"], self.q.get("staging_skip") or [])
+            sig = {k: (os.stat(p).st_size, os.stat(p).st_mtime_ns) for k, p in paths.items()}
+            if sig == getattr(self, "_staging_sig", None):
+                return None                               # nothing touched since the last full match
+            now_ = {k: sha256(p) for k, p in paths.items()}
         except OSError as e:
             return f"staging {self.q['staging']} unreadable: {e}"
         if now_ != pin:
+            self._staging_sig = None
             moved = sorted(k for k in set(pin) | set(now_) if pin.get(k) != now_.get(k))
             return (f"the staging changed since the queue was planned ({len(moved)} file(s): "
                     f"{', '.join(moved[:5])}{', ...' if len(moved) > 5 else ''})")
+        self._staging_sig = sig
         return None
 
     def experiment_mismatch(self):
@@ -3026,6 +3040,10 @@ class Runner:
         if gp and gp != self.ctl.owned_pid():
             self.log("a Starfield the runner did not start is running (the owner's session): stopping")
             return "stop"
+        why = self.staging_mismatch()                     # every test, a live game too: steps read staged files
+        if why:
+            self.log(f"{why}: stopping")
+            return "stop"
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
@@ -3044,7 +3062,7 @@ class Runner:
             if not self.pinned_ok():
                 self.log("staging FO4Port.esm no longer matches the pinned build: stopping")
                 return "stop"
-            why = self.staging_mismatch() or self.experiment_mismatch()
+            why = self.experiment_mismatch()
             if why:
                 self.log(f"{why}: stopping")
                 return "stop"

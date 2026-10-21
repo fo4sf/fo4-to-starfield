@@ -202,6 +202,43 @@ class InventoryTests(unittest.TestCase):
                          [("CellA", "CellB"), ("CellB", "CellA")])
         self.assertIn("1 travel test(s) into a held cell dropped", out)
 
+    def test_the_staging_is_checked_before_every_test_in_a_live_game(self):
+        # Codex on #405: the pin was checked only at launch, so tier 2 right after tier 1 reused the game unchecked
+        self.run_inv("plan", "--staging", self.st, "--out", self.out, "--cells", "CellA,CellB")
+        qdir = os.path.join(self.out, "tier1")
+        ctl = tt.FakeControls()                                          # the runner's own game is up
+        calls = []
+
+        def step(test, out):
+            calls.append(test["id"])
+            with open(os.path.join(self.st, "Meshes.ba2"), "wb") as f:  # rebuilt while the queue runs
+                f.write(b"BTDX rebuilt")
+            jdump({"end_read": "1 2 3", "shot": ""}, os.path.join(out, "obs.json"))
+            return 0
+        r = tq.Runner(qdir, tt.args(), ctl=ctl, step=step)
+        r.session, r.cell = True, "CellA"
+        r._ps = lambda *a, **k: (0, "at the cell")
+        self.assertEqual(r.run(), 3)
+        self.assertEqual(len(calls), 1)                                  # the second test never ran
+        with open(os.path.join(qdir, "run.log"), encoding="utf-8") as f:
+            self.assertIn("staging changed since the queue was planned (1 file(s): Meshes.ba2)", f.read())
+
+    def test_an_unchanged_staging_is_hashed_once(self):
+        self.run_inv("plan", "--staging", self.st, "--out", self.out)
+        r = tq.Runner(os.path.join(self.out, "tier1"), tt.args(), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        hashed = []
+        real = tq.sha256
+        tq.sha256 = lambda p: hashed.append(p) or real(p)
+        self.addCleanup(setattr, tq, "sha256", real)
+        self.assertIsNone(r.staging_mismatch())
+        n = len(hashed)
+        self.assertGreater(n, 0)
+        self.assertIsNone(r.staging_mismatch())
+        self.assertEqual(len(hashed), n)                                 # same sizes and mtimes: no rehash
+        with open(os.path.join(self.st, "CellA.json"), "a") as f:
+            f.write(" ")
+        self.assertIn("CellA.json", r.staging_mismatch())
+
 
 if __name__ == "__main__":
     unittest.main()

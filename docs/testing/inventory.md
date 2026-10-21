@@ -29,7 +29,8 @@ python scripts/game/testqueue.py run --queue <dir>\tier2 <the usual caps>
 - `tier2/queue.json`: the interaction queue. A travel test is kept only when both of its cells were promoted.
 
 Both queues carry the staging fingerprint (`staging_files`, every staged file's sha256). `testqueue.py run` stops
-before a launch when any staged file changed since the plan, not only `FO4Port.esm`.
+before every test, a live game included, when any staged file changed since the plan, not only `FO4Port.esm`. Files
+are rehashed only when a size or mtime changed since the last match.
 
 ## Refusals
 
