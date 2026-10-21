@@ -40,6 +40,7 @@ class FakeSystem:
         self.procdump_quits, self.spawn_error = None, None
         self.refuse_handle = False
         self.toggle_status = {"off": [], "owned": []}
+        self.toggle_out = "back on: FO4SFBridge.esm"
         self.toggle_code = 0
 
     def now(self):
@@ -78,7 +79,9 @@ class FakeSystem:
         self.ran.append(argv[2:])
         if argv[2] == "status":
             return 0, json.dumps(self.toggle_status) + "\n"
-        return self.toggle_code, "not changed: refused" if self.toggle_code else ""
+        if self.toggle_code:
+            return self.toggle_code, "not changed: refused"
+        return 0, self.toggle_out if argv[2] == "on" else "held off: FO4SFBridge.esm"
 
     def free_gb(self, path):
         return self.free
@@ -306,6 +309,15 @@ class CrashWatchTests(unittest.TestCase):
         os.makedirs(mg)
         self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
         self.assertEqual(sys_.ran[1][:3], ["on", "--plugins", "FO4SFBridge.esm"])
+        sys_ = FakeSystem([(5, 0, 100, 0)])                       # released but left unticked: refused
+        sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
+        sys_.toggle_out = "back on: none; released, left unticked (cannot load): FO4SFBridge.esm: file missing"
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
+        self.assertIn("did not come back on", str(e.exception))
+        self.assertEqual(sys_.calls, [])
+        self.assertFalse(crashwatch.bridge_came_back("back on: FO4SFBridgeX.esm"))
+        self.assertTrue(crashwatch.bridge_came_back("back on: A.esm, fo4sfbridge.esm; still held off: B.esm"))
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
         sys_.toggle_code = 1

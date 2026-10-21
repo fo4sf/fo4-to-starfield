@@ -172,7 +172,20 @@ def apply_bridge(values, starfield, system, say):
     code, out = system.run(argv)
     if code:
         raise ValueError(f"bridge: plugin_toggle.py {want} refused: {out.strip()}")
+    if want == "on" and not bridge_came_back(out):
+        # plugin_toggle releases a hold it cannot restore (the plugin or a master cannot load) and still exits 0:
+        # the bridge is then unticked, so the game must not start as if it ran (Codex, #449)
+        raise ValueError(f"bridge: {BRIDGE} did not come back on: {out.strip()}")
     say(f"bridge: turned {want}")
+
+
+def bridge_came_back(out):
+    """True when plugin_toggle.py on reports the bridge among those ticked back ("back on: A, B; ...")."""
+    for line in out.splitlines():
+        if line.startswith("back on:"):
+            names = line[len("back on:"):].split(";", 1)[0]
+            return BRIDGE.casefold() in {n.strip().casefold() for n in names.split(",")}
+    return False
 
 
 PAPYRUS = ("bEnableLogging", "bEnableTrace", "bLoadDebugInformation")
