@@ -6,21 +6,24 @@ about 12% of the ring box and 57% of the bar box are above 215 / 200. The consol
 (Skills, Status) hide them. route_run / readpos check "yes" before pressing the console key and "no" right after, so a
 console toggle that the game dropped can never send typed commands into the game or a menu ("p" opens Skills there).
 """
+import os
 import sys
 
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import game_frame  # noqa: E402
 
-def frac(im, box, threshold):
-    w, h = im.size
-    sx, sy = w / 1280.0, h / 720.0
-    hist = im.crop((int(box[0] * sx), int(box[1] * sy), int(box[2] * sx), int(box[3] * sy))).histogram()
+
+def frac(im, box, threshold, at):
+    hist = im.crop(at(*box)).histogram()
     return sum(hist[threshold:]) / max(sum(hist), 1)
 
 
 def visible(path):
     im = Image.open(path).convert("L")
-    return frac(im, (55, 535, 200, 685), 216) > 0.04 and frac(im, (1020, 628, 1210, 638), 200) > 0.25
+    at = game_frame.mapper(im)          # a letterboxed frame (a 16:10 desktop) too: game_frame.py
+    return frac(im, (55, 535, 200, 685), 216, at) > 0.04 and frac(im, (1020, 628, 1210, 638), 200, at) > 0.25
 
 
 if __name__ == "__main__":
