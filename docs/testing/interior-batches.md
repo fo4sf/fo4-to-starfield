@@ -41,7 +41,9 @@ writes three things:
 ## Choices
 - **Legs:** OUT only is the default. Each OUT leg starts with a coc inside the interior and never at the Red Rocket
   arrival. The OUT legs kept are those whose exterior arrival is at least 1500 m from Red Rocket (`--min-out-m`).
-  `--legs both` adds the IN legs, which all start at the Red Rocket arrival. Use it only once that area is cleared.
+  `--legs both` adds the IN legs, which all start at the Red Rocket arrival. Use it only once that area is cleared;
+  its README gives no direct run command: those queues go through a campaign (`campaign_arm.py`), whose red_rocket
+  hold refuses them until the owner releases it.
 - **Checks:** every door is checked as in door_rounds.py stage: the door, its base, its VMAD destination and both
   markers in the installed plugins. Nothing is planned from the build's word alone.
 - **Arming:** the chunks run through `campaign_arm.py`, with the same caps and holds as the v6e queues.

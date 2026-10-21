@@ -109,10 +109,17 @@ def coverage(cells, rounds, skipped, in_port, plan=None):
     door is not_wired when the plan gives it Commonwealth doors (its exterior doors are not in the installed core yet:
     they need a core whose door cluster was made against this port) and coc_only when it has none."""
     rows, plan = [], plan or {}
+    # a skipped door whose destination marker is missing from the port has no cell_edid: the plan's
+    # commonwealth_doors[].src says whose it is (Codex on #397), so the failure stays on its cell
+    owner = {str(d.get("src")).casefold(): pk for pk, e in plan.items()
+             for d in (e.get("commonwealth_doors") or []) if isinstance(d, dict) and d.get("src") is not None}
+
+    def cell_of(s):
+        return key(s["cell_edid"]) if s.get("cell_edid") else owner.get(str(s.get("src")).casefold())
     for c in cells:
         k = key(c)
         mine = [r for r in rounds if key(r["cell_edid"]) == k]
-        why = [s for s in skipped if s.get("cell_edid") and key(s["cell_edid"]) == k]
+        why = [s for s in skipped if cell_of(s) == k]
         if mine:
             rows.append({"cell": c, "state": "doors", "doors": [r["src"] for r in mine],
                          "skipped": [{"src": s["src"], "why": s["why"]} for s in why]})
@@ -222,13 +229,17 @@ def readme(cov, a):
              "Coverage: " + ", ".join(f"{s} {c}" for s, c in cov["counts"].items()) + " (coverage.json).", "",
              "Per chunk, with the installed set left as it is (no --plugins):",
              "  python scripts\\game\\testqueue.py plan-terrain --staging <the installed FO4Port staging> "
-             "--exp-dir <chunk> --out <queue> --bridge <the installed bridge staging>",
-             f"  python scripts\\game\\testqueue.py run --queue <queue> {RUN_CAPS}",
-             "  python scripts\\bridge\\door_rounds.py judge --queue <queue>",
-             "Stop the batch at the first queue whose run does not end with exit 0 or whose status shows a crash.",
-             f"Queue folders suggested: {q}\\chunk_NN.", ""]
+             "--exp-dir <chunk> --out <queue> --bridge <the installed bridge staging>"]
     if cov["legs"] == "both":
-        lines.append(f"Every IN leg starts at {dr.SPAWN_COC}: hold this batch while Red Rocket is off limits.")
+        # Codex on #397: a direct testqueue.py run bypasses the campaign's holds, and every IN leg starts at Red Rocket
+        lines += [f"Every IN leg starts at {dr.SPAWN_COC}: run these queues only through a campaign "
+                  "(scripts\\game\\campaign_arm.py), whose red_rocket hold refuses them until the owner releases it.",
+                  "  Each queue entry: its folder, with judge [\"scripts/bridge/door_rounds.py\", \"judge\", \"--queue\", <queue>]."]
+    else:
+        lines += [f"  python scripts\\game\\testqueue.py run --queue <queue> {RUN_CAPS}",
+                  "  python scripts\\bridge\\door_rounds.py judge --queue <queue>",
+                  "Stop the batch at the first queue whose run does not end with exit 0 or whose status shows a crash."]
+    lines += [f"Queue folders suggested: {q}\\chunk_NN.", ""]
     for c in cov["chunks"]:
         lines.append(f"  {c['folder']}: {c['tests']} tests")
     lines.append("")

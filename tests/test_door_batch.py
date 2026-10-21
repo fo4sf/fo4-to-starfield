@@ -65,6 +65,10 @@ class BatchTests(unittest.TestCase):
             dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06", "--out", ref])
         self.assertEqual(load(o, "chunk_00", "plan.json"), load(ref, "plan.json"))
         self.assertEqual(load(o, "chunk_00", "rounds.json")["tests"], load(ref, "rounds.json")["tests"])
+        with open(os.path.join(o, "README.txt")) as f:                 # Codex on #397: no direct run past the hold
+            text = f.read()
+        self.assertNotIn("testqueue.py run", text)
+        self.assertIn("campaign_arm.py", text)
 
     def test_nothing_is_written_when_no_door_is_left(self):
         with self.assertRaises(SystemExit) as cm:
@@ -136,6 +140,11 @@ class PartsTests(unittest.TestCase):
         rows = db.coverage(cells, [], [], {"massfusion01": "FO4Port_MassFusion01",
                                            "hardwaretown01": "FO4Port_HardwareTown01"}, plan)
         self.assertEqual([r["state"] for r in rows], ["not_wired", "coc_only"])
+        # Codex on #397: a skipped door with no destination marker (no cell_edid) stays on its cell through the plan
+        rows = db.coverage(cells, [], [{"src": "1", "why": "marker missing"}],
+                           {"massfusion01": "FO4Port_MassFusion01", "hardwaretown01": "FO4Port_HardwareTown01"}, plan)
+        self.assertEqual([r["state"] for r in rows], ["doors_skipped", "coc_only"])
+        self.assertEqual(rows[0]["skipped"], [{"src": "1", "why": "marker missing"}])
         for n in (None, 3):
             with self.subTest(n=n), self.assertRaises(SystemExit):
                 db.read_batch(p, n)
