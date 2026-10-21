@@ -122,8 +122,9 @@ static class NewGame
     // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
     // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
     public const int DefaultRaceMenuMode = 0;
-    // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900; Starfield's MQ101
-    // stage 0 swaps the outfit and removes items too (PC read 19 Oct). What a game started with MQ101 held off leaves
+    // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (verified from the SKK
+    // FastStart article, research note 06); Starfield's MQ101 stage 0 swaps the outfit (PC read 19 Oct) and whether it
+    // removes items too is unverified (NG-N3). What a game started with MQ101 held off leaves
     // in the player's inventory is unverified until the first in-game proof, so the reset is OFF by default: the quest
     // script's ClearInventory property (false) and VaultSuitId (0, none). With --clear-inventory the script calls
     // ObjectReference.RemoveAllItems(None, false, false) (quest items kept; FO4's signature, Starfield's is read by the

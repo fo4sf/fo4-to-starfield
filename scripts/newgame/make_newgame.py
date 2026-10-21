@@ -95,7 +95,7 @@ DEFAULT_BUILD_VERSION = 1
 # cleared removed=<n> left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and
 # equips ("vault suit equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
 DEFAULT_CLEAR_INVENTORY = False
-STARFIELD =r"D:\SteamLibrary\steamapps\common\Starfield"
+STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")

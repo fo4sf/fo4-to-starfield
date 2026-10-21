@@ -190,10 +190,11 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 
 ## 4c. The starting inventory reset
 
-- The question (NG-K8, with NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (**verified**, the B4 spike and
-  the 19 Oct script read); Starfield's MQ101 stage 0 swaps the outfit and removes items too (PC read 19 Oct). What a
-  game started our way, with MQ00 and MQ101 held off before stage 0 has run or after it, leaves in the player's
-  inventory is **unresolved** until the first in-game proof. So the reset is a writer option, **off by default**:
+- The question (NG-K8, with NG-N3): FO4's MQ101 runs `PlayerREF.RemoveAllItems()` at stages 0 and 900 (**verified**
+  from the SKK FastStart article and a forum post, research note 06-fo4-vault111-chain; the fragment itself was not
+  read); Starfield's MQ101 stage 0 swaps the outfit (**verified**, PC read of QF_MQ101_00003448.psc, 19 Oct), and
+  whether it also removes items is NG-N3, **unverified**. What a game started our way, with MQ00 and MQ101 held off
+  before stage 0 has run or after it, leaves in the player's inventory is **unresolved** until the first in-game proof. So the reset is a writer option, **off by default**:
   `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
   the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
   setting.
