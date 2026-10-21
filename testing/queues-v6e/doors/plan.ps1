@@ -65,9 +65,14 @@ else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scri
 
 # ---------------------------------------------------------------- 3. queues: no --plugins, the installed set stays
 # (docs/terrain/door-rounds.md:37); --plugin-index = FO4Port's index in the runner's launch
-$pairs = if ($RoundsOnly) { @(, @($Stage, $QRounds)) } else { @(@($StageOut, $QOut), @($Stage, $QRounds)) }
+# one [exp, queue] pair per element: an if's output is unrolled, so @(, @($Stage, $QRounds)) became two strings and
+# -RoundsOnly planned with --exp-dir 'D' (watcher1 retest 2026-10-21: plan-terrain's exp[btd] TypeError)
+$pairs = @()
+if (-not $RoundsOnly) { $pairs += , @($StageOut, $QOut) }
+$pairs += , @($Stage, $QRounds)
 foreach ($p in $pairs) {
   $exp = $p[0]; $qq = $p[1]
+  Need (Test-Path "$exp\plan.json") "no plan.json in the stage $exp"
   if (Test-Path "$qq\results.jsonl") { Write-Host "queue has results: resuming, NOT re-planned: $qq"; continue }
   & $py scripts\game\testqueue.py plan-terrain --staging $PortStaging --exp-dir $exp --out $qq --bridge $Bridge --plugin-index $PortIndex; Ok 'scripts\game\testqueue.py'
   & $py scripts\game\testqueue.py run --queue $qq --dry-run @Caps; Ok 'scripts\game\testqueue.py'
