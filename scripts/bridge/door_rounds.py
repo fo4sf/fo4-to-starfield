@@ -29,6 +29,7 @@ usage:
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -72,6 +73,16 @@ def load(p):
 def save(p, obj):
     with open(p, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=1)
+
+
+def save_stage(out, plan, info):
+    """A stage's plan.json, then its rounds.json carrying plan_sha256, the sha256 of that plan.json: one rounds digest
+    (queue.json rounds_sha256, the judge's rounds_sha256) then covers both files, and plan-terrain refuses a plan.json
+    edited after staging (Codex on #401)."""
+    save(os.path.join(out, "plan.json"), plan)
+    with open(os.path.join(out, "plan.json"), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    save(os.path.join(out, "rounds.json"), dict(info, plan_sha256=digest))
 
 
 # ------------------------------------------------------------------------------------------------------------ plugins
@@ -270,11 +281,10 @@ def stage(a):
         plan += [f, b]
         expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
     os.makedirs(out)
-    save(os.path.join(out, "plan.json"), plan)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
             "tests": expect}
-    save(os.path.join(out, "rounds.json"), info)
+    save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")
@@ -420,7 +430,10 @@ def judge(a):
         sys.exit(str(e))
     qdir = os.path.abspath(a.queue)
     q = load(os.path.join(qdir, "queue.json"))
-    info = load(a.rounds or os.path.join(q["experiment"], "rounds.json"))
+    rounds_p = a.rounds or os.path.join(q["experiment"], "rounds.json")
+    info = load(rounds_p)
+    with open(rounds_p, "rb") as f:                       # the file this judge read: regress checks it against the plan
+        rounds_sha = hashlib.sha256(f.read()).hexdigest()
     tests, rows = q["tests"], []
     for exp in info["tests"]:
         t = tests[exp["test"]] if exp["test"] < len(tests) else None
@@ -436,7 +449,8 @@ def judge(a):
                                        pairs or None)
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
-    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "world_instances": pairs, "results": rows})
+    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
+                                                          "world_instances": pairs, "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}

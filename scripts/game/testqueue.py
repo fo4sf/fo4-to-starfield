@@ -521,6 +521,15 @@ def plan_terrain(a):
     #   "points": [{"label", "x", "y", "expect"}], "beyond": {"x", "y"} (optional)}]  (metres, world coordinates)
     # plus the optional time-of-day / weather fields (sky_light.LIGHT_KEYS)
     own = load(os.path.join(a.exp_dir, "plan.json"))
+    rounds = os.path.join(a.exp_dir, "rounds.json")
+    if os.path.exists(rounds):
+        # a door rounds stage: its judge reads rounds.json against these tests, so the plan.json must be the one staged
+        # with it (door_rounds.save_stage: rounds.json plan_sha256; Codex on #401)
+        want = (load(rounds, {}) or {}).get("plan_sha256")
+        if not want or not os.path.exists(os.path.join(a.exp_dir, "plan.json")) \
+                or sha256(os.path.join(a.exp_dir, "plan.json")) != want:
+            sys.exit(f"{a.exp_dir}: plan.json is not the one its rounds.json was staged with "
+                     f"({'no plan_sha256 in rounds.json' if not want else 'plan_sha256 differs'}): stage it again")
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
@@ -563,6 +572,8 @@ def plan_terrain(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
+    if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
+        q["rounds_sha256"] = sha256(rounds)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
     q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
@@ -2190,6 +2201,16 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     return "INCONCLUSIVE", "CONTROL", f"{'; '.join(refused)}; {raw}"
 
 
+def report_verdict(qdir, q, test, r):
+    """A test's last results.jsonl row as the report reads it: an INCONCLUSIVE CONTROL row with its raw verdict is gated
+    again (control_gate), so a control that passed after the test ran now counts. regress.py reads rows the same way."""
+    if r.get("class") == "CONTROL" and r.get("raw"):
+        v, c, d = control_gate(qdir, q, test, *r["raw"])
+        if c != "CONTROL":
+            return dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
+    return r
+
+
 def dedicated_save(saves, name):
     """The dedicated save's file (the console's `save <name>` writes <name>.sfs), matched by its exact name, any case;
     None when there is none. The old glob *<name>* also took fo4sf_test_<id>.sfs.bak (a save set aside by hand,
@@ -3667,10 +3688,8 @@ def write_report(qdir):
     # of its queue, or its queue ran later) now counts
     by_id = {t["id"]: t for t in q["tests"]}
     for k, r in list(final.items()):
-        if r.get("class") == "CONTROL" and r.get("raw") and k in by_id:
-            v, c, d = control_gate(qdir, q, by_id[k], *r["raw"])
-            if c != "CONTROL":
-                final[k] = dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
+        if k in by_id:
+            final[k] = report_verdict(qdir, q, by_id[k], r)
     tally = {}
     for r in final.values():
         tally.setdefault(r["kind"], {}).setdefault(r["verdict"], 0)
