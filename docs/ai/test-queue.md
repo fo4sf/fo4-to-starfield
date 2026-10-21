@@ -47,6 +47,13 @@ launch, and the run stops with `limit: ...` when one is hit:
 
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
+A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
+`test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of
+being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried. A walk crash on another install
+than the pinned experiment is counted neither as a crash nor as an attempt (its row says so), and a queue state from before the count existed is
+seeded from its results.jsonl CRASH rows for the tests it still has to run. A test such a queue already finished keeps
+the verdict it was recorded with: the count decides what the runner does next, it does not rewrite past results.
+
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
 `routes.py` keeps a stairs route only when an offline walk (`src/fo4sf/walksim.py`, a 0.35 x 1.8 m capsule over FO4's
@@ -102,7 +109,8 @@ the walk climbs).
   `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
   load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
   stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
-  checklist either way. Unset: not run.
+  checklist either way. Unset: not run. `--preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`) runs the same checks report-only:
+  the checklist goes to `run.log` and `preflight.json`, nothing is refused, nothing goes to the ledger (leader-core.md section 7).
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by

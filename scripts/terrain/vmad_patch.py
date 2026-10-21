@@ -262,6 +262,43 @@ def load_door_destination(vmad):
     return plugin, local_id
 
 
+# Load doors that open before the trip (docs/spikes/load-door-animations.md): the same contract under the child script
+# scripts/door_bridge/FO4SF_AnimatedLoadDoor.psc plus its OpenSeconds float. `port --animated-doors <manifest>` writes it
+# for doors whose base has load_door.anim and `check` requires it for the doors doors.json lists so; without the option
+# every door keeps FO4SF_LoadDoor, byte for byte as before.
+ANIMATED_SCRIPT = "FO4SF_AnimatedLoadDoor"
+PROP_OPEN_SECONDS = "OpenSeconds"
+
+
+def animated_load_door_scripts(plugin, local_id, position=None, open_seconds=0.0):
+    """load_door_scripts under ANIMATED_SCRIPT, with OpenSeconds (float, edited, finite, 0..30) appended."""
+    try:
+        seconds = float(open_seconds)
+    except (TypeError, ValueError):
+        raise ValueError(f"open seconds {open_seconds!r} is not a number")
+    if not math.isfinite(seconds) or not 0.0 <= seconds <= 30.0:
+        raise ValueError(f"open seconds {open_seconds!r} outside 0..30")
+    (script,) = load_door_scripts(plugin, local_id, position)
+    script = dict(script, name=ANIMATED_SCRIPT, properties=script["properties"] + [
+        {"name": PROP_OPEN_SECONDS, "type": T_FLOAT, "status": PROP_EDITED, "value": seconds}])
+    return [script]
+
+
+def animated_load_door_target(vmad):
+    """(plugin, id, position, open_seconds) of an animated load door's VMAD; ValueError unless it is exactly
+    animated_load_door_scripts' shape (load_door_target's rules for the rest)."""
+    d = decode(vmad)
+    if len(d["scripts"]) != 1 or d["scripts"][0]["name"] != ANIMATED_SCRIPT:
+        raise ValueError(f"not one {ANIMATED_SCRIPT} script")
+    s = d["scripts"][0]
+    last = s["properties"][-1] if s["properties"] else None
+    if not last or (last["name"], last["type"], last["status"]) != (PROP_OPEN_SECONDS, T_FLOAT, PROP_EDITED):
+        raise ValueError(f"{PROP_OPEN_SECONDS} (float, edited) is not the last property")
+    base = dict(s, name=SCRIPT, properties=s["properties"][:-1])
+    plugin, local_id, position = load_door_target(encode([base], d["version"], d["format"]))
+    return plugin, local_id, position, last["value"]
+
+
 def same_position(got, want, tol=1e-3):
     """True when a decoded position (or None) equals the wanted three numbers within tol (metres)."""
     return got is not None and want is not None and len(got) == len(want) == 3 and all(
@@ -571,13 +608,15 @@ def core_doors(core):
     return ids["plugin"], out
 
 
-def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None):
+def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None, animated=None):
     """[{"src", "door": local id of the interior door REFR, "cell": its CELL id, "marker": the marker's id, "pos",
     "rot", "return_pos": the exterior marker's merged position, "vmad"}] in doors order; ValueError when a door's
     destination is not this plugin, its promised marker id is not the one this plugin allocates (port_next + k), or an
     id repeats. keep: {src: marker local id} (--keep-markers): the marker id per door instead of port_next + k (the
-    cluster must promise the same id; a door missing from keep is refused). merge = merge_offset(core): the return VMAD's DestinationX / Y / Z = the exterior marker's position
-    (objects.json "arrival", the marker's DATA) + merge."""
+    cluster must promise the same id; a door missing from keep is refused). merge = merge_offset(core): the return VMAD's
+    DestinationX / Y / Z = the exterior marker's position (objects.json "arrival", the marker's DATA) + merge. animated
+    ({src: open seconds}, --animated-doors): those doors get FO4SF_AnimatedLoadDoor with OpenSeconds instead of
+    FO4SF_LoadDoor; None (the default) changes nothing."""
     out, seen = [], set()
     for k, e in enumerate(doors):
         d = e["destination"]
@@ -603,6 +642,33 @@ def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None):
         out.append({"src": e["src"], "door": door, "cell": cell, "marker": want,
                     "pos": [float(v) for v in d["arrival"]["pos"]], "rot": [float(v) for v in d["arrival"]["rot"]],
                     "return_pos": back, "vmad": load_door_vmad(core_plugin, int(e["ids"]["arrival"], 16), back)})
+        if animated and e["src"] in animated:
+            out[-1].update(script=ANIMATED_SCRIPT, open_seconds=animated[e["src"]], vmad=encode(animated_load_door_scripts(
+                core_plugin, int(e["ids"]["arrival"], 16), back, animated[e["src"]])))
+    return out
+
+
+def animated_doors(plugin, own_index, doors, manifest):
+    """{src: open seconds} for the doors whose interior DOOR base is a manifest item with load_door.anim (matched by the
+    base's EDID = the item's editor_id; open_seconds 0 when the rig gave none: the script then waits for the open
+    state only). Doors whose base has no anim keep FO4SF_LoadDoor."""
+    by_edid = {it.get("editor_id"): it for it in manifest.get("items", [])}
+    own, out = own_index << 24, {}
+    for e in doors:
+        _items, _i, ref = plugin.find(own | int(e["destination"]["ref"], 16))
+        name = [d for sig, d in ref.fields() if sig == b"NAME"]
+        if len(name) != 1:
+            continue
+        try:
+            _items, _i, base = plugin.find(struct.unpack_from("<I", name[0])[0])
+        except KeyError:
+            continue
+        edid = [d for sig, d in base.fields() if sig == b"EDID"]
+        if base.sig != b"DOOR" or len(edid) != 1:
+            continue
+        ld = (by_edid.get(edid[0].rstrip(b"\0").decode("latin-1")) or {}).get("load_door")
+        if isinstance(ld, dict) and isinstance(ld.get("anim"), dict):
+            out[e["src"]] = float(ld["anim"].get("open_seconds") or 0.0)
     return out
 
 
@@ -640,11 +706,18 @@ def cmd_port(a):
         port_next = next_local_id(src_plugin)
     try:
         merge = merge_offset(a.core)
-        edits = port_edits(core_plugin, doors, name, port_next, merge, keep)
     except ValueError as e:
         sys.exit(f"doors: {e}")
     plugin = Plugin.read(src_plugin)
     own_index = len(plugin.masters())
+    animated = None
+    if getattr(a, "animated_doors", ""):           # off by default: every door keeps FO4SF_LoadDoor
+        with open(a.animated_doors, encoding="utf-8-sig") as f:
+            animated = animated_doors(plugin, own_index, doors, json.load(f))
+    try:
+        edits = port_edits(core_plugin, doors, name, port_next, merge, keep, animated)
+    except ValueError as e:
+        sys.exit(f"doors: {e}")
     if keep is not None:
         taken = {fid & 0xFFFFFF for fid in plugin.records() if fid >> 24 == own_index}
         clash = sorted(ed["marker"] for ed in edits if ed["marker"] in taken)
@@ -668,6 +741,7 @@ def cmd_port(a):
                   {"src": e["src"], "edid": e["edid"], "interior_door": f"{ed['door']:06X}", "cell": f"{ed['cell']:06X}",
                    "cell_edid": cell_edid(ids, ed["cell"]), "marker": f"{ed['marker']:06X}", "marker_pos": ed["pos"],
                    "marker_rot": ed["rot"], "vmad": ed["vmad"].hex(),
+                   **({"script": ed["script"], "open_seconds": ed["open_seconds"]} if "script" in ed else {}),
                    "return_destination": {"plugin": core_plugin, "id": e["ids"]["arrival"], "local": e["arrival"]["pos"],
                                           "merged": ed["return_pos"]}}
                   for e, ed in zip(doors, edits)]}
@@ -686,6 +760,9 @@ def cmd_port(a):
              "NOT deployed, NOT queued."]
     if keep is not None:
         lines.insert(-1, f"Marker ids kept from {a.keep_markers} (the ids the core's exterior doors already name).")
+    if animated:
+        lines.insert(-1, f"--animated-doors: {len(animated)} door(s) carry {ANIMATED_SCRIPT} (OpenSeconds; it extends "
+                         f"{SCRIPT}, so both .pex files must be in the archive); docs/spikes/load-door-animations.md.")
     for d in report["doors"]:
         lines.append(f"  {d['src']} {d['cell_edid']}: door REFR {d['interior_door']} -> {core_plugin}:{d['return_destination']['id']} "
                      f"at {[round(v, 4) for v in d['return_destination']['merged']]}, marker {d['marker']} at {d['marker_pos']} "
@@ -718,13 +795,15 @@ def cell_edid(ids, cell_local):
 
 
 # ----------------------------------------------------------------------------------------------------------- check
-def check_port(before, after, doors, core_plugin=None, merge=None, kept=False):
+def check_port(before, after, doors, core_plugin=None, merge=None, kept=False, animated=None):
     """[what, ok] of a patched port against its pinned input: masters, every record but the door REFRs byte-identical
     (sig, flags, fields, group path), each door REFR identical but for the inserted VMAD, which decodes to the script,
     the destination (the core's arrival marker when core_plugin is given) and the return position DestinationX / Y / Z
     (that marker's objects.json position + merge when merge is given; present in any case, with UseDestinationPosition
     true: load_door_target refuses a VMAD whose floats lack the bool), the markers (and nothing
-    else) new: persistent XMarker REFRs in their cell's persistent group at the arrival points, HEDR counts."""
+    else) new: persistent XMarker REFRs in their cell's persistent group at the arrival points, HEDR counts.
+    animated ({src: open seconds}, from doors.json of a port --animated-doors): those doors must carry
+    FO4SF_AnimatedLoadDoor with that OpenSeconds, every other door FO4SF_LoadDoor; None = all FO4SF_LoadDoor."""
     checks = []
 
     def need(cond, what):
@@ -750,8 +829,13 @@ def check_port(before, after, doors, core_plugin=None, merge=None, kept=False):
              f"{e['src']}: door REFR {fid:08X} unchanged but for the VMAD (flags 0x{n[1]:X}, temporary in cell {n[3][-1][1]:08X})")
         vm = [d for s, d in nf if s == b"VMAD"]
         at = [i for i, (s, _d) in enumerate(nf) if s == b"VMAD"]
+        anim = (animated or {}).get(e["src"])
         try:
-            dest = load_door_target(vm[0]) if len(vm) == 1 else None
+            if anim is None:
+                dest = load_door_target(vm[0]) if len(vm) == 1 else None
+            else:
+                got = animated_load_door_target(vm[0]) if len(vm) == 1 else None
+                dest = got[:3] if got and abs(got[3] - anim) < 1e-4 else (f"bad: OpenSeconds {got[3]} not {anim}" if got else None)
         except ValueError as err:
             dest = f"bad: {err}"
         want = (core_plugin, int(e["ids"]["arrival"], 16)) if core_plugin else None
@@ -759,7 +843,7 @@ def check_port(before, after, doors, core_plugin=None, merge=None, kept=False):
         good = (isinstance(dest, tuple) and dest[2] is not None and (want is None or dest[:2] == want)
                 and (back is None or same_position(dest[2], back)) and at == [1 if nf[0][0] == b"EDID" else 0])
         shown = dest if not isinstance(dest, tuple) or dest[2] is None else (*dest[:2], [round(v, 4) for v in dest[2]])
-        need(good, f"{e['src']}: VMAD {SCRIPT} -> {shown} with {PROP_USE_POSITION} true (expected {want or 'any'} at "
+        need(good, f"{e['src']}: VMAD {SCRIPT if anim is None else ANIMATED_SCRIPT} -> {shown} with {PROP_USE_POSITION} true (expected {want or 'any'} at "
                    f"{[round(v, 4) for v in back] if back else 'a position'}; {vm[0].hex() if vm else 'none'})")
     for fid, e in markers.items():
         n = new.get(fid)
@@ -802,7 +886,8 @@ def cmd_check(a):
         merge = merge_offset(core)
     except ValueError as e:
         sys.exit(f"doors: {e}")
-    checks = check_port(before, after, doors, core_plugin, merge, kept=bool(rep.get("kept_markers")))
+    animated = {d["src"]: float(d["open_seconds"]) for d in rep.get("doors", []) if d.get("script") == ANIMATED_SCRIPT}
+    checks = check_port(before, after, doors, core_plugin, merge, kept=bool(rep.get("kept_markers")), animated=animated or None)
     own = len(after.masters()) << 24
     raw = {}
     for e in doors:
@@ -851,6 +936,9 @@ def main(argv=None):
     p.add_argument("--core", required=True, help="the core build with doors (objects.json, formids.json)")
     p.add_argument("--out", required=True, help="a new folder")
     p.add_argument("--keep-markers", default="", help="an earlier doors build's doors.json: keep its marker ids")
+    p.add_argument("--animated-doors", default="", metavar="MANIFEST",
+                   help="off by default: doors whose interior DOOR base has load_door.anim in this manifest get "
+                        f"{ANIMATED_SCRIPT} (open before the trip); docs/spikes/load-door-animations.md")
     p = sub.add_parser("check", help="the patched folder against its pinned input, record by record")
     p.add_argument("--port", required=True)
     p.add_argument("--out", required=True)
