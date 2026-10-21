@@ -248,6 +248,17 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
 
+    def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
+        # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        menu = int(re.search(r"Wait-Screen 'main menu' (\d+)", src).group(1))
+        save = int(re.search(r"Wait-Screen 'save loaded' (\d+)", src).group(1))
+        self.assertGreaterEqual(menu, 240)
+        self.assertGreaterEqual(save, 300)
+        start = 12 + 150 + 20 + 10                                             # close an old game, see it start, alive, settle
+        cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + cell + 120)   # the runner never cuts a slow launch short
+
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
 
