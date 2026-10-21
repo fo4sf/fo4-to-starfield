@@ -16,6 +16,9 @@ class FakeProc:
     def __init__(self, sys_, argv):
         self.sys, self.argv = sys_, argv
 
+    def poll(self):
+        return self.sys.procdump_quits
+
     def wait(self, timeout=None):
         if self.sys.procdump_hangs:
             raise crashwatch.subprocess.TimeoutExpired(self.argv, timeout)
@@ -34,6 +37,7 @@ class FakeSystem:
         self.running = list(running)
         self.spawned, self.ran, self.calls = [], [], []
         self.procdump_hangs, self.dump_name = False, None
+        self.procdump_quits, self.spawn_error = None, None
         self.toggle_status = {"off": [], "owned": []}
         self.toggle_code = 0
 
@@ -64,6 +68,8 @@ class FakeSystem:
         return None
 
     def spawn(self, argv, log_path):
+        if self.spawn_error:
+            raise self.spawn_error
         self.spawned.append(argv)
         return FakeProc(self, argv)
 
@@ -127,7 +133,15 @@ class CrashWatchTests(unittest.TestCase):
     def test_problems(self):
         v = settings.assign(settings.defaults(), ["crash_watch.enabled=on", "bridge=on", "papyrus_logging=off"])
         p = settings.problems(v)
-        self.assertEqual(len(p), 4, p)                 # folder, procdump, bridge needs logging, my_games
+        self.assertEqual(len(p), 5, p)         # folder, procdump, logging off, bridge needs logging on, my_games
+        for pairs, ok in ((["papyrus_logging=off"], False),            # an active bridge would go blind
+                          (["papyrus_logging=off", "bridge=off"], True),
+                          (["bridge=on"], False),                        # the INI may hold logging off today
+                          (["bridge=on", "papyrus_logging=on"], True),
+                          (["bridge=off"], True)):
+            v = settings.assign(settings.defaults(), pairs + ["my_games=x"])
+            with self.subTest(pairs=pairs):
+                self.assertEqual(settings.problems(v) == [], ok, settings.problems(v))
 
     def test_procdump_argv(self):
         v = self.values()
@@ -185,6 +199,34 @@ class CrashWatchTests(unittest.TestCase):
         self.assertNotIn("dumps", r)
         self.assertFalse(os.path.exists(os.path.join(self.dumps, "crashwatch.log")))
 
+    def test_a_new_dump_folder_is_made_before_the_game_starts(self):
+        new = os.path.join(self.dir, "new", "dumps")
+        r = self.play(self.values(crash_watch__folder=new), FakeSystem([(5, 0, 100, 0)]))
+        self.assertTrue(r["armed"])
+        self.assertTrue(os.path.isfile(os.path.join(new, "crashwatch.log")))
+        blocked = os.path.join(self.dir, "a_file")
+        open(blocked, "w").close()
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(crash_watch__folder=os.path.join(blocked, "dumps")), sys_)
+        self.assertIn("cannot write", str(e.exception))
+        self.assertEqual(sys_.calls, [])                           # refused before the game starts
+
+    def test_procdump_that_does_not_attach_is_not_called_armed(self):
+        sys_ = FakeSystem([(5, 0, 300, 0xC0000005)])
+        sys_.procdump_quits = -2
+        r = self.play(self.values(), sys_)
+        self.assertFalse(r["armed"])
+        self.assertEqual(r["exit"], "0xC0000005 ACCESS_VIOLATION")      # the exit code is still logged
+        self.assertIn("NOT armed on process 5: ProcDump exited at once (code -2)", self.log())
+        self.assertNotIn("armed: process", self.log())
+        sys_ = FakeSystem([(5, 0, 300, 0)])
+        sys_.spawn_error = PermissionError(13, "Access is denied")
+        r = self.play(self.values(), sys_)
+        self.assertFalse(r["armed"])
+        self.assertIn("ProcDump did not start (Access is denied)", self.log())
+        self.assertIn("ended: process 5", self.log())
+
     def test_procdump_still_writing_is_never_killed(self):
         sys_ = FakeSystem([(5, 0, 100, 0x80000003)])
         sys_.procdump_hangs = True
@@ -224,7 +266,9 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual(len(sys_.ran), 1)                         # already held: status only
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.toggle_status = {"off": ["FO4SFBridge.esm"], "owned": ["FO4SFBridge.esm"]}
-        self.play(self.values(bridge="on"), sys_)
+        mg = os.path.join(self.dir, "mg")
+        os.makedirs(mg)
+        self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
         self.assertEqual(sys_.ran[1][:3], ["on", "--plugins", "FO4SFBridge.esm"])
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
@@ -242,7 +286,7 @@ class CrashWatchTests(unittest.TestCase):
         ini = os.path.join(mg, "StarfieldCustom.ini")
         with open(ini, "w") as f:
             f.write("[General]\nsLanguage=en\n[Papyrus]\nbEnableLogging=1\nbEnableTrace=1\nfOther=2\n[Display]\nx=1\n")
-        self.play(self.values(papyrus_logging="off", my_games=mg), FakeSystem([(5, 0, 100, 0)]))
+        self.play(self.values(papyrus_logging="off", bridge="off", my_games=mg), FakeSystem([(5, 0, 100, 0)]))
         with open(ini) as f:
             self.assertEqual(f.read(), "[General]\nsLanguage=en\n[Papyrus]\nbEnableLogging=0\nbEnableTrace=0\nfOther=2\n"
                                        "bLoadDebugInformation=0\n[Display]\nx=1\n")

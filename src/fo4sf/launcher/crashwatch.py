@@ -32,6 +32,7 @@ import time
 from . import detect, settings as settings_mod
 
 STEAM_URL = "steam://rungameid/1716740"
+ATTACH_CHECK_S = 5.0               # how long ProcDump must stay up after attaching before the watcher counts as armed
 GAME_EXE = "Starfield.exe"
 BRIDGE = "FO4SFBridge.esm"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -273,6 +274,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         for p in plan:
             say(p)
         return {"dry_run": True, "plan": plan}
+    if cw:
+        try:                                        # before the game starts: the log must be writable (Codex, #449)
+            os.makedirs(values["crash_watch.folder"], exist_ok=True)
+            _log(log_path, "play: starting the game")
+        except OSError as e:
+            raise ValueError(f"crash watcher: cannot write to {values['crash_watch.folder']} ({e.strerror or e})") \
+                from None
     apply_bridge(values, starfield, system, say)
     apply_papyrus(values, say)
 
@@ -305,18 +313,34 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             _log(log_path, "game did not stay up; watcher not armed")
         return {"started": False, "early": early}
     say(f"Starfield running (process {pid})")
+    armed = False
     if cw:
         argv = procdump_argv(values, pid)
-        proc = system.spawn(argv, log_path)
-        _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
-        say(f"crash watcher armed on process {pid} ({values['crash_watch.dump']} dumps)")
+        try:
+            proc = system.spawn(argv, log_path)
+        except OSError as e:
+            proc = None
+            why = f"ProcDump did not start ({e.strerror or e})"
+        else:
+            # ProcDump stays up while it is attached; one that exits while the game still runs refused the
+            # arguments or could not attach (its own message is in crashwatch.log)
+            system.sleep(ATTACH_CHECK_S)
+            rc = proc.poll()
+            why = f"ProcDump exited at once (code {rc})" if rc is not None and pid in system.pids() else ""
+            armed = not why
+        if armed:
+            _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
+            say(f"crash watcher armed on process {pid} ({values['crash_watch.dump']} dumps)")
+        else:
+            _log(log_path, f"NOT armed on process {pid}: {why}; only the exit code will be logged")
+            say(f"crash watcher NOT armed: {why}; only the exit code will be logged (see crashwatch.log)")
     code = system.wait_exit(handle) if handle else None
     result = {"started": True, "pid": pid, "early": early, "exit_code": code, "exit": exit_name(code),
-              "seconds": round(system.now() - t0)}
+              "seconds": round(system.now() - t0), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s: {result['exit']}")
     if proc is not None:
         try:
-            proc.wait(timeout=dump_wait_s)
+            result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
         except subprocess.TimeoutExpired:
             say(f"ProcDump is still running {dump_wait_s:g} s after the game ended (a dump still being written?); "
                 "left running: never kill it mid-dump")
@@ -325,7 +349,8 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         result["dumps"] = dumps_since(values["crash_watch.folder"], t0)
         note = " (a crash code and no dump)" if code not in (None, 0) and not result["dumps"] else ""
         _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s, dumps: "
-                       f"{', '.join(result['dumps']) or 'none'}{note}")
+                       f"{', '.join(result['dumps']) or 'none'}{note}"
+                       + (f", ProcDump exit {result['procdump_exit']}" if "procdump_exit" in result else ""))
         if result["dumps"]:
             say("dumps: " + ", ".join(result["dumps"]) + " (never upload a dump; docs/PLAY-AND-TEST.md)")
     return result

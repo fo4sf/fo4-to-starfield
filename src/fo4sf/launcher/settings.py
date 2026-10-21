@@ -117,8 +117,12 @@ def problems(values):
         for k in ("crash_watch.folder", "crash_watch.procdump"):
             if not values[k]:
                 out.append(f"{k} is not set (needed while the crash watcher is on)")
-    if values["bridge"] == "on" and values["papyrus_logging"] == "off":
-        out.append("the bridge needs Papyrus logging: bridge=on with papyrus_logging=off would leave it blind")
+    # the bridge reads only what Papyrus logs: turning logging off is allowed only with the bridge held off, and
+    # putting the bridge back only with logging turned on, whatever the INI or Plugins.txt hold today (Codex, #449)
+    if values["papyrus_logging"] == "off" and values["bridge"] != "off":
+        out.append("papyrus_logging=off needs bridge=off: an active bridge would be left blind")
+    if values["bridge"] == "on" and values["papyrus_logging"] != "on":
+        out.append("bridge=on needs papyrus_logging=on: the bridge only sees what Papyrus logs")
     if values["papyrus_logging"] != "unchanged" and not values["my_games"]:
         out.append("my_games is not set (needed to change Papyrus logging)")
     return out
