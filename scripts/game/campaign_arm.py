@@ -276,7 +276,14 @@ def installed_exp_why(camp, names=None, pack=None):
         # Codex on #391: cycle.ps1 runs exp_install.py order after deploying FO4Port.esm, and stops (exit 7) on a
         # master that is not active: its own read-only check on the lines it will order
         order = [p for p in names if p.casefold() not in held]
-        lines = ei.read_plugins(ei.plugins_txt())[0]
+        # Codex on #391: order() also refuses (exit 6) a record written for another profile's Plugins.txt and an
+        # unfinished FO4Port deployment
+        ei.require_complete_master(data)
+        p_txt = ei.plugins_txt()
+        if norm(rec.get("plugins_txt") or p_txt) != norm(p_txt):
+            return (f"the install record {rec_p} was written for {rec.get('plugins_txt')}, this profile's Plugins.txt "
+                    f"is {p_txt}: exp_install.py order would stop")
+        lines = ei.read_plugins(p_txt)[0]
         if not any(ln.strip().lstrip("*").strip().casefold() == "fo4port.esm" for ln in lines):
             lines = lines + ["*FO4Port.esm"]
         _, _, missing = ei.order_lines(lines, order, {p: ei.plugin_masters(ei.data_path(data, p)) for p in order})

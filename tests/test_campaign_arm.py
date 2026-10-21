@@ -368,6 +368,18 @@ class PlanTerrainHoldTests(Base):
             json.dump(rec, f)
         self.assertIn(f"{PLUGINS[0]} needs active master Missing.esm", " ".join(self.check(c)[1]))
 
+    def test_an_install_record_for_another_profile_is_refused(self):
+        # Codex on #391: exp_install.py order exits 6 when the record's Plugins.txt is not this profile's
+        c = self.camp([("walk", self.queue("walk", [{"coc": "FO4Port_X"}]))], starfield=self.sf)
+        mine = os.path.join(self.local, "Starfield", "Plugins.txt")
+        self.receipt(self.exp, plugins_txt=mine)
+        self.assertEqual(self.check(c), (True, []))
+        other = os.path.join(self.d, "other", "Starfield", "Plugins.txt")
+        self.receipt(self.exp, plugins_txt=other)
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("was written for", " ".join(why))
+
     def test_the_checkout_must_be_the_campaigns_commit_and_clean(self):
         # Codex on #391: the pins covered data files, not the runner, judge and PowerShell code
         import subprocess
