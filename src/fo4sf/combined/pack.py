@@ -29,6 +29,11 @@ _FIELDS = {
 }
 
 
+def _is_id(v) -> bool:
+    """A reference to a place or faction: JSON can carry any value, but only a non-empty string can be a key."""
+    return isinstance(v, str) and v != ""
+
+
 def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -73,12 +78,14 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     new_places: dict[str, dict] = {}
     for p in places:
         pid = p["id"]
-        if not isinstance(pid, str) or not pid:
+        if not _is_id(pid):
             problems.append(f"place id {pid!r}: must be a non-empty string")
             continue
         if pid in known_places or pid in new_places:
             problems.append(f"place {pid}: already defined (packs only add)")
             continue
+        if not _is_id(p["region"]):
+            problems.append(f"place {pid}: region {p['region']!r} must be a non-empty string")
         if p["kind"] not in PLACE_KINDS:
             problems.append(f"place {pid}: kind {p['kind']!r} not in {', '.join(PLACE_KINDS)}")
         if not _is_int(p.get("defence", 0)) or p.get("defence", 0) < 0:
@@ -87,7 +94,7 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     new_factions = {}
     for f in factions:
         fid = f["id"]
-        if not isinstance(fid, str) or not fid:
+        if not _is_id(fid):
             problems.append(f"faction id {fid!r}: must be a non-empty string")
             continue
         if fid in known_factions or fid in new_factions:
@@ -104,7 +111,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
 
     for pid, p in new_places.items():
         holder = p.get("holder")
-        if holder is not None and holder not in all_factions:
+        if holder is not None and not _is_id(holder):
+            problems.append(f"place {pid}: holder {holder!r} must be a faction id (a string) or null")
+        elif holder is not None and holder not in all_factions:
             problems.append(f"place {pid}: holder {holder!r} is not a known faction")
 
     for fid, f in new_factions.items():
@@ -114,7 +123,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
         if not _is_int(agg) or not 0 <= agg <= 100:
             problems.append(f"faction {fid}: aggression must be in 0..100")
         home = f["home"]
-        if home not in all_places:
+        if not _is_id(home):
+            problems.append(f"faction {fid}: home {home!r} must be a place id (a string)")
+        elif home not in all_places:
             problems.append(f"faction {fid}: home {home!r} is not a known place")
         elif holder_of(home) != fid:
             problems.append(f"faction {fid}: home {home} is held by {holder_of(home)!r}, not {fid}")
@@ -131,6 +142,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     seen_settlements = set(ws.settlements) if ws else set()
     for s in settlements:
         pid = s["place"]
+        if not _is_id(pid):
+            problems.append(f"settlement place {pid!r}: must be a place id (a string)")
+            continue
         if pid in seen_settlements:
             problems.append(f"settlement {pid}: already defined (packs only add)")
             continue
@@ -163,6 +177,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     edges = {frozenset((r.a, r.b)) for r in ws.routes} if ws else set()
     for r in routes:
         a, b = r["a"], r["b"]
+        if not (_is_id(a) and _is_id(b)):
+            problems.append(f"route {a!r}-{b!r}: both ends must be place ids (strings)")
+            continue
         for end in (a, b):
             if end not in all_places:
                 problems.append(f"route {a}-{b}: {end!r} is not a known place")

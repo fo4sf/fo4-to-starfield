@@ -296,6 +296,11 @@ class P3Tests(unittest.TestCase):
         self.assertEqual(probes.check_p3(col(log=CELLS[:2])).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p3(col(log=[INIT] + CELLS[1:])).verdict, INCONCLUSIVE)   # default variant: no cell half
 
+    def test_cell_half_retry_does_not_borrow_the_older_second_cell(self):
+        # Codex P1 on #431: a retry interrupted after the new Red Rocket `where` stays inconclusive.
+        v = probes.check_p3(col(log=CELLS + [CELLS[1]]))
+        self.assertEqual(v.extra["cell_half"], INCONCLUSIVE)
+
     def test_both_halves_worst_wins(self):
         c = col(session1=S1_P3, session2=S2_P3, log=CELLS[:2])
         v = probes.check_p3(c)

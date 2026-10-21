@@ -136,6 +136,13 @@ class PackValidationTests(unittest.TestCase):
             self.assertProblem(lambda p: p["places"][0].update(id=bad), "must be a non-empty string")
             self.assertProblem(lambda p: p["factions"][0].update(id=bad), "must be a non-empty string")
 
+    def test_references_must_be_strings(self):
+        # Codex P2 on #431: a list holder raised TypeError instead of a validation problem.
+        self.assertProblem(lambda p: p["places"][0].update(holder=[]), "must be a faction id")
+        self.assertProblem(lambda p: p["factions"][0].update(home={}), "must be a place id")
+        self.assertProblem(lambda p: p["settlements"][0].update(place=[1]), "must be a place id")
+        self.assertProblem(lambda p: p["routes"][0].update(a=[]), "both ends must be place ids")
+
     def test_not_an_object(self):
         self.assertEqual(pack.validate_pack([]), ["pack must be an object"])
 

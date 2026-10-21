@@ -638,11 +638,16 @@ def check_p3(c: Collection) -> Verdict:
         v.cite(init)
         wheres = _by_kind(evs, "where")
         want = {"fo4port_redrocket01": LOCAL["p3_noparent"], "fo4port_superdupermart01": LOCAL["p3_chained"]}
+        # One traversal = the latest Red Rocket `where` and the first Super Duper Mart `where` after it, so an
+        # interrupted retry never borrows an older attempt's second cell (Codex review of #431).
         seen = {}
-        for w in wheres:
-            name = w.fields.get("cellname", "").lower()
-            if name in want:
-                seen[name] = w
+        firsts = [w for w in wheres if w.fields.get("cellname", "").lower() == "fo4port_redrocket01"]
+        if firsts:
+            seen["fo4port_redrocket01"] = firsts[-1]
+            later = [w for w in wheres if w.line > firsts[-1].line
+                     and w.fields.get("cellname", "").lower() == "fo4port_superdupermart01"]
+            if later:
+                seen["fo4port_superdupermart01"] = later[0]
         v.cite(*seen.values())
         if len(seen) < 2:
             v.reasons.append("cell half: both `where` lines (FO4Port_RedRocket01, FO4Port_SuperDuperMart01) are needed")
