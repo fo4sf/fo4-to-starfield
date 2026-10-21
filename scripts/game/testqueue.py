@@ -226,6 +226,48 @@ def load(p, default=None):
         return json.load(f)
 
 
+# what deploy_starfield.py install writes into the staging root on the first launch: the archives it packs from the
+# pinned loose meshes/geometries/materials/textures (ARCHIVE, TEX_ARCHIVE), and the temporary folder it builds them in
+DEPLOY_ARCHIVES = ("FO4Port - Main.ba2", "FO4Port - Textures.ba2")
+DEPLOY_TEMP = ".fo4port-archive-"
+
+
+def staging_paths(staging, skip=()):
+    """{relative path: full path} of every staged file staging_fingerprint hashes. Left out: the probe points, the
+    folders in `skip`, and what the deploy generates in the staging root (DEPLOY_ARCHIVES, packed from files that are
+    pinned; Codex on #405: the first launch's deploy otherwise read as a changed build)."""
+    out = {}
+    skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
+    top = os.path.normcase(os.path.abspath(staging))
+    for root, dirs, files in os.walk(staging):
+        at_top = os.path.normcase(os.path.abspath(root)) == top
+        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip
+                         and not (at_top and x.startswith(DEPLOY_TEMP)))
+        for n in sorted(files):
+            if n.startswith("probe_") and n.endswith(".txt"):
+                continue
+            if at_top and n in DEPLOY_ARCHIVES:
+                continue
+            p = os.path.join(root, n)
+            out[os.path.relpath(p, staging).replace(os.sep, "/")] = p
+    return out
+
+
+def stat_sig(p):
+    """A staged file's identity for the staging pin's cache: size, mtime, and the file id and change time (st_ino is the
+    NTFS file id on Windows, new after an atomic replace; st_ctime_ns is the change time on Linux, the creation time on
+    Windows), so a same-size replace with its old mtime restored is rehashed (Codex on #405)."""
+    st = os.stat(p)
+    return (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev, st.st_ctime_ns)
+
+
+def staging_fingerprint(staging, skip=()):
+    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
+    out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
+    planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build (Codex on #405)."""
+    return {k: sha256(p) for k, p in staging_paths(staging, skip).items()}
+
+
 def save_atomic(p, obj):
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -2997,6 +3039,33 @@ class Runner:
         esm = os.path.join(self.q["staging"], "FO4Port.esm")
         return os.path.exists(esm) and sha256(esm) == self.q["plugin_sha256"]
 
+    def staging_mismatch(self):
+        """Why the staging no longer matches the full fingerprint the queue pinned (staging_files: every file's sha256,
+        written by inventory.py), else None. A queue without the pin is checked on FO4Port.esm alone (pinned_ok). A
+        changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405).
+        Checked before every test (ensure_game), the live game reused or not. Every file is hashed only when the
+        staging's stat signature (stat_sig) differs from the last one that matched the pin, so a run on an unchanged
+        staging pays one stat walk per test. Known limit: an in-place write on Windows that keeps the size and restores
+        the mtime keeps the signature; inventory.py promote hashes every file in full."""
+        pin = self.q.get("staging_files")
+        if pin is None:
+            return None
+        try:
+            paths = staging_paths(self.q["staging"], self.q.get("staging_skip") or [])
+            sig = {k: stat_sig(p) for k, p in paths.items()}
+            if sig == getattr(self, "_staging_sig", None):
+                return None                               # nothing touched since the last full match
+            now_ = {k: sha256(p) for k, p in paths.items()}
+        except OSError as e:
+            return f"staging {self.q['staging']} unreadable: {e}"
+        if now_ != pin:
+            self._staging_sig = None
+            moved = sorted(k for k in set(pin) | set(now_) if pin.get(k) != now_.get(k))
+            return (f"the staging changed since the queue was planned ({len(moved)} file(s): "
+                    f"{', '.join(moved[:5])}{', ...' if len(moved) > 5 else ''})")
+        self._staging_sig = sig
+        return None
+
     def experiment_mismatch(self):
         """Why the staged experiment a walk queue pinned (experiment_identity) is no longer what the plan saw, else
         None: checked before a launch (the launch installs it), as pinned_ok checks FO4Port.esm."""
@@ -3017,6 +3086,10 @@ class Runner:
         gp = self.ctl.game_pid()
         if gp and gp != self.ctl.owned_pid():
             self.log("a Starfield the runner did not start is running (the owner's session): stopping")
+            return "stop"
+        why = self.staging_mismatch()                     # every test, a live game too: steps read staged files
+        if why:
+            self.log(f"{why}: stopping")
             return "stop"
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
