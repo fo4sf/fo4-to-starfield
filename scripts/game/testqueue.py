@@ -2144,6 +2144,16 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     return "INCONCLUSIVE", "CONTROL", f"{'; '.join(refused)}; {raw}"
 
 
+def report_verdict(qdir, q, test, r):
+    """A test's last results.jsonl row as the report reads it: an INCONCLUSIVE CONTROL row with its raw verdict is gated
+    again (control_gate), so a control that passed after the test ran now counts. regress.py reads rows the same way."""
+    if r.get("class") == "CONTROL" and r.get("raw"):
+        v, c, d = control_gate(qdir, q, test, *r["raw"])
+        if c != "CONTROL":
+            return dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
+    return r
+
+
 def dedicated_save(saves, name):
     """The dedicated save's file (the console's `save <name>` writes <name>.sfs), matched by its exact name, any case;
     None when there is none. The old glob *<name>* also took fo4sf_test_<id>.sfs.bak (a save set aside by hand,
@@ -3517,10 +3527,8 @@ def write_report(qdir):
     # of its queue, or its queue ran later) now counts
     by_id = {t["id"]: t for t in q["tests"]}
     for k, r in list(final.items()):
-        if r.get("class") == "CONTROL" and r.get("raw") and k in by_id:
-            v, c, d = control_gate(qdir, q, by_id[k], *r["raw"])
-            if c != "CONTROL":
-                final[k] = dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
+        if k in by_id:
+            final[k] = report_verdict(qdir, q, by_id[k], r)
     tally = {}
     for r in final.values():
         tally.setdefault(r["kind"], {}).setdefault(r["verdict"], 0)

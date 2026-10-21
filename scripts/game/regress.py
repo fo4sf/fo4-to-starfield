@@ -5,9 +5,11 @@ lines up. Offline: it only reads queue folders.
 usage:
   python scripts/game/regress.py --old <queue> [<queue> ...] --new <queue> [<queue> ...] [--out <report.json>]
 
-A test's final verdict is its last row in results.jsonl. A door_rounds judge (door_rounds_judge.json) replaces the
-runner's verdicts of its queue, since the runner's terrain verdict does not judge the door; its rows for tests the queue
-does not hold are left out, every queued test needs exactly one row, and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
+A test's final verdict is its last row in results.jsonl, read as the queue's report reads it (testqueue.report_verdict:
+an npc_nav CONTROL row is gated again). A door_rounds judge (door_rounds_judge.json) replaces the runner's verdicts of
+its queue, since the runner's terrain verdict does not judge the door; its rows for tests the queue does not hold are
+left out, every queued test needs exactly one row that names its door (door, leg, cell, FO4 src and ack, against the
+test's label and console_post), and a judge older than the queue's newest attempt of a test is refused (exit 2). Tests are matched by:
   door round legs     ("door", interior cell, leg, FO4 door src)
   terrain tests       ("terrain", "", coc, side, label): several walks can start from one coc
   every other test    (kind, cell, ref, side): a door's two sides are two tests
@@ -30,7 +32,11 @@ match can not tell apart), a missing or unreadable queue.json (no "tests" list),
 import argparse
 import json
 import os
+import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import testqueue  # noqa: E402  (report_verdict: the report's own reading of a row)
 
 PASS, FAIL = "PASS", "FAIL"
 
@@ -72,6 +78,25 @@ def latest_attempt(qdir, test_id):
     return tries[-1][1] if tries else None
 
 
+def door_mismatch(t, r):
+    """Why judge row r is not the door round test t of this queue, else None. plan-terrain copies door_rounds.py's
+    label into the test's model ("door round K IN (cell, FO4 src): ..." / "door round K OUT (cell): ...") and its
+    ack command into console_post; the row carries door, leg, cell_edid, src and ack (Codex on #401: a judge of
+    another rounds file with the same test numbers)."""
+    m = re.match(r"door round (\d+) (IN|OUT) \(([^,)]+)(?:, FO4 ([^)]+))?\)", str(t.get("model") or ""))
+    if not m:
+        return f"{t.get('id')} is not a door round test"
+    want = {"door": int(m.group(1)), "leg": m.group(2).lower(), "cell_edid": m.group(3)}
+    if m.group(4):
+        want["src"] = m.group(4)
+    got = {k: r.get(k) for k in want}
+    if got != want:
+        return f"{t.get('id')} is {want}, its judge row {got}"
+    if t.get("console_post") and r.get("ack") and not any(f'"{r["ack"]}"' in str(c) for c in t["console_post"]):
+        return f"{t.get('id')} does not send the ack {r['ack']!r} of its judge row"
+    return None
+
+
 def is_door_queue(q):
     """A door rounds queue, from the queue itself: its tests carry door_rounds.py's "door round N IN/OUT" labels
     (plan-terrain copies them into model), so an archived queue whose stage folder moved still counts; or its
@@ -108,9 +133,14 @@ def results(qdir):
         if bad:                                            # a judge of a subset (judge --rounds) leaves doors out
             raise Unavailable(f"{judge_p}: every queued test needs exactly one judge row; "
                               f"{', '.join(bad[:5])}{'...' if len(bad) > 5 else ''}; judge the whole queue again")
+        by_id = {t.get("id"): t for t in q["tests"] if isinstance(t, dict)}
         for r in judged["results"]:
             if r.get("id") not in rows_of:
                 continue                                   # an expectation the queue never planned (plan-terrain --only)
+            why = door_mismatch(by_id[r["id"]], r)
+            if why:
+                raise Unavailable(f"{judge_p}: judged from another rounds file? {why}; judge the queue again "
+                                  f"with its own rounds.json")
             now = latest_attempt(qdir, r["id"])
             if now != r.get("attempt"):                    # the queue ran again after it was judged (Codex on #401)
                 raise Unavailable(f"{judge_p}: judged at attempt {r.get('attempt') or 'none'} of {r['id']}, the "
@@ -124,6 +154,8 @@ def results(qdir):
         last[r["id"]] = r                                  # the last row of a test is its final verdict
     for t in q["tests"]:
         r = last.get(t["id"])
+        if r:
+            r = testqueue.report_verdict(qdir, q, t, r)    # an npc_nav CONTROL row gated again, as the report does
         k = (t.get("kind"), t.get("cell") or "", t.get("ref") or "", "" if t.get("side") is None else str(t["side"]))
         if t.get("kind") == "terrain":
             k += (t.get("model") or "",)

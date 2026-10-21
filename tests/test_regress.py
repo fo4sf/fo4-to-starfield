@@ -28,6 +28,20 @@ def queue(d, name, build, tests, results=(), judged=None, torn=False):
     return q
 
 
+def door(k, leg, edid, src="1:Fallout4.esm"):
+    """A door round test as plan-terrain writes it from door_rounds.py's plan.json: label in model, ack in console_post."""
+    label = f"door round {k} IN ({edid}, FO4 {src}): walk" if leg == "in" else f"door round {k} OUT ({edid}): coc inside"
+    tag = f"door-{'fwd' if leg == 'in' else 'ret'}-{k}"
+    return {"kind": "terrain", "cell": "", "ref": edid, "model": label,
+            "console_post": [f'cgf "FO4SF_Probe.Ack" "{tag}"']}
+
+
+def jrow(k, leg, edid, src="1:Fallout4.esm", **kw):
+    """door_rounds.py judge's row for that test."""
+    return dict({"door": k, "leg": leg, "cell_edid": edid, "src": src, "ack": f"door-{'fwd' if leg == 'in' else 'ret'}-{k}",
+                 "verdict": "PASS", "why": "", "id": f"{k:04d}_terrain"}, **kw)
+
+
 STAIRS = {"kind": "stairs", "cell": "BostonPublicLibrary02", "ref": "0EBEDE"}
 FALL = {"kind": "fall", "cell": "BostonPublicLibrary02", "ref": "pt1"}
 WALK = {"kind": "walk", "cell": "", "ref": "RedRocket_to_Sanctuary"}
@@ -58,13 +72,11 @@ class DiffTests(unittest.TestCase):
 
     def test_the_door_judge_replaces_the_runner_verdicts(self):
         d = tempfile.mkdtemp()
-        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
+        doors = [door(0, "out", "FO4Port_Vault95")]
         old = queue(d, "old", "a", doors, [(0, "PASS")],
-                    judged=[{"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS",
-                             "why": "0.5 m", "id": "0000_terrain"}])
+                    judged=[jrow(0, "out", "FO4Port_Vault95", why="0.5 m")])
         new = queue(d, "new", "b", doors, [(0, "PASS")],
-                    judged=[{"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "FAIL",
-                             "why": "STAYED", "id": "0000_terrain"}])
+                    judged=[jrow(0, "out", "FO4Port_Vault95", verdict="FAIL", why="STAYED")])
         r = rg.diff([old], [new])
         self.assertEqual(r["regressed"][0]["key"], ["door", "FO4Port_Vault95", "out", "1:Fallout4.esm"])
         self.assertEqual(r["regressed"][0]["detail"], "STAYED")
@@ -108,9 +120,8 @@ class DiffTests(unittest.TestCase):
         os.makedirs(exp)
         with open(os.path.join(exp, "rounds.json"), "w") as f:
             json.dump({"tests": []}, f)
-        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
-        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
-               "id": "0000_terrain"}
+        doors = [door(0, "out", "FO4Port_Vault95")]
+        row = jrow(0, "out", "FO4Port_Vault95")
         old = queue(d, "old", "a", doors, [(0, "PASS")], judged=[row])
         new = queue(d, "new", "b", doors, [(0, "PASS")])
         with open(os.path.join(new, "queue.json")) as f:
@@ -142,13 +153,12 @@ class DiffTests(unittest.TestCase):
     def test_judge_rows_of_tests_the_queue_never_planned_are_left_out(self):
         # Codex on #401: plan-terrain --only queues got an id-less INCONCLUSIVE row for every unplanned expectation
         d = tempfile.mkdtemp()
-        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
-        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
-               "id": "0000_terrain"}
-        phantom = {"cell_edid": "FO4Port_Museum", "leg": "in", "src": "2:Fallout4.esm", "verdict": "INCONCLUSIVE",
-                   "why": "the queue has no such test"}
+        doors = [door(0, "out", "FO4Port_Vault95")]
+        row = jrow(0, "out", "FO4Port_Vault95")
+        phantom = {k: v for k, v in jrow(1, "in", "FO4Port_Museum", "2:Fallout4.esm", verdict="INCONCLUSIVE",
+                                         why="the queue has no such test").items() if k != "id"}
         partial = queue(d, "partial", "b", doors, [(0, "PASS")], judged=[row, phantom])
-        two = doors + [{"kind": "terrain", "cell": "", "ref": "door round 1 IN"}]
+        two = doors + [door(1, "in", "FO4Port_Museum", "2:Fallout4.esm")]
         full = queue(d, "full", "a", two, [(0, "PASS")], judged=[row, dict(phantom, id="0001_terrain", verdict="PASS")])
         r = rg.diff([full], [partial])
         self.assertEqual(r["lost"], [])
@@ -157,11 +167,9 @@ class DiffTests(unittest.TestCase):
     def test_a_judge_missing_a_queued_door_is_refused(self):
         # Codex on #401: a judge --rounds subset left doors out, so a PASS became "gone", exit 0
         d = tempfile.mkdtemp()
-        two = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"},
-               {"kind": "terrain", "cell": "", "ref": "door round 1 IN"}]
-        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
-               "id": "0000_terrain"}
-        row1 = dict(row, cell_edid="FO4Port_Museum", leg="in", id="0001_terrain")
+        two = [door(0, "out", "FO4Port_Vault95"), door(1, "in", "FO4Port_Museum", "2:Fallout4.esm")]
+        row = jrow(0, "out", "FO4Port_Vault95")
+        row1 = jrow(1, "in", "FO4Port_Museum", "2:Fallout4.esm")
         old = queue(d, "old", "a", two, [], judged=[row, row1])
         subset = queue(d, "subset", "b", two, [], judged=[row])
         twice = queue(d, "twice", "c", two, [], judged=[row, row1, dict(row1, verdict="FAIL")])
@@ -173,9 +181,8 @@ class DiffTests(unittest.TestCase):
     def test_a_judge_older_than_the_queue_is_refused(self):
         # Codex on #401: a queue judged, then resumed, compared on the old judge's verdicts
         d = tempfile.mkdtemp()
-        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
-        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "INCONCLUSIVE",
-               "why": "", "id": "0000_terrain", "attempt": "a1"}
+        doors = [door(0, "out", "FO4Port_Vault95")]
+        row = jrow(0, "out", "FO4Port_Vault95", verdict="INCONCLUSIVE", attempt="a1")
         old = queue(d, "old", "a", doors, [(0, "PASS")], judged=[dict(row, verdict="PASS")])
         os.makedirs(os.path.join(old, "tests", "0000_terrain", "a1"))
         new = queue(d, "new", "b", doors, [(0, "PASS")], judged=[row])
@@ -193,6 +200,43 @@ class DiffTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as buf:
             self.assertEqual(rg.main(["--old", old, "--new", unrun]), 2)
         self.assertIn("judged at attempt none", buf.getvalue())
+
+    def test_a_judge_of_another_rounds_file_is_refused(self):
+        # Codex on #401: a judge of another rounds file with the same test numbers passed the row count
+        d = tempfile.mkdtemp()
+        doors = [door(0, "out", "FO4Port_Vault95"), door(1, "in", "FO4Port_Museum", "2:Fallout4.esm")]
+        good = [jrow(0, "out", "FO4Port_Vault95"), jrow(1, "in", "FO4Port_Museum", "2:Fallout4.esm")]
+        old = queue(d, "old", "a", doors, [], judged=good)
+        for n, (rows_, why) in enumerate((
+                ([good[0], jrow(1, "in", "FO4Port_Library", "2:Fallout4.esm")], "'cell_edid': 'FO4Port_Library'"),
+                ([good[0], jrow(1, "in", "FO4Port_Museum", "9:Fallout4.esm")], "'src': '9:Fallout4.esm'"),
+                ([good[0], jrow(1, "out", "FO4Port_Museum", "2:Fallout4.esm")], "'leg': 'out'"),
+                ([good[0], dict(good[1], ack="door-fwd-7")], "does not send the ack 'door-fwd-7'"))):
+            new = queue(d, f"new{n}", "b", doors, [], judged=rows_)
+            with self.subTest(why=why), redirect_stdout(io.StringIO()) as buf:
+                self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+            self.assertIn(why, buf.getvalue())
+        plain = queue(d, "plain", "c", [STAIRS], [], judged=[dict(good[0], id="0000_stairs")])
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", plain]), 2)
+        self.assertIn("0000_stairs is not a door round test", buf.getvalue())
+
+    def test_an_npc_control_row_is_gated_again_as_the_report_does(self):
+        # Codex on #401: a raw FAIL kept as INCONCLUSIVE CONTROL read as lost, while the report shows it as FAIL
+        d = tempfile.mkdtemp()
+        nav = {"kind": "npc_nav", "cell": "C", "ref": "walk", "npc": "N", "method": "pt"}
+        ctrl = dict(nav, ref="ctrl", control=True)
+        old = queue(d, "old", "a", [nav, ctrl], [(0, "PASS"), (1, "PASS")])
+        new = queue(d, "new", "b", [nav, ctrl], [(1, "PASS")])
+        with open(os.path.join(new, "results.jsonl"), "a") as f:
+            f.write(json.dumps({"id": "0000_npc_nav", "verdict": "INCONCLUSIVE", "class": "CONTROL",
+                                "detail": "control has no result", "raw": ["FAIL", "NOREACH", "stopped 9 m short"]}) + "\n")
+        with open(os.path.join(new, "state.json"), "w") as f:      # the control passed after the test ran
+            json.dump({"done": {"0001_npc_nav": {"verdict": "PASS", "class": "PASS", "attempts": 1}}}, f)
+        r = rg.diff([old], [new])
+        self.assertEqual([x["key"] for x in r["regressed"]], [["npc_nav", "C", "walk", ""]])
+        self.assertIn("stopped 9 m short (control 0001_npc_nav passed) (gated again at report time)",
+                      r["regressed"][0]["detail"])
 
     def test_repeated_keys_are_reported(self):
         d = tempfile.mkdtemp()
