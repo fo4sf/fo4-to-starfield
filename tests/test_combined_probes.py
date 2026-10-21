@@ -152,6 +152,15 @@ class P1Tests(unittest.TestCase):
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("read-back half was not exercised" in r for r in v.reasons), v.reasons)
 
+    def test_an_older_attempts_load_does_not_count(self):
+        # Codex P1 on #431: the log spans launches; a read-back before the latest pre_save is not this attempt's.
+        c = p1_collection(loads=False)
+        old = json.dumps({"event": "post_load", "save": "focc_p1_a", "found": True, "valid": True, "counter": 1})
+        c.sfse_log = [old] + c.sfse_log
+        v = probes.check_p1(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("read-back half was not exercised" in r for r in v.reasons), v.reasons)
+
     def test_inconclusive_branches(self):
         self.assertEqual(probes.check_p1(Collection()).verdict, INCONCLUSIVE)                      # no log
         self.assertEqual(probes.check_p1(Collection(sfse_log=["not json"])).verdict, INCONCLUSIVE)

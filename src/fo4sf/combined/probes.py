@@ -389,12 +389,15 @@ def check_p1(c: Collection) -> Verdict:
     if not evs:
         v.reasons.append("the SFSE log has no JSON event lines (the plugin did not load or did not log)")
         return v
-    pre = {}
+    pre, pre_line = {}, {}
     for n, d, s in evs:
         if d.get("event") == "pre_save" and isinstance(d.get("save"), str):
-            pre[d["save"]] = d
+            pre[d["save"]], pre_line[d["save"]] = d, n
     post_saves = {d["save"] for n, d, s in evs if d.get("event") == "post_save" and isinstance(d.get("save"), str)}
-    loads = [d for n, d, s in evs if d.get("event") == "post_load"]
+    # The log is appended across launches: a load only counts for a saved name when it follows that name's last
+    # pre_save, so an older attempt's read-back never stands in for this one's (Codex review of #431).
+    loads = [d for n, d, s in evs if d.get("event") == "post_load"
+             and (d.get("save") not in pre_line or n > pre_line[d.get("save")])]
     if not loads:
         v.reasons.append("no post_load line: the plugin never saw a load (check the SFSE loader output)")
         return v

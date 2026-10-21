@@ -130,6 +130,12 @@ class PackValidationTests(unittest.TestCase):
         problems = self.problems(mutate, **kw)
         self.assertTrue(any(text in q for q in problems), f"{text!r} not in {problems}")
 
+    def test_ids_must_be_non_empty_strings(self):
+        # Codex P2 on #431: a null id loaded under the key None and broke the save round-trip.
+        for bad in (None, "", 7):
+            self.assertProblem(lambda p: p["places"][0].update(id=bad), "must be a non-empty string")
+            self.assertProblem(lambda p: p["factions"][0].update(id=bad), "must be a non-empty string")
+
     def test_not_an_object(self):
         self.assertEqual(pack.validate_pack([]), ["pack must be an object"])
 

@@ -73,6 +73,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     new_places: dict[str, dict] = {}
     for p in places:
         pid = p["id"]
+        if not isinstance(pid, str) or not pid:
+            problems.append(f"place id {pid!r}: must be a non-empty string")
+            continue
         if pid in known_places or pid in new_places:
             problems.append(f"place {pid}: already defined (packs only add)")
             continue
@@ -84,6 +87,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
     new_factions = {}
     for f in factions:
         fid = f["id"]
+        if not isinstance(fid, str) or not fid:
+            problems.append(f"faction id {fid!r}: must be a non-empty string")
+            continue
         if fid in known_factions or fid in new_factions:
             problems.append(f"faction {fid}: already defined (packs only add)")
             continue
