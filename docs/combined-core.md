@@ -195,9 +195,9 @@ Two additions close that gap, both offline and stdlib only:
 
 Outputs under `D:\Modding\research\combined_seed`; nothing is written into the game folder and nothing is committed.
 
-```
+```powershell
 cd <repo>
-set PYTHONPATH=src
+$env:PYTHONPATH = 'src'
 python -m fo4sf.combined seed D:\Modding\research\combined_seed "<Fallout 4>\Data\Fallout4.esm" "<Fallout 4>\Data\DLCRobot.esm" "<Fallout 4>\Data\DLCworkshop01.esm"
 python -m fo4sf.combined seed-pack D:\Modding\research\combined_seed\commonwealth_seed.draft.json D:\Modding\research\combined_seed
 python -m fo4sf.combined simulate --pack D:\Modding\research\combined_seed\commonwealth.pack.json --seed 1 --days 30
@@ -209,7 +209,7 @@ Add the other DLC `.esm` files to the first line when they are installed. What t
 
 ## Not implemented (and not claimed)
 
-No game runtime, no Papyrus, no SFSE plugin, no plugin records written (the adapter is a plan), nothing installed or
+No game runtime, no Papyrus or SFSE plugin outside the probe kit (docs/spikes/combined-core-probes.md, not run yet), no plugin records written (the adapter is a plan), nothing installed or
 deployed, no UI, no spawning, no voice, no quest records behind the job offers, no player-needs model behind the
 survival presets, no reputation globals per region, only one tuning pass (empty settlements, see "Balance baseline"; the other constants are
 still the first prototype's placeholders). Whether keyword data survives a save (P2) and the sidecar's behaviour under SFSE (P1) are untested on the PC.
