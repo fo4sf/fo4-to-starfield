@@ -259,6 +259,8 @@ class RunnerLeaseTests(unittest.TestCase):
         cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
         escapes = 2 * (2 + 15 + 10)                                           # the Escapes after a missed save load
         self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + cell + 120)   # never cut a slow launch short
+        # with -CellJson the launch ends with coc.ps1 and its retries (Codex on #452): its whole budget fits too
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + tq.COC_TIMEOUT_S + 120)
 
     def test_cycle_ps1_sends_no_blind_e_after_the_save_loads(self):
         # v6e retry 4, 2026-10-21: the E after Continue opened Vasco's dialogue on the owner's save and hid the HUD

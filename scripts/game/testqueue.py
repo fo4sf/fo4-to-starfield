@@ -99,7 +99,9 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
-CYCLE_TIMEOUT_S = 1200        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc; was 900
+COC_TIMEOUT_S = 480           # coc.ps1 with its retries: the first coc, the same coc again, the hop and the target twice
+CYCLE_TIMEOUT_S = 1500        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc
+                              # (COC_TIMEOUT_S); was 900, then 1200 before coc.ps1's retries
 LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
@@ -3179,10 +3181,10 @@ class Runner:
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
-            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs); 480 s
-            # covers its retries when the first coc misses the marker (four more cocs and two more reads)
+            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs);
+            # COC_TIMEOUT_S covers its retries when the first coc misses the marker (four more cocs and two more reads)
             code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
-                                                                                       else []), 480)
+                                                                                       else []), COC_TIMEOUT_S)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code == 2 and not self.game_gone():        # a game gone fails the input guard too: a crash, below
                 return "owner"
