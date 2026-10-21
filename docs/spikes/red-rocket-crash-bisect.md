@@ -1,7 +1,7 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **in progress**. v6e (installed) still crashes at Red Rocket with the same fault. v6h is staged, and its walk
-test (Card E) is next. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes").
+Status: **in progress**. v6e and v6h both crash at Red Rocket with the same fault, so every door rig near Red Rocket
+is cleared. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes"); v6i tests it.
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -27,7 +27,7 @@ differ. `movables.txt` lists the 448 meshes that v6c made movable, one per line
 | v6e (installed, crashes) | off | static | `--no-rig-pattern "redrped" --static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
 | v6f (dropped) | on | static | `--static-pattern "@D:\Modding\scratch\v6\movables.txt"` |
 | v6g (dropped) | off | movable | `--no-rig-pattern "redrped"` |
-| v6h (staged, Card E next) | off | static | v6e's, with `--no-rig-pattern "redrped\|bldcounterdoor01\|safedoor01"` |
+| v6h (installed, crashes) | off | static | v6e's, with `--no-rig-pattern "redrped\|bldcounterdoor01\|safedoor01"` |
 
 How to read the results:
 - v6e stable: build v6f. If v6f is stable too, the props caused it and the side door is safe. If v6f crashes, the
@@ -88,7 +88,8 @@ Steps (PC install thread; D: needs room for one more staged core, and keeps its 
   FO4TerrainCore is DC751664. **Verified** (PC report).
 - `--resume` reconverted 62 meshes, not 3. `checkpoints.reusable_result` never reuses a result that has fallback
   materials or a `door_error`, so every resume retries those (16 with fallbacks this run, plus the doors with rig
-  errors). With the same code and inputs, the retries should come out unchanged (**inference**; compare-ids agrees).
+  errors). With the same code and inputs, the retries should come out unchanged (**inference**; compare-ids agrees). A manifest check on the PC sorted all 62: 2 targets, 55 with fallback
+  materials, 5 with door errors, 0 unexplained. **Verified.**
 
 ## The 0.02 in the door boxes
 - `scripts/research/nif_float_scan.py` (#453) over the core's 11,768 NIFs finds 0x3ca3d70a in 6 of them. All 6 are door
@@ -105,4 +106,27 @@ Steps (PC install thread; D: needs room for one more staged core, and keeps its 
   meshes. Staging it needs about 10 GB on D:, and D: is at 45.5 GB against its 40 GB floor, so it waits on the owner's
   cleanup list.
 
-v6c and v6e are tested in game (both crash at Red Rocket); v6h is built but not yet tested.
+## v6h result (2026-10-21)
+- v6h crashes about 16 s after the walk test's move to Red Rocket (17:22:04 local), within 2 s of arrival. The dump
+  matches the others: Starfield.exe+0x2bf016b, rcx 0x3ca3d70a, r12 0x6666666666666600. Process commit was 12.79 GiB,
+  the system had 3.78 GiB available and 45.53 of 61.16 GiB commit, and the 1 s memory log is flat through the load.
+  **Verified** (PC report).
+- So the counter and safe door rigs are cleared too, and no door rig near Red Rocket is left. The counter door's 0.02
+  leaf box is still in v6h, so it remains the lead (**supported hypothesis**).
+
+## v6i (next): the leaf floor alone
+v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR's `sfcollision.MIN_LEAF_HALF`).
+- Build it in wt_v6, not from main. main has moved a long way since 039a44e (2,600 lines in src/fo4sf), and a build
+  from main would change more than one thing. In wt_v6's `src\fo4sf\convert_static.py`, replace `max(0.02, ` with
+  `max(0.05, `: exactly 2 replacements, at lines 432 and 654, and nothing else.
+- That edit changes `checkpoint_signature`, so `--resume` reconverts all 11,887 meshes (35 to 48 min) in place in
+  work_v6c2. Run v6h's exact convert command, switches included.
+- Gate: `nif_float_scan.py` over the v6i convert output finds 0x3ca3d70a in 0 NIFs. Any hit, stop.
+- Stage `terrain_core64v6i_l125_mission_wfc11` as v6h was staged (CHECK, l125, compare-ids against v6h identical,
+  mission restaged as mission_wfc11_v6i). This needs about 10 GB, and D: is at 45.5 GB against its 40 GB floor, so it
+  waits for the owner's cleanup.
+- Reading it, with the same walk: v6i stable means the thin box caused the crash, and this PR ships the fix. A crash
+  with rcx 0x3ca3d70a and 0 scan hits would mean the 0.02 comes from somewhere else (not a NIF float); a crash with a
+  different rcx would mean the game still misreads the box, now with 0.05.
+
+v6c, v6e and v6h are tested in game (all crash at Red Rocket); v6i has not been built.
