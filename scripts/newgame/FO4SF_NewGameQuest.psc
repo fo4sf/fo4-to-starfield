@@ -143,16 +143,18 @@ Event OnTimer(int aiTimerID)
             StartTimer(1.0, 1)                               ; the game is still loading
             return
         endif
-        float days = GameDaysPassed.GetValue()
-        int level = player.GetLevel()
-        bool fresh = IsFreshStart(Opening.GetStage(), Opening.IsCompleted(), Opening.IsStopped())
-        if !fresh || !IsNewGame(days, level)
-            Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
-            AdvanceTo(1)
-            Stop()
-            return
-        endif
         if holdPasses == 0
+            ; the guard runs once, before the hold-off: a retry after a missed move must not re-judge an opening the
+            ; hold-off itself stopped (21 Oct review on #393)
+            float days = GameDaysPassed.GetValue()
+            int level = player.GetLevel()
+            bool fresh = IsFreshStart(Opening.GetStage(), Opening.IsCompleted(), Opening.IsStopped())
+            if !fresh || !IsNewGame(days, level)
+                Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
+                AdvanceTo(1)
+                Stop()
+                return
+            endif
             HoldOffPass(1)
         endif
         ; MQ101's stage 0 has already run by now: it turned saving off (SetInChargen) and hid the HUD (SetCharGenHUDMode

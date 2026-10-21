@@ -462,19 +462,32 @@ def fold(a):
     return 0
 
 
-def split_runs(lines, line_re, start="init "):
+def split_runs(lines, line_re, start="init ", carry=()):
     """The messages of each run, oldest first: a user log is appended across game sessions, so a run starts at each
     message beginning with `start` (the script's OnInit trace); messages before the first one form a run of their own.
-    Lines of other logs are dropped."""
-    runs = []
+    A message beginning with one of `carry` that comes right before a `start` belongs to that new run: another
+    script's init can trace before the quest's own (21 Oct review on #393, the version script). Lines of other logs
+    are dropped."""
+    runs, pending = [], []
     for line in lines:
         m = line_re.search(line)
         if not m:
             continue
         msg = m.group("msg")
+        if carry and msg.startswith(carry):
+            pending.append(msg)
+            continue
         if msg.startswith(start) or not runs:
             runs.append([])
-        runs[-1].append(msg)
+            if msg.startswith(start):
+                runs[-1] += pending
+                pending = []
+        runs[-1] += pending + [msg]
+        pending = []
+    if pending:
+        if not runs:
+            runs.append([])
+        runs[-1] += pending
     return runs
 
 
@@ -498,7 +511,7 @@ def summarize(lines):
          "inventory_cleared": None, "vault_suit": None,
          "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
          "runs": 0, "earlier_completed": False}
-    runs = split_runs(lines, LINE)
+    runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
     for msg in runs[-1] if runs else []:

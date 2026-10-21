@@ -333,7 +333,8 @@ class ContractTests(unittest.TestCase):
         body = psc[psc.index("Event OnTimer"):]
         self.assertLess(body.index("HoldOffPass(2)"), body.index("if stage == 0"))
         self.assertIn("if holdPasses == 1\n        HoldOffPass(2)", body)
-        self.assertIn("if holdPasses == 0\n            HoldOffPass(1)", body)
+        gate = body.index("if holdPasses == 0")
+        self.assertIn("HoldOffPass(1)", body[gate:body.index("endif\n        ;", gate)])
         self.assertIn('" pass=" + pass', psc)
         for q in ng.DEFAULT_HOLD:
             self.assertIn(q, psc)                            # the HoldOff property's doc names the default list
@@ -375,6 +376,11 @@ class ContractTests(unittest.TestCase):
         self.assertIn("return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)", psc)
         self.assertIn(f"int Property SaveableStage = {ng.SAVEABLE_STAGE} Auto Const", psc)
         self.assertIn("if !fresh || !IsNewGame(days, level)", psc)
+        # the guard runs only before the hold-off, so a retried move never re-judges the opening it stopped
+        guard = psc.index("if !fresh || !IsNewGame(days, level)")
+        gate = psc.rindex("if holdPasses == 0", 0, guard)
+        self.assertNotIn("endif", psc[gate:psc.index("bool fresh", gate)])
+        self.assertLess(guard, psc.index("HoldOffPass(1)", gate))
         self.assertTrue(ng.is_fresh_start(0, False, True))     # MQ101 not started yet
         self.assertTrue(ng.is_fresh_start(0, False, False))    # MQ101 at its stage 0, saving still off
         self.assertFalse(ng.is_fresh_start(105, False, False))  # saving is back on: a save could exist
@@ -743,6 +749,19 @@ class LogTests(unittest.TestCase):
                  "[d] FO4SF_NEWGAME rt=3 stage 10", "[e] FO4SF_NEWGAME rt=4 init y"]
         self.assertEqual(ng.split_runs(lines, ng.LINE), [["status stage=20"], ["init x", "stage 10"], ["init y"]])
         self.assertEqual(ng.split_runs([], ng.LINE), [])
+
+    def test_a_version_line_before_init_joins_the_new_run(self):
+        """21 Oct review on #393: the alias script's OnInit may trace before the quest's; either order is one run."""
+        old = ["[a] FO4SF_NEWGAME rt=1 init old", "[b] FO4SF_NEWGAME rt=2 status stage=200"]
+        for first, second in ((["version saved=7 installed=7"], ["init new"]),
+                              (["init new"], ["version saved=7 installed=7"])):
+            with self.subTest(first=first[0]):
+                lines = old + [f"[c] FO4SF_NEWGAME rt=3 {m}" for m in first + second] + \
+                    ["[d] FO4SF_NEWGAME rt=4 status stage=10"]
+                runs = ng.split_runs(lines, ng.LINE, carry=("version saved=",))
+                self.assertEqual(len(runs), 2)
+                self.assertEqual(sorted(runs[1][:2]), ["init new", "version saved=7 installed=7"])
+                self.assertEqual(ng.summarize(lines)["version_saved"], "7")
 
 class VerifyFoldTests(unittest.TestCase):
     def setUp(self):
