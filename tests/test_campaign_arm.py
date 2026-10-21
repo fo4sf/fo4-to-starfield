@@ -225,6 +225,28 @@ class PlanTerrainHoldTests(Base):
         self.assertTrue(self.check(self.camp([("a", q)]))[0])
 
 
+    def test_probe_moveto_booleans_and_a_relative_experiment_are_refused(self):
+        # Codex on #391: MoveTo can load a held cell; JSON true passed as 1 and ran as "True"; a relative experiment
+        # names two different rounds files from the check and from the judge in the checkout
+        moveto = 'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0.0 0.0 0.0'
+        q = self.queue("mv", [{"coc": "FO4Port_X", "console_post": [moveto]}])
+        ok, why = self.check(self.camp([("a", q)]))
+        self.assertFalse(ok)
+        self.assertIn("FO4SF_Probe.MoveTo in 0000_t", " ".join(why))
+        q = self.queue("ok", [{"coc": "FO4Port_X"}])
+        for k, v in (("max_relaunch", True), ("crash_budget", True), ("max_attempts", True), ("max_attempts", 1.0)):
+            with self.subTest(k=k, v=v):
+                ok, why = self.check(self.camp([("a", q)], caps=dict(CAPS, **{k: v})))
+                self.assertFalse(ok)
+                self.assertIn(k, " ".join(why))
+        q = self.queue("relexp", [{"coc": "FO4Port_X"}], experiment="stage")
+        c = self.camp([("a", q)])
+        c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", q]
+        ok, why = self.check(c)
+        self.assertFalse(ok)
+        self.assertIn("not a full path", " ".join(why))
+
+
 class ScriptAndGateTests(Base):
     def test_the_chain_carries_the_caps_and_stops_on_the_gate(self):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95"}])

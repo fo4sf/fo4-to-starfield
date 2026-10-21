@@ -6,7 +6,7 @@ usage:
   python scripts/game/campaign_arm.py check --campaign <campaign.json> [--release HOLD,...] [--sha256 HEX]
       every queue of the campaign, refused with the reason when:
         - its queue folder is not a full path, its queue.json is missing, or its tests name no coc;
-        - a test travels by anything but coc <cell> (cow and player.moveto go where the holds can not see);
+        - a test travels by anything but coc <cell>, or types FO4SF_Probe.MoveTo (both go where the holds can not see);
         - it pins another FO4Port staging than the campaign's, or that staging's FO4Port.esm changed since the plan;
         - its pinned bridge is not the campaign's, or changed since the plan;
         - its pre_launch would install anything but the campaign's installed experiment with its installed plugins
@@ -52,6 +52,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import console_plan as cp  # noqa: E402
 import testqueue as tq  # noqa: E402
 
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"   # testqueue.py's default --starfield
@@ -97,14 +98,16 @@ def cells(q):
 def check_caps(caps):
     """Reasons the caps are not the night-run caps."""
     c, bad = caps or {}, []
-    if c.get("max_relaunch") != 1:
+    def one(k):                          # Codex on #391: JSON true equals 1 in Python, and testqueue refuses "True"
+        return type(c.get(k)) is int and c.get(k) == 1
+    if not one("max_relaunch"):
         bad.append(f"max_relaunch {c.get('max_relaunch')!r}, want 1 (one launch, no relaunch after a crash)")
-    if c.get("crash_budget") != 1:
+    if not one("crash_budget"):
         bad.append(f"crash_budget {c.get('crash_budget')!r}, want 1 (stop at the first crash or dead start)")
     g = c.get("min_free_gb")
     if not (isinstance(g, (int, float)) and not isinstance(g, bool) and math.isfinite(g) and g >= FLOOR_GB):
         bad.append(f"min_free_gb {g!r}, want {FLOOR_GB:g} or more")
-    if c.get("max_attempts") not in (1, 2):
+    if not (type(c.get("max_attempts")) is int and c.get("max_attempts") in (1, 2)):
         bad.append(f"max_attempts {c.get('max_attempts')!r}, want 1 or 2")
     if not re.fullmatch(r"[A-Za-z]:\\", str(c.get("dump_drive") or "")):
         bad.append(f"dump_drive {c.get('dump_drive')!r}, want a drive root such as D:\\")
@@ -178,6 +181,12 @@ def check_queue(entry, camp, release):
     starts = cells(q)
     odd = sorted({str(t.get("travel")).strip() for t in q["tests"] if str(t.get("travel") or "").strip()
                   and not re.fullmatch(r"(?i)coc\s+[A-Za-z0-9_]+", str(t["travel"]).strip())})
+    moves = sorted({t["id"] for t in q["tests"] for k in cp.CONSOLE_KEYS for c in (t.get(k) or [])
+                    if isinstance(c, str) and c.startswith(cp.MOVETO_PREFIX)})
+    if moves:
+        # Codex on #391: FO4SF_Probe.MoveTo moves the player to a reference and can load a cell the holds never see
+        why.append(f"FO4SF_Probe.MoveTo in {', '.join(moves[:3])}: its cell can not be checked against the holds; "
+                   "run such a queue by hand")
     if odd:
         # Codex on #391: a cow or player.moveto travel goes where the holds can not see
         why.append(f"travel other than coc <cell> can not be checked against the holds: {', '.join(odd[:3])}")
@@ -249,8 +258,12 @@ def judge_def(judge, q):
             return None, f"judge {opt} {path!r} is relative: give the full path"
         return path, None
     exp = (q or {}).get("experiment")
-    return (os.path.join(exp, name), None) if exp else (None, f"judge reads {name} from the queue's experiment "
-                                                             "folder, and the queue names none")
+    if not exp:
+        return None, f"judge reads {name} from the queue's experiment folder, and the queue names none"
+    if not (re.match(r"[A-Za-z]:[\\/]", exp) or os.path.isabs(exp)):
+        # Codex on #391: the judge runs in the checkout, the check where it was started: one path, two files
+        return None, f"judge reads {name} from the queue's experiment folder {exp!r}, which is not a full path"
+    return os.path.join(exp, name), None
 
 
 def queue_sha256(entry):
