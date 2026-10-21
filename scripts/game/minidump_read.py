@@ -12,6 +12,7 @@ which writes a new file.
 """
 import argparse
 import json
+import mmap
 import struct
 import sys
 
@@ -162,8 +163,12 @@ class Dump:
 
 
 def summary(path, scan):
-    with open(path, "rb") as f:
-        d = Dump(f.read())
+    # memory-mapped, not read: a full (-ma) dump can be many GB, and only a few small structures are touched
+    with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+        return _summary(path, Dump(data), scan)
+
+
+def _summary(path, d, scan):
     exc, regs = d.exception()
     fault_module = next((m for m in d.modules if exc["at"] and exc["at"].startswith(m["name"] + "+")), None)
     stack = d.stack_scan(regs["rsp"], scan) if "rsp" in regs else []
