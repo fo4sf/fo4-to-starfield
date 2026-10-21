@@ -246,6 +246,15 @@ class OverrideTests(unittest.TestCase):
             self.assertEqual((sim.ATTACK_CHANCE_PER_AGGRESSION, sim.UPKEEP_PER_PLACE), (1, 0.5))
         self.assertEqual((sim.UPKEEP_PER_PLACE, sim.ATTACK_CHANCE_PER_AGGRESSION), before)
 
+    def test_nonpositive_tick_hours_is_refused(self):
+        # Codex review of #431: sim.run never reaches its end with a tick of 0 or less hours.
+        before = sim.TICK_HOURS
+        for bad in (0, -1, 0.0):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                with balance.overrides({"sim.TICK_HOURS": bad}):
+                    pass
+        self.assertEqual(sim.TICK_HOURS, before)
+
     def test_bad_name_after_a_good_one_still_restores(self):
         before = sim.UPKEEP_PER_PLACE
         with self.assertRaises(ValueError):

@@ -418,7 +418,7 @@ Function P8Stage(int s)
         bool parentDisabled = P8Parents[k].IsDisabled()
         int j = 0
         while j < 4
-            Trace("p8 child stage=" + k + " j=" + j + " disabled=" + P8Children[4 * k + j].IsDisabled() + " parent_disabled=" + parentDisabled)
+            Trace("p8 child stage=" + k + " j=" + j + " id=" + P8Children[4 * k + j].GetFormID() + " disabled=" + P8Children[4 * k + j].IsDisabled() + " parent_disabled=" + parentDisabled)
             j += 1
         endwhile
         k += 1

@@ -347,7 +347,7 @@ class P3Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P4
 
 def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
-    lines = [INIT, f"FOCC rt=0.5 p4 start cycles={cycles}"]
+    lines = [INIT, f"FOCC rt=0.5 p4 start cycles={cycles} settle=8.0 marker={0x0300080B} pos=0 0 0 mode=placeatme"]
     for n in range(1, cycles + 1):
         placed = 2 if short_at == n else 3
         lines.append(f"FOCC rt={n * 8.5:.1f} p4 cycle n={n} placed={placed} loaded={loaded} deleted=3 mode={mode}")
@@ -356,6 +356,13 @@ def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
 
 
 class P4Tests(unittest.TestCase):
+    def test_another_marker_is_not_judged(self):
+        # Codex review of #431: the logged marker must be FOCC_P4_SpawnMarker.
+        log = [l.replace(f"marker={0x0300080B}", "marker=1") for l in p4_log()]
+        c = col(log=log)
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
     def test_only_the_latest_run_counts(self):
         # Codex P1 on #431: an older complete run must not fill the gaps of the latest one.
         partial = [l for l in p4_log() if " n=7 " not in l]
@@ -602,7 +609,7 @@ class P6P7Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P8
 
 def p8_log(order=(1, 2, 0), swap=None, detach=None):
-    lines = [INIT] + [f"FOCC rt=1.0 p8 move stage={k} parent={50333728 + k} pos=0 {6 * k} 0" for k in range(3)]
+    lines = [INIT] + [f"FOCC rt=1.0 p8 move stage={k} parent={0x0300080C + k} pos=0 {6 * k} 0" for k in range(3)]
     for s in order:
         lines.append(f"FOCC rt=2.0 p8 stage={s}")
         for k in range(3):
@@ -614,7 +621,8 @@ def p8_log(order=(1, 2, 0), swap=None, detach=None):
                     pdis = dis
                 if detach == (s, k, j):
                     dis = not dis
-                lines.append(f"FOCC rt=3.0 p8 child stage={k} j={j} disabled={dis} parent_disabled={pdis}")
+                lines.append(f"FOCC rt=3.0 p8 child stage={k} j={j} id={0x0300080F + 4 * k + j} disabled={dis} "
+                             f"parent_disabled={pdis}")
     return lines
 
 
@@ -623,6 +631,13 @@ class P8Tests(unittest.TestCase):
         c = col(log=p8_log() + p8_log()[1:-1])                # latest run lost its last child line
         c.saves = saves(focc_p8_before=1, focc_p8_after=1)
         self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE)
+
+    def test_parents_and_children_are_the_probe_refs(self):
+        # Codex review of #431: foreign refs with consistent rows never settle P8.
+        for old, new in ((f"parent={0x0300080D}", f"parent={0x03000820}"), (f"id={0x03000814}", "id=1")):
+            c = col(log=[l.replace(old, new) for l in p8_log()])
+            c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+            self.assertEqual(probes.check_p8(c).verdict, INCONCLUSIVE, new)
 
     def test_every_stage_must_be_moved(self):
         # Codex review of #431: a P8Move that stopped after stage 0 never moved stages 1 and 2.
@@ -679,7 +694,7 @@ class P8Tests(unittest.TestCase):
 
 def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=None, jump_at=None, unload=False,
            done=True):
-    lines = [INIT, "FOCC rt=1.0 p9 dest id=-16702651 pos=450.000000 0.000000 0.000000",
+    lines = [INIT, f"FOCC rt=1.0 p9 dest id={0x0300081B} pos=450.000000 0.000000 0.000000",
              f"FOCC rt=1.5 p9 start actor=-16711680 seconds={seconds} dist={start:.6f}"]
     x = 0.0
     t = 0
@@ -701,6 +716,11 @@ def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=
 
 
 class P9Tests(unittest.TestCase):
+    def test_another_destination_is_not_judged(self):
+        # Codex review of #431: the logged destination must be FOCC_P9_Dest.
+        log = [l.replace(f"id={0x0300081B}", "id=1") for l in p9_log()]
+        self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
+
     def test_pass(self):
         v = probes.check_p9(col(log=p9_log()))
         self.assertEqual(v.verdict, PASS, v.reasons)
@@ -713,7 +733,7 @@ class P9Tests(unittest.TestCase):
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("teleport" in r for r in v.reasons))
         # arrived at once, no walking: one sample pair with a huge jump
-        instant = [INIT, "FOCC p9 dest id=1 pos=450.000000 0.000000 0.000000",
+        instant = [INIT, f"FOCC p9 dest id={0x0300081B} pos=450.000000 0.000000 0.000000",
                    "FOCC p9 sample t=0.000000 actor=2 pos=0.000000 0.000000 0.000000 cell=1 loaded=True dist=450.000000",
                    "FOCC p9 sample t=2.000000 actor=2 pos=449.000000 0.000000 0.000000 cell=5 loaded=True dist=1.000000",
                    "FOCC p9 done t=2.000000 dist=1.000000"]

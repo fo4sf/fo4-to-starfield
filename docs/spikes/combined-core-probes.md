@@ -333,7 +333,7 @@ Copy-Item "$logs\focc.0.log" "$out\focc.0.log"
 Get-Item "$saves\focc_p8_before.sfs","$saves\focc_p8_after.sfs" | Select Name,Length | ConvertTo-Json > "$out\saves.json"
 ```
 
-Judge `probes p8`. Expect `p8 move`, then for each `p8 stage=<s>` twelve `p8 child stage=<k> j=<j> disabled=<bool>
+Judge `probes p8`. Expect three `p8 move stage=<k> parent=<id>` lines (stages 0, 1, 2; parents locals 0x80C..0x80E), then for each `p8 stage=<s>` twelve `p8 child stage=<k> j=<j> id=<id> disabled=<bool>
 parent_disabled=<bool>` with `disabled=False` exactly for `k == s`. FAIL = a child disagreeing with its parent (enable
 parents not honoured after MoveTo, itself the finding, plan P8 risks) or growth above the placeholder bound
 (max(2 MB, 5 %)). Send back: the log, `saves.json`, the verdict, screenshots if taken.

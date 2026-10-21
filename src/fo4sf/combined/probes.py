@@ -68,7 +68,8 @@ PLACEHOLDERS = {
 }
 
 # Plugin-local ids of the probe records (plan "records"); the scripts log the local id they resolved, we only compare.
-LOCAL = {"p2_loc": 2054, "p3_noparent": 2055, "p3_chained": 2056, "p10_quest": 2080}
+LOCAL = {"p2_loc": 2054, "p3_noparent": 2055, "p3_chained": 2056, "p10_quest": 2080,
+         "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B}   # dotnet/CombinedProbe ids
 # what the cards ask for (docs/spikes/combined-core-probes.md P4 / P5): a shorter run is INCONCLUSIVE, not a PASS, so
 # a typo in `cgf "FOCC_Probe.P4Run" 3 8.0` is never recorded as the 20-cycle bloat answer
 P4_CYCLES = 20
@@ -710,6 +711,11 @@ def check_p4(c: Collection) -> Verdict:
     starts = _by_kind(evs, "p4 start")
     if starts:                                  # judge only the latest run: an older one never fills its gaps
         evs = [e for e in evs if e.line >= starts[-1].line]
+        v.cite(starts[-1])
+        if _local(starts[-1], "marker") != LOCAL["p4_marker"]:   # the probe's own marker (Codex review of #431)
+            v.reasons.append(f"p4 start marker {starts[-1].fields.get('marker')} is not FOCC_P4_SpawnMarker "
+                             f"(local {LOCAL['p4_marker']})")
+            return v
     cycles = _by_kind(evs, "p4 cycle")
     done = _by_kind(evs, "p4 done")
     v.cite(*cycles, *done)
@@ -974,6 +980,11 @@ def check_p8(c: Collection) -> Verdict:
     if moved[:3] != [0.0, 1.0, 2.0]:
         v.reasons.append(f"the latest P8Move logged stages {moved}, want 0, 1, 2: not every stage was moved")
         return v
+    wrong = [k for k, e in enumerate(move[:3]) if _local(e, "parent") != LOCAL["p8_parent0"] + k]
+    if wrong:                                   # the probe's own parents, by logged id (Codex review of #431)
+        v.reasons.append(f"p8 move stage {wrong}: parent is not FOCC_P8_Stage<k>Parent (locals "
+                         f"{LOCAL['p8_parent0']}..{LOCAL['p8_parent0'] + 2})")
+        return v
     evs = [e for e in evs if e.line > move[2].line]
     stages = [e for e in evs if e.kind == "p8" and set(e.fields) == {"stage"}]      # `FOCC p8 stage=<s>`
     children = _by_kind(evs, "p8 child")
@@ -999,6 +1010,10 @@ def check_p8(c: Collection) -> Verdict:
             k, dis, pdis = e.num("stage"), e.flag("disabled"), e.flag("parent_disabled")
             if dis is None or pdis is None:
                 v.reasons.append(f"stage={s}: child line without disabled/parent_disabled")
+                return v
+            j = e.num("j")
+            if k is None or j is None or _local(e, "id") != LOCAL["p8_child0"] + 4 * int(k) + int(j):
+                v.reasons.append(f"stage={s}: child k={k} j={j} id={e.fields.get('id')} is not FOCC_P8_Child_<k>_<j>")
                 return v
             if dis != pdis:
                 failed.append(f"stage={s} child k={k} j={e.num('j')}: disabled={dis} but parent_disabled={pdis}")
@@ -1038,6 +1053,9 @@ def check_p9(c: Collection) -> Verdict:
     v.cite(*dest, *done)
     if not dest:
         v.reasons.append("no `p9 dest` line")
+        return v
+    if _local(dest[-1], "id") != LOCAL["p9_dest"]:  # the probe's own destination (Codex review of #431)
+        v.reasons.append(f"p9 dest id {dest[-1].fields.get('id')} is not FOCC_P9_Dest (local {LOCAL['p9_dest']})")
         return v
     rows = []
     for e in samples:
