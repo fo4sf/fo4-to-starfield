@@ -48,7 +48,7 @@ launch, and the run stops with `limit: ...` when one is hit:
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
 A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
-`test_crashes`, across runs of the same queue). The crash repeats there, so the test goes on the bugs list instead of
+`test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of
 being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried. A walk crash on another install
 than the pinned experiment is counted neither as a crash nor as an attempt (its row says so), and a queue state from before the count existed is
 seeded from its results.jsonl CRASH rows.

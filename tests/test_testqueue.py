@@ -378,6 +378,43 @@ class RunnerTests(unittest.TestCase):
         second = self.results()[1]
         self.assertEqual((second["id"], second["verdict"], second["class"]), (tid, "FAIL", "CRASH"), second["detail"])
 
+    def test_a_recorded_fail_crash_is_final_after_a_lost_checkpoint(self):
+        # Codex on #402: the second (final) crash row was recorded, the checkpoint after it was not
+        calls = []
+
+        def step(test, out):
+            calls.append(test["id"])
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        before = jload(p)                                 # the state as the second crash found it
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        tid = self.results()[1]["id"]
+        self.assertEqual(self.results()[1]["verdict"], "FAIL")
+        jdump(before, p)                                  # that run's checkpoint lost
+        self.ctl.pid = self.ctl.owned_pid()
+        calls.clear()
+        self.runner(step, max_tests=1).run()
+        self.assertNotIn(tid, calls)                      # no third launch into the crash
+        self.assertEqual(jload(p)["done"][tid]["verdict"], "FAIL")
+
+    def test_a_count_kept_for_an_excluded_crash_does_not_count(self):
+        # Codex on #402: a state count with no eligible CRASH row behind it is dropped, not kept by max()
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        p = os.path.join(self.d, "state.json")
+        self.runner(lambda t, o: 0, max_tests=0).run()
+        st = jload(p)
+        st["test_crashes"] = {k["id"]: 1 for k in jload(os.path.join(self.d, "queue.json"))["tests"]}
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        first = self.results()[-1]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"), first["detail"])
+
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
         calls = []

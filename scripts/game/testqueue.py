@@ -3218,12 +3218,11 @@ class Runner:
                 self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
     def crash_counts(self):
-        """state.json test_crashes: the crashes counted per test toward FAIL CRASH, merged (the larger count per test)
-        with the results.jsonl CRASH rows on every call: a queue state from before the count existed, or one whose
-        checkpoint was lost after a crash row was recorded, still counts every recorded crash (Codex on #402). A walk
-        row recorded on another install than the pinned one, or one marked not counted, is left out."""
-        tc = self.state.setdefault("test_crashes", {})
-        seen = {}
+        """state.json test_crashes: the crashes counted per test toward FAIL CRASH, derived on every call from the
+        results.jsonl CRASH rows, the durable record (Codex on #402): a lost checkpoint, a queue state from before the
+        count existed or a count kept for a crash no longer counted never decides it. A walk row recorded on another
+        install than the pinned one, or one marked not counted, is left out."""
+        tc = {}
         p = os.path.join(self.qdir, "results.jsonl")
         if os.path.exists(p):
             with open(p, encoding="utf-8") as f:
@@ -3236,9 +3235,8 @@ class Runner:
                         continue
                     if r.get("kind") == "walk" and install_mismatch(self.q, r.get("install")):
                         continue
-                    seen[r.get("id")] = seen.get(r.get("id"), 0) + 1
-        for k, v in seen.items():
-            tc[k] = max(tc.get(k, 0), v)
+                    tc[r.get("id")] = tc.get(r.get("id"), 0) + 1
+        self.state["test_crashes"] = tc
         return tc
 
     def record(self, rec):
@@ -3264,6 +3262,12 @@ class Runner:
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
         tests = self.q["tests"]
+        # a FAIL CRASH recorded before its checkpoint was lost is final already: never launch that test again
+        # (Codex on #402)
+        for tid, c in self.crash_counts().items():
+            if c >= CRASH_FAIL and tid not in self.state["done"] and any(t["id"] == tid for t in tests):
+                self.state["done"][tid] = {"verdict": "FAIL", "class": "CRASH",
+                                           "attempts": self.state["attempts"].get(tid, c)}
         pending = [t for t in tests if t["id"] not in self.state["done"]]
         self.log(f"run: {len(pending)} of {len(tests)} tests pending on build {self.q['build_id']} (commit {self.q['commit'][:8]})")
         miss = runner_features.missing(self.q.get("needs") or runner_features.needs(tests))
