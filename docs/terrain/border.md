@@ -37,9 +37,12 @@ world's winning WRLD record, and it masters every given plugin, so it loads afte
 overrides the world).
 
 Each variant gets one Vault 95 OUT leg with the border on (`door_rounds.py stage --legs out --only <Vault 95>`,
-without `--border-off`), installed with `exp_install.py`:
-- PASS means that field is the per-world switch, and the core build takes it.
-- FAIL STAYED with the popup means it is not.
+without `--border-off`), installed next to the current build. The control is the _f run's border-on leg on the same
+build (FAIL STAYED with the popup). Each result is evidence about that variant at this exit only:
+- PASS makes the variant a candidate. Before the core build takes it, it needs the wider checks: the walk north of
+  Vault 111 where the owner hit the wall, a second long coc exit elsewhere in the Commonwealth, and a vanilla planet
+  landing that still shows its border (the override touches only our WRLD, but that has to be seen in game).
+- FAIL STAYED with the popup counts against the variant at this exit; it does not rule the field out elsewhere.
 
 If no variant passes, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
