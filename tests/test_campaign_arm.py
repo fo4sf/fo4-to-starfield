@@ -235,6 +235,8 @@ class CheckTests(Base):
         # Codex on #391: two names for one folder: the first would finish it, the second refuse it as done
         self.assertIn("named by an earlier entry too",
                       " ".join(self.check(self.camp([("c", q3), ("c2", q3.upper() + "\\")]))[1]))
+        dotted = os.path.join(os.path.dirname(q3), "tmp", "..", os.path.basename(q3), ".")
+        self.assertIn("named by an earlier entry too", " ".join(self.check(self.camp([("c", q3), ("c2", dotted)]))[1]))
 
 
     def test_a_judge_option_its_parser_would_refuse_is_refused(self):

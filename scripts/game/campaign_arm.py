@@ -760,11 +760,12 @@ def check(camp, release):
         _, why, notes = check_queue(e, camp, release)
         if e.get("name") in names or not re.fullmatch(r"[A-Za-z0-9_.-]+", str(e.get("name") or "")):
             why.append(f"queue name {e.get('name')!r} is missing, repeated or not plain")
-        if norm(e.get("queue") or "") in dirs:
+        key = norm(ntpath.normpath(str(e.get("queue") or "")))          # Codex on #391: dot components too
+        if key in dirs:
             # Codex on #391: the first entry would finish the shared folder and the second refuse it as done
             why.append(f"queue folder {e.get('queue')} is named by an earlier entry too")
         names.add(e.get("name"))
-        dirs.add(norm(e.get("queue") or ""))
+        dirs.add(key)
         rows.append((e, why, notes))
     if not rows:
         caps.append("the campaign has no queues")
