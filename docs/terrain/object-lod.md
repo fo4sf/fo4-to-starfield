@@ -100,7 +100,9 @@ So the spike needs no clicking if these work. Its plan:
    `Meshes\Terrain\LC172World\Objects\LC172World.{1,2,4,8}.0.0.nif`, real NIFs whose `BSWeakReferenceNode`
    names the full meshes with their transforms. That is the FO4-style per-block layout
    (`<World>.<level>.<x>.<y>.nif`), not the shipped per-mesh `meshes/lod/generated/<mesh>_lod_<n>.nif` form; which
-   of the two a custom world is read from is **unresolved** (the mock run on our core, below, is the test).
+   of the two a custom world is read from is **unresolved**. A mock run shows only what the CK writes; which
+   layout the game reads is answered in game only, by staging the output and looking at the surface map (the
+   tiny-overlay check in `surface-map.md`).
    Output under `D:\Modding\staging\lod_spike_lc172\out`.
 2. **Stats (verified).** `-GenerateMeshLODStats:Starfield.esm stats.csv FO4TerrainCore.esm` (the destination must
    end in `.csv`; the trailing argument loads our plugin) exits 0 after 194 s and writes only `stats.csv`: 3,187
@@ -138,7 +140,8 @@ is found with our plugin named, the lookup is global and the fault is in our rec
 a zeroed 20-byte `LODSettings\FO4Core_Commonwealth.LOD` placed first (a copy of the oracle's zeroed output,
 renamed, removed after the run): if the warning goes away, the LOD generator finds worldspaces through their
 `lodsettings` files, not the form table; (C) the form ID in place of the name (`01000803`, then `000803`), in
-case the lookup takes IDs. A pass on any of them revives the placeholder route (if the game draws the
-weak-reference placeholders for our world, the map gets buildings without any LOD mesh; installing those loose
-files waits for the owner's line); a fail on all three sends the question to the tiny custom-world gate from the
+case the lookup takes IDs. A pass on any of them is generation evidence only: it revives the placeholder route up to the in-game
+check (stage the output and look at the surface map; if the game draws the weak-reference placeholders for our
+world, the map gets buildings without any LOD mesh; installing those loose files waits for the owner's line). A
+fail on all three sends the question to the tiny custom-world gate from the
 plan above, which tells custom-world support from anything about the core, before the route is closed.
