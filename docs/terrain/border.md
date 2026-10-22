@@ -60,10 +60,11 @@ build (FAIL STAYED with the popup). Each result is evidence about that variant a
 - **hnam5** (SmallWorld kept, HNAM 5): FAIL STAYED, still in the interior.
 - **nosmall** (no SmallWorld, HNAM 0): PASS on its rerun (`doors_v95_probe_nosmall2`).
 
-**Settled: the WRLD fields do not decide it.** In the first runs FO4SFMapMarkers.esm, with a copy of the core's WRLD
-(SmallWorld, HNAM 0), loaded after the probe, so the live WRLD was the control's anyway. The settling test
-(2026-10-22, queues `doors_v95_settle_*`) put each variant in the markers plugin's WRLD copy, as the last override
-(BorderProbe show before and after the first run), no probe plugin, the same save, 3 runs each:
+**Repeat test: neither field change reliably fixes the exit in these runs.** In the first runs FO4SFMapMarkers.esm,
+with a copy of the core's WRLD (SmallWorld, HNAM 0), loaded after the probe, so the live WRLD was the control's in all
+of them. The settling test (2026-10-22, queues `doors_v95_settle_*`) put each variant in the markers plugin's WRLD
+copy, as the last override (BorderProbe show before and after the first run), no probe plugin, the same save, 3 runs
+each:
 
 | set | WRLD (last override) | runs |
 |---|---|---|
@@ -72,11 +73,14 @@ build (FAIL STAYED with the popup). Each result is evidence about that variant a
 | city | flags 0, HNAM 5 | FAIL, PASS, PASS |
 
 Every PASS lands at the same spot (0.00 m off in xy, 0.02 m in z). Every FAIL is "STAYED": the player is still in the
-interior, near its door, and the screenshot shows the BOUNDARY REACHED popup. So the Vault 95 exit fails
-intermittently whatever SmallWorld and HNAM are, and the popup is what the failure looks like, not its cause as far
-as these fields go. `make_core64c.py stage --world-border` stays in the code with `template` as the default; no core is
-built with it. The next steps are the failure rate (10 control runs, with the FO4SF_LoadDoor trace) and a door that
-checks whether the player arrived and retries its MoveTo once if not.
+interior, near its door, and the screenshot shows the BOUNDARY REACHED popup. The earlier control failure (`_f`,
+without the markers plugin) and the hnam5 failure stay on record. What this shows: city and nosmall are not reliable
+fixes. What it does not show: whether the fields change the failure rate (3 runs per set cannot tell), whether the
+fourth combination (SmallWorld kept, HNAM 5) helps (it was never the last override), or what causes the intermittent
+failure; the popup still points at the border mechanism. Those stay open until controlled repeats.
+`make_core64c.py stage --world-border` stays in the code with `template` as the default; no core is built with it.
+The next steps are the failure rate (10 control runs, with the FO4SF_LoadDoor trace) and the door's retry of a missed
+MoveTo (docs/terrain/scripted-doors.md).
 
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
