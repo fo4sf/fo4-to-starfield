@@ -141,7 +141,7 @@ class TestCLI(unittest.TestCase):
                 rc = main(["--config", str(cfg), "status"])
             self.assertEqual(rc, 0)
 
-    def _validate_cfg(self, root: Path, *, data_dirs=None, work="dir", staging="dir"):
+    def _validate_cfg(self, root: Path, *, data_dirs=None, work="dir", staging="dir", stage_path=None):
         for name in ("fo4", "sf"):
             (root / name).mkdir()
         if work == "dir":
@@ -160,7 +160,7 @@ class TestCLI(unittest.TestCase):
             f'data_dir = "{(root / "sf").as_posix()}"\n'
             "[paths]\n"
             f'work_dir = "{(root / "work").as_posix()}"\n'
-            f'staging_dir = "{(root / "stage").as_posix()}"\n'
+            f'staging_dir = "{(stage_path or root / "stage").as_posix()}"\n'
         )
         return cfg
 
@@ -352,6 +352,50 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(rc, 1, text)
         self.assertIn("(needs 99.0 or newer)", text)
         self.assertIn("FAILED", text)
+
+    def test_validate_rejects_an_output_dir_under_a_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            (root / "block").write_text("x")
+            cfg = self._validate_cfg(root, staging="none", stage_path=root / "block" / "child" / "stage")
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("cannot be created (", text)
+        self.assertIn("block is not a directory)", text)
+        self.assertIn("FAILED", text)
+
+    def test_validate_accepts_a_missing_output_dir_under_a_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root, staging="none", stage_path=root / "new" / "stage")
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("NOT FOUND (will be created by tools)", text)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "needs POSIX permissions that apply to the current user")
+    def test_validate_rejects_an_output_dir_under_a_read_only_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            locked = root / "locked"
+            locked.mkdir()
+            locked.chmod(0o555)
+            try:
+                cfg = self._validate_cfg(root, staging="none", stage_path=locked / "stage")
+                rc, text = self._run_validate(cfg, tex)
+            finally:
+                locked.chmod(0o755)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("locked is not writable)", text)
 
 if __name__ == "__main__":
     unittest.main()

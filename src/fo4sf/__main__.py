@@ -84,6 +84,14 @@ def _print_manifest(manifest_path: Path) -> int:
     return 0
 
 
+def _nearest_existing(p: Path) -> Path:
+    """The closest ancestor of p that exists (a missing output dir is created under it)."""
+    for parent in p.parents:
+        if parent.exists():
+            return parent
+    return Path(p.anchor or ".")
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config, paths, and common tools for the conversion toolchain."""
     try:
@@ -140,7 +148,15 @@ def cmd_validate(args: argparse.Namespace) -> int:
             print(f"  {key}: {d}: not a directory")
             ok = False
         else:
-            print(f"  {key}: {d}: NOT FOUND (will be created by tools)")
+            parent = _nearest_existing(p)
+            if not parent.is_dir():
+                print(f"  {key}: {d}: cannot be created ({parent} is not a directory)")
+                ok = False
+            elif not os.access(parent, os.W_OK | os.X_OK):
+                print(f"  {key}: {d}: cannot be created ({parent} is not writable)")
+                ok = False
+            else:
+                print(f"  {key}: {d}: NOT FOUND (will be created by tools)")
 
     print("  Tools:")
     tools = {
