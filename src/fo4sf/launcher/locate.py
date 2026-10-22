@@ -96,6 +96,9 @@ def gog_fallout4_from_registry():
 def libraries(steam):
     """Every Steam library folder: Steam's own, then those libraryfolders.vdf lists (new and old layouts)."""
     out = [os.path.normpath(steam)]
+    # Windows paths ignore case, and libraryfolders.vdf may list Steam's own folder in lower case ("c:\\program files
+    # (x86)\\steam", seen on the PC 2026-10-22): compare by normcase, or every depot is listed twice
+    seen = {os.path.normcase(out[0])}
     for rel in (os.path.join("config", "libraryfolders.vdf"), os.path.join("steamapps", "libraryfolders.vdf")):
         text = _read(os.path.join(steam, rel))
         if text is None:
@@ -105,7 +108,8 @@ def libraries(steam):
             if not k.isdigit():
                 continue
             p = _get_ci(v, "path") if isinstance(v, dict) else v      # new layout: {"path": ...}; old: the path
-            if p and os.path.normpath(p) not in out:
+            if p and os.path.normcase(os.path.normpath(p)) not in seen:
+                seen.add(os.path.normcase(os.path.normpath(p)))
                 out.append(os.path.normpath(p))
     return out
 

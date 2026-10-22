@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -71,6 +72,15 @@ class LocateTests(unittest.TestCase):
               + '"\n}\n')
         os.remove(os.path.join(self.steam, "config", "libraryfolders.vdf"))
         self.assertEqual(locate.libraries(self.steam), [os.path.normpath(self.steam), os.path.normpath(self.lib2)])
+
+    def test_a_library_listed_in_other_case_is_one_library(self):
+        # the owner's libraryfolders.vdf lists Steam's own folder in lower case: on Windows that is the same folder,
+        # and listing it twice listed every Fallout 4 depot twice (PC, 2026-10-22)
+        write(os.path.join(self.steam, "config", "libraryfolders.vdf"),
+              '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"' + self.steam.lower().replace("\\", "\\\\")
+              + '"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"' + self.lib2.replace("\\", "\\\\") + '"\n\t}\n}\n')
+        with mock.patch("os.path.normcase", str.lower):                 # Windows' rule, on any test machine
+            self.assertEqual(locate.libraries(self.steam), [os.path.normpath(self.steam), os.path.normpath(self.lib2)])
 
     def test_gog_fallout4_when_steam_has_none(self):
         gog = os.path.join(os.path.dirname(self.steam), "GOG Games", "Fallout 4 GOTY")
