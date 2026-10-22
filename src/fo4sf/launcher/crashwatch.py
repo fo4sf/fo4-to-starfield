@@ -342,12 +342,13 @@ def set_papyrus(text, on):
     """StarfieldCustom.ini text with the three [Papyrus] keys set to 1 (on) or 0 (off); everything else kept as it
     was, line endings included (a CRLF file stays CRLF). Returns (new_text, changed)."""
     v = "1" if on else "0"
-    nl = "\r\n" if "\r\n" in text else "\n"
-    lines = re.findall(r"[^\n]*\n|[^\n]+$", text)                # each with its own ending; split on \n only
+    nl = "\r\n" if "\r\n" in text else "\r" if "\r" in text else "\n"
+    # each line with its own ending: CRLF, LF or a lone CR (Codex, #487); never the other characters splitlines takes
+    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$", text)
     out, in_sec, seen, found, changed = [], False, set(), False, False
 
     def add(line):
-        if out and not out[-1].endswith("\n"):
+        if out and not out[-1].endswith(("\n", "\r")):
             out[-1] += nl                                          # the old last line had no ending
         out.append(line + nl)
 

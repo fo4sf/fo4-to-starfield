@@ -783,6 +783,12 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual(new, "[Display]\r\nx=1\r\n[Papyrus]\r\nbEnableLogging=0\r\nbEnableTrace=0\r\n"
                               "bLoadDebugInformation=0\r\n")
 
+    def test_a_cr_only_ini_keeps_one_papyrus_section(self):
+        new, changed = crashwatch.set_papyrus("[General]\rsLanguage=en\r[Papyrus]\rbEnableLogging=0\r", True)
+        self.assertTrue(changed)
+        self.assertEqual(new, "[General]\rsLanguage=en\r[Papyrus]\rbEnableLogging=1\rbEnableTrace=1\r"
+                              "bLoadDebugInformation=1\r")
+
     def test_a_utf16_ini_is_refused_untouched(self):
         mg = os.path.join(self.dir, "mg16")
         os.makedirs(mg)
