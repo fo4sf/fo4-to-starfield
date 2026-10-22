@@ -129,6 +129,64 @@ class RetryFailuresTests(unittest.TestCase):
         man = json.loads(path.read_text())
         self.assertEqual(man["material_fallbacks"], {})
         self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (6, 0))
+        self.assertNotIn("materials_converted", man)   # still unknown, so a later retry keeps the count
+
+    def test_second_retry_of_a_legacy_stage_keeps_its_count(self):
+        def first(name):
+            return convert_ok(name) if name == A else {"ok": False, "reason": "boom:" + name}
+        run_main(self.staging, self.collision, [A, B, C], first, extra=["--limit", "10"],
+                 materials={"materials\\b.bgsm": None}, material_errors={"Materials\\B.bgsm": "ValueError: no diffuse"})
+        path = self.staging / "manifest.json"
+        man = json.loads(path.read_text())
+        del man["materials_converted"]
+        man["stats"]["materials_ok"] = 500
+        path.write_text(json.dumps(man))
+
+        def retry1(name):   # B converts and recovers its material; C still fails
+            return convert_ok(name) if name != C else {"ok": False, "reason": "boom:" + name}
+        run_main(self.staging, self.collision, [A, B, C], retry1, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\b.bgsm": "b.mat"})
+        self.assertEqual(json.loads(path.read_text())["stats"]["materials_ok"], 501)
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"])
+        man = json.loads(path.read_text())
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (501, 0))
+        self.assertNotIn("materials_converted", man)
+
+    def test_retry_counts_a_respelled_fallback_material_once(self):
+        self._initial_with_materials()   # B's fallback recorded as C:/dev/Data/Materials/B.bgsm
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\b.bgsm": None}, material_errors={"materials/b.bgsm": "ValueError: again"})
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["material_fallbacks"], {"materials/b.bgsm": "ValueError: again"})
+        self.assertEqual(man["stats"]["materials_fallback"], 1)
+
+    def test_retry_collapses_respelled_prior_fallbacks(self):
+        self._initial_with_materials()
+        path = self.staging / "manifest.json"
+        man = json.loads(path.read_text())
+        man["material_fallbacks"]["materials/b.bgsm"] = "ValueError: no diffuse"   # written by an earlier version
+        path.write_text(json.dumps(man))
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"])
+        man = json.loads(path.read_text())
+        self.assertEqual(len(man["material_fallbacks"]), 1)
+        self.assertEqual(man["stats"]["materials_fallback"], 1)
+
+    def test_recovered_material_keeps_its_reason_while_a_kept_model_uses_the_placeholder(self):
+        def first(name):   # A converts but its material X falls back; B and C fail
+            if name == A:
+                return dict(convert_ok(name), fallback_materials=1)
+            return {"ok": False, "reason": "boom:" + name}
+        run_main(self.staging, self.collision, [A, B, C], first, extra=["--limit", "10"],
+                 materials={"materials\\x.bgsm": None}, material_errors={"Materials\\X.bgsm": "OSError: texconv"})
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\x.bgsm": "x.mat"})   # B uses X too, and X converts this time
+        man = json.loads((self.staging / "manifest.json").read_text())
+        a = next(it for it in man["items"] if it["source"] == A)
+        self.assertEqual(a["fallback_materials"], 1)   # A was not reconverted
+        self.assertEqual(list(man["material_fallbacks"]), ["Materials\\X.bgsm"])
+        self.assertTrue(man["material_fallbacks"]["Materials\\X.bgsm"].startswith("OSError: texconv (converted in a retry"))
+        self.assertIn("materials\\x.bgsm", man["materials_converted"])
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (1, 1))
 
     def test_limited_retry_keeps_unattempted_failures(self):
         self._initial_abc()

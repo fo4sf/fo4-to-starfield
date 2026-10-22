@@ -340,23 +340,42 @@ def material_key(path):
     return (m.group(0) if m else path).replace("/", "\\").lower()
 
 
-def merge_material_evidence(prior, conv):
-    """Material evidence for the stage: a retry keeps the prior run's, and a material converted now drops its old fallback."""
+_RECOVERED_NOTE = " (converted in a retry; models it did not reconvert may still use the placeholder)"
+
+
+def merge_material_evidence(prior, conv, retried_ids=frozenset()):
+    """Material evidence for the stage. A retry keeps the prior run's, one entry per material however it is spelled;
+    a material converted now drops its old fallback reason unless a model the retry kept may still use the placeholder."""
     done = getattr(conv, "_materials", None) or {}
     ok = {k for k, v in done.items() if v is not None}
     errors = dict(conv.material_errors) if conv else {}
     if prior is None:
         return sorted(ok), errors, len(ok), len(errors)
     prior_errors = prior.get("material_fallbacks") or {}
-    merged = {k: v for k, v in prior_errors.items() if material_key(k) not in ok}
+    failed_now = {material_key(k) for k in errors}
+    kept_placeholder = any(isinstance(it, dict) and it.get("fallback_materials") and item_identity(it) not in retried_ids
+                           for it in prior.get("items") or [])
+    merged, seen = {}, set()
+    for k, v in prior_errors.items():
+        mk = material_key(k)
+        if mk in failed_now or mk in seen:   # this run's reason replaces it, and a respelling is the same material
+            continue
+        if mk in ok:
+            if not kept_placeholder:
+                continue
+            v = v if str(v).endswith(_RECOVERED_NOTE) else f"{v}{_RECOVERED_NOTE}"
+        seen.add(mk)
+        merged[k] = v
     merged.update(errors)
+    fallback_count = len(seen | failed_now)
     if isinstance(prior.get("materials_converted"), list):
-        ok |= set(prior["materials_converted"]) - {material_key(k) for k in errors}
-        ok_count = len(ok)
-    else:   # a stage written before materials_converted: its count, plus the fallbacks this retry recovered
-        ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(ok & {material_key(k) for k in prior_errors})
-    return sorted(ok), merged, ok_count, len(merged)
-
+        converted = (ok | set(prior["materials_converted"])) - failed_now
+        return sorted(converted), merged, len(converted), fallback_count
+    # a stage written before materials_converted: its count plus this retry's first recoveries; the set stays unknown,
+    # so None keeps later retries on this count instead of trusting a partial list
+    recovered = ok & {material_key(k) for k, v in prior_errors.items() if not str(v).endswith(_RECOVERED_NOTE)}
+    ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(recovered)
+    return None, merged, ok_count, fallback_count
 
 def main():
     ap = argparse.ArgumentParser()
@@ -603,6 +622,7 @@ def main():
         print(f"  ragdoll poses: {json.dumps(pose_stats)}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
+    retried_ids = frozenset(item_identity(it) for it in items)
     if pending_retry is not None:   # every count below describes the merged stage, not the retry subset
         items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
     from collections import Counter, defaultdict
@@ -671,14 +691,14 @@ def main():
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
     materials_converted, material_fallbacks, ok_count, fallback_count = merge_material_evidence(
-        prior_manifest if pending_retry is not None else None, conv)
+        prior_manifest if pending_retry is not None else None, conv, retried_ids)
     if pending_retry is not None:   # the retry's converter only saw the retried models' materials
         stats.update(materials_ok=ok_count, materials_fallback=fallback_count)
     stats.update(assets=len(items), failed=len(failures), reused=reused)
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": material_fallbacks,
-                "materials_converted": materials_converted, "stats": stats,
+                **({"materials_converted": materials_converted} if materials_converted is not None else {}), "stats": stats,
                 "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
