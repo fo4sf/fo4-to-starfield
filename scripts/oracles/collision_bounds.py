@@ -142,7 +142,6 @@ def collision_bodies(f, scale=1.0):
     bodies = []
     errors = []
     world = nif.world_transforms(f)
-    ident = ((0.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)
     for i in range(len(f.blocks)):
         if f.type_of(i) != "bhkNPCollisionObject":
             continue
@@ -152,7 +151,10 @@ def collision_bodies(f, scale=1.0):
             continue
         n, = struct.unpack_from("<I", f.blocks[data], 0)
         blob = f.blocks[data][4:4 + n]
-        t, rot, s = world(target) if 0 <= target < len(f.blocks) else ident
+        if not (0 <= target < len(f.blocks)):
+            errors.append(f"collision object {i}: invalid target {target}")
+            continue
+        t, rot, s = world(target)
         try:
             lo, hi = _box_blob_aabb(blob)
             kind = "hknpBoxShape"
@@ -237,7 +239,7 @@ def audit(data, scale=1.0, path=""):
     errors = []
     try:
         mesh = mesh_aabb(f, scale)
-    except ValueError as err:
+    except (ValueError, struct.error, IndexError, nif.NifError) as err:
         mesh = None
         errors.append(str(err))
     bodies, body_errors = collision_bodies(f, scale)

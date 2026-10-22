@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -184,6 +185,42 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         self.assertIn("unreadable", reports[1]["flags"])
         self.assertIn("unreadable", reports[2]["flags"])
         self.assertEqual(len(oracle.failed(reports)), 2)
+
+    def test_invalid_collision_target_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        f = nif.parse(data)
+        for i, block in enumerate(f.blocks):
+            if f.type_of(i) == "bhkNPCollisionObject":
+                target, flags, phys, extra = struct.unpack_from("<iHiI", block, 0)
+                f.blocks[i] = struct.pack("<iHiI", -1, flags, phys, extra)
+                break
+        else:
+            self.fail("no collision object in fixture")
+        report = oracle.audit(nif.serialize(f), path="bad-target.nif")
+        self.assertIn("unreadable", report["flags"])
+        self.assertTrue(report.get("errors"))
+        self.assertTrue(any("invalid target" in e for e in report["errors"]))
+        self.assertEqual(report["collision"]["bodies"], 0)
+        self.assertTrue(oracle.failed([report]))
+
+    def test_truncated_bsgeometry_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        f = nif.parse(data)
+        for i, block in enumerate(f.blocks):
+            if f.type_of(i) == "BSGeometry":
+                f.blocks[i] = block[:8]
+                break
+        else:
+            self.fail("no BSGeometry in fixture")
+        report = oracle.audit(nif.serialize(f), path="truncated-geom.nif")
+        self.assertIn("unreadable", report["flags"])
+        self.assertTrue(report.get("errors"))
+        self.assertIsNone(report["mesh"])
+        self.assertTrue(oracle.failed([report]))
+        payload = json.dumps(report, allow_nan=False)
+        self.assertNotIn("Traceback", payload)
 
     def test_cli_codex_fail_open_controls(self):
         script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
