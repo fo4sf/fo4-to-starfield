@@ -345,6 +345,14 @@ class CrashWatchTests(unittest.TestCase):
         self.assertTrue(any("NOT confirmed complete" in x for x in self.said))
         self.assertFalse(crashwatch.dumps_confirmed("", ["a.dmp"]))
         self.assertTrue(crashwatch.dumps_confirmed("Dump 1 complete: 1 MB\nDump 2 complete: 1 MB", ["a.dmp", "b.dmp"]))
+        # ProcDump's own words on the owner's PC: the walk crash of 2026-10-21 (two good dumps) and a full dump of
+        # 2026-10-16 that was initiated and never reported complete
+        walk = ("[15:44:33]Exception: C0000005.ACCESS_VIOLATION\n[15:44:33]Dump 1 initiated: X_154433.dmp\n"
+                "[15:44:33]Dump 1 complete: 145 MB written in 0.7 seconds\n[15:44:34]Dump 2 initiated: X_154433-1.dmp\n"
+                "[15:44:34]Dump 2 complete: 145 MB written in 0.5 seconds\n[15:44:34]Dump count reached.\n")
+        self.assertTrue(crashwatch.dumps_confirmed(walk, ["X_154433.dmp", "X_154433-1.dmp"]))
+        cut = "[14:50:09]Dump 1 initiated: X_145009.dmp\n[14:51:19]Dump count reached.\n"
+        self.assertFalse(crashwatch.dumps_confirmed(cut, ["X_145009.dmp"]))
 
     def test_watch_counts_seconds_from_when_the_game_appeared(self):
         sys_ = FakeSystem([(31, 300, 900, 0)])
