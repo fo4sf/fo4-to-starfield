@@ -330,6 +330,25 @@ class ProbeLineTests(unittest.TestCase):
             self.assertEqual([e.get("phase") for e in ev if e["kind"] == "moveto"], ["before", "after", "settled"])
 
 
+class StageLineTests(unittest.TestCase):
+    """The proposed FO4SF_Probe.Stage line (docs/testing/probe-stage.md): the parser's half of the contract."""
+
+    def test_a_quest_its_stage_and_flags(self):
+        e = bridge_log.parse_event("[12:00:01] FO4SF stage plugin=FO4SFNewGame.esm id=2049 form=16779265 quest=true "
+                                   "stage=10 running=true completed=false name=MQ101")
+        self.assertEqual(e, {"kind": "stage", "plugin": "FO4SFNewGame.esm", "id": 2049, "form": "01000801",
+                             "quest": True, "stage": 10, "running": True, "completed": False, "name": "MQ101"})
+
+    def test_no_form_not_a_quest_and_torn_lines(self):
+        self.assertEqual(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=none"),
+                         {"kind": "stage", "plugin": "a.esm", "id": 1, "form": None})
+        self.assertFalse(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=33556480 quest=false")["quest"])
+        for s in ("FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=1x",          # torn stage
+                  "FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=10 running=tr",  # torn bool
+                  "FO4SF stage form=none"):
+            self.assertIsNone(bridge_log.parse_event(s), s)
+
+
 class ProbeKindCaseTests(unittest.TestCase):
     """Native probe event names can differ in case from the source spelling."""
 
