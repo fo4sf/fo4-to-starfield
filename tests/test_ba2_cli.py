@@ -52,6 +52,9 @@ class Ba2SummaryCliTests(unittest.TestCase):
             self.assertEqual(payload["by_extension"]["txt"], 1)
             self.assertEqual(payload["by_extension"]["nif"], 1)
 
+    def test_docstring_uses_isolated_python(self):
+        self.assertIn("python -I scripts/ba2_summary.py", self.mod.__doc__)
+
 
 class Ba2LargestCliTests(unittest.TestCase):
     def setUp(self):
@@ -89,6 +92,35 @@ class Ba2LargestCliTests(unittest.TestCase):
                 self.mod.main([])
             self.assertEqual(cm.exception.code, 2)
         self.assertIn("usage:", err.getvalue().lower())
+
+    def test_rejects_negative_n(self):
+        data = general_archive({"a.txt": b"x"})
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "n.ba2")
+            with open(path, "wb") as f:
+                f.write(data)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                with self.assertRaises(SystemExit) as cm:
+                    self.mod.main([path, "--n", "-1"])
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("must be >= 0", err.getvalue())
+
+    def test_truncated_archive_rc_1_no_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "trunc.ba2")
+            with open(path, "wb") as f:
+                f.write(b"BTDX" + b"\x00" * 4)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = self.mod.main([path])
+            self.assertEqual(rc, 1)
+            text = err.getvalue()
+            self.assertIn("error:", text)
+            self.assertNotIn("Traceback", text)
+
+    def test_docstring_uses_isolated_python(self):
+        self.assertIn("python -I scripts/ba2_largest.py", self.mod.__doc__)
 
 
 if __name__ == "__main__":

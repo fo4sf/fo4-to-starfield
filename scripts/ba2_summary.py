@@ -3,7 +3,7 @@
 Useful for conversion planning: see entry counts and how much data is in the archive
 without listing every file or ranking by size.
 
-usage: python scripts/ba2_summary.py <archive.ba2>
+usage: python -I scripts/ba2_summary.py <archive.ba2>
 """
 import json
 import os
