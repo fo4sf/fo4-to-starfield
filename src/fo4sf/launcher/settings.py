@@ -2,8 +2,10 @@
 (owner, 2026-10-21: "let the launcher be where I can toggle it off and on, and more settings of that sort that cause
 RAM use"). One JSON file per player, written only by `launcher.py settings --set` and read by `launcher.py play`.
 
-Every setting starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus logging left
-as they are), so a fresh install plays exactly as before until the player turns something on. Once the watcher is on,
+Every setting but two starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus
+logging left as they are). The two: load_order=fix puts our plugins in the target order before each start (so their
+load-order indexes, and the form ids console commands use, can change once; load_order=off leaves Plugins.txt
+alone), and route=sfse starts the game through SFSE. Once the watcher is on,
 it also saves a dump at every exit unless crash_watch.dump_on_exit is turned off.
 """
 import json

@@ -134,8 +134,9 @@ work folders). This is the measuring half of the unresolved full-build disk budg
 Owner, 2026-10-21: the crash watcher should start and close with the game, and the launcher is where its toggle and
 other memory-costly settings live. `launcher.py settings` shows each setting with its cost and `--set key=value`
 changes it (one JSON per player, default `%LOCALAPPDATA%\FO4SF\launcher_settings.json`; only changed values are
-written, and an unknown key is refused). Every default changes nothing: watcher off, bridge and Papyrus logging
-`unchanged`. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
+written, and an unknown key is refused). The defaults leave the watcher off and bridge and Papyrus logging
+`unchanged`; two defaults act: `load_order=fix` (below) can rewrite Plugins.txt before a start, and `route=sfse`
+starts through SFSE. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
 `papyrus_logging` (the three `[Papyrus]` keys in StarfieldCustom.ini, with a `.bak-<time>` copy) with the game closed,
 starts the game (`route`: Steam, as the runner does, Starfield.exe, as the owner does, or sfse_loader.exe, which loads SFSE), waits until a
 Starfield.exe has stayed up `crash_watch.settle_s` (a first process that ends within that time is skipped), then
