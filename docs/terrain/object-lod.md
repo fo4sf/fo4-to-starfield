@@ -58,3 +58,27 @@ So a generator, whether the Creation Kit or ours, writes three things: a `.lod` 
 composite LOD NIFs with their `.mesh` and `.mat`, and possibly entries in `lodruntimedb.bgsdb`. The Creation Kit
 spike above stays the first step: it shows what the CK writes for a world of ours, and that output is the
 reference for our own generator.
+
+## The Creation Kit can do it from the command line (Claude-cloud, 2026-10-22, read-only)
+
+Strings in the owner's `CreationKit.exe` (239,885,664 bytes) show these command-line operations (**verified** as
+strings; their behaviour is **unresolved** until a run):
+
+- `-MockWorldSpaceLOD:<ESMFilename> <WorldSpaceName0> [WorldSpaceName1] [...]`. "Mock" may mean placeholder LOD;
+  the run shows what it writes.
+- `-GenerateMeshLODAssociations:<ESMFilename> [AdditionalPlugin]`, plus `-GenerateMeshLODStats` and
+  `-GenerateMeshLODFailureReport` (both `<ESMFilename> <DestinationFileName> [AdditionalPlugin]`).
+- The output paths named in the program are `Data\LODSettings\%s.LOD`, `Meshes\LOD\Generated\%s.nif`,
+  `LOD\Generated\Composite\`, `Materials\LOD\Generated`, `Data\Textures\LOD\Generated\Merged\...`, and an
+  `LODRuntimeDB` (`.bgsdb`).
+- The window also has a "Generate LOD" command.
+
+So the spike needs no clicking if these work. Its plan:
+1. A vanilla oracle first: `CreationKit.exe -MockWorldSpaceLOD:Starfield.esm LC172World`, then compare its output
+   with the shipped `lodsettings/lc172world.lod` and the LC172 meshes. The CK writes loose files into the game's
+   `Data`, so list `Data` before and after, move every new file into a staging folder, and leave `Data` as it was.
+   This install reads no loose files, so nothing reaches the game meanwhile.
+2. Then the same command on our core (`FO4TerrainCore.esm`, world `FO4Core_Commonwealth`). It has 648k
+   references, so it is timed, run at Idle, and needs disk room.
+3. If it works, the generated files go into a ba2 beside the core, with their own installer, as for the map
+   markers.
