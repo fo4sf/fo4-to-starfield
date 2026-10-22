@@ -421,6 +421,12 @@ class P4Tests(unittest.TestCase):
         c.saves = saves(focc_p4_before=1, focc_p4_after=1)
         self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
 
+    def test_a_repeated_cycle_row_is_not_judged(self):
+        log = p4_log()
+        c = col(log=log[:-1] + [log[-2], log[-1]])
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
     def test_done_must_follow_the_cycles(self):
         # Codex review of #431: a done line ahead of the cycles closes the run; cycles after it never count
         log = p4_log()
@@ -517,6 +523,7 @@ class P5Tests(unittest.TestCase):
     def test_repeated_ticks_do_not_count(self):
         log = p5_log()
         self.assertEqual(probes.check_p5(col(log=log[:3] + [log[2]] * 9)).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p5(col(log=log[:-1] + [log[-2], log[-1]])).verdict, INCONCLUSIVE)   # 11 rows
 
     def test_pass_records_baseline_and_cap(self):
         c = col(log=p5_log())

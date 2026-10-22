@@ -797,6 +797,10 @@ def check_p4(c: Collection) -> Verdict:
     if missing:
         v.reasons.append(f"cycles missing: {missing}")
         return v
+    numbers = sorted(int(e.num("n")) for e in cycles if e.num("n") is not None)
+    if numbers != list(range(1, want + 1)):        # P5's rule: one row per cycle, no extras (Codex review of #431)
+        v.reasons.append(f"the cycle lines are not numbered 1..{want} once each: repeated or extra cycles")
+        return v
     short = [n for n, e in seen.items() if (e.num("placed") or 0) < 3 or (e.num("deleted") or 0) < 3]
     unloaded = [n for n, e in seen.items() if (e.num("loaded") or 0) < 1]
     if short:
@@ -870,8 +874,9 @@ def check_p5(c: Collection) -> Verdict:
         return v
     good = [e for e in ticks if e.num("ms") is not None and (e.num("places") or 0) == 50]
     ms = [e.num("ms") for e in good]
-    if len(ms) >= want and sorted(e.num("n") for e in good)[:want] != [float(n) for n in range(1, want + 1)]:
-        v.reasons.append(f"the tick lines are not numbered 1..{want} once each: repeated or missing ticks")
+    if len(ms) >= want and sorted(e.num("n") for e in good) != [float(n) for n in range(1, want + 1)]:
+        # exactly 1..want once each: an extra row would skew the recorded baseline (Codex review of #431)
+        v.reasons.append(f"the tick lines are not numbered 1..{want} once each: repeated, extra or missing ticks")
         return v                                # P5's own form of the P8 duplicate-row finding (Codex, #431)
     if len(ms) < want:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
