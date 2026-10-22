@@ -102,13 +102,17 @@ if (args[0] == "build" && args.Length >= 4)
         if (master) mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         uint next = 0x800;
         FormKey NewKey() => new(modKey, next++);
-        var w = (Worldspace)from.Duplicate(NewKey());             // the record as the template has it, a new cell tree
+        // the WRLD record's own fields only: a copy that took the template's cell tree along would materialize the
+        // core's 648k references before dropping them (Codex on #496), so the mask leaves the tree out of the copy
+        var w = new Worldspace(NewKey(), release);
+        w.DeepCopyIn(from, new Worldspace.TranslationMask(defaultOn: true)
+        {
+            SubCells = new WorldspaceBlock.TranslationMask(defaultOn: false, onOverall: false),
+            TopCell = new Cell.TranslationMask(defaultOn: false, onOverall: false),
+            OffsetData = false, CellSizeData = false,                  // as dotnet/TerrainOverlays: OFST / CLSZ belong to the old cells
+        });
         w.EditorID = $"FO4SF_LodGate{n}";
         w.Name = $"FO4SF LOD gate {n}";
-        w.SubCells.Clear();
-        w.TopCell = null;
-        w.OffsetData = null;                                       // as dotnet/TerrainOverlays: OFST / CLSZ belong to the old cells
-        w.CellSizeData = null;
         w.TopCell = new Cell(NewKey(), release) { Flags = Cell.Flag.HasWater };
         var blocks = new Dictionary<(int, int), WorldspaceBlock>();
         var subs = new Dictionary<(int, int), WorldspaceSubBlock>();
@@ -188,8 +192,15 @@ static int Fixture(string dir)
     cw.Location.SetTo(cloc.FormKey);
     cw.TopCell = new Cell(new FormKey(coreKey, 0x900), rel);
     cw.TopCell.Persistent.Add(new PlacedObject(new FormKey(coreKey, 0x800), rel) { EditorID = "SyntheticAnchor" });
+    var tree = new Cell(new FormKey(coreKey, 0x901), rel) { EditorID = "SyntheticCoreCell", Grid = new CellGrid { Point = new P2Int(3, 3) } };
+    tree.Temporary.Add(new PlacedObject(new FormKey(coreKey, 0x902), rel) { EditorID = "SyntheticCoreRef" });   // a cell tree the gate must leave behind
+    var sub = new WorldspaceSubBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
+    sub.Items.Add(tree);
+    var blk = new WorldspaceBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
+    blk.Items.Add(sub);
+    cw.SubCells.Add(blk);
     core.Worldspaces.Add(cw);
-    core.ModHeader.Stats.NextFormID = 0x901;
+    core.ModHeader.Stats.NextFormID = 0x903;
     core.BeginWrite.ToPath(Path.Combine(dir, coreKey.FileName)).WithLoadOrder(sfKey)
         .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full)).Write();
     Console.WriteLine($"wrote {sfKey}, {coreKey} in {dir}");

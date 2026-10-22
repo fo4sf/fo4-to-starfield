@@ -152,10 +152,13 @@ plan above, which tells custom-world support from anything about the core, befor
    placeholder files (`EditorDataFilesLoaded` 000 Starfield.esm, 001 FO4TerrainCore.esm): the lookup is global
    and the plugin named in the argument does not scope it. (B) with a zeroed
    `LODSettings\FO4Core_Commonwealth.LOD` placed first: exit 0 after 197 s, still
-   `Failed to find worldspace: [FO4Core_Commonwealth]`, nothing else written, so the generator does not find
-   worlds through their `lodsettings` files. (C) `01000803`, then `000803`, in place of the name: exit 0 after
-   199 s and 198 s, `Failed to find worldspace: [01000803]` / `[000803]`, nothing written, so the argument is a
-   name, not an ID. Only vanilla LC172World bakes; the question goes to the tiny custom-world gate.
+   `Failed to find worldspace: [FO4Core_Commonwealth]`, nothing else written: that one zero-filled file did not
+   make the world found (whether a valid settings file is consulted at all stays **unresolved**). (C)
+   `01000803`, then `000803`, in place of the name: exit 0 after 199 s and 198 s,
+   `Failed to find worldspace: [01000803]` / `[000803]`, nothing written: neither of those two spellings
+   resolved it (other spellings, `0x...`, decimal or a plugin-qualified form, were not tried, so whether the
+   argument can take an ID stays **unresolved**). Only vanilla LC172World bakes; the question goes to the tiny
+   custom-world gate.
 
 6. **Tiny custom-world gate (built, not yet run).** `dotnet/LodGate build <Starfield.esm> <FO4TerrainCore.esm>
    <out>` writes three plugins, each one new world of nine empty cells around the origin plus three references

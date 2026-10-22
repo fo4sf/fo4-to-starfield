@@ -75,6 +75,8 @@ class LodGateTests(unittest.TestCase):
         self.assertIn("FO4SF_LodGate3 000800:FO4SFLodGate3.esm: Flags SmallWorld, HNAM [0], location 000801:FO4TerrainCore.esm, "
                       f"components [], persistent cell 000801:FO4SFLodGate3.esm, 9 cell(s) at {CELLS}", shown)
         self.assertEqual(shown.count("    ref "), 3)
+        self.assertNotIn("SyntheticCore", shown)                    # the core's own cell tree and references stay behind
+        self.assertNotIn(b"SyntheticCore", (self.out / "FO4SFLodGate3.esm").read_bytes())
         self.assertEqual(masters(self.out / "FO4SFLodGate3.esm"), ["Starfield.esm", "FO4TerrainCore.esm"])
 
     def test_build_refuses_inputs_without_the_worlds(self):
