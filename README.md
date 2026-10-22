@@ -24,7 +24,7 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |
 | **Map markers** | the markers plugin is installed on the test PC for testing | #376, #399 |
 | **Vault 95 and the map boundary** | under investigation; an Interiors test is queued | Interiors thread |
-| **Buildings on the surface map** | object LOD format read from the vanilla archive | #467 (draft) |
+| **Buildings on the surface map** | verified: the vanilla object LOD archive's file paths and sizes; supported, not decoded: what the `.lod` fields mean; a Creation Kit command-line route found, not yet run | #467 (draft) |
 | **Launcher window** | a window over launcher.py (status, settings, play), with Codex | #456 |
 | **Grok's launcher tasks** | focused QA and diagnostic tasks | #458 |
 
@@ -159,7 +159,7 @@ More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [ad
 
 ## What remains
 
-The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). First the current v6e crash test finishes. The combined core comes first from here on; the approved single-game phases continue in the owner's order of 19 Oct: a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
+The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). The v6e crash testing is finished and the Red Rocket crash is solved (see the latest progress above). The combined core comes first from here on; the approved single-game phases continue in the owner's order of 19 Oct: a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
 
 ## Why conversion is difficult
 
