@@ -169,7 +169,13 @@ plan above, which tells custom-world support from anything about the core, befor
    for the run and removed after, `CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1`, the
    backup protocol of run 4, and the log's `EditorDataFilesLoaded` read first: a gate plugin missing from it
    makes that run inconclusive (then it goes into Plugins.txt as the probe builds do, and the run repeats once).
-   Reading: 1 bakes and 3 does not → our record's fields; 1 and 3 bake → the core's scale or cell tree
-   (648k references); 1 does not bake → the generator does not find plugin worlds, and 2 then says whether the
-   Master flag is why; nothing bakes → the mock route is closed for custom worlds and the surface map's
-   buildings wait on the FO4 LOD mesh conversion.
+   Reading (hypotheses about these three pinned gates, not proofs: none of them is a plugin-added world known
+   to bake, and each changes the template's EditorID and name, replaces both cell trees and drops OFST / CLSZ,
+   so a failed gate can also mean a loading or registration prerequisite the gate misses, or a defect in this
+   synthetic layout): 1 bakes and 3 does not → the candidates narrow to the fields the two WRLD records differ
+   in (diff them next); 1 and 3 bake → the candidates narrow to the core's scale or cell tree (648k
+   references); 1 does not bake → the generator did not find this plugin world, and 2 then says whether the
+   Master flag is among the reasons; nothing bakes → the route stays **unproved**, not closed: a claim that
+   custom worlds are unsupported needs a positive control first (a plugin-added world the CK itself made and is
+   known to bake) or a narrower follow-up, and meanwhile the surface map's buildings wait on the FO4 LOD mesh
+   conversion.

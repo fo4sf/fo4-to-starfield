@@ -9,9 +9,12 @@
 //   FO4SFLodGate3.esm  FO4SF_LodGate3  the WRLD record copied from our core's FO4Core_Commonwealth (its location
 //                                      and surface block links kept); masters: Starfield.esm, FO4TerrainCore.esm
 // The run card: CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1 with the plugin in Data (the
-// same backup protocol as the earlier runs). A bake of 1 and not 3 points at our record's fields; a bake of 3 too
-// points at the core's scale or cell tree; no bake of 1 says the generator does not find plugin worlds at all,
-// and 2 then tells whether the Master flag is the reason.
+// same backup protocol as the earlier runs). Readings are hypotheses about these gates, not proofs (none is a
+// plugin-added world known to bake, and each renames the template and replaces its cell tree): a bake of 1 and
+// not 3 narrows the cause to the fields the two WRLD records differ in; a bake of 3 too narrows it to the core's
+// scale or cell tree; no bake of 1 means the generator did not find this plugin world, 2 then says whether the
+// Master flag is among the reasons, and the route stays unproved until a known-good custom world (one the CK
+// itself made) is tried (docs/terrain/object-lod.md "What the runs showed", 6).
 //
 // usage: LodGate build <Starfield.esm> <FO4TerrainCore.esm> <out dir> [--statics N]     N largest statics, default 3
 //        LodGate show <plugin> <Starfield.esm> [<FO4TerrainCore.esm>]                  reads a gate plugin back
