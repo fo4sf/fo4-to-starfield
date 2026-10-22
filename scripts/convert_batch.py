@@ -244,6 +244,7 @@ def retry_nif_identity(nif):
         src, rest = nif.split("|", 1)
         if ":" in rest:
             kind, pk = rest.split(":", 1)
+            pk = pk.split("|", 1)[0]   # drop checkpoint_key's class tags (|load_door, |static_body, |no_rig)
             if src and kind and pk != "":
                 return (source_identity(src), kind, str(pk))
     return (source_identity(nif), "", "")

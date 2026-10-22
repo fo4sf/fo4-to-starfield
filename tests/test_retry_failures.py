@@ -124,6 +124,13 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertEqual(summary["failed_nifs"], [C])
         self.assertEqual(summary["examples"], {"boom": [C]})   # B was resolved by this retry
 
+    def test_tagged_pose_failure_keeps_its_pose_identity(self):
+        for tags in ("", "|static_body", "|load_door|no_rig"):
+            with self.subTest(tags=tags):
+                self.assertEqual(batch.retry_nif_identity(f"{B}|xrgd:abc123{tags}"),
+                                 (batch.source_identity(B), "xrgd", "abc123"))
+        self.assertEqual(batch.retry_nif_identity(B), (batch.source_identity(B), "", ""))
+
     def test_legacy_summary_without_failed_nifs_refuses(self):
         self._initial_abc()
         summary_path = self.staging / "failure-summary.json"
