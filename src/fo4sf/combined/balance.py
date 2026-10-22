@@ -252,6 +252,17 @@ def _resolve(name: str):
     return mod, const
 
 
+def _bindings(mod, const: str) -> list:
+    """`mod` plus, for a constant defined in model.py, every loaded fo4sf.combined module that imported it."""
+    import sys
+    from . import model
+    if mod is not model and getattr(model, const, None) is not getattr(mod, const):
+        return [mod]
+    return [mod] + sorted((m for n, m in sys.modules.items() if m is not None and m is not mod
+                           and n.startswith(__package__ + ".") and getattr(m, const, None) is getattr(model, const)),
+                          key=lambda m: m.__name__)
+
+
 @contextlib.contextmanager
 def overrides(values: dict | None):
     """Set module constants for the block, then restore them whatever happens. Keys as in _resolve; a value of
@@ -266,8 +277,11 @@ def overrides(values: dict | None):
             # sim.run must reach its end and land on every midnight its daily rules wait for (Codex, #431)
             if const == "TICK_HOURS" and (values[name] <= 0 or 24 % values[name]):
                 raise ValueError(f"override {name}: {values[name]!r} must be a positive whole divisor of 24 hours")
-            saved.append((mod, const, old))
-            setattr(mod, const, values[name])
+            # a constant model.py defines and other modules import (STRENGTH_CAP) is one rule: set every binding,
+            # or pack validation and the sim disagree (Codex review of #431)
+            for m in _bindings(mod, const):
+                saved.append((m, const, getattr(m, const)))
+                setattr(m, const, values[name])
         yield
     finally:
         for mod, const, old in reversed(saved):

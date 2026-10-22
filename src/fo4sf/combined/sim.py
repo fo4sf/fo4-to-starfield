@@ -456,10 +456,13 @@ def player_traded(ws: WorldState, settlement: str, goods: dict[str, int]) -> dic
     """Move goods with a settlement: positive amounts go in, negative come out (clamped to stock).
     Giving earns fame with the holder in NV tiers; taking earns nothing. Returns what moved."""
     s = ws.settlements[settlement]
+    bad = sorted(str(g) for g in goods if g not in GOODS)
+    if bad:                                   # refuse before any stock moves (Codex review of #431)
+        raise ValueError(f"unknown good {bad[0]}")
+    if any(not isinstance(n, int) or isinstance(n, bool) for n in goods.values()):
+        raise ValueError("trade amounts must be whole numbers")
     moved = {}
     for g in sorted(goods):
-        if g not in GOODS:
-            raise ValueError(f"unknown good {g}")
         n = max(goods[g], -s.stock[g])
         if n:
             s.stock[g] += n

@@ -118,6 +118,8 @@ class WorldState:
     @classmethod
     def from_json(cls, text: str) -> "WorldState":
         d = json.loads(text)
+        if not isinstance(d, dict):               # a list or number is not a world state (Codex review of #431)
+            raise ValueError(f"a world state is a JSON object, not {type(d).__name__}")
         if d.get("schema") not in LOADABLE_SCHEMAS:
             raise ValueError(f"unknown world-state schema {d.get('schema')!r}, want one of {LOADABLE_SCHEMAS}")
         ws = cls(seed=d["seed"], hour=d["hour"], next_id=d["next_id"])

@@ -249,6 +249,11 @@ class PlayerHookTests(unittest.TestCase):
         self.assertEqual(ws.reputation["settlers"].fame, sim.REP_TIERS[2])
         with self.assertRaises(ValueError):
             sim.player_traded(ws, "farm_b", {"caps": 1})
+        before = dict(s.stock)                                  # Codex review of #431: refused before any move
+        for bad in ({"food": 10, "zz": 1}, {"food": 10, "water": 1.5}):
+            with self.assertRaises(ValueError):
+                sim.player_traded(ws, "farm_b", bad)
+        self.assertEqual(s.stock, before)
 
     def test_hooks_keep_determinism(self):
         runs = []

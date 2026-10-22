@@ -302,6 +302,13 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(sim.ATTACK_CHANCE_PER_AGGRESSION, 0.25)
         self.assertEqual(still["overrides"], {"ATTACK_CHANCE_PER_AGGRESSION": 0.0})
 
+    def test_a_shared_constant_is_set_everywhere(self):
+        # Codex review of #431: STRENGTH_CAP lives in model and is imported by sim and pack; one override sets all
+        from fo4sf.combined import model, pack
+        with balance.overrides({"sim.STRENGTH_CAP": 1}):
+            self.assertEqual((model.STRENGTH_CAP, sim.STRENGTH_CAP, pack.STRENGTH_CAP), (1, 1, 1))
+        self.assertEqual((model.STRENGTH_CAP, sim.STRENGTH_CAP, pack.STRENGTH_CAP), (60, 60, 60))
+
     def test_invariants_hold_across_the_baseline(self):
         agg = balance.sweep(PACKS, range(20), 90)["aggregate"]
         self.assertEqual(agg["story_lock_violations"], 0)

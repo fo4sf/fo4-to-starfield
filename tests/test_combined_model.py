@@ -54,6 +54,9 @@ class ModelTests(unittest.TestCase):
         del d["schema"]
         with self.assertRaises(ValueError):
             WorldState.from_json(json.dumps(d))
+        for other in ("[]", "3", "null"):                         # Codex review of #431: not an object
+            with self.assertRaises(ValueError):
+                WorldState.from_json(other)
 
     def test_model_load_pack_delegates(self):
         ws = WorldState(seed=1)
