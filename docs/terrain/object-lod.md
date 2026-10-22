@@ -197,7 +197,12 @@ plan above, which tells custom-world support from anything about the core, befor
    written. G2 (the noflag twin, from its own folder): exit 0 after 99 s, the same line and the same load list.
    G3: exit 0 after 189 s, `Failed to find worldspace: [FO4SF_LodGate3]`, loaded 000 Starfield.esm,
    001 FO4TerrainCore.esm, 002 FO4SFLodGate3.esm, nothing written. Every gate plugin was in
-   `EditorDataFilesLoaded`, so no run was inconclusive and the Plugins.txt rerun was not needed. Reading, per
+   `EditorDataFilesLoaded`, so no run was inconclusive and the Plugins.txt rerun was not needed. Where the
+   evidence sits: the exit codes, durations, load lists and failure lines are Install's relay of the CK log; the
+   three output folders hold the plugin copies (sizes and hash prefixes as above) and the before / after
+   inventories (732 entries, identical before and final, the gate plugin the only extra entry while it was in
+   `Data`; SHA-256 for 644 entries, size plus mtime for 88), not the CK log itself (Codex desktop's read-only
+   check on #501 confirmed the copies and the inventories and could not re-check the log lines). Reading, per
    the key in 6: the command found none of the three plugin worlds, with or without the Master flag, with the
    vanilla record or the core's. The result does not differentiate. Gate 1 fails without the core's scale, cell
    tree or identity, so none of those is needed for a plugin world to be missed; but gate 1 and the core can be
