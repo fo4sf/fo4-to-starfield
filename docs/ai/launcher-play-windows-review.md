@@ -34,7 +34,7 @@ These are the first things to watch when `play` actually runs. They are not pass
 4. `route=steam`: the shell opens `steam://rungameid/1716740`; `Starfield.exe` appears in time, or play reports it did not stay up. Note the delay. Do not treat Steam's own error boxes as a Windows API result.
 5. If the console says `no handle on process` (printed to the console, not written to `crashwatch.log`): `OpenProcess` was refused (integrity / access). The exit code will be unknown; confirm whether that print appears on a normal unelevated Python vs an elevated game.
 6. After a normal quit, play should unblock from `WaitForSingleObject` and print an exit code. 0 is documented here as "normal exit (also what a silent ExitProcess gives)" — a PC run is what tells those two apart, not this note.
-7. If the printed code is `0x00000103`, treat it as the STILL_ACTIVE collision until it is known whether the wait returned `WAIT_OBJECT_0`.
+7. If the printed code is `0x00000103` (259), that is the game's real exit code. Since #471/`ccab047`, `wait_exit` reads `GetExitCodeProcess` only after a good wait (`WaitForSingleObject` returned `WAIT_OBJECT_0`; `crashwatch.py` 154–160). Do not treat 259 as STILL_ACTIVE on this head.
 8. Papyrus on/off: if Documents is blocked, the refusal names Controlled Folder Access and the game is not started. If an editor has `StarfieldCustom.ini` open, expect the same `OSError` path.
 9. Watcher on: after `settle_s`, `crashwatch.log` should say `armed` or `NOT armed` with ProcDump's reason. Leave ProcDump running if play says a dump is still being written.
 10. Unique `procdump_<pid>_<unix>.out` is folded into `crashwatch.log` after ProcDump exits; the parent must not still hold the `wb` handle (the `with` is what drops it).
