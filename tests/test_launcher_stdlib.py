@@ -1,4 +1,4 @@
-"""#458 task 7: every src/fo4sf/launcher/ module imports with python -I, stdlib only, no Data/ read."""
+"""#458 task 7: every src/fo4sf/launcher/ module imports with python -I -S, stdlib only, no Data/ read."""
 import os
 import subprocess
 import sys
@@ -23,9 +23,13 @@ def non_stdlib_tops(names, stdlib):
     return sorted({n.split(".")[0] for n in names if not _is_allowed(n, stdlib)})
 
 
+def path_has_data(text):
+    parts = os.path.normpath(text).replace("\\", "/").split("/")
+    return "data" in (p.casefold() for p in parts)
+
+
 def probe(root):
-    """Run inside `python -I`. Print non-stdlib modules or Data/ opens, then exit 1 if any."""
-    before = set(sys.modules)
+    """Run inside `python -I -S`. Print non-stdlib modules or Data/ opens, then exit 1 if any."""
     src = os.path.join(root, "src")
     sys.path.insert(0, src)
     data_opens = []
@@ -40,8 +44,7 @@ def probe(root):
             text = os.fsdecode(path)
         except (TypeError, ValueError):
             return
-        parts = os.path.normpath(text).replace("\\", "/").split("/")
-        if "Data" in parts:
+        if path_has_data(text):
             data_opens.append(text)
 
     sys.addaudithook(hook)
@@ -54,7 +57,7 @@ def probe(root):
         loaded.append(info.name)
 
     stdlib = set(sys.stdlib_module_names)
-    bad = non_stdlib_tops(set(sys.modules) - before, stdlib)
+    bad = non_stdlib_tops(sys.modules, stdlib)
     print("loaded:" + ",".join(loaded))
     if bad:
         print("non-stdlib:" + ",".join(bad))
@@ -65,21 +68,25 @@ def probe(root):
 
 
 class LauncherStdlibTests(unittest.TestCase):
-    def test_preloaded_sitecustomize_is_ignored(self):
+    def test_sitecustomize_counts_as_non_stdlib_if_loaded(self):
         stdlib = set(sys.stdlib_module_names)
-        before = {"sitecustomize", "_distutils_hack", "os", "sys"}
-        after = before | {"fo4sf.launcher", "fo4sf.launcher.settings", "pkgutil"}
-        self.assertEqual(non_stdlib_tops(after - before, stdlib), [])
+        self.assertEqual(
+            non_stdlib_tops({"sitecustomize", "_distutils_hack", "os", "sys"}, stdlib),
+            ["_distutils_hack", "sitecustomize"],
+        )
 
-    def test_new_non_stdlib_after_imports_is_reported(self):
+    def test_numpy_is_reported(self):
         stdlib = set(sys.stdlib_module_names)
-        before = {"os", "sys"}
-        after = before | {"numpy", "fo4sf.launcher"}
-        self.assertEqual(non_stdlib_tops(after - before, stdlib), ["numpy"])
+        self.assertEqual(non_stdlib_tops({"os", "sys", "numpy", "fo4sf.launcher"}, stdlib), ["numpy"])
+
+    def test_data_path_match_is_case_insensitive(self):
+        self.assertTrue(path_has_data(r"C:\Starfield\Data\Meshes\x.nif"))
+        self.assertTrue(path_has_data("/game/DATA/foo"))
+        self.assertFalse(path_has_data("/game/src/foo"))
 
     def test_every_launcher_module_imports_stdlib_only_in_isolated_python(self):
         r = subprocess.run(
-            [sys.executable, "-I", os.path.abspath(__file__), PROBE, ROOT],
+            [sys.executable, "-I", "-S", os.path.abspath(__file__), PROBE, ROOT],
             capture_output=True, text=True, cwd=ROOT,
         )
         self.assertEqual(r.returncode, 0, r.stdout + "\n" + r.stderr)
