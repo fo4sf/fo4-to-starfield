@@ -639,6 +639,12 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIn("--set route=sfse", line)
         r = self.play(self.values(), FakeSystem([(5, 0, 100, 0)]), dry_run=True)
         self.assertEqual(next(p for p in r["plan"] if p.startswith("start:")), "start: sfse")
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.runtime = ["sfse_1_16_244.dll missing (the SFSE build listed for this runtime has it)"]
+        r = self.play(self.values(route="exe"), sys_, dry_run=True)           # a partial SFSE is not "installed"
+        line = next(p for p in r["plan"] if p.startswith("start:"))
+        self.assertIn("route=sfse would be refused: sfse_1_16_244.dll missing", line)
+        self.assertNotIn("is installed", line)
 
     def test_the_sfse_route_needs_the_listed_runtime(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])

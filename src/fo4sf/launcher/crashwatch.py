@@ -461,6 +461,17 @@ def apply_load_order(values, starfield, system, say, dry_run=False):
                             else "; put Plugins.txt right, or set load_order=off to start without this check"))
 
 
+def _without_sfse(values, starfield, system):
+    """The note on a start line whose route skips SFSE while an SFSE loader is in the game folder: the switch to
+    route=sfse when the listed runtime checks out, else what keeps it from working (Codex, #497)."""
+    if values["route"] == "sfse" or not os.path.isfile(os.path.join(starfield, SFSE_LOADER)):
+        return ""
+    problems = system.runtime_problems(starfield)
+    if not problems:
+        return f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
+    return f" (without SFSE; {SFSE_LOADER} is here but route=sfse would be refused: {'; '.join(problems)})"
+
+
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):
     """Apply the settings, start the game and watch it to its end. Returns a result dict; raises ValueError on a
     refusal (nothing started)."""
@@ -491,9 +502,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
             f"load order: {values['load_order']}",
-            f"start: {values['route']}" + (
-                f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
-                if values["route"] != "sfse" and os.path.isfile(os.path.join(starfield, SFSE_LOADER)) else ""),
+            f"start: {values['route']}" + _without_sfse(values, starfield, system),
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")
