@@ -1,6 +1,6 @@
 """Minimal CLI for fo4-to-starfield.
 
-python -m fo4sf status   # print config summary and optional manifest coverage (requires config.toml)
+python -m fo4sf status   # print config summary (including directory existence) and optional manifest coverage (requires config.toml)
 """
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_status = sub.add_parser("status", help="show configuration summary and manifest coverage")
+    p_status = sub.add_parser("status", help="show configuration summary (with dir existence), and manifest coverage")
     p_status.add_argument("--manifest", help="explicit path to manifest.json")
     p_status.set_defaults(func=cmd_status)
 
