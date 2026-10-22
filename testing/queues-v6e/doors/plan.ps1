@@ -39,6 +39,15 @@ if ($Tag) { $Stage += "_$Tag"; $StageOut += "_$Tag"; $QRounds += "_$Tag"; $QOut 
 function Need($ok, $why) { if (-not $ok) { throw "STOP: $why" } }
 function Ok($what) { if ($LASTEXITCODE -ne 0) { throw "STOP: $what exit $LASTEXITCODE" } }
 function Sha8($p) { (Get-FileHash -Algorithm SHA256 $p).Hash.Substring(0,8) }
+function Full($p) { [IO.Path]::GetFullPath($p).TrimEnd('\') }
+# a reused stage must come from this core build at this run's load indices (Codex on #500): else a stale plan meets
+# the live order and targets the wrong records
+function SameStage($dir) {
+  $r = Get-Content "$dir\rounds.json" -Raw | ConvertFrom-Json
+  Need ((Full $r.core) -ieq (Full $CoreBuild)) "$dir was staged from $($r.core), not -CoreBuild ${CoreBuild}: pass a new -Tag"
+  Need ($r.core_index -eq $CoreIndex -and $r.port_index -eq $PortIndex) `
+    "$dir was staged at core $($r.core_index) port $($r.port_index), this run's order is $CoreIndex $PortIndex`: pass a new -Tag"
+}
 
 # ---------------------------------------------------------------- 0. checks (read-only)
 Need (-not $PortStaging.StartsWith('<')) 'fill $PortStaging'
@@ -49,6 +58,9 @@ Need ((Sha8 "$Starfield\Data\FO4TerrainCore.esm") -eq $CorePin.ToUpper()) "insta
 Need ((Sha8 "$Starfield\Data\FO4SFBridge.esm") -eq '63C746BB') 'installed bridge is not 63C746BB'
 foreach ($f in 'objects.json','formids.json','plan.json','overlays_params.json') {
   Need (Test-Path "$CoreBuild\$f") "$CoreBuild has no ${f}: pass -CoreBuild, the installed core's build folder" }
+# the build gives the pairs, offsets and spawn, the installed ESM the records: both must be the same core (Codex on #500)
+Need (Test-Path "$CoreBuild\FO4TerrainCore.esm") "$CoreBuild has no FO4TerrainCore.esm to check against -CorePin"
+Need ((Sha8 "$CoreBuild\FO4TerrainCore.esm") -eq $CorePin.ToUpper()) "$CoreBuild\FO4TerrainCore.esm is not $CorePin`: -CoreBuild is another core's build"
 Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
@@ -64,11 +76,11 @@ Need $m.Success 'door_rounds.py order did not give both indices (FO4TerrainCore.
 $CoreIndex = $m.Groups[1].Value; $PortIndex = $m.Groups[2].Value
 
 # ---------------------------------------------------------------- 2. stage every door against the INSTALLED plugins
-if (Test-Path $Stage) { Write-Host "stage exists, reused: $Stage" }
+if (Test-Path $Stage) { SameStage $Stage; Write-Host "stage exists, reused (same core build and indices): $Stage" }
 else { & $py scripts\bridge\door_rounds.py stage --core $CoreBuild --core-plugin "$Starfield\Data\FO4TerrainCore.esm" `
           --port $PortStaging --core-index $CoreIndex --port-index $PortIndex --out $Stage; Ok 'scripts\bridge\door_rounds.py' }
 if ($RoundsOnly) { Write-Host 'doors_rounds only: no OUT stage or queue' }
-elseif (Test-Path $StageOut) { Write-Host "OUT stage exists, reused: $StageOut" }
+elseif (Test-Path $StageOut) { SameStage $StageOut; Write-Host "OUT stage exists, reused (same core build and indices): $StageOut" }
 else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scripts\bridge\door_out_legs.py' }
 
 # ---------------------------------------------------------------- 3. queues: no --plugins, the installed set stays
