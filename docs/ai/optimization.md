@@ -55,3 +55,10 @@ Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vaul
 18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
 30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
 timers stay as the upper bound). After (first run, 2026-10-11 01:3x, library cell, verified arrival): **168 s**, from 195-210 s (-15 to -20%). The per-phase times were swallowed by a pipe on that run; the script now prints them with Write-Host.
+
+### 2026-10-22 Claude: snapshot.ps1 writes Plugins.txt as plain strings
+Before: `state.json` kept every Plugins.txt line as a Get-Content object, with PSPath, PSDrive and Provider. Install saw
+3 MB on the owner's PC. Change: `plugins_txt` turns each line into a plain string (PR #484). Measured by Codex desktop on
+Windows with the real script, real Get-Content/ConvertTo-Json, the same synthetic ten-line Plugins.txt and a stubbed
+capture: **4,551,695 bytes before, 794 bytes after** (parent vs 1da8aba3). The list keeps the same strings in the same
+order.
