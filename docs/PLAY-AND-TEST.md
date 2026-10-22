@@ -257,8 +257,10 @@ project). The filter means it only catches that one exception, not crashes in ge
   `launcher.py paths --accept` or the window's Locations tab). It attaches once the game has stayed up 20 seconds,
   writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
   `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
-  The launcher writes Plugins.txt only before the game starts (bridge=on or off; with bridge=unchanged it writes
-  nothing). On the owner's first launcher run (2026-10-22) Plugins.txt was rewritten about 25 s after the game
+  The launcher writes Plugins.txt only before the game starts: when bridge is on or off, and by default to put our
+  plugins in the one target order (load_order=fix; it keeps a Plugins.txt.bak copy and writes nothing when the order
+  is already right; `--set load_order=check` refuses instead, `off` leaves the file alone). The order is in
+  `scripts/game/load_order.py`. On the owner's first launcher run (2026-10-22) Plugins.txt was rewritten about 25 s after the game
   started, with FO4Port moved after FO4SFMission and every line still ticked. Nothing in the launcher runs then (it
   only waits on the game and ProcDump), so the game itself reordered it (inferred, not traced). A moved plugin gets
   another load-order index, so its form ids change between sessions (Codsworth 06000811 became 05000811). play

@@ -1,5 +1,6 @@
 """Launcher settings and the crash watcher that follows one game (src/fo4sf/launcher/settings.py, crashwatch.py), on a
 stand-in for Windows: no game, no ProcDump, no Steam."""
+import datetime
 import importlib.util
 import json
 import os
@@ -46,6 +47,8 @@ class FakeSystem:
 
     def __init__(self, script, free=100.0, running=()):
         self.t, self.script, self.free = 1000.0, script, free
+        self.load_order = []
+        self.runtime = []                                  # runtime_problems: the listed runtime and its SFSE
         self.started_at = None
         self.running = list(running)
         self.spawned, self.ran, self.calls = [], [], []
@@ -83,6 +86,9 @@ class FakeSystem:
     def open_process(self, pid):
         return None if self.refuse_handle else pid
 
+    def runtime_problems(self, starfield):
+        return list(self.runtime)
+
     def wait_exit(self, handle):
         if getattr(self, "wait_fails", False):
             return None                                    # a failed wait returns at once, game still up
@@ -101,6 +107,10 @@ class FakeSystem:
     def run(self, argv):
         assert argv[1] == "-I", argv                          # plugin_toggle reads game data: isolated mode
         argv = argv[:1] + argv[2:]
+        if argv[1].endswith("load_order.py"):
+            self.load_order.append(argv[2])
+            code, out = getattr(self, "load_order_result", (0, "load order ok: our plugins are in the target order"))
+            return (0, "load order fixed: 1 line(s) moved") if argv[2] == "fix" and code == 9 else (code, out)
         self.ran.append(argv[2:])
         if argv[2] == "status":
             return 0, json.dumps(self.toggle_status) + "\n"
@@ -126,6 +136,7 @@ class CrashWatchTests(unittest.TestCase):
         open(self.procdump, "wb").close()
         self.game = os.path.join(t.name, "Starfield")
         os.makedirs(self.game)
+        open(os.path.join(self.game, "sfse_loader.exe"), "wb").close()    # play starts the game through SFSE
         self.said = []
 
     def values(self, **kw):
@@ -574,11 +585,13 @@ class CrashWatchTests(unittest.TestCase):
         self.assertTrue(any("left running" in s for s in self.said))
 
     def test_refusals_start_nothing(self):
+        os.remove(os.path.join(self.game, "sfse_loader.exe"))
         cases = [
             (self.values(crash_watch__procdump=os.path.join(self.dir, "missing.exe")), {}, "not found"),
             (self.values(), {"free": 3.0}, "GB free for dumps"),
             (self.values(), {"running": [99]}, "already running"),
             (self.values(route="exe"), {}, "Starfield.exe not found"),
+            (self.values(route="sfse"), {}, "sfse_loader.exe not found"),
         ]
         for v, kw, text in cases:
             sys_ = FakeSystem([(5, 0, 100, 0)], **kw)
@@ -587,6 +600,75 @@ class CrashWatchTests(unittest.TestCase):
                     self.play(v, sys_)
                 self.assertIn(text, str(e.exception))
                 self.assertEqual(sys_.calls, [])
+
+    def test_the_sfse_route_starts_the_loader_and_follows_the_game(self):
+        # SFSE is required (NG-1): sfse_loader.exe starts Starfield.exe with SFSE; Steam and the exe start it without
+        self.assertEqual(settings.defaults()["route"], "sfse")
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        self.play(self.values(route="sfse"), sys_)
+        self.assertIn(("start", "sfse"), sys_.calls)
+        from unittest import mock
+        with mock.patch.object(crashwatch.subprocess, "Popen") as popen:
+            crashwatch.System().start_game("sfse", self.game)
+            crashwatch.System().start_game("exe", self.game)
+        self.assertEqual([c.args[0] for c in popen.call_args_list],
+                         [[os.path.join(self.game, "sfse_loader.exe")], [os.path.join(self.game, "Starfield.exe")]])
+        self.assertEqual(popen.call_args_list[0].kwargs["cwd"], self.game)
+
+    def test_the_sfse_route_needs_the_listed_runtime(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.runtime = ["sfse_1_16_244.dll missing (the SFSE build listed for this runtime has it)"]
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(), sys_)
+        self.assertIn("route=sfse: sfse_1_16_244.dll missing", str(e.exception))
+        self.assertEqual((sys_.calls, sys_.ran, sys_.load_order), ([], [], []))   # nothing applied, nothing started
+        sys_.calls.clear()
+        self.play(self.values(route="steam"), sys_)                                   # other routes do not ask
+        self.assertIn(("start", "steam"), sys_.calls)
+
+    def test_the_real_runtime_check_reads_the_table(self):
+        from unittest import mock
+        exe, loader, dll = (os.path.join(self.game, n) for n in ("Starfield.exe", "sfse_loader.exe", "sfse_1_2_3.dll"))
+        for f, b in ((exe, b"exe"), (loader, b"loader"), (dll, b"dll")):
+            with open(f, "wb") as h:
+                h.write(b)
+        g = crashwatch.mf.game_pins(self.game)
+        table = {"schema": 1, "runtimes": []}
+        crashwatch.rt.add_runtime(table, {"game": g}, label="test")
+        with mock.patch.object(crashwatch.rt, "load_runtimes", return_value=table):
+            self.assertEqual(crashwatch.System().runtime_problems(self.game), [])
+            os.remove(dll)
+            self.assertIn("sfse_1_2_3.dll missing", " ".join(crashwatch.System().runtime_problems(self.game)))
+            with open(exe, "wb") as h:
+                h.write(b"another build")
+            self.assertIn("not listed as a good runtime", " ".join(crashwatch.System().runtime_problems(self.game)))
+
+    def test_load_order_is_put_right_before_the_start(self):
+        # phase audit: one target order (scripts/game/load_order.py); play fixes or refuses a different one
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        self.play(self.values(), sys_)
+        self.assertEqual(sys_.load_order, ["fix"])
+        self.assertIn("load order fixed: 1 line(s) moved", self.said)
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(load_order="check"), sys_)
+        self.assertIn("set load_order=fix", str(e.exception))
+        self.assertEqual(sys_.calls, [])                               # the game never started
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (6, "load order not judged: FO4Port.esm is listed more than once")
+        with self.assertRaises(ValueError):
+            self.play(self.values(), sys_)
+        self.assertEqual(sys_.calls, [])
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        self.play(self.values(load_order="off"), sys_)
+        self.assertEqual(sys_.load_order, [])
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        self.play(self.values(), sys_, dry_run=True)
+        self.assertEqual((sys_.load_order, sys_.calls), (["check"], []))   # a dry run only checks
+        self.assertIn("load order: play would put it right before the start", self.said)
 
     def test_failed_wait_follows_the_process_id(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
@@ -601,7 +683,7 @@ class CrashWatchTests(unittest.TestCase):
         sys_.start_error = OSError(2, "No application is associated with the specified file")
         with self.assertRaises(ValueError) as e:
             self.play(self.values(), sys_)
-        self.assertIn("could not start the game by steam", str(e.exception))
+        self.assertIn("could not start the game by sfse", str(e.exception))
         self.assertEqual(sys_.spawned, [])                         # no ProcDump left waiting for a game
 
     def test_dry_run_changes_nothing(self):
@@ -674,6 +756,71 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual((new, changed), ("[Papyrus]\nbEnableLogging=1\nbEnableTrace=1\nbLoadDebugInformation=1\n", True))
         self.assertFalse(crashwatch.set_papyrus(new, True)[1])
 
+    def test_papyrus_setting_keeps_the_ini_bytes(self):
+        # a BOM and CRLF endings, as Notepad saves it, and a byte that is not UTF-8: only the changed keys move
+        mg = os.path.join(self.dir, "mgb")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        raw = (b"\xef\xbb\xbf[General]\r\nsLanguage=en\r\nsName=caf\xe9\r\n[Papyrus]\r\nbEnableLogging=0\r\n"
+               b"  fOther = 2 \r\n[Display]\r\nx=1")                          # no ending on the last line
+        with open(ini, "wb") as f:
+            f.write(raw)
+        v = self.values(bridge="off", papyrus_logging="on", my_games=mg)
+        crashwatch.apply_papyrus(v, self.said.append)
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), b"\xef\xbb\xbf[General]\r\nsLanguage=en\r\nsName=caf\xe9\r\n[Papyrus]\r\n"
+                                       b"bEnableLogging=1\r\n  fOther = 2 \r\nbEnableTrace=1\r\n"
+                                       b"bLoadDebugInformation=1\r\n[Display]\r\nx=1")
+        bak = [n for n in os.listdir(mg) if ".bak-" in n]
+        with open(os.path.join(mg, bak[0]), "rb") as f:
+            self.assertEqual(f.read(), raw)                                  # the copy is the old file exactly
+        with open(ini, "rb") as f:
+            before = f.read()
+        crashwatch.apply_papyrus(v, self.said.append)                        # already on: not touched
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertIn("already on", self.said[-1])
+        new, _ = crashwatch.set_papyrus("[Display]\r\nx=1", False)          # a new section after a last line
+        self.assertEqual(new, "[Display]\r\nx=1\r\n[Papyrus]\r\nbEnableLogging=0\r\nbEnableTrace=0\r\n"
+                              "bLoadDebugInformation=0\r\n")
+
+    def test_a_cr_only_ini_keeps_one_papyrus_section(self):
+        new, changed = crashwatch.set_papyrus("[General]\rsLanguage=en\r[Papyrus]\rbEnableLogging=0\r", True)
+        self.assertTrue(changed)
+        self.assertEqual(new, "[General]\rsLanguage=en\r[Papyrus]\rbEnableLogging=1\rbEnableTrace=1\r"
+                              "bLoadDebugInformation=1\r")
+
+    def test_two_changes_in_one_second_keep_both_copies(self):
+        # Codex on #487: a second-resolution backup name opened "wb" replaced the first copy, the only original
+        mg = os.path.join(self.dir, "mgsame")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        with open(ini, "wb") as f:
+            f.write(b"[Papyrus]\nbEnableLogging=0\n")
+        from unittest import mock
+        fixed = datetime.datetime(2026, 10, 22, 19, 40, 0)
+        with mock.patch.object(crashwatch.datetime, "datetime", mock.Mock(now=mock.Mock(return_value=fixed))):
+            crashwatch.apply_papyrus(self.values(papyrus_logging="on", my_games=mg), self.said.append)
+            crashwatch.apply_papyrus(self.values(papyrus_logging="off", my_games=mg), self.said.append)
+        baks = sorted(n for n in os.listdir(mg) if ".bak-" in n)
+        self.assertEqual(baks, ["StarfieldCustom.ini.bak-20261022-194000", "StarfieldCustom.ini.bak-20261022-194000-2"])
+        with open(os.path.join(mg, baks[0]), "rb") as f:
+            self.assertEqual(f.read(), b"[Papyrus]\nbEnableLogging=0\n")       # the original survives
+
+    def test_a_utf16_ini_is_refused_untouched(self):
+        mg = os.path.join(self.dir, "mg16")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        raw = "[Papyrus]\r\nbEnableLogging=0\r\n".encode("utf-16")         # with its BOM, as Notepad's "Unicode"
+        with open(ini, "wb") as f:
+            f.write(raw)
+        with self.assertRaises(ValueError) as e:
+            crashwatch.apply_papyrus(self.values(papyrus_logging="on", my_games=mg), self.said.append)
+        self.assertIn("UTF-16", str(e.exception))
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), raw)
+        self.assertEqual(os.listdir(mg), ["StarfieldCustom.ini"])            # no copy, no temporary file
+
     def test_exit_names(self):
         self.assertEqual(crashwatch.exit_name(-1073741819), "0xC0000005 ACCESS_VIOLATION")    # signed as Windows gives
         self.assertIn("not a known crash code", crashwatch.exit_name(0x1234))
@@ -684,7 +831,8 @@ class CrashWatchTests(unittest.TestCase):
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
         path = os.path.join(self.dir, "cli.json")
-        self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.enabled=on"]), 0)
+        self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.enabled=on",
+                                   "--set", "route=steam"]), 0)       # this stand-in folder is no listed runtime
         self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.dump=enormous"]), 2)
         self.assertTrue(settings.load(path)["crash_watch.enabled"])
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 2)  # no folder
