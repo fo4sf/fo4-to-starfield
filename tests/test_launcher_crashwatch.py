@@ -47,6 +47,7 @@ class FakeSystem:
     def __init__(self, script, free=100.0, running=()):
         self.t, self.script, self.free = 1000.0, script, free
         self.load_order = []
+        self.runtime = []                                  # runtime_problems: the listed runtime and its SFSE
         self.started_at = None
         self.running = list(running)
         self.spawned, self.ran, self.calls = [], [], []
@@ -83,6 +84,9 @@ class FakeSystem:
 
     def open_process(self, pid):
         return None if self.refuse_handle else pid
+
+    def runtime_problems(self, starfield):
+        return list(self.runtime)
 
     def wait_exit(self, handle):
         if getattr(self, "wait_fails", False):
@@ -610,6 +614,34 @@ class CrashWatchTests(unittest.TestCase):
                          [[os.path.join(self.game, "sfse_loader.exe")], [os.path.join(self.game, "Starfield.exe")]])
         self.assertEqual(popen.call_args_list[0].kwargs["cwd"], self.game)
 
+    def test_the_sfse_route_needs_the_listed_runtime(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.runtime = ["sfse_1_16_244.dll missing (the SFSE build listed for this runtime has it)"]
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(), sys_)
+        self.assertIn("route=sfse: sfse_1_16_244.dll missing", str(e.exception))
+        self.assertEqual((sys_.calls, sys_.ran, sys_.load_order), ([], [], []))   # nothing applied, nothing started
+        sys_.calls.clear()
+        self.play(self.values(route="steam"), sys_)                                   # other routes do not ask
+        self.assertIn(("start", "steam"), sys_.calls)
+
+    def test_the_real_runtime_check_reads_the_table(self):
+        from unittest import mock
+        exe, loader, dll = (os.path.join(self.game, n) for n in ("Starfield.exe", "sfse_loader.exe", "sfse_1_2_3.dll"))
+        for f, b in ((exe, b"exe"), (loader, b"loader"), (dll, b"dll")):
+            with open(f, "wb") as h:
+                h.write(b)
+        g = crashwatch.mf.game_pins(self.game)
+        table = {"schema": 1, "runtimes": []}
+        crashwatch.rt.add_runtime(table, {"game": g}, label="test")
+        with mock.patch.object(crashwatch.rt, "load_runtimes", return_value=table):
+            self.assertEqual(crashwatch.System().runtime_problems(self.game), [])
+            os.remove(dll)
+            self.assertIn("sfse_1_2_3.dll missing", " ".join(crashwatch.System().runtime_problems(self.game)))
+            with open(exe, "wb") as h:
+                h.write(b"another build")
+            self.assertIn("not listed as a good runtime", " ".join(crashwatch.System().runtime_problems(self.game)))
+
     def test_load_order_is_put_right_before_the_start(self):
         # phase audit: one target order (docs/testing/load-order.md); play fixes or refuses a different one
         sys_ = FakeSystem([(5, 0, 100, 0)])
@@ -761,7 +793,8 @@ class CrashWatchTests(unittest.TestCase):
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
         path = os.path.join(self.dir, "cli.json")
-        self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.enabled=on"]), 0)
+        self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.enabled=on",
+                                   "--set", "route=steam"]), 0)       # this stand-in folder is no listed runtime
         self.assertEqual(cli.main(["settings", "--settings", path, "--set", "crash_watch.dump=enormous"]), 2)
         self.assertTrue(settings.load(path)["crash_watch.enabled"])
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 2)  # no folder

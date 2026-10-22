@@ -137,6 +137,11 @@ class LauncherCliTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
 
     def test_play_dry_run_prints_plan_and_exits_0_when_settings_are_valid(self):
+        # the default route starts through SFSE and needs a listed runtime: this stand-in folder has none (Codex, #487)
+        r = self.run_cli("play", "--starfield", self.starfield, "--settings", self.settings, "--dry-run")
+        self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+        self.assertIn("route=sfse:", r.stdout)
+        self.assertEqual(self.run_settings("--set", "route=steam").returncode, 0)
         r = self.run_cli("play", "--starfield", self.starfield, "--settings", self.settings, "--dry-run")
         self.assert_no_traceback(r)
         self.assertFalse(os.path.isfile(os.path.join(self.starfield, "Starfield.exe")))
@@ -150,7 +155,7 @@ class LauncherCliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertIn("bridge: unchanged", r.stdout)
         self.assertIn("papyrus logging: unchanged", r.stdout)
-        self.assertIn("start: sfse", r.stdout)
+        self.assertIn("start: steam", r.stdout)
         self.assertIn("crash watcher: off", r.stdout)
 
     def test_watch_dry_run_prints_plan_and_exits_0_when_watcher_is_on(self):

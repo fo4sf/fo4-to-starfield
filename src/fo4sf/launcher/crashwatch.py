@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 
-from . import detect, settings as settings_mod
+from . import detect, manifest as mf, runtimes as rt, settings as settings_mod
 
 STEAM_URL = "steam://rungameid/1716740"
 ATTACH_CHECK_S = 5.0               # how long ProcDump must stay up after attaching before the watcher counts as armed
@@ -179,6 +179,18 @@ class System:
 
     def free_gb(self, path):
         return detect.free_gb(path)
+
+    def runtime_problems(self, starfield):
+        """[problems] with the game folder's Starfield.exe and SFSE against the known-runtimes table, as detect
+        judges them: an unlisted Starfield.exe, or an SFSE loader or DLL that is not the build listed with it."""
+        g = mf.game_pins(starfield)
+        exe = (g["files"].get("Starfield.exe") or {}).get("sha256")
+        if not exe:
+            return [f"{GAME_EXE} not found in {starfield}"]
+        known = rt.match_runtime(rt.load_runtimes(), exe)
+        if known is None:
+            return [f"this {GAME_EXE} (sha256 {exe[:12]}...) is not listed as a good runtime"]
+        return rt.sfse_problems(known, g)
 
     def plugin_order(self):
         """The plugins ticked in the player's Plugins.txt, in file order, or None when it cannot be read."""
@@ -445,6 +457,12 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     for route, exe in (("exe", GAME_EXE), ("sfse", SFSE_LOADER)):
         if values["route"] == route and not os.path.isfile(os.path.join(starfield, exe)):
             bad.append(f"route={route}: {exe} not found in {starfield}")
+            break
+    else:
+        if values["route"] == "sfse":
+            # the loader alone is not enough: a missing or other SFSE DLL starts nothing, and play would wait for a
+            # game that never comes (Codex, #487)
+            bad += [f"route=sfse: {p} (launcher.py detect shows the whole check)" for p in system.runtime_problems(starfield)]
     if system.pids():
         bad.append("Starfield is already running: close it first (settings change only with the game closed, and "
                    "the watcher follows a game it started)")
