@@ -85,8 +85,14 @@ probe_install.py uninstall restores Plugins.txt afterwards. The quest probe is p
 (9AF962D2); a read-only pin check precedes "Install the quest probe plugin." The object test room and the merge probe
 have no install route while the core set holds exp_install's one experiment slot. Interiors b10 (all 253 interiors,
 coc-only) is a port swap with no installer for its texture companions yet, and its Commonwealth doors need a core
-rebuilt against that port; both are phase 3 work. The door animation groups G1 to G3 (#392, switches off) have no
-staging yet; the staging path and the core-side step C are phase 2 work and can ride the same core rebuild.
+rebuilt against that port; both are phase 3 work. The door animation groups G1 to G3 (#392, switches off) get their
+staging path from #489 (`interior_batch.py build --animated-doors`, draft, with Codex): a recompile (compile5), a
+port build into D:\Modding\staging\doors_anim_b00 (about 15 min) and a read-only SfInspect elevator read, queued for
+Install after BorderProbe, the launcher paths and the Map LOD job. G2 (Fort Hagen, port only) and G3 (out through
+the animated interior door, back through the core's ACTI) can run on the installed core once that port is in; the
+owner's line, only after the build passes, is "Install the animated doors port." (rollback swap_v6i_plainshader.ps1).
+G1 waits for the core-side step C (the exterior ACTI becomes the same animated DOOR with FO4SF_AnimatedLoadDoor,
+switch off by default), which rides the next core rebuild; Bugs has the plan.
 
 The 19 Oct table below is history: #393, #392, #396, #394 and #399 merged on 21 Oct, #391 and #397 on 22 Oct.
 
