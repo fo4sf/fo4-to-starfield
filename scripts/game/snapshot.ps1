@@ -11,14 +11,19 @@
 # the player pastes it (Ctrl+V) and presses Submit. Nothing is sent without that click and the player's GitHub sign-in;
 # the form labels it community + needs-triage, so it waits for the owner's review. The link is kept in issue_url.txt.
 # $env:FO4SF_SUBMIT_DRYRUN: write issue_url.txt only (tests: no browser, no clipboard).
-# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900] [-Ask] [-Submit]
-param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900, [switch]$Ask, [switch]$Submit)
+# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900] [-Ask [-AskTimeout 600]] [-Submit]
+param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900, [switch]$Ask, [switch]$Submit, [int]$AskTimeout = 600)
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
 $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'C:\Modding\venv-render\Scripts\python.exe' }
 $root = $(if ($env:FO4SF_SNAPSHOT_ROOT) { $env:FO4SF_SNAPSHOT_ROOT } else { 'C:\Modding\snapshots' })   # tests: a temp root
 if (-not $Out) { $Out = Join-Path $root (Get-Date -Format 'yyyyMMdd-HHmmss') }
 New-Item -ItemType Directory -Force $Out | Out-Null
+# an asking press starts this script visible (look_hotkey.ps1): its console goes before the screenshot, so it is never in it
+if ($Ask -and $null -eq $env:FO4SF_ASK_ANSWER) {
+  try { Add-Type -Namespace W -Name C -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);'
+        $c = [W.C]::GetConsoleWindow(); if ($c -ne [IntPtr]::Zero) { [W.C]::ShowWindow($c, 0) | Out-Null } } catch { }
+}
 $state = [ordered]@{ taken = (Get-Date -Format s); note = $Note; game_running = $false; game_foreground = $null }
 $g = Get-Process Starfield -ErrorAction SilentlyContinue
 if ($g) {
@@ -37,35 +42,6 @@ $shotCode = $LASTEXITCODE
 $shotOk = ($shotCode -eq 0) -and (Test-Path -LiteralPath $shot) -and ((Get-Item -LiteralPath $shot).Length -gt 0)
 $state.screen = $(if ($shotOk) { 'screen.png' } else { $null })
 if (-not $shotOk) { $state.screen_error = "shot.ps1 exit $shotCode"; Remove-Item -LiteralPath $shot -Force -ErrorAction SilentlyContinue }
-# the description box (-Ask): after the capture; $env:FO4SF_ASK_ANSWER stands in for the typed text in tests (no window)
-if ($Ask) {
-  $text = $null
-  if ($null -ne $env:FO4SF_ASK_ANSWER) { $text = $env:FO4SF_ASK_ANSWER }
-  else {
-    try {
-      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-      $f = New-Object System.Windows.Forms.Form
-      $f.Text = 'FO4SF report: what is wrong?'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'
-      $f.Size = New-Object System.Drawing.Size 520, 300; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
-      $lbl = New-Object System.Windows.Forms.Label
-      $lbl.Text = 'The screenshot is saved. Describe what is wrong (what you did, what you expected, what happened):'
-      $lbl.SetBounds(10, 8, 490, 34)
-      $tb = New-Object System.Windows.Forms.TextBox
-      $tb.Multiline = $true; $tb.ScrollBars = 'Vertical'; $tb.AcceptsReturn = $true; $tb.SetBounds(10, 44, 485, 160)
-      $ok = New-Object System.Windows.Forms.Button; $ok.Text = 'Save'; $ok.SetBounds(300, 215, 90, 30); $ok.DialogResult = 'OK'
-      $skip = New-Object System.Windows.Forms.Button; $skip.Text = 'Screenshot only'; $skip.SetBounds(395, 215, 100, 30); $skip.DialogResult = 'Cancel'
-      $f.Controls.AddRange(@($lbl, $tb, $ok, $skip)); $f.AcceptButton = $null; $f.CancelButton = $skip
-      $f.Add_Shown({ $f.Activate(); $tb.Focus() })
-      if ($f.ShowDialog() -eq 'OK') { $text = $tb.Text }
-      $f.Dispose()
-    } catch { $state.description_error = "$_" }
-  }
-  if ($text -and $text.Trim()) {
-    $state.description = $text.Trim()
-    Set-Content -LiteralPath (Join-Path $Out 'description.txt') -Value $state.description -Encoding utf8
-    $state.description_file = 'description.txt'
-  } else { $state.description = $null }
-}
 # the bridge's newest line (any age up to MaxAge: the owner may have paused; the age is reported, never hidden)
 $b = $null
 try { $b = (& $py (Join-Path $here 'bridge_log.py') latest --max-age $MaxAge) | ConvertFrom-Json } catch { $b = $null }
@@ -81,7 +57,85 @@ $rec = 'D:\SteamLibrary\steamapps\common\Starfield\Data\FO4SFExp.install.json'
 if (Test-Path $rec) { try { $r = Get-Content $rec -Raw | ConvertFrom-Json; $state.installed = [ordered]@{ exp_dir = $r.exp_dir; plugins = @($r.files.PSObject.Properties.Name | Where-Object { $_ -like '*.esm' }) } } catch { } }
 $pl = Join-Path $env:LOCALAPPDATA 'Starfield\Plugins.txt'
 if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') }) }
+if ($Ask) { $state.description_pending = $true }   # the box opens after this write; read the folder again later
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
+# the description box (-Ask): after the capture and after state.json is written, so the snapshot is readable while the box
+# waits; $env:FO4SF_ASK_ANSWER stands in for the typed text in tests (no window). The owner's play test (2026-10-22): three
+# boxes sat waiting unseen (visible=False: look_hotkey started this script hidden, and a hidden start hides the first
+# window). Now the hotkey starts this script visible (its console is hidden at the top), the box is shown explicitly
+# (SW_SHOW, whatever the start said), and it takes the foreground (the hotkey hands it the right,
+# AllowSetForegroundWindow; the Alt-key nudge and AttachThreadInput when Windows still refuses), blinking on the taskbar
+# if even that fails.
+# Unanswered after -AskTimeout seconds (default 600) it closes and leaves describe_later.txt in the folder and the folder in
+# <snapshots>\describe_later.txt: type the description into the folder's description.txt afterwards.
+if ($Ask) {
+  $text = $null; $timedOut = $false
+  if ($null -ne $env:FO4SF_ASK_ANSWER) { $text = $env:FO4SF_ASK_ANSWER; $timedOut = ($env:FO4SF_ASK_ANSWER -eq '<timeout>') }
+  else {
+    try {
+      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+      Add-Type -Namespace W -Name F -MemberDefinition @'
+[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, System.IntPtr pid);
+[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+[DllImport("user32.dll")] public static extern bool BringWindowToTop(System.IntPtr h);
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
+[DllImport("user32.dll")] public static extern bool FlashWindow(System.IntPtr h, bool invert);
+public static bool Front(System.IntPtr h) {
+  ShowWindow(h, 5); ShowWindow(h, 9);                                        // SW_SHOW, SW_RESTORE
+  if (SetForegroundWindow(h)) return true;
+  keybd_event(0x12, 0, 0, System.UIntPtr.Zero); keybd_event(0x12, 0, 2, System.UIntPtr.Zero);   // Alt: lifts the lock
+  uint fg = GetWindowThreadProcessId(GetForegroundWindow(), System.IntPtr.Zero), me = GetCurrentThreadId();
+  bool att = fg != 0 && fg != me && AttachThreadInput(me, fg, true);
+  bool ok = SetForegroundWindow(h); BringWindowToTop(h);
+  if (att) AttachThreadInput(me, fg, false);
+  if (!ok) FlashWindow(h, true);
+  return ok || GetForegroundWindow() == h;
+}
+'@
+      $f = New-Object System.Windows.Forms.Form
+      $f.Text = 'FO4SF report: what is wrong?'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; $f.ShowInTaskbar = $true
+      $f.Size = New-Object System.Drawing.Size 520, 300; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
+      $lbl = New-Object System.Windows.Forms.Label
+      $lbl.Text = 'The screenshot is saved. Describe what is wrong (what you did, what you expected, what happened):'
+      $lbl.SetBounds(10, 8, 490, 34)
+      $tb = New-Object System.Windows.Forms.TextBox
+      $tb.Multiline = $true; $tb.ScrollBars = 'Vertical'; $tb.AcceptsReturn = $true; $tb.SetBounds(10, 44, 485, 160)
+      $ok = New-Object System.Windows.Forms.Button; $ok.Text = 'Save'; $ok.SetBounds(300, 215, 90, 30); $ok.DialogResult = 'OK'
+      $skip = New-Object System.Windows.Forms.Button; $skip.Text = 'Screenshot only'; $skip.SetBounds(395, 215, 100, 30); $skip.DialogResult = 'Cancel'
+      $f.Controls.AddRange(@($lbl, $tb, $ok, $skip)); $f.AcceptButton = $null; $f.CancelButton = $skip
+      $script:fronted = $false; $script:tries = 0; $script:timedOut = $false; $deadline = (Get-Date).AddSeconds($AskTimeout)
+      $tick = New-Object System.Windows.Forms.Timer; $tick.Interval = 500
+      $tick.Add_Tick({
+        if ((Get-Date) -ge $deadline) { $script:timedOut = $true; $tick.Stop(); $f.DialogResult = 'Cancel'; $f.Close(); return }
+        # keep trying for the first 10 s: the game may take the foreground back while it minimizes
+        if ($script:tries -lt 20 -and [W.F]::GetForegroundWindow() -ne $f.Handle) { $script:tries++; $script:fronted = [W.F]::Front($f.Handle) -or $script:fronted; $tb.Focus() | Out-Null }
+      })
+      $f.Add_Shown({ $script:fronted = [W.F]::Front($f.Handle); $f.Activate(); $tb.Focus() | Out-Null; $tick.Start() })
+      if ($f.ShowDialog() -eq 'OK') { $text = $tb.Text }
+      $tick.Stop(); $tick.Dispose(); $f.Dispose()
+      $timedOut = $script:timedOut
+      $state.description_box_foreground = $script:fronted
+    } catch { $state.description_error = "$_" }
+  }
+  if ($timedOut) {
+    $text = $null
+    $state.description_timed_out = $AskTimeout
+    Set-Content -LiteralPath (Join-Path $Out 'describe_later.txt') -Encoding utf8 -Value ("The description box got no answer within $AskTimeout s " +
+      "(it may have opened behind the game). Type what was wrong into description.txt in this folder.")
+    Add-Content -LiteralPath (Join-Path (Split-Path -Parent $Out) 'describe_later.txt') -Value $Out -Encoding utf8
+  }
+  if ($text -and $text.Trim() -and -not $timedOut) {
+    $state.description = $text.Trim()
+    Set-Content -LiteralPath (Join-Path $Out 'description.txt') -Value $state.description -Encoding utf8
+    $state.description_file = 'description.txt'
+  } else { $state.description = $null }
+  $state.Remove('description_pending')
+  $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
+}
 # no screenshot, no form: the link promises one on the clipboard (Codex's review of #350); the local failure stays recorded
 if ($Submit -and -not $shotOk) { $state.submit_skipped = 'no screenshot' }
 if ($Submit -and $shotOk) {
