@@ -1,8 +1,9 @@
 # Every interior: census, batch plan and staged batch builds
 
 Author: Claude-cloud, 2026-10-19 (roadmap phase 3, "all interiors", approved by the owner 07:23Z). Status: **census
-and plan done offline; build tooling written and unit tested; batches 0 to 4 built and staged (Results); nothing
-installed or queued; the texture split over companion plugins (2026-10-20) is unit tested, not yet built or loaded
+and plan done offline; build tooling written and unit tested; batches 0 to 10 built and staged (Results, last on
+2026-10-21: the 251 planned base-game interiors plus Automatron's 2, on top of the 16 installed); nothing installed;
+the texture split over companion plugins (2026-10-20) is built from batch 7 on (FO4PortTextures2.esm), not yet loaded
 in game.**
 Labels as in docs/ai/research-log.md: **verified** = read from the files or commands named here; **supported** =
 a hypothesis with evidence; **unresolved**. Offline checks are not in-game acceptance.
@@ -417,8 +418,12 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 | 2 | 2026-10-19 PASS (5ecb8a7) | 48 (27 + 21) | 48 | 0 cells; 7 models in 4 new cells | pass: same 5 base doors changed, 103,899 added | Main 177,735,013 B, Textures 3,104,207,280 B | plugin 23edf959 (11,520,178 B); convert 618 s, total 726 s; D: 54.0 to 50.1 GB free; teleports Linked 24 |
 | 3 | 2026-10-19 PASS (7fc0caa, --prev b02) | 77 | 77 | 0 cells; 6 cells with trap/glass models | pass; vs b02 pass (no b02 record changed) | Main 191,448,321 B, Textures 3,282,063,253 B | plugin 1db0e61e (15,074,712 B); convert 663 s, total 792 s; D: 53.8 to 49.8 GB free |
 | 4 | 2026-10-19 PASS (7fc0caa, --prev b03) | 104 | 104 | 0 cells; 7 cells with trap/gnat/water models | pass, 6 base doors changed; vs b03 pass, 1 changed (010045AA) | Main 230,547,923 B, Textures 3,590,442,691 B | plugin 1b94d270 (18,444,707 B); total 815 s; D: 49.8 to 45.1 GB free; teleports Linked 48 |
-| 5 to 9 | held | | | | | | D: near the 40 GB floor until the owner deletes superseded folders |
-| 10 (DLC) | not yet | | | | | | Automatron's 2 interiors; needs the DLC Data folders readable by the build (batch 8 does too, for GeneralAtomicsFactory01's override) |
+| 5 | 2026-10-21 PASS (3512092, --prev b04) | 134 | 134 | 0 | pass; vs b04 pass | Textures 3.67 GB, one part | 150 cells in the port with the 16 installed |
+| 6 | 2026-10-21 PASS (f50d1de, --prev b05) | 164 | 164 | 0 | pass; vs b05: 30 added, 1 LCTN and 675 REFR changed, 0 removed | Main 245,504,499 B, Textures 3,732,501,525 B (7,299 files), one part | 1,948 s; a first run at fe1c993 failed compare (main's --max-tris 20000 default skipped 56 models, 178 bases gone) |
+| 7 | 2026-10-21 PASS (5ef052e, --prev b06b) | 193 | 193 | 0 | pass; vs b06b: 29 added, 5 REFR changed, 0 removed | Main 257,157,461 B; textures split: FO4Port - Textures.ba2 3,878,594,457 B (7,542 files) + FO4PortTextures2 - Textures.ba2 12,725,389 B (24 files) with FO4PortTextures2.esm (42 B) | 2,176 s; first two-part split, ratio 0.606 |
+| 8 | 2026-10-21 PASS (1b66130, --prev b07) | 223 | 223 | 0 | pass; vs b07: 30 added, 3 REFR changed, 0 removed | Main 265,002,107 B; Textures 3,863,923,254 B + part 2 117,432,101 B (188 files) | 2,465 s; --dlc-data depot_435871\Data (DLCRobot.esm) then depot_435870\Data (its archives); GeneralAtomicsFactory01 exported from Fallout4.esm + DLCRobot.esm (plugins_from census); sources added the 4 DLCRobot files |
+| 9 | 2026-10-21 PASS (1b66130, --prev b08) | 251 | 251 | 0 | pass; vs b08: 28 added, nothing changed | Main 267,815,133 B; Textures 3,864,586,692 B + part 2 149,233,215 B (233 files) | 1,213 s; all 251 planned base-game interiors (the 4 Creation Club hook cells stay left out, above) |
+| 10 (DLC) | 2026-10-21 PASS (1b66130, --prev b09) | 253 | 253 | 0 | pass; vs b09: 2 added, nothing changed | Main 279,005,136 B; Textures 3,864,482,275 B + part 2 297,292,310 B (476 files) | 1,333 s; DLC01Lair01 and DLC01FortHagenSatelliteArray01 exported from DLCRobot.esm with Fallout4.esm as master; their Commonwealth doors are not wired (core side not done), so they are coc-only |
 
 Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json and both plugins):
 - The 5 changed base records are load doors of installed cells (REFR 010062BB, 010062BE, 010045AE, 0100383E,
