@@ -24,14 +24,14 @@ the script applies the three floats only when it is true; zero is a valid coordi
 is the switch). No plugin masters the other.
 
 **Retry on a missed trip (2026-10-22, not yet run in game).** The Vault 95 exit fails intermittently: the player stays
-in the interior and the engine shows "BOUNDARY REACHED" (3 of 9 runs in the settling test, whatever the world's border
-fields; docs/terrain/border.md). After the MoveTo the script checks whether the player has left the door's cell (by cell,
+in the interior and the engine shows "BOUNDARY REACHED" (2 of 9 runs in the settling test, plus earlier control and
+hnam5 failures; whether the world's border fields change the rate is open, docs/terrain/border.md). After the MoveTo the script checks whether the player has left the door's cell (by cell,
 not world: on an exterior trip the player's world can read as the runtime instance while the marker's reads as the
 core's WRLD; a destination in the door's own cell counts as arrived). If not, it waits `RetryWaitSeconds` (default 0.5), checks again, and repeats
 the same MoveTo, at most `MoveRetries` times (default 1; 0 turns it off). Both properties have defaults, so existing
 VMADs need no change. Each retry traces `FO4SF_LoadDoor retry N of M` and `phase=after_retry`, and a miss after the last one `FO4SF_LoadDoor retry gave up after N`. A door PASS in the
 doors_out judge's results can therefore come from the second MoveTo; the trace tells which. The check is not a judged
-arrival either: the judge still reads where the player ended up.
+arrival either: it only sees that the player left the door's cell, and the judge still reads where they ended up.
 
 Per door, this build writes:
 
