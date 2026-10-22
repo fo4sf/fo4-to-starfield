@@ -25,7 +25,7 @@ class FakeProc:
         with open(os.path.join(self.argv[-1], self.sys.dump_name), "wb") as f:
             f.write(b"MDMP")
         with open(self.out_path, "ab") as f:
-            f.write(("[12:00:00]Dump 1 initiated\r\n" + ("[12:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n"
+            f.write((f"[12:00:00]Dump 1 initiated: {os.path.join(self.argv[-1], self.sys.dump_name)}\r\n" + ("[12:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n"
                      if self.sys.dump_completes else "[12:00:02]Dump 1 error writing dump file\r\n"))
                     .encode("utf-16-le"))
 
@@ -364,6 +364,37 @@ class CrashWatchTests(unittest.TestCase):
         sys_.dump_name, sys_.dump_completes = "Starfield.exe_261022_050000.dmp", False
         r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
         self.assertFalse(r[0]["armed"])
+
+    def test_a_normal_quit_inside_the_attach_check_is_still_armed(self):
+        # ProcDump's words on the PC for a normal quit: no dump, "Dump count not reached"
+        sys_ = FakeSystem([(48, 0, 20 + crashwatch.ATTACH_CHECK_S - 1, 0)])   # settle_s is 20
+        sys_.started_at = sys_.t
+        sys_.procdump_quits = 0
+        real_spawn = sys_.spawn
+
+        def spawn(argv, out_path):
+            with open(out_path, "wb") as f:
+                f.write("[20:55:49]The process has exited.\r\n[20:55:49]Dump count not reached.\r\n".encode("utf-16-le"))
+            return real_spawn(argv, out_path)
+        sys_.spawn = spawn
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertTrue(r[0]["armed"])
+        self.assertEqual(r[0]["dumps"], [])
+
+    def test_a_dump_this_runs_procdump_did_not_name_is_not_this_games(self):
+        # another ProcDump, left running after an earlier timeout, finishes its dump while this game is watched
+        sys_ = FakeSystem([(49, 0, 300, 0)])
+        sys_.started_at = sys_.t
+        real_sleep = sys_.sleep
+
+        def sleep(s):
+            real_sleep(s)
+            if sys_.spawned and not os.path.exists(os.path.join(self.dumps, "Starfield.exe_261021_235959.dmp")):
+                open(os.path.join(self.dumps, "Starfield.exe_261021_235959.dmp"), "wb").close()
+        sys_.sleep = sleep
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(r[0]["dumps"], [])
+        self.assertIn("not this run's: Starfield.exe_261021_235959.dmp", self.log())
 
     def test_watch_repeat_stops_while_procdump_is_still_writing(self):
         sys_ = FakeSystem([(45, 0, 100, 0xC0000005), (46, 200, 400, 0)])

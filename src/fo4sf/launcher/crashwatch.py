@@ -457,10 +457,11 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
                 pd_text = fold_output(out_path, log_path)
                 if pid in system.pids():
                     why = f"ProcDump exited at once (code {rc})"
-                elif not re.search(r"Dump \d+ complete", pd_text):
-                    # the game ended inside the check too: only this run's own report of a finished dump shows its
-                    # ProcDump had attached; a new file in the folder may be an earlier ProcDump's (Codex, #449)
-                    why = f"ProcDump ended with the game inside the attach check and wrote no dump (code {rc})"
+                elif not re.search(r"Dump \d+ complete|Dump count (not )?reached", pd_text):
+                    # the game ended inside the check too: only this run's own report shows its ProcDump had attached,
+                    # by a finished dump or by its end-of-watch line (a normal quit prints "Dump count not reached");
+                    # a new file in the folder may be an earlier ProcDump's (Codex, #449)
+                    why = f"ProcDump ended with the game inside the attach check and reported no watch (code {rc})"
             armed = not why
         if armed:
             _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
@@ -487,7 +488,15 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
                 "left running: never kill it mid-dump")
             result["procdump_running"] = True
     if cw:
-        result["dumps"] = dumps_since(values["crash_watch.folder"], before)
+        new = dumps_since(values["crash_watch.folder"], before)
+        if result.get("procdump_running"):     # no report yet: every new file is listed, and marked unconfirmed below
+            result["dumps"] = new
+        else:
+            # only the dumps this run's ProcDump names in its report ("Dump 1 initiated: <path>"): a file another
+            # ProcDump, left running after an earlier timeout, wrote meanwhile is not this game's (Codex, #449)
+            result["dumps"] = [d for d in new if d in pd_text]
+            if len(result["dumps"]) < len(new):
+                result["dumps_other"] = [d for d in new if d not in result["dumps"]]
         note = " (a crash code and no dump)" if code not in (None, 0) and not result["dumps"] else ""
         if result["dumps"] and result.get("procdump_running"):
             result["dumps_unconfirmed"] = True
@@ -497,7 +506,8 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             note += " (ProcDump did not report every dump complete: may be cut short, see the procdump lines)"
         _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s up, dumps: "
                        f"{', '.join(result['dumps']) or 'none'}{note}"
-                       + (f", ProcDump exit {result['procdump_exit']}" if "procdump_exit" in result else ""))
+                       + (f", ProcDump exit {result['procdump_exit']}" if "procdump_exit" in result else "")
+                       + (f"; not this run's: {', '.join(result['dumps_other'])}" if result.get("dumps_other") else ""))
         if result["dumps"]:
             say("dumps: " + ", ".join(result["dumps"])
                 + (" (NOT confirmed complete)" if result.get("dumps_unconfirmed") else "")
