@@ -145,3 +145,31 @@ check (stage the output and look at the surface map; if the game draws the weak-
 world, the map gets buildings without any LOD mesh; installing those loose files waits for the owner's line). A
 fail on all three sends the question to the tiny custom-world gate from the
 plan above, which tells custom-world support from anything about the core, before the route is closed.
+
+5. **Lookup runs A, B, C (verified, 2026-10-22 20:51Z-20:58Z; outputs `D:\Modding\staging\lod_mock_cw2\A`, `B`,
+   `C`, `C2`).** All three fail for our world. (A) `-MockWorldSpaceLOD:FO4TerrainCore.esm LC172World` exits 0
+   after 201 s with `LODGENERATION: Successfully baked worldspace: [LC172World]` and the oracle's five
+   placeholder files (`EditorDataFilesLoaded` 000 Starfield.esm, 001 FO4TerrainCore.esm): the lookup is global
+   and the plugin named in the argument does not scope it. (B) with a zeroed
+   `LODSettings\FO4Core_Commonwealth.LOD` placed first: exit 0 after 197 s, still
+   `Failed to find worldspace: [FO4Core_Commonwealth]`, nothing else written, so the generator does not find
+   worlds through their `lodsettings` files. (C) `01000803`, then `000803`, in place of the name: exit 0 after
+   199 s and 198 s, `Failed to find worldspace: [01000803]` / `[000803]`, nothing written, so the argument is a
+   name, not an ID. Only vanilla LC172World bakes; the question goes to the tiny custom-world gate.
+
+6. **Tiny custom-world gate (built, not yet run).** `dotnet/LodGate build <Starfield.esm> <FO4TerrainCore.esm>
+   <out>` writes three plugins, each one new world of nine empty cells around the origin plus three references
+   to the three vanilla statics with the widest object bounds (so a bake has objects to write placeholders for;
+   the build prints which): `FO4SFLodGate1.esm` (world `FO4SF_LodGate1`, the WRLD record copied from vanilla
+   LC172World, the writer's own template, master-flagged like the core, master Starfield.esm);
+   `FO4SFLodGate2.esp` (the same without the Master header flag); `FO4SFLodGate3.esm` (world `FO4SF_LodGate3`,
+   the WRLD record copied from our core's `FO4Core_Commonwealth`, its location and surface-block links kept,
+   masters Starfield.esm and the core). `LodGate show <plugin> <Starfield.esm> [<core>]` reads one back
+   (`tests/test_lod_gate.py` covers the three on a synthetic fixture). The run: the plugin copied into `Data`
+   for the run and removed after, `CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1`, the
+   backup protocol of run 4, and the log's `EditorDataFilesLoaded` read first: a gate plugin missing from it
+   makes that run inconclusive (then it goes into Plugins.txt as the probe builds do, and the run repeats once).
+   Reading: 1 bakes and 3 does not → our record's fields; 1 and 3 bake → the core's scale or cell tree
+   (648k references); 1 does not bake → the generator does not find plugin worlds, and 2 then says whether the
+   Master flag is why; nothing bakes → the mock route is closed for custom worlds and the surface map's
+   buildings wait on the FO4 LOD mesh conversion.
