@@ -37,6 +37,14 @@ def nif_bytes(mesh_box, collision=None, children=None):
                                                 collision_blob=blob, child_collision_blobs=extra))
 
 
+def truncate_block(data, block_type, size, nth=0):
+    """Cut the nth block of block_type to its first size bytes; the NIF container stays valid."""
+    f = nif.parse(data)
+    hits = [i for i in range(len(f.blocks)) if f.type_of(i) == block_type]
+    f.blocks[hits[nth]] = f.blocks[hits[nth]][:size]
+    return nif.serialize(f)
+
+
 class CollisionBoundsOracleTests(unittest.TestCase):
     def test_matching_box_is_clean(self):
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
@@ -221,6 +229,72 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         self.assertTrue(oracle.failed([report]))
         payload = json.dumps(report, allow_nan=False)
         self.assertNotIn("Traceback", payload)
+
+    def test_truncated_collision_object_header_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        for size in (0, 4, 9):
+            report = oracle.audit(truncate_block(data, "bhkNPCollisionObject", size), path="short-npco.nif")
+            self.assertIn("unreadable", report["flags"], msg=size)
+            self.assertTrue(any("truncated header" in e for e in report["errors"]), msg=size)
+            self.assertEqual(report["collision"]["bodies"], 0)
+            self.assertTrue(oracle.failed([report]))
+            json.dumps(report, allow_nan=False)
+
+    def test_truncated_physics_system_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        for size in (0, 3):
+            report = oracle.audit(truncate_block(data, "bhkPhysicsSystem", size), path="short-phys.nif")
+            self.assertIn("unreadable", report["flags"], msg=size)
+            self.assertTrue(any("truncated physics system" in e for e in report["errors"]), msg=size)
+            self.assertEqual(report["collision"]["bodies"], 0)
+            self.assertTrue(oracle.failed([report]))
+            json.dumps(report, allow_nan=False)
+
+    def test_truncated_header_keeps_sibling_bodies(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        hull = convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[hull])
+        for block_type, size in (("bhkNPCollisionObject", 6), ("bhkPhysicsSystem", 2)):
+            report = oracle.audit(truncate_block(data, block_type, size, nth=1), path="partial.nif")
+            self.assertIn("unreadable", report["flags"], msg=block_type)
+            self.assertEqual(len(report["errors"]), 1, msg=block_type)
+            self.assertEqual(report["collision"]["bodies"], 1, msg=block_type)
+            self.assertEqual(report["collision"]["per_body"][0]["shape"], "hknpBoxShape")
+
+    def test_truncated_collision_target_node_is_unreadable(self):
+        # The child collision object's target NiNode is cut below its transform, so placing it
+        # raises inside collision_bodies; the audit boundary turns that into an unreadable report.
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        hull = convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)))
+        data = truncate_block(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[hull]),
+                              "NiNode", 8, nth=1)
+        report = oracle.audit(data, path="short-target.nif")
+        self.assertIn("unreadable", report["flags"])
+        self.assertTrue(any(e.startswith("collision: ") for e in report["errors"]))
+        self.assertIsNotNone(report["mesh"])
+        self.assertTrue(oracle.failed([report]))
+        json.dumps(report, allow_nan=False)
+
+    def test_cli_truncated_collision_headers_emit_json(self):
+        script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        cases = {"short-npco.nif": truncate_block(data, "bhkNPCollisionObject", 6),
+                 "short-phys.nif": truncate_block(data, "bhkPhysicsSystem", 2)}
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, payload in cases.items():
+                path = Path(tmp) / name
+                path.write_bytes(payload)
+                proc = subprocess.run([sys.executable, "-I", str(script), str(path)],
+                                      capture_output=True, text=True, cwd=tmp)
+                self.assertEqual(proc.returncode, 1, msg=name)
+                self.assertNotIn("Traceback", proc.stderr, msg=name)
+                out = json.loads(proc.stdout)
+                self.assertEqual(out["flagged"], 1, msg=name)
+                self.assertIn("unreadable", out["reports"][0]["flags"], msg=name)
+                self.assertTrue(out["reports"][0].get("errors"), msg=name)
 
     def test_cli_codex_fail_open_controls(self):
         script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"

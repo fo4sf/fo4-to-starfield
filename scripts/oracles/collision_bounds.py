@@ -2,8 +2,9 @@
 
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
 (missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
-decode and malformed manifest entries. Nonfinite --scale / per-item scale is rejected before
-comparison. JSON output never emits NaN/Infinity.
+decode, truncated collision object / physics system headers, and malformed manifest entries.
+Nonfinite --scale / per-item scale is rejected before comparison. JSON output never emits
+NaN/Infinity, and a structurally malformed NIF is an unreadable report, not a traceback.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
@@ -138,6 +139,8 @@ def collision_bodies(f, scale=1.0):
 
     Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.nif_bodies
     (existing Starfield tagfile readback). fo4collision.decode is FO4 packfile-only and is not used.
+    A bhkNPCollisionObject shorter than its 10-byte header (target i32, flags u16, data i32) or a
+    bhkPhysicsSystem shorter than its u32 blob length is an error for that object only.
     """
     bodies = []
     errors = []
@@ -145,9 +148,16 @@ def collision_bodies(f, scale=1.0):
     for i in range(len(f.blocks)):
         if f.type_of(i) != "bhkNPCollisionObject":
             continue
+        if len(f.blocks[i]) < 10:
+            errors.append(f"collision object {i}: truncated header ({len(f.blocks[i])} bytes)")
+            continue
         target, _, data = struct.unpack_from("<iHi", f.blocks[i], 0)
         if not (0 <= data < len(f.blocks)) or f.type_of(data) != "bhkPhysicsSystem":
             errors.append(f"collision object {i}: bad physics system")
+            continue
+        if len(f.blocks[data]) < 4:
+            errors.append(f"collision object {i}: truncated physics system {data} "
+                          f"({len(f.blocks[data])} bytes)")
             continue
         n, = struct.unpack_from("<I", f.blocks[data], 0)
         blob = f.blocks[data][4:4 + n]
@@ -242,7 +252,10 @@ def audit(data, scale=1.0, path=""):
     except (ValueError, struct.error, IndexError, nif.NifError) as err:
         mesh = None
         errors.append(str(err))
-    bodies, body_errors = collision_bodies(f, scale)
+    try:
+        bodies, body_errors = collision_bodies(f, scale)
+    except (ValueError, struct.error, IndexError, nif.NifError) as err:
+        bodies, body_errors = [], [f"collision: {err}"]
     errors.extend(body_errors)
     coll = combined_aabb(bodies)
     flags = []
