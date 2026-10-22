@@ -1,7 +1,8 @@
 """dotnet/MapMarkers on a synthetic core (the actual terrain writer, dotnet/TerrainOverlays, on the synthetic master of
 test_terrain_reference_identity with the map-marker template), never a game: the quest's Markers are the core's own
 MapMarker REFRs in FormID order and LocalX / LocalY / LocalZ their written positions (docs/terrain/map-markers.md
-"Markers in the merged world"); plus the Papyrus script's contract (it cannot be compiled here)."""
+"Markers in the merged world"); the plugin's overrides of those REFRs (the marker's own name shown, the arrival lifted,
+docs/terrain/map-markers.md "Overrides"); plus the Papyrus script's contract (it cannot be compiled here)."""
 import copy
 import hashlib
 import json
@@ -22,6 +23,8 @@ import test_terrain_reference_identity as tri  # noqa: E402
 import test_terrain_lights_writer as tlw  # noqa: E402
 
 SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
+Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
+USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
 
 
 def build(dotnet, project):
@@ -81,7 +84,20 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.assertIn("all checks pass", check.stdout)
         recs = tri.records(plugin)
-        self.assertEqual(sorted(recs), [0x800])
+        # the quest, plus an override of each core marker under the core's worldspace and persistent cell: nothing else
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"REFR"), sorted(int(v, 16) for v in self.ids.values()))
+        self.assertEqual(sorted(r[0] for r in recs.values()), [b"CELL", b"QUST"] + [b"REFR"] * 3 + [b"WRLD"])
+        for m in self.markers:
+            sig, payload, _, flags = recs[int(self.ids[m["tag"]], 16)]
+            self.assertEqual(flags & 0xC00, 0x400, m["tag"])                       # persistent, enabled
+            fnam = struct.unpack("<I", tlw.field(payload, b"FNAM"))[0]
+            self.assertEqual(fnam & (USE_LOCATION_NAME | VISIBLE), VISIBLE, m["tag"])  # its own name, visible
+            self.assertEqual(tlw.field(payload, b"FULL"), m["name"].encode() + b"\0")
+            x, y, z = struct.unpack_from("<fff", tlw.field(payload, b"DATA"))
+            self.assertEqual([x, y], [float(v) for v in m["pos"][:2]])
+            self.assertAlmostEqual(z, m["pos"][2] + Z_LIFT, places=4)
+        self.assertEqual(check.stdout.count("  override "), 3)
+        self.assertIn(f"overridden (own name shown, lifted {Z_LIFT} m)", proc.stdout)
         sig, payload, _, flags = recs[0x800]
         self.assertEqual(sig, b"QUST")
         vmad = tlw.field(payload, b"VMAD")
@@ -93,11 +109,40 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(len(want), 3)
         got = [f & 0xFFFFFF for f in self.object_list(vmad)]
         self.assertEqual(got, want)
-        self.assertTrue(all(f >> 24 == 0 for f in self.object_list(vmad)))   # the core is the only master
-        # LocalX in FormID order equals the positions the writer was given
+        # masters: Starfield.esm (the overrides' base STAT) then the core; the quest's references are the core's
+        self.assertTrue(all(f >> 24 == 1 for f in self.object_list(vmad)))
+        # LocalX in FormID order equals the positions the writer was given; LocalZ the lifted height the override holds
         by_id = {int(self.ids[m["tag"]], 16): m["pos"] for m in self.markers}
         self.assertIn(f"LocalX: {', '.join(self.num(by_id[i][0]) for i in want)}", check.stdout)
-        self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2]) for i in want)}", check.stdout)
+        self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2] + Z_LIFT) for i in want)}", check.stdout)
+
+    def test_z_lift_is_an_option_and_the_check_follows_it(self):
+        out = self.root / "plugin-flat"
+        proc = self.tool_run("build", "--core", self.core, "--out", out, "--z-lift", "0")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        plugin = out / "FO4SFMapMarkers.esm"
+        recs = tri.records(plugin)
+        for m in self.markers:
+            z = struct.unpack_from("<fff", tlw.field(recs[int(self.ids[m["tag"]], 16)][1], b"DATA"))[2]
+            self.assertAlmostEqual(z, m["pos"][2], places=4)
+        self.assertEqual(self.tool_run("check", plugin, self.core, "--z-lift", "0").returncode, 0)
+        other = self.tool_run("check", plugin, self.core)               # the default lift is not what was built
+        self.assertEqual(other.returncode, 1, other.stdout)
+        self.assertIn(f"not the core's {self.num(self.markers[0]['pos'][2])} lifted {Z_LIFT} m", other.stdout)
+        bad = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-bad-lift", "--z-lift", "-1")
+        self.assertEqual(bad.returncode, 2)
+
+    def test_check_rejects_an_override_that_still_uses_the_location_name(self):
+        out = self.root / "plugin-locname"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out).returncode, 0)
+        plugin = out / "FO4SFMapMarkers.esm"
+        data = bytearray(plugin.read_bytes())
+        at = data.index(b"FNAM\x04\x00") + 6                       # the first override's map-marker flags
+        struct.pack_into("<I", data, at, struct.unpack_from("<I", data, at)[0] | USE_LOCATION_NAME)
+        plugin.write_bytes(bytes(data))
+        check = self.tool_run("check", plugin, self.core)
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("override still uses the location's name", check.stdout)
 
     def test_many_markers_split_into_quests_of_100(self):
         params = copy.deepcopy(self.params)
@@ -117,7 +162,8 @@ class MapMarkersPluginTests(unittest.TestCase):
         check = self.tool_run("check", out / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         recs = tri.records(out / "FO4SFMapMarkers.esm")
-        self.assertEqual(sorted(recs), [0x800, 0x801, 0x802])
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"QUST"), [0x800, 0x801, 0x802])
+        self.assertEqual(sum(1 for r in recs.values() if r[0] == b"REFR"), 205)    # one override per marker
         lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
         self.assertEqual([len(x) for x in lists], [100, 100, 5])
         ids = [f & 0xFFFFFF for x in lists for f in x]

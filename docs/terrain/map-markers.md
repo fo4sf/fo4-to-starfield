@@ -274,6 +274,26 @@ runs it before the bridge's, so the experiment's and FO4Port's load indexes stay
 `uninstall` it (its only master leaves Plugins.txt for the length of the swap, and exp_install refuses missing
 masters), then install it again after; and keep it out of runner runs on a commit older than this installer.
 
+### Overrides (Claude-cloud, 2026-10-22): the marker's own name, a lifted arrival
+
+The owner's play test (core dc751664, plugin 46d4ca26; Install's Ctrl+Alt+K captures) found two defects once the
+markers drew. (1) Every icon read "COMMONWEALTH 00 (FO4 TERRAIN)", the cell's location, not the marker's name:
+the core copies LC172's marker flags `FNAM 0x1B`, which include UseLocationName (`0x8`). (2) Fast travel to
+Concord put the player half in the ground: the marker sits at the terrain height `make_core64c` sampled (86.93 m),
+and the arrival there has ground above it; the Red Rocket arrival, 1.9 m above its marker's landing, dropped
+without harm. FO4's own marker heights are no reference (its Sanctuary marker floats 6.9 m up).
+
+Fix, in `FO4SFMapMarkers.esm` rather than a core rebuild: `dotnet/MapMarkers build` adds an override of every core
+marker REFR (the same FormKeys, so Starfield.esm joins the core as a master): flags without UseLocationName and
+with Visible, enabled, the position lifted `--z-lift` metres (default 2.5, the smallest round figure above the
+proven 1.9 m drop with a margin for Concord; **unresolved** until the owner's next test), name and base as the
+core wrote them. The quest's `LocalZ` holds the lifted height, so the mover places the marker where the override
+says. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
+uses the location name, is Initially Disabled, is at another height, or overrides anything that is not a core
+marker (the override's parents arrive as copies of the worldspace and its persistent cell; the build prunes
+them to the markers). The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values
+draw which icons needs a survey of the vanilla markers on the PC.
+
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
 hand, then the map shows whether a moved marker draws.
