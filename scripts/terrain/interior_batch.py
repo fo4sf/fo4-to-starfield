@@ -101,6 +101,7 @@ import deploy_starfield  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 MARKER = "result.json"
+CORE_PLUGIN = "FO4TerrainCore.esm"   # the --core build's plugin; pins.core_plugin (deploy_starfield.py install --batch)
 BATCH_DIR = re.compile(r"^interiors_b(\d{2})$")
 
 
@@ -1076,6 +1077,9 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     port = os.path.join(a.out, "port")
     pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(os.path.join(a.base, PLUGIN)),
             "base_formids": sha256(os.path.join(a.base, "formids.json"))}
+    core_plugin = os.path.join(a.core, CORE_PLUGIN)          # the core vmad_patch wired the door returns to
+    if os.path.isfile(core_plugin):
+        pins["core_plugin"] = sha256(core_plugin)
     if os.path.isfile(os.path.join(port, PLUGIN)):
         pins["plugin"] = sha256(os.path.join(port, PLUGIN))
         pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))

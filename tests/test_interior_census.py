@@ -958,6 +958,8 @@ class BuildFlowTests(unittest.TestCase):
             f.write(b"TES4 fallout 4")
         with open(os.path.join(t, "Fallout4 - Meshes.ba2"), "wb") as f:
             f.write(b"BTDX")
+        with open(os.path.join(t, "FO4TerrainCore.esm"), "wb") as f:     # --core's plugin, pinned for the installer
+            f.write(b"TES4 core")
 
         def build(n, out, prev=None, extra=(), pack=False):
             argv = ["build", "--plan", plan, "--batch", str(n), "--base", base, "--base-exports", base,
@@ -986,6 +988,7 @@ class BuildFlowTests(unittest.TestCase):
         # the base exports the batch rebuilt its base cells from are pinned; a --prev pinned to other ones is refused
         self.assertEqual(r1["pins"]["base_exports"], {c: ib.sha256(os.path.join(base, c + ".json")) for c in ib.base_cells(base)})
         self.assertTrue(r1["pins"]["base_exports"])
+        self.assertEqual(r1["pins"]["core_plugin"], ib.sha256(os.path.join(t, "FO4TerrainCore.esm")))
         first = os.path.join(base, ib.base_cells(base)[0] + ".json")
         with open(first, "rb") as f:
             kept = f.read()

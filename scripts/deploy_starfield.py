@@ -423,17 +423,19 @@ def batch_install_set(stage):
 
 
 def core_check(result, data):
-    """None when the core the batch's doors were wired against (result.json "core", vmad_patch.py port --core) is the
-    one in Data, else why not: a return door made against another core build may name an arrival marker that core lacks."""
-    built = os.path.join(str(result.get("core") or ""), CORE_PLUGIN)
+    """None when Data's core is the one the batch's door returns were wired to (result.json pins.core_plugin, the
+    sha256 interior_batch.py took of --core's plugin at build time), else why not: a return door made against another
+    core build may name an arrival marker that core lacks."""
     live = os.path.join(data, CORE_PLUGIN)
     if not os.path.isfile(live):
         return None                                            # no core installed: nothing to land on either way
-    if not os.path.isfile(built):
-        return f"the batch's core {built} is not there to compare with Data\\{CORE_PLUGIN}"
-    a, b = artifact_identity(built)["sha256"], artifact_identity(live)["sha256"]
-    return None if a == b else (f"the batch's doors were wired against {built} ({a[:8]}), Data\\{CORE_PLUGIN} is {b[:8]}: "
-                                "restage the batch against the installed core, or pass --other-core to install it anyway")
+    want = (result.get("pins") or {}).get("core_plugin")
+    if not isinstance(want, str):
+        return f"the batch pins no core (built before pins.core_plugin): restage it against Data\\{CORE_PLUGIN}'s core"
+    got = artifact_identity(live)["sha256"]
+    return None if got == want.lower() else (
+        f"the batch's doors were wired against core {want[:8]}, Data\\{CORE_PLUGIN} is {got[:8]}: "
+        "restage the batch against the installed core, or pass --other-core to install it anyway")
 
 
 def install_batch(a):

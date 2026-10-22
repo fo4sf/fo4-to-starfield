@@ -41,11 +41,8 @@ class BatchInstallTests(unittest.TestCase):
         self.pt = root / "Plugins.txt"
         for name, body in FILES.items():
             (self.stage / "port" / name).write_bytes(body)
-        self.core = root / "core"
-        self.core.mkdir()
-        (self.core / "FO4TerrainCore.esm").write_bytes(b"TES4core")
-        self.result = {"batch": 10, "pass": True, "error": None, "core": str(self.core),
-                       "pins": {"plugin": sha(FILES["FO4Port.esm"])},
+        self.result = {"batch": 10, "pass": True, "error": None,
+                       "pins": {"plugin": sha(FILES["FO4Port.esm"]), "core_plugin": sha(b"TES4core")},
                        "install": {"files": list(FILES), "plugins_txt": ORDER},
                        "steps": {"pack": {"sha256": {n: sha(b) for n, b in FILES.items() if n != "FO4Port.esm"}}}}
         self.write_result()
@@ -143,6 +140,15 @@ class BatchInstallTests(unittest.TestCase):
         with patch.object(deploy, "plugins_txt_path", return_value=str(self.pt)):
             deploy.install(args)
         self.assertTrue((self.data / deploy.MANIFEST).exists())
+
+    def test_a_batch_without_a_core_pin_is_refused_while_a_core_is_installed(self):
+        self.pt.write_bytes(b"*Other.esm\n")
+        (self.data / "FO4TerrainCore.esm").write_bytes(b"TES4core")
+        del self.result["pins"]["core_plugin"]
+        self.write_result()
+        with self.assertRaisesRegex(SystemExit, "pins no core"):
+            self.run_action("install")
+        self.assert_untouched(b"*Other.esm\n", ["FO4TerrainCore.esm"])
 
     def test_the_same_core_installs(self):
         self.pt.write_bytes(b"*Other.esm\n")
