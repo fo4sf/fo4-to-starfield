@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -204,6 +205,16 @@ class DetectTests(unittest.TestCase):
         r = self.run_detect(my_games=self.my_games)
         self.assertEqual(r["fo4"]["ba2_versions"], {"1": 1})
         self.assertEqual(r["warnings"], [])
+
+    def test_one_data_folder_named_twice_is_read_once(self):
+        write(os.path.join(self.fo4, "Fallout4 - Meshes.ba2"), b"BTDX\x01\x00\x00\x00GNRL")
+        twice = [self.fo4, self.fo4 + os.sep, self.fo4.upper()]          # the owner's list named each depot twice
+        with mock.patch("os.path.normcase", str.upper):                   # Windows ignores case, on any machine
+            with mock.patch.object(detect.mf, "fo4_inputs", wraps=detect.mf.fo4_inputs) as read:
+                r = detect.detect(fo4_data=twice, starfield=self.sf, sources=self.table, runtimes=self.runtimes)
+        self.assertEqual(read.call_args[0][0], [self.fo4])
+        self.assertEqual(r["fo4"]["archive_duplicates"], {})
+        self.assertFalse(any("times" in w for w in r["warnings"]), r["warnings"])
 
     def test_no_fallout4(self):
         r = detect.detect(fo4_data=[self.root], starfield=self.sf, sources=self.table)
