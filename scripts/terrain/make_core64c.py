@@ -1632,6 +1632,13 @@ def animate_doors(doors, manifest, source_of):
     return out, rows
 
 
+def animated_door_bases(objects, ids):
+    """Local ids of the DOOR bases of step C's animated doors (formids.json doors[src]["base"] of entries with "anim")."""
+    got = ids.get("doors") or {}
+    return {int(got[e["src"]]["base"], 16) for e in objects.get("doors") or []
+            if e.get("anim") and isinstance(got.get(e["src"]), dict) and "base" in got[e["src"]]}
+
+
 def door_arrivals_inside(doors, ov):
     """ValueError for a door whose arrival marker falls outside the overlay's cells (off the overlay's terrain; the
     writer refuses it too)."""
@@ -2017,7 +2024,9 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     for sig in dict.fromkeys(sig for _k, sig in PROMOTED):
         classes = [k for k, s in PROMOTED if s == sig]
         named = [k for k in classes if entries[k]] or classes[:1]
-        counted.append((" + ".join(named), sig, [e for k in classes for e in entries[k]], "edid"))
+        # step C's animated doors are DOOR records, counted with the bases (animated_door_bases)
+        counted.append((" + ".join(named), sig, [e for k in classes for e in entries[k] if not (k == "doors" and e.get("anim"))],
+                        "edid"))
     counted.append(("terminals", "TMLM", entries["terminals"], "menu_edid"))
     for key, sig, es, field in counted:
         n_recs = sum(1 for r in recs if r["sig"] == sig)
@@ -3088,8 +3097,14 @@ def cmd_check(a):
     # 2. object records: STAT / DOOR = bases, models, dependencies, REFRs as objects.json, cells
     own = len(new["masters"]) << 24
     recs = new["records"]
-    stats = [r for r in recs if r["sig"] in ("STAT", "DOOR")]
+    animated = animated_door_bases(objects, ids)
+    stats = [r for r in recs if r["sig"] in ("STAT", "DOOR") and r["fid"] & 0xFFFFFF not in animated]
     need(len(stats) == len(objects["bases"]), f"{len(stats):,} STAT/DOOR = {len(objects['bases']):,} bases")
+    if animated:
+        # step C: the animated doors' DOORs (judged in promotion_checks) carry the rigged model of FO4Port's archive,
+        # so they are neither bases of objects.json nor in this build's Data\meshes
+        got = sorted(r["fid"] & 0xFFFFFF for r in recs if r["fid"] & 0xFFFFFF in animated and r["sig"] == "DOOR")
+        need(got == sorted(animated), f"{len(got)} animated door DOOR records = {len(animated)} declared")
     if prm.get("navmesh"):
         # 2b. navmesh records (stage --navmesh, docs/actors/navmesh-conversion.md): NAVM count = navmesh.json's, one NAVI
         # override (000FF1:Starfield.esm), every NAVM after the last object record, formids.json names them

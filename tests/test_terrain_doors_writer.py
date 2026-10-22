@@ -200,6 +200,10 @@ class TerrainDoorsWriterTests(unittest.TestCase):
         own = len(walked["masters"]) << 24
         self.assertEqual(mk.door_record_problems(walked["records"], own, objects, new), [])
         self.assertEqual(mk.promoted_record_check(walked["records"], own, objects, new, masters=("Synthetic.esm",)), [])
+        res = mk.promotion_checks(walked["records"], own, objects, new, {"objects": {"exported": 6, "skipped": {}}})
+        self.assertTrue(all(ok for _w, ok in res), res)            # no ACTI expected for the animated doors' edid
+        self.assertEqual(mk.animated_door_bases(objects, new), {door_base})
+        self.assertEqual(mk.animated_door_bases(self.with_doors(base), new), set())
         # the plain build's objects against the animated plugin, and the reverse: refused
         self.assertTrue(mk.promoted_record_check(walked["records"], own, self.with_doors(base), new, masters=("Synthetic.esm",)))
         slow = self.with_doors(base, lambda o: (animate(o), o["doors"][0]["anim"].update(open_seconds=2.0)))
