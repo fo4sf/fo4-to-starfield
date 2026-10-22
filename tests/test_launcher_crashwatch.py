@@ -71,6 +71,8 @@ class FakeSystem:
         return [pid for pid, a, b, _c in self.script if a <= el < b]
 
     def start_game(self, route, starfield):
+        if getattr(self, "start_error", None):
+            raise self.start_error
         self.calls.append(("start", route))
         self.started_at = self.t
 
@@ -78,6 +80,8 @@ class FakeSystem:
         return None if self.refuse_handle else pid
 
     def wait_exit(self, handle):
+        if getattr(self, "wait_fails", False):
+            return None                                    # a failed wait returns at once, game still up
         for pid, _a, b, code in self.script:
             if pid == handle:
                 self.t = max(self.t, self.started_at + b)
@@ -515,7 +519,7 @@ class CrashWatchTests(unittest.TestCase):
         sys_ = FakeSystem([(5, 0, 700, 0)])
         sys_.refuse_handle = True
         r = self.play(self.values(), sys_)
-        self.assertEqual(r["exit"], "unknown (no handle on the game)")
+        self.assertEqual(r["exit"], "unknown (no handle on the game, or the wait failed)")
         self.assertGreaterEqual(r["seconds"], 700)             # not reported ended while it still ran
         self.assertTrue(any("following it by process id" in s for s in self.said))
 
@@ -565,6 +569,22 @@ class CrashWatchTests(unittest.TestCase):
                     self.play(v, sys_)
                 self.assertIn(text, str(e.exception))
                 self.assertEqual(sys_.calls, [])
+
+    def test_failed_wait_follows_the_process_id(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.wait_fails = True
+        r = self.play(self.values(), sys_)
+        self.assertGreaterEqual(r["seconds"], 90)                  # not announced as ended while the game was up
+        self.assertEqual(r["exit"], crashwatch.exit_name(None))
+        self.assertTrue(any("the wait on process 5 failed" in s for s in self.said))
+
+    def test_start_failure_is_a_refusal(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.start_error = OSError(2, "No application is associated with the specified file")
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(), sys_)
+        self.assertIn("could not start the game by steam", str(e.exception))
+        self.assertEqual(sys_.spawned, [])                         # no ProcDump left waiting for a game
 
     def test_dry_run_changes_nothing(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
@@ -655,6 +675,59 @@ class CrashWatchTests(unittest.TestCase):
                   "--set", "crash_watch.min_free_gb=0"])           # the real disk check: CI runners have little free
         self.assertEqual(cli.main(["play", "--starfield", self.game, "--settings", path, "--dry-run"]), 0)
         self.assertEqual(cli.main(["watch", "--settings", path, "--repeat", "--dry-run"]), 0)
+
+
+class Kernel32Tests(unittest.TestCase):
+    """The real System's Windows calls, against a stand-in kernel32 (Grok's review, #465)."""
+
+    class Fn:
+        def __init__(self, impl):
+            self.impl, self.restype, self.argtypes = impl, None, None
+
+        def __call__(self, *a):
+            return self.impl(*a)
+
+    def kernel32(self, wait_result, exit_code=0):
+        calls = []
+
+        def get_exit(handle, ref):
+            ref._obj.value = exit_code
+            calls.append(("exit", handle))
+            return 1
+        k = type("K", (), {})()
+        k.OpenProcess = self.Fn(lambda access, inherit, pid: 0x7FFF00001234)
+        k.WaitForSingleObject = self.Fn(lambda h, ms: calls.append(("wait", h, ms)) or wait_result)
+        k.GetExitCodeProcess = self.Fn(get_exit)
+        k.CloseHandle = self.Fn(lambda h: calls.append(("close", h)) or 1)
+        return k, calls
+
+    def with_windll(self, k):
+        import ctypes
+        had = hasattr(ctypes, "windll")
+        old = getattr(ctypes, "windll", None)
+        ctypes.windll = type("W", (), {"kernel32": k})()
+        self.addCleanup(lambda: setattr(ctypes, "windll", old) if had else delattr(ctypes, "windll"))
+
+    def test_handles_are_declared_pointer_sized(self):
+        from ctypes import wintypes
+        k, _ = self.kernel32(0)
+        crashwatch.declare_kernel32(k)
+        self.assertIs(k.OpenProcess.restype, wintypes.HANDLE)
+        self.assertEqual(k.WaitForSingleObject.argtypes[0], wintypes.HANDLE)
+        self.assertEqual(k.GetExitCodeProcess.argtypes[0], wintypes.HANDLE)
+        self.assertEqual(k.CloseHandle.argtypes, [wintypes.HANDLE])
+
+    def test_exit_code_is_read_only_after_a_good_wait(self):
+        k, calls = self.kernel32(0, exit_code=0xC0000005)
+        self.with_windll(k)
+        self.assertEqual(crashwatch.System().open_process(42), 0x7FFF00001234)
+        self.assertEqual(crashwatch.System().wait_exit(0x7FFF00001234), 0xC0000005)
+        self.assertEqual(calls[0], ("wait", 0x7FFF00001234, crashwatch.INFINITE))
+        k, calls = self.kernel32(0xFFFFFFFF, exit_code=259)            # WAIT_FAILED: 259 would mean still running
+        self.with_windll(k)
+        self.assertIsNone(crashwatch.System().wait_exit(5))
+        self.assertNotIn(("exit", 5), calls)
+        self.assertIn(("close", 5), calls)
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ EXIT_NAMES = {
 
 def exit_name(code):
     if code is None:
-        return "unknown (no handle on the game)"
+        return "unknown (no handle on the game, or the wait failed)"
     code &= 0xFFFFFFFF
     return f"0x{code:08X} {EXIT_NAMES.get(code, 'not a known crash code')}"
 
@@ -95,6 +95,22 @@ def procdump_argv(values, pid):
     return argv
 
 
+INFINITE, WAIT_OBJECT_0 = 0xFFFFFFFF, 0
+
+
+def declare_kernel32(k):
+    """Give the kernel32 calls their real types. Without them ctypes reads OpenProcess's HANDLE as a C int, which
+    can cut a 64-bit handle short (Grok's review, #465)."""
+    from ctypes import POINTER, wintypes
+    k.OpenProcess.restype, k.OpenProcess.argtypes = wintypes.HANDLE, [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.GetExitCodeProcess.restype = wintypes.BOOL
+    k.GetExitCodeProcess.argtypes = [wintypes.HANDLE, POINTER(wintypes.DWORD)]
+    k.CloseHandle.restype, k.CloseHandle.argtypes = wintypes.BOOL, [wintypes.HANDLE]
+    return k
+
+
 class System:
     """The real Windows calls. Tests pass a stand-in with the same methods."""
 
@@ -105,11 +121,17 @@ class System:
         time.sleep(s)
 
     def pids(self, image=GAME_EXE):
-        """Process ids running `image` (tasklist, no extra package)."""
+        """Process ids running `image`; failed queries raise ValueError rather than mean an empty list."""
         if os.name != "nt":
             return []
-        r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
-                           capture_output=True, text=True)
+        try:
+            r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                               capture_output=True, text=True)
+        except OSError as e:
+            raise ValueError(f"Cannot check {image} processes: tasklist could not run ({e})") from None
+        if r.returncode != 0:
+            detail = " ".join((r.stderr or r.stdout or "no diagnostic").split())[:300]
+            raise ValueError(f"Cannot check {image} processes: tasklist exited {r.returncode}: {detail}")
         out = []
         for line in r.stdout.splitlines():
             parts = [p.strip('"') for p in line.split('","')]
@@ -127,16 +149,19 @@ class System:
         """A handle that stays valid after the process ends, so its exit code can be read; None if refused."""
         import ctypes
         SYNCHRONIZE, QUERY_LIMITED = 0x00100000, 0x1000
-        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE | QUERY_LIMITED, False, pid)
+        h = declare_kernel32(ctypes.windll.kernel32).OpenProcess(SYNCHRONIZE | QUERY_LIMITED, False, pid)
         return h or None
 
     def wait_exit(self, handle):
-        """Blocks until the process ends; returns its exit code."""
+        """Blocks until the process ends; returns its exit code, or None when the wait or the read failed."""
         import ctypes
-        k = ctypes.windll.kernel32
-        k.WaitForSingleObject(handle, 0xFFFFFFFF)
-        code = ctypes.c_ulong()
-        ok = k.GetExitCodeProcess(handle, ctypes.byref(code))
+        from ctypes import wintypes
+        k = declare_kernel32(ctypes.windll.kernel32)
+        waited = k.WaitForSingleObject(handle, INFINITE)
+        code = wintypes.DWORD()
+        # only a wait that returned WAIT_OBJECT_0 means the game ended: after a failed wait GetExitCodeProcess
+        # would give STILL_ACTIVE (259) for a game still running (Grok's review, #465)
+        ok = waited == WAIT_OBJECT_0 and k.GetExitCodeProcess(handle, ctypes.byref(code))
         k.CloseHandle(handle)
         return code.value if ok else None
 
@@ -396,7 +421,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         apply_papyrus(values, say)
 
     t0 = system.now()
-    system.start_game(values["route"], starfield)
+    try:
+        system.start_game(values["route"], starfield)
+    except OSError as e:                            # no steam:// handler, or the exe would not start (Codex, #465)
+        why = f"could not start the game by {values['route']} ({e.strerror or e})"
+        if cw:
+            _log(log_path, f"play: {why}")
+        raise ValueError(why) from None
     return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s)
 
 
@@ -469,13 +500,12 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         else:
             _log(log_path, f"NOT armed on process {pid}: {why}; only the exit code will be logged")
             say(f"crash watcher NOT armed: {why}; only the exit code will be logged (see crashwatch.log)")
-    if handle:
-        code = system.wait_exit(handle)
-    else:                           # Windows refused a handle: follow the process id; the exit code stays unknown
-        say(f"no handle on process {pid}: following it by process id, the exit code will be unknown")
-        while pid in system.pids():
+    code = system.wait_exit(handle) if handle else None
+    if code is None:                # no handle, or the wait failed: follow the process id; the exit code stays unknown
+        say(f"{'the wait on process ' + str(pid) + ' failed' if handle else 'no handle on process ' + str(pid)}: "
+            "following it by process id, the exit code will be unknown")
+        while pid in system.pids():  # a failed wait says nothing about the game: never announce an exit it hasn't made
             system.sleep(2)
-        code = None
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - up_since), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")
