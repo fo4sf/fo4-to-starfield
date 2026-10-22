@@ -7,6 +7,75 @@ comes after the current testing, and it is the brief Codex and Grok work from. S
 Two independent reviews of this document (17 Oct) are folded in; their corrections are the reason several claims
 below are narrower than the first draft.
 
+## Update, 22 October 2026: the current phase, what closes it, and what is left
+
+The owner approved the next phases and their order on 19 October (the roadmap page, "yes to all"). The roadmap
+page's phase 0 is **finish the current phase**: Codsworth, the mission, the map markers and the boundary, on the v6
+build. Its exit, as approved: **the owner's v6 checks and the automated door rounds pass, and #353 merges after
+Codex's review.** Phase 1 (the Vault 111 new game) exits when the owner starts a new game on their PC, wakes in
+Vault 111 with no Starfield intro, the quest list shows none of Starfield's 144 start-game quests, and they walk out
+to Sanctuary. Nothing below counts as in game unless it says so.
+
+Installed on the owner's PC (22 Oct 03:14 UTC): v6i_plainshader on Starfield 1.16.244.0: FO4Port 9AF962D2, core
+FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, Bridge 63C746BB, plus FO4SFMapMarkers
+(pinned to core DC751664, installed 22 Oct 11:50 UTC).
+
+### Phase 0 ledger
+
+| Criterion | State | Evidence |
+|---|---|---|
+| #353 merged after Codex review | **done** (20 Oct) | #353, #432 |
+| Red Rocket crash | **in game: solved**; both Red Rocket to Sanctuary walks pass on v6i_plainshader | #460, #461; journal 22 Oct |
+| Codsworth renders | **in game: yes** (plain-shader model, owner's screenshot) | Bugs thread, 22 Oct |
+| Codsworth at his Sanctuary spot on the owner's existing save | **in game: not met.** He was not there until enabled by console (`prid 05000811`, then enable and moveto). The game rewrote Plugins.txt 25 s after the launcher started it and moved FO4Port after FO4SFMission, so his index changed from 06 to 05 between sessions | playtest row 27; [testing/load-order.md](testing/load-order.md) |
+| Map markers on the surface map | **in game: pass** (22 Oct 17:40 UTC). The mover quest started 55 s into the session and moved all four markers; the icons drew only after the owner came back to the area. The first-read delay is open | playtest row 28; docs/terrain/map-markers.md (#483) |
+| The boundary (Vault 95 exit, the wall north of Vault 111) | **in game: cause proven.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The owner's walking wall is at getpos (-2606, -908), about 490 m north of Vault 111. The 8-ray border walk from Red Rocket got stuck on converted objects 6 to 200 m out and did not reach the wall. **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city) is running one Vault 95 exit each on the PC with the border on, on the owner's own swap line (18:13 UTC) | docs/terrain/border.md (#485); #444 |
+| Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. No door round has run on the installed v6i set | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger) |
+| The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; last PASS v6c, 19 Oct), Codsworth's greeting voice (heard, subtitle only, neither), the 3D map view, the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up | test sheet; journal 22 Oct (ledger) |
+| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; the PC checkout update is queued | Launcher thread; #481 |
+
+v6e door exits, 21 Oct (runner 62df40bb, judged on 6159dcb): PASS Vault114 (both doors), FortHagen01 (both),
+SuperDuperMart01 (both), BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 (test 0011), PrydwenHull01. FAIL, all
+WRONG_PLACE: CambridgePolymerLabs01 (34.6 m off sideways), MuseumOfWitchcraft01 test 0012 (16.4 m too high),
+FortHagen02 (12.2 m too low); cause open (timing or overlap, a look in game decides). INCONCLUSIVE, both NOT_ACTIVATED
+from harness failures at the start of the session: Vault75 (launch coc failed) and ParsonsState01 (console not opened
+safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
+
+### What is left to close phase 0, with an owner
+
+1. **Door rounds on v6i** (Bugs, with Install): the doors plan still pins the v6e core (06C0DECD) and its build folder;
+   give it the v6i core pin and staging the way walk/plan.ps1 got them, release the campaign's Red Rocket hold (its
+   cause is fixed), then rerun doors_out (15) and doors_rounds (30) on v6i_plainshader with current main. That settles
+   Vault75, ParsonsState01 and every IN leg, and re-measures the three failures on the v6i core.
+2. **The three wrong-place exits** (Bugs): one in-game look per door to tell timing from overlap, then the fix
+   (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install on the owner's line.
+3. **Codsworth on existing saves** (Bugs): the mission script's Codsworth check does not reach a save where it never
+   armed; a diagnosis card on the owner's save first, then the fix in FO4SF_Min00Quest.psc (no console ids in any
+   owner instruction; ids move between sessions).
+4. **The border fix** (Interiors): the BorderProbe result picks the field; it goes into the core build, which means a
+   core rebuild and a mission refold. Every stage pinned to the core (new game, focc probe, map markers, mission) is
+   redone after it. If no variant passes, the fallback is an SFSE plugin that turns the border off only inside our
+   world. The owner's wall north of Vault 111 is rechecked with the border on after the fix.
+5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the 3D view, Bugs and Interiors for
+   the doors and prompts): asked for at the owner's next session, recorded in playtest-issues.md.
+6. **One load order** (Launcher, with Bridge): the runner's deploy puts FO4Port last, the owner's install had it first,
+   and the game rewrote the file after start; #481 reports the change, nothing enforces an order yet
+   ([testing/load-order.md](testing/load-order.md)).
+
+### Phase 1 (new game) and the other staged plugins
+
+The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
+against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it is
+restaged against the installed core (or the border-fixed core, if one comes) before the owner's line "Install the new
+game." The same holds for the focc probe (#431). The quest probe is pinned to the port, which is unchanged
+(9AF962D2); a read-only pin check precedes "Install the quest probe plugin." The object test room and the merge probe
+have no install route while the core set holds exp_install's one experiment slot. Interiors b10 (all 253 interiors,
+coc-only) is a port swap with no installer for its texture companions yet, and its Commonwealth doors need a core
+rebuilt against that port; both are phase 3 work. The door animation groups G1 to G3 (#392, switches off) have no
+staging yet; the staging path and the core-side step C are phase 2 work and can ride the same core rebuild.
+
+The 19 Oct table below is history: #393, #392, #396, #394 and #399 merged on 21 Oct, #391 and #397 on 22 Oct.
+
 ## Update, 20 October 2026
 
 On 19 October the owner set the combined core as the first priority from here on: a GAMMA-style second way to play

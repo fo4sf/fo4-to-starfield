@@ -22,10 +22,10 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Crash watcher** | now starts and ends with the game, with launcher settings | #449 (merged) |
 | **Report hotkey** | the Ctrl+Alt+K description box opens visible and in front | #463 (merged) |
 | **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |
-| **Map markers** | the markers plugin is installed on the test PC for testing | #376, #399 |
-| **Vault 95 and the map boundary** | under investigation; an Interiors test is queued | Interiors thread |
+| **Map markers** | verified in game (22 Oct): the four markers draw on the surface map after a revisit of the area | #376, #399 (merged), #483 |
+| **Vault 95 and the map boundary** | cause proven in game: Starfield's border region (the exit passes with it off); the owner chose a fix for our world only, and the BorderProbe test runs on the PC | #444 (merged), #485 |
 | **Buildings on the surface map** | verified: the vanilla object LOD archive's file paths and sizes; supported, not decoded: what the `.lod` fields mean; a Creation Kit command-line route found, not yet run | #467 (draft) |
-| **Launcher window** | a window over launcher.py (status, settings, play), with Codex | #456 |
+| **Launcher window** | merged, and the owner's first run started the game from the desktop shortcut; the locations tab and the load-order report followed | #476, #481 (merged) |
 | **Grok's launcher tasks** | focused QA and diagnostic tasks | #458 |
 
 <details>

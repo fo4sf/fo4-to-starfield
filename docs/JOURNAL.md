@@ -1978,3 +1978,49 @@ carried into our model with only the name swapped. `--plain-shader` is now the
 default; `--no-plain-shader` rebuilds the crashing model. Why the game misreads
 that block in our file is not shown. Why the model loaded in the mission-off run
 (Card D) is open. Nobody has yet checked how Codsworth looks in game.
+
+## 2026-10-22: Phase 0 ledger (what is verified, what is not)
+
+Build on the owner's PC since 03:14 UTC: v6i_plainshader (FO4Port 9AF962D2, core
+DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, Bridge 63C746BB)
+plus FO4SFMapMarkers pinned to core DC751664 (installed 11:50 UTC). The roadmap's
+phase 0 exit (approved 19 Oct) is: the owner's v6 checks and the automated door
+rounds pass, and #353 merges after Codex's review. docs/ROADMAP.md carries the
+ledger; this entry records the evidence behind it.
+
+In game, 21 Oct, v6e (core 06C0DECD), the doors_out queue (runner 62df40bb, judge
+6159dcb): 15 OUT legs, PASS 10 (Vault114 x2, FortHagen01 x2, SuperDuperMart01 x2,
+BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 test 0011, PrydwenHull01),
+FAIL 3 WRONG_PLACE (CambridgePolymerLabs01 34.6 m off sideways; MuseumOfWitchcraft01
+test 0012 16.4 m too high; FortHagen02 12.2 m too low), INCONCLUSIVE 2 NOT_ACTIVATED
+(Vault75: the launch coc failed; ParsonsState01: console not opened safely). The IN
+legs (doors_rounds, 30 tests) stopped at test 0000 when the game left at the Red
+Rocket spawn; the crash was later traced to Codsworth's model (entry above). Stairs
+on v6e: 18 PASS, 0 FAIL, 2 NOCELL. No door round has run on v6i; the Vault 95
+OUT-only runs _e and _f are the border evidence below.
+
+In game, 22 Oct, v6i_plainshader: the Red Rocket walks pass both ways (entry
+above). The owner's play test: Codsworth renders on the plain-shader model; on the
+owner's existing save he was not at his Sanctuary spot until enabled by console
+(`prid 05000811`, enable, moveto player). The index was 06 in the morning session
+and 05 in the afternoon one: Install read Plugins.txt rewritten 25 s after the
+launcher started the game, with FO4Port moved from first to after FO4SFMission
+(docs/testing/load-order.md). The map markers: the mover log shows the quest
+started at 55 s and moved all four markers at 70 s (first position read FLT_MAX),
+and the owner saw the four icons on the surface map after coming back to the area
+(PASS, with the first-read delay open). The launcher: the owner's desktop shortcut
+opened the window and started the game (the owner's word, "it works").
+
+The boundary (Interiors, PC run _f at a43afef, v6i): the Vault 95 exit after a coc
+from Red Rocket ends STAYED with "Boundary reached" while the border is on; with
+`SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands
+0.00 m from its marker. The owner's walking wall is at getpos (-2606, -908), about
+490 m north of Vault 111. The 8-ray border walk (cc1d594) got stuck on converted
+objects 6 to 200 m out and raised no popup, so the border's shape is unmapped.
+Owner's decision, 22 Oct: B, a fix for our world only. BorderProbe (#485) runs on
+the PC on the owner's swap line of 18:13 UTC; results pending.
+
+Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston
+friendly, 100 credits; last PASS v6c, 19 Oct), Codsworth's greeting voice, the 3D
+map view, the Red Rocket side door, the elevator entrance prompts, the roof hatch
+and manhole prompts, cans and books. The Ctrl+Alt+K box fix (#463) is merged.
