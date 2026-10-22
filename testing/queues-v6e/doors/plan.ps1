@@ -49,9 +49,8 @@ function Pins($leg) {
                  @('objects.json','formids.json','plan.json','overlays_params.json' | ForEach-Object { "$CoreBuild\$_" })) {
     $h[$f.ToLower()] = (Get-FileHash -Algorithm SHA256 $f).Hash }
   # the planner's code too (Codex on #500): the git trees of all of scripts and src at the checkout's HEAD (door_rounds
-  # imports scripts\terrain and src), plus any uncommitted change to them
-  $code = [ordered]@{ scripts = (git rev-parse HEAD:scripts); src = (git rev-parse HEAD:src)
-                      uncommitted = ((git status --porcelain -- scripts src) -join ';') }
+  # imports scripts\terrain and src); step 0 refuses a checkout with uncommitted changes there
+  $code = [ordered]@{ scripts = (git rev-parse HEAD:scripts); src = (git rev-parse HEAD:src) }
   [ordered]@{ inputs = $h; planner = $code; core_index = $CoreIndex; port_index = $PortIndex; out_min_m = $(if ($leg -eq 'out') { $OutMinM } else { '' }) } |
     ConvertTo-Json -Depth 3
 }
@@ -78,6 +77,7 @@ Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
 git merge-base --is-ancestor db7c015c HEAD; Need ($LASTEXITCODE -eq 0) 'the repo checkout is older than db7c015c (its door_rounds.py order places the map markers after the port): git fetch and check out main first'
+Need (-not (git status --porcelain -- scripts src)) 'the checkout has uncommitted changes in scripts or src: the stage pins name HEAD only (Codex on #500)'
 Write-Host "repo HEAD $(git rev-parse HEAD)  (db7c015c or later)"
 
 # ---------------------------------------------------------------- 1. load indices of the runner's launch
