@@ -38,6 +38,30 @@ another window in front of the game, also stops it (or makes it wait for an idle
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
+Crashes never trip the breaker, so night runs can set two limits, both off by default. Each is checked before every
+launch, and the run stops with `limit: ...` when one is hit:
+- `--crash-budget N`: stop after N crashes in the run. Both kinds count: a crash during a test, and a start that died
+  (cycle.ps1 exit 10). A crash is the runner's game process gone, with or without a dump: during a step (even when the
+  step then failed its input or HUD check, which would otherwise read as the owner or a menu), during the travel to a
+  test's cell, or between tests (doors_rounds 2026-10-21: Starfield vanished with no WER event and no dump).
+- `--min-free-gb G`: stop while `--dump-drive` (default `D:\`) has less than G GB free. Each crash writes a dump there,
+  18 GB as full dumps on 2026-10-19. A drive that can't be read counts as too full.
+
+Negative values, and a NaN or infinite floor, are refused. 0 means off.
+
+**Launch (2026-10-19).** cycle.ps1 launches with `steam://rungameid/1716740`; `FO4SF_LAUNCH=exe` starts
+`Starfield.exe` from the game folder instead (a missing exe exits 10). The night run's dead start (Steam error 84) was
+Starfield exiting with code 0x54 about 3 s after start, a second after crashwatch's ProcDump (`-w`, waiting for
+Starfield.exe) logged a BREAKPOINT on it; every short-lived start since Oct 18 shows the same pair (supported: the
+debugger's attach ends the game). Stop the crashwatch loop before a runner launch, never while it is attached to a
+live game, and restart it after; Windows LocalDumps still captures crashes.
+
+A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
+`test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of
+being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried. A walk crash on another install
+than the pinned experiment is counted neither as a crash nor as an attempt (its row says so), and a queue state from before the count existed is
+seeded from its results.jsonl CRASH rows for the tests it still has to run. A test such a queue already finished keeps
+the verdict it was recorded with: the count decides what the runner does next, it does not rewrite past results.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
@@ -76,6 +100,12 @@ the walk climbs).
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
+- A window that takes the focus mid-step with no keyboard or mouse input since the runner's last (a popup: the AMD
+  auto-updater, movable_1019c 2026-10-18) is not the owner: with `--refocus` the game is brought back and the test runs
+  again at the end of the queue, not counted as an attempt, at most `POPUP_RETRIES` (2) times per test. The log names
+  the window from `input.ps1`'s ABORT line in the attempt's `step.log`. The interrupted attempt's folder is kept as
+  `a<n>_popup<k>`, and any uncounted attempt's folder found at the start of a new attempt (the owner took over, then a
+  resume) as `a<n>_interrupted<k>`, each with the first unused k: no evidence is overwritten.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
 - Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
   --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
@@ -88,7 +118,8 @@ the walk climbs).
   `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
   load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
   stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
-  checklist either way. Unset: not run.
+  checklist either way. Unset: not run. `--preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`) runs the same checks report-only:
+  the checklist goes to `run.log` and `preflight.json`, nothing is refused, nothing goes to the ledger (leader-core.md section 7).
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by
@@ -656,7 +687,10 @@ on it.
    `spawn_wait_ms` (2 s) of game time.
 2. `plr` alone: the id in `PickLastRef: (FFxxxxxx)` after this session's start, 8 hex digits starting `FF`; nothing
    further is typed without it.
-3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed.
+3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed, and so is
+   `00000000` (form id 0 is never a ref: the movable queue of 2026-10-18 read it after `prid` of placed vanilla items,
+   supported hypothesis that the game prints it for a ref it does not name). For a movable item a `plr` that names
+   no `FFxxxxxx` id is typed once more after the game ran another 2 s.
 4. `GetIsID <npc>` must read 1; `getpos x/y/z` must put the ref within `handle_tol` (2 m) of the player's read at A
    (placeatme puts it at the player's feet).
 
@@ -789,10 +823,11 @@ floor. `plan-movable` reads `plan.json` (a list):
 | `mass_kg` | the body's mass (vanilla: from its NIF) | the manifest's for `base_edid` |
 | `spot`, `heading` | where the item is placed (metres, the cell's frame) and the walk's heading (degrees, as `setangle z`) | required, 0 |
 | `stand_m`, `park_m` | the player starts `stand_m` before the item's read position; waits `park_m` behind the spot while it settles | 1.1, 3.0 |
-| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did | none |
+| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did. Exception (2026-10-18): when the probe after it answers "No script named ..." (the console cannot reach GetMass, verified in movable_1019c), a move (PASS WALKED or PASS IMPULSE) stands with "mass not read back" in the detail, and no move stays INCONCLUSIVE MASS | none |
 | `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (always with `set_mass_kg`; `mass_probe: false` with it stops the planning); without `set_mass_kg` its reading is only shown | false |
 | `mass_wait_ms` | the console closed after `SetRigidBodyMass` before the reading | 1000 |
 | `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `impulse_control` | a control (a vanilla item): the ladder runs after the walk even when the walk moved it, shown in the detail only (the walk decides the verdict); runner feature `impulse_control`. A FAIL STUCK means a body that does not respond only when a control's impulse moved it in the same queue (movable_1019c, 2026-10-18: two converted items STUCK, no impulse ever typed on a vanilla item) | off |
 | `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
 | `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
 | `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
@@ -810,7 +845,9 @@ One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it 
 `player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
 park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
 (`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
-else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+else INCONCLUSIVE SPAWN and nothing acts on any selection; when `placeatme` itself answered "not found for parameter",
+INCONCLUSIVE NOBASE, final: the base id is wrong for this load order, e.g. a queue planned with `--plugin-index 02`
+while the plugin loads at 05, verified in movable_1019 on 2026-10-18); the `GetMass` probe and `SetRigidBodyMass`, then the
 console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
 `stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
 item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests

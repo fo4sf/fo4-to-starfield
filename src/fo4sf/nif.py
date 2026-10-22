@@ -430,3 +430,26 @@ def referenced_paths(n: NifFile) -> List[str]:
     for b in n.blocks:
         found.update(m.decode("latin-1") for m in pat.findall(b))
     return sorted(found)
+
+
+FURNITURE_MARKER_TYPES = ("BSFurnitureMarkerNode", "BSFurnitureMarker")
+
+
+def furniture_markers(n: NifFile) -> List[dict]:
+    """The sit / lean / lie places of a FO4 furniture NIF (BSFurnitureMarkerNode, nif.xml FurniturePosition for
+    bs_version > 34): per position {"offset": (x, y, z) game units, "heading": radians, "anim_type": u16,
+    "entry": u16}, in block then position order. Block layout: NiExtraData name (u32 string index), u32 count, count x
+    (3 f32 offset, f32 heading, u16 animation type, u16 entry properties). NifError for a block whose size disagrees."""
+    out = []
+    for i, blk in enumerate(n.blocks):
+        if n.type_of(i) not in FURNITURE_MARKER_TYPES:
+            continue
+        if len(blk) < 8:
+            raise NifError(f"block {i}: {n.type_of(i)} of {len(blk)} bytes")
+        count = struct.unpack_from("<I", blk, 4)[0]
+        if len(blk) != 8 + 20 * count:
+            raise NifError(f"block {i}: {n.type_of(i)} with {count} positions is {len(blk)} bytes, not {8 + 20 * count}")
+        for k in range(count):
+            x, y, z, heading, anim, entry = struct.unpack_from("<4f2H", blk, 8 + 20 * k)
+            out.append({"offset": (x, y, z), "heading": heading, "anim_type": anim, "entry": entry})
+    return out

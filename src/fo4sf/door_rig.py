@@ -36,11 +36,13 @@ def quaternion_from_matrix(matrix):
     return [x/length for x in result]
 
 
-def plan(source, samples_per_second=30, placed=False):
+def plan(source, samples_per_second=30, placed=False, aliases=None):
     """placed=True: the scene root's own stored transform counts as identity, as for a placed reference in game
     (nif.world_transforms(placed=True); docs/ai/research-log.md 2026-10-10). An animated scene root is then refused:
-    its samples would carry the stored root transform the game leaves out."""
-    report=door_motion.inspect(source)
+    its samples would carry the stored root transform the game leaves out.
+    aliases: door_motion.inspect's {FO4 sequence: "Open" / "Close"}; an aliased object with an Open and no Close (the
+    cog door's Stage2) closes by playing its Open backwards (door_clips.reversed_clip)."""
+    report=door_motion.inspect(source,aliases)
     if report['issues']:
         raise nif.NifError('door has absent or ambiguous animation bindings')
     roots=set(nif.footer_roots(source)) if placed else set()
@@ -89,6 +91,8 @@ def plan(source, samples_per_second=30, placed=False):
         attachments.append({'shape':shape,'bone':indices[parents[shape]],
                             'local_transform':{'translation_source_units':list(t),'rotation_row_major':list(r),'scale':s}})
     clips=[door_clips.sample_sequence(sequence,binds,samples_per_second) for sequence in report['sequences']]
+    if aliases and [c['name'] for c in clips]==['Open']:
+        clips.append(door_clips.reversed_clip(clips[0]))
     # shader / visibility / particle tracks animate no node and stay out of the rig; listed so a manifest can say so
     return {'space':'source_local','bones':bones,'attachments':attachments,'clips':clips,
             'ignored_tracks':[dict(t) for t in report['ignored_targets']]}
@@ -199,3 +203,25 @@ def open_motion(plan, unit_scale, clip_name='Open'):
                          'rotation_deg':round(math.degrees(2*math.acos(w)),2),
                          'axis':[round(x,4) for x in _qrotate(frame,axis)] if axis else None})
     return rows
+
+
+def slides(source, degrees=5.0, units=5.0):
+    """True when an FO4 door's Open moves its parts without turning any of them (a sliding door whose name says nothing:
+    Red Rocket's RedRPedDoor.nif, which the hinged template swung about the leaf's centre): every track turns less than
+    degrees and one travels more than units (source units, 70 a metre). False when the motion cannot be read."""
+    try:
+        rows = open_motion(plan(source, placed=True), 1.0)
+    except (nif.NifError, KeyError, ValueError, IndexError, struct.error):
+        return False
+    return bool(rows) and all(r['rotation_deg'] < degrees for r in rows) and \
+        any(math.sqrt(sum(x * x for x in r['travel_m'])) > units for r in rows)
+
+
+def flips(source, degrees=5.0, max_vertical=0.7):
+    """True when an FO4 door's Open turns a part about a horizontal axis (a trapdoor or hatch leaf: the axis's z component
+    is below max_vertical), which the vertical-hinge template cannot reproduce. False when the motion cannot be read."""
+    try:
+        rows = open_motion(plan(source, placed=True), 1.0)
+    except (nif.NifError, KeyError, ValueError, IndexError, struct.error):
+        return False
+    return any(r['rotation_deg'] > degrees and r['axis'] and abs(r['axis'][2]) < max_vertical for r in rows)

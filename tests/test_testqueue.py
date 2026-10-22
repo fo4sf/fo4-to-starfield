@@ -1,5 +1,6 @@
 """Queued test runner (scripts/game/testqueue.py): judges never pass on missing observations, the run checkpoints after
 every test and resumes, retries are limited, and the owner's controls stop it. Synthetic data; no game, no Windows calls."""
+import hashlib
 import json
 import os
 import sys
@@ -11,6 +12,11 @@ from types import SimpleNamespace
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import testqueue as tq  # noqa: E402
+
+
+def readb(p):
+    with open(p, "rb") as f:
+        return f.read()
 
 
 def jdump(obj, p):
@@ -237,6 +243,118 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(st["done"], {})
         self.assertEqual(st["attempts"]["0000_fall"], 0)
 
+    def test_a_popup_that_takes_the_focus_mid_step_reruns_the_test(self):
+        # movable_1019c 0009 (2026-10-18): "Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate',
+        # not 'Starfield'. No input sent." with no owner input since the runner's last one: a popup, not the owner
+        self.ctl.last_sent_tick = 1000
+        n = {}
+        logs = []
+
+        def step(test, out):
+            n[test["id"]] = n.get(test["id"], 0) + 1
+            if test["id"] == "0000_fall" and n[test["id"]] == 1:
+                with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                    f.write("Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'. "
+                            "No input sent.\n")
+                return 2
+            return self.landing(0.1)(test, out)
+        r = self.runner(step, refocus=True)
+        r.log = logs.append
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(n["0000_fall"], 2)
+        self.assertEqual(len(jload(os.path.join(self.d, "state.json"))["done"]), 3)
+        self.assertTrue(any("AMDAutoUpdate took the focus mid-step without owner input (popup)" in x for x in logs), logs)
+        # the interrupted attempt's evidence survives the rerun, which writes a1 afresh (Codex on #341 at f2fe7bf)
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        kept = readf(os.path.join(a1 + "_popup1", "step.log"))
+        self.assertIn("foreground window belongs to 'AMDAutoUpdate'", kept)
+        self.assertTrue(os.path.exists(os.path.join(a1, "obs.json")))
+        self.assertFalse(os.path.exists(os.path.join(a1, "step.log")) and "AMDAutoUpdate" in readf(os.path.join(a1, "step.log")))
+
+    def test_a_resumed_run_keeps_every_interrupted_attempt(self):
+        # Codex on #341 at 446b5a9: a second Runner (resumed after a stop) starts its popup count again; its archive
+        # must not reuse a1_popup1, which already holds the first run's interrupted attempt
+        self.ctl.last_sent_tick = 1000
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        calls = [0]
+
+        def popup_then_stop(test, out):
+            calls[0] += 1
+            with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                f.write(f"run {calls[0]}: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'\n")
+            if calls[0] == 2:
+                self.ctl.foreign = True                   # the owner typed: the first run stops here
+            return 2
+        self.assertEqual(self.runner(popup_then_stop, refocus=True).run(), 3)
+        self.ctl.foreign = False
+        self.assertEqual(self.runner(popup_then_stop, refocus=True, max_tests=1).run() in (0, 3, 4), True)
+        # every interrupted attempt's step.log is still on disk: none was overwritten by a rerun or the resumed run
+        logs = []
+        for root, _dirs, files in os.walk(os.path.join(self.d, "tests")):
+            logs += [readf(os.path.join(root, f)) for f in files if f == "step.log"]
+        self.assertEqual(sorted(x.split(":")[0] for x in logs), sorted(f"run {k}" for k in range(1, calls[0] + 1)))
+        self.assertIn("run 1:", readf(os.path.join(a1 + "_popup1", "step.log")))
+        kept = sorted(x for x in os.listdir(os.path.dirname(a1)) if x.startswith("a1_popup"))
+        self.assertGreaterEqual(len(kept), 2, kept)                    # the resumed run's popup got a fresh name
+        self.assertEqual(tq.unused_name(a1 + "_popup"), a1 + f"_popup{len(kept) + 1}")
+
+    def test_a_popup_rerun_is_capped_and_owner_input_still_stops(self):
+        self.ctl.last_sent_tick = 1000
+        n = [0]
+
+        def step(test, out):
+            n[0] += 1
+            return 2
+        self.assertEqual(self.runner(step, refocus=True).run(), 3)
+        # each of the 3 tests rerun at the end of the queue until the first runs out of reruns, then the stop as before
+        self.assertEqual(n[0], 3 * tq.POPUP_RETRIES + 1)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["done"], {})
+        n[0] = 0
+
+        def typed(test, out):                             # the owner typed during the step: no rerun
+            n[0] += 1
+            self.ctl.foreign = True
+            return 2
+        self.assertEqual(self.runner(typed, refocus=True).run(), 3)
+        self.assertEqual(n[0], 1)
+
+    def test_the_window_that_took_the_focus_is_read_from_the_step_log(self):
+        d = tempfile.mkdtemp()
+        self.assertIsNone(tq.foreground_thief(d))
+        with open(os.path.join(d, "step.log"), "w", encoding="utf-8") as f:
+            f.write("x\nAssert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'.\n")
+        self.assertEqual(tq.foreground_thief(d), "AMDAutoUpdate")
+
+    def test_coc_reads_the_arrival_from_the_bridge_when_the_queue_has_one(self):
+        # v6e stairs 2026-10-21: the HUD's O2 dial over the console's last lines made every OCR read of the arrival fail
+        for bridge, want in ((None, False), ({"dir": "b"}, True)):
+            with self.subTest(bridge=bridge):
+                self.setUp()
+                q = jload(os.path.join(self.d, "queue.json"))
+                if bridge:
+                    q["bridge"] = bridge
+                jdump(q, os.path.join(self.d, "queue.json"))
+                calls = []
+                r = self.runner(self.landing(0.1), max_tests=1)
+                r.cell = "Elsewhere"
+                r._ps = lambda script, args, timeout, steal=False: (calls.append((script, args)), (0, "at"))[1]
+                r.ensure_game("C")
+                cocs = [a for sc, a in calls if sc == "coc.ps1"]
+                self.assertEqual(len(cocs), 1)
+                self.assertEqual("-Bridge" in cocs[0], want)
+
+    def test_coc_ps1_takes_a_fresh_loaded_bridge_line_at_the_marker_before_the_console(self):
+        src = readf(os.path.join(ROOT, "scripts", "game", "coc.ps1"))
+        self.assertIn("[switch]$Bridge", src)
+        b = src.index("if ($Bridge) {")
+        self.assertLess(b, src.index("readpos.ps1"))                    # the bridge first, the OCR only after it
+        block = src[b:src.index("readpos.ps1")]
+        self.assertIn("'latest', '--max-age', '2'", block)               # a fresh line only
+        self.assertIn("$j.loaded -eq $true", block)
+        self.assertIn("if ($d -le 5)", block)                           # the same 5 m as the console read
+        cyc = readf(os.path.join(ROOT, "scripts", "game", "cycle.ps1"))
+        self.assertIn("if (Test-Path (Join-Path $sf 'Data\\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }", cyc)
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step
@@ -245,6 +363,151 @@ class RunnerTests(unittest.TestCase):
         r.run()
         self.assertEqual(self.results()[0]["class"], "CRASH")
         self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+
+    def test_a_game_that_vanishes_and_fails_the_input_is_a_crash_not_the_owner(self):
+        # doors_rounds 2026-10-21: Starfield exited silently mid-step, input.ps1 found no process, no dump was written
+        def step(test, out):
+            self.ctl.pid = None
+            return 2
+        r = self.runner(step, max_tests=1)
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertNotIn("owner took over", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_and_hides_the_hud_is_a_crash_not_a_menu(self):
+        def step(test, out):
+            self.ctl.pid = None
+            return 3
+        r = self.runner(step, max_tests=1)
+        r.recover = lambda: self.fail("no Escapes into a game that is gone")
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertNotIn("menu or overlay", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_while_travelling_is_a_crash(self):
+        for exit_code in (1, 2):                          # Codex on #446: exit 2 (input guard) is not the owner then
+            with self.subTest(exit_code=exit_code):
+                self.setUp()
+
+                def ps(script, args, timeout, steal=False):
+                    self.ctl.pid = None                   # the game exits during the coc
+                    return exit_code, "no arrival"
+                r = self.runner(lambda test, out: 0, max_tests=1)
+                r.cell, r._ps = "Elsewhere", ps
+                r.recover = lambda: self.fail("no Escapes into a game that is gone")
+                r.run()
+                row = self.results()[0]
+                self.assertEqual((row["verdict"], row["class"]), ("INCONCLUSIVE", "CRASH"))
+                self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+                self.assertNotIn("owner", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanished_between_tests_counts_against_the_crash_budget(self):
+        r = self.runner(lambda test, out: 0, crash_budget=1, min_free_gb=0)
+        r.live_pid, self.ctl.pid = 42, None               # up after the last test, gone before the next one
+        r.run()
+        log = readf(os.path.join(self.d, "run.log"))
+        self.assertIn("exited between tests", log)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertIn("--crash-budget 1", log)            # stopped before launching again
+        self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
+
+    def test_a_game_closed_for_a_fresh_test_is_not_a_crash(self):
+        r = self.runner(self.landing(0.1), max_tests=2)
+        r.game_used, r.live_pid = True, 42
+        q = jload(os.path.join(self.d, "queue.json"))
+        q["tests"][0]["fresh"] = True
+        jdump(q, os.path.join(self.d, "queue.json"))
+        r.q = q
+        r.run()
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 0)
+
+    def test_a_second_crash_in_the_same_test_is_a_final_fail(self):
+        def step(test, out):
+            self.ctl.pid = None                           # the game exits during every attempt
+            return 0
+        self.runner(step, max_tests=1).run()
+        first = self.results()[0]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"))
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()              # a later run of the same queue: the same test again
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (first["id"], "FAIL", "CRASH"))
+        st = jload(os.path.join(self.d, "state.json"))
+        self.assertEqual(st["done"][first["id"]]["verdict"], "FAIL")
+        self.assertEqual(st["test_crashes"][first["id"]], 2)
+        # review pass on #402: the FAIL CRASH counted as decided and closed the breaker for the kind for good
+        self.assertTrue(st.get("breaker"))
+        self.assertEqual({k: v["decided"] for k, v in st["breaker"].items()}, {k: 0 for k in st["breaker"]})
+
+    def test_a_crash_recorded_before_the_count_existed_still_counts(self):
+        # Codex on #402: a queue paused after an INCONCLUSIVE CRASH has no test_crashes in its state
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        del st["test_crashes"]
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["verdict"], second["class"]), ("FAIL", "CRASH"), second["detail"])
+        self.assertEqual(jload(p)["test_crashes"], {second["id"]: 2})
+
+    def test_a_crash_row_whose_checkpoint_was_lost_still_counts(self):
+        # Codex on #402: the row was recorded, then the run stopped before state.json kept the new count
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        st = jload(p)
+        tid = self.results()[0]["id"]
+        st["test_crashes"] = {tid: 0}                     # the checkpoint before the crash
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (tid, "FAIL", "CRASH"), second["detail"])
+
+    def test_a_recorded_fail_crash_is_final_after_a_lost_checkpoint(self):
+        # Codex on #402: the second (final) crash row was recorded, the checkpoint after it was not
+        calls = []
+
+        def step(test, out):
+            calls.append(test["id"])
+            self.ctl.pid = None
+            return 0
+        self.runner(step, max_tests=1).run()
+        p = os.path.join(self.d, "state.json")
+        before = jload(p)                                 # the state as the second crash found it
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        tid = self.results()[1]["id"]
+        self.assertEqual(self.results()[1]["verdict"], "FAIL")
+        jdump(before, p)                                  # that run's checkpoint lost
+        self.ctl.pid = self.ctl.owned_pid()
+        calls.clear()
+        self.runner(step, max_tests=1).run()
+        self.assertNotIn(tid, calls)                      # no third launch into the crash
+        self.assertEqual(jload(p)["done"][tid]["verdict"], "FAIL")
+
+    def test_a_count_kept_for_an_excluded_crash_does_not_count(self):
+        # Codex on #402: a state count with no eligible CRASH row behind it is dropped, not kept by max()
+        def step(test, out):
+            self.ctl.pid = None
+            return 0
+        p = os.path.join(self.d, "state.json")
+        self.runner(lambda t, o: 0, max_tests=0).run()
+        st = jload(p)
+        st["test_crashes"] = {k["id"]: 1 for k in jload(os.path.join(self.d, "queue.json"))["tests"]}
+        jdump(st, p)
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()
+        first = self.results()[-1]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"), first["detail"])
 
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
@@ -619,6 +882,32 @@ class PlanJsonTests(unittest.TestCase):
         self.assertEqual([x["world_coc"] for x in t], ["FO4CW_RedRocketSpawn"])
         self.assertEqual(t[0]["drop_z"], 140.0)
         self.assertEqual(t[0]["beyond"], {"x": -500.0, "y": 300.0})
+        self.assertNotIn("rounds_sha256", jload(os.path.join(out, "queue.json")))
+        rounds = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
+        writef(os.path.join(d, "rounds.json"), rounds.encode())      # a door rounds stage: its digest is recorded
+        out2 = os.path.join(d, "q2")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out2])
+        self.assertEqual(jload(os.path.join(out2, "queue.json"))["rounds_sha256"], hashlib.sha256(rounds.encode()).hexdigest())
+        self.assertNotIn("presence_sha256", jload(os.path.join(out2, "queue.json")))
+        # a presence stage: staged with this plan.json (plan_sha256), its digest is recorded too (Codex on #391)
+        writef(os.path.join(d, "presence.json"), b'{"tests": []}')
+        with self.assertRaises(SystemExit) as stop:
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "qp0")])
+        self.assertIn("no plan_sha256 in presence.json", str(stop.exception))
+        pres = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
+        writef(os.path.join(d, "presence.json"), pres.encode())
+        out3 = os.path.join(d, "qp")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out3])
+        self.assertEqual(jload(os.path.join(out3, "queue.json"))["presence_sha256"],
+                         hashlib.sha256(pres.encode()).hexdigest())
+        # Codex on #401: a plan.json edited after staging, or a rounds.json without plan_sha256, is refused
+        for body, why in ((json.dumps({"tests": []}), "no plan_sha256"),
+                          (json.dumps({"tests": [], "plan_sha256": "0" * 64}), "plan_sha256 differs")):
+            writef(os.path.join(d, "rounds.json"), body.encode())
+            with self.subTest(why=why), self.assertRaisesRegex(SystemExit, why):
+                tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q3")])
+            self.assertFalse(os.path.exists(os.path.join(d, "q3")))
+        os.remove(os.path.join(d, "rounds.json"))
         jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])

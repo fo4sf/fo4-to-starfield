@@ -32,11 +32,15 @@ Rules the fold enforces:
 - A controller lease that expired without `controller_released` makes ownership **ambiguous**; nothing that sends game
   input runs until a fresh claim is logged (brief §7).
 - The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state;
+  its "newly worked", "failed" and "untested" bullets also count the **pinned build's tests** (passed, failed, not
+  decided: skipped, circuit broken, inconclusive), since runner results name no capability and a failed or skipped
+  test must never read as success;
   its "next queue" bullet lists the queued tasks of the **pinned build** (a task that names no build is listed too),
   so the leftovers of a stopped historic campaign do not follow the owner forever.
 - Task ids in the ledger are `<campaign>/<test id>` (the queue folder's name and the runner's id), because the
   planners repeat test ids across campaigns (`0000_terrain_<coc>` in every terrain campaign) and two campaigns must
-  never merge in the fold. A card's own id (§8) is already unique.
+  never merge in the fold; the importer (§3) and the lease runner's live writes (§10) both refuse a second folder of
+  the same name that carries a different build, or no build. A card's own id (§8) is already unique.
 - An event of a type this checkout does not know is read as an opaque line (kept, counted, not folded), so a ledger
   written by a newer checkout stays readable; a known type without its key field (`task`, `capability`, `blocker`)
   is a corrupt line. Every writer takes the ledger's lock file (`ledger.jsonl.lock`, `filelock.py`) around the
@@ -59,12 +63,12 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 
 | File | Event | Fields read |
 |---|---|---|
-| `<queue>/queue.json` | `build_pinned`, `task_queued` per test | `build_id`, `plugin_sha256`, `staging`, `commit`, `created`, `tests[].id/kind/cell/ref` (`scripts/game/testqueue.py:422`) |
-| `<queue>/results.jsonl` | `task_finished` per row | `id, kind, cell, ref, attempt, verdict, class, detail, dir, t` (`testqueue.py:2681`); last row per id is final |
+| `<queue>/queue.json` | `build_pinned`, `task_queued` per test | `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version` (the pin, `PIN_KEYS`), `created` (the events' time), `tests[].id/kind/cell/ref` (`testqueue.py plan` writes them) |
+| `<queue>/results.jsonl` | `task_finished` per row | `id, attempt, verdict, class, detail, dir, t` (the row the runner appends per attempt; its `kind/cell/ref` repeat the queue's and are not re-read); last row per id is final |
 | `<queue>/state.json` | nothing (reviewed 2026-10-16) | the runner writes a `results.jsonl` row for every attempt, PRECONDITION and BREAKER included, and checkpoints `state.json` in the same step (`testqueue.py` `Runner.run`), so `done`/`attempts` repeat the rows; a task in flight is visible only in the ledger's own `task_started` (T2); the breaker counters, `status` and `updated` are the runner's bookkeeping |
 | `Data/FO4Port.deploy.json` | `build_pinned` | `artifacts[FO4Port.esm].sha256` → `plugin_sha256`, `build_id` = its first 8 hex digits (the derivation of `testqueue.py plan`), `complete` (`scripts/deploy_starfield.py` `install`, `artifact_identity`; the manifest carries no `build_id` of its own) |
-| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified`, one per record (active_after_load from `exp_install.py active`) | `plugins` (since 270b0ec), `plugins_added` (`*Name` lines, the only key before 2026-10-12), `plugin` (the bridge record's one plugin), `plugins_replaced[].active`, `complete`, `pack` plus each plugin's sha256 from `files` / `source_sha256` (`exp_install.py:522,541`, `bridge_install.py:168,180`); the event names its record (`source`). The fold merges the events by plugin name, so Exp and Bridge together name both plugins; a record's event owns the names it lists, so a plugin a rewritten record drops is removed while the other record's entries stay; a changed sha256 is a different file and its `active_after_load` starts over from unknown (`state.merge_plugins`) |
-| `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
+| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified`, one per record (active_after_load from `exp_install.py active`) | `plugins` (since 270b0ec), `plugins_added` (`*Name` lines, the only key before 2026-10-12), `plugin` (the bridge record's one plugin), `plugins_replaced[].active`, `complete`, `pack` plus each plugin's sha256 from `files` / `source_sha256` (`exp_install.py:522,541`, `bridge_install.py:168,180`); the event names its record (`source`). The fold merges the events by plugin name, so Exp and Bridge together name both plugins; a record's event owns the names it lists, so a plugin a rewritten record drops is removed while the other record's entries stay; a changed sha256 is a different file and its `active_after_load` starts over from unknown (`state.merge_plugins`); `active_after_load` is recorded only when the importer is told it (`leader_import.py --active-after-load`, after `exp_install.py active` said so on the PC), else null and the report says "not confirmed after load"; no `sha256` per plugin and no `load_order` come from this record |
+| `watchdog_state.json` | nothing (reviewed 2026-10-16) | it holds chain start times and the last Codex hand-over, not who held the controller or until when; the T2 lease (§6) is the controller record from now on |
 
 Imports are idempotent: an event carries `src` (file path + line for a file that only grows; the queue.json path +
 a digest of the pin fields, so a pin rewritten in place by `pin-game-version` or a re-plan is a new event; file path
@@ -75,6 +79,26 @@ BOM) and stores the runner's local wall-clock times (`testqueue.now()`, no zone)
 that wrote them. A `results.jsonl` line that is not a row (a torn line the runner terminated, §10, or a hand edit)
 is skipped and reported as one `ledger_repaired` event keyed by its line; the queue's other rows import. A runner
 given a lease folder writes the same keys live (§10), so importing its queue afterwards adds nothing.
+
+The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\Modding\testqueue [--queues D:\Modding\testqueue]
+[--deploy <Data\FO4Port.deploy.json>] [--install <Data\FO4SFExp.install.json>] [--active-after-load yes|no]`
+(or `--queue <dir>` per folder, in the order given): one line per source with the events added, queues first (a
+parent's queues oldest first by `queue.json` `created`, read as the planner's local wall clock like every runner time
+and compared in UTC with the file time of a queue that has none, never by folder name, so the newest queue's pin is the
+current build), then the deploy manifest, then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
+that cannot be read, that does not exist, or that is not the record its writer produces fails alone, before anything
+of it is written (exit 1, the others still import): a `queue.json` has a `tests` list, an install record names its
+`plugins` (exp) or `plugin` (bridge), a deploy manifest has an `artifacts` object and pins a build
+(`import_queue.SHAPES`), so a mistyped path never reads as "already imported" and a deploy manifest given as
+`--install` never reads as "no plugins", while a planned queue with no `results.jsonl` yet is fine; a queue folder
+whose name the ledger already binds to another folder with a different build, no build to compare, or another plan, is refused
+the same way (`CampaignBound`: a different queue under the same name is a different campaign, rename the folder), while
+the same queue relocated or archived imports under its campaign: same build, same plan (`queue_identity`: the planned
+queue's created time, build pin and tests, carried as `queue_id` on its task events) and results that hold every row
+already imported and agree with it line for line (one build is not enough: two queues planned against it can test
+other refs; a copy without the bound rows, or with fewer, is refused by the importer and the live runner alike,
+since once bound it would import or run without any row comparison and could turn a FAIL into a PASS); the eight bullets of the resulting fold
+follow.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
@@ -224,6 +248,13 @@ a `--dry-run` prints the checklist and refuses the same way; a later pass closes
 so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
 of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
 
+**Report-only, the first step of switching it on:** `testqueue.py run --preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`)
+runs the same checks at the same point but never refuses: `run.log` gets `preflight (report only): every check passed`
+or `... would refuse: <check> <status>, ...` and the checklist, `preflight.json` in the queue folder gets `mode`,
+`ok`, `would_refuse` and each check's status and detail, nothing goes to the ledger, and a probe that cannot start is
+logged, written as `ok: false` with `not_run` and no checks, and the run goes on. `--preflight` wins when both are on. A few night runs in this mode show which checks the
+PC would fail before the gate is enforced.
+
 ## 8. Task cards and the worker result contract
 
 **The card** (`src/fo4sf/core/tasks.py`, `TaskCard`): data with exactly the fields of the §4 cards: `id`,
@@ -267,7 +298,8 @@ writer, not the reader, repairs it.
 
 **The report CLI:** `python scripts/leader_report.py --ledger <leader dir or ledger.jsonl> [--now <ISO>] [--json]`
 prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
-The capability bullets are those of the pinned build (`build_pinned`); results pinned to another `build_id` stay out
+The capability bullets are those of the pinned build (`build_pinned`), and they also count that build's tests
+(`tests passed: N (...)`, `tests failed: N (...)`, `tests not decided: ...`); results pinned to another `build_id` stay out
 of "newly worked in game" until that build is the pin.
 
 ## 9. The Transform adapter: one reference matrix, in #102's order
@@ -315,7 +347,11 @@ With a lease folder (§6), `testqueue.py run` writes its events to the ledger in
 | a results row is appended (every attempt; PRECONDITION and BREAKER rows too) | `task_finished` | `outcome` by §2's mapping, `source` IN_GAME, `detail`, `evidence` (the attempt folder), `pins`, `completed` only for PASS / FAIL; `src = results.jsonl:<line>` |
 | the dedicated save is created | `recovery_point` | `kind` save, `path` (the save name), `build_id` |
 
-Rules: an event whose `src` key the ledger already holds is not written again (a resumed run queues nothing twice);
+Rules: before its first event the run reads the ledger once and refuses, like the importer (§3,
+`runner_events.check_binding`), a queue folder whose name the ledger already binds to another folder with a different
+build or no build: nothing of that run is written, the log says `ledger: campaign ... is already bound ...: nothing of
+this run is written to the ledger`, the queue files keep the results and the importer takes the folder once it is
+renamed; an event whose `src` key the ledger already holds is not written again (a resumed run queues nothing twice);
 a failed ledger write is logged once and never stops the run, because the ledger is evidence, not control, and the
 importer (§3) rebuilds the same events from the queue files with the same keys, so a live write that was lost is
 recovered by one `import_queue` and a complete run imports nothing. A recovered row is appended after every result

@@ -75,7 +75,8 @@ class TerrainMapMarkerWriterTests(unittest.TestCase):
         self.assertEqual(grid, struct.unpack("<I", struct.pack("<hh", 0, 1))[0])  # Y then X of spawn_cell [1, 0]
         self.assertEqual(tail, LCSR_TAIL)
         self.assertEqual(recs[marker][0], b"REFR")
-        self.assertEqual(recs[marker][3] & 0xC00, 0xC00)
+        self.assertEqual(recs[marker][3] & 0xC00, 0x400)                     # persistent, enabled (not LC172's 0xC00)
+        self.assertIsNone(field(lctn[1], b"LCID"))
 
     def test_params_map_markers_write_one_chain_each(self):
         # the four-marker loop (make_core64c stage "map_markers"), judged by make_core64c check's map_marker_problems

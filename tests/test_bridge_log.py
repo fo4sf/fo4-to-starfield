@@ -228,6 +228,19 @@ class ClockAgeTests(unittest.TestCase):
         self.assertIsNone(bridge_log.clock_age(None))
         self.assertIsNone(bridge_log.clock_age("rt=5"))
 
+    def test_clock_age_is_positive_for_a_stamp_from_yesterday(self):
+        # Issue #213: a stamp 12-24h ago (afternoon when now is early morning) must be positive.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))  # 02:00
+        age = bridge_log.clock_age("13:00:00", now)
+        self.assertGreater(age, 0)
+        self.assertAlmostEqual(age, 13 * 3600, delta=1)  # 13h ago
+
+    def test_clock_age_treats_small_future_skew_as_old(self):
+        # A stamp 1s in the future (clock skew) becomes ~24h old so latest() rejects it as not fresh.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))
+        age = bridge_log.clock_age("02:00:01", now)
+        self.assertAlmostEqual(age, 86399.0, delta=1)
+
     def test_latest_uses_the_stamp_not_the_mtime(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "fo4sf.0.log")
@@ -315,6 +328,25 @@ class ProbeLineTests(unittest.TestCase):
             ev = [e for e in bridge_log.read_events(log) if e["kind"] != "pos"]
             self.assertEqual([e["kind"] for e in ev], ["ack", "resolve", "target", "moveto", "moveto", "moveto", "ref"])
             self.assertEqual([e.get("phase") for e in ev if e["kind"] == "moveto"], ["before", "after", "settled"])
+
+
+class StageLineTests(unittest.TestCase):
+    """The proposed FO4SF_Probe.Stage line (docs/testing/probe-stage.md): the parser's half of the contract."""
+
+    def test_a_quest_its_stage_and_flags(self):
+        e = bridge_log.parse_event("[12:00:01] FO4SF stage plugin=FO4SFNewGame.esm id=2049 form=16779265 quest=true "
+                                   "stage=10 running=true completed=false name=MQ101")
+        self.assertEqual(e, {"kind": "stage", "plugin": "FO4SFNewGame.esm", "id": 2049, "form": "01000801",
+                             "quest": True, "stage": 10, "running": True, "completed": False, "name": "MQ101"})
+
+    def test_no_form_not_a_quest_and_torn_lines(self):
+        self.assertEqual(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=none"),
+                         {"kind": "stage", "plugin": "a.esm", "id": 1, "form": None})
+        self.assertFalse(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=33556480 quest=false")["quest"])
+        for s in ("FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=1x",          # torn stage
+                  "FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=10 running=tr",  # torn bool
+                  "FO4SF stage form=none"):
+            self.assertIsNone(bridge_log.parse_event(s), s)
 
 
 class ProbeKindCaseTests(unittest.TestCase):
