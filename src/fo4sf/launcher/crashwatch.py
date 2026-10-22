@@ -121,11 +121,17 @@ class System:
         time.sleep(s)
 
     def pids(self, image=GAME_EXE):
-        """Process ids running `image` (tasklist, no extra package)."""
+        """Process ids running `image`; failed queries raise ValueError rather than mean an empty list."""
         if os.name != "nt":
             return []
-        r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
-                           capture_output=True, text=True)
+        try:
+            r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                               capture_output=True, text=True)
+        except OSError as e:
+            raise ValueError(f"Cannot check {image} processes: tasklist could not run ({e})") from None
+        if r.returncode != 0:
+            detail = " ".join((r.stderr or r.stdout or "no diagnostic").split())[:300]
+            raise ValueError(f"Cannot check {image} processes: tasklist exited {r.returncode}: {detail}")
         out = []
         for line in r.stdout.splitlines():
             parts = [p.strip('"') for p in line.split('","')]
