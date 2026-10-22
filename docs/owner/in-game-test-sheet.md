@@ -75,8 +75,9 @@ Report per door: `(a) prompt "..." / none | ended up: ...`.
 ### A6. Extras
 
 Any time: cans and books still pick up; press Ctrl+Alt+K once and the describe box opens in front (fixed on 22 Oct).
-Skip the wall north of Vault 111 this session: the border fix the owner picked (B, our world only) is being tested on
-the PC, and that spot is rechecked once it lands.
+No wall to check north of Vault 111: that report was a misreading and is withdrawn (the owner walked past the spot
+without the popup, 22 Oct). The border fix the owner picked (B, our world only) is being tested on the PC at the
+Vault 95 exit.
 
 ## 1. Get there
 

@@ -2014,11 +2014,15 @@ opened the window and started the game (the owner's word, "it works").
 The boundary (Interiors, PC run _f at a43afef, v6i): the Vault 95 exit after a coc
 from Red Rocket ends STAYED with "Boundary reached" while the border is on; with
 `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands
-0.00 m from its marker. The owner's walking wall is at getpos (-2606, -908), about
-490 m north of Vault 111. The 8-ray border walk (cc1d594) got stuck on converted
-objects 6 to 200 m out and raised no popup, so the border's shape is unmapped.
-Owner's decision, 22 Oct: B, a fix for our world only. BorderProbe (#485) runs on
-the PC on the owner's swap line of 18:13 UTC; results pending.
+0.00 m from its marker. The earlier report of a walking wall north of Vault 111 is
+withdrawn (correction entry below): there is no wall on foot. The 8-ray border walk
+(cc1d594) got stuck on converted objects 6 to 200 m out and raised no popup, so no
+walk has met the border. Owner's decision, 22 Oct: B, a fix for our world only.
+BorderProbe (#485, merged) ran on the owner's swap line of 18:13 UTC: none of the
+three variants ran (NOT RUN, the owner was active at the PC); the rerun with the
+idle wait is pending. A PASS makes a variant a candidate; the core takes the field
+only after border.md's wider checks (a second long exit, a long map fast travel, a
+vanilla planet's border still showing).
 
 Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston
 friendly, 100 credits; on v6c, 19 Oct, only completion was verified, Preston
@@ -2027,3 +2031,17 @@ extent (getpos plus a zoomed-out surface map screenshot; Map dropped the 3D-view
 spots on 22 Oct, the border question being answered), the Red Rocket side door, the
 elevator entrance prompts, the roof hatch and manhole prompts, cans and books. The
 Ctrl+Alt+K box fix (#463) is merged.
+
+## 2026-10-22: Correction: no walking wall north of Vault 111
+
+The phase 0 ledger above, README's boundary row, playtest-issues.md row 29 and
+the owner's test sheet carried a wall the owner hit on foot at getpos (-2606, -908),
+about 490 m north of Vault 111, and put it down to Starfield's border region by
+inference. That report was a misreading and is withdrawn: on 22 Oct (18:55 UTC)
+the owner said they never hit a wall there and walked far north of Vault 111, past
+where Fallout 4's own border would be, without the popup (docs/terrain/border.md,
+"What is known", verified). The only border evidence is the Vault 95 exit after a
+coc (run _f): STAYED with "Boundary reached" with the border on, 0.00 m off with it
+off. The border is read as a limit on how far one teleport may move the player,
+not a fence at a position (supported hypothesis, border.md). The four places now
+say so, and no on-foot recheck is planned.
