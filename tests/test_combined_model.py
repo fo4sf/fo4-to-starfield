@@ -54,7 +54,8 @@ class ModelTests(unittest.TestCase):
         del d["schema"]
         with self.assertRaises(ValueError):
             WorldState.from_json(json.dumps(d))
-        for other in ("[]", "3", "null"):                         # Codex review of #431: not an object
+        for other in ("[]", "3", "null", json.dumps({"schema": SCHEMA_VERSION}),
+                      json.dumps({**d, "schema": SCHEMA_VERSION, "places": []})):   # Codex review of #431: misshapen
             with self.assertRaises(ValueError):
                 WorldState.from_json(other)
 

@@ -122,6 +122,13 @@ class WorldState:
             raise ValueError(f"a world state is a JSON object, not {type(d).__name__}")
         if d.get("schema") not in LOADABLE_SCHEMAS:
             raise ValueError(f"unknown world-state schema {d.get('schema')!r}, want one of {LOADABLE_SCHEMAS}")
+        try:
+            return cls._from_dict(d)
+        except (KeyError, TypeError, AttributeError) as e:   # a missing or misshapen field (Codex review of #431)
+            raise ValueError(f"world state is malformed: {type(e).__name__}: {e}") from e
+
+    @classmethod
+    def _from_dict(cls, d: dict) -> "WorldState":
         ws = cls(seed=d["seed"], hour=d["hour"], next_id=d["next_id"])
         ws.places = {k: Place(**v) for k, v in d["places"].items()}
         ws.settlements = {k: Settlement(**v) for k, v in d["settlements"].items()}

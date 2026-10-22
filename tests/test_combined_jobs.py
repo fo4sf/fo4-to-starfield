@@ -105,7 +105,7 @@ class OfferTests(unittest.TestCase):
         found = jobs.offers(ws, "market", limit=50)
         self.assertEqual([o.expires_hour for o in found], sorted(o.expires_hour for o in found))
         self.assertEqual([o.id for o in found][:3], ["defend:s_a", "escort:c_a", "defend:s_b"])
-        self.assertNotIn("retake:settlers:story_vault:0", [o.id for o in found])
+        self.assertFalse([o.id for o in found if o.id.startswith("retake:settlers:story_vault:")])
         self.assertEqual(len(jobs.offers(ws, "market", limit=2)), 2)
 
     def test_display_names_reach_the_text(self):
@@ -231,7 +231,8 @@ class RetakeTests(unittest.TestCase):
         ws = quiet(world())
         lose(ws, "farm_a", "raiders", hour=0)
         o = by_kind(jobs.offers(ws, "market"), "retake")[0]
-        self.assertEqual((o.id, o.target, o.detail["holder"]), ("retake:settlers:farm_a:0", "farm_a", "raiders"))
+        self.assertEqual((o.id.rsplit(":", 1)[0], o.target, o.detail["holder"]),
+                         ("retake:settlers:farm_a:0", "farm_a", "raiders"))
         self.assertEqual(o.expires_hour, jobs.RETAKE_OFFER_HOURS)
         pop = ws.settlements["farm_a"].population
         fame0 = ws.reputation["settlers"].fame
@@ -345,6 +346,18 @@ class ClearTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             jobs.complete(ws, o)
 
+    def test_a_second_loss_in_the_same_hour_is_a_new_job(self):
+        # Codex review of #431: the loss hour alone does not name one loss
+        ws = quiet(world())
+        lose(ws, "farm_a", "raiders", hour=ws.hour)
+        first = by_kind(jobs.offers(ws, "market"), "retake")[0]
+        jobs.complete(ws, first)
+        lose(ws, "farm_a", "raiders", hour=ws.hour)
+        again = by_kind(jobs.offers(ws, "market"), "retake")
+        self.assertEqual(len(again), 1)
+        self.assertNotEqual(again[0].id, first.id)
+        self.assertIsNone(jobs.valid(ws, again[0]))
+
     def test_cleared_place_counts_as_lost_and_can_be_asked_back(self):
         ws = quiet(world())
         ws.places["ruins"].holder = "raiders"
@@ -353,7 +366,7 @@ class ClearTests(unittest.TestCase):
         self.assertEqual(sim._lost_places(ws, "raiders"), {"ruins"})
         self.assertEqual(jobs._lost_hour(ws, "raiders", "ruins"), ws.hour)
         retake = by_kind(jobs.offers(ws, "raider_camp"), "retake")
-        self.assertEqual([o.id for o in retake], [f"retake:raiders:ruins:{ws.hour}"])
+        self.assertEqual([o.id.rsplit(":", 1)[0] for o in retake], [f"retake:raiders:ruins:{ws.hour}"])
         self.assertEqual(retake[0].detail, {"holder": None, "taken_hour": ws.hour})
         self.assertEqual(retake[0].expires_hour, ws.hour + jobs.RETAKE_OFFER_HOURS)
         self.assertNotIn("ruins", [o.target for o in jobs.offers(ws, "raider_camp", limit=50) if o.kind == "clear"])

@@ -128,8 +128,16 @@ def _escort(ws, giver, place, names) -> list[Offer]:
 
 def _lost_hour(ws: WorldState, giver: str, target: str) -> int | None:
     """Hour of the latest holder change (taken or cleared) that took `target` from `giver`."""
-    hours = [e["hour"] for e in sim.holder_changes(ws) if e["place"] == target and e.get("previous") == giver]
-    return max(hours) if hours else None
+    loss = _last_loss(ws, giver, target)
+    return loss[0] if loss else None
+
+
+def _last_loss(ws: WorldState, giver: str, target: str) -> tuple[int, int] | None:
+    """(hour, index in the append-only event log) of the latest holder change that took `target` from `giver`. The
+    index tells two losses in one hour apart (Codex review of #431)."""
+    found = [(e["hour"], i) for i, e in enumerate(ws.events) if e["kind"] in sim.HOLDER_CHANGE_KINDS
+             and e["place"] == target and e.get("previous") == giver]
+    return found[-1] if found else None
 
 
 def _retake(ws, giver, place, names) -> list[Offer]:
@@ -139,12 +147,12 @@ def _retake(ws, giver, place, names) -> list[Offer]:
         pl = ws.places[target]
         if pl.story_lock or target in homes or (pl.holder is not None and not sim._hostile(ws, giver, pl.holder)):
             continue
-        taken = _lost_hour(ws, giver, target)
+        taken, seq = _last_loss(ws, giver, target)
         expires = taken + RETAKE_OFFER_HOURS
         if expires <= ws.hour:
             continue
         text = _text("retake", names, giver=giver, target=target, holder=pl.holder)
-        out.append(Offer(f"retake:{giver}:{target}:{taken}", "retake", giver, place, target, RETAKE_TIER,
+        out.append(Offer(f"retake:{giver}:{target}:{taken}:{seq}", "retake", giver, place, target, RETAKE_TIER,
                          ws.hour, expires, text, {"holder": pl.holder, "taken_hour": taken}))
     return out
 
