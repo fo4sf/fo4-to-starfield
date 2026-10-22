@@ -141,7 +141,7 @@ class System:
         return code.value if ok else None
 
     def spawn(self, argv, out_path):
-        with open(out_path, "ab") as log:                 # the child keeps its own copy of the handle
+        with open(out_path, "wb") as log:                 # the child keeps its own copy of the handle
             return subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
 
     def run(self, argv):
@@ -433,12 +433,17 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     say(f"Starfield running (process {pid})")
     armed = False
     out_path = None
+    pd_text = ""                    # ProcDump's report, folded at the attach check if it quit by then, else at the end
     if cw:
         argv = procdump_argv(values, pid)
         # ProcDump's own output goes to a side file first: it writes UTF-16 when redirected, which would leave
         # crashwatch.log spaced out; fold_output appends it decoded once ProcDump has ended
         out_path = os.path.join(values["crash_watch.folder"], f"procdump_{pid}.out")
         before = dump_names(values["crash_watch.folder"])
+        try:                        # a report left by an earlier ProcDump on a reused process id is not this run's
+            os.remove(out_path)
+        except FileNotFoundError:
+            pass
         try:
             proc = system.spawn(argv, out_path)
         except OSError as e:
@@ -452,7 +457,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             why = f"ProcDump exited at once (code {rc})" if rc is not None and pid in system.pids() else ""
             armed = not why
             if rc is not None:
-                fold_output(out_path, log_path)
+                pd_text = fold_output(out_path, log_path)
         if armed:
             _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
             say(f"crash watcher armed on process {pid} ({values['crash_watch.dump']} dumps)")
@@ -469,11 +474,10 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - up_since), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")
-    pd_text = ""
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
-            pd_text = fold_output(out_path, log_path)
+            pd_text += fold_output(out_path, log_path)
         except subprocess.TimeoutExpired:
             say(f"ProcDump is still running {dump_wait_s:g} s after the game ended (a dump still being written?); "
                 "left running: never kill it mid-dump")

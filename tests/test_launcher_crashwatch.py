@@ -15,20 +15,29 @@ from fo4sf.launcher import crashwatch, settings  # noqa: E402
 class FakeProc:
     def __init__(self, sys_, argv, out_path=None):
         self.sys, self.argv, self.out_path = sys_, argv, out_path
+        self.reported = False
+
+    def report(self):
+        # ProcDump writes its dump and appends its own report, in UTF-16 as on the PC, to the file spawn opened
+        if self.reported or not self.sys.dump_name:
+            return
+        self.reported = True
+        with open(os.path.join(self.argv[-1], self.sys.dump_name), "wb") as f:
+            f.write(b"MDMP")
+        with open(self.out_path, "ab") as f:
+            f.write(("[12:00:00]Dump 1 initiated\r\n" + ("[12:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n"
+                     if self.sys.dump_completes else "[12:00:02]Dump 1 error writing dump file\r\n"))
+                    .encode("utf-16-le"))
 
     def poll(self):
+        if self.sys.procdump_quits is not None:
+            self.report()
         return self.sys.procdump_quits
 
     def wait(self, timeout=None):
         if self.sys.procdump_hangs:
             raise crashwatch.subprocess.TimeoutExpired(self.argv, timeout)
-        if self.sys.dump_name:
-            with open(os.path.join(self.argv[-1], self.sys.dump_name), "wb") as f:
-                f.write(b"MDMP")
-            with open(self.out_path, "wb") as f:              # ProcDump's own report, in UTF-16 as on the PC
-                f.write(("[12:00:00]Dump 1 initiated\r\n" + ("[12:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n"
-                         if self.sys.dump_completes else "[12:00:02]Dump 1 error writing dump file\r\n"))
-                        .encode("utf-16-le"))
+        self.report()
         return 0
 
 
@@ -324,6 +333,26 @@ class CrashWatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             crashwatch.watch(self.values(crash_watch__dump="full"), system=FakeSystem([], free=30.0),
                              say=self.said.append)
+
+    def test_a_stale_procdump_report_never_confirms_a_new_dump(self):
+        # a report left by an earlier ProcDump on a reused process id must not count for this run's dump
+        with open(os.path.join(self.dumps, "procdump_42.out"), "wb") as f:
+            f.write("[11:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n".encode("utf-16-le"))
+        sys_ = FakeSystem([(42, 0, 300, 0xC0000005)])
+        sys_.started_at = sys_.t
+        sys_.dump_name, sys_.dump_completes = "Starfield.exe_261022_030000.dmp", False
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertTrue(r[0]["dumps_unconfirmed"])
+        self.assertNotIn("11:00:02", self.log())
+
+    def test_a_report_read_at_the_attach_check_still_confirms_the_dump(self):
+        # the game crashed inside the attach check: ProcDump wrote its dump and quit before the watcher looked
+        sys_ = FakeSystem([(43, 0, 20 + crashwatch.ATTACH_CHECK_S - 1, 0xC0000005)])   # settle_s is 20
+        sys_.started_at = sys_.t
+        sys_.dump_name, sys_.procdump_quits = "Starfield.exe_261022_040000.dmp", 1
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(r[0]["dumps"], ["Starfield.exe_261022_040000.dmp"])
+        self.assertNotIn("dumps_unconfirmed", r[0])
 
     def test_decoder_keeps_characters_outside_latin1(self):
         data = b"ProcDump v11.0\r\n" + "Dump folder: D:\\\u30c0\u30f3\u30d7\\\r\n".encode("utf-16-le")
