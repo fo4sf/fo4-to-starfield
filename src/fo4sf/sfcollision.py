@@ -35,6 +35,9 @@ def _build_table():
 
 LINEAR = _build_table()
 MIN_HALF = 0.005
+# door leaf boxes: a flat leaf (zero thickness on one axis) gets this half-extent. Was 0.02, the exact value every Red
+# Rocket crash dump reads as an index (rcx 0x3ca3d70a, docs/spikes/red-rocket-crash-bisect.md); thick leaves never crash
+MIN_LEAF_HALF = 0.05
 
 
 class CollisionError(ValueError):

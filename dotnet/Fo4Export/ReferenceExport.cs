@@ -59,6 +59,7 @@ public static class ReferenceExport
                 keyword_or_reference = link.KeywordOrReference.IsNull ? null : link.KeywordOrReference.FormKey.ToString(),
                 reference = link.Reference.IsNull ? null : link.Reference.FormKey.ToString(),
             }).ToArray(),
+            scripts = ScriptExport.Scripts(r),
             teleport_destination = teleport == null ? null : new
             {
                 door = teleport.Door.IsNull ? null : teleport.Door.FormKey.ToString(),
