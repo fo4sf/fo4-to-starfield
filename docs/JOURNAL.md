@@ -2008,7 +2008,9 @@ launcher started the game, with FO4Port moved from first to after FO4SFMission
 (docs/testing/load-order.md). The map markers: the mover log shows the quest
 started at 55 s and moved all four markers at 70 s (first position read FLT_MAX),
 and the owner saw the four icons on the surface map after coming back to the area
-(PASS, with the first-read delay open). The launcher: the owner's desktop shortcut
+(placement and fast travel PASS, with the first-read delay open; the icons read the
+location name instead of their own, and the Concord arrival was half in the ground,
+so the #483 override installed at 19:32 UTC still needs its in-game check). The launcher: the owner's desktop shortcut
 opened the window and started the game (the owner's word, "it works").
 
 The boundary (Interiors, PC run _f at a43afef, v6i): the Vault 95 exit after a coc

@@ -54,7 +54,10 @@ this save either, say so; that is the fix Bugs is working on.
 Back at Red Rocket: `player.getpos x`, `player.getpos y`, `player.getpos z`. Open the surface map, zoom out until the
 whole merged area shows, and take a Ctrl+Alt+L screenshot of it. (The 3D-view spots, Cydonia and the landing
 coordinates, are dropped: that was the border question, now answered.)
-Report: `Map: getpos X Y Z | screenshot taken YES`.
+On the same map, the four markers should now read their own names, Red Rocket Truck Stop, Sanctuary Hills, Vault 111
+and Concord, not "COMMONWEALTH 00 (FO4 TERRAIN)" (the fix installed at 19:32 UTC). Then fast travel to Concord: you
+should arrive standing on the ground, not in it.
+Report: `Map: getpos X Y Z | screenshot taken YES | names: own / location | Concord arrival: on the ground / in it`.
 
 ### A5. Doors and prompts (Bugs and Interiors)
 

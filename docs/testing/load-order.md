@@ -19,8 +19,11 @@ verified beyond what each line says.
   unrelated line can sit between a master and the experiment. It refuses missing or disabled masters.
 - `scripts/game/map_markers_install.py order` moves `*FO4SFMapMarkers.esm` to the end; cycle.ps1 runs it before the
   bridge's order, so the planned read indexes of the experiment and FO4Port stay as they were (module doc).
-- The launcher (`src/fo4sf/launcher/crashwatch.py`, #449, #481) writes Plugins.txt only before start and only when the
-  bridge toggle changes; since #481 it compares the order at start and at exit and reports a change in its own output
+- The launcher (`src/fo4sf/launcher/crashwatch.py`, #449, #481, #487) writes Plugins.txt only before start: when the
+  bridge toggle changes, and, since #487 (merged 22 Oct, after the run below), through `scripts/game/load_order.py`
+  when the `load_order` setting is `fix` (the default) and the order differs from the target (`apply_load_order`,
+  run after the bridge step; `check` refuses a different order instead, `off` leaves the file alone). Since #481 it
+  compares the order at start and at exit and reports a change in its own output
   ("Plugins.txt load order changed while the game ran: ..."). The crashwatch.log line for it is written only when the
   crash watcher is on (`crash_watch.enabled`; `play()` has no log path otherwise), so an ordinary launcher run with
   the watcher off leaves no persistent record of the change.
@@ -35,8 +38,8 @@ verified beyond what each line says.
 - At 11:26:20 local, 25 s after the owner started the game through the launcher, Plugins.txt was rewritten (not by
   Install) as: FO4TerrainCore, FO4TerrainCore_Mars, FO4ActorRaider, FO4SFMission, FO4Port, FO4SFMapMarkers,
   FO4SFBridge, all active. The mission became 05, and `prid 05000811` worked in the afternoon session. The launcher
-  thread's reading of its own code is that the launcher did not write it (the bridge setting was unchanged), so the
-  rewrite is the game's; the cause is inferred, not traced.
+  thread's reading of its own code is that the launcher did not write it (the bridge setting was unchanged, and the
+  load-order fixer of #487 did not exist yet), so the rewrite is the game's; the cause is inferred, not traced.
 
 ## Consequences
 
