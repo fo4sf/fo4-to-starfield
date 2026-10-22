@@ -308,6 +308,23 @@ class CrashWatchTests(unittest.TestCase):
         r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
         self.assertEqual(r[0]["dumps"], ["Starfield.exe_261021_210000.dmp"])
 
+    def test_full_dumps_need_room_for_every_dump(self):
+        self.assertEqual(crashwatch.needed_free_gb(self.values()), 25.0)
+        self.assertEqual(crashwatch.needed_free_gb(self.values(crash_watch__dump="full")), 40.0)       # -n 2
+        self.assertEqual(crashwatch.needed_free_gb(self.values(crash_watch__dump="full",
+                                                               crash_watch__dump_on_exit=False)), 25.0)
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(crash_watch__dump="full"), FakeSystem([(5, 0, 100, 0)], free=30.0))
+        self.assertIn("room for 2 full dumps", str(e.exception))
+        with self.assertRaises(ValueError):
+            crashwatch.watch(self.values(crash_watch__dump="full"), system=FakeSystem([], free=30.0),
+                             say=self.said.append)
+
+    def test_decoder_keeps_characters_outside_latin1(self):
+        data = b"ProcDump v11.0\r\n" + "Dump folder: D:\\\u30c0\u30f3\u30d7\\\r\n".encode("utf-16-le")
+        self.assertEqual(crashwatch.decode_mixed(data), "ProcDump v11.0\r\nDump folder: D:\\\u30c0\u30f3\u30d7\\\r\n")
+        self.assertEqual(crashwatch.decode_mixed(b"just text\n"), "just text\n")
+
     def test_watch_counts_seconds_from_when_the_game_appeared(self):
         sys_ = FakeSystem([(31, 300, 900, 0)])
         sys_.started_at = sys_.t                                  # the watch begins 300 s before the game shows up

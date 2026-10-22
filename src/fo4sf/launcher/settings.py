@@ -31,7 +31,8 @@ SPEC = (
      "dump is small; with dump=full it is the whole game). On by the owner's choice, 2026-10-21."),
     ("crash_watch.folder", "", str, "where dumps and crashwatch.log go (required when the watcher is on)."),
     ("crash_watch.procdump", "", str, "path to procdump64.exe (required when the watcher is on)."),
-    ("crash_watch.min_free_gb", 25.0, float, "the watcher is not armed when the dump folder's drive has less free."),
+    ("crash_watch.min_free_gb", 25.0, float, "the watcher is not armed when the dump folder's drive has less free; with dump=full it also needs about "
+     "20 GB for each dump ProcDump may write (two with dump_on_exit on)."),
     ("crash_watch.settle_s", 20.0, float,
      "seconds the game must stay up before ProcDump attaches. The old watcher attached at the instant of start (-w), "
      "the leading lead for Steam's ERROR 84."),

@@ -61,6 +61,24 @@ def exit_name(code):
     return f"0x{code:08X} {EXIT_NAMES.get(code, 'not a known crash code')}"
 
 
+FULL_DUMP_GB = 20.0          # one -ma dump of the game: about 18 GB on the owner's PC
+
+
+def needed_free_gb(values):
+    """Free space the watcher needs: the floor, and with full dumps room for every dump ProcDump may write (-n)."""
+    n = 2 if values["crash_watch.dump_on_exit"] else 1
+    full = FULL_DUMP_GB * n if values["crash_watch.dump"] == "full" else 0.0
+    return max(values["crash_watch.min_free_gb"], full)
+
+
+def free_floor_text(values):
+    need = needed_free_gb(values)
+    if need > values["crash_watch.min_free_gb"]:
+        return (f"{need:g} GB, room for {int(need // FULL_DUMP_GB)} full dumps of about {FULL_DUMP_GB:g} GB "
+                "(crash_watch.dump=full)")
+    return f"crash_watch.min_free_gb {values['crash_watch.min_free_gb']:g}"
+
+
 def procdump_argv(values, pid):
     """ProcDump's command line for one game process."""
     cw = lambda k: values["crash_watch." + k]          # noqa: E731
@@ -143,22 +161,16 @@ class System:
 
 
 def decode_mixed(data):
-    """ProcDump's redirected output mixes 8-bit text (its banner) with UTF-16LE (the rest), at any byte offset: read
-    each character as one byte, or as two when the second is a zero (seen on the PC, 2026-10-22)."""
-    out, i, n = [], 0, len(data)
-    if data.startswith(b"\xff\xfe"):
-        i = 2
-    while i < n:
-        b = data[i]
-        if i + 1 < n and data[i + 1] == 0 and b != 0:
-            out.append(chr(b))                    # a UTF-16LE unit; ProcDump's text is Latin-1 range
-            i += 2
-        elif b == 0:
-            i += 1
-        else:
-            out.append(bytes([b]).decode("cp1252", errors="replace"))
-            i += 1
-    return "".join(out)
+    """ProcDump's redirected output starts with 8-bit text (its banner) and goes on in UTF-16LE, at any byte offset
+    (seen on the PC, 2026-10-22): 8-bit up to the first two-byte unit with a zero high byte, UTF-16LE from there on,
+    so a character outside Latin-1 in a path keeps both its bytes (Codex, #449)."""
+    i = 2 if data.startswith(b"\xff\xfe") else 0
+    start = i
+    while i + 1 < len(data) and not (data[i] != 0 and data[i + 1] == 0):
+        i += 1
+    if i + 1 >= len(data):                          # no UTF-16 at all
+        return data[start:].replace(b"\x00", b"").decode("cp1252", errors="replace")
+    return data[start:i].decode("cp1252", errors="replace") + data[i:].decode("utf-16-le", errors="replace")
 
 
 def fold_output(out_path, log_path):
@@ -338,9 +350,8 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             bad.append(f"crash_watch.procdump: {values['crash_watch.procdump']} not found")
         if values["crash_watch.folder"]:
             free = system.free_gb(values["crash_watch.folder"])
-            if free < values["crash_watch.min_free_gb"]:
-                bad.append(f"crash watcher: {free:.1f} GB free for dumps, under crash_watch.min_free_gb "
-                           f"{values['crash_watch.min_free_gb']:g}")
+            if free < needed_free_gb(values):
+                bad.append(f"crash watcher: {free:.1f} GB free for dumps, under {free_floor_text(values)}")
     if values["route"] == "exe" and not os.path.isfile(os.path.join(starfield, GAME_EXE)):
         bad.append(f"route=exe: {GAME_EXE} not found in {starfield}")
     if system.pids():
@@ -483,9 +494,8 @@ def watch(values, system=None, say=print, pid=None, repeat=False, start_timeout_
         bad.append(f"crash_watch.procdump: {values['crash_watch.procdump']} not found")
     if values["crash_watch.folder"]:
         free = system.free_gb(values["crash_watch.folder"])
-        if free < values["crash_watch.min_free_gb"]:
-            bad.append(f"crash watcher: {free:.1f} GB free for dumps, under crash_watch.min_free_gb "
-                       f"{values['crash_watch.min_free_gb']:g}")
+        if free < needed_free_gb(values):
+            bad.append(f"crash watcher: {free:.1f} GB free for dumps, under {free_floor_text(values)}")
     if bad:
         raise ValueError("; ".join(bad))
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log")
@@ -507,9 +517,8 @@ def watch(values, system=None, say=print, pid=None, repeat=False, start_timeout_
     while True:
         if results:                                 # each dump takes room: the floor holds for every game (Codex, #449)
             free = system.free_gb(values["crash_watch.folder"])
-            if free < values["crash_watch.min_free_gb"]:
-                why = (f"{free:.1f} GB free for dumps, under crash_watch.min_free_gb "
-                       f"{values['crash_watch.min_free_gb']:g}; not watching the next game")
+            if free < needed_free_gb(values):
+                why = f"{free:.1f} GB free for dumps, under {free_floor_text(values)}; not watching the next game"
                 _log(log_path, f"watch stopped: {why}")
                 say(f"crash watcher stopped: {why}")
                 results.append({"started": False, "stopped": why})
