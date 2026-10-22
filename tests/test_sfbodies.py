@@ -287,6 +287,21 @@ class SfBodiesTests(unittest.TestCase):
                 sfbodies.blob_bodies(convex_blob(v, f, quat=quat))
         self.assertEqual(len(sfbodies.blob_bodies(convex_blob(v, f, quat=(0, 0, 0.6, 0.8)))), 1)
 
+    def test_ball_of_an_unused_hull_vertex_does_not_grow_when_turned(self):
+        # The vertex no face uses was a cube of the convex radius; turned 45 degrees about z its corners widened the x / y
+        # bounds from 0.5 to 0.71 m, which could make a collision beside the mesh overlap it.
+        v, f = cube((0, 0, 0), (1, 1, 1))
+        blob = convex_blob(v + [(10, 0, 0)], f, radius=0.5)
+        c = 0.5 ** 0.5
+        n = sfnif.build_static_nif(b"Test", [], child_collision_blobs=[(blob, (0, 0, 0), (c, -c, 0, c, c, 0, 0, 0, 1))])
+        pts = [p for t in sfbodies.nif_bodies(nif.serialize(n))[0]["triangles"] for p in t]
+        far = 10 * c
+        self.assertLessEqual(max(p[0] for p in pts), far + 0.5 + 1e-6)
+        self.assertLessEqual(max(p[1] for p in pts), far + 0.5 + 1e-6)
+        self.assertGreater(max(p[0] for p in pts), far)
+        unturned = [p for t in sfbodies.blob_bodies(blob)[0]["triangles"] for p in t]
+        self.assertAlmostEqual(max(p[0] for p in unturned), 10.5, places=5)    # exact bounds when not turned
+
     def test_nif_node_transform_places_each_body(self):
         v, f = cube((0, 0, 0), (1, 1, 1))
         blob = convex_blob(v, f)

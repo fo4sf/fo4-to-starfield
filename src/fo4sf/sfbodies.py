@@ -144,10 +144,7 @@ def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> Li
     stride = tf.size_of(vit.type) or 12
     verts = [struct.unpack_from("<3f", b, va + stride * k) for k in range(nv)]
     if kind == "hknpSphereShape":
-        c, rr = verts[0], radius
-        o = [(c[0] + rr, c[1], c[2]), (c[0] - rr, c[1], c[2]), (c[0], c[1] + rr, c[2]), (c[0], c[1] - rr, c[2]),
-             (c[0], c[1], c[2] + rr), (c[0], c[1], c[2] - rr)]
-        return [(o[a], o[bb], o[z]) for a in (0, 1) for bb in (2, 3) for z in (4, 5)]
+        return _ball_triangles(verts[0], radius)
     fa, nf, _ = r.target(shape_at + hull.offset + _field(tf, hull.type, "faces").offset)
     ia, ni, _ = r.target(shape_at + hull.offset + _field(tf, hull.type, "indices").offset)
     centre = tuple(sum(v[a] for v in verts) / nv for a in range(3))
@@ -172,8 +169,15 @@ def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> Li
             poly = [tuple(p[a] + radius * n[a] for a in range(3)) for p in poly]
         tris += [(poly[0], poly[j], poly[j + 1]) for j in range(1, cnt - 1)]
     for i in sorted(set(range(nv)) - used):            # on no face, still in the hull Havok's support mapping walks
-        tris += box_triangles(verts[i], (radius, radius, radius))
+        tris += _ball_triangles(verts[i], radius)
     return tris
+
+
+def _ball_triangles(c, radius) -> List[Tri]:
+    """A ball of the convex radius as the octahedron of its six axis points: exact bounds unturned, and a turn never
+    takes a point outside the ball (a cube's corners would widen the bounds by up to sqrt(3) x radius)."""
+    o = [tuple(c[a] + (s * radius if a == axis else 0.0) for a in range(3)) for axis in range(3) for s in (1, -1)]
+    return [(o[a], o[bb], o[z]) for a in (0, 1) for bb in (2, 3) for z in (4, 5)]
 
 
 def _compound_triangles(r: _Reader, cs_at: int, cs_type: int, depth: int = 0) -> List[Tri]:
