@@ -28,6 +28,25 @@ def offsets(data, needle):
     return out
 
 
+def items(buf, start, end):
+    """Yield ('GRUP', off, group end) or (type, off, form id) in [start, end), refusing anything that overruns it."""
+    off = start
+    while off < end:
+        if off + 24 > end:
+            raise ValueError(f"truncated item header at {off}")
+        typ, size, _flags, fid = struct.unpack_from("<4sIII", buf, off)
+        if typ == b"GRUP":
+            if size < 24 or off + size > end:
+                raise ValueError(f"group at {off} runs past its container ({off + size} > {end})")
+            yield "GRUP", off, off + size
+            off += size
+        else:
+            if off + 24 + size > end:
+                raise ValueError(f"{typ.decode('ascii', 'replace')} {fid:08X} at {off} runs past its container")
+            yield typ, off, fid
+            off += 24 + size
+
+
 def plugin_hits(path, needle):
     """[{type, form_id, edid, field, at}] for every field of every record holding needle."""
     hits = []
@@ -37,11 +56,11 @@ def plugin_hits(path, needle):
         stack = [(p.body, len(p.buf))]
         while stack:
             start, end = stack.pop()
-            for item in fo4land.iter_items(p.buf, start, end):
+            for item in items(p.buf, start, end):
                 if item[0] == "GRUP":
                     stack.append((item[1] + 24, item[2]))
                     continue
-                typ, off, _flags, fid = item
+                typ, off, fid = item
                 data = fo4land.record_data(p.buf, off)
                 if needle not in data:
                     continue
@@ -71,12 +90,20 @@ def scan_file(path, needle):
     return {"file": path, "count": len(found), "offsets": found[:16]}
 
 
+def _raise(error):
+    raise error
+
+
 def walk(paths, exts):
+    """Every file under the given paths. A missing path or an unreadable folder raises: an empty scan of the wrong place
+    must not read as "the value is absent"."""
     for p in paths:
         if os.path.isfile(p):
             yield p
             continue
-        for root, _dirs, names in os.walk(p):
+        if not os.path.isdir(p):
+            raise FileNotFoundError(f"no such file or folder: {p}")
+        for root, _dirs, names in os.walk(p, onerror=_raise):
             for n in sorted(names):
                 if not exts or os.path.splitext(n)[1].lower() in exts:
                     yield os.path.join(root, n)
@@ -96,7 +123,11 @@ def main(argv=None):
     exts = {e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower()
             for e in a.ext.split(",") if e.strip()}
     results, scanned, errors = [], 0, 0
-    for path in walk(a.paths, exts):
+    try:
+        files = list(walk(a.paths, exts))
+    except OSError as e:
+        sys.exit(f"value_scan: {e}")
+    for path in files:
         try:
             r = scan_file(path, needle)
         except Exception as e:  # noqa: BLE001  (a damaged file or record must not stop the scan)

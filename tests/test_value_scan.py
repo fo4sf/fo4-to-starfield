@@ -78,6 +78,20 @@ class ValueScan(unittest.TestCase):
                 self.assertEqual(vs.main([bad, "--hex", "3ca3d70a"]), 1)
             self.assertIn("1 unreadable", text.getvalue())
 
+    def test_a_record_cut_short_and_a_missing_folder_are_errors_not_empty_scans(self):
+        # Codex on #459: a plugin cut inside a record, and a misspelled folder, used to scan "clean"
+        with tempfile.TemporaryDirectory() as tmp:
+            cut = os.path.join(tmp, "cut.esm")
+            with open(cut, "wb") as f:
+                f.write(plugin()[:-10])
+            with self.assertRaises(ValueError):
+                vs.plugin_hits(cut, V)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(vs.main([cut]), 1)
+            with self.assertRaises(SystemExit) as stop, contextlib.redirect_stdout(io.StringIO()):
+                vs.main([os.path.join(tmp, "no_such_folder")])
+            self.assertIn("no such file or folder", str(stop.exception.code))
+
 
 if __name__ == "__main__":
     unittest.main()
