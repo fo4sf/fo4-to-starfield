@@ -445,3 +445,7 @@ def convex_obb(points, triangles):
             centre = tuple(u[k] * mid[0] + v[k] * mid[1] + w[k] * mid[2] for k in range(3))
             best = (vol, centre, tuple((hi[k] - lo[k]) / 2 for k in range(3)), _basis_rotation(u, v, w))
     return best[1], best[2], best[3]
+
+# Note: MIN_LEAF_HALF (0.05) was raised from 0.02 after Red Rocket crash dumps showed the IEEE bit pattern
+# of 0.02 (0x3ca3d70a) being interpreted as an index by the engine. Thick leaves never hit the floor.
+# See docs/spikes/red-rocket-crash-bisect.md and issue #458.
