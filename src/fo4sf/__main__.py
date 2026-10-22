@@ -5,6 +5,7 @@ python -m fo4sf status   # print config summary and optional manifest coverage (
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -30,16 +31,24 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  staging_dir: {paths.get('staging_dir', 'missing')}")
 
     if args.manifest:
-        return _print_manifest(Path(args.manifest))
+        rc = _print_manifest(Path(args.manifest))
+        _print_failure_summary(Path(args.manifest).parent)
+        return rc
 
     # Optional auto-discovery in staging_dir or work_dir
+    found = False
     for key in ("staging_dir", "work_dir"):
         d = paths.get(key)
         if d:
-            cand = Path(d) / "manifest.json"
+            base = Path(d)
+            cand = base / "manifest.json"
             if cand.is_file():
-                return _print_manifest(cand)
-    print("  Manifest: not found (run a conversion stage to generate one)")
+                _print_manifest(cand)
+                _print_failure_summary(base)
+                found = True
+                break
+    if not found:
+        print("  Manifest: not found (run a conversion stage to generate one)")
     return 0
 
 
@@ -60,6 +69,29 @@ def _print_manifest(manifest_path: Path) -> int:
         for k, v in sorted(summary["by_tier"].items()):
             print(f"    {k}: {v}")
     return 0
+
+
+
+def _print_failure_summary(base: Path) -> None:
+    """Print a short failure-summary if present next to the manifest."""
+    summary_path = base / "failure-summary.json"
+    if not summary_path.is_file():
+        return
+    try:
+        data = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"  failure-summary error: {e}", file=sys.stderr)
+        return
+    attempted = data.get("attempted", 0)
+    successes = data.get("successes", 0)
+    total_fail = data.get("total_failures", 0)
+    pct = data.get("success_percent", 0.0)
+    print(f"\n  Latest batch: {successes}/{attempted} succeeded ({pct}%), {total_fail} failures")
+    top = data.get("top") or []
+    if top:
+        print("  Top failure reasons:")
+        for item in top[:3]:
+            print(f"    {item.get('count', 0):4d} ({item.get('percent', 0):5.1f}%)  {item.get('reason', '')[:60]}")
 
 
 def main(argv: list[str] | None = None) -> int:
