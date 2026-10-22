@@ -336,6 +336,11 @@ def _growth(v: Verdict, sizes: dict, before: str, after: str) -> str:
 
 # ----------------------------------------------------------------------------------------------- P1
 
+def _is_int(x) -> bool:
+    """A JSON integer, not a bool (True == 1 in Python)."""
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
 def _sfse_events(lines: list[str] | None) -> list[tuple[int, dict, str]]:
     out = []
     for n, s in enumerate(lines or [], 1):
@@ -423,7 +428,7 @@ def check_p1(c: Collection) -> Verdict:
         if name not in post_saves:
             v.reasons.append(f"pre_save {name!r} without post_save")
             failed = True
-        if not isinstance(d.get("counter"), int) or isinstance(d.get("counter"), bool):
+        if not _is_int(d.get("counter")):
             v.reasons.append(f"pre_save {name!r} logs no integer counter: its sidecar and read-back cannot be tied to "
                              "this save event")       # Codex review of #431
             failed = True
@@ -441,7 +446,7 @@ def check_p1(c: Collection) -> Verdict:
             v.reasons.append(f"sidecar {fn} does not decode: {e}")
             failed = True
             continue
-        if ws.get("probe") != "P1" or not isinstance(ws.get("counter"), int):
+        if ws.get("probe") != "P1" or not _is_int(ws.get("counter")):
             v.reasons.append(f"sidecar {fn} world_state is not the P1 stub")
             failed = True
         elif ws.get("counter") != d.get("counter"):
@@ -453,7 +458,7 @@ def check_p1(c: Collection) -> Verdict:
             if d.get("found") is not True or d.get("valid") is not True:
                 v.reasons.append(f"post_load {name!r} found={d.get('found')} valid={d.get('valid')} for a saved name")
                 failed = True
-            elif d.get("counter") != pre[name].get("counter"):
+            elif not _is_int(d.get("counter")) or d.get("counter") != pre[name].get("counter"):   # True == 1 (Codex)
                 v.reasons.append(f"post_load {name!r} counter {d.get('counter')} is not the last pre_save counter "
                                  f"{pre[name].get('counter')}")
                 failed = True
@@ -1172,6 +1177,10 @@ def check_p9(c: Collection) -> Verdict:
         # real seconds since the start, not the script's nominal t: late timers must not shorten the walk
         # (Codex review of #431)
         t = e.rt - starts[-1].rt
+        if t < 0:                               # a sample before its start is not this walk (Codex review of #431)
+            v.cite(starts[-1], e)
+            v.reasons.append(f"a p9 sample is timed {t:.1f} s before the start")
+            return v
         d, p, cell, loaded = e.num("dist"), pos(e), e.form("cell"), e.flag("loaded")
         if None in (d, p) or loaded not in (True, False):   # a gap would hide a stall (Codex review of #431)
             v.cite(e)

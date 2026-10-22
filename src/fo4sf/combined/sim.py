@@ -376,7 +376,8 @@ def _defence(ws: WorldState, place: str) -> int:
 
 def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
     shielded = _story_shielded(ws)            # a story that became active after dispatch still shields (Codex, #431)
-    for qid in sorted(ws.squads):
+    # garrisons last: one due home this hour still meets an attack due this hour (Codex review of #431)
+    for qid in sorted(ws.squads, key=lambda i: (ws.squads[i].kind == "garrison", i)):
         q = ws.squads.get(qid)
         if q is None or q.eta > ws.hour:      # None: a garrison consumed by an attack this tick
             continue
@@ -436,12 +437,13 @@ def player_helped(ws: WorldState, faction: str, amount: int = 10) -> None:
     reputation.helped(ws, faction, amount)
 
 
-def player_defended(ws: WorldState, place: str, bonus: int = PLAYER_DEFENCE_BONUS) -> str:
+def player_defended(ws: WorldState, place: str, bonus: int = PLAYER_DEFENCE_BONUS,
+                    hours: int = PLAYER_DEFENCE_HOURS) -> str:
     """The player stands guard: a garrison squad adds `bonus` defence to the next attack on `place`
-    (spent by that attack, or gone after PLAYER_DEFENCE_HOURS). Fame with the holder, if any.
+    (spent by that attack, or gone after `hours`, PLAYER_DEFENCE_HOURS by default). Fame with the holder, if any.
     Returns the garrison squad id."""
     q = Squad(id=_new_id(ws, "g"), faction="player", size=bonus, at=place, goal=place,
-              kind="garrison", eta=ws.hour + PLAYER_DEFENCE_HOURS)
+              kind="garrison", eta=ws.hour + hours)
     ws.squads[q.id] = q
     holder = ws.places[place].holder
     if holder is not None and holder in ws.reputation:

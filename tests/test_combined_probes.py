@@ -210,6 +210,12 @@ class P1Tests(unittest.TestCase):
         c.sfse_log.insert(i, load)
         self.assertEqual(probes.check_p1(c).verdict, INCONCLUSIVE)
 
+    def test_a_bool_post_load_counter_is_not_a_match(self):
+        # Codex review of #431: JSON true == 1 in Python
+        c = p1_collection(loads=False, extra_sfse=[json.dumps({"event": "post_load", "save": "focc_p1_a",
+                                                                "found": True, "valid": True, "counter": True})])
+        self.assertNotEqual(probes.check_p1(c).verdict, PASS)
+
     def test_post_load_not_found_fails(self):
         c = p1_collection(loads=False, extra_sfse=[json.dumps({"event": "post_load", "save": "focc_p1_a",
                                                                 "found": False, "valid": False})])
@@ -878,6 +884,12 @@ class P9Tests(unittest.TestCase):
         # Codex review of #431: a sample without loaded= would reset the stuck window
         log = p9_log(stuck_from=100)
         log = [l.replace(" loaded=True", "") if " p9 sample " in l and i % 10 == 0 else l for i, l in enumerate(log)]
+        self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
+
+    def test_samples_before_the_start_are_not_the_walk(self):
+        # Codex review of #431: increasing times that still precede the start
+        log = [re.sub(r"^FOCC rt=([0-9.]+) ", lambda m: f"FOCC rt={float(m.group(1)) - 1000:.1f} ", l)
+               if " p9 sample " in l else l for l in p9_log()]
         self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
 
     def test_the_deadline_is_real_time(self):

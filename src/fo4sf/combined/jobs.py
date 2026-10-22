@@ -286,7 +286,10 @@ def complete(ws: WorldState, offer: Offer) -> dict:
         raise ValueError(f"cannot complete {offer.id}: {reason}")
     d, changed = offer.detail, {"kind": offer.kind, "target": offer.target}
     if offer.kind == "defend":
-        changed["garrison"] = sim.player_defended(ws, offer.target)
+        # the garrison outlasts the attack it was asked to meet (Codex review of #431)
+        q = ws.squads[d["squad"]]
+        changed["garrison"] = sim.player_defended(ws, offer.target,
+                                                  hours=max(sim.PLAYER_DEFENCE_HOURS, q.eta - ws.hour))
     elif offer.kind == "escort":
         q = ws.squads.pop(d["squad"])                       # delivered now: nothing left to raid
         dest = ws.settlements.get(q.goal)

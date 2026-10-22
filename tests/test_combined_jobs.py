@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -155,6 +156,20 @@ class DefendTests(unittest.TestCase):
         self.assertEqual(by_kind(jobs.offers(ws, "market"), "defend"), [])   # a garrison stands: not offered twice
         with self.assertRaises(ValueError):
             jobs.complete(ws, o)
+
+    def test_the_garrison_meets_a_late_attack(self):
+        # Codex review of #431: an attack due at or after PLAYER_DEFENCE_HOURS still meets the job's garrison
+        for hours in (sim.PLAYER_DEFENCE_HOURS, sim.PLAYER_DEFENCE_HOURS + 30):
+            ws = quiet(world())
+            qid = attack(ws, size=6, hours=hours)
+            eta = ws.squads[qid].eta
+            changed = jobs.complete(ws, by_kind(jobs.offers(ws, "market"), "defend")[0])
+            self.assertGreaterEqual(ws.squads[changed["garrison"]].eta, eta)
+            seen = []
+            real = sim._defence
+            with mock.patch.object(sim, "_defence", lambda w, p: seen.append(sim._garrisons(w, p)) or real(w, p)):
+                sim.run(ws, eta - ws.hour)
+            self.assertEqual(seen, [[changed["garrison"]]], hours)
 
     def test_expires_when_the_attack_arrives(self):
         ws = quiet(world())
