@@ -23,6 +23,9 @@ FO4SF_Probe.Resolve / MoveTo (the scripted door's Step 0, 2026-10-16) write key=
     FO4SF target ...   (MoveTo's own lookup of its destination, the same fields)
     FO4SF moveto plugin=FO4TerrainCore.esm id=2048 offset=-1200.000000 -2700.000000 0.000000 phase=after pos=.. ang=..
           cell=.. cellname=.. world=.. worldname=.. loaded=..       (phase before | after | settled | refused)
+FO4SF_Probe.Stage (proposed, docs/testing/probe-stage.md; not in the shipped script yet) would write:
+    FO4SF stage plugin=FO4SFNewGame.esm id=2049 form=16779265 quest=true stage=10 running=true completed=false name=MQ101
+    FO4SF stage plugin=FO4SFNewGame.esm id=2049 form=none
 """
 import argparse
 import json
@@ -120,18 +123,20 @@ def parse_event(s):
     return parse_probe(s)
 
 
-PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto) (?P<rest>[a-z]+=.*?)\s*$", re.I)
+PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto|stage) (?P<rest>[a-z]+=.*?)\s*$", re.I)
 _IDS = ("form", "cell", "world")                           # signed decimal form ids (or none) -> 8 hex
-_BOOLS = ("ref", "disabled", "loaded")
+_BOOLS = ("ref", "disabled", "loaded", "quest", "running", "completed")
+_INTS = ("id", "stage")
 _VECS = ("pos", "offset")
 _NUM = r"-?\d+(?:\.\d+)?"
 
 
 def parse_probe(s):
-    """A FO4SF_Probe.Resolve / MoveTo line (module doc) as {"kind": resolve | target | moveto, "plugin", "id" (the
+    """A FO4SF_Probe.Resolve / MoveTo / Stage line (module doc) as {"kind": resolve | target | moveto | stage, "plugin", "id" (the
     plugin-local id, int), and what the line has of: "form" (8 hex, None for none), "ref", "pos", "ang", "cell" /
     "world" (8 hex or None), "cellname" / "worldname" (str, "" when the game kept no editor id), "disabled", "loaded",
-    "offset", "phase"}; None for anything else or a torn line (a value that does not parse)."""
+    "offset", "phase"; a stage line: "quest", "stage" (int), "running", "completed", "name"}; None for anything else
+    or a torn line (a value that does not parse)."""
     m = PROBE.match(s.strip())
     if not m:
         return None
@@ -147,7 +152,7 @@ def parse_probe(s):
     try:
         for k, vals in fields.items():
             v = " ".join(vals)
-            if k == "id":
+            if k in _INTS:
                 out[k] = int(v)
             elif k in _IDS:
                 out[k] = None if v == "none" else f"{int(v) & 0xFFFFFFFF:08X}"
@@ -161,7 +166,7 @@ def parse_probe(s):
                 out[k] = [float(x) for x in vals]
             elif k == "ang":
                 out[k] = float(v)
-            else:                                          # plugin, cellname, worldname, phase
+            else:                                          # plugin, cellname, worldname, phase, name
                 out[k] = v
     except ValueError:
         return None
@@ -245,8 +250,11 @@ def read_lines(path):
 
 
 def clock_age(clock, now=None):
-    """Seconds between a line's "[HH:MM:SS]" stamp (the game's clock, the same PC) and now; None for no stamp. The
-    stamp has whole seconds, so an age is 0..1 s coarse; a stamp ahead of now (midnight passed) counts as 24 h less."""
+    """Seconds between a line's "[HH:MM:SS]" stamp (the game's clock, the same PC) and now; None for no stamp.
+    The stamp has whole seconds, so an age is 0..1 s coarse. Stamps are assumed to be in the past within 24 h.
+    A negative raw age (stamp later in the day than now) is treated as yesterday (+24 h). This correctly handles
+    afternoon stamps when the current time is early morning (#213). Small future skews become ~24 h old and are
+    rejected as not fresh by latest()."""
     m = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})", clock or "")
     if not m:
         return None
@@ -255,7 +263,7 @@ def clock_age(clock, now=None):
     secs_now = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
     secs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
     age = secs_now - secs
-    if age < -43200:
+    if age < 0:                                            # yesterday or small future skew
         age += 86400
     return age
 

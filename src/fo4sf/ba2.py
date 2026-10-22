@@ -1,4 +1,5 @@
-"""BA2 archive reader for Fallout 4 (v1) and Starfield (v2): general files and DX10 textures.
+"""BA2 archive reader for Fallout 4 (v1, and v7/v8 from the 2024 next-gen update, same layout as v1) and Starfield
+(v2, v3): general files and DX10 textures.
 
     a = Ba2("Fallout4 - Textures1.ba2")
     a.names                    # file names as stored (backslashes)
@@ -56,7 +57,9 @@ class Ba2:
             self.version, self.kind = version, kind.decode()
             if self.kind not in ("GNRL", "DX10"):
                 raise Ba2Error(f"{path}: unsupported archive type {self.kind}")
-            extra = {1: 0, 2: 8, 3: 12}.get(version)
+            # Fallout 4 next-gen and Anniversary archives say 7 or 8 but keep the v1 layout (xEdit and OpenMW read
+            # them the same way; research/framework/findings/versions-performance.md)
+            extra = {1: 0, 7: 0, 8: 0, 2: 8, 3: 12}.get(version)
             if extra is None:
                 raise Ba2Error(f"{path}: unsupported version {version}")
             self.compression = struct.unpack("<I", f.read(12)[8:12])[0] if version == 3 else 0
@@ -140,6 +143,33 @@ class Ba2:
                     packed += pk or up
                     unpacked += up
         return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
+
+    def largest_entries(self, n: int = 10) -> list:
+        """Return the n largest entries by unpacked size, useful for conversion planning.
+
+        Each item is a dict with name, kind, unpacked bytes, and packed bytes (0 if uncompressed).
+        For DX10 textures the unpacked size is the sum of chunk unpacked sizes (excluding the DDS header).
+        """
+        def unpacked_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.unpacked
+            return sum(c[2] for c in (e.chunks or []))   # c[2] is unpacked
+
+        def packed_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.packed or e.unpacked
+            return sum((c[1] or c[2]) for c in (e.chunks or []))
+
+        ranked = sorted(self.entries, key=unpacked_of, reverse=True)[:n]
+        return [
+            {
+                "name": e.name,
+                "kind": e.kind,
+                "unpacked": unpacked_of(e),
+                "packed": packed_of(e),
+            }
+            for e in ranked
+        ]
 
     @staticmethod
     def _norm(n: str) -> str:

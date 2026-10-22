@@ -14,6 +14,7 @@
 // removing assets never renumbers existing records (saves and cross-references keep working). Keys:
 //   STAT:<editor id>   MSTT:<editor id> (movable items)   DOOR:<editor id>   CELL:<cell name>
 //   REFR:<cell name>:<source FO4 FormKey>   (lights and COC markers use their source ref)
+//   LCTN:<editor id>   (one per FO4 location shared by its cells, one per cell without; Locations.cs)
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -48,6 +49,21 @@ FormKey Id(string key)
     }
     return new FormKey(modKey, v);
 }
+// load_door_anim.py sounds: a vanilla door's open / close sound (WWise start / stop events; condition and event mapping
+// FormKeys of Starfield.esm) on a rig entry of the manifest; null when the entry has none (every manifest before 2026-10-19)
+SoundReference? VanillaSound(JsonElement rig, string name)
+{
+    if (rig.ValueKind != JsonValueKind.Object || !rig.TryGetProperty(name, out var s) || s.ValueKind != JsonValueKind.Object) return null;
+    var r = new SoundReference { Start = Guid.Parse(s.GetProperty("start").GetString()!), Stop = Guid.Parse(s.GetProperty("stop").GetString()!) };
+    if (s.TryGetProperty("condition", out var c) && c.GetString() is string ck) r.Condition.SetTo(FormKey.Factory(ck));
+    if (s.TryGetProperty("mapping", out var m) && m.GetString() is string mk) r.EventMapping.SetTo(FormKey.Factory(mk));
+    return r;
+}
+
+// load_door_anim.py flags: the FO4 DOOR's FNAM flags (fo4_door_flags; same bits in Starfield, D13), only the six FO4 has;
+// 0 when the entry has none (every manifest before 2026-10-20), as before
+Door.Flag Fo4DoorFlags(JsonElement entry) =>
+    entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("fo4_door_flags", out var f) ? (Door.Flag)(f.GetInt32() & 0x7E) : 0;
 
 // ---- statics ----------------------------------------------------------------------------------------------------------
 var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable,
@@ -64,8 +80,10 @@ var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringCompa
 // FO4 reference FormKey -> the base of its own posed model (manifest "pose"); wins over bySource for that reference
 var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
+var xtelLoadBases = new Dictionary<FormKey, FormKey>();   // animated load door -> its copy with the vanilla load graph (XTEL refs)
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
-int doors = 0, loadDoors = 0, movables = 0, posed = 0;
+var modelOf = new Dictionary<FormKey, string>();   // STAT / MSTT base -> its model: what a promoted reference's new base carries
+int doors = 0, loadDoors = 0, animatedLoadDoors = 0, movables = 0, posed = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
     if (posedRefs.Count > 0 && (door is not null || loadDoor is not null))
@@ -83,6 +101,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         {
             EditorID = editorId, Model = new Model { File = model }, Name = "Door",
             SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+            Flags = Fo4DoorFlags(ld),
         };
         // newer manifests carry the model's bounds (metres, NIF space); older ones hold only a note string
         if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("bounds", out var lb))
@@ -91,8 +110,54 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
                 First = new P3Float(lb[0][0].GetSingle(), lb[0][1].GetSingle(), lb[0][2].GetSingle()),
                 Second = new P3Float(lb[1][0].GetSingle(), lb[1][1].GetSingle(), lb[1][2].GetSingle()),
             };
+        // load_door.anim (scripts/door_bridge/load_door_anim.py, convert_batch.py --rig-load-doors): the load door opens
+        // before the trip, as Starfield's own visible load doors do. The record takes the rig's graph, skeleton and
+        // clips (and the twin's rigged model when the rig is borrowed); references shift by the rig's origin offset as
+        // the opening doors' do. Without "anim" (every manifest before 2026-10-19) nothing here changes.
+        var loadOffset = new P3Float(0, 0, 0);
+        if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("anim", out var la) && la.ValueKind == JsonValueKind.Object)
+        {
+            var animModel = la.TryGetProperty("model", out var lm) && lm.GetString() is string twinModel ? twinModel : model;
+            rec.Model = new Model { File = animModel };
+            if (la.TryGetProperty("bounds", out var ab))
+                rec.ObjectBounds = new ObjectBounds
+                {
+                    First = new P3Float(ab[0][0].GetSingle(), ab[0][1].GetSingle(), ab[0][2].GetSingle()),
+                    Second = new P3Float(ab[1][0].GetSingle(), ab[1][1].GetSingle(), ab[1][2].GetSingle()),
+                };
+            rec.Components.Add(new AnimationGraphComponent
+            {
+                ANAM = la.GetProperty("anim_graph").GetString(), BNAM = la.GetProperty("skeleton").GetString(),
+                CNAM = la.GetProperty("animations").GetString(),
+            });
+            if (la.TryGetProperty("origin_offset", out var lo))
+                loadOffset = new P3Float(lo[0].GetSingle(), lo[1].GetSingle(), lo[2].GetSingle());
+            animatedLoadDoors++;
+            rec.OpenSound = VanillaSound(la, "open_sound");
+            rec.CloseSound = VanillaSound(la, "close_sound");
+            // xtel_anim_graph: the vanilla load graph of this rig (the Akila template's AK_Ext_Bld_WallA_DoorA_Load_01 1C42C2
+            // plays SimpleOpenClose02_Load.agx on the same skeleton and clips; PC read A1). Vanilla XTEL doors play a *_Load
+            // graph and scripted doors carry no XTEL, so the references that get an XTEL (TeleportLinks) are moved onto this
+            // copy of the record with the load graph, and the scripted ones (FO4SF_AnimatedLoadDoor) keep the record above.
+            if (la.TryGetProperty("xtel_anim_graph", out var xg) && xg.GetString() is string xtelGraph)
+            {
+                var xtel = new Door(Id("DOOR:" + editorId + ":xtel"), release)
+                {
+                    EditorID = editorId + "_XtelLoad", Model = new Model { File = animModel },
+                    Name = "Door", SoundLevel = rec.SoundLevel, FacingAxisOverride = rec.FacingAxisOverride, Flags = rec.Flags,
+                    ObjectBounds = rec.ObjectBounds.DeepCopy(),
+                    OpenSound = VanillaSound(la, "open_sound"), CloseSound = VanillaSound(la, "close_sound"),
+                };
+                xtel.Components.Add(new AnimationGraphComponent
+                {
+                    ANAM = xtelGraph, BNAM = la.GetProperty("skeleton").GetString(), CNAM = la.GetProperty("animations").GetString(),
+                });
+                mod.Doors.Add(xtel);
+                xtelLoadBases[rec.FormKey] = xtel.FormKey;
+            }
+        }
         mod.Doors.Add(rec);
-        bySource[source.Replace('/', '\\')] = (rec.FormKey, new P3Float(0, 0, 0));
+        bySource[source.Replace('/', '\\')] = (rec.FormKey, loadOffset);
         loadDoors++;
         continue;
     }
@@ -102,6 +167,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         // pushable set dressing; a Static never simulates. DATA 4 as every vanilla MSTT checked (SfInspect mstt).
         var ms = new MoveableStatic(Id("MSTT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model }, DATA = 4 };
         mod.MoveableStatics.Add(ms);
+        modelOf[ms.FormKey] = model;
         PosedBases.Register(byRef, bySource, source, posedRefs, (ms.FormKey, new P3Float(0, 0, 0)));
         movables++;
         continue;
@@ -115,7 +181,10 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
             Name = "Door",
             SoundLevel = SoundLevel.Normal,                                     // DEVT 1, as vanilla doors
             FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,     // trailing ANAM, as vanilla doors
+            Flags = Fo4DoorFlags(d),
         };
+        rec.OpenSound = VanillaSound(d, "open_sound");                         // load_door_anim.py sounds --ordinary-doors
+        rec.CloseSound = VanillaSound(d, "close_sound");
         if (d.TryGetProperty("bounds", out var bj))                            // vanilla doors have real bounds
             rec.ObjectBounds = new ObjectBounds
             {
@@ -139,9 +208,11 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
     }
     var stat = new Static(Id("STAT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model } };
     mod.Statics.Add(stat);
+    modelOf[stat.FormKey] = model;
     PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
-Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
+Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors" +
+                  (animatedLoadDoors > 0 ? $" ({animatedLoadDoors} open before the trip)" : "") + "; " +
                   $"{posed} of these are posed models for {byRef.Count} references");
 
 // FO4 / Starfield reference rotation (radians): Bethesda angles turn CLOCKWISE seen from the positive axis, so the matrix
@@ -159,7 +230,7 @@ static P3Float RotateOffset(P3Float v, P3Float r, float scale)
 }
 
 // Optional per-cell lighting overrides: <output dir>/lighting.json = { "<cell>": { "LIGHTING_TEMPLATE": "06BCF8", ... },
-// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, OMNI_LIGHT, LIGHT_MERGE_M.
+// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, ENV_MAP, OMNI_LIGHT, LIGHT_MERGE_M.
 // Lookup order: cell entry, "*" entry, environment variable, built-in default.
 var lightCfgPath = Path.Combine(outDir, "lighting.json");
 var lightCfg = File.Exists(lightCfgPath)
@@ -169,6 +240,17 @@ string Setting(string cell, string key, string fallback) =>
     lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
     : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w
     : Environment.GetEnvironmentVariable(key) ?? fallback;
+string? FileSetting(string cell, string key) =>
+    lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
+    : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w : null;
+
+// Interior promotions (Promotions.cs): <output dir>/promote.json, when present, gives FO4 containers, inventory items,
+// activators and terminals a native base of their kind instead of the STAT / MSTT their model would get.
+using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
+
+// Starfield locations (Locations.cs): every converted cell gets an LCTN, shared with the other cells of its FO4 location,
+// carrying the FO4 encounter zone's leveling; <output dir>/locations.json supplies the FO4 data for exports without it.
+using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release);
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -183,12 +265,20 @@ foreach (var cdoc in cellDocs)
     var src4 = root.GetProperty("cell").GetString()!;
     var cellName = "FO4Port_" + src4;
     var cell = new Cell(Id("CELL:" + cellName), release) { EditorID = cellName, Flags = Cell.Flag.IsInteriorCell };
+    cell.Location.SetTo(locations.For(root, src4).FormKey);
+    // CELL flag bit 16 "Use Location as Name" (no Mutagen member in alpha.67; the raw bit round-trips): off unless the
+    // per-cell setting asks for it, since which name the "Enter ..." prompt shows is still to be seen in game (D2). Read
+    // from lighting.json only (the cell's entry, then "*"), never the environment: a stray variable must not flip every cell.
+    if (FileSetting(src4, "LOCATION_AS_NAME") == "1") cell.Flags |= (Cell.Flag)0x10000;
     var ltHex = Setting(src4, "LIGHTING_TEMPLATE", "06BCF8");   // KreetBase01LGTtemplate (underground); ShipInteriorLT 006658 is brighter
     cell.LightingTemplate.SetTo(new FormKey(sfEsm, Convert.ToUInt32(ltHex, 16)));
     // exposure + reflections like the vanilla underground interior DR017UndergroundInterior (25CAA7): without these the cell
     // reflects a bright default sky and auto-exposure washes everything out
     cell.ImageSpace.SetTo(new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "IMAGE_SPACE", "122393"), 16)));
-    cell.EnvironmentMap = Environment.GetEnvironmentVariable("ENV_MAP") ?? "Data\\Textures\\cubemaps\\blackcube.dds";
+    // ENV_MAP is a per-cell setting. Default: the vanilla hall cubemap (ssPirateShip01Interior's). The library under
+    // blackcube.dds was black away from placed lights; with this cube the owner judged it "fine" (18 Oct, FO4Port.esm
+    // 5204188f; research log 2026-10-18). Set "blackcube.dds" per cell to get the old look back.
+    cell.EnvironmentMap = Setting(src4, "ENV_MAP", "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds");
     var cocMarker = new FormKey(sfEsm, 0x000032);                                        // COCMarkerHeading
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);
@@ -217,6 +307,12 @@ foreach (var cdoc in cellDocs)
         {
             if (!PosedBases.TryResolve(byRef, bySource, src, model, out var bas)) { skipped++; continue; }
             if (byRef.ContainsKey(src)) placedPosed++;
+            if (promotions.Has(src))
+            {
+                if (byRef.ContainsKey(src)) promotions.Kept(src, "own posed model");
+                else if (!modelOf.TryGetValue(bas.key, out var baseModel)) promotions.Kept(src, "door base");
+                else bas = (promotions.Base(src, baseModel, mod, Id, release), bas.offset);
+            }
             var scale = r.GetProperty("scale").GetSingle();
             var rot = Rot(r.GetProperty("rot"));
             var pos = Pos(r.GetProperty("pos"));
@@ -244,7 +340,15 @@ foreach (var cdoc in cellDocs)
             obj.MajorRecordFlagsRaw |= 0x800;                                              // Initially Disabled, as in FO4
             disabled++;
         }
-        cell.Temporary.Add(obj);
+        // The coc arrival marker is persistent: a script, probe or new-game start must resolve it before the cell has
+        // loaded (FO4Port_Vault111Cryo had 0 persistent refs of 1,166, records report 21 Oct). Moving a ref between the
+        // groups keeps its FormID (keyed by REFR:<cell>:<source>).
+        if (obj.Base.FormKey == cocMarker)
+        {
+            cell.Persistent.Add(obj);
+            obj.MajorRecordFlagsRaw |= 0x400;                                              // Persistent, as TeleportLinks.MakePersistent
+        }
+        else cell.Temporary.Add(obj);
         placedBySource[src] = (obj, cell);
     }
     var cid = cell.FormKey.ID;
@@ -258,11 +362,44 @@ foreach (var cdoc in cellDocs)
         Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
 }
 
+if (cellDocs.Count > 0)
+{
+    Console.WriteLine($"locations: {locations.Shared} shared FO4 locations, {locations.PerCell} per-cell, {locations.Leveled} with encounter-zone leveling; " +
+                      $"{locations.FromSidecar} cells from locations.json, {locations.WithoutData} without FO4 location data");
+    foreach (var w in locations.Warnings) Console.WriteLine($"  warning {w}");
+}
+
+if (promotions.Listed > 0)
+{
+    var handled = promotions.Counts.Values.Sum();
+    Console.WriteLine($"promotions: {string.Join(", ", promotions.Counts.Select(kv => $"{kv.Value} {kv.Key}"))}; " +
+                      $"{promotions.Listed - handled} listed but not placed");
+}
+
+// ---- door names (DoorNames.cs): the FO4 DOOR name in the prompt; before the chains and links, which read the bases ------
+var named = DoorNames.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), Id, openingDoors, ownRigDoors);
+Console.WriteLine($"door names: {named.Copies} named copies of door bases " +
+                  $"({named.Moved} references moved), {named.Unnamed} door references without an FO4 name, {named.Refused.Count} refused");
+foreach (var refusal in named.Refused) Console.WriteLine($"  refused {refusal}");
+
+// ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
+var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
+                                    new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
+if (chains.ChildrenWithParents > 0)
+{
+    Console.WriteLine($"activation chains: {chains.Wired} wired; unwired: {chains.ParentNotPlaced} parent not placed, " +
+                      $"{chains.ParentNotUsable} parent not usable, {chains.ParentDrivesSeveral} parent drives several, " +
+                      $"{chains.ParentHasScript} parent already scripted, {chains.ChildNotPlaced} child not placed; " +
+                      $"{chains.DelaysDropped} delays and {chains.ParentActivateOnly} parent-activate-only flags not carried");
+    File.WriteAllText(Path.Combine(outDir, "activation.json"), JsonSerializer.Serialize(chains, new JsonSerializerOptions { WriteIndented = true }));
+}
+
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
-var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors);
+var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors, xtelLoadBases);
 foreach (var d in cellDocs) d.Dispose();
 Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
-                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues");
+                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues" +
+                  (teleports.LoadGraph > 0 ? $", {teleports.LoadGraph} animated load doors on their load graph" : ""));
 foreach (var issue in teleports.Issues) Console.WriteLine($"  issue {issue.Source} -> {issue.Target}: {issue.Reason}");
 File.WriteAllText(Path.Combine(outDir, "teleports.json"), JsonSerializer.Serialize(teleports, new JsonSerializerOptions { WriteIndented = true }));
 

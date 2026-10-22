@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -46,8 +46,17 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
+        sig["rig_load_doors"] = True
+    extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
+        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
+            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
+            key=lambda p: p.name.lower())]] for d in extra]
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
+    if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
+        sig["mass_scale"] = a.mass_scale
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -139,6 +148,53 @@ def cell_candidates(cell, wanted):
                   key=str.lower)
 
 
+def teleport_models(cell):
+    """The meshes FO4 places in this cell as a teleporting door ('meshes\\' + model of every Door reference with an XTEL):
+    load doors for the converter whatever their file name (pipeline.Converter load_door_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("type") == "Door"
+                   and r.get("teleport_destination")}, key=str.lower)
+
+
+def static_body_models(cell):
+    """The meshes a cell export marks "static_body" (make_core64c convert_list: placed outdoors as STAT only, never as an
+    item): they keep a static body though movable items get dynamic ones (pipeline.Converter static_body_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("static_body")},
+                  key=str.lower)
+
+
+def static_pattern_models(pattern, names):
+    """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
+    name per line, as a manifest prints them; case and slashes ignored)."""
+    if pattern.startswith("@"):
+        with open(pattern[1:], encoding="utf-8-sig") as f:
+            wanted = {line.strip().replace("/", "\\").lower() for line in f if line.strip()}
+        return {n for n in names if n.replace("/", "\\").lower() in wanted}
+    return {n for n in names if re.search(pattern, n, re.I)}
+
+
+def triangle_count(src_archives, name):
+    """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
+    try:
+        raw = src_archives.mesh(name)
+        parsed = nif.parse(raw)
+        shapes = nif.fo4_trishapes(parsed)
+        return sum(len(s.triangles) for s in shapes if s.triangles)
+    except Exception:  # noqa: BLE001
+        return 0  # let the real converter report the failure
+
+
+def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
+    """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
+    change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
+    of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
+    neither class keeps its plain key, so existing checkpoints stay valid. no_rig_models (--no-rig-pattern) tags the
+    same way."""
+    low = name.replace("/", "\\").lower()
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models), ("no_rig", no_rig_models))
+            if low in {m.replace("/", "\\").lower() for m in models}]
+    return "|".join([key] + tags)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -168,10 +224,29 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--extra-data", action="append", default=[],
+                    help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
+                         "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
+                         "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
+    ap.add_argument("--rig-load-doors", action="store_true",
+                    help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
+                         "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
+                         "default: load doors stay graph-less static doors")
+    ap.add_argument("--no-rig-pattern", default="",
+                    help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
+                         "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
+                         "script, so the first run after a code change reconverts everything; crash bisects: v6 Red "
+                         "Rocket, 2026-10-19)")
+    ap.add_argument("--static-pattern", default="",
+                    help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
+                         "are movable; only they reconvert on --resume once the checkpoints match this code (as --no-rig-pattern)")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
-    ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
+    ap.add_argument("--max-tris", type=int, default=0,
+                    help="skip meshes with more triangles than this (0, the default: skip none). Off by default: "
+                         "the option was inert until 5f2a065, and a skipped model drops its base record, so a build "
+                         "that turned it on would renumber or lose records an earlier build kept")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
                     help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
@@ -187,9 +262,15 @@ def main():
     ap.add_argument("--spec-mask-roughness", action="store_true",
                     help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
                          "stay rough; default off (the gloss alone, as every build so far)")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
     try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
@@ -198,11 +279,13 @@ def main():
         ap.error("--door-anim-dll: file not found")
     if a.door_anim_dll and not a.starfield_data:
         ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
+    if a.rig_load_doors and not a.starfield_data:
+        ap.error("--rig-load-doors needs --starfield-data (doors are rigged only with the vanilla donor body)")
 
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data)
+    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
@@ -223,8 +306,14 @@ def main():
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
         names = cell_candidates(cell, set(a.types.split(",")))
+        load_models = teleport_models(cell)
+        static_models = static_body_models(cell)
     else:
         names = src.mesh_names(a.pattern)
+        load_models = static_models = []
+    no_rig_models = [n for n in names if a.no_rig_pattern and re.search(a.no_rig_pattern, n, re.I)]
+    if a.static_pattern:
+        static_models = sorted(set(static_models) | static_pattern_models(a.static_pattern, names), key=str.lower)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -239,7 +328,13 @@ def main():
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
         else:
-            r = cache.load(name) if cache else None
+            ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            # Apply --max-tris: skip heavy meshes before the expensive conversion
+            if a.max_tris and triangle_count(src, name) > a.max_tris:
+                skipped += 1
+                print(f"  skip {name}: > {a.max_tris} triangles")
+                continue
+            r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
             else:
@@ -249,11 +344,14 @@ def main():
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
-                                              spec_mask_roughness=a.spec_mask_roughness)
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
-                        cache.save(name, r)
+                        cache.save(ckey, r)
                     except (OSError, ValueError) as e:
                         print(f"  checkpoint unavailable for {name}: {e}")
             attempted_so_far += 1
@@ -285,7 +383,7 @@ def main():
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
         for v in variants:
             base = by_source[source_identity(v.source).replace("/", "\\")]
-            key = f"{v.source}|xrgd:{v.key}"
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models, no_rig_models)
             r = cache.load(key) if cache else None
             if r is not None:
                 reused += 1
@@ -296,7 +394,10 @@ def main():
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
-                                              spec_mask_roughness=a.spec_mask_roughness)
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:

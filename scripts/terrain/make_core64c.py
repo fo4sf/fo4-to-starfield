@@ -7,8 +7,8 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "workshops", "benches",
-           "lights", "doors">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "workshops", "flora",
+           "benches", "lights", "doors">] [--navmesh <navmesh.json>] [--fo4-map-markers <Fo4Land export-mapmarkers json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -35,6 +35,7 @@ Everything this writes stays outside the repo (derived game data).
 """
 import argparse
 import glob
+import hashlib
 import json
 import math
 import os
@@ -106,6 +107,8 @@ def core_params_view(prm):
 def slim(ref):
     out = {k: ref.get(k) for k in SLIM_KEYS}
     out["enable_parent"] = ref.get("enable_parent")
+    if ref.get("type") == "Door" and ref.get("teleport_destination"):
+        out["teleports"] = True                    # a load door: convert_list converts its model as one
     return out
 
 
@@ -136,12 +139,29 @@ def select_bands(paths):
     return kept, skipped, tot
 
 
+ITEM_TYPES = ("MiscItem", "Ingestible", "Weapon")     # make_cluster.ITEM_TYPES: the references the core places as MISC
+
+
 def convert_list(kept):
-    """One entry per model (convert_batch --cell-json reads only "model" and "type")."""
-    by_model = {}
+    """One entry per model (convert_batch --cell-json reads "model", "type" and "teleport_destination"). A model FO4
+    places anywhere as a teleporting Door (slim "teleports") carries teleport_destination true, so convert_batch converts it as a load door:
+    solid, with its own collision for the activation prompt, never a passable animated door (Fort Hagen's and Vault 95's
+    elevator entrances could not be used from outside, owner 2026-10-18; confirmed by door_audit.py). A model no reference
+    places as an item (ITEM_TYPES: the core's MISC pickups) carries static_body true: the core places it as a STAT, so it
+    keeps a static body (v6: 62 models, 6,128 references such as cars, skeletons and cones got dynamic compounds once
+    --static-items was dropped; a STAT that falls or slides at cell load would be a regression)."""
+    by_model, items = {}, {}
     for r in kept:
-        by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
-                                                               "formkey": r["formkey"]})
+        e = by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
+                                                                   "formkey": r["formkey"]})
+        if r.get("teleports"):
+            e.update(type="Door", teleport_destination=True)
+        items.setdefault(exterior.source_key(r["model"]), False)
+        if r["type"] in ITEM_TYPES:
+            items[exterior.source_key(r["model"])] = True
+    for k, e in by_model.items():
+        if not items[k]:
+            e["static_body"] = True
     return [by_model[k] for k in sorted(by_model)]
 
 
@@ -240,7 +260,8 @@ class DryConverter:
         return self.dims_cache[n.lower()]
 
     def _texture_set(self, stem, diffuse, normal, spec, smoothness=1.0, spec_mult=1.0, alpha_test=False,
-                     alpha_ref=128, decal=False):
+                     alpha_ref=128, decal=False, greyscale=None, palette_scale=1.0, two_sided=False,
+                     opacity_scale=1.0):
         d = self.dims(diffuse)
         n = self.dims(normal) if normal else None
         s = self.dims(spec) if spec else None
@@ -1090,25 +1111,37 @@ def terrain_edids(prm):
     return {e.lower() for e in out}
 
 
+def container_source_key(value):
+    """Normalize ASCII case without conflating distinct Unicode plugin spellings (e.g. sharp-s and ss).
+
+    Non-ASCII spelling comes from the canonical source export; do not invent a filesystem/ModKey collation here.
+    """
+    return str(value).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+
+
 def promoted_edid(kind, base, src):
-    """The shared native base's editor id for a promoted cluster entry: FO4Core_<kind>_<6 hex>_<plugin> from the FO4 base
-    formkey ("04B6E9:Fallout4.esm" -> FO4Core_cont_04b6e9_fallout4), so the same local id in another plugin is another
-    record; without a base (the R05 slice's hand-written entry) the reference's own key, as before (FO4Core_cont_19ee52)."""
+    """Keep legacy simple-master/R05 names; otherwise include the full source identity.
+
+    Stripping punctuation or extensions aliases distinct plugins. The hashed namespace contains an underscore,
+    which cannot occur in a legacy alphanumeric master stem. Promotion callers also refuse any key collision.
+    """
     if not base:
-        return f"{EDID_PREFIX}{kind}_{str(src).split(':')[0].lower()}"
-    key = str(base)
+        key = container_source_key(src)
+        local, _, plugin = key.partition(":")
+        if plugin == "fallout4.esm":                     # preserve the original hand-written R05 identity
+            return f"{EDID_PREFIX}{kind}_{local}"
+        return f"{EDID_PREFIX}{kind}_ref_{hashlib.sha256(key.encode('utf-8')).hexdigest()}"
+    key = container_source_key(base)
     local, _, plugin = key.partition(":")
-    stem = re.sub(r"[^a-z0-9]+", "", plugin.rsplit(".", 1)[0].lower()) or "x"
-    return f"{EDID_PREFIX}{kind}_{local.lower()}_{stem}"
+    suffix = plugin[:-4] if re.fullmatch(r"[a-z0-9]+\.esm", plugin) else "key_" + hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{EDID_PREFIX}{kind}_{local}_{suffix}"
 
 
 def container_edid(base, src):
-    """The shared CONT's editor id of a container: FO4Core_cont_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("cont", base, src)
 
 
 def item_edid(base, src):
-    """The shared MISC's editor id of a loose item: FO4Core_misc_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("misc", base, src)
 
 
@@ -1133,6 +1166,11 @@ def terminal_menu_edid(term_edid):
 def workshop_edid(base, src):
     """The shared ACTI's editor id of a settlement workshop: FO4Core_wkshp_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("wkshp", base, src)
+
+
+def flora_edid(base, src):
+    """The shared FLOR's editor id of a harvestable plant: FO4Core_flor_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("flor", base, src)
 
 
 # Red Rocket garage button -> door (playtest row 21, docs/terrain/garage-button.md). FO4 XAPR is not in the cluster
@@ -1232,7 +1270,7 @@ def cluster_containers(bases, placed, cluster):
     Returns (placed without them, containers). The writer reserves the source's original REFR identity.
     ValueError for a reference that is not placed by this build or is initially disabled."""
     wanted = {c["src"]: c for c in cluster.get("containers", [])}
-    keep, containers = [], []
+    keep, containers, source_by_edid = [], [], {}
     for reference_index, p in enumerate(placed):
         c = wanted.pop(p["src"], None)
         if c is None:
@@ -1250,7 +1288,11 @@ def cluster_containers(bases, placed, cluster):
         # over 182 bases): the group is the whole formkey, id and plugin (04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are
         # two bases: Codex's review of #167); an entry without "base" (the R05 slice's hand-written one) keeps its
         # per-reference CONT. Entries of one group must agree on name and items: the writer shares one record.
-        containers.append({"src": p["src"], "edid": container_edid(c.get("base"), p["src"]),
+        edid = container_edid(c.get("base"), p["src"])
+        identity = ("base" if c.get("base") else "reference", container_source_key(c.get("base") or p["src"]))
+        if source_by_edid.setdefault(edid.casefold(), identity) != identity:
+            raise ValueError(f"container {edid} aliases distinct source identities")
+        containers.append({"src": p["src"], "edid": edid,
                            "reference_index": reference_index,
                            "model": b["model"], "name": c["name"], "items": c["items"],
                            "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
@@ -1279,7 +1321,7 @@ def cluster_items(bases, placed, cluster):
         if e["src"] in wanted:
             raise ValueError(f"{e['src']} is listed twice in items")
         wanted[e["src"]] = e
-    keep, items = [], []
+    keep, items, source_by_edid = [], [], {}
     for reference_index, p in enumerate(placed):
         e = wanted.pop(p["src"], None)
         if e is None:
@@ -1295,7 +1337,11 @@ def cluster_items(bases, placed, cluster):
         if type(weight) not in (int, float) or not math.isfinite(weight) or weight < 0 or weight > 3.4028234663852886e38:
             raise ValueError(f"{p['src']}: item weight {weight!r} is not a float32 number >= 0")
         b = bases[p["base"]]
-        items.append({"src": p["src"], "edid": item_edid(e.get("base"), p["src"]), "reference_index": reference_index,
+        edid = item_edid(e.get("base"), p["src"])
+        identity = ("base" if e.get("base") else "reference", container_source_key(e.get("base") or p["src"]))
+        if source_by_edid.setdefault(edid.casefold(), identity) != identity:
+            raise ValueError(f"item {edid} aliases distinct source identities")
+        items.append({"src": p["src"], "edid": edid, "reference_index": reference_index,
                       "model": b["model"], "name": name, "value": value, "weight": float(weight),
                       "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
     if wanted:
@@ -1414,6 +1460,34 @@ def cluster_workshops(bases, placed, cluster):
     return keep, out
 
 
+FLORA_INGREDIENT = "00260DF2:Starfield.esm"     # OrgCommonNutrient_Seed: FloraMaizeCrop01 PFIG until FO4 mapping
+FLORA_ORGANIC_KW = 0x222E03                     # KYWD FloraTypeOrganic
+FLORA_TEMPLATE = 0xEC886                        # FloraMaizeCrop01
+
+
+def cluster_flora(bases, placed, cluster):
+    """Harvestable plants (docs/terrain/flora.md): the placed references named by cluster["flora"] (make_cluster.py
+    flora: FO4 Flora with a model) leave the STAT placement and become flora entries for TerrainOverlays: one native
+    FLOR per FO4 base (edid FO4Core_flor_<6 hex>_<plugin>, flora_edid) cloned from FloraMaizeCrop01, with the converted
+    model of the reference's base, the entry's name, and PFIG the entry's ingredient (default FLORA_INGREDIENT), in the
+    reference's cell / position / rotation / scale and original reference index. Returns (placed without them, flora);
+    ValueError as promoted_entries, for a name that is not one non-empty line, an ingredient that is not a
+    Starfield.esm formkey, and for two entries of one edid with another name, model or ingredient."""
+    def make(p, e):
+        name, ing = e.get("name"), e.get("ingredient", FLORA_INGREDIENT)
+        if not one_line(name):
+            raise ValueError(f"{p['src']}: flora name {name!r} is not one non-empty line")
+        try:
+            master_fid(ing)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{p['src']}: flora ingredient {ing!r} is not a Starfield.esm formkey") from err
+        return {"edid": flora_edid(e.get("base"), p["src"]), "model": bases[p["base"]]["model"], "name": name,
+                "ingredient": ing}
+    keep, out = promoted_entries(placed, cluster, "flora", "flora", make)
+    shared_base_agrees(out, "flora", ("name", "model", "ingredient"))
+    return keep, out
+
+
 def cluster_benches(bases, placed, cluster):
     """Crafting stations (docs/terrain/stations.md): the placed references named by cluster["benches"]
     (make_cluster.py benches: FO4 Furniture with a WBDT bench type and a kind from the bench table) leave the STAT
@@ -1515,18 +1589,18 @@ def door_arrivals_inside(doors, ov):
 
 
 # objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM,
-# then the workshops' ACTI; the doors' ACTI and arrival markers come last, after the lights); VANILLA_PROMOTED: classes
-# whose REFR binds to a record of the master (no base of our own)
+# then the workshops' ACTI, then flora FLOR; the doors' ACTI and arrival markers come last, after the lights);
+# VANILLA_PROMOTED: classes whose REFR binds to a record of the master (no base of our own)
 PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"), ("workshops", "ACTI"),
-            ("doors", "ACTI"))
+            ("flora", "FLOR"), ("doors", "ACTI"))
 VANILLA_PROMOTED = (("benches", "FURN"),)
 ALL_PROMOTED = PROMOTED + VANILLA_PROMOTED
 APPENDED = ("doors",)               # promoted classes whose bases (and markers) are allocated after everything else
 PROMOTE_FN = {"containers": cluster_containers, "items": cluster_items, "activators": cluster_activators,
-              "terminals": cluster_terminals, "workshops": cluster_workshops, "benches": cluster_benches,
-              "doors": cluster_doors}
+              "terminals": cluster_terminals, "workshops": cluster_workshops, "flora": cluster_flora,
+              "benches": cluster_benches, "doors": cluster_doors}
 SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal",
-            "workshops": "workshop", "benches": "bench", "doors": "door"}
+            "workshops": "workshop", "flora": "flora", "benches": "bench", "doors": "door"}
 
 
 def source_key(value):
@@ -1545,13 +1619,12 @@ def master_fid(formkey, masters=("Starfield.esm",)):
 
 
 def cluster_promote(bases, placed, cluster):
-    """--cluster: every promoted class (ALL_PROMOTED: containers, items, activators, terminals, workshops, benches)
-    from one cluster file, each judged on the same unpromoted placement list, so every promoted entry's
+    """--cluster: every promoted class (ALL_PROMOTED: containers, items, activators, terminals, workshops, flora,
+    benches, doors) from one cluster file, each judged on the same unpromoted placement list, so every promoted entry's
     reference_index is its slot in that list whichever class it joins. Returns (placed without every promoted
     reference, {class: entries} for every class). ValueError as the class functions, for a source listed in two
-    classes, and for one edid of a class standing for two FO4 sources (promoted_edid drops the plugin's punctuation
-    and extension: Codex's review of #235; such an alias would merge two FO4 bases into one record, so it is refused
-    instead)."""
+    classes, and for one edid of a class standing for two FO4 sources. Full-source promoted names avoid punctuation
+    and extension aliases; this guard still refuses any actual collision rather than merging two FO4 bases."""
     listed = {}
     for k, _sig in ALL_PROMOTED:
         for e in cluster.get(k) or []:
@@ -1727,12 +1800,14 @@ def promoted_record_check(recs, own_prefix, objects, ids, masters=("Starfield.es
                 vw = struct.unpack_from("<if", data) if len(data) >= 8 else None
                 if vw is None or vw[0] != e["value"] or not close(vw[1], e["weight"], 1e-6 * max(1.0, abs(e["weight"]))):
                     problems.append(f"{e['src']}: MISC DATA {vw} != value {e['value']}, weight {e['weight']}")
-            if sig in ("MISC", "ACTI", "TERM") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
+            if sig in ("MISC", "ACTI", "TERM", "FLOR") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
                 problems.append(f"{e['src']}: {sig} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
             if sig == "TERM":
                 problems += terminal_menu_problems(by_fid, own_prefix, base, e, v)
             if k == "workshops":
                 problems += workshop_problems(base, e, masters)
+            if k == "flora":
+                problems += flora_problems(base, e, masters)
     problems += door_record_problems(recs, own_prefix, objects, ids)
     return problems
 
@@ -1762,6 +1837,21 @@ def workshop_problems(acti, e, masters=("Starfield.esm",)):
         out.append(f"{e['src']}: ACTI PRPS OutpostBuildAreaRadius {radius} != {e['radius']}")
     if overlay_records.field(acti, "VMAD") is not None:
         out.append(f"{e['src']}: ACTI carries a VMAD (the vanilla pre-placed workshop has none)")
+    return out
+
+
+def flora_problems(rec, e, masters=("Starfield.esm",)):
+    """A promoted FLOR (promoted_record_check): KWDA carries FloraTypeOrganic (FLORA_ORGANIC_KW of the master), PFIG
+    is the entry's ingredient (a master formid)."""
+    out = []
+    organic = master_fid(f"{FLORA_ORGANIC_KW:06X}:Starfield.esm", masters)
+    if organic not in record_keywords(rec):
+        out.append(f"{e['src']}: FLOR KWDA {[f'{k:08X}' for k in record_keywords(rec)]} lacks FloraTypeOrganic {organic:08X}")
+    pfig = overlay_records.field(rec, "PFIG", b"")
+    want = master_fid(e["ingredient"], masters)
+    have = struct.unpack_from("<I", pfig)[0] if len(pfig) >= 4 else None
+    if have != want:
+        out.append(f"{e['src']}: FLOR PFIG {None if have is None else f'{have:08X}'} != {want:08X} ({e['ingredient']})")
     return out
 
 
@@ -1893,6 +1983,7 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
                                         "MISC value, weight" if "MISC" in sigs else "",
                                         "TERM menu and body" if "TERM" in sigs else "",
                                         "workshop keyword, radius" if entries["workshops"] else "",
+                                        "flora PFIG and FloraTypeOrganic" if entries["flora"] else "",
                                         "bench vanilla base" if entries["benches"] else "",
                                         "door VMAD and arrival marker" if entries["doors"] else "") if x)
         out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
@@ -2259,7 +2350,7 @@ def map_marker_problems(recs, own_index, ov, ids):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
     MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
-    0xFFFFFFFF), each also in LCID; every marker id after every other record of the plugin. Returns problems."""
+    0xFFFFFFFF), none in LCID (enabled, not initially disabled); every marker id after every other record of the plugin. Returns problems."""
     own = own_index << 24
     want = ov.get("map_markers") or [{"tag": "RedRocket", "pos": ov["spawn"], "cell": ov["spawn_cell"]}]
     got = (ids.get("map_marker_refs") or {}).get(ov["world"])
@@ -2281,8 +2372,9 @@ def map_marker_problems(recs, own_index, ov, ids):
             continue
         if overlay_records.field(r, "XMRK") is None:
             problems.append(f"{m['tag']}: no XMRK")
-        if not r["flags"] & overlay_records.PERSISTENT:
-            problems.append(f"{m['tag']}: not persistent (flags 0x{r['flags']:X})")
+        if not r["flags"] & overlay_records.PERSISTENT or r["flags"] & 0x800:
+            # initially disabled (LC172's 0xC00) hid every icon in game (18 Oct): persistent and enabled wanted
+            problems.append(f"{m['tag']}: not persistent and enabled (flags 0x{r['flags']:X})")
         pos = fo4land.parse_ref(r["fields"])["pos"]
         if not all(math.isfinite(v) for v in pos) or max(abs(u - v) for u, v in zip(pos, m["pos"])) > 1e-3:
             problems.append(f"{m['tag']}: position {pos} != {m['pos']}")
@@ -2307,8 +2399,8 @@ def map_marker_problems(recs, own_index, ov, ids):
         if e["wrld"] != wrld[0]["fid"] or e["tail"] != map_markers.LCSR_TAIL or (
                 c is not None and e["pad"] != struct.unpack("<I", struct.pack("<hh", c[1], c[0]))[0]):
             problems.append(f"{ov['location']}: LCSR row {e} (world {wrld[0]['fid']:08X}, cell {c})")
-    if not set(cell) <= lcid:
-        problems.append(f"{ov['location']}: LCID lacks {[f'{f:08X}' for f in sorted(set(cell) - lcid)]}")
+    if set(cell) & lcid:
+        problems.append(f"{ov['location']}: LCID (initially disabled) lists {[f'{f:08X}' for f in sorted(set(cell) & lcid)]}")
     mm = {f & 0xFFFFFF for f in cell}
     others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in mm]
     if mm and others and min(mm) < max(others):
@@ -2485,9 +2577,11 @@ def cmd_stage(a):
     # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name),
     # "terminals" (FO4 Terminal: a TERM base with the converted model and the name, with its own TMLM menu of one body
     # line), "workshops" (FO4 settlement workshop: an ACTI base with the workbench model, WorkshopKeyword, the outpost
-    # category keywords and a build radius; docs/terrain/stations.md), one base per FO4 base, one temporary REFR per
-    # source reusing its original reference_index (one slot plan for every class); the new CONT, MISC, ACTI, TERM + TMLM,
-    # then the workshops' ACTI records follow all reserved REFRs. "benches" (FO4 crafting station) keep their REFR
+    # category keywords and a build radius; docs/terrain/stations.md), "flora" (FO4 Flora: a FLOR base cloned from
+    # FloraMaizeCrop01 with the converted model, the name and PFIG the ingredient; docs/terrain/flora.md), one base per
+    # FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan for every class); the
+    # new CONT, MISC, ACTI, TERM + TMLM, then the workshops' ACTI and flora FLOR records follow all reserved REFRs.
+    # "benches" (FO4 crafting station) keep their REFR
     # slot on the VANILLA Starfield bench of their kind: no record of our own.
     # Its "lights" (docs/terrain/exterior-lights.md, make_cluster.py lights) were never placed: new light REFRs and
     # LIGH bases after every other record
@@ -2552,13 +2646,25 @@ def cmd_stage(a):
     # Commonwealth map markers (docs/terrain/map-markers.md): Red Rocket on the COC arrival, Sanctuary, Vault 111 and
     # Concord on the BTD ground at their FO4 marker; TerrainOverlays writes one MapMarker REFR + LCSR row for each
     terrain = Terrain(os.path.join(out, *ov["btd_file"].split("/")))
+    ground = lambda x, y: float(terrain.bilinear([x], [y])[0])  # noqa: E731
+    bounds = (ov["bounds_min_m"], ov["bounds_max_m"])
     try:
-        markers = map_markers.overlay_markers(ov["spawn"], (ov["bounds_min_m"], ov["bounds_max_m"]),
-                                              lambda x, y: float(terrain.bilinear([x], [y])[0]))
+        markers = map_markers.overlay_markers(ov["spawn"], bounds, ground)
+        if getattr(a, "fo4_map_markers", ""):
+            # every other named Commonwealth marker inside the overlay, after the four (their FormIDs stay)
+            rows, left = map_markers.load_fo4_markers(load(a.fo4_map_markers))
+            extra, outside = map_markers.extra_markers(rows, bounds, ground, fixed=markers)
+            markers += extra
+            if len({m["tag"] for m in markers}) != len(markers):
+                raise ValueError("map marker tags repeat")
+            save(os.path.join(out, "map_markers_left_out.json"), {"left_out": left + outside}, indent=1)
+            print(f"map markers: {len(extra)} from {a.fo4_map_markers}, {len(left) + len(outside)} left out "
+                  "(map_markers_left_out.json)")
     except ValueError as e:
         sys.exit(f"map markers: {e}")
     params["overlays"] = [dict(ov, map_markers=markers)]
-    print("map markers: " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers))
+    print(f"map markers ({len(markers)}): " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers[:4])
+          + (f", ... {len(markers) - 4} more" if len(markers) > 4 else ""))
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -3251,6 +3357,9 @@ def main():
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
+            s.add_argument("--fo4-map-markers", default="", help="a Fo4Land export-mapmarkers json (Commonwealth): "
+                           "every named marker inside the overlay becomes a map marker after the fixed four "
+                           "(docs/terrain/map-markers.md)")
             s.add_argument("--views", action="store_true",
                            help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:

@@ -1,5 +1,9 @@
 # Play and test the port: a guide for newcomers
 
+> **Withdrawn for now (owner, 19 Oct 2026).** The project is not offered for download or play, for legal reasons and so
+> nobody's hopes are raised early. This page is kept as a record of the procedure; please do not follow it until the
+> owner says the project is open again.
+
 You found the Fallout 4 to Starfield project and want to try it. This page takes you from download to walking around
 the converted Commonwealth in Starfield, and to sending a useful report when something is wrong.
 
@@ -212,6 +216,52 @@ Say whether you saw it in game or only read it from a file. If you used `tcl`, `
 walk, say so: a teleport means the walk was not continuous, so it can't count as a walking result.
 
 Reports are reviewed by the project owner before anyone acts on them; until then they keep the `needs-triage` label.
+
+### If the game crashes: catch a crash dump
+
+Starfield often crashes straight to the desktop with no message. A crash dump (a copy of the game's memory at the
+moment it crashed) shows what failed: the project found its Havok collision crash from one
+([journal, 16 October](JOURNAL.md)). Use Microsoft's free
+[ProcDump](https://learn.microsoft.com/sysinternals/downloads/procdump), started in a Command Prompt before you launch
+the game.
+
+**General crashes.** This writes one full dump (`-ma`) when the game hits an unhandled exception (`-e`), waiting for
+`Starfield.exe` to start (`-w`):
+
+```
+procdump64.exe -accepteula -ma -e -n 1 -w Starfield.exe "<dump folder>"
+```
+
+**The engine's own assertion stop (advanced).** The collision crash ended the game with exception `0x80000003` (a
+breakpoint) and no Windows error report, so the command above can miss it. The owner's PC used this variant, which
+dumps on the first-chance exception (`-e 1`) whose content matches `80000003` (`-f`):
+
+```
+procdump64.exe -accepteula -e 1 -f "80000003" -ma -n 1 -w Starfield.exe "<dump folder>"
+```
+
+It caught the 16 October dump on the owner's PC without `-b`. ProcDump's documentation says debug breakpoints are
+ignored unless `-b` is given, so if this variant misses a breakpoint crash on your PC, add `-b` (unverified on this
+project). The filter means it only catches that one exception, not crashes in general.
+
+- **Wait for the dump to finish.** A full dump is large (the owner's was about 17 GB). With `-n 1`, ProcDump writes one
+  dump and then exits. The dump is complete only when ProcDump has printed that the dump completed (with the size it
+  wrote) and no write error, and then exited. An exit without that line (after Ctrl+C, an attach or access error, or
+  a full disk) means there is no usable dump. Don't close the window before then; a half-written dump is useless.
+- **Stop watching** with **Ctrl+C** in ProcDump's window. That is ProcDump's graceful stop: it resumes the game if a
+  capture is running. Don't kill ProcDump with Task Manager or `taskkill`, which can cut a dump off halfway.
+- **With the launcher** the watcher follows one game instead of running all day: turn it on with
+  `python scripts/launcher.py settings --set crash_watch.enabled=on --set crash_watch.folder="<dump folder>" --set
+  crash_watch.procdump="<path to procdump64.exe>"`, then start the game with
+  `python scripts/launcher.py play --starfield "<game folder>"`. It attaches once the game has stayed up 20 seconds,
+  writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
+  `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
+  For a game started some other way (the test runner), `python scripts/launcher.py watch --repeat` attaches the same
+  watcher to each game it sees.
+- **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
+  give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
+  what they need from it.
+- **Delete it** when it is no longer needed: `del "<dump folder>\<name>.dmp"`.
 
 ## 7. Automated tests (optional, advanced)
 
