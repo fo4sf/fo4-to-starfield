@@ -114,10 +114,10 @@ def huge_offset_blob():
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 
-def node(children=(), t=(0, 0, 0), rot=IDENT, scale=1.0, coll=-1, extra=(), controller=-1):
+def node(children=(), t=(0, 0, 0), rot=IDENT, scale=1.0, coll=-1, extra=(), controller=-1, flags=0xE):
     """An unnamed NiNode block: NiAVObject (extra refs, controller, flags, transform, collision ref), child table."""
     return (struct.pack("<iI", -1, len(extra)) + struct.pack(f"<{len(extra)}i", *extra)
-            + struct.pack("<iI3f9ffiI", controller, 0xE, *t, *rot, scale, coll, len(children))
+            + struct.pack("<iI3f9ffiI", controller, flags, *t, *rot, scale, coll, len(children))
             + struct.pack(f"<{len(children)}i", *children))
 
 
@@ -545,8 +545,8 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         count, = struct.unpack_from("<I", root, 76)
         f.blocks[0] = root
         report = oracle.audit(nif.serialize(f), path="translated.nif")
-        self.assertEqual(report["flags"], [])                                 # control: both sides at x = 5
-        self.assertEqual((report["mesh"]["center"][0], report["collision"]["center"][0]), (5.0, 5.0))
+        self.assertEqual(report["flags"], [])         # control; a placed reference replaces the root's x = 5 with its own
+        self.assertEqual((report["mesh"]["center"][0], report["collision"]["center"][0]), (0.0, 0.0))
         past = range(len(f.blocks), len(f.blocks) + count)
         cases = {"count past block": root[:76] + struct.pack("<I", count + 1) + root[80:],
                  "refs past block list": root[:80] + struct.pack(f"<{count}i", *past),
@@ -894,6 +894,39 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         geometry(f, 7, box=(0,) * 6, meshes=[None] * 4)                               # control: draws nothing
         self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])
 
+    def test_hidden_geometry_and_mesh_refs_with_no_path_draw_nothing(self):
+        # A hidden piece (flag bit 0 on it or on its node) or a mesh ref with no .mesh path widened the drawn mesh over a
+        # collision that missed the only piece drawn, and the report was clean.
+        box = sfcollision.box_blob(fake_template(), (6, 0, 0.5), (2.4, 0.4, 0.5))     # over the second piece only
+        f = two_piece_scene((4, 0, 0.5, 4.4, 0.4, 0.5), box)
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])                 # control: both pieces drawn
+        g = sfnif.parse_bsgeometry(f.blocks[7])        # the second piece: x -0.4 to 8.4 m, over the collision
+        hidden = nif.parse(nif.serialize(f))
+        geometry(hidden, 7, flags=g.flags | 1)
+        under_hidden = nif.parse(nif.serialize(f))
+        under_hidden.blocks[0] = root((4, under_hidden.add_block("NiNode", node((7,), flags=0xF))))
+        no_path = nif.parse(nif.serialize(f))
+        geometry(no_path, 7, meshes=[dataclasses.replace(g.meshes[0], path=b""), None, None, None])
+        for name, case in (("hidden piece", hidden), ("piece under a hidden node", under_hidden),
+                           ("mesh ref with no path", no_path)):
+            self.assertEqual(oracle.audit(nif.serialize(case))["flags"], ["offset"], msg=name)
+
+    def test_root_transform_is_the_placed_reference_s(self):
+        # Both boxes took the footer root's own transform, which a placed reference replaces with its own: a root scale
+        # of 0.001 hid a 4 cm box on a 4 m mesh, and a root turned 45 degrees inflated both AABBs over a 10 cm box on a
+        # 1 m thick wall.
+        tiny = sfcollision.box_blob(fake_template(), (0, 0, 0.02), (0.02, 0.02, 0.02))
+        f = nif.parse(nif_bytes((0, 0, 2, 2, 2, 2), tiny))
+        r = f.blocks[0]                                # build_static_nif root: transform @20 (t, 9 rotation floats, s)
+        f.blocks[0] = r[:68] + struct.pack("<f", 0.001) + r[72:]
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], ["much_smaller"])
+        thin = sfcollision.box_blob(fake_template(), (0, 0, 1.5), (5, 0.05, 1.5))
+        f = nif.parse(nif_bytes((0, 0, 1.5, 5, 0.5, 1.5), thin))
+        c = 0.5 ** 0.5
+        r = f.blocks[0]
+        f.blocks[0] = r[:32] + struct.pack("<9f", c, -c, 0, c, c, 0, 0, 0, 1) + r[68:]
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], ["much_smaller"])
+
     def test_compressed_mesh_the_decoder_rejects_is_unreadable(self):
         # sfbodies reads FO4's primitive rule: primitives Starfield's decoder asserts on (special types other than 3 / 4,
         # an index past the section's vertices) read as triangles over the quad or were skipped, and a mesh without a
@@ -906,12 +939,15 @@ class CollisionBoundsOracleTests(unittest.TestCase):
                  "indices[1] == indices[3]": mesh_blob(packed, [(0, 1, 2, 1), (2, 3, 0, 3)]),
                  "index past the section": mesh_blob(packed, [(0, 1, 2, 3), (0, 1, 2, 200)]),
                  "no SIMD tree": mesh_blob(packed, [(0, 1, 2, 3)], has_simd=0),
-                 "primitive without a SIMD key": mesh_blob(packed, [(0, 1, 2, 3), (0, 2, 3, 3)], keys=[0])}
+                 "primitive without a SIMD key": mesh_blob(packed, [(0, 1, 2, 3), (0, 2, 3, 3)], keys=[0]),
+                 "type 3 special the decoder takes": mesh_blob(packed, [(0, 1, 3, 1)]),    # read as triangles (0, 1, 3)
+                 "data under another type name": mesh_blob(packed, [(0, 1, 2, 3)], has_simd=0).replace(
+                     b"hknpCompressedMeshShapeData", b"hknpCompressedMeshShapeDatX")}    # meshcheck found no mesh
         for name, blob in cases.items():
             report = oracle.audit(nif_bytes(mesh, children=[blob]))
             self.assertIn("unreadable", report["flags"], msg=name)
-            self.assertTrue(any(e.startswith("collision object 6: compressed mesh ") for e in report["errors"]),
-                            msg=(name, report["errors"]))
+            self.assertTrue(any(e.startswith(("collision object 6: compressed mesh ", "collision object 6: BodyError: "))
+                                for e in report["errors"]), msg=(name, report["errors"]))
 
     def test_template_sized_blob_is_read_as_its_tagfile(self):
         # The 6,168-byte path checked the template's bytes and read the corners at 592 without parsing the tagfile, so

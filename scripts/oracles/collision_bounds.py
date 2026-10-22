@@ -15,7 +15,16 @@ collision object outside the tree, a collision object whose target is not the bl
 it), a transform composed for a box that is not a plain NiNode / BSFadeNode / unskinned BSGeometry
 one with no controller, scale > 0 and a rotation, any controller / interpolator block, drawn
 geometry (a mesh ref in some LOD slot) whose bounds are all zero, and malformed manifest entries.
-Geometry with no mesh in any LOD slot draws nothing and is left out.
+Geometry with no mesh in any LOD slot (or only refs with no .mesh path) draws nothing and is left out, and so is
+hidden geometry (NiAVObject flag bit 0 on it or on an ancestor node). Both boxes are placed as a placed reference
+is: the footer root's own transform is not applied (nif.world_transforms placed=True). much_smaller compares every
+axis, so FO4 collision that covers only part of a model (a door frame left without collision, a tree trunk, a lamp
+pole) is flagged on purpose: the report says the collision does not cover the drawn mesh, and a person decides
+whether that is intended.
+Trusted, not checked: a 6,168-byte blob sfcollision.check_template accepts is read from its corner words (the
+half-extent, centre and plane words are not compared with them); compound free lists, SIMD trees and hull face
+planes are not compared with the shapes they index; a model under MIN_EXTENT on an axis is only checked on that
+axis for collision that misses it.
 Nonfinite or non-positive --scale / per-item scale is rejected before comparison; the flags compare
 the model at scale 1 and the report prints both boxes scaled. A nonfinite point anywhere, a body
 orientation that is not a unit quaternion, or bounds whose centre / extent / diagonal overflow,
@@ -272,24 +281,44 @@ def _geometry_parents(f):
     return parent
 
 
+def _hidden(f, i, parent):
+    """NiAVObject flag bit 0 (hidden) on block i or an ancestor: the engine draws nothing below it."""
+    seen = set()
+    while i is not None and i not in seen:
+        seen.add(i)
+        try:
+            _, nextra = struct.unpack_from("<iI", f.blocks[i], 0)
+            flags, = struct.unpack_from("<I", f.blocks[i], 8 + 4 * nextra + 4)    # past extra refs, controller
+        except struct.error:
+            return False                               # a truncated block is reported on its own
+        if flags & 1:
+            return True
+        i = parent.get(i)
+    return False
+
+
 def mesh_aabb(f, scale=1.0):
     """Union of the BSGeometry.box AABBs of the geometry that draws something (a mesh ref with vertices and indices in
     some LOD slot) in NIF root metres, then optional REFR scale about the origin. Drawn geometry whose box is all zero
     (bounds never set) is an error: the box is the only measure of where it draws."""
-    world = nif.world_transforms(f)
+    world = nif.world_transforms(f, placed=True)       # the reference's transform replaces the root's own
     parent = _geometry_parents(f)
+    roots = set(nif.footer_roots(f))
     ident_t, ident_r, ident_s = (0.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0
     points = []
     for i, block in enumerate(f.blocks):
         if f.type_of(i) != "BSGeometry":
             continue
         g = sfnif.parse_bsgeometry(block)
-        if not any(m is not None and m.num_verts > 0 and m.indices_size > 0 for m in g.meshes):
+        if not any(m is not None and m.num_verts > 0 and m.indices_size > 0 and m.path for m in g.meshes):
             continue                                   # draws nothing: its box widened the mesh over the collision
+        if _hidden(f, i, parent):
+            continue
         if all(abs(x) < 1e-12 for x in g.box):
             raise ValueError(f"BSGeometry {i}: draws a mesh but its bounds are not set")
         center, half = g.box[:3], g.box[3:]
-        local = [_place(p, g.translation, g.rotation, g.scale) for p in _corners(center, half)]
+        local = _corners(center, half) if i in roots else \
+            [_place(p, g.translation, g.rotation, g.scale) for p in _corners(center, half)]
         if i in parent:
             t, rot, s = world(parent[i])
         else:
@@ -332,7 +361,7 @@ def collision_bodies(f, scale=1.0):
     bodies, bounds = [], []
     errors = []
     systems = {}
-    world = nif.world_transforms(f)
+    world = nif.world_transforms(f, placed=True)       # as mesh_aabb: the root's own transform is the reference's
     for i in range(len(f.blocks)):
         if f.type_of(i) != "bhkNPCollisionObject":
             continue

@@ -75,8 +75,10 @@ def _quat_apply(q, v):
 def _cms_triangles(r: _Reader, cms_at: int, cms_type: int) -> List[Tri]:
     tf, b, D = r.tf, r.b, r.D
     data_at, _, data_item = r.target(cms_at + _field(tf, cms_type, "data").offset)
-    if not data_at:
+    if not data_at or data_item is None:
         raise BodyError("compressed mesh without data")
+    if tf.type_name(data_item.type) != "hknpCompressedMeshShapeData":
+        raise BodyError(f"compressed mesh data is a {tf.type_name(data_item.type)}")
     f_tree = _field(tf, data_item.type, "meshTree")                 # hknpCompressedMeshShapeData.meshTree
     t_tree = f_tree.type
     tree = data_at + f_tree.offset
@@ -122,6 +124,8 @@ def _cms_triangles(r: _Reader, cms_at: int, cms_type: int) -> List[Tri]:
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
             if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:     # unused slot or degenerate point
                 continue
+            if i1 == i3:                               # a special primitive (i2 is its type); the converter writes none
+                raise BodyError(f"section {s} primitive {k} {(i0, i1, i2, i3)} is a special primitive")
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
