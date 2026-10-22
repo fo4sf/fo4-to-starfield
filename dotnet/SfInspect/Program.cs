@@ -14,6 +14,7 @@
 //   dotnet run -- <Starfield.esm> npc <hex,hex>      all fields of NPC_ records (verifies the FormIDs exist)
 //   dotnet run -- <Starfield.esm> props <Class>      Mutagen's Starfield schema for a record class (Npc, NavmeshGeometry)
 //   dotnet run -- <Starfield.esm> doortsv            one TSV row per DOOR: graph (ANAM), rig (BNAM), clip folder (CNAM), flags
+//   dotnet run -- <Starfield.esm> doorsounds         one TSV row per DOOR with sounds: open / close WWise events, graph, rig
 //   dotnet run -- <Starfield.esm> furn <substr> [n]   FURN without a bench type (chairs, beds, ...): markers, template, graph
 //   dotnet run -- <Starfield.esm> scripted <Script>  bases and placed refs with that script (base, graph, linked-ref keywords)
 using Mutagen.Bethesda.Plugins.Cache;
@@ -117,6 +118,21 @@ switch (args[1])
             Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), d.Model?.File?.ToString() ?? "",
                 agc?.ANAM ?? "", agc?.BNAM ?? "", agc?.CNAM ?? "", d.Flags.ToString(),
                 string.Join("|", d.Keywords?.Select(k => k.FormKey.ToString()) ?? Array.Empty<string>())));
+        }
+        break;
+    case "doorsounds":  // read-only: one TSV row per DOOR with a sound (WWise start / stop events, condition, event mapping)
+        {
+            string Snd(ISoundReferenceGetter? r) => r == null ? "\t\t\t" : string.Join("\t", r.Start.ToString(), r.Stop.ToString(),
+                r.Condition.IsNull ? "" : r.Condition.FormKey.ToString(), r.EventMapping.IsNull ? "" : r.EventMapping.FormKey.ToString());
+            Console.WriteLine("editor_id\tformkey\tanam\tbnam\topen_start\topen_stop\topen_condition\topen_mapping" +
+                              "\tclose_start\tclose_stop\tclose_condition\tclose_mapping\tloop");
+            foreach (var d in mod.Doors)
+            {
+                if (d.OpenSound == null && d.CloseSound == null && d.LoopSound == null) continue;
+                var agc = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+                Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), agc?.ANAM ?? "", agc?.BNAM ?? "",
+                    Snd(d.OpenSound), Snd(d.CloseSound), d.LoopSound == null ? "" : d.LoopSound.Start.ToString()));
+            }
         }
         break;
     case "doorprops":

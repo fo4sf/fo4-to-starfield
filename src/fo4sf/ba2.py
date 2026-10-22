@@ -1,4 +1,5 @@
-"""BA2 archive reader for Fallout 4 (v1) and Starfield (v2): general files and DX10 textures.
+"""BA2 archive reader for Fallout 4 (v1, and v7/v8 from the 2024 next-gen update, same layout as v1) and Starfield
+(v2, v3): general files and DX10 textures.
 
     a = Ba2("Fallout4 - Textures1.ba2")
     a.names                    # file names as stored (backslashes)
@@ -56,7 +57,9 @@ class Ba2:
             self.version, self.kind = version, kind.decode()
             if self.kind not in ("GNRL", "DX10"):
                 raise Ba2Error(f"{path}: unsupported archive type {self.kind}")
-            extra = {1: 0, 2: 8, 3: 12}.get(version)
+            # Fallout 4 next-gen and Anniversary archives say 7 or 8 but keep the v1 layout (xEdit and OpenMW read
+            # them the same way; research/framework/findings/versions-performance.md)
+            extra = {1: 0, 7: 0, 8: 0, 2: 8, 3: 12}.get(version)
             if extra is None:
                 raise Ba2Error(f"{path}: unsupported version {version}")
             self.compression = struct.unpack("<I", f.read(12)[8:12])[0] if version == 3 else 0
