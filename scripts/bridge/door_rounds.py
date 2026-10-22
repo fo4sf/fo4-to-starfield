@@ -284,20 +284,19 @@ def pick(doors, only):
     return [d for d in doors if d["cell_edid"].casefold() in want or d["src"].casefold() in want]
 
 
-def stage(a):
-    core_dir, out = os.path.abspath(a.core), os.path.abspath(a.out)
-    if os.path.exists(out):
-        sys.exit(f"{out} exists: the stage writes a new folder only")
-    core_plugin, entries = vmad_patch.core_doors(core_dir)
-    if core_plugin.casefold() != CORE_PLUGIN.casefold():
-        sys.exit(f"{core_dir}: formids.json plugin is {core_plugin}, not {CORE_PLUGIN}")
+def collect(core_dir, core_plugin, port_dir):
+    """Every door of the core build checked against the installed plugins: (rounds, skipped, merge, core, port, first
+    plan entry). A skipped door names its interior cell's editor id when the port has its arrival marker (door_batch
+    reports coverage per cell from it). Exits when the build is not a core build with the Red Rocket arrival first."""
+    core_plugin_name, entries = vmad_patch.core_doors(core_dir)
+    if core_plugin_name.casefold() != CORE_PLUGIN.casefold():
+        sys.exit(f"{core_dir}: formids.json plugin is {core_plugin_name}, not {CORE_PLUGIN}")
     merge = vmad_patch.merge_offset(core_dir)
-    core = Installed(os.path.abspath(a.core_plugin or os.path.join(core_dir, CORE_PLUGIN)))
-    port = Installed(os.path.join(os.path.abspath(a.port), PORT_PLUGIN))
+    core = Installed(os.path.abspath(core_plugin or os.path.join(core_dir, CORE_PLUGIN)))
+    port = Installed(os.path.join(os.path.abspath(port_dir), PORT_PLUGIN))
     first = load(os.path.join(core_dir, "plan.json"))[0]
     if first.get("coc") != SPAWN_COC or first["points"][0]["label"] != "zref_ground":
         sys.exit(f"{core_dir}: plan.json's first entry is not the {SPAWN_COC} arrival with zref_ground first")
-    spawn_local, zref = first["spawn_local"], {k: first["points"][0][k] for k in ("label", "x", "y", "expect")}
     rounds, skipped = [], []
     for e in entries:
         if str(e["destination"].get("plugin", "")).casefold() != PORT_PLUGIN.casefold():
@@ -306,27 +305,63 @@ def stage(a):
         try:
             rounds.append(door_round(e, core, port, merge))
         except (ValueError, KeyError) as err:
-            skipped.append({"src": e["src"], "why": str(err)})
-    rounds = pick(rounds, a.only)[:a.limit or None]
-    if not rounds:
-        sys.exit("no door passed the checks: " + "; ".join(f"{s['src']}: {s['why']}" for s in skipped))
-    ci, pi = int(a.core_index, 16), int(a.port_index, 16)
+            skipped.append({"src": e["src"], "why": str(err), "cell_edid": marker_cell(port, e)})
+    return rounds, skipped, merge, core, port, first
+
+
+def marker_cell(port, e):
+    """The editor id of the port cell that holds a door entry's interior arrival marker. When the marker is missing,
+    the editor id of the entry's planned destination cell (Codex on #397), or None."""
+    dest = e.get("destination") or {}
+    try:
+        r = port.ref(int(dest["id"]))
+    except (KeyError, TypeError, ValueError):
+        r = None
+    if r and r.get("cell") is not None:
+        return port.edid(r["cell"])
+    try:
+        return port.edid(int(str(dest["cell"]), 16))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def plan_rounds(rounds, first, ci, pi, merge=None, legs="both", border_off_=False):
+    """(plan, expectations): two tests per door, numbered in order; legs "out": per door an unjudged Red Rocket arrival,
+    then the OUT leg with its origin (merge: the build's merge offset); border_off_: border_off on every judged test."""
+    spawn_local, zref = first["spawn_local"], {k: first["points"][0][k] for k in ("label", "x", "y", "expect")}
     plan, expect = [], []
     for k, r in enumerate(rounds):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
         # --legs out: each OUT leg follows a fresh arrival at Red Rocket in the same session (the core plan's own first
         # entry, judged by nobody), so its coc leaves the engine's last exterior position there, as the owner's was
-        origin = {"pos": [round(v, 4) for v in vmad_patch.merged([zref["x"], zref["y"]], merge[:2])], "tol_m": ORIGIN_TOL_M}
-        legs = ([(f, ef), (b, eb)] if a.legs == "both" else
-                [(prelude(k, r, spawn_local, zref, float(first.get("drop_z", 175.0))), None), (b, dict(eb, origin=origin))])
-        for entry, exp in legs:
+        if legs == "both":
+            pairs = [(f, ef), (b, eb)]
+        else:
+            origin = {"pos": [round(v, 4) for v in vmad_patch.merged([zref["x"], zref["y"]], merge[:2])],
+                      "tol_m": ORIGIN_TOL_M}
+            pairs = [(prelude(k, r, spawn_local, zref, float(first.get("drop_z", 175.0))), None),
+                     (b, dict(eb, origin=origin))]
+        for entry, exp in pairs:
             if exp is None:
                 plan.append(entry)
                 continue
-            if a.border_off:
+            if border_off_:
                 entry = border_off(entry)
             expect.append(dict(exp, test=len(plan)))
             plan.append(entry)
+    return plan, expect
+
+
+def stage(a):
+    core_dir, out = os.path.abspath(a.core), os.path.abspath(a.out)
+    if os.path.exists(out):
+        sys.exit(f"{out} exists: the stage writes a new folder only")
+    rounds, skipped, merge, core, port, first = collect(core_dir, a.core_plugin, a.port)
+    rounds = pick(rounds, a.only)[:a.limit or None]
+    if not rounds:
+        sys.exit("no door passed the checks: " + "; ".join(f"{s['src']}: {s['why']}" for s in skipped))
+    ci, pi = int(a.core_index, 16), int(a.port_index, 16)
+    plan, expect = plan_rounds(rounds, first, ci, pi, merge=merge, legs=a.legs, border_off_=a.border_off)
     os.makedirs(out)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
