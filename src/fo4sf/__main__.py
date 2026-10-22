@@ -85,6 +85,22 @@ def _print_manifest(manifest_path: Path) -> int:
     return 0
 
 
+def _repo_root() -> Path | None:
+    """This checkout's root, when running from one (config paths must stay outside it: no game data in Git)."""
+    root = Path(__file__).resolve().parents[2]
+    return root if (root / ".git").exists() and (root / "src" / "fo4sf").is_dir() else None
+
+
+def _inside(p: Path, root: Path | None) -> bool:
+    if root is None:
+        return False
+    a, b = os.path.normcase(str(Path(p).resolve())), os.path.normcase(str(root))
+    try:
+        return os.path.commonpath([a, b]) == b
+    except ValueError:   # different drives
+        return False
+
+
 def _nearest_existing(p: Path) -> Path:
     """The closest ancestor of p that exists (a missing output dir is created under it)."""
     for parent in p.parents:
@@ -134,6 +150,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield validate")
     ok = True
+    repo = _repo_root()
 
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
@@ -147,7 +164,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
             ok = False
             continue
         p = Path(d)
-        if p.is_dir():
+        if _inside(p, repo):
+            print(f"    {d}: inside the repository (must be outside it)")
+            ok = False
+        elif p.is_dir():
             print(f"    {d}: exists")
         else:
             print(f"    {d}: NOT FOUND")
@@ -157,7 +177,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
     sf_dir = sf.get("data_dir")
     if sf_dir:
         p = Path(sf_dir)
-        if p.is_dir():
+        if _inside(p, repo):
+            print(f"  Starfield data dir: {sf_dir}: inside the repository (must be outside it)")
+            ok = False
+        elif p.is_dir():
             print(f"  Starfield data dir: {sf_dir}: exists")
         else:
             print(f"  Starfield data dir: {sf_dir}: NOT FOUND")
@@ -174,7 +197,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
             ok = False
             continue
         p = Path(d)
-        if p.is_dir() and _writable_dir(p):
+        if _inside(p, repo):
+            print(f"  {key}: {d}: inside the repository (must be outside it)")
+            ok = False
+        elif p.is_dir() and _writable_dir(p):
             print(f"  {key}: {d}: exists")
         elif p.is_dir():
             print(f"  {key}: {d}: exists but is not writable")

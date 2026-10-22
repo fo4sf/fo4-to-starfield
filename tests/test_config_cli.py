@@ -500,5 +500,54 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(rc, 1, text)
         self.assertIn("texconv: not found in PATH or xEdit's Edit Scripts", text)
 
+    def test_repo_root_is_this_checkout(self):
+        from fo4sf.__main__ import _repo_root
+        self.assertEqual(_repo_root(), Path(__file__).resolve().parents[1])
+
+    def _validate_with_repo(self, place):
+        """Run validate with a fake checkout at root/repo and one configured path moved inside it."""
+        from fo4sf import __main__ as cli
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            repo = root / "repo"
+            repo.mkdir()
+            cfg = self._validate_cfg(root)
+            text = cfg.read_text()
+            inside = repo / "out" / place
+            if place != "stage_missing":
+                inside.mkdir(parents=True)
+            old = {"fo4": (root / "fo4"), "sf": (root / "sf"), "work": (root / "work"),
+                   "stage_missing": (root / "stage")}[place]
+            cfg.write_text(text.replace(f'"{old.as_posix()}"', f'"{inside.as_posix()}"', 1))
+            with patch.object(cli, "_repo_root", return_value=repo.resolve()):
+                return self._run_validate(cfg, tex)
+
+    def test_validate_rejects_paths_inside_the_repository(self):
+        for place in ("fo4", "sf", "work", "stage_missing"):
+            with self.subTest(place=place):
+                rc, text = self._validate_with_repo(place)
+                self.assertEqual(rc, 1, text)
+                self.assertIn("inside the repository (must be outside it)", text)
+                self.assertNotIn("Validation: OK", text)
+
+    def test_validate_allows_a_sibling_of_the_repository(self):
+        from fo4sf import __main__ as cli
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            (root / "repo").mkdir()
+            (root / "repo-work").mkdir()   # shares a name prefix, but is not inside
+            cfg = self._validate_cfg(root)
+            cfg.write_text(cfg.read_text().replace(f'"{(root / "work").as_posix()}"',
+                                                   f'"{(root / "repo-work").as_posix()}"', 1))
+            with patch.object(cli, "_repo_root", return_value=(root / "repo").resolve()):
+                rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 0, text)
+
 if __name__ == "__main__":
     unittest.main()

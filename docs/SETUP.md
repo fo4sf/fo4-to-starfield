@@ -45,10 +45,11 @@ The package lives under `src/` (no install step). From the repo root set `PYTHON
 - `python -m fo4sf validate` — check that configured data directories exist, `work_dir`/`staging_dir`
   are writable directories (or can be created under one), tools are executable files (by `PATHEXT`
   on Windows), Python is 3.12 or newer, and required Python packages (`numpy`, Pillow via `PIL`)
-  are importable. `texconv` is taken from `[tools] texconv`, else `PATH`, else the `Edit Scripts`
-  folder next to `[tools] xsfedit`. Exits non-zero on problems. Zero Fallout 4 data dirs is a
-  failure, and a blank path counts as missing (never as the current directory). The write check
-  creates a temporary file and deletes it at once. Useful before the first conversion.
+  are importable. Every configured directory must be outside this repository. `texconv` is taken
+  from `[tools] texconv`, else `PATH`, else the `Edit Scripts` folder next to `[tools] xsfedit`.
+  Exits non-zero on problems. Zero Fallout 4 data dirs is a failure, and a blank path counts as
+  missing (never as the current directory). The write check creates a temporary file and deletes
+  it at once. Useful before the first conversion.
 
 Both are offline and require no game files.
 
