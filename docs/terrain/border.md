@@ -9,7 +9,9 @@ than one game's world.
   with it on, the exit FAILs STAYED and the popup shows.
 - **verified** (owner, Oct 22 18:55Z): no wall on foot. They walked far north of Vault 111, past where Fallout 4's own
   border would be, without the popup. An earlier note of a wall there was a misreading and is withdrawn.
-- **verified** (JOURNAL 2026-10-11/12): single jumps of more than about 450 m raise it; 300 m hops travel freely.
+- **supported hypothesis** (research log 2026-10-12, "which teleports raise Boundary Reached"): of 145 setpos moves
+  of at most 2 cells (100 m) per axis, 144 landed; of 28 moves of 3 or more cells, 11 failed. "300 m hops are safe"
+  was refuted there (core64b's hops were at most 187.4 m per axis), and no distance threshold is known.
 - **supported hypothesis**: so the border is a limit on how far one teleport (MoveTo, coc, setpos) may move the player
   from where the engine last had them outside, not a fence at a position. The Vault 95 exit after a coc from Red
   Rocket is one 2.26 km jump. A player who walks to a door and back is never more than a few metres away.
