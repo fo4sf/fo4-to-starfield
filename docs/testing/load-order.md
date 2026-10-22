@@ -42,5 +42,7 @@ verified beyond what each line says.
   (`scripts/game/walk_eval.py`) has no such gate: it judges positions, ground, crossings and screenshots without
   comparing the planned index to the runtime one, so a walk run after an order change needs its indexes checked by
   hand.
-- Open: one documented target order (runner and owner installs the same), and an enforcement step before launch that
-  refuses a mismatch. #481's report is detection only.
+- #481's report is detection only. #487 (Launcher) adds `scripts/game/load_order.py check|fix`, which defines the
+  target order (the order the game wrote on 22 Oct, each plugin after its masters) and a launcher setting that runs
+  it before every play; the Launcher thread documents the target order on this page once #487 merges. Open: the runner
+  (cycle.ps1) does not call it yet, so runner and owner installs can still differ.

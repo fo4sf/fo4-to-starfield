@@ -32,7 +32,7 @@ FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, 
 | The boundary (Vault 95 exit, the wall north of Vault 111) | **in game: cause proven for the Vault 95 exit; the north wall is a supported hypothesis.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The owner's walking wall is at getpos (-2606, -908), about 490 m north of Vault 111; the 8-ray border walk from Red Rocket got stuck on converted objects 6 to 200 m out and did not reach it, so the wall is put down to the same border region by inference, not by a run (playtest-issues.md row 29). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city) is running one Vault 95 exit each on the PC with the border on, on the owner's own swap line (18:13 UTC) | #485 (its branch adds docs/terrain/border.md, the method and results); #444 |
 | Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. No door round has run on the installed v6i set | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger) |
 | The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; last PASS v6c, 19 Oct), Codsworth's greeting voice (heard, subtitle only, neither), the 3D map view, the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up | test sheet; journal 22 Oct (ledger) |
-| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; the PC checkout update is queued | Launcher thread; #481 |
+| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; #487 (load-order fix before play, StarfieldCustom.ini written as bytes so the BOM and CRLF survive) with Codex; the PC checkout update is queued | Launcher thread; #481, #487 |
 
 v6e door exits, 21 Oct (runner 62df40bb, judged on 6159dcb): PASS Vault114 (both doors), FortHagen01 (both),
 SuperDuperMart01 (both), BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 (test 0011), PrydwenHull01. FAIL, all
@@ -68,9 +68,12 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
    Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114 manhole, the Red Rocket side
    door; cans and books). Results go to playtest-issues.md.
 6. **One load order** (Launcher, with Bridge): the runner's deploy appends FO4Port last when it owns the line (a
-   hand-placed line keeps its position), the owner's install had it first,
-   and the game rewrote the file after start; #481 reports the change, nothing enforces an order yet
-   ([testing/load-order.md](testing/load-order.md)).
+   hand-placed line keeps its position), the owner's install had it first, and the game rewrote the file after start;
+   #481 reports the change. #487 (Launcher, with Codex) defines the target in `scripts/game/load_order.py check|fix`:
+   lines that are not ours first, then the cores (FO4Terrain*, FO4Actor*), the other FO4SF* experiments, FO4Port,
+   FO4SFMapMarkers, FO4SFBridge, each plugin after its masters; that is the order the game wrote on 22 Oct. The
+   launcher's new `load_order` setting (default fix; check refuses a mismatch; off) runs it before every play. The
+   runner (cycle.ps1) does not call it yet ([testing/load-order.md](testing/load-order.md)).
 
 ### Phase 1 (new game) and the other staged plugins
 
