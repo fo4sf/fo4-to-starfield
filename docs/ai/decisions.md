@@ -434,3 +434,155 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
 - Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
   choices.
+
+## 2026-10-18: interior usable objects reuse the exterior promotion rules (Claude-cloud)
+- Decision: FO4Port.esm promotes containers, inventory items, activators and terminals with the core's make_cluster rules
+  and tables, through an optional promote.json PluginSpike reads (docs/terrain/port-promotions.md).
+- Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
+- Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
+  hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-19 Claude-cloud: all interiors go into one cumulative FO4Port.esm, every earlier id kept
+- **Decision:** the remaining interiors are converted in staged batches (docs/terrain/interior-batches.md), each a
+  new full FO4Port.esm = the installed port's cells + every batch so far. PluginSpike is seeded with the installed
+  port's formids.json, and `vmad_patch.py port --keep-markers` re-applies the installed scripted doors with their
+  marker ids; `interior_batch.py compare` fails a batch that renumbers or drops an installed id.
+- **Why:** the installed core's exterior doors name FO4Port.esm marker ids (00E175..00E183); a grown port that moved
+  them would break those doors, and saves hold port ids. One plugin keeps the owner's load order unchanged and lets
+  interior-to-interior doors across batches link by XTEL in one build.
+- **Alternatives:** one plugin per batch (FO4PortB01.esm ...): independent rollbacks, but nine more plugins, duplicated
+  bases or a master chain, and cross-batch door links between plugins; a rebuild of the core with every door per
+  batch: forbidden while the v6e test runs, and it is the door gate's own step.
+
+## 2026-10-20 Claude-cloud: one location per FO4 location, rooted in FO4Port.esm, leveling from the encounter zone
+- **Decision:** PluginSpike writes one Starfield LCTN per Fallout 4 LCTN, shared by the cells that name it (one per
+  cell when the cell has no XLCN), keyed `LCTN:FO4Port_<FO4 LCTN editor id>` so the chained formids.json fixes its
+  FormID on first use; every converted cell gets XLCN. All of them are parented to one root LCTN inside FO4Port.esm,
+  `FO4Port_InteriorsLocation`, whose parent is `SSol_PMars_Surface` 01B736:Starfield.esm. The FO4 encounter zone's
+  level band and its four flags fold into the LCTN's owner data (levels clamped to 127); no keywords are written;
+  CELL bit 0x10000 ("Use Location as Name") stays off unless the per-cell setting `LOCATION_AS_NAME` is "1". The
+  FO4 data comes from Fo4Export (schema 3 exports; a `locations` mode writes a sidecar for the 16 pinned base
+  exports). docs/terrain/interior-batches.md "Locations".
+- **Why:** interiors.md C4 and C10 decided that FO4's levels and cleared state are per location, and in FO4 both live
+  on the LCTN and its ECZN: a per-cell location would split Vault 81 and Parsons State into three places each that the
+  combined core (which keys places by FO4 LCTN editor id) would have to re-merge. A root in FO4Port.esm keeps the
+  plugin's masters at Starfield.esm alone, so every earlier FormID and the installed core's door markers stay as they
+  are; re-pointing the root later is a one-record change.
+- **Alternatives:** parent = the overlay location `FO4CW_CommonwealthLocation` in FO4TerrainCore.esm (interiors.md's
+  supported default): rejected, FO4Port.esm would have to master the core, reversing the build order and breaking the
+  "no plugin masters the other" rule the door wiring relies on; whether a chain that bypasses the overlay satisfies the
+  cleared-state system is an in-game test. Per-cell locations only: rejected above. Replicating FO4's parent chain
+  (CommonwealthLocation ...): nothing consumes it yet; the export keeps `parent_chain` for the core's region derivation.
+  Carrying FO4's LocType keywords: no verified Starfield mapping, kept in the export for a later pass. Inheriting a
+  missing zone's leveling from the nearest FO4 ancestor: no evidence Starfield resolves it the same way; left null.
+
+## 2026-10-20 Claude-cloud: textures beyond one archive ride empty companion plugins, full masters for now
+- **Decision:** `interior_batch.py build` packs the textures into as many DDS archives as fit under 90% of the
+  4,095 MiB limit (`plan_parts`: case-insensitive path order, greedy, a file never split, a file keeps the part the
+  `--prev` batch gave it while that part has room, the previous batch's packed/loose ratio widens the cap). Part 0
+  stays `FO4Port - Textures.ba2`; part k is `FO4PortTextures<k+1> - Textures.ba2` next to `FO4PortTextures<k+1>.esm`,
+  an empty full-master plugin (42 bytes, byte for byte Mutagen alpha.67's output for a record-less master: **verified**
+  in a probe, pinned in `tests/test_interior_census.py`), listed in Plugins.txt right after FO4Port.esm. The
+  companions and their archives are pinned, successor-verified and never archived, like the port's own archives.
+  docs/terrain/interior-batches.md "Pack".
+- **Why:** batch 4's Textures.ba2 is 3,590,442,691 bytes (**verified**) and grows about 5% per batch, so the single
+  archive reaches the limit around batch 7, and whether the engine reads a larger one is unresolved (X3). The game
+  loads `<plugin> - Textures.ba2` for a loaded plugin (**verified** for FO4Port.esm and the vanilla SFBGS003 / 00D
+  pairs); an empty plugin is the smallest carrier of that name. Full master because X2's rule keeps every new plugin's
+  type a recorded choice checked in game before release: a small or medium master has never been loaded by this
+  project (S2 verified only a Mutagen full master, docs/spikes/S2-S4-S9), and a record-less plugin gains nothing from
+  the smaller type but a load-order slot. The in-game test that would allow the smaller type: the companion rewritten
+  as a small or medium master, a texture only its archive holds rendering after `coc` (interior-batches.md PC tests);
+  the choice is fixed once released.
+- **Alternatives:** numbered archives of one plugin (`FO4Port - Textures02.ba2`): the executable holds a
+  `%s%s%02u.ba2` pattern (core64c.md) but no installed plugin uses it, so it is a second unverified mechanism; a
+  smaller texture set (`--max-texture` caps as the core uses): changes every converted texture and the pinned
+  batches; a plugin per batch: rejected on 2026-10-19 (ids and doors). Planning by packed size (pack, measure, split,
+  repack): gigabytes of Archive2 time per attempt; the loose-bytes plan with the measured ratio is conservative and
+  deterministic.
+- **Open:** deploy_starfield.py installs FO4Port.esm and its two archives only; a batch with companions is installed by
+  hand from result.json `install` until the installer learns the list.
+
+## 2026-10-20 Claude-cloud: a batch pins the game files it read and refuses a chain built from other ones
+- **Decision:** result.json `sources` holds the sha256 and size of Fallout4.esm and of each DLC plugin a cell is
+  exported from, and the size and mtime of every BA2 under `--fo4-data` and `--dlc-data`. A `--prev`, or a `--base`
+  that is a batch's own stage, with other pins is refused; `--allow-source-change` overrides and is recorded.
+- **Why:** X8 (precedents Q4): the chained batches reuse the previous batch's exports and converted models, so a
+  changed Fallout4.esm or BA2 would silently mix two game versions in one port. Hashing the BA2s (some 30 GB) would
+  take longer than the convert step, so they are pinned by size and mtime; the plugins are hashed (seconds).
+- **Alternatives:** hash everything (too slow per batch); refuse nothing and only record (the mix would go unnoticed
+  until a model looks wrong in game); pin the installed doors staging too (it predates the pins; a base without a
+  record is accepted, said so in the doc).
+
+## 2026-10-20 Claude-cloud: the texture plan replans on an over-limit part; a source pinned for the first time is not a change
+- **Decision:** `interior_batch.py pack` packs a part that came out at or over the 4,095 MiB limit again, replanned
+  with the packed/loose ratio that attempt measured (always above the one planned with: an over-limit part packed
+  more than cap times ratio bytes), repacking only the parts whose file list changed, up to three attempts
+  (`steps.pack.attempts`); `--pack-ratio R` overrides the `--prev`'s measured ratio (`steps.pack.ratio_source`). A
+  measured ratio above 1 is kept, not clamped to 1. `plan_parts` never returns an empty part: one the previous
+  assignment emptied is dropped and the parts after it move down (their files count as moved). `source_changes`
+  counts a pin whose value changed or that is gone; a plugin or BA2 pinned for the first time is listed under
+  `steps.sources.added` and never refused. Review findings on #396, docs/terrain/interior-batches.md "Replanning"
+  and "Sources".
+- **Why:** the ratio is measured on the previous batch's parts, never on the files the batch adds, so a batch whose
+  new textures pack worse could exceed the limit after hours of Archive2 time, and a failed batch is no `--prev`:
+  the chain had no recovery path but editing result.json. Repacking only changed parts bounds the extra Archive2
+  time to the parts that moved. An empty middle part (every file of it gone from the work staging) would have been
+  packed from a link tree never made: a FileNotFoundError past build()'s handler, no result.json. Batch 10 (the DLC
+  cells) pins DLCRobot.esm and its BA2s for the first time; refusing it would force `--allow-source-change`, which
+  would also silence a real Fallout4.esm change in that build.
+- **Alternatives:** plan by packed size (pack, measure, split, repack every part): the replanning does that only
+  when the plan missed; keep gaps in the companion numbering so a file never moves when a part empties (sparse
+  `FO4PortTexturesN` numbers; rejected as confusing, and the case needs every file of a part gone); refuse a
+  first-time pin too (the reviewed behaviour, rejected above).
+
+## 2026-10-19 Claude-cloud: the launcher backbone wraps the existing scripts and installers
+- **Decision:** `src/fo4sf/launcher/` adds a build manifest, a recipe-driven resumable build driver over the existing
+  make scripts, a snapshot-and-restore that acts only through deploy_starfield.py, exp_install.py and
+  bridge_install.py, and a same-ids check (raw record walk plus compare-ids). Pure Python; no C#, so no new GPL-3
+  binary (docs/ai/launcher-backbone.md).
+- **Why:** Grok (#381) and Codex (#382) asked for the build-and-restore spine and the determinism check before
+  doors and interiors; Codex noted the ledger is not the physical restorer, so restore reuses the installers that
+  already own every file. Wrapping keeps the install thread's nightly commands unchanged.
+- **Alternatives:** a build graph importing the converters (rewrites the entry points); MO2 profile or Stock-Game
+  copy for restore (untested at this size / too much disk); a Mutagen check in C# (needs a load order, GPL-3).
+  Listed for the owner's talk in launcher-backbone.md.
+
+## 2026-10-19: the Fallout 4 new game is its own plugin, resolving the port and core at run time (Claude-cloud)
+- Decision: FO4SFNewGame.esm (master Starfield.esm only) holds the start quest; it finds Vault 111 and the core's exit
+  anchor with Game.GetFormFromFile on stable plugin-local ids, and stops MQ00 and MQ101 from Papyrus instead of editing
+  them (docs/newgame/vault111-start.md).
+- Why: the mission plugin is under test; ids in FO4Port and the core are stable, so the start survives their rebuilds;
+  stopping quests edits no Starfield record and goes away with the plugin.
+- Alternatives: changes to FO4SFMission.esm (rejected: it is under test); mastering the port and core with our own
+  markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
+  fallbacks, `--mq101debug`, for the owner's talk).
+
+## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
+- Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
+  bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
+  script (FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor). Every switch is off by default (docs/spikes/load-door-animations.md).
+- Why: the owner's phase 2 (doors with enter and exit animations); Starfield's own visible load doors animate, and its
+  own animations come first (owner 2026-10-19). A child script leaves the FO4SF_LoadDoor contract the passing round
+  trips use untouched.
+- Alternatives:
+  - A separate opening door beside each load door: rejected, two records per door and a prompt clash.
+  - A fade or sound only: rejected, it is not the animation the owner asked for.
+  - Changing FO4SF_LoadDoor itself: rejected while v6e's test runs on it.
+  - Moving the core's exterior ACTI to a DOOR now: deferred until the v6e test is done (the bugs thread owns that path).
+
+## 2026-10-20: one stable DOOR base per converted model and FO4 name (Claude-cloud)
+- **Decision:** PluginSpike's DoorNames.cs gives each FO4 name of a converted door model its own DOOR base, under the
+  identity `DOOR:<editor id>|name:<name>`, and moves that name's references to it. The model's own base
+  `DOOR:<editor id>` keeps the name "Door" and the references without a usable FO4 name, and it is emitted even when
+  no reference uses it. Copies keep the base's open and own-rig roles.
+- **Why:** the first version gave the model base the name most of its references had. Codex showed on #400 (review
+  5580232495) that a grown export with the same formids.json flips the winner. Old references then move to another
+  base, and a published base gets another name, while every REFR ID stays the same. Bases and their names are what
+  saves and other plugins see, so they must not depend on reference counts. The fix was confirmed in review 5581794458.
+- **Alternatives:**
+  - Keep the election and record each base's owner name in formids.json. This adds a map entry that is not a record,
+    and a new name can still win the election.
+  - Name the model base after the first name in ordinal order. A new name that sorts earlier still flips it.
+- **Boundary:** this is not a migration. A plugin or map built with the 4f0ad57 election is not compatible with it,
+  but no staged or installed build used that version. Not verified in game.

@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import subprocess
 import re
 import shutil
 import sys
@@ -180,6 +181,112 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
         self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
 
+    def test_the_whole_cycle_output_is_kept_in_cycle_log(self):
+        # v6e doors_out, 2026-10-21: run.log kept only cycle.ps1's last line, so where the launch stopped was lost
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None
+        out = "main menu after 12 s\nsave loaded: not seen within 120 s, going on\nlease refused: not launching"
+        r._ps = lambda script, args, timeout, steal=False: (9, out) if script == "cycle.ps1" else (0, "")
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True):
+            r.run()
+        with open(os.path.join(self.d, "cycle.log"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(": exit 9\n" + out, text)
+
+    def test_a_timed_out_script_keeps_what_it_printed(self):
+        # Codex on #439: a cycle.ps1 past its budget kept only "timeout", none of its launch lines
+        r = self.runner()
+        err = subprocess.TimeoutExpired(["cycle.ps1"], 900, output=b"main menu after 12 s\n", stderr=None)
+        with mock.patch.object(tq.subprocess, "run", side_effect=err):
+            code, out = tq.Runner._ps(r, "cycle.ps1", [], 900)
+        self.assertEqual((code, out), (124, "main menu after 12 s\ntimeout"))
+        with mock.patch.object(tq.subprocess, "run", side_effect=subprocess.TimeoutExpired(["x"], 1)):
+            self.assertEqual(tq.Runner._ps(r, "cycle.ps1", [], 1), (124, "timeout"))
+
+    def _launch(self, codes, blocked=lambda launches: None):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls, checks = [], []
+
+        def ps(script, args, timeout, steal=False):
+            calls.append(script)
+            return (codes.pop(0) if codes else 0, "x") if script == "cycle.ps1" else (0, "")
+
+        def why(*a, **k):
+            checks.append(1)
+            return blocked(calls.count("cycle.ps1"))
+        r._ps = ps
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq, "blocked_reason", side_effect=why):
+            code = r.run()
+        return code, calls
+
+    def test_a_game_that_never_starts_stops_after_three_guarded_launches(self):
+        code, calls = self._launch([10, 10, 10, 10])
+        self.assertEqual(code, 3)
+        self.assertEqual(calls, ["cycle.ps1"] * 3)                             # three launches, no relaunch per test
+        with open(os.path.join(self.d, "run.log"), encoding="utf-8") as f:
+            self.assertIn("the game did not stay up (launch 2 of 3): launching again", f.read())
+        self.assertTrue(self.status().startswith("stopped: the game did not start (cycle.ps1 exit 10 on 3 launches"),
+                        self.status())
+        self.assertEqual(self.calls, [])
+
+    def test_a_relaunch_after_a_dead_start_rechecks_every_launch_control(self):
+        # Codex's review of #358: a STOP (or a lost lease, the owner back) between two launches is honoured
+        code, calls = self._launch([10, 0], blocked=lambda launches: "STOP file present" if launches else None)
+        self.assertEqual(calls, ["cycle.ps1"])                                 # no second Steam launch
+        self.assertEqual(code, 3)
+        self.assertIn("STOP", self.status())
+
+    def test_cycle_ps1_launches_once_and_exits_10_when_the_game_does_not_stay_up(self):
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        self.assertEqual(src.count("$launch = 'steam://rungameid/1716740'"), 1)
+        self.assertEqual(src.count("Start-Process $launch"), 1)
+        self.assertNotIn("for ($try", src)                                     # retries are the runner's, after its checks
+        self.assertIn("Get-Process -Id $q.Id", src)                            # alive 20 s later, not just seen once
+        self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
+        self.assertIn("exit 10", src)
+
+    def test_cycle_ps1_starts_starfield_exe_only_on_the_opt_in(self):
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        start = src.index("$launch = 'steam://rungameid/1716740'")
+        block = src[start:src.index("$q = $null", start)]
+        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'exe') {", block)             # opt-in only; steam:// otherwise
+        self.assertIn("$launch = Join-Path $sf 'Starfield.exe'", block)
+        self.assertLess(block.index("Test-Path -LiteralPath $launch"), block.index("Start-Process -FilePath $launch"))
+        self.assertIn("exit 10", block)                                       # a missing exe is a dead start
+        self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
+        self.assertIn("after $launch (screen: $Shot)", src)
+
+    def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
+        # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        menu = int(re.search(r"Wait-Screen 'main menu' (\d+)", src).group(1))
+        save = int(re.search(r"Wait-Screen 'save loaded' (\d+)", src).group(1))
+        self.assertGreaterEqual(menu, 240)
+        self.assertGreaterEqual(save, 300)
+        start = 12 + 150 + 20 + 10                                             # close an old game, see it start, alive, settle
+        cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
+        escapes = 2 * (2 + 15 + 10)                                           # the Escapes after a missed save load
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + cell + 120)   # never cut a slow launch short
+        # with -CellJson the launch ends with coc.ps1 and its retries (Codex on #452): its whole budget fits too
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + tq.COC_TIMEOUT_S + 120)
+
+    def test_cycle_ps1_sends_no_blind_e_after_the_save_loads(self):
+        # v6e retry 4, 2026-10-21: the E after Continue opened Vasco's dialogue on the owner's save and hid the HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        load = src.index("loadorder.ps1')")
+        wait = src.index("Wait-Screen 'save loaded'")
+        between = src[load:wait]
+        self.assertNotIn("Send 'hold:e", between)
+        self.assertIn("Clear-AchievementsPopup", between)                   # E only when the popup's text is read
+        after = src[wait:src.index("function Prompt-Visible")]
+        self.assertIn("key:esc", after)                                     # a missed load gets Escapes, each checked
+        self.assertRegex(after, r"while \(\$n -lt 2\)")      # an even count: never left in the pause menu
+        self.assertIn("Wait-Screen \"save loaded after", after)
+
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
 
@@ -203,6 +310,74 @@ class RunnerLeaseTests(unittest.TestCase):
             tq.main(["run", "--queue", self.d, "--lease-dir", "", "--lease-owner", "Bob"])   # flags win
         a = seen["a"]
         self.assertEqual((a.lease_dir, a.lease_owner), ("", "Bob"))
+
+    def _limited(self, **kw):
+        r = self.runner(max_attempts=1, **kw)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls = []
+        r._ps = lambda script, *a, **k: calls.append(script) or (0, "")
+        return r, calls
+
+    def test_the_crash_budget_stops_before_the_next_launch(self):
+        r, calls = self._limited(crash_budget=1)
+        r.state["crashes"] = 1
+        self.assertEqual(r.run(), 3)
+        self.assertEqual((calls, self.calls), ([], []))
+        self.assertTrue(self.status().startswith("stopped: limit: 1 crash(es) and 0 start death(s) this run, --crash-budget 1"),
+                        self.status())
+
+    def test_a_crash_under_the_budget_still_launches(self):
+        r, calls = self._limited(crash_budget=2)
+        r.state["crashes"] = 1
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq.Runner, "setup_session", side_effect=RuntimeError("launched")), \
+                self.assertRaisesRegex(RuntimeError, "launched"):
+            r.run()                                                           # past the limit: the launch ran
+        self.assertIn("cycle.ps1", calls)
+
+    def test_the_disk_floor_stops_before_a_launch(self):
+        r, calls = self._limited(min_free_gb=43, dump_drive="X:\\")
+        with mock.patch.object(tq.shutil, "disk_usage", return_value=mock.Mock(free=30e9)) as du:
+            self.assertEqual(r.run(), 3)
+        du.assert_called_with("X:\\")
+        self.assertEqual((calls, self.calls), ([], []))
+        self.assertTrue(self.status().startswith("stopped: limit: 30.0 GB free on X:\\, --min-free-gb 43"),
+                        self.status())
+        r, calls = self._limited(min_free_gb=43, dump_drive="X:\\")
+        with mock.patch.object(tq.shutil, "disk_usage", side_effect=OSError("no drive")):
+            self.assertEqual(r.run(), 3)                                      # unreadable counts as too full
+        self.assertEqual(calls, [])
+        self.assertIn("unreadable", self.status())
+
+    def test_starts_that_die_count_against_the_crash_budget(self):
+        # Codex's review of #377: an exit-10 start can crash too, so the budget counts it before the next launch
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1, crash_budget=1)
+        r.session, r.cell, self.ctl.pid = False, None, None
+        calls = []
+        r._ps = lambda script, *a, **k: calls.append(script) or ((10, "x") if script == "cycle.ps1" else (0, ""))
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq, "blocked_reason", return_value=None):
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls.count("cycle.ps1"), 1)                         # no second Steam launch
+        self.assertTrue(self.status().startswith("stopped: limit: 0 crash(es) and 1 start death(s) this run, "
+                                                 "--crash-budget 1"), self.status())
+
+    def test_bad_limits_are_refused(self):
+        for bad in (["--crash-budget", "-1"], ["--min-free-gb", "nan"], ["--min-free-gb", "-1"],
+                    ["--min-free-gb", "inf"]):
+            with self.subTest(bad=bad), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                tq.main(["run", "--queue", self.d] + bad)
+        for kw in (dict(min_free_gb=float("nan")), dict(min_free_gb=-1.0), dict(crash_budget=-1)):
+            with self.subTest(kw=kw):                                         # a caller that skips the parser
+                self.assertTrue(tq.launch_limit(tt.args(**kw), {}).startswith("limit: bad"))
+        r, calls = self._limited(min_free_gb=float("nan"))
+        with mock.patch.object(tq.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls, [])
+
+    def test_the_limits_are_off_by_default(self):
+        self.assertIsNone(tq.launch_limit(tt.args(), {"crashes": 9}))
 
     def test_a_launch_is_gated_before_the_idle_check(self):
         ctl = tt.FakeControls()
