@@ -510,11 +510,15 @@ static class Mission
         {
             Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
         };
-        script.Properties.Add(Obj("Preston", prestonRef.FormKey));
-        var list = new SF.ScriptObjectListProperty { Name = "Raiders", Flags = SF.ScriptProperty.Flag.Edited };
-        foreach (var r in raiderRefs) list.Objects.Add(Obj("", r.FormKey));
-        script.Properties.Add(list);
-        script.Properties.Add(Obj("Credits", credits.FormKey));
+        void MissionProps(SF.ScriptEntry e)                             // built fresh per script: ScriptProperty has no DeepCopy
+        {
+            e.Properties.Add(Obj("Preston", prestonRef.FormKey));
+            var list = new SF.ScriptObjectListProperty { Name = "Raiders", Flags = SF.ScriptProperty.Flag.Edited };
+            foreach (var r in raiderRefs) list.Objects.Add(Obj("", r.FormKey));
+            e.Properties.Add(list);
+            e.Properties.Add(Obj("Credits", credits.FormKey));
+        }
+        MissionProps(script);
         SF.QuestAdapter Adapter(SF.ScriptEntry entry)
         {
             var vm = new SF.QuestAdapter
@@ -535,7 +539,7 @@ static class Mission
                 Data = new SF.QuestData { Flags = SF.Quest.Flag.StartGameEnabled, Priority = 50 },
             };
             var ks = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
-            foreach (var sp in script.Properties) ks.Properties.Add(sp.DeepCopy());   // the Mandatory ones, as the mission's
+            MissionProps(ks);                                           // the Mandatory ones, as the mission's
             ks.Properties.Add(Obj("Codsworth", codsRef.FormKey));
             ks.Properties.Add(new SF.ScriptBoolProperty { Name = "KeeperOnly", Flags = SF.ScriptProperty.Flag.Edited, Data = true });
             keeper.VirtualMachineAdapter = Adapter(ks);
@@ -960,8 +964,11 @@ static class Mission
             ("keeper quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, KeeperQuestId))),
             ("keeper not start game enabled", m => Keeper(m).Data!.Flags &= ~SF.Quest.Flag.StartGameEnabled),
             ("keeper runs the mission", m => ((SF.ScriptBoolProperty)Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "KeeperOnly")).Data = false),
-            ("Codsworth also set on the mission", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.Add(
-                Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "Codsworth").DeepCopy())),
+            ("Codsworth also set on the mission", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "Codsworth", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, CodsworthRefId)),
+            })),
             ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
             ("quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
