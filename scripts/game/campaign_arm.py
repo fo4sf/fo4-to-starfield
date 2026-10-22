@@ -744,12 +744,16 @@ def check(camp, release):
     unknown = sorted(set(release) - set(camp.get("holds") or {}))
     if unknown:
         caps.append(f"--release names holds the campaign does not have: {unknown}")
-    rows, names = [], set()
+    rows, names, dirs = [], set(), set()
     for e in camp.get("queues") or []:
         _, why, notes = check_queue(e, camp, release)
         if e.get("name") in names or not re.fullmatch(r"[A-Za-z0-9_.-]+", str(e.get("name") or "")):
             why.append(f"queue name {e.get('name')!r} is missing, repeated or not plain")
+        if norm(e.get("queue") or "") in dirs:
+            # Codex on #391: the first entry would finish the shared folder and the second refuse it as done
+            why.append(f"queue folder {e.get('queue')} is named by an earlier entry too")
         names.add(e.get("name"))
+        dirs.add(norm(e.get("queue") or ""))
         rows.append((e, why, notes))
     if not rows:
         caps.append("the campaign has no queues")
@@ -998,6 +1002,25 @@ def run_python_why(camp):
     return exe, f"this is {sys.executable}, the campaign's python is {py}" + ("" if exe else " (not found)")
 
 
+def on_campaign_python(camp, argv, log):
+    """None when this process is the campaign's python, else the exit code of the same command run again on it (or 1
+    when it can not be). Codex on #391: the checks import the judges and the runner, so `run` and `script` check on
+    the interpreter the chain runs them with."""
+    exe, why = run_python_why(camp) or (None, None)
+    if not why:
+        return None
+    if not exe or os.environ.get("FO4SF_ARM_REEXEC") == "1":
+        log(f"REFUSED campaign: {why}")
+        return 1
+    log(f"{why}: running the checks again on it")
+    try:
+        return subprocess.run([exe, "-I", os.path.abspath(__file__)] + argv,
+                              env=dict(os.environ, FO4SF_ARM_REEXEC="1")).returncode
+    except OSError as error:
+        log(f"REFUSED campaign: {exe} could not be run: {error}")
+        return 1
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1049,20 +1072,18 @@ def main(argv=None):
         if why:
             log(f"REFUSED campaign: {why}")
             return 1
-        exe, why = run_python_why(camp) or (None, None)
-        if why:
-            if not exe or os.environ.get("FO4SF_ARM_REEXEC") == "1":
-                log(f"REFUSED campaign: {why}")
-                return 1
-            log(f"{why}: running the checks and the chain again on it")
-            try:
-                return subprocess.run([exe, "-I", os.path.abspath(__file__)] + argv,
-                                      env=dict(os.environ, FO4SF_ARM_REEXEC="1")).returncode
-            except OSError as error:
-                log(f"REFUSED campaign: {exe} could not be run: {error}")
-                return 1
-        return run_chain(camp, log)
+        rc = on_campaign_python(camp, argv, log)
+        return run_chain(camp, log) if rc is None else rc
     camp, digest = load_campaign(a.campaign)
+    if a.cmd == "script":
+        why = checkout_here_why(camp)
+        if why:
+            # Codex on #391: the chain's commands are written by this checkout's code and run by the campaign's
+            print(f"REFUSED campaign: {why}")
+            return 1
+        rc = on_campaign_python(camp, argv, print)
+        if rc is not None:
+            return rc
     release = releases(a.release)
     if a.cmd == "check" and a.sha256 and digest != a.sha256.lower():
         print(f"REFUSED campaign: {a.campaign} changed since the chain was written from it: write the chain again")
@@ -1087,11 +1108,6 @@ def main(argv=None):
     show(res)
     if a.cmd == "check" or not ok:
         return 0 if ok else 1
-    why = checkout_here_why(camp)
-    if why:
-        # Codex on #391: the chain's commands are written by this checkout's code and run by the campaign's
-        print(f"REFUSED campaign: {why}")
-        return 1
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: the script writes a new file only")
     if not camp.get("checkout"):

@@ -17,6 +17,7 @@ import campaign_arm as ca  # noqa: E402
 REAL_REV = ca.checkout_rev_why                                           # setUp mocks it for the other tests
 REAL_KEPT = ca.game_kept_why
 REAL_HERE = ca.checkout_here_why
+REAL_ON_PY = ca.on_campaign_python
 import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
@@ -56,7 +57,7 @@ class Base(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         # the checkout's commit (checkout_rev_why) and a running game (game_running) have tests of their own
-        for name in ("checkout_rev_why", "game_running", "game_kept_why", "checkout_here_why"):
+        for name in ("checkout_rev_why", "game_running", "game_kept_why", "checkout_here_why", "on_campaign_python"):
             m = mock.patch.object(ca, name, return_value=None)
             m.start()
             self.addCleanup(m.stop)
@@ -230,7 +231,10 @@ class CheckTests(Base):
         self.assertTrue(self.check(c)[0])                                   # the same folder, written otherwise
         self.assertIn("no planned queue", self.check(self.camp([("x", os.path.join(self.d, "nope"))]))[1][0])
         self.assertIn("no queues", self.check(self.camp([]))[1][0])
-        self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
+        self.assertIn("repeated", " ".join(self.check(self.camp([("c", q3), ("c", q3)]))[1]))
+        # Codex on #391: two names for one folder: the first would finish it, the second refuse it as done
+        self.assertIn("named by an earlier entry too",
+                      " ".join(self.check(self.camp([("c", q3), ("c2", q3.upper() + "\\")]))[1]))
 
 
     def test_a_judge_option_its_parser_would_refuse_is_refused(self):
@@ -1025,6 +1029,9 @@ class RunChainTests(Base):
 
     def test_run_runs_again_on_the_campaigns_python(self):
         # Codex on #391: the arming checks import the judges; on another python they could refuse or pass otherwise
+        real = mock.patch.object(ca, "on_campaign_python", REAL_ON_PY)
+        real.start()
+        self.addCleanup(real.stop)
         q = self.queue("a", [{"coc": "FO4Port_X"}])
         cp_ = os.path.join(self.d, "c.json")
         with open(cp_, "w") as f:
@@ -1043,6 +1050,11 @@ class RunChainTests(Base):
             self.assertEqual(ca.main(["run", "--campaign", cp_]), 1)
         rc.assert_not_called()
         self.assertIn("the campaign's python is", buf.getvalue())
+        # and the chain it writes is checked there too
+        with redirect_stdout(io.StringIO()), mock.patch.object(ca.subprocess, "run", return_value=done) as sp:
+            self.assertEqual(ca.main(["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")]), 0)
+        self.assertEqual(sp.call_args[0][0][-5:], ["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")])
+        self.assertFalse(os.path.exists(os.path.join(self.d, "c.ps1")))       # written by the re-run, not here
 
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
         os.environ["FO4SF_PYTHON"] = "C:\\other\\python.exe"
