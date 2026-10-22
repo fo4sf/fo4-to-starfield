@@ -8,9 +8,30 @@ Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-20) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-22) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## Latest progress — 2026-10-20
+## Latest progress — 2026-10-22
+
+**The Red Rocket crash is solved.** The cause was the shader blocks written into the converted Codsworth model; Codsworth's model now writes plain shader blocks by default (`--plain-shader`), found with the switches in #460 and fixed in #461. On the fixed build both Red Rocket walks passed, and the owner's play test ran with Codsworth rendering.
+
+| Work | State on 22 Oct | Where |
+|---|---|---|
+| **Red Rocket crash** | solved: the converted Codsworth model's shader blocks; plain shader blocks by default | #460, #461 (merged) |
+| **Red Rocket walks** | both pass on the fixed build | owner's PC, 22 Oct |
+| **Owner play test** | done, with Codsworth rendering | owner, 22 Oct |
+| **Crash watcher** | now starts and ends with the game, with launcher settings | #449 (merged) |
+| **Report hotkey** | the Ctrl+Alt+K description box opens visible and in front | #463 (merged) |
+| **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |
+| **Map markers** | the markers plugin is installed on the test PC for testing | #376, #399 |
+| **Vault 95 and the map boundary** | under investigation; an Interiors test is queued | Interiors thread |
+| **Buildings on the surface map** | object LOD format read from the vanilla archive | #467 (draft) |
+| **Launcher window** | a window over launcher.py (status, settings, play), with Codex | #456 |
+| **Grok's launcher tasks** | focused QA and diagnostic tasks | #458 |
+
+<details>
+<summary>Progress on 20 October</summary>
+
+### 2026-10-20
 
 **Priority from here on (owner, 19 Oct): the combined core comes first.** This is a GAMMA-style second way to play, built around settlements that grow, factions that act and a connected wasteland, starting on the Commonwealth. It has value without the open legal questions. The stories are still wanted, and the work already in flight continues. The owner's decisions for every phase are in [docs/research/framework/dependencies.md on #408](https://github.com/fo4sf/fo4-to-starfield/pull/408) and are not repeated here.
 
@@ -28,6 +49,8 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Test tooling** | night-chain arm check, preflight report, tiered queues, door trips per interior batch | #391, #397, #403, #405 |
 
 The v6e test runs on the installed build, and the mission result is from the game. Everything else in the table is offline or staged, and nothing new is installed until the v6e test is done.
+
+</details>
 
 <details>
 <summary>Progress on 19 October</summary>
