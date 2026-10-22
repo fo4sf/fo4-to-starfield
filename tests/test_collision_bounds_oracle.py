@@ -1,7 +1,9 @@
 """Synthetic tests for scripts/oracles/collision_bounds.py (no game assets)."""
+import dataclasses
 import importlib.util
 import io
 import json
+import math
 import os
 import struct
 import subprocess
@@ -15,16 +17,42 @@ from unittest import mock
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, os.path.join(_ROOT, "tests"))
-from fo4sf import fo4collision, nif, sfcollision, sfnif  # noqa: E402
-from test_collision import fake_template
+from fo4sf import fo4collision, hktagfile, nif, sfcollision, sfnif  # noqa: E402
+from test_collision import fake_template as untagged_template          # header and words only: not a tagfile
 import test_sfbodies
-from test_sfbodies import BODY, TagWriter, _sec, _v, add_body, body_types, cube, convex_blob, mesh_blob
+from test_sfbodies import (BODY, PSD, TagWriter, _sec, _v, add_bodies, add_body, add_convex, body_types, cube,
+                           convex_blob, mesh_blob)
 
 spec = importlib.util.spec_from_file_location(
     "collision_bounds_oracle",
     Path(__file__).resolve().parents[1] / "scripts/oracles/collision_bounds.py")
 oracle = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(oracle)
+
+
+def template_tagfile(bodies=None):
+    """A 6,168-byte box template that is a real tagfile, as vanilla's is: sfcollision.check_template's header, type name
+    and identity rows at 528 / 544 / 560, inside an hknpBoxShape item that spans the words box_blob writes. The root
+    system lists bodies(w, box item) [(shape item, position, quaternion)]: by default one identity body on the box."""
+    def build(pad):
+        w = TagWriter()
+        body_types(w, "hknpBoxShape")
+        w.type("hknpBoxShape", 800)
+        w.type("p" * pad, 4)                           # each character is one byte of the type strings
+        box = w.item("hknpBoxShape", bytes(800))
+        add_bodies(w, bodies(w, box) if bodies else [(box, (0, 0, 0), (0, 0, 0, 1))])
+        return bytearray(w.build())
+    blob = build(1 + sfcollision.BLOB_SIZE - len(build(1)))
+    tf = hktagfile.Tagfile(bytes(blob))
+    box = next(it for it in tf.items[1:] if tf.type_name(it.type) == "hknpBoxShape")
+    assert len(blob) == sfcollision.BLOB_SIZE and tf.data_start + box.offset <= 528 < 784 <= tf.data_start + box.offset + 800
+    for k in range(3):
+        struct.pack_into("<3f", blob, 528 + 16 * k, *(float(a == k) for a in range(3)))
+    return bytes(blob)
+
+
+def fake_template():
+    return template_tagfile()
 
 
 def shape(box, name=b"Prop:0"):
@@ -47,12 +75,24 @@ def truncate_block(data, block_type, size, nth=0):
     return nif.serialize(f)
 
 
-def raw_tagfile(tst, tna, tbdy):
-    """TAG0 with hand-written type strings / names / bodies (TagWriter only writes well-formed types)."""
+def raw_tagfile(tst, tna, tbdy, items=()):
+    """TAG0 with hand-written type strings / names / bodies (TagWriter only writes well-formed types) and items
+    [(type, data offset, count)]."""
     types = _sec(b"TST1", tst) + _sec(b"TNA1", tna) + _sec(b"FST1", b"") + _sec(b"TBDY", tbdy)
+    item = bytes(12) + b"".join(struct.pack("<III", *it) for it in items)
     body = (_sec(b"SDKV", b"20190200") + _sec(b"DATA", bytes(16)) + _sec(b"TYPE", types, leaf=False)
-            + _sec(b"INDX", _sec(b"ITEM", bytes(12)) + _sec(b"PTCH", b""), leaf=False))
+            + _sec(b"INDX", _sec(b"ITEM", item) + _sec(b"PTCH", b""), leaf=False))
     return _sec(b"TAG0", body, leaf=False)
+
+
+def own_parent_blob(name, size):
+    """A one-body tagfile whose type `name` (of `size`; 0 makes size_of ask the parent) is its own parent."""
+    w = TagWriter()
+    body_types(w, "hknpConvexShape")
+    w.type("hknpConvexShape", 80)
+    add_body(w, w.item("hknpConvexShape", bytes(80)))
+    w.types = [(n, size, f, n) if n == name else (n, sz, f, p) for n, sz, f, p in w.types]
+    return w.build()
 
 
 def _any_varint(x):
@@ -97,19 +137,20 @@ def two_body_blob():
     """One physics system holding two convex bodies: a 0.1 m cube (body 0) inside the 0.8 x 0.8 x 1 m box (body 1)."""
     w = TagWriter()
     body_types(w, "hknpConvexShape")
-    w.type("hull", 48, [("vertices", 0, "ptr"), ("faces", 16, "ptr"), ("indices", 32, "ptr")])
-    w.type("hknpConvexShape", 80, [("convexRadius", 8, "float3"), ("hull", 16, "hull")])
-    for lo, hi in (((-0.05, -0.05, 0), (0.05, 0.05, 0.1)), ((-0.4, -0.4, 0), (0.4, 0.4, 1))):
-        v, faces = cube(lo, hi)
-        s = w.item("hknpConvexShape", bytes(80))
-        idx = b"".join(bytes(face) for face in faces)
-        parts = (w.item("float3", b"".join(struct.pack("<3f", *p) for p in v), len(v)),
-                 w.item("face", b"".join(struct.pack("<HBB", 4 * k, 4, 0) for k in range(len(faces))), len(faces)),
-                 w.item("u8", idx, len(idx)))
-        for off, item in zip((16, 32, 48), parts):
-            w.ptr(s, off, item)
-        add_body(w, s)
+    add_bodies(w, [(add_convex(w, *cube(lo, hi)), (0, 0, 0), (0, 0, 0, 1))
+                   for lo, hi in (((-0.05, -0.05, 0), (0.05, 0.05, 0.1)), ((-0.4, -0.4, 0), (0.4, 0.4, 1)))])
     return w.build()
+
+
+def geometry(f, i, **fields):
+    """Rewrite BSGeometry block i with some fields changed."""
+    f.blocks[i] = sfnif.build_bsgeometry(dataclasses.replace(sfnif.parse_bsgeometry(f.blocks[i]), **fields))
+
+
+def two_piece_scene(second, collision):
+    """build_static_nif with a 0.8 x 0.8 x 1 m piece at the origin (BSGeometry 4) and a `second` box (BSGeometry 7)."""
+    return nif.parse(nif.serialize(sfnif.build_static_nif(
+        b"Prop", [shape((0, 0, 0.5, 0.4, 0.4, 0.5)), shape(second, b"Prop:1")], collision_blob=collision)))
 
 
 def scene_graph_cases():
@@ -577,12 +618,11 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         # Each child blob broke out of collision_bodies (KeyError, RecursionError, OverflowError) or never returned
         # (a type parent cycle in size_of / all_fields); now each is one error and the good box beside it still decodes.
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
-        body = BODY.encode() + b"\0"
         cases = {"no sections": _sec(b"TAG0", b"", leaf=False),
-                 "self-referential template": raw_tagfile(b"T\0tT\0", _v(2) + _v(0) + _v(1) + _v(1) + _v(1), b""),
-                 "size_of parent cycle": raw_tagfile(body, _v(2) + _v(0) + _v(0), _v(1) + _v(1) + _v(0)),
-                 "all_fields parent cycle": raw_tagfile(body, _v(2) + _v(0) + _v(0),
-                                                        _v(1) + _v(1) + _v(0x8) + _v(64) + _v(4)),
+                 "self-referential template": raw_tagfile(b"T\0tT\0", _v(2) + _v(0) + _v(1) + _v(1) + _v(1), b"",
+                                                          items=[(1, 0, 1)]),
+                 "size_of parent cycle": own_parent_blob(BODY, 0),
+                 "all_fields parent cycle": own_parent_blob(PSD, 16),
                  "offset past ssize_t": huge_offset_blob()}
         for name, blob in cases.items():
             report = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[blob]), path=f"{name}.nif")
@@ -749,6 +789,191 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             ok_out = json.loads(ok.stdout)
             self.assertEqual(ok_out["flagged"], 0)
             json.dumps(ok_out, allow_nan=False)
+
+    def test_flags_do_not_depend_on_refr_scale(self):
+        # MIN_EXTENT gated the scaled boxes: at scale 0.02 the 8 m offset box, and at 0.01 the 4 cm box on a 4 m mesh,
+        # had every axis under 5 cm and were clean (a 4 m x 4 cm pipe on a 6 mm hull was much_smaller from scale 2),
+        # though a uniform scale about the origin moves both boxes alike.
+        far = nif.serialize(box_scene((8, 0, 0.5)))
+        tiny = nif_bytes((0, 0, 1, 2, 2, 2), sfcollision.box_blob(fake_template(), (0, 0, 0.01), (0.02, 0.02, 0.01)))
+        pipe = nif_bytes((0, 0, 0, 2, 0.02, 0.02), children=[convex_blob(*cube((-2, -0.003, -0.003), (2, 0.003, 0.003)))])
+        for scale in (1.0, 0.02, 0.01, 2.0, 100.0):
+            self.assertEqual(oracle.audit(far, scale=scale)["flags"], ["offset"], msg=scale)
+            self.assertEqual(oracle.audit(tiny, scale=scale)["flags"], ["much_smaller"], msg=scale)
+            self.assertEqual(oracle.audit(pipe, scale=scale)["flags"], [], msg=scale)                 # control
+            self.assertEqual(oracle.audit(nif.serialize(box_scene()), scale=scale)["flags"], [], msg=scale)
+        report = oracle.audit(far, scale=0.02)
+        self.assertEqual((report["mesh"]["extent"], report["collision"]["center"]), ([0.016, 0.016, 0.02], [0.16, 0.0, 0.01]))
+        script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "meshes").mkdir()
+            (root / "meshes" / "far.nif").write_bytes(far)
+            (root / "meshes" / "tiny.nif").write_bytes(tiny)
+            reports = oracle.audit_manifest({"items": [{"model": "far.nif", "scale": 0.02},
+                                                       {"model": "tiny.nif", "scale": 0.01}]}, root)
+            self.assertEqual([r["flags"] for r in reports], [["offset"], ["much_smaller"]])
+            proc = subprocess.run([sys.executable, "-I", str(script), str(root / "meshes" / "far.nif"), "--scale", "0.02"],
+                                  capture_output=True, text=True, cwd=tmp)
+            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(json.loads(proc.stdout)["reports"][0]["flags"], ["offset"])
+
+    def test_small_item_with_its_collision_off_it_is_offset(self):
+        # offset (the no-overlap test too) was skipped on a mesh diagonal under 5 cm: a 3 x 3 x 1 cm item's body 1 m or
+        # 100 m away, or a hull 0.7 m away, was clean.
+        mesh = (0, 0, 0.005, 0.015, 0.015, 0.005)
+        far = {x: sfcollision.box_blob(fake_template(), (x, 0, 0.005), (0.015, 0.015, 0.005)) for x in (0.01, 1, 100)}
+        self.assertEqual(oracle.audit(nif_bytes(mesh, far[0.01]))["flags"], [])     # control: 1 cm over, overlapping
+        hull = convex_blob(*cube((0.5, 0.5, 0), (0.53, 0.53, 0.01)))
+        for name, data in (("box 1 m away", nif_bytes(mesh, far[1])), ("box 100 m away", nif_bytes(mesh, far[100])),
+                           ("hull 0.7 m away", nif_bytes(mesh, children=[hull]))):
+            self.assertEqual(oracle.audit(data)["flags"], ["offset"], msg=name)
+
+    def test_collision_beside_the_mesh_on_a_thin_axis_is_offset(self):
+        # offset compared the centres with the 3-D diagonal and took boxes that only touch as overlapping: a slab's box
+        # lifted by its thickness, a wall's box beside it and a 4 m block standing on a floor were clean.
+        cases = {"slab, box lifted by its thickness": ((0, 0, 0.5, 5, 5, 0.5), (0, 0, 1.5), (5, 5, 0.5)),
+                 "wall, box beside it": ((0, 0, 1.5, 5, 0.15, 1.5), (0, 0.3, 1.5), (5, 0.15, 1.5)),
+                 "floor, tall box on it": ((0, 0, 0.1, 5, 5, 0.1), (0, 0, 2.2), (5, 5, 2.0))}
+        for name, (mesh, centre, half) in cases.items():
+            report = oracle.audit(nif_bytes(mesh, sfcollision.box_blob(fake_template(), centre, half)))
+            self.assertEqual(report["flags"], ["offset"], msg=name)
+        lifted = sfcollision.box_blob(fake_template(), (0, 0, 1.0), (5, 5, 0.5))     # control: half its thickness
+        self.assertEqual(oracle.audit(nif_bytes((0, 0, 0.5, 5, 5, 0.5), lifted))["flags"], [])
+
+    def test_cli_rejects_a_nif_and_a_manifest_together(self):
+        # main() took the --manifest branch and never read the NIF: an offset far.nif beside a clean manifest exited 0.
+        script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "far.nif").write_bytes(nif.serialize(box_scene((8, 0, 0.5))))
+            (root / "stage" / "meshes").mkdir(parents=True)
+            (root / "stage" / "meshes" / "ok.nif").write_bytes(nif.serialize(box_scene()))
+            (root / "m.json").write_text(json.dumps({"items": [{"model": "ok.nif"}]}), encoding="utf-8")
+            manifest = ["--manifest", str(root / "m.json"), "--staging", str(root / "stage")]
+
+            def run(*args):
+                return subprocess.run([sys.executable, "-I", str(script), *args], capture_output=True, text=True, cwd=tmp)
+            self.assertEqual((run(str(root / "far.nif")).returncode, run(*manifest).returncode), (1, 0))    # control
+            both = run(str(root / "far.nif"), *manifest)
+            self.assertEqual(both.returncode, 2)
+            self.assertIn("not both", both.stderr)
+
+    def test_geometry_that_draws_nothing_is_left_out(self):
+        # mesh_aabb took every BSGeometry.box: a piece with no mesh in any LOD slot, over the collision, hid that the
+        # collision missed the only drawn piece, and a NIF that draws nothing was clean, not no_mesh.
+        box = sfcollision.box_blob(fake_template(), (6, 0, 0.5), (2.4, 0.4, 0.5))     # over the second piece only
+        f = two_piece_scene((4, 0, 0.5, 4.4, 0.4, 0.5), box)
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])                 # control: both pieces drawn
+        lod1 = sfnif.parse_bsgeometry(f.blocks[7]).meshes[0]
+        for name, meshes, flags in (("no mesh", [None] * 4, ["offset"]),
+                                    ("0-vertex mesh", [dataclasses.replace(lod1, num_verts=0), None, None, None],
+                                     ["offset"]),
+                                    ("mesh in LOD1 only", [None, lod1, None, None], [])):
+            geometry(f, 7, meshes=meshes)
+            self.assertEqual(oracle.audit(nif.serialize(f))["flags"], flags, msg=name)
+        f = box_scene()
+        geometry(f, 4, meshes=[None] * 4)
+        report = oracle.audit(nif.serialize(f))
+        self.assertEqual((report["flags"], report["mesh"]), (["no_mesh"], None))
+
+    def test_drawn_geometry_with_unset_bounds_is_unreadable(self):
+        # An all-zero box was skipped as "no geometry" though the piece still draws its mesh: collision covering only the
+        # other piece was clean.
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))     # over the first piece only
+        f = two_piece_scene((5, 0, 0.5, 0.4, 0.4, 0.5), box)
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], ["much_smaller"])   # control: both pieces measured
+        lod0 = sfnif.parse_bsgeometry(f.blocks[7]).meshes[0]
+        for name, fields in (("box", {"box": (0,) * 6}), ("box and sphere", {"box": (0,) * 6, "sphere": (0,) * 4}),
+                             ("box, mesh in LOD1", {"box": (0,) * 6, "meshes": [None, lod0, None, None]})):
+            g = two_piece_scene((5, 0, 0.5, 0.4, 0.4, 0.5), box)
+            geometry(g, 7, **fields)
+            report = oracle.audit(nif.serialize(g))
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertIn("BSGeometry 7: draws a mesh but its bounds are not set", report["errors"], msg=name)
+        geometry(f, 7, box=(0,) * 6, meshes=[None] * 4)                               # control: draws nothing
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])
+
+    def test_compressed_mesh_the_decoder_rejects_is_unreadable(self):
+        # sfbodies reads FO4's primitive rule: primitives Starfield's decoder asserts on (special types other than 3 / 4,
+        # an index past the section's vertices) read as triangles over the quad or were skipped, and a mesh without a
+        # SIMD tree or key was read as well; each report was clean.
+        packed = [(0, 0, 0), (100, 0, 0), (100, 100, 0), (0, 100, 0)]
+        mesh = (0.5, 0.5, 0.0, 0.5, 0.5, 0.01)
+        self.assertEqual(oracle.audit(nif_bytes(mesh, children=[mesh_blob(packed, [(0, 1, 2, 3), (0, 2, 3, 3)])]))[
+            "flags"], [])                                                             # control: a quad and a triangle
+        cases = {"FO4 specials": mesh_blob(packed, [(0, 2, 2, 2), (3, 1, 1, 1)]),
+                 "indices[1] == indices[3]": mesh_blob(packed, [(0, 1, 2, 1), (2, 3, 0, 3)]),
+                 "index past the section": mesh_blob(packed, [(0, 1, 2, 3), (0, 1, 2, 200)]),
+                 "no SIMD tree": mesh_blob(packed, [(0, 1, 2, 3)], has_simd=0),
+                 "primitive without a SIMD key": mesh_blob(packed, [(0, 1, 2, 3), (0, 2, 3, 3)], keys=[0])}
+        for name, blob in cases.items():
+            report = oracle.audit(nif_bytes(mesh, children=[blob]))
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertTrue(any(e.startswith("collision object 6: compressed mesh ") for e in report["errors"]),
+                            msg=(name, report["errors"]))
+
+    def test_template_sized_blob_is_read_as_its_tagfile(self):
+        # The 6,168-byte path checked the template's bytes and read the corners at 592 without parsing the tagfile, so
+        # the body's pose and shape were never read: a box moved 50 m or turned off the wall, a body with no valid
+        # orientation, a hull 8 m off, two bodies, or no tagfile at all read clean.
+        wall = (0, 0, 1.5, 5, 0.15, 1.5)
+
+        def on_body(pos=(0, 0, 0), quat=(0, 0, 0, 1), n=1):
+            return sfcollision.box_blob(template_tagfile(lambda w, box: [(box, pos, quat)] * n), wall[:3], wall[3:])
+        self.assertEqual(oracle.audit(nif_bytes(wall, on_body()))["flags"], [])      # control: the identity body
+        h = math.sqrt(0.5)
+        hull = template_tagfile(lambda w, box: [(add_convex(w, *cube((7.6, -0.4, 0), (8.4, 0.4, 1))), (0, 0, 0),
+                                                 (0, 0, 0, 1))])
+        cases = {"moved 50 m": (wall, on_body(pos=(50, 0, 0)), ["offset"]),
+                 "turned 90 degrees about z": (wall, on_body(quat=(0, 0, h, h)), ["much_smaller"]),
+                 "orientation 0": (wall, on_body(quat=(0, 0, 0, 0)), ["unreadable", "missing"]),
+                 "orientation (0, 0, 0, 5)": (wall, on_body(quat=(0, 0, 0, 5)), ["unreadable", "missing"]),
+                 "NaN position": (wall, on_body(pos=(math.nan, 0, 0)), ["unreadable", "missing"]),
+                 "two bodies": (wall, on_body(n=2), ["unreadable", "missing"]),
+                 "hull body 8 m off": ((0, 0, 0.5, 0.4, 0.4, 0.5),
+                                       sfcollision.box_blob(hull, (0, 0, 0.5), (0.4, 0.4, 0.5)), ["offset"]),
+                 "not a tagfile": (wall, sfcollision.box_blob(untagged_template(), wall[:3], wall[3:]),
+                                   ["unreadable", "missing"])}
+        for name, (mesh, blob, flags) in cases.items():
+            sfcollision.check_template(blob)
+            self.assertEqual(oracle.audit(nif_bytes(mesh, blob))["flags"], flags, msg=name)
+
+    def test_node_subclasses_without_the_node_suffix_are_parents(self):
+        # Only "...Node" child tables were read: a BSDamageStage or BSMasterParticleSystem (NiNode subclasses in nif.xml)
+        # listing the geometry, or the collision node, a second time at x = 5 was never seen and the boxes matched.
+        tails = {"BSDamageStage": bytes([0, 1, 0]), "BSMasterParticleSystem": struct.pack("<HI", 0, 0)}
+        cases = {}
+        for t, tail in tails.items():
+            f = box_scene()
+            f.blocks[0] = root((4, f.add_block(t, node((4,), t=(5, 0, 0)) + tail)))
+            cases[t] = f, "block 4: listed as a child by nodes [0, 7]"
+        f = box_scene()
+        n = f.add_block("NiNode", node(coll=2))
+        f.blocks[0] = root((4, n, f.add_block("BSDamageStage", node((n,), t=(5, 0, 0)) + tails["BSDamageStage"])), coll=-1)
+        f.blocks[2] = struct.pack("<iHiI", n, 0x80, 3, 0)
+        cases["collision node"] = f, "block 7: listed as a child by nodes [0, 8]"
+        self.assert_unreadable_cases(cases)
+        f = box_scene()                                # control: a particle system off every box path
+        ps = f.add_block("NiParticleSystem", b"")
+        f.blocks[0] = root((4, f.add_block("BSMasterParticleSystem", node((ps,)) + tails["BSMasterParticleSystem"])))
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])
+
+    def test_controller_anywhere_is_unreadable(self):
+        # Only the controller slots on a box's path were read, but a controller updates its own Target: one hung on a
+        # sibling node or on the geometry's shader, or linked from nowhere, aimed at BSGeometry 4 left the report clean.
+        self.assertEqual(oracle.audit(nif.serialize(box_scene()))["flags"], [])      # control
+        cases = {}
+        for slot in ("sibling node", "shader property", "nothing"):
+            f = box_scene()
+            interp = f.add_block("NiTransformInterpolator", struct.pack("<3f4ffi", 5, 0, 0, 1, 0, 0, 0, 1.0, -1))
+            ctrl = f.add_block("NiTransformController", struct.pack("<iHffffii", -1, 0x48, 1, 0, 0, 0, 4, interp))
+            if slot == "sibling node":
+                f.blocks[0] = root((4, f.add_block("NiNode", node(controller=ctrl))))
+            elif slot == "shader property":                # BSLightingShaderProperty: name, extra refs, controller
+                f.blocks[6] = f.blocks[6][:8] + struct.pack("<i", ctrl)
+            cases[slot] = f, "block 8: NiTransformController can animate the scene"
+        self.assert_unreadable_cases(cases)
 
 
 if __name__ == "__main__":

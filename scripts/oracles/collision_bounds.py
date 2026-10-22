@@ -1,23 +1,30 @@
 """Compare a converted Starfield NIF's drawn-geometry AABB with its collision AABB.
 
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
-(missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
+(missing, unreadable, no_mesh, much-smaller, or offset collision; flag_bounds says when), including partial body
 decode, a collision object / physics system whose size disagrees with its layout, a body id other
-than 0, a physics system shared by two collision objects or not holding exactly one body, a
-collision target that is not a node or BSGeometry, a scene graph that is not a plain tree under
-the footer root (a node child table that does not fit its block or names a block past the end, a
-block with two parents, a cycle, more than 64 levels, a parent nif.world_transforms would read
-differently, geometry or a collision object outside the tree, a collision object whose target is
-not the block that names it), a transform composed for a box that is not a plain NiNode /
-BSFadeNode / unskinned BSGeometry one with no controller, scale > 0 and a rotation, and
-malformed manifest entries.
-Nonfinite or non-positive --scale / per-item scale is rejected before comparison, and a nonfinite
-point anywhere, a body orientation that is not a unit quaternion, or bounds whose centre / extent /
-diagonal overflow, make the model unreadable. JSON output never emits NaN/Infinity, and a structurally
-malformed NIF or manifest is an unreadable report, not a traceback.
+than 0, a physics system shared by two collision objects or not holding exactly one body, a tagfile
+whose root hknpPhysicsSystemData lists no body or that holds a body cinfo it does not list (a
+6,168-byte box template is read as a tagfile too: one that is not is unreadable), a negative or
+nonfinite convex radius, a compressed mesh that breaks meshcheck's decoder rules, a collision
+target that is not a node or BSGeometry, a scene graph that is not a plain tree under the footer
+root (a node child table that does not fit its block or names a block past the end, a block with
+two parents, NiNode subclasses without the "Node" suffix included, a cycle, more than 64 levels, a
+parent nif.world_transforms would read differently for a block a box is placed by, geometry or a
+collision object outside the tree, a collision object whose target is not the block that names
+it), a transform composed for a box that is not a plain NiNode / BSFadeNode / unskinned BSGeometry
+one with no controller, scale > 0 and a rotation, any controller / interpolator block, drawn
+geometry (a mesh ref in some LOD slot) whose bounds are all zero, and malformed manifest entries.
+Geometry with no mesh in any LOD slot draws nothing and is left out.
+Nonfinite or non-positive --scale / per-item scale is rejected before comparison; the flags compare
+the model at scale 1 and the report prints both boxes scaled. A nonfinite point anywhere, a body
+orientation that is not a unit quaternion, or bounds whose centre / extent / diagonal overflow,
+make the model unreadable. JSON output never emits NaN/Infinity, and a structurally malformed NIF
+or manifest is an unreadable report, not a traceback.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
+(one or the other, not both)
 """
 import argparse
 import json
@@ -27,14 +34,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from fo4sf import fo4collision, nif, sfcollision, sfbodies, sfnif  # noqa: E402
+from fo4sf import fo4collision, meshcheck, nif, sfcollision, sfbodies, sfnif  # noqa: E402
 
-# Collision extent / mesh extent below this on any mesh axis of at least MIN_EXTENT is "much smaller".
+# Collision extent / mesh extent below this on any mesh axis of at least MIN_EXTENT is "much smaller"; so is the overlap
+# of the two on such an axis below this share of the thinner of them ("offset").
 SMALLER_RATIO = 0.25
-# Ignore tiny axes (metres) so a zero-thickness hatch plane does not false-flag.
+# Ignore tiny axes (metres, at scale 1) so a zero-thickness hatch plane does not false-flag.
 MIN_EXTENT = 0.05
-# Centre distance / mesh diagonal above this is "offset".
+# Centre distance / mesh diagonal above this is "offset" (meshes with a diagonal of at least MIN_EXTENT).
 OFFSET_RATIO = 0.5
+# Collision further than this (metres) from the mesh on any axis is "offset" whatever the mesh's size (float32 slack).
+OVERLAP_TOL = 1e-4
 
 
 def _corners(center, half):
@@ -74,7 +84,7 @@ def parse_scale(value):
         raise ValueError(f"scale is not a finite number: {value!r}") from err
     if not math.isfinite(scale):
         raise ValueError(f"scale is not finite: {value!r}")
-    if scale <= 0:                                     # REFR scale is positive; 0 hides both boxes below MIN_EXTENT
+    if scale <= 0:                                     # REFR scale is positive; 0 collapses the printed bounds
         raise ValueError(f"scale is not positive: {value!r}")
     return scale
 
@@ -104,9 +114,20 @@ def aabb_info(lo, hi):
             "extent": _round_xyz([hi[a] - lo[a] for a in range(3)])}
 
 
+# NiNode subclasses in nif.xml without the "Node" suffix: the engine links their child tables, world_transforms does not
+_SUFFIXLESS_NODES = ("BSDamageStage", "BSMasterParticleSystem", "FxButton", "FxRadioButton", "FxWidget", "NiBone",
+                     "NiCollisionSwitch", "NiRoom", "NiRoomGroup", "NiWall")
+
+
 def _is_node(t):
-    """NiNode-derived: a "...Node" type, as nif.world_transforms takes it; BSFurnitureMarkerNode is NiExtraData."""
-    return t.endswith("Node") and t != "BSFurnitureMarkerNode"
+    """NiNode-derived: a "...Node" type, as nif.world_transforms takes it, or a _SUFFIXLESS_NODES one;
+    BSFurnitureMarkerNode is NiExtraData."""
+    return (t.endswith("Node") and t != "BSFurnitureMarkerNode") or t in _SUFFIXLESS_NODES
+
+
+def _is_animation(t):
+    """A controller, interpolator or sequence block: a controller updates its own Target, whichever chain it hangs in."""
+    return t.endswith(("Controller", "Ctlr", "Interpolator")) or t in ("NiControllerManager", "NiControllerSequence")
 
 
 _PLAIN_NODES = ("NiNode", "BSFadeNode")                # draw every child at its stored transform
@@ -135,7 +156,8 @@ def _scene_errors(f):
     first parent, gives an unlisted block none and stops composing parents 65 levels up, so its result is right only
     for a plain tree under the footer root. Geometry or a collision object outside that tree is never loaded, a collision object
     belongs to the block whose collision ref names it, and every transform composed for a box must be a plain
-    NiNode / BSFadeNode or BSGeometry transform: no controller, no skin, scale > 0 and a rotation."""
+    NiNode / BSFadeNode or BSGeometry transform, reached through the parent world_transforms reads: no controller, no
+    skin, scale > 0 and a rotation. No controller / interpolator block may exist at all: its Target can be any block."""
     errors, n = [], len(f.blocks)
     children = {}
     for i, blk in enumerate(f.blocks):
@@ -180,9 +202,6 @@ def _scene_errors(f):
                 todo.append(c)
     if max(depth.values()) > _MAX_DEPTH:
         errors.append(f"scene graph deeper than {_MAX_DEPTH} levels below root {root}")
-    nif_parent = _geometry_parents(f)                  # marker bytes can claim children; BSFaceGenNiNode's lose theirs
-    errors.extend(f"block {b}: world transform follows parent {nif_parent.get(b)}, scene parent {up[b]}"
-                  for b in sorted(depth) if nif_parent.get(b) != up[b])
     owners, leaves = {}, []
     for b in sorted(depth):
         t = f.type_of(b)
@@ -233,6 +252,10 @@ def _scene_errors(f):
             if not _is_rotation(rot):
                 errors.append(f"block {b}: matrix is not a rotation")
             b = up[b]
+    nif_parent = _geometry_parents(f)                  # marker bytes can claim children; BSFaceGenNiNode's lose theirs
+    errors.extend(f"block {b}: world transform follows parent {nif_parent.get(b)}, scene parent {up[b]}"
+                  for b in sorted(seen) if nif_parent.get(b) != up[b])      # the blocks a box is placed by
+    errors.extend(f"block {i}: {f.type_of(i)} can animate the scene" for i in range(n) if _is_animation(f.type_of(i)))
     return errors
 
 
@@ -250,7 +273,9 @@ def _geometry_parents(f):
 
 
 def mesh_aabb(f, scale=1.0):
-    """Union of BSGeometry.box AABBs in NIF root metres, then optional REFR scale about the origin."""
+    """Union of the BSGeometry.box AABBs of the geometry that draws something (a mesh ref with vertices and indices in
+    some LOD slot) in NIF root metres, then optional REFR scale about the origin. Drawn geometry whose box is all zero
+    (bounds never set) is an error: the box is the only measure of where it draws."""
     world = nif.world_transforms(f)
     parent = _geometry_parents(f)
     ident_t, ident_r, ident_s = (0.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0
@@ -259,8 +284,10 @@ def mesh_aabb(f, scale=1.0):
         if f.type_of(i) != "BSGeometry":
             continue
         g = sfnif.parse_bsgeometry(block)
+        if not any(m is not None and m.num_verts > 0 and m.indices_size > 0 for m in g.meshes):
+            continue                                   # draws nothing: its box widened the mesh over the collision
         if all(abs(x) < 1e-12 for x in g.box):
-            continue
+            raise ValueError(f"BSGeometry {i}: draws a mesh but its bounds are not set")
         center, half = g.box[:3], g.box[3:]
         local = [_place(p, g.translation, g.rotation, g.scale) for p in _corners(center, half)]
         if i in parent:
@@ -278,26 +305,31 @@ def mesh_aabb(f, scale=1.0):
     return lo, hi
 
 
-def _box_blob_aabb(blob):
-    """GO path: 6,168-byte identity hknpBoxShape (sfcollision.read_box, corners at offset 592)."""
-    sfcollision.check_template(blob)
-    center, half = sfcollision.read_box(blob)
-    return _aabb(_corners(center, half))
+def _compressed_mesh_errors(blob):
+    """meshcheck's Starfield decoder rules for every compressed mesh of a blob: what sfbodies decodes leniently (FO4's
+    special primitives, an index past the section's vertices, no SIMD tree / key) asserts or reads past it in game."""
+    try:
+        violations = [v for rec in meshcheck.mesh_records(blob) for v in meshcheck.check(rec)]
+    except (StopIteration, KeyError, ValueError, struct.error, IndexError, OverflowError, RecursionError) as err:
+        return [f"compressed mesh the decoder check cannot read: {type(err).__name__}: {err}"]
+    return [f"compressed mesh {v.kind} (section {v.section}, {v.index}): {v.detail}" for v in violations[:3]]
 
 
 def collision_bodies(f, scale=1.0):
-    """Per-body AABBs in NIF root metres.
+    """(bodies, bounds, errors): per-body AABBs in NIF root metres, scaled by the REFR scale for the report, and the same
+    bodies' unrounded (lo, hi) at scale 1, which flag_bounds compares.
 
-    Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.blob_bodies
-    (existing Starfield tagfile readback). fo4collision.decode is FO4 packfile-only and is not used.
+    Every blob is read by sfbodies.blob_bodies (existing Starfield tagfile readback, which reads a box template's
+    corners with sfcollision.read_box), box templates too: one that is not a tagfile is unreadable, and its body's
+    pose, shape class and count apply as for any other blob. fo4collision.decode is FO4 packfile-only and is not used.
     A bhkNPCollisionObject that is not its 14-byte layout (target i32, flags u16, data i32, body id
     u32), a body id other than 0 (it picks one body of the system; converted systems hold one), a
     bhkPhysicsSystem whose size is not its u32 length field plus the blob length it declares, or that
     another collision object already uses, a target that is not a node or BSGeometry (any other
-    block's bytes can still read as a transform), or a blob that fails to decode or does not hold
-    exactly one body is an error for that object only.
+    block's bytes can still read as a transform), a blob that fails to decode or does not hold
+    exactly one body, or a compressed mesh that breaks meshcheck's decoder rules is an error for that object only.
     """
-    bodies = []
+    bodies, bounds = [], []
     errors = []
     systems = {}
     world = nif.world_transforms(f)
@@ -341,21 +373,6 @@ def collision_bodies(f, scale=1.0):
             continue
         t, rot, s = world(target)
         try:
-            lo, hi = _box_blob_aabb(blob)
-            kind = "hknpBoxShape"
-            pts = [_place(p, t, rot, s) for p in _corners(
-                [(lo[a] + hi[a]) / 2 for a in range(3)], [(hi[a] - lo[a]) / 2 for a in range(3)])]
-            blo, bhi = _aabb(pts)
-            if scale != 1.0:
-                blo, bhi = _scale_aabb(blo, bhi, scale)
-            if not _finite_aabb(blo, bhi):
-                errors.append(f"collision object {i}: nonfinite box bounds")
-                continue
-            bodies.append({"shape": kind, **aabb_info(blo, bhi)})
-            continue
-        except (sfcollision.CollisionError, struct.error, ValueError):
-            pass
-        try:
             decoded = sfbodies.blob_bodies(blob)
         except (sfbodies.BodyError, ValueError, struct.error, IndexError, KeyError, OverflowError,
                 RecursionError) as err:                # a tagfile missing a section, offsets >= 2**63, cyclic types
@@ -364,35 +381,41 @@ def collision_bodies(f, scale=1.0):
         if len(decoded) != 1:                          # body id 0 picks one; the rest would not follow this target
             errors.append(f"collision object {i}: physics system {data} holds {len(decoded)} bodies, not 1")
             continue
+        mesh_errors = _compressed_mesh_errors(blob)
+        if mesh_errors:
+            errors.extend(f"collision object {i}: {e}" for e in mesh_errors)
+            continue
         for body in decoded:
             pts = [_place(p, t, rot, s) for tri in body["triangles"] for p in tri]
             if not pts:
                 errors.append(f"collision object {i}: empty {body.get('shape', 'shape')}")
                 continue
-            if scale != 1.0:
-                pts = [(p[0] * scale, p[1] * scale, p[2] * scale) for p in pts]
-            blo, bhi = _aabb(pts)
-            if not _finite_aabb(blo, bhi):
+            lo, hi = _aabb(pts)
+            blo, bhi = _scale_aabb(lo, hi, scale)
+            if not (_finite_aabb(lo, hi) and _finite_aabb(blo, bhi)):
                 errors.append(f"collision object {i}: nonfinite {body.get('shape', 'shape')} bounds")
                 continue
             bodies.append({"shape": body["shape"], **aabb_info(blo, bhi)})
-    return bodies, errors
+            bounds.append((lo, hi))
+    return bodies, bounds, errors
 
 
-def combined_aabb(bodies):
-    if not bodies:
+def combined_aabb(boxes):
+    """Union of [(lo, hi)], or None."""
+    if not boxes:
         return None
-    lo = [min(b["min"][a] for b in bodies) for a in range(3)]
-    hi = [max(b["max"][a] for b in bodies) for a in range(3)]
+    lo = [min(b[0][a] for b in boxes) for a in range(3)]
+    hi = [max(b[1][a] for b in boxes) for a in range(3)]
     return lo, hi
 
 
-def _overlap(a_lo, a_hi, b_lo, b_hi):
-    return all(a_lo[a] <= b_hi[a] and b_lo[a] <= a_hi[a] for a in range(3))
-
-
 def flag_bounds(mesh, collision):
-    """mesh/collision are (lo, hi) or None. Does not prove reachability, only AABB mismatch."""
+    """mesh/collision are (lo, hi) or None, at scale 1: a uniform REFR scale about the origin moves both boxes alike,
+    so it cannot fix or cause a mismatch (and MIN_EXTENT is a size in the model). Does not prove reachability, only
+    AABB mismatch. much_smaller: the collision is under SMALLER_RATIO of the mesh on a mesh axis of at least MIN_EXTENT.
+    offset: the centres are more than OFFSET_RATIO of the mesh diagonal apart (a diagonal of at least MIN_EXTENT), the
+    boxes are more than OVERLAP_TOL apart on an axis (any mesh size), or on a mesh axis of at least MIN_EXTENT they
+    overlap by less than SMALLER_RATIO of the thinner of the two (a same-size box beside a wall)."""
     if mesh is None:
         return ["no_mesh"]
     if collision is None:
@@ -409,8 +432,12 @@ def flag_bounds(mesh, collision):
     m_c = [(m_lo[a] + m_hi[a]) / 2 for a in range(3)]
     c_c = [(c_lo[a] + c_hi[a]) / 2 for a in range(3)]
     diag = math.hypot(*m_ext)
-    dist = math.dist(m_c, c_c)                         # inf (offset), not OverflowError, for huge scales
-    if diag >= MIN_EXTENT and (dist > OFFSET_RATIO * diag or not _overlap(m_lo, m_hi, c_lo, c_hi)):
+    dist = math.dist(m_c, c_c)                         # inf (offset), not OverflowError, for huge coordinates
+    over = [min(m_hi[a], c_hi[a]) - max(m_lo[a], c_lo[a]) for a in range(3)]
+    if ((diag >= MIN_EXTENT and dist > OFFSET_RATIO * diag)
+            or any(over[a] < -OVERLAP_TOL for a in range(3))                     # disjoint: a 3 cm key's body 1 m off
+            or any(m_ext[a] >= MIN_EXTENT and over[a] < SMALLER_RATIO * min(m_ext[a], c_ext[a]) - OVERLAP_TOL
+                   for a in range(3))):                                          # a slab's box lifted by its thickness
         flags.append("offset")
     return flags
 
@@ -427,27 +454,28 @@ def audit(data, scale=1.0, path=""):
     errors = []
     try:
         errors.extend(_scene_errors(f))                # a malformed graph can misplace both boxes alike
-        mesh = mesh_aabb(f, scale)
+        mesh = mesh_aabb(f)                            # flags compare scale 1; the report prints the scaled bounds
+        shown = mesh_aabb(f, scale) if scale != 1.0 else mesh
     except (ValueError, struct.error, IndexError, nif.NifError) as err:
-        mesh = None
+        mesh = shown = None
         errors.append(str(err))
     try:
-        bodies, body_errors = collision_bodies(f, scale)
+        bodies, bounds, body_errors = collision_bodies(f, scale)
     except (ValueError, struct.error, IndexError, nif.NifError) as err:
-        bodies, body_errors = [], [f"collision: {err}"]
+        bodies, bounds, body_errors = [], [], [f"collision: {err}"]
     errors.extend(body_errors)
-    coll = combined_aabb(bodies)
+    coll = combined_aabb([(b["min"], b["max"]) for b in bodies])
     coll_ok = coll is not None and _finite_aabb(*coll)
     if coll is not None and not coll_ok:
         errors.append("collision: nonfinite combined bounds")
     flags = []
     if errors:
         flags.append("unreadable")
-    for flag in flag_bounds(mesh, coll):
+    for flag in flag_bounds(mesh, combined_aabb(bounds)):
         if flag not in flags:
             flags.append(flag)
     report = {"path": path, "scale": scale, "flags": flags,
-              "mesh": aabb_info(*mesh) if mesh else None,
+              "mesh": aabb_info(*shown) if shown else None,
               "collision": {"bodies": len(bodies), "per_body": bodies,
                             **(aabb_info(*coll) if coll_ok else {"min": None, "max": None})}}
     if errors:
@@ -543,6 +571,8 @@ def main(argv=None):
         args.scale = parse_scale(args.scale)
     except ValueError as err:
         parser.error(str(err))
+    if args.manifest is not None and args.nif is not None:
+        parser.error("give a NIF path or --manifest, not both")     # the NIF went unaudited and the run exited 0
     if args.manifest is not None:
         if args.staging is None:
             parser.error("--manifest requires --staging")
