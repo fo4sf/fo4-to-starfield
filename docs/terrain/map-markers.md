@@ -296,7 +296,13 @@ build changes the markers' count or height: a save whose budget the first placem
 lift. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
 uses the location name, is Initially Disabled, is at another height, or overrides anything that is not a core
 marker (the override's parents arrive as copies of the worldspace and its persistent cell; the build prunes
-them to the markers). The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values
+them to the markers). Those two copies are overrides too, and this plugin loads after the core, so `check` also
+fails when either differs from the core's record: a core rebuilt after the stage (a changed world flag, as the
+border fix of 2026-10-22 makes) needs a new stage, or the plugin would put the old record back. For the border
+settling test (Interiors, 2026-10-22) `--world nosmall|city` takes that WRLD copy from `dotnet/BorderProbe`'s
+variant instead (nosmall: SmallWorld cleared; city: SmallWorld cleared and `HNAM` 5; `control`, the default, the
+core's record), with the marker overrides unchanged, so the variant is the last `WRLD` override whatever the load
+order; `check` wants the same `--world` and fails the copy under any other. The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values
 draw which icons needs a survey of the vanilla markers on the PC.
 
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,

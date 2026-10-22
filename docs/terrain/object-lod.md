@@ -145,3 +145,42 @@ check (stage the output and look at the surface map; if the game draws the weak-
 world, the map gets buildings without any LOD mesh; installing those loose files waits for the owner's line). A
 fail on all three sends the question to the tiny custom-world gate from the
 plan above, which tells custom-world support from anything about the core, before the route is closed.
+
+5. **Lookup runs A, B, C (verified, 2026-10-22 20:51Z-20:58Z; outputs `D:\Modding\staging\lod_mock_cw2\A`, `B`,
+   `C`, `C2`).** All three fail for our world. (A) `-MockWorldSpaceLOD:FO4TerrainCore.esm LC172World` exits 0
+   after 201 s with `LODGENERATION: Successfully baked worldspace: [LC172World]` and the oracle's five
+   placeholder files (`EditorDataFilesLoaded` 000 Starfield.esm, 001 FO4TerrainCore.esm): the lookup is global
+   and the plugin named in the argument does not scope it. (B) with a zeroed
+   `LODSettings\FO4Core_Commonwealth.LOD` placed first: exit 0 after 197 s, still
+   `Failed to find worldspace: [FO4Core_Commonwealth]`, nothing else written: that one zero-filled file did not
+   make the world found (whether a valid settings file is consulted at all stays **unresolved**). (C)
+   `01000803`, then `000803`, in place of the name: exit 0 after 199 s and 198 s,
+   `Failed to find worldspace: [01000803]` / `[000803]`, nothing written: neither of those two spellings
+   resolved it (other spellings, `0x...`, decimal or a plugin-qualified form, were not tried, so whether the
+   argument can take an ID stays **unresolved**). Only vanilla LC172World bakes; the question goes to the tiny
+   custom-world gate.
+
+6. **Tiny custom-world gate (built, not yet run).** `dotnet/LodGate build <Starfield.esm> <FO4TerrainCore.esm>
+   <out>` writes three plugins, each one new world of nine empty cells around the origin plus three references
+   to the three vanilla statics with the widest object bounds (so a bake has objects to write placeholders for;
+   the build prints which): `FO4SFLodGate1.esm` (world `FO4SF_LodGate1`, the WRLD record copied from vanilla
+   LC172World, the writer's own template, master-flagged like the core, master Starfield.esm);
+   `noflag\FO4SFLodGate1.esm` (gate 2: the very same plugin bytes with the Master header flag cleared, same file
+   name, world and references, so the flag is the only difference); `FO4SFLodGate3.esm` (world `FO4SF_LodGate3`,
+   the WRLD record copied from our core's `FO4Core_Commonwealth`, its location and surface-block links kept,
+   masters Starfield.esm and the core). `LodGate show <plugin> <Starfield.esm> [<core>]` reads one back
+   (`tests/test_lod_gate.py` covers the three on a synthetic fixture). The run: the plugin copied into `Data`
+   for the run and removed after, `CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1`, the
+   backup protocol of run 4, and the log's `EditorDataFilesLoaded` read first: a gate plugin missing from it
+   makes that run inconclusive (then it goes into Plugins.txt as the probe builds do, and the run repeats once).
+   Reading (hypotheses about these three pinned gates, not proofs: none of them is a plugin-added world known
+   to bake, and each changes the template's EditorID and name, replaces both cell trees and drops OFST / CLSZ,
+   so a failed gate can also mean a loading or registration prerequisite the gate misses, or a defect in this
+   synthetic layout): 1 bakes and 3 does not → the candidates narrow to the fields the two WRLD records differ
+   in (diff them next); 1 and 3 bake → the core's own world still differs from gate 3 in its scale and cell
+   tree (648k references), but also in its identity (plugin, FormKey, EditorID and name), its dropped OFST /
+   CLSZ and its freshly made persistent cell, and each of those stays a candidate; 1 does not bake → the generator did not find this plugin world, and 2 then says whether the
+   Master flag alone changes that (gate 2 is run from its own folder under the same file name); nothing bakes → the route stays **unproved**, not closed: a claim that
+   custom worlds are unsupported needs a positive control first (a plugin-added world the CK itself made and is
+   known to bake) or a narrower follow-up, and meanwhile the surface map's buildings wait on the FO4 LOD mesh
+   conversion.
