@@ -39,15 +39,18 @@ if ($Tag) { $Stage += "_$Tag"; $StageOut += "_$Tag"; $QRounds += "_$Tag"; $QOut 
 function Need($ok, $why) { if (-not $ok) { throw "STOP: $why" } }
 function Ok($what) { if ($LASTEXITCODE -ne 0) { throw "STOP: $what exit $LASTEXITCODE" } }
 function Sha8($p) { (Get-FileHash -Algorithm SHA256 $p).Hash.Substring(0,8) }
-# A stage this script made carries pins.json: the sha256 of every input it was built from, the load indices and the
-# OUT threshold. A reused stage must carry the same pins as this run, else the plan stops (Codex on #500: a core
-# rebuilt in the same folder kept its old spawn and ids). A stage without pins.json is never reused: pass a new -Tag.
+# A stage this script made carries pins.json: the sha256 of every input it was built from, the load indices, the OUT
+# threshold and the planner code's git trees. A reused stage must carry the same pins as this run, else the plan stops
+# (Codex on #500: a core rebuilt in the same folder kept its old spawn and ids). A stage without pins.json is never
+# reused: pass a new -Tag.
 function Pins($leg) {
   $h = [ordered]@{}
   foreach ($f in @("$CoreBuild\FO4TerrainCore.esm", "$Starfield\Data\FO4TerrainCore.esm", "$PortStaging\FO4Port.esm") +
                  @('objects.json','formids.json','plan.json','overlays_params.json' | ForEach-Object { "$CoreBuild\$_" })) {
     $h[$f.ToLower()] = (Get-FileHash -Algorithm SHA256 $f).Hash }
-  [ordered]@{ inputs = $h; core_index = $CoreIndex; port_index = $PortIndex; out_min_m = $(if ($leg -eq 'out') { $OutMinM } else { '' }) } |
+  # the planner's code too (Codex on #500): the git trees of scripts\bridge and src at the checkout's HEAD
+  $code = [ordered]@{ bridge = (git rev-parse HEAD:scripts/bridge); src = (git rev-parse HEAD:src) }
+  [ordered]@{ inputs = $h; planner = $code; core_index = $CoreIndex; port_index = $PortIndex; out_min_m = $(if ($leg -eq 'out') { $OutMinM } else { '' }) } |
     ConvertTo-Json -Depth 3
 }
 function WritePins($dir, $leg) { Pins $leg | Set-Content -Encoding UTF8 "$dir\pins.json" }
@@ -114,7 +117,7 @@ if (-not $Run) { Write-Host 'planned; re-run with -Run when the PC is idle'; ret
 foreach ($q in $(if ($RoundsOnly) { @($QRounds) } else { @($QOut, $QRounds) })) {
   & $py scripts\game\testqueue.py run --queue $q --wait-for-idle --refocus @Caps
   $rc = $LASTEXITCODE; Write-Host "run $q exit $rc (0 all decided, 4 budget pause)"
-  & $py scripts\bridge\door_rounds.py judge --queue $q @WorldPin      # writes $q\door_rounds_judge.json
+  & $py scripts\bridge\door_rounds.py judge --queue $q @WorldPin; Ok 'scripts\bridge\door_rounds.py judge'   # writes $q\door_rounds_judge.json
   & $py scripts\game\testqueue.py report --queue $q; Ok 'scripts\game\testqueue.py'
   $st = Get-Content "$q\state.json" -Raw | ConvertFrom-Json
   if ($rc -ne 0 -or $st.crashes -gt 0 -or $st.start_deaths -gt 0) { Write-Host "STOP after $q (exit $rc, crashes $($st.crashes))"; break }
