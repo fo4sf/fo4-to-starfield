@@ -36,6 +36,19 @@ those folders.
 Copy `config.example.toml` to `config.toml` (git-ignored) and fill in your paths. `work_dir` and
 `staging_dir` must be outside the repository.
 
+## CLI status and validation
+
+The package lives under `src/` (no install step). From the repo root set `PYTHONPATH=src`
+(`$env:PYTHONPATH='src'` in PowerShell) so `python -m fo4sf` resolves:
+
+- `python -m fo4sf status` — print config summary and, if present, manifest coverage (counts by type/tier).
+- `python -m fo4sf validate` — check that configured data directories exist, `work_dir`/`staging_dir`
+  are directories (or not yet created), common tools are found, and required Python packages
+  (`numpy`, Pillow via `PIL`) are importable. Exits non-zero on problems. Zero Fallout 4 data dirs
+  is a failure. Useful before the first conversion.
+
+Both are offline and require no game files.
+
 ## Extracting Fallout 4 data
 
 If your Fallout 4 `Data` folder is mixed with mods, point `fo4.data_dirs` at a **clean copy** of the

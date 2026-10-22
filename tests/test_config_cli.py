@@ -141,6 +141,106 @@ class TestCLI(unittest.TestCase):
                 rc = main(["--config", str(cfg), "status"])
             self.assertEqual(rc, 0)
 
+    def _validate_cfg(self, root: Path, *, data_dirs=None, work="dir", staging="dir"):
+        for name in ("fo4", "sf"):
+            (root / name).mkdir()
+        if work == "dir":
+            (root / "work").mkdir()
+        elif work == "file":
+            (root / "work").write_text("x")
+        if staging == "dir":
+            (root / "stage").mkdir()
+        cfg = root / "config.toml"
+        dirs = data_dirs if data_dirs is not None else [str(root / "fo4")]
+        listed = ", ".join(f'"{Path(d).as_posix()}"' for d in dirs)
+        cfg.write_text(
+            "[fo4]\n"
+            f"data_dirs = [{listed}]\n"
+            "[starfield]\n"
+            f'data_dir = "{(root / "sf").as_posix()}"\n'
+            "[paths]\n"
+            f'work_dir = "{(root / "work").as_posix()}"\n'
+            f'staging_dir = "{(root / "stage").as_posix()}"\n'
+        )
+        return cfg
+
+    def test_validate_ok(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = self._validate_cfg(root)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            out, err = io.StringIO(), io.StringIO()
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = main(["--config", str(cfg), "validate"])
+            text = out.getvalue()
+        self.assertEqual(rc, 0, text + err.getvalue())
+        self.assertIn("Pillow: available", text)
+        self.assertIn("numpy: available", text)
+        self.assertIn("Validation: OK", text)
+
+    def test_validate_imports_pillow_as_pil_not_distro_name(self):
+        import builtins
+        import contextlib
+        import io
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **k):
+            if name == "Pillow":
+                raise ImportError("distribution name is not an import name")
+            return real_import(name, *a, **k)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = self._validate_cfg(root)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            out, err = io.StringIO(), io.StringIO()
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+                    patch("builtins.__import__", side_effect=fake_import), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = main(["--config", str(cfg), "validate"])
+            text = out.getvalue()
+        self.assertEqual(rc, 0, text + err.getvalue())
+        self.assertIn("Pillow: available", text)
+
+    def test_validate_rejects_empty_fo4_dirs(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = self._validate_cfg(root, data_dirs=[])
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            out, err = io.StringIO(), io.StringIO()
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = main(["--config", str(cfg), "validate"])
+            text = out.getvalue() + err.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("none configured", text)
+        self.assertIn("FAILED", text)
+
+    def test_validate_rejects_work_dir_file(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = self._validate_cfg(root, work="file")
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            out, err = io.StringIO(), io.StringIO()
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = main(["--config", str(cfg), "validate"])
+            text = out.getvalue() + err.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("not a directory", text)
+        self.assertIn("FAILED", text)
+
 
 if __name__ == "__main__":
     unittest.main()
