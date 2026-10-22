@@ -54,6 +54,11 @@ verified beyond what each line says.
   (`scripts/game/walk_eval.py`) has no such gate: it judges positions, ground, crossings and screenshots without
   comparing the planned index to the runtime one, so a walk run after an order change needs its indexes checked by
   hand.
+- Planner drift (Card J, 22 Oct): `door_rounds.py order` at 7ecc3185 gave `--port-index 07` for the same Plugins.txt
+  where main db7c015c gives 06 (a43afefa puts the map markers plugin right after the port, as cycle.ps1 does), and the
+  live game had 06 (settling runs activated 06008EB2). The v6i plan made at 07 was discarded unrun. Plans take their
+  indices from a checkout at db7c015c or later (the doors plan refuses older ones) and check them against the
+  Plugins.txt the game wrote after a launch before staging.
 - #481's report is detection only. #487 (merged 22 Oct) adds `scripts/game/load_order.py check|fix`, which defines
   the target order (the order the game wrote on 22 Oct, each plugin after its masters) and a launcher setting that
   runs it before every play; the Launcher thread documents the target order on this page next. Open: the runner
