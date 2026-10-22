@@ -49,6 +49,13 @@ launch, and the run stops with `limit: ...` when one is hit:
 
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
+**Launch (2026-10-19).** cycle.ps1 launches with `steam://rungameid/1716740`; `FO4SF_LAUNCH=exe` starts
+`Starfield.exe` from the game folder instead (a missing exe exits 10). The night run's dead start (Steam error 84) was
+Starfield exiting with code 0x54 about 3 s after start, a second after crashwatch's ProcDump (`-w`, waiting for
+Starfield.exe) logged a BREAKPOINT on it; every short-lived start since Oct 18 shows the same pair (supported: the
+debugger's attach ends the game). Stop the crashwatch loop before a runner launch, never while it is attached to a
+live game, and restart it after; Windows LocalDumps still captures crashes.
+
 A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
 `test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of
 being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried. A walk crash on another install
