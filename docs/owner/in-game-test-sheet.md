@@ -15,7 +15,7 @@ FO4Port.esm (the runner's own sessions loaded it at `02`, so its logs show `02..
 not the v6i indexes, which moved on 22 Oct (section A), so read the current Plugins.txt before any `prid` from those
 sections, or use the cell and object names instead.
 
-## A. Next session on v6i (22 Oct 2026): the checks that close phase 0
+## A. Next session (22 Oct 2026): the checks that close phase 0
 
 Added 22 Oct. The installed build is now v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8) plus
 the map markers plugin; sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
@@ -23,6 +23,10 @@ section A is on the owner's live test sheet (https://claude.ai/artifact/N5ZhYy7z
 and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth rendering, the four map markers. Console ids
 moved on 22 Oct (Codsworth went from 06000811 to 05000811 because Plugins.txt was rewritten 25 s after start; the
 game is the inferred writer, not a traced one), so this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
+
+**Which build closes the phase:** v6j (v6i plus the border fix) is being built. If it is installed when the owner
+plays, this session's results close phase 0. On v6i they are a preview: failures get fixed before the rebuild, and
+A2 to A5 are run again on v6j.
 
 **Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
 starts fresh; the 19 Oct save already completed it and cannot replay it.

@@ -2037,7 +2037,8 @@ targeted the player on that run and the faction fix came after), Codsworth's gre
 extent (getpos plus a zoomed-out surface map screenshot; Map dropped the 3D-view
 spots on 22 Oct, the border question being answered), the Red Rocket side door, the
 elevator entrance prompts, the roof hatch and manhole prompts, cans and books. The
-Ctrl+Alt+K box fix (#463) is merged.
+Ctrl+Alt+K box fix (#463) is merged. The results that close the phase are the ones
+taken on v6j after its install; a session on v6i before that is a preview.
 
 ## 2026-10-22: Correction: no walking wall north of Vault 111
 
