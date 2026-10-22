@@ -200,7 +200,7 @@ def stage(a):
     parts = chunks(groups, a.chunk) if groups else []
     base = {"core": os.path.abspath(a.core), "core_plugin": core.path, "port_plugin": port.path,
             "core_index": f"{ci:02X}", "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": dr.TOL_M,
-            "doors": mine, "skipped": skipped}
+            "doors": mine, "skipped": skipped, "core_worlds": core.worlds()}   # Codex on #397: the judge's FF-world tie
     os.makedirs(out)
     folders = []
     for n, tests in enumerate(parts):

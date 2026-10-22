@@ -68,6 +68,7 @@ class BatchTests(unittest.TestCase):
             dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06", "--out", ref])
         self.assertEqual(load(o, "chunk_00", "plan.json"), load(ref, "plan.json"))
         self.assertEqual(load(o, "chunk_00", "rounds.json")["tests"], load(ref, "rounds.json")["tests"])
+        self.assertEqual(load(o, "chunk_00", "rounds.json")["core_worlds"], load(ref, "rounds.json")["core_worlds"])
         with open(os.path.join(o, "README.txt")) as f:                 # Codex on #397: no direct run past the hold
             text = f.read()
         self.assertNotIn("testqueue.py run", text)
