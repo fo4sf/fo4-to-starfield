@@ -109,6 +109,10 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   TSV: every DOOR with sounds, its graph, rig and WWise events. Small output; feeds `load_door_anim.py sounds`.
 - **A8 door flags** (offline once the cell exports are copied; read-only). `load_door_anim.py flags` over the staged
   port manifest and the same cell exports as A5: how many doors get flags, how many models' bases disagree.
+- **A9 a vanilla load elevator's wiring** (before step C; read-only). `SfInspect <Starfield.esm> doorrefs Elev 8`:
+  placed doors whose base EditorID contains `Elev`, every REFR property, XTEL, linked references with each target's
+  base, the references linking to them and the enable parent: whether an elevator is a load door alone or a door plus
+  linked buttons, markers or activators (what step C must copy if FO4's elevators come across).
 - **A6 manifest report.** `load_door_anim.py report` on the installed port's manifest: how many load doors would get
   a rig today (twins only, since the pinned build was converted without `--rig-load-doors`).
 
