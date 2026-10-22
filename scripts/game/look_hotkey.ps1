@@ -6,14 +6,18 @@
 # The description box (2026-10-18): a second hotkey (default Ctrl+Alt+K) always asks "what is wrong?" after the screenshot;
 # the main key asks too only while the setting is on (look.settings.json beside this script, {"ask": true}), switched with
 # -SetAsk on|off, read at every press (no restart). Off = screenshots only. docs/community/reporting-tool.md.
-# usage: look_hotkey.ps1 [-Key L] [-AskKey K] [-Mods Ctrl,Alt] [-TestFire] [-TestAsk] [-SetAsk on|off]
+# The box shows itself (a hidden start hid it, 2026-10-22) and brings itself to the front; unanswered after 10 minutes it
+# closes and the folder gets describe_later.txt (snapshot.ps1 -AskTimeout).
+# -Submit (players' kit): every capture then opens the filled-in "Player report" form with the screenshot on the clipboard
+# (snapshot.ps1 -Submit); the player pastes it and presses Submit. Off for the owner's own captures.
+# usage: look_hotkey.ps1 [-Key L] [-AskKey K] [-Mods Ctrl,Alt] [-TestFire] [-TestAsk] [-SetAsk on|off] [-Submit]
 #   -Key   a letter, digit or F1..F24 (F13..F24 suit a macro key: no keyboard has them, so nothing else uses them)
 #   -Mods  any of Ctrl, Alt, Shift, Win (comma-separated), or none (fine for an F13..F24 key)
 #   -AskKey  the key that always asks for a description ('none' = no second hotkey)
 #   -TestFire  run the press handler once and exit (the test; no hotkey registered); -TestAsk: the ask key's handler
 #   -SetAsk  on|off: whether the main key also asks; writes the setting and exits
 param([string]$Key = 'L', [string]$AskKey = 'K', [string[]]$Mods = @('Ctrl', 'Alt'), [switch]$TestFire, [switch]$TestAsk,
-      [ValidateSet('', 'on', 'off')][string]$SetAsk = '')
+      [ValidateSet('', 'on', 'off')][string]$SetAsk = '', [switch]$Submit)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $snapshot = Join-Path $here 'snapshot.ps1'
@@ -29,9 +33,17 @@ function Press([bool]$ask) {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
   $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $snapshot, '-Note', 'hotkey')
   if ($ask) { $a += '-Ask' }
-  Start-Process powershell -WindowStyle Hidden -ArgumentList $a | Out-Null   # the box is its own top-most window
+  if ($Submit) { $a += '-Submit' }
+  # the press is this process's input, so it may hand the foreground to the box it starts
+  try {
+    if (-not ('W.Fg' -as [type])) { Add-Type -Namespace W -Name Fg -MemberDefinition '[DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);' }
+    [W.Fg]::AllowSetForegroundWindow(-1) | Out-Null                          # ASFW_ANY
+  } catch { }
+  # hidden even when it asks (a visible start put an empty console over the game, 2026-10-22): a hidden start hands SW_HIDE
+  # to the box too, so snapshot.ps1 shows the box itself (SW_SHOW) and keeps re-showing it while it is invisible
+  Start-Process powershell -WindowStyle Hidden -ArgumentList $a | Out-Null
   try { [console]::Beep(880, 120) } catch { }
-  "pressed $stamp ask=$ask"
+  "pressed $stamp ask=$ask submit=$([bool]$Submit)"
 }
 if ($TestFire) { Press (AskSetting); exit 0 }
 if ($TestAsk) { Press $true; exit 0 }
