@@ -443,7 +443,8 @@ def apply_load_order(values, starfield, system, say, dry_run=False):
         return
     if code:
         raise ValueError(f"load order: {out.strip().splitlines()[-1] if out.strip() else f'exit {code}'}"
-                         + ("; set load_order=fix to put it right, or off" if code == 9 else ""))
+                         + ("; set load_order=fix to put it right, or off" if code == 9
+                            else "; put Plugins.txt right, or set load_order=off to start without this check"))
 
 
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):

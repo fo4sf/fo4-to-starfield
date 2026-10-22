@@ -87,8 +87,37 @@ class LoadOrderTests(unittest.TestCase):
                    + ["*" + p for p in GAME if p != "FO4Port.esm"])
         self.assertEqual(self.run_("fix"), 0)
         self.assertEqual(self.read().decode("utf-8-sig").split(),
-                         ["*Other.esm"] + ["*" + p for p in GAME] + ["*PortPatch.esm", "*PatchOfPatch.esp"])
+                         ["*Other.esm", "*FO4TerrainCore.esm", "*FO4TerrainCore_Mars.esm", "*FO4ActorRaider.esm",
+                          "*FO4SFMission.esm", "*FO4Port.esm", "*PortPatch.esm", "*PatchOfPatch.esp",
+                          "*FO4SFMapMarkers.esm", "*FO4SFBridge.esm"])       # each patch right after its master
         self.assertEqual(self.run_("check"), 0)
+
+    def test_a_chain_from_ours_through_a_patch_back_to_ours_keeps_its_masters_first(self):
+        # Codex's QA on #487: Port <- PortPatch <- Mission was rewritten Mission, Port, PortPatch and then accepted
+        plugin(os.path.join(self.data, "PortPatch.esm"), ["FO4Port.esm"])
+        plugin(os.path.join(self.data, "FO4SFMission.esm"), ["PortPatch.esm"])
+        self.write(["*FO4TerrainCore.esm", "*FO4Port.esm", "*PortPatch.esm", "*FO4SFMission.esm"])
+        self.assertEqual(self.run_("check"), 0)                              # already valid and in the target
+        self.write(["*FO4SFMission.esm", "*PortPatch.esm", "*FO4Port.esm", "*FO4TerrainCore.esm"])
+        self.assertEqual(self.run_("fix"), 0)
+        self.assertEqual(self.read().decode("utf-8-sig").split(),
+                         ["*FO4TerrainCore.esm", "*FO4Port.esm", "*PortPatch.esm", "*FO4SFMission.esm"])
+
+    def test_a_cycle_across_ours_and_a_patch_and_a_patch_missing_its_master_are_refused(self):
+        plugin(os.path.join(self.data, "PortPatch.esm"), ["FO4SFMission.esm"])
+        plugin(os.path.join(self.data, "FO4SFMission.esm"), ["PortPatch.esm"])
+        self.write(["*FO4SFMission.esm", "*PortPatch.esm"])
+        old = self.read()
+        self.assertEqual(self.run_("fix"), 6)
+        self.assertIn("cycle", self.said[-1])
+        self.assertEqual(self.read(), old)
+        plugin(os.path.join(self.data, "Lone.esm"), ["Absent.esm"])
+        self.write(["*" + p for p in GAME] + ["*Lone.esm"])
+        old = self.read()
+        self.assertEqual(self.run_("check"), 6)
+        self.assertIn("Lone.esm needs master Absent.esm", self.said[-1])
+        self.assertEqual(self.run_("fix"), 6)
+        self.assertEqual(self.read(), old)
 
     def test_what_cannot_be_judged_is_refused_and_left_alone(self):
         cases = [

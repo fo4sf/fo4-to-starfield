@@ -11,11 +11,11 @@ group in its current order:
   5. FO4SFBridge.esm, last.
 That is the order the game itself wrote on the owner's PC on 2026-10-22, 25 s after a start (TerrainCore,
 TerrainCore_Mars, ActorRaider, Mission, Port, MapMarkers, Bridge), so a game that writes its own order again should
-find nothing to change; that the game keeps this order is inferred, not traced. A plugin whose master (one of ours)
-would load after it moves to just after that master. Inactive lines keep their place in their group and stay
+find nothing to change; that the game keeps this order is inferred, not traced. A plugin always loads after every
+master it names that is on a line, whatever its group. Inactive lines keep their place in their group and stay
 inactive: a plugin held off by plugin_toggle.py is never ticked here. A plugin that is not ours but has one of ours
-among its masters (a patch for our plugins), directly or through another such patch, goes after ours, in its own
-order, so it still loads after its masters.
+among its masters (a patch for our plugins) comes right after that master; masters come first across ours and other
+plugins alike.
 
 check exits 0 when the order is the target, 9 when it is not (the changes are printed), 6 when it cannot be judged
 (an active plugin of ours missing from Data, an active plugin whose master is neither active nor loaded by the game,
@@ -58,56 +58,47 @@ def group(plugin):
 
 
 def target(lines, masters):
-    """(new lines, problems). masters: {plugin casefold: [master, ...]} for our plugins. Lines that are blank,
-    comments or not ours stay first, in order; ours follow by group (module doc), then after their masters."""
-    problems, seen = [], set()
-    other, ours = [], []
+    """(new lines, problems). masters: {plugin casefold: [master, ...]} for the plugins whose headers were read.
+    One stable sort over every line: a plugin is placed only after each of its masters that is on a line, and among
+    the plugins ready to place the next is a line that is not ours (in file order) before one of ours (by group,
+    then file order). So lines that are not ours come first, a patch for one of ours comes right after it, and any
+    chain across ours and other plugins keeps every master first (Codex, #487)."""
+    problems, seen, nodes = [], set(), []
+    for k, ln in enumerate(lines):
+        p = name(ln)
+        plug = bool(p) and not ln.strip().startswith("#")
+        if plug:
+            if p.casefold() in seen:
+                problems.append(f"{p} is listed more than once")
+            seen.add(p.casefold())
+        g = group(p) if plug else None
+        nodes.append(((0, 0, k) if g is None else (1, g, k), p.casefold() if plug else None, ln))
+    active = {name(ln).casefold() for ln in lines if ln.strip().startswith("*")}
     for ln in lines:
         p = name(ln)
-        g = group(p) if p and not ln.strip().startswith("#") else None
-        if g is None:
-            other.append(ln)
-            continue
-        if p.casefold() in seen:
-            problems.append(f"{p} is listed more than once")
-        seen.add(p.casefold())
-        ours.append((g, len(ours), ln))
-    ours = [ln for _g, _i, ln in sorted(ours)]
-    # a patch for our plugins (not ours, one of ours or of such a patch among its masters) loads after ours (Codex, #487)
-    after = {name(ln).casefold() for ln in ours}
-    for _ in range(len(other) + 1):
-        more = {name(ln).casefold() for ln in other
-                if name(ln) and any(m.casefold() in after for m in masters.get(name(ln).casefold(), []))} - after
-        if not more:
-            break
-        after |= more
-    patches = [ln for ln in other if name(ln) and name(ln).casefold() in after]
-    other = [ln for ln in other if not (name(ln) and name(ln).casefold() in after)]
-    active = {name(ln).casefold() for ln in lines if ln.strip().startswith("*")}
-    for ln in ours:
-        p = name(ln)
-        if not ln.strip().startswith("*"):
-            continue
-        for m in masters.get(p.casefold(), []):
-            if m.casefold() not in active and not exp_install.implicit(m):
-                problems.append(f"{p} needs master {m}, which is not active")
-    for _ in range(len(ours) + 1):                        # a chain of masters settles within len(ours) passes
-        changed = False
-        for p in [name(ln) for ln in ours]:
-            i = next(k for k, ln in enumerate(ours) if name(ln).casefold() == p.casefold())
-            last = max((k for k, ln in enumerate(ours) for m in masters.get(p.casefold(), [])
-                        if name(ln).casefold() == m.casefold()), default=-1)
-            if last > i:
-                ours.insert(last, ours.pop(i))
-                changed = True
-        if not changed:
-            break
-    at = {name(ln).casefold(): k for k, ln in enumerate(ours)}
-    for p, ms in masters.items():
-        for m in ms:
-            if p in at and m.casefold() in at and at[m.casefold()] > at[p]:
-                problems.append(f"{p} and its master {m} need each other first (a cycle)")
-    return other + ours + patches, problems
+        if ln.strip().startswith("*"):
+            for m in masters.get(p.casefold(), []):
+                if m.casefold() not in active and not exp_install.implicit(m):
+                    problems.append(f"{p} needs master {m}, which is not active")
+    if problems:
+        return list(lines), problems
+    at = {n: k for k, (_key, n, _ln) in enumerate(nodes) if n}
+    needs = {k: {at[m.casefold()] for m in masters.get(n, []) if m.casefold() in at and at[m.casefold()] != k}
+             for k, (_key, n, _ln) in enumerate(nodes)}
+    self_master = [nodes[k][2].strip() for k, (_key, n, _ln) in enumerate(nodes)
+                   if n and any(m.casefold() == n for m in masters.get(n, []))]
+    placed, out = set(), []
+    while len(out) < len(nodes):
+        ready = [k for k in range(len(nodes)) if k not in placed and needs[k] <= placed]
+        if not ready:
+            left = ", ".join(name(nodes[k][2]) for k in range(len(nodes)) if k not in placed)
+            return list(lines), [f"a master cycle among {left}"]
+        k = min(ready, key=lambda i: nodes[i][0])
+        placed.add(k)
+        out.append(nodes[k][2])
+    if self_master:
+        return list(lines), [f"{p} names itself as a master" for p in self_master]
+    return out, problems
 
 
 def changes(old, new):
