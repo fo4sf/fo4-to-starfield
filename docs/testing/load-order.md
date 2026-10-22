@@ -58,3 +58,24 @@ verified beyond what each line says.
   the target order (the order the game wrote on 22 Oct, each plugin after its masters) and a launcher setting that
   runs it before every play; the Launcher thread documents the target order on this page next. Open: the runner
   (cycle.ps1) does not call it yet, so runner and owner installs can still differ.
+
+## Target order
+
+`scripts/game/load_order.py` (module doc) is the one definition. Lines that are not ours keep their own order and
+come first; ours follow in five groups, each keeping its current order:
+
+1. the cores (`FO4Terrain*`, `FO4Actor*`),
+2. the other `FO4SF*` plugins (experiments such as FO4SFMission),
+3. FO4Port,
+4. FO4SFMapMarkers,
+5. FO4SFBridge, last.
+
+Over the groups, every plugin loads after each of its masters that has a line, and a plugin that is not ours but
+masters one of ours (a patch) comes right after that master. On the owner's PC this gives FO4TerrainCore,
+FO4TerrainCore_Mars, FO4ActorRaider, FO4SFMission, FO4Port, FO4SFMapMarkers, FO4SFBridge: the order the game wrote at
+11:26 on 22 Oct, so a game that writes that order again changes nothing. A morning file with FO4Port first is moved
+by `fix` (Port from line 1 to after the mission; `tests/test_load_order.py`). `fix` copies the old file to
+`Plugins.txt.bak-<time>` before writing and never ticks or unticks a line; both `check` and `fix` refuse (exit 6) a
+missing or inactive master, a master cycle or a duplicated line. In the launcher, `load_order=fix` (the default)
+runs it before each start, `check` refuses to start on a different order, and `off` leaves the file alone; `play
+--dry-run` only reports what `fix` would move.
