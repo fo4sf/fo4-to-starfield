@@ -30,3 +30,38 @@ class WriteStaged(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriteStagedCallSites(unittest.TestCase):
+    """Cover the staging writers that #455 switched to write_staged."""
+
+    def _assert_hardlink_safe(self, writer):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_path = os.path.join(tmp, "work", "file.bin")
+            staged_path = os.path.join(tmp, "staged", "file.bin")
+            os.makedirs(os.path.dirname(work_path), exist_ok=True)
+            os.makedirs(os.path.dirname(staged_path), exist_ok=True)
+            with open(work_path, "wb") as f:
+                f.write(b"old")
+            try:
+                os.link(work_path, staged_path)
+            except OSError:
+                self.skipTest("no hard links")
+            writer(work_path)
+            with open(work_path, "rb") as f:
+                self.assertNotEqual(f.read(), b"old")
+            with open(staged_path, "rb") as f:
+                self.assertEqual(f.read(), b"old")
+
+    def test_mesh_write_path(self):
+        # The mesh publish loop in Converter.convert_nif uses write_staged
+        self._assert_hardlink_safe(lambda p: pipeline.write_staged(p, b"new-mesh"))
+
+    def test_texture_write_path(self):
+        # _publish_texture and the plane writers use write_staged
+        self._assert_hardlink_safe(lambda p: pipeline.write_staged(p, b"new-tex"))
+
+    def test_material_write_path(self):
+        # material, glass_material, texture_set_material, effect_decal_material use write_staged
+        self._assert_hardlink_safe(lambda p: pipeline.write_staged(p, b"new-mat"))
+
