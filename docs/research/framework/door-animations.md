@@ -301,6 +301,9 @@ stays first, since every door function above is vanilla (§1) and needs no SFSE 
 8. ★ Does it refuse the trip on a locked door? OnActivate fires on locked doors. `IsLocked()` exists (§1, verified), so
    *offline:* add the check; *in game* once on a locked pair. Never call `Lock()` without
    `abTraverseLinkedLockables = False` until we know what it traverses.
+   [Update 2026-10-22: **source-implemented**: `FO4SF_AnimatedLoadDoor.psc` checks `IsLocked()` before the open
+   (scripts/door_bridge/FO4SF_AnimatedLoadDoor.psc line 23 at 4c1a91b); native lock behaviour in game is still
+   pending (gate 37).]
 9. Does `SetOpen(False)` take effect after the player has left the cell (G3)? Fallbacks: close in OnLoad, or on
    `OnPlayerTeleport` (exists, §1). *In game.*
 10. The edited script (e11478e) must be recompiled on the PC before any test. *PC read* (compile only, no install).
@@ -379,8 +382,15 @@ stays first, since every door function above is vanilla (§1) and needs no SFSE 
 ### I. Stability and acceptance
 36. ★ Do many round trips through one door leak memory or crash (as one Starfield seamless mod did)? *In game:* a
     50-trip soak under the crash watcher.
-37. G1 to G3 pass criteria (unchanged): a screenshot of the open leaf before each load screen, the bridge log's
-    arrival line, and the door shut on return.
+37. G1 to G3 pass criteria ~~(unchanged): a screenshot of the open leaf before each load screen, the bridge log's
+    arrival line, and the door shut on return.~~ [Correction 2026-10-22, from Codex's review of #408 and the current
+    gate in docs/spikes/load-door-animations.md (G section) at PR #489 head 4c1a91b, Codex-approved:] Pass = a
+    screenshot of the open leaf before each load screen, the bridge log's arrival line, the door shut on return, AND a
+    Papyrus log line `FO4SF_AnimatedLoadDoor open_state=1` for EACH trip. The script's bounded wait times out into the
+    trip anyway (`Parent.OnActivate` runs even if `GetOpenState` never reaches 1, so the player is never stuck), so a
+    trip alone does not prove the door opened first: timeout travel is not animation acceptance. Also required: a
+    locked pair refuses the trip; the door state survives a save and reload; the PEX is recompiled from the tested
+    commit.
 
 ### J. Release and policy (owner)
 38. Built .NET tools are GPL-3 through Mutagen: release source only, or binaries under GPL-3? *Owner*, recorded in
