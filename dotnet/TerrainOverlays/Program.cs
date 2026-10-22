@@ -15,7 +15,10 @@
 //                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
-//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
+//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell.
+//                          Optional params "world_data": {"small_world": false, "hnam": 5} changes LC172World's DATA
+//                          SmallWorld flag and its 1-byte HNAM (docs/terrain/border.md: NewAtlantis's values; whether
+//                          they stop "BOUNDARY REACHED" is not yet proven, the repeat test there decides)
 // PNDT CNAM entries store latitude first, then longitude (radians; Earth overlays sit at their real cities). Mutagen
 // 0.55 names the first value Longitude and the second Latitude, so the params' latitude goes into .Longitude.
 //
@@ -130,6 +133,13 @@ foreach (var o in overlays)
     w.TopCell = null;
     w.OffsetData = null;
     w.CellSizeData = null;
+    if (prm.TryGetProperty("world_data", out var wd) && wd.ValueKind == JsonValueKind.Object)
+    {
+        if (wd.TryGetProperty("small_world", out var sw) && sw.ValueKind == JsonValueKind.False)
+            w.Flags = (w.Flags ?? 0) & ~Worldspace.Flag.SmallWorld;
+        if (wd.TryGetProperty("hnam", out var wh))
+            w.HNAM = new MemorySlice<byte>(new byte[] { checked((byte)wh.GetInt32()) });
+    }
     w.Location.SetTo(loc.FormKey);
     w.Components.OfType<WorldSpaceOverlayComponent>().First().SurfaceBlock.SetTo(block.FormKey);
     // object bounds are raw metres; Mutagen shows them divided by 4096
