@@ -117,6 +117,15 @@ class StageTests(unittest.TestCase):
         self.assertEqual(rounds["core_worlds"], ["000803"])
         self.assertEqual(dr.core_world(rounds), {"index": "03", "world": "03000803"})
 
+    def test_a_skipped_doors_cell_falls_back_to_its_planned_destination_cell(self):
+        d = tempfile.mkdtemp()                         # Codex on #397: no marker, but the plan still names the cell
+        _, port, _ = build(d)
+        p = dr.Installed(os.path.join(port, "FO4Port.esm"))
+        self.assertEqual(dr.marker_cell(p, {"destination": {"id": 0x900}}), "FO4Port_SuperDuperMart01")
+        self.assertEqual(dr.marker_cell(p, {"destination": {"id": 0x999, "cell": "000801"}}), "FO4Port_SuperDuperMart01")
+        self.assertIsNone(dr.marker_cell(p, {"destination": {"id": 0x999}}))
+        self.assertIsNone(dr.marker_cell(p, {"destination": {"id": 0x999, "cell": "zz"}}))
+
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
         core, port, _ = build(d, port_marker_target=0x901)
