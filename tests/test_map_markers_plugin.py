@@ -3,6 +3,7 @@ test_terrain_reference_identity with the map-marker template), never a game: the
 MapMarker REFRs in FormID order and LocalX / LocalY / LocalZ their written positions (docs/terrain/map-markers.md
 "Markers in the merged world"); plus the Papyrus script's contract (it cannot be compiled here)."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -97,6 +98,44 @@ class MapMarkersPluginTests(unittest.TestCase):
         by_id = {int(self.ids[m["tag"]], 16): m["pos"] for m in self.markers}
         self.assertIn(f"LocalX: {', '.join(self.num(by_id[i][0]) for i in want)}", check.stdout)
         self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2]) for i in want)}", check.stdout)
+
+    def test_many_markers_split_into_quests_of_100(self):
+        params = copy.deepcopy(self.params)
+        params["overlays"][0]["map_markers"] = [
+            {"tag": f"M{k:03d}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+            for k in range(205)]
+        saved, type(self).params = type(self).params, params
+        try:
+            proc, many = self.run_writer(self.objects, "core-many")
+        finally:
+            type(self).params = saved
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        out = self.root / "plugin-many"
+        built = self.tool_run("build", "--core", many / "Synthetic.esm", "--out", out)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        check = self.tool_run("check", out / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        recs = tri.records(out / "FO4SFMapMarkers.esm")
+        self.assertEqual(sorted(recs), [0x800, 0x801, 0x802])
+        lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
+        self.assertEqual([len(x) for x in lists], [100, 100, 5])
+        ids = [f & 0xFFFFFF for x in lists for f in x]
+        self.assertEqual(ids, sorted(ids))                                     # FormID order across the quests
+        self.assertEqual(len(set(ids)), 205)
+        for q, cap in ((0x800, 200), (0x801, 200)):
+            vmad = tlw.field(recs[q][1], b"VMAD")
+            name = b"\x08\x00MaxMoves"
+            at = vmad.index(name) + len(name)
+            self.assertEqual(struct.unpack_from("<BBi", vmad, at), (3, 1, cap))  # int property, edited, the cap
+        self.assertNotIn(b"MaxMoves", tlw.field(recs[0x802][1], b"VMAD"))       # 5 markers: the script's 40
+        # a plugin missing its last quest no longer matches the core
+        short = self.root / "plugin-many-short"
+        three = self.tool_run("build", "--core", self.core, "--out", short)
+        self.assertEqual(three.returncode, 0)
+        bad = self.tool_run("check", short / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
+        self.assertEqual(bad.returncode, 1, bad.stdout)
+        self.assertIn("1 quest(s) for 205 marker(s): 3 wanted", bad.stdout)
 
     def test_check_rejects_an_alias_encoded_marker(self):
         out = self.root / "plugin-alias"
@@ -209,16 +248,22 @@ class StageTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d, mock.patch.object(mm.make_bridge, "run", fake_run), \
                 mock.patch.object(mm.make_bridge, "extract_sources", lambda z, w: w):
-            out = os.path.join(d, "stage")
-            mm.main(["stage", "--core", "core.esm", "--out", out, "--compiler", "PapyrusCompiler.exe"])
+            out, core = os.path.join(d, "stage"), os.path.join(d, "FO4TerrainCore.esm")
+            with open(core, "wb") as f:
+                f.write(b"core bytes")
+            mm.main(["stage", "--core", core, "--out", out, "--compiler", "PapyrusCompiler.exe"])
+            with open(os.path.join(out, "core.json"), encoding="utf-8") as f:   # the installer's pin on this core
+                self.assertEqual(json.load(f), {"masters": {"FO4TerrainCore.esm": hashlib.sha256(b"core bytes").hexdigest()}})
             self.assertTrue(os.path.exists(os.path.join(out, "README.txt")))
             self.assertTrue(os.path.exists(os.path.join(out, "Data", "Scripts", "FO4SF_MapMarkers.pex")))
             with self.assertRaises(SystemExit):                # never into a used folder
-                mm.main(["stage", "--core", "core.esm", "--out", out])
+                mm.main(["stage", "--core", core, "--out", out])
+            with self.assertRaises(SystemExit):                # one plugin name, the one the installer knows
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s2"), "--plugin", "Custom.esm"])
         build, comp, check = calls
-        self.assertEqual(build[0][-7:], ["build", "--core", "core.esm", "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
+        self.assertEqual(build[0][-7:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
         self.assertEqual(comp[0][1], "FO4SF_MapMarkers.psc")
-        self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), "core.esm"])
+        self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core])
 
 
 if __name__ == "__main__":

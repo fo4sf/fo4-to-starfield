@@ -48,6 +48,12 @@ class PresenceTests(unittest.TestCase):
         with open(os.path.join(self.out, "presence.json")) as f:
             self.info = json.load(f)
 
+    def test_presence_json_names_the_plan_it_was_staged_with(self):
+        # Codex on #391: plan-terrain pins presence.json only when it was staged with the plan.json beside it
+        import hashlib
+        with open(os.path.join(self.out, "plan.json"), "rb") as f:
+            self.assertEqual(self.info["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
+
     def test_actors_are_grouped_by_place_and_resolved_where_they_stand(self):
         self.assertEqual(len(self.plan), 3)                        # the extras, then two places
         self.assertEqual(self.plan[0]["console_post"], ['cgf "FO4SF_Probe.Ack" "presence-extra"',

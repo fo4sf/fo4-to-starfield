@@ -1,0 +1,6110 @@
+{
+ "note": "scripts/terrain/interior_batches.py (docs/terrain/interior-batches.md); *_est are estimates",
+ "params": {
+  "min_cells": 20,
+  "max_cells": 30,
+  "max_refs": 60000,
+  "near_m": 1000.0,
+  "port_models": 4100,
+  "bytes_per_model": 553676,
+  "loose_factor": 2.0
+ },
+ "totals": {
+  "batches": 10,
+  "cells": 253,
+  "refs": 484286,
+  "skipped": 4,
+  "final_archives_gb_est": 5.91,
+  "final_peak_gb_est": 23.63,
+  "first_batch_under_floor": null,
+  "extended_by": 2
+ },
+ "batches": [
+  {
+   "batch": 1,
+   "name": "interiors_b01",
+   "cells": [
+    {
+     "editor_id": "GoodneighborTheMemoryDen",
+     "formkey": "022884:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 1529,
+     "lights": 165,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [
+      "MQ203KelloggsBrain"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MQ203KelloggsBrain",
+     "formkey": "0D393F:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "behind_interior",
+     "entered_from": [
+      "PrewarVault111",
+      "GoodneighborTheMemoryDen",
+      "Vault111Cryo"
+     ],
+     "refs": 1952,
+     "lights": 291,
+     "navmeshes": 11,
+     "load_doors_out": 8,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "GoodneighborTheMemoryDen",
+      "MQ203KelloggsBrain",
+      "PrewarVault111",
+      "Vault111Cryo"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 40,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ParsonsState02",
+     "formkey": "05FBB5:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "behind_interior",
+     "entered_from": [
+      "ParsonsState01"
+     ],
+     "refs": 2860,
+     "lights": 128,
+     "navmeshes": 4,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "ParsonsState01",
+      "ParsonsState03"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 17,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ParsonsState03",
+     "formkey": "04B4D7:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "behind_interior",
+     "entered_from": [
+      "ParsonsState01"
+     ],
+     "refs": 2143,
+     "lights": 117,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "ParsonsState01",
+      "ParsonsState02"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 11,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PrewarVault111",
+     "formkey": "0CA260:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "worldspace",
+     "entered_from": [
+      "SanctuaryHillsWorld"
+     ],
+     "refs": 993,
+     "lights": 382,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:SanctuaryHillsWorld"
+     ],
+     "doors_to_interiors": [
+      "MQ203KelloggsBrain"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PrydwenHull03",
+     "formkey": "21630B:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "behind_interior",
+     "entered_from": [
+      "PrydwenHull01"
+     ],
+     "refs": 111,
+     "lights": 6,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "PrydwenHull01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Vault11402",
+     "formkey": "07BEF3:Fallout4.esm",
+     "phase": "completes_port",
+     "reach": "behind_interior",
+     "entered_from": [
+      "Vault114"
+     ],
+     "refs": 4258,
+     "lights": 355,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "Vault114"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 40,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SanctuaryBasementJahani",
+     "formkey": "0A36EA:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 217,
+     "lights": 11,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 99,
+     "nearest_m": 98.5,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ConcordCivicAccess01",
+     "formkey": "03776D:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1995,
+     "lights": 187,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 16,
+     "nearest_m": 152.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 98,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ConcordFactory",
+     "formkey": "0E3CC4:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 598,
+     "lights": 77,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 15,
+     "nearest_m": 159.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 56,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ConcordSpeakeasy",
+     "formkey": "0788D4:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 859,
+     "lights": 78,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 14,
+     "nearest_m": 181.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 34,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ConcordMuseum01",
+     "formkey": "017DF7:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3414,
+     "lights": 306,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 17,
+     "nearest_m": 230.0,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 172,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GorskiCabin01",
+     "formkey": "02CFA5:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 625,
+     "lights": 25,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 100,
+     "nearest_m": 317.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 18,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "USAFSatellite01",
+     "formkey": "068F7C:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1848,
+     "lights": 161,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 98,
+     "nearest_m": 427.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 17,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "WaldenPond01",
+     "formkey": "0317D0:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1076,
+     "lights": 78,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 39,
+     "nearest_m": 549.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 23,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Switchboard",
+     "formkey": "0B42E4:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3326,
+     "lights": 232,
+     "navmeshes": 6,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 42,
+     "nearest_m": 609.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 62,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zLexingtonGarage",
+     "formkey": "1AE39C:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 458,
+     "lights": 27,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 43,
+     "nearest_m": 667.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zLexingtonLaundromat",
+     "formkey": "1AD021:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 194,
+     "lights": 6,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 38,
+     "nearest_m": 721.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FederalRationStockpile01",
+     "formkey": "035FF4:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3087,
+     "lights": 221,
+     "navmeshes": 4,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 44,
+     "nearest_m": 785.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 44,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CorvegaAssemblyPlant01",
+     "formkey": "057127:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 11023,
+     "lights": 453,
+     "navmeshes": 5,
+     "load_doors_out": 6,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 2,
+     "nearest_m": 797.1,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 310,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ArcjetSystems02",
+     "formkey": "080465:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2677,
+     "lights": 127,
+     "navmeshes": 5,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "ArcjetSystems01",
+      "ArcjetSystems02"
+     ],
+     "backlog_rank": 101,
+     "nearest_m": 810.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 15,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zLexingtonApartments",
+     "formkey": "1379B9:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 306,
+     "lights": 29,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 41,
+     "nearest_m": 844.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zLexingtonPharmacy",
+     "formkey": "1AD020:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 205,
+     "lights": 8,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 97,
+     "nearest_m": 858.9,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CovenantHQ01",
+     "formkey": "0396E6:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2990,
+     "lights": 168,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 103,
+     "nearest_m": 865.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 16,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ArcjetSystems01",
+     "formkey": "07E2C2:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5952,
+     "lights": 212,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "ArcjetSystems02"
+     ],
+     "backlog_rank": 102,
+     "nearest_m": 882.8,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 22,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GraygardenHomestead01",
+     "formkey": "157AA2:Fallout4.esm",
+     "phase": "near",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 717,
+     "lights": 47,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 40,
+     "nearest_m": 937.3,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 34,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zInstituteRotunda",
+     "formkey": "0C0F68:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2786,
+     "lights": 251,
+     "navmeshes": 1,
+     "load_doors_out": 8,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 1,
+     "nearest_m": 1328.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 112,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 27,
+   "refs": 58199,
+   "new_models_est": 1183,
+   "cumulative_models_est": 5283,
+   "archives_gb_est": 2.93,
+   "work_staging_gb_est": 5.85,
+   "peak_gb_est": 11.7,
+   "free_after_gb_est": 55.3,
+   "under_floor": false
+  },
+  {
+   "batch": 2,
+   "name": "interiors_b02",
+   "cells": [
+    {
+     "editor_id": "FaneuilHall01",
+     "formkey": "05884C:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4450,
+     "lights": 115,
+     "navmeshes": 2,
+     "load_doors_out": 6,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 3,
+     "nearest_m": 1837.0,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 144,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "USSConstitution01",
+     "formkey": "03E805:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2085,
+     "lights": 183,
+     "navmeshes": 1,
+     "load_doors_out": 6,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 4,
+     "nearest_m": 1680.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 99,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TheaterHub360",
+     "formkey": "184A31:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1460,
+     "lights": 68,
+     "navmeshes": 3,
+     "load_doors_out": 8,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "CTEST",
+      "ccTOSFO4001"
+     ],
+     "backlog_rank": 5,
+     "nearest_m": 1929.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 187,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TheaterMassBayMedicalCenter01",
+     "formkey": "186CC2:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3110,
+     "lights": 140,
+     "navmeshes": 2,
+     "load_doors_out": 6,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "TheaterMassBayMedicalCenter02"
+     ],
+     "backlog_rank": 6,
+     "nearest_m": 1957.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 102,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MassFusion01",
+     "formkey": "0F4BF4:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 10313,
+     "lights": 708,
+     "navmeshes": 35,
+     "load_doors_out": 6,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "MassFusion02"
+     ],
+     "backlog_rank": 7,
+     "nearest_m": 1765.0,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 143,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MassFusion02",
+     "formkey": "084A59:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "MassFusion01"
+     ],
+     "refs": 4326,
+     "lights": 112,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "MassFusion01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeCollegeAdminBuilding",
+     "formkey": "0A3ADB:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 571,
+     "lights": 54,
+     "navmeshes": 1,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 8,
+     "nearest_m": 1135.3,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 20,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial14",
+     "formkey": "04ACB4:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 695,
+     "lights": 29,
+     "navmeshes": 2,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 9,
+     "nearest_m": 1852.2,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 26,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensParkviewApartments02",
+     "formkey": "0C8040:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 939,
+     "lights": 61,
+     "navmeshes": 2,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 10,
+     "nearest_m": 1683.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 53,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgePlumbing01",
+     "formkey": "1BABD5:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 666,
+     "lights": 15,
+     "navmeshes": 2,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 11,
+     "nearest_m": 1198.5,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 57,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeMonsignorPlaza01",
+     "formkey": "0A603D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2794,
+     "lights": 76,
+     "navmeshes": 2,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 13,
+     "nearest_m": 1458.6,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 197,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeEastCITRaiderCamp01",
+     "formkey": "0A603B:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 274,
+     "lights": 14,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 19,
+     "nearest_m": 1427.2,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensCafeBuilding",
+     "formkey": "0C0791:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 425,
+     "lights": 31,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 20,
+     "nearest_m": 1634.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 11,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "LaytonTowers01",
+     "formkey": "0A1CB7:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2362,
+     "lights": 290,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 21,
+     "nearest_m": 1866.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 39,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgePD01",
+     "formkey": "01FA25:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2172,
+     "lights": 103,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 22,
+     "nearest_m": 1150.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 26,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "EastBostonPrep01",
+     "formkey": "0379C6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4898,
+     "lights": 509,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 23,
+     "nearest_m": 1885.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 65,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GeneralAtomicsGalleria01",
+     "formkey": "0E791A:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3483,
+     "lights": 129,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 24,
+     "nearest_m": 1090.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 75,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial07",
+     "formkey": "06F346:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1447,
+     "lights": 71,
+     "navmeshes": 3,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 25,
+     "nearest_m": 1774.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 31,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "DBTechHighSchool01",
+     "formkey": "03AC6D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7496,
+     "lights": 583,
+     "navmeshes": 1,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "DBTechHighSchool02"
+     ],
+     "backlog_rank": 26,
+     "nearest_m": 1972.1,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 126,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "HardwareTown01",
+     "formkey": "026F0B:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2971,
+     "lights": 197,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 27,
+     "nearest_m": 1749.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 75,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MassPikeTunnel01",
+     "formkey": "07D8E6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2778,
+     "lights": 278,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 28,
+     "nearest_m": 1702.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 75,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 21,
+   "refs": 59715,
+   "new_models_est": 1560,
+   "cumulative_models_est": 6843,
+   "archives_gb_est": 3.79,
+   "work_staging_gb_est": 7.58,
+   "peak_gb_est": 15.16,
+   "free_after_gb_est": 51.8,
+   "under_floor": false
+  },
+  {
+   "batch": 3,
+   "name": "interiors_b03",
+   "cells": [
+    {
+     "editor_id": "WestonWaterTreatment01",
+     "formkey": "06FE2F:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 6017,
+     "lights": 136,
+     "navmeshes": 3,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 29,
+     "nearest_m": 1168.3,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 88,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TrinityChurch01",
+     "formkey": "0E50B5:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2625,
+     "lights": 298,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 30,
+     "nearest_m": 1777.0,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 68,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeChurchGraveyard01",
+     "formkey": "0BED97:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 573,
+     "lights": 13,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 31,
+     "nearest_m": 1201.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 9,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeMassChemical01",
+     "formkey": "0A3AD4:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 595,
+     "lights": 62,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 32,
+     "nearest_m": 1421.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 26,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "HestersRobotics01",
+     "formkey": "03AF88:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1842,
+     "lights": 130,
+     "navmeshes": 4,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 33,
+     "nearest_m": 2016.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 21,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GNN01",
+     "formkey": "0291C9:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7413,
+     "lights": 421,
+     "navmeshes": 1,
+     "load_doors_out": 4,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GNN02"
+     ],
+     "backlog_rank": 34,
+     "nearest_m": 2382.7,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 50,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FallonsDepartmentStore01",
+     "formkey": "03D7DC:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7717,
+     "lights": 372,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 35,
+     "nearest_m": 2162.4,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 64,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "UniversityPoint01",
+     "formkey": "002374:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3765,
+     "lights": 243,
+     "navmeshes": 3,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 36,
+     "nearest_m": 2385.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 73,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BostonAirportRuins01",
+     "formkey": "084A56:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5904,
+     "lights": 372,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 37,
+     "nearest_m": 2056.9,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 103,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NationalGuardTrainingYard01",
+     "formkey": "0532B6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1011,
+     "lights": 96,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 45,
+     "nearest_m": 1666.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NationalGuardTrainingYard02",
+     "formkey": "0E2F70:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2109,
+     "lights": 170,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 46,
+     "nearest_m": 1653.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 10,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial30",
+     "formkey": "06F0CA:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 603,
+     "lights": 28,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 47,
+     "nearest_m": 1879.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NorthEndSalemStreetCottage",
+     "formkey": "1AD908:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 247,
+     "lights": 9,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 48,
+     "nearest_m": 1786.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ShenleysOysterBar01",
+     "formkey": "0A1CBC:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 258,
+     "lights": 14,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 49,
+     "nearest_m": 1754.5,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BackStreetApparel01",
+     "formkey": "04E4D6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1749,
+     "lights": 90,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 50,
+     "nearest_m": 1594.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeDiner01",
+     "formkey": "0A3AD9:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 407,
+     "lights": 8,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 51,
+     "nearest_m": 1233.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "WRVRBroadcastCenter01",
+     "formkey": "03F245:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 608,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 52,
+     "nearest_m": 1995.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CharlestownDrugDen",
+     "formkey": "0A4633:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 309,
+     "lights": 21,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 53,
+     "nearest_m": 1621.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NorthEndMeanPastries",
+     "formkey": "0A87EA:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 300,
+     "lights": 7,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 54,
+     "nearest_m": 1744.5,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "OldGulletSinkhole01",
+     "formkey": "03A870:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 711,
+     "lights": 54,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 55,
+     "nearest_m": 1258.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 15,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BeaconHillApartments",
+     "formkey": "0A4632:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 516,
+     "lights": 22,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 56,
+     "nearest_m": 1667.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensParkviewApartments01",
+     "formkey": "0C8041:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 641,
+     "lights": 54,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 57,
+     "nearest_m": 1733.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BeaconHillBostonBugle",
+     "formkey": "09D357:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 829,
+     "lights": 21,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 58,
+     "nearest_m": 1732.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FraternalPost11501",
+     "formkey": "03A16D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2017,
+     "lights": 218,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 59,
+     "nearest_m": 1260.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 9,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial28",
+     "formkey": "12CB6E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1372,
+     "lights": 98,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 60,
+     "nearest_m": 1900.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Theater16PearwoodResidences01",
+     "formkey": "095438:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 640,
+     "lights": 16,
+     "navmeshes": 6,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 61,
+     "nearest_m": 1899.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 25,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "HubrisComics01",
+     "formkey": "04542D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3125,
+     "lights": 316,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 62,
+     "nearest_m": 1790.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 36,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "VaultTecOffice01",
+     "formkey": "01B0F7:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2458,
+     "lights": 140,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 63,
+     "nearest_m": 1733.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 24,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TiconderogaStation01",
+     "formkey": "07D513:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2952,
+     "lights": 252,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 64,
+     "nearest_m": 1519.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 37,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 29,
+   "refs": 59313,
+   "new_models_est": 723,
+   "cumulative_models_est": 7566,
+   "archives_gb_est": 4.19,
+   "work_staging_gb_est": 8.38,
+   "peak_gb_est": 16.76,
+   "free_after_gb_est": 50.2,
+   "under_floor": false
+  },
+  {
+   "batch": 4,
+   "name": "interiors_b04",
+   "cells": [
+    {
+     "editor_id": "IrishPrideShipyard01",
+     "formkey": "047993:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3199,
+     "lights": 244,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 65,
+     "nearest_m": 1457.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 37,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TrinityTower01",
+     "formkey": "017E4D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2415,
+     "lights": 125,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 66,
+     "nearest_m": 1816.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 17,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "AtomatoysCorporateHQ01",
+     "formkey": "09087E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4902,
+     "lights": 169,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 67,
+     "nearest_m": 1905.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 37,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial21",
+     "formkey": "070115:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 457,
+     "lights": 14,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 68,
+     "nearest_m": 1919.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PickmanGallery01",
+     "formkey": "0379C5:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4640,
+     "lights": 423,
+     "navmeshes": 6,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 69,
+     "nearest_m": 1750.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 48,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "HalluciGen01",
+     "formkey": "0342CB:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 6886,
+     "lights": 300,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 70,
+     "nearest_m": 1718.0,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 41,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BeantownBrewery01",
+     "formkey": "03A318:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3244,
+     "lights": 129,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 71,
+     "nearest_m": 1141.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 47,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial13",
+     "formkey": "070117:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 352,
+     "lights": 7,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 72,
+     "nearest_m": 1835.3,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeKendallHospital01",
+     "formkey": "0CFDA3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5688,
+     "lights": 214,
+     "navmeshes": 4,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 73,
+     "nearest_m": 1263.3,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 84,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Theater27TickerTapeLounge",
+     "formkey": "0941DF:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1037,
+     "lights": 55,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 74,
+     "nearest_m": 1959.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 53,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "EsplanadeChurch01",
+     "formkey": "0A1724:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 469,
+     "lights": 16,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 75,
+     "nearest_m": 1655.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 12,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SaugusIronworks01",
+     "formkey": "041CB3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3583,
+     "lights": 180,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "SaugusIronworks02"
+     ],
+     "backlog_rank": 76,
+     "nearest_m": 1778.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 60,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SaugusIronworks02",
+     "formkey": "1440BE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "SaugusIronworks01"
+     ],
+     "refs": 798,
+     "lights": 23,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "SaugusIronworks01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 12,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "OldNorthChurch01",
+     "formkey": "066EF3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1701,
+     "lights": 152,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "RailroadHQ01"
+     ],
+     "backlog_rank": 77,
+     "nearest_m": 1790.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 35,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RailroadHQ01",
+     "formkey": "092B21:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "RailroadHQEscapeTunnel",
+      "OldNorthChurch01"
+     ],
+     "refs": 1560,
+     "lights": 144,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "OldNorthChurch01",
+      "RailroadHQEscapeTunnel"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 44,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeConstructionSiteWarehouse01",
+     "formkey": "1E1ACA:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 207,
+     "lights": 7,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 78,
+     "nearest_m": 1450.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 21,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteConcourse",
+     "formkey": "02A199:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 6837,
+     "lights": 1776,
+     "navmeshes": 3,
+     "load_doors_out": 11,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "InstituteAdvSystems",
+      "InstituteBioScience",
+      "InstituteCave",
+      "InstituteConcourse",
+      "InstituteOldRobotics01",
+      "InstituteRobotics",
+      "InstituteSRB",
+      "InstituteTunnel01"
+     ],
+     "backlog_rank": 79,
+     "nearest_m": 1362.8,
+     "enterable": false,
+     "effort": "XL",
+     "new_models": 268,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteAdvSystems",
+     "formkey": "153794:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse",
+      "InstituteReactor"
+     ],
+     "refs": 636,
+     "lights": 278,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteConcourse",
+      "InstituteReactor"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteBioScience",
+     "formkey": "153797:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse"
+     ],
+     "refs": 1562,
+     "lights": 686,
+     "navmeshes": 1,
+     "load_doors_out": 4,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteConcourse",
+      "InstituteFEVlab",
+      "InstituteOldRobotics01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 19,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteCave",
+     "formkey": "13A2B1:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse"
+     ],
+     "refs": 405,
+     "lights": 66,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteConcourse"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteFEVlab",
+     "formkey": "19EEA8:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteBioScience"
+     ],
+     "refs": 1371,
+     "lights": 124,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteBioScience"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteOldRobotics01",
+     "formkey": "02D5EC:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse"
+     ],
+     "refs": 2662,
+     "lights": 106,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteBioScience",
+      "InstituteConcourse"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 22,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteRobotics",
+     "formkey": "153796:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse"
+     ],
+     "refs": 238,
+     "lights": 94,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteConcourse"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "S",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteSRB",
+     "formkey": "153795:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "InstituteConcourse"
+     ],
+     "refs": 543,
+     "lights": 291,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "InstituteConcourse"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NahantOceanSociety01",
+     "formkey": "045155:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1182,
+     "lights": 146,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 80,
+     "nearest_m": 2615.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "UniversityPoint02",
+     "formkey": "0FB265:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 774,
+     "lights": 50,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 81,
+     "nearest_m": 2362.5,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PrydwenHull02",
+     "formkey": "14FC54:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 596,
+     "lights": 81,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "PrydwenHull01"
+     ],
+     "backlog_rank": 82,
+     "nearest_m": 2163.3,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 10,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 27,
+   "refs": 57944,
+   "new_models_est": 929,
+   "cumulative_models_est": 8495,
+   "archives_gb_est": 4.7,
+   "work_staging_gb_est": 9.41,
+   "peak_gb_est": 18.81,
+   "free_after_gb_est": 48.2,
+   "under_floor": false
+  },
+  {
+   "batch": 5,
+   "name": "interiors_b05",
+   "cells": [
+    {
+     "editor_id": "SuffolkCountyCharterSchool01",
+     "formkey": "0276A9:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5956,
+     "lights": 427,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 83,
+     "nearest_m": 2573.3,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 53,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Waterfront12",
+     "formkey": "09F0A2:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 599,
+     "lights": 24,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 84,
+     "nearest_m": 2006.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MiltonGeneral01",
+     "formkey": "03430D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3762,
+     "lights": 198,
+     "navmeshes": 6,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 85,
+     "nearest_m": 2151.6,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FederalSurvCenter01",
+     "formkey": "048646:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3632,
+     "lights": 166,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 86,
+     "nearest_m": 2403.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 10,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PoseidonEnergy01",
+     "formkey": "04B2C0:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3556,
+     "lights": 285,
+     "navmeshes": 3,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "PoseidonEnergy02"
+     ],
+     "backlog_rank": 87,
+     "nearest_m": 2893.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 17,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ShamrockTaphouse01",
+     "formkey": "045156:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2171,
+     "lights": 161,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 88,
+     "nearest_m": 2009.1,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 24,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GwinnettBrewery01",
+     "formkey": "04C7ED:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2877,
+     "lights": 212,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GwinnettBrewery02"
+     ],
+     "backlog_rank": 89,
+     "nearest_m": 2298.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 31,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Libertalia01",
+     "formkey": "11E7EC:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 206,
+     "lights": 9,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 90,
+     "nearest_m": 2348.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 16,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MahkraFishpacking01",
+     "formkey": "04640B:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5990,
+     "lights": 348,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 91,
+     "nearest_m": 2183.9,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 26,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "AndrewStation01",
+     "formkey": "074D28:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3606,
+     "lights": 208,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 92,
+     "nearest_m": 2161.6,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 36,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GlowingSeaPOIDB06Int",
+     "formkey": "1F59B9:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1388,
+     "lights": 126,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 93,
+     "nearest_m": 2712.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GwinnettBrewery02",
+     "formkey": "0503C6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1618,
+     "lights": 130,
+     "navmeshes": 6,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GwinnettBrewery01"
+     ],
+     "backlog_rank": 94,
+     "nearest_m": 2262.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TheCastle01",
+     "formkey": "0ADEC8:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1608,
+     "lights": 108,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 95,
+     "nearest_m": 2463.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 19,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SentinelSite01",
+     "formkey": "12653A:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5818,
+     "lights": 240,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 96,
+     "nearest_m": 3082.7,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 70,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NorthEndHoardersApartment",
+     "formkey": "0A87EB:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 275,
+     "lights": 8,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 104,
+     "nearest_m": 1695.6,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt15A",
+     "formkey": "1B2916:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 144,
+     "lights": 4,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "RelayTowerInt15B"
+     ],
+     "backlog_rank": 105,
+     "nearest_m": 1338.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt15B",
+     "formkey": "1B2915:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "RelayTowerInt15A"
+     ],
+     "refs": 164,
+     "lights": 7,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "RelayTowerInt15A"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensBank01",
+     "formkey": "0C8042:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 483,
+     "lights": 17,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 106,
+     "nearest_m": 1629.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NorthEndValentiStation",
+     "formkey": "0A929B:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 439,
+     "lights": 8,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 107,
+     "nearest_m": 1837.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Vault81Entry",
+     "formkey": "0A9B62:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1097,
+     "lights": 109,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "Vault81",
+      "Vault81Secret"
+     ],
+     "backlog_rank": 108,
+     "nearest_m": 1543.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Vault81HoldingCell",
+     "formkey": "1126B0:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "Vault81"
+     ],
+     "refs": 31,
+     "lights": 1,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "Vault81"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Vault81Secret",
+     "formkey": "05226E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "Vault81Entry"
+     ],
+     "refs": 4025,
+     "lights": 508,
+     "navmeshes": 4,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "Vault81",
+      "Vault81Entry"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 23,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt08",
+     "formkey": "1B2ED1:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 78,
+     "lights": 5,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 109,
+     "nearest_m": 1424.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt01",
+     "formkey": "03C606:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 163,
+     "lights": 14,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 110,
+     "nearest_m": 1346.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeScienceCenter01",
+     "formkey": "0517B3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 159,
+     "lights": 17,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 111,
+     "nearest_m": 1542.1,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt12",
+     "formkey": "1DE7E3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 168,
+     "lights": 6,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 112,
+     "nearest_m": 1278.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt06",
+     "formkey": "1B2917:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 99,
+     "lights": 6,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 113,
+     "nearest_m": 1557.6,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NationalGuardTrainingYard03",
+     "formkey": "0E2F6F:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 516,
+     "lights": 42,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 114,
+     "nearest_m": 1635.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CharlestownLaundry",
+     "formkey": "09FB31:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 255,
+     "lights": 11,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 115,
+     "nearest_m": 1655.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt09",
+     "formkey": "1B2ED2:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 65,
+     "lights": 5,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 116,
+     "nearest_m": 1448.8,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 30,
+   "refs": 50948,
+   "new_models_est": 397,
+   "cumulative_models_est": 8892,
+   "archives_gb_est": 4.92,
+   "work_staging_gb_est": 9.85,
+   "peak_gb_est": 19.69,
+   "free_after_gb_est": 47.3,
+   "under_floor": false
+  },
+  {
+   "batch": 6,
+   "name": "interiors_b06",
+   "cells": [
+    {
+     "editor_id": "BADTFL01",
+     "formkey": "026840:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2062,
+     "lights": 109,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 117,
+     "nearest_m": 1437.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CharlestownHouse01",
+     "formkey": "09FB32:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 324,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 118,
+     "nearest_m": 1609.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zPOIJoel06",
+     "formkey": "16FC4A:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 504,
+     "lights": 17,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 119,
+     "nearest_m": 1919.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensKenmoreStation",
+     "formkey": "1BAE01:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 546,
+     "lights": 21,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 120,
+     "nearest_m": 1567.2,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GreenetechGenetics02",
+     "formkey": "164A88:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3234,
+     "lights": 91,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GreenetechGenetics01"
+     ],
+     "backlog_rank": 121,
+     "nearest_m": 1468.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BostonPublicLibrary01",
+     "formkey": "0EBE92:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1020,
+     "lights": 42,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "BostonPublicLibrary02"
+     ],
+     "backlog_rank": 122,
+     "nearest_m": 1739.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CollegeSquare01",
+     "formkey": "02288B:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2713,
+     "lights": 163,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 123,
+     "nearest_m": 1114.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "WestEverettEstates01",
+     "formkey": "04A3A6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 296,
+     "lights": 32,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 124,
+     "nearest_m": 1318.3,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zWaystation",
+     "formkey": "14A0EE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 68,
+     "lights": 5,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 125,
+     "nearest_m": 1484.6,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "EsplanadeMansion01",
+     "formkey": "19690E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 235,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 126,
+     "nearest_m": 1699.6,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "UFOCrashSite01",
+     "formkey": "186FC2:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 281,
+     "lights": 18,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 127,
+     "nearest_m": 1272.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial06",
+     "formkey": "070118:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 594,
+     "lights": 20,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 128,
+     "nearest_m": 1783.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BostonCommon02",
+     "formkey": "09C775:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 626,
+     "lights": 34,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 129,
+     "nearest_m": 1851.5,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NorthEndBoxingGym",
+     "formkey": "0A59EA:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 393,
+     "lights": 21,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 130,
+     "nearest_m": 1771.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NHMFreightDepot01",
+     "formkey": "06F5DE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1624,
+     "lights": 81,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "TheBigDig01"
+     ],
+     "backlog_rank": 131,
+     "nearest_m": 1937.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 21,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GoodneighborBobbisPlace",
+     "formkey": "022685:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 615,
+     "lights": 67,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [
+      "TheBigDig01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "M",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TheBigDig01",
+     "formkey": "04E428:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "GoodneighborBobbisPlace",
+      "NHMFreightDepot01"
+     ],
+     "refs": 7720,
+     "lights": 476,
+     "navmeshes": 4,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "GoodneighborBobbisPlace",
+      "NHMFreightDepot01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "XL",
+     "new_models": 17,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Wattz01",
+     "formkey": "06E873:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1373,
+     "lights": 88,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 132,
+     "nearest_m": 1209.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ListeningPostBravo01",
+     "formkey": "0DCC23:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 686,
+     "lights": 58,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 133,
+     "nearest_m": 1554.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RevereBeachStation01",
+     "formkey": "062338:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2831,
+     "lights": 164,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 134,
+     "nearest_m": 1926.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt03",
+     "formkey": "1B3F74:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 55,
+     "lights": 3,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 135,
+     "nearest_m": 1056.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BostonMayoralShelter01",
+     "formkey": "048DE3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4011,
+     "lights": 213,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 136,
+     "nearest_m": 1444.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 35,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MedTekResearch01",
+     "formkey": "03DF34:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 4397,
+     "lights": 287,
+     "navmeshes": 3,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "MedTekResearch02"
+     ],
+     "backlog_rank": 137,
+     "nearest_m": 1371.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 12,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MedTekResearch02",
+     "formkey": "07AA38:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "MedTekResearch01"
+     ],
+     "refs": 3548,
+     "lights": 191,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "MedTekResearch01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "DBTechHighSchool02",
+     "formkey": "0E214D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2418,
+     "lights": 166,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "DBTechHighSchool01"
+     ],
+     "backlog_rank": 138,
+     "nearest_m": 1965.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MedfordMemorial01",
+     "formkey": "04AE42:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5564,
+     "lights": 407,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 139,
+     "nearest_m": 1190.9,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt14",
+     "formkey": "1B2918:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 155,
+     "lights": 9,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 140,
+     "nearest_m": 1272.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MaldenCenter01",
+     "formkey": "038C8C:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3142,
+     "lights": 338,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 141,
+     "nearest_m": 1247.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 35,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "WarrenTheater01",
+     "formkey": "0941DE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 482,
+     "lights": 25,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 142,
+     "nearest_m": 1903.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 15,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PoseidonReservoir01",
+     "formkey": "053834:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1501,
+     "lights": 69,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 143,
+     "nearest_m": 1664.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 30,
+   "refs": 53018,
+   "new_models_est": 260,
+   "cumulative_models_est": 9152,
+   "archives_gb_est": 5.07,
+   "work_staging_gb_est": 10.13,
+   "peak_gb_est": 20.27,
+   "free_after_gb_est": 46.7,
+   "under_floor": false
+  },
+  {
+   "batch": 7,
+   "name": "interiors_b07",
+   "cells": [
+    {
+     "editor_id": "GreenetechGenetics01",
+     "formkey": "09656C:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7305,
+     "lights": 305,
+     "navmeshes": 2,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GreenetechGenetics02"
+     ],
+     "backlog_rank": 144,
+     "nearest_m": 1475.7,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 20,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BunkerHill01",
+     "formkey": "0ECE80:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1218,
+     "lights": 86,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 145,
+     "nearest_m": 1554.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SlocumsJoeHQOffice",
+     "formkey": "1C9331:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 168,
+     "lights": 13,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 146,
+     "nearest_m": 1281.2,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt04",
+     "formkey": "15B548:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 145,
+     "lights": 3,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 147,
+     "nearest_m": 1156.8,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 5,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BeaconHillPub",
+     "formkey": "140089:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1096,
+     "lights": 68,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 148,
+     "nearest_m": 1777.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 25,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BackBayTallOffice01",
+     "formkey": "13A972:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 179,
+     "lights": 5,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 149,
+     "nearest_m": 1849.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 2,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CustomHouseTower01",
+     "formkey": "0A0EF1:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 174,
+     "lights": 21,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 150,
+     "nearest_m": 1949.4,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MassStateHouse01",
+     "formkey": "0C9D24:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7982,
+     "lights": 249,
+     "navmeshes": 7,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 151,
+     "nearest_m": 1769.0,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 45,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Financial24",
+     "formkey": "070116:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 605,
+     "lights": 20,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 152,
+     "nearest_m": 1924.4,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 15,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "TheaterMassBayMedicalCenter02",
+     "formkey": "1C53EF:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1646,
+     "lights": 30,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "TheaterMassBayMedicalCenter01"
+     ],
+     "backlog_rank": 153,
+     "nearest_m": 1985.9,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RailroadHQEscapeTunnel",
+     "formkey": "137C87:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 803,
+     "lights": 84,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "RailroadHQ01"
+     ],
+     "backlog_rank": 154,
+     "nearest_m": 1726.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CabotHouse01",
+     "formkey": "03A317:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1977,
+     "lights": 199,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 155,
+     "nearest_m": 1680.4,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 43,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteTunnel01",
+     "formkey": "15054F:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 6910,
+     "lights": 346,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "InstituteConcourse"
+     ],
+     "backlog_rank": 156,
+     "nearest_m": 1570.8,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 38,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CombatZone01",
+     "formkey": "01FBA6:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2495,
+     "lights": 196,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 157,
+     "nearest_m": 1880.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 62,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "InstituteReactor",
+     "formkey": "0B36AE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2304,
+     "lights": 97,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "InstituteAdvSystems"
+     ],
+     "backlog_rank": 158,
+     "nearest_m": 1789.9,
+     "enterable": false,
+     "effort": "L",
+     "new_models": 18,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "zVitalePumphouse01",
+     "formkey": "21A2AE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 338,
+     "lights": 16,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 159,
+     "nearest_m": 1930.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FensStreetSewer01",
+     "formkey": "03B381:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3397,
+     "lights": 256,
+     "navmeshes": 5,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 160,
+     "nearest_m": 1688.7,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 14,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "MaldenDrainage01",
+     "formkey": "056BEE:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 614,
+     "lights": 77,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 161,
+     "nearest_m": 1162.2,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CambridgeParkingGarage01",
+     "formkey": "1BD31D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 744,
+     "lights": 21,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 162,
+     "nearest_m": 1488.8,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 24,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "DunwichBorers01",
+     "formkey": "049B72:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5475,
+     "lights": 359,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 163,
+     "nearest_m": 1972.0,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 117,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FourLeafFishpacking02",
+     "formkey": "10F1F0:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 444,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "FourLeafFishpacking01"
+     ],
+     "backlog_rank": 164,
+     "nearest_m": 2171.7,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BobbisNewPlace01",
+     "formkey": "09AE25:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 204,
+     "lights": 9,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 165,
+     "nearest_m": 2287.9,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 0,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FortStrong01",
+     "formkey": "039C9E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2898,
+     "lights": 284,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "FortStrong02"
+     ],
+     "backlog_rank": 166,
+     "nearest_m": 2512.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FortStrong02",
+     "formkey": "1BD54A:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "FortStrong01"
+     ],
+     "refs": 2289,
+     "lights": 54,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "FortStrong01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "L",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BarneysBunker01",
+     "formkey": "03FA33:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 604,
+     "lights": 36,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 167,
+     "nearest_m": 2346.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SouthBostonPoliceDepartment01",
+     "formkey": "09AE28:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 555,
+     "lights": 42,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 168,
+     "nearest_m": 2229.6,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GlowingSeaPOIDB05Int",
+     "formkey": "1F4190:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 193,
+     "lights": 18,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 169,
+     "nearest_m": 2394.2,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SandyCovesHome01",
+     "formkey": "0252BF:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2758,
+     "lights": 466,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 170,
+     "nearest_m": 2269.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 12,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "JamaicaPlain01",
+     "formkey": "02E579:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1856,
+     "lights": 91,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 171,
+     "nearest_m": 2331.3,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    }
+   ],
+   "cell_count": 29,
+   "refs": 57376,
+   "new_models_est": 524,
+   "cumulative_models_est": 9676,
+   "archives_gb_est": 5.36,
+   "work_staging_gb_est": 10.71,
+   "peak_gb_est": 21.43,
+   "free_after_gb_est": 45.6,
+   "under_floor": false
+  },
+  {
+   "batch": 8,
+   "name": "interiors_b08",
+   "cells": [
+    {
+     "editor_id": "WestRoxburyStation01",
+     "formkey": "05A117:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3983,
+     "lights": 234,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 172,
+     "nearest_m": 2229.8,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 13,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "ShawHighSchool01",
+     "formkey": "03C0F1:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 3545,
+     "lights": 136,
+     "navmeshes": 2,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "RelayTowerInt17"
+     ],
+     "backlog_rank": 173,
+     "nearest_m": 2234.5,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 9,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt17",
+     "formkey": "1B9A59:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "behind_interior",
+     "entered_from": [
+      "ShawHighSchool01"
+     ],
+     "refs": 137,
+     "lights": 12,
+     "navmeshes": 0,
+     "load_doors_out": 1,
+     "doors_to_world": [],
+     "doors_to_interiors": [
+      "ShawHighSchool01"
+     ],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "PoseidonEnergy02",
+     "formkey": "050C34:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2587,
+     "lights": 213,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "PoseidonEnergy01"
+     ],
+     "backlog_rank": 174,
+     "nearest_m": 2936.2,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "DanversHideout",
+     "formkey": "05A925:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 362,
+     "lights": 25,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 175,
+     "nearest_m": 2057.9,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GNN02",
+     "formkey": "02F73C:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2636,
+     "lights": 160,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "GNN01"
+     ],
+     "backlog_rank": 176,
+     "nearest_m": 2412.0,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 4,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SouthBoston19",
+     "formkey": "0A0EEF:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 491,
+     "lights": 23,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 177,
+     "nearest_m": 2336.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "FourLeafFishpacking01",
+     "formkey": "03D649:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 2100,
+     "lights": 126,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [
+      "FourLeafFishpacking02"
+     ],
+     "backlog_rank": 178,
+     "nearest_m": 2171.6,
+     "enterable": true,
+     "effort": "L",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "QuincyPD01",
+     "formkey": "149CD2:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 143,
+     "lights": 8,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 179,
+     "nearest_m": 2799.9,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 1,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "NahantOceanSociety02",
+     "formkey": "07FF42:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 1126,
+     "lights": 65,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 180,
+     "nearest_m": 2595.5,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 3,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "CroupManor01",
+     "formkey": "03C0F0:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 403,
+     "lights": 33,
+     "navmeshes": 3,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 181,
+     "nearest_m": 2372.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 21,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SouthBoston35",
+     "formkey": "09C376:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 821,
+     "lights": 37,
+     "navmeshes": 4,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 182,
+     "nearest_m": 2166.0,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 23,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Yangtze01",
+     "formkey": "02B12D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5036,
+     "lights": 364,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 183,
+     "nearest_m": 2159.4,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 69,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "GeneralAtomicsFactory01",
+     "formkey": "04280D:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 6150,
+     "lights": 283,
+     "navmeshes": 4,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 184,
+     "nearest_m": 2254.1,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 26,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "Waterfront02",
+     "formkey": "0A0EF0:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 679,
+     "lights": 69,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 185,
+     "nearest_m": 2022.2,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 7,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "RelayTowerInt05",
+     "formkey": "1B2ED3:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 69,
+     "lights": 4,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 186,
+     "nearest_m": 2924.0,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "SouthBoston25",
+     "formkey": "09AE26:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 508,
+     "lights": 50,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 187,
+     "nearest_m": 2371.1,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 6,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "BigJohnsSalvage01",
+     "formkey": "15B547:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 229,
+     "lights": 10,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 188,
+     "nearest_m": 2092.7,
+     "enterable": true,
+     "effort": "S",
+     "new_models": 20,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "LongneckLukowskis01",
+     "formkey": "03B6ED:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 5142,
+     "lights": 571,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 189,
+     "nearest_m": 2143.1,
+     "enterable": true,
+     "effort": "XL",
+     "new_models": 40,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "VirgilsLab01",
+     "formkey": "156C0E:Fallout4.esm",
+     "phase": "ranked",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 688,
+     "lights": 51,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": 190,
+     "nearest_m": 3182.5,
+     "enterable": true,
+     "effort": "M",
+     "new_models": 8,
+     "new_models_kind": "measured"
+    },
+    {
+     "editor_id": "DmndAbbotsHouse",
+     "formkey": "001E68:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 132,
+     "lights": 7,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 5,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndAllFaithsChapel01",
+     "formkey": "001E5B:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 230,
+     "lights": 17,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 8,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndArturosHouse01",
+     "formkey": "001E55:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 313,
+     "lights": 30,
+     "navmeshes": 3,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 10,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndArturosHouse02",
+     "formkey": "0C563B:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 75,
+     "lights": 11,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 3,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndChoiceChops01",
+     "formkey": "001E5C:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 280,
+     "lights": 18,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 9,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndChoiceChops02",
+     "formkey": "0C563C:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 78,
+     "lights": 2,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 3,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndCitySurplus01New",
+     "formkey": "001E56:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 339,
+     "lights": 35,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 10,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndDugoutInn01",
+     "formkey": "001E5D:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 893,
+     "lights": 156,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 26,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndEarlsHouse01",
+     "formkey": "001E44:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 317,
+     "lights": 14,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 9,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndFallons01",
+     "formkey": "001E53:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 461,
+     "lights": 72,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 10,
+     "new_models_kind": "estimated"
+    }
+   ],
+   "cell_count": 30,
+   "refs": 39953,
+   "new_models_est": 376,
+   "cumulative_models_est": 10052,
+   "archives_gb_est": 5.57,
+   "work_staging_gb_est": 11.13,
+   "peak_gb_est": 22.26,
+   "free_after_gb_est": 44.7,
+   "under_floor": false
+  },
+  {
+   "batch": 9,
+   "name": "interiors_b09",
+   "cells": [
+    {
+     "editor_id": "DmndGreenhouse01",
+     "formkey": "001E63:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 252,
+     "lights": 13,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 7,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndJohnsHouse01",
+     "formkey": "001E52:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 141,
+     "lights": 12,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 7,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndMoeCroninsHouse01",
+     "formkey": "001E54:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 271,
+     "lights": 20,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 6,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndOutfieldShengsHouse01",
+     "formkey": "001E4A:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 181,
+     "lights": 6,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 6,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndPembrokesHouse01",
+     "formkey": "001E69:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 148,
+     "lights": 9,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 6,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndPlayerHouse01",
+     "formkey": "001E58:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 443,
+     "lights": 2,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 11,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndPublick01",
+     "formkey": "001E65:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 417,
+     "lights": 37,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 12,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndRadio01",
+     "formkey": "001E45:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 131,
+     "lights": 14,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 7,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndSchoolhouse01",
+     "formkey": "001E64:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 322,
+     "lights": 26,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 9,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndScienceCenter01",
+     "formkey": "001E57:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 287,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 10,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndSecurity01",
+     "formkey": "001E66:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 710,
+     "lights": 82,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 24,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndSolomonsHouse01",
+     "formkey": "001E59:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 201,
+     "lights": 5,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 6,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsCodman01",
+     "formkey": "001E4F:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 364,
+     "lights": 32,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 12,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsCooke01",
+     "formkey": "001E4D:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 348,
+     "lights": 32,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 8,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsHawthorne01",
+     "formkey": "001E4C:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 441,
+     "lights": 59,
+     "navmeshes": 4,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 10,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsKellogg01",
+     "formkey": "001E50:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 296,
+     "lights": 15,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 11,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsLatimer01",
+     "formkey": "001E4E:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 385,
+     "lights": 81,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 7,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndStandsTaphouse01",
+     "formkey": "001E51:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 306,
+     "lights": 45,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 9,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndSurgeryBasement01",
+     "formkey": "0198F1:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 134,
+     "lights": 11,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 6,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndSurgeryCellar01",
+     "formkey": "001E5A:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 97,
+     "lights": 7,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 5,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndWarehouseA01",
+     "formkey": "001E5E:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 117,
+     "lights": 7,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 4,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndWaterfrontCrockersHouse01",
+     "formkey": "001E60:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 293,
+     "lights": 28,
+     "navmeshes": 1,
+     "load_doors_out": 2,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 9,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DmndWaterfrontSunsHouse01",
+     "formkey": "001E5F:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "DiamondCity"
+     ],
+     "refs": 255,
+     "lights": 23,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:DiamondCity"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 7,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "GoodneighborOldStateHouse",
+     "formkey": "0225EF:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 1295,
+     "lights": 226,
+     "navmeshes": 1,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 27,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "GoodneighborTheThirdRail",
+     "formkey": "02263E:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 1240,
+     "lights": 171,
+     "navmeshes": 2,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 31,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "GoodneighborWarehouse01",
+     "formkey": "022881:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 1087,
+     "lights": 119,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 27,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "GoodneighborWarehouse02",
+     "formkey": "022880:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 493,
+     "lights": 68,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 15,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "GoodneighborWarehouse03",
+     "formkey": "022967:Fallout4.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Goodneighbor"
+     ],
+     "refs": 874,
+     "lights": 104,
+     "navmeshes": 1,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Goodneighbor"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 21,
+     "new_models_kind": "estimated"
+    }
+   ],
+   "cell_count": 28,
+   "refs": 11529,
+   "new_models_est": 320,
+   "cumulative_models_est": 10372,
+   "archives_gb_est": 5.74,
+   "work_staging_gb_est": 11.49,
+   "peak_gb_est": 22.97,
+   "free_after_gb_est": 44.0,
+   "under_floor": false
+  },
+  {
+   "batch": 10,
+   "name": "interiors_b10",
+   "cells": [
+    {
+     "editor_id": "DLC01FortHagenSatelliteArray01",
+     "formkey": "0044DF:DLCRobot.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7822,
+     "lights": 508,
+     "navmeshes": 5,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 87,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DLC01Lair01",
+     "formkey": "0008A3:DLCRobot.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 28469,
+     "lights": 1082,
+     "navmeshes": 13,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 212,
+     "new_models_kind": "estimated"
+    }
+   ],
+   "cell_count": 2,
+   "refs": 36291,
+   "new_models_est": 299,
+   "cumulative_models_est": 10671,
+   "archives_gb_est": 5.91,
+   "work_staging_gb_est": 11.82,
+   "peak_gb_est": 23.63
+  }
+ ],
+ "skipped": [
+  {
+   "editor_id": "ccTOSFO4001",
+   "formkey": "24A197:Fallout4.esm",
+   "reason": "Creation Club hook or test cell (its doors' bases have no model in this Fallout4.esm; interior-backlog.md)"
+  },
+  {
+   "editor_id": "ccTOSFO4002Interior01",
+   "formkey": "24A1A2:Fallout4.esm",
+   "reason": "Creation Club hook or test cell (its doors' bases have no model in this Fallout4.esm; interior-backlog.md)"
+  },
+  {
+   "editor_id": "ccZSEFO4002Interior01",
+   "formkey": "24A1A1:Fallout4.esm",
+   "reason": "Creation Club hook or test cell (its doors' bases have no model in this Fallout4.esm; interior-backlog.md)"
+  },
+  {
+   "editor_id": "CTEST",
+   "formkey": "0242A2:Fallout4.esm",
+   "reason": "Creation Club hook or test cell (its doors' bases have no model in this Fallout4.esm; interior-backlog.md)"
+  }
+ ]
+}

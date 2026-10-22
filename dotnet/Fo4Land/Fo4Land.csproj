@@ -18,6 +18,7 @@
     <Compile Include="..\Fo4Export\ScriptExport.cs" Link="Fo4Export\ScriptExport.cs" />
     <Compile Include="..\Fo4Export\KeywordExport.cs" Link="Fo4Export\KeywordExport.cs" />
     <Compile Include="..\Fo4Export\TeleportDependencies.cs" Link="Fo4Export\TeleportDependencies.cs" />
+    <Compile Include="..\Fo4Export\CellMerge.cs" Link="Fo4Export\CellMerge.cs" />
   </ItemGroup>
 
 </Project>
