@@ -125,6 +125,10 @@ class StageTests(unittest.TestCase):
         self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=0)])
         self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
         self.assertNotIn("console_pre", both_plan[0])
+        with open(os.path.join(d, "out", "README.txt")) as f:   # Codex on #444: each OUT leg from a new launch
+            self.assertIn("--fresh  (required", f.read())
+        with open(os.path.join(d, "both", "README.txt")) as f:
+            self.assertNotIn("--fresh", f.read())
         for line in plan[0]["console_pre"] + plan[0]["console_post"]:   # the runner types only whitelisted lines
             self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
 

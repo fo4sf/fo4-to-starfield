@@ -329,7 +329,9 @@ def stage_readme(info):
                 if info.get("border_off") else ""),
              f"Checked against the installed plugins {info['core_plugin']} (index {info['core_index']}) and",
              f"{info['port_plugin']} (index {info['port_index']}); the core build {info['core']} gave the pairs.",
-             "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>",
+             "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>"
+             + (" --fresh  (required: each OUT leg must start from a new launch, not where the last one left the player)"
+                if info.get("legs", "both") == "out" else ""),
              "  --bridge <the installed bridge staging>  (no --plugins: the installed set is not touched).",
              "Judge: door_rounds.py judge --queue <queue>.", ""]
     for t in info["tests"]:
