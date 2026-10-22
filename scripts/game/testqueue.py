@@ -525,14 +525,18 @@ def plan_terrain(a):
     # plus the optional time-of-day / weather fields (sky_light.LIGHT_KEYS)
     own = load(os.path.join(a.exp_dir, "plan.json"))
     rounds = os.path.join(a.exp_dir, "rounds.json")
-    if os.path.exists(rounds):
-        # a door rounds stage: its judge reads rounds.json against these tests, so the plan.json must be the one staged
-        # with it (door_rounds.save_stage: rounds.json plan_sha256; Codex on #401)
-        want = (load(rounds, {}) or {}).get("plan_sha256")
+    presence = os.path.join(a.exp_dir, "presence.json")
+    for judged in (rounds, presence):
+        if not os.path.exists(judged):
+            continue
+        # a door rounds or presence stage: its judge reads the file against these tests by index, so the plan.json
+        # must be the one staged with it (door_rounds.save_stage: plan_sha256; Codex on #401, and on #391 for presence)
+        name = os.path.basename(judged)
+        want = (load(judged, {}) or {}).get("plan_sha256")
         if not want or not os.path.exists(os.path.join(a.exp_dir, "plan.json")) \
                 or sha256(os.path.join(a.exp_dir, "plan.json")) != want:
-            sys.exit(f"{a.exp_dir}: plan.json is not the one its rounds.json was staged with "
-                     f"({'no plan_sha256 in rounds.json' if not want else 'plan_sha256 differs'}): stage it again")
+            sys.exit(f"{a.exp_dir}: plan.json is not the one its {name} was staged with "
+                     f"({'no plan_sha256 in ' + name if not want else 'plan_sha256 differs'}): stage it again")
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
@@ -577,6 +581,8 @@ def plan_terrain(a):
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
     if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
         q["rounds_sha256"] = sha256(rounds)
+    if os.path.exists(presence):                          # what presence.py judge must read (campaign_arm, Codex on #391)
+        q["presence_sha256"] = sha256(presence)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
     q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)

@@ -76,14 +76,14 @@ def save(p, obj):
         json.dump(obj, f, indent=1)
 
 
-def save_stage(out, plan, info):
-    """A stage's plan.json, then its rounds.json carrying plan_sha256, the sha256 of that plan.json: one rounds digest
-    (queue.json rounds_sha256, the judge's rounds_sha256) then covers both files, and plan-terrain refuses a plan.json
-    edited after staging (Codex on #401)."""
+def save_stage(out, plan, info, name="rounds.json"):
+    """A stage's plan.json, then its rounds.json (presence.py: presence.json) carrying plan_sha256, the sha256 of that
+    plan.json: one digest (queue.json rounds_sha256 or presence_sha256, the judge's rounds_sha256) then covers both
+    files, and plan-terrain refuses a plan.json edited after staging (Codex on #401 and #391)."""
     save(os.path.join(out, "plan.json"), plan)
     with open(os.path.join(out, "plan.json"), "rb") as f:
         digest = hashlib.sha256(f.read()).hexdigest()
-    save(os.path.join(out, "rounds.json"), dict(info, plan_sha256=digest))
+    save(os.path.join(out, name), dict(info, plan_sha256=digest))
 
 
 # ------------------------------------------------------------------------------------------------------------ plugins
