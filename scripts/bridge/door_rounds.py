@@ -19,7 +19,7 @@ usage:
       --legs out plans only the OUT legs, so each one starts with a coc from wherever the launch put the player (the
       owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary Reached;
       with both legs the IN leg hops to the door first and the OUT jump is short). --border-off adds console_pre
-      GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI to every test, to learn whether the border can be
+      GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI to every test (and a GetINI after the arrival), to learn whether the border can be
       switched off in a running game (unresolved, docs/ai/test-queue.md).
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
@@ -221,8 +221,10 @@ BORDER_OFF = [f"GetINI {BORDER}", f"SetINI {BORDER} 0", f"GetINI {BORDER}"]
 
 
 def border_off(entry):
-    """The plan entry with the border switch typed first (--border-off); door_out_legs.py rebuilds entries the same way."""
-    return dict(entry, console_pre=list(BORDER_OFF) + entry.get("console_pre", []))
+    """The plan entry with the border switch typed first (--border-off) and read again after the arrival (a coc that
+    restores it would otherwise look like a switch with no effect); door_out_legs.py rebuilds entries the same way."""
+    return dict(entry, console_pre=list(BORDER_OFF) + entry.get("console_pre", []),
+                console_post=entry.get("console_post", []) + [f"GetINI {BORDER}"])
 
 
 def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):

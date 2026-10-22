@@ -119,11 +119,13 @@ class StageTests(unittest.TestCase):
         self.assertEqual(plan[0]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
                                                   'SetINI "bBorderRegionsEnabled:General" 0',
                                                   'GetINI "bBorderRegionsEnabled:General"'])
-        self.assertEqual({k: v for k, v in plan[0].items() if k != "console_pre"}, both_plan[1])
+        self.assertEqual(plan[0]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual({k: v for k, v in plan[0].items() if k not in ("console_pre", "console_post")},
+                         {k: v for k, v in both_plan[1].items() if k != "console_post"})
         self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=0)])
         self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
         self.assertNotIn("console_pre", both_plan[0])
-        for line in plan[0]["console_pre"]:                     # the runner types only whitelisted lines
+        for line in plan[0]["console_pre"] + plan[0]["console_post"]:   # the runner types only whitelisted lines
             self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
 
     def test_the_stage_records_the_cores_worldspaces(self):
