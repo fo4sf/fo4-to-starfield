@@ -725,13 +725,13 @@ def check_p4(c: Collection) -> Verdict:
         v.reasons.append(f"p4 start marker {starts[-1].fields.get('marker')} is not FOCC_P4_SpawnMarker "
                          f"(local {LOCAL['p4_marker']})")
         return v
-    cycles = _by_kind(evs, "p4 cycle")
-    done = _by_kind(evs, "p4 done")
+    done = _by_kind(evs, "p4 done")[:1]         # the run's own done closes it: later rows never count (Codex, #431)
+    cycles = [e for e in _by_kind(evs, "p4 cycle") if not done or e.line < done[0].line]
     v.cite(*cycles, *done)
     if not done:
         v.reasons.append("no `p4 done` line: the run did not finish")
         return v
-    want = int(done[-1].num("cycles") or 0)
+    want = int(done[0].num("cycles") or 0)
     if want < P4_CYCLES:
         v.reasons.append(f"only {want} cycles, the probe asks {P4_CYCLES} (cgf \"FOCC_Probe.P4Run\" {P4_CYCLES} 8.0): "
                          "not the bloat answer")
@@ -1085,8 +1085,8 @@ def check_p9(c: Collection) -> Verdict:
     # judge only the latest attempt: a retry in one launch drops the old one
     dest = [e for e in _by_kind(evs, "p9 dest") if e.line < starts[-1].line][-1:]   # P9Dest runs before P9Track
     evs = [e for e in evs if e.line >= starts[-1].line]
-    samples = _by_kind(evs, "p9 sample")
-    done = _by_kind(evs, "p9 done")
+    done = _by_kind(evs, "p9 done")[:1]         # the tracker's own done closes it: later samples never count
+    samples = [e for e in _by_kind(evs, "p9 sample") if not done or e.line < done[0].line]
     v.cite(*dest, *done)
     if not dest:
         v.reasons.append("no `p9 dest` line")

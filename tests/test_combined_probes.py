@@ -379,6 +379,13 @@ class P4Tests(unittest.TestCase):
         c.saves = saves(focc_p4_before=1, focc_p4_after=1)
         self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
 
+    def test_done_must_follow_the_cycles(self):
+        # Codex review of #431: a done line ahead of the cycles closes the run; cycles after it never count
+        log = p4_log()
+        c = col(log=log[:2] + [log[-1]] + log[2:-1])
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
     def test_another_marker_is_not_judged(self):
         # Codex review of #431: the logged marker must be FOCC_P4_SpawnMarker.
         log = [l.replace(f"marker={0x0300080B}", "marker=1") for l in p4_log()]
@@ -783,6 +790,13 @@ class P9Tests(unittest.TestCase):
         # Codex review of #431: samples without a `p9 start` are not tied to one walk.
         self.assertEqual(probes.check_p9(col(log=[l for l in p9_log() if " p9 start " not in l])).verdict,
                          INCONCLUSIVE)
+
+    def test_done_must_follow_the_samples(self):
+        # the P4/P5 form of the Codex finding on #431: samples after the tracker's done never count
+        log = p9_log()
+        done = [l for l in log if " p9 done " in l]
+        rest = [l for l in log if " p9 done " not in l]
+        self.assertEqual(probes.check_p9(col(log=rest[:3] + done + rest[3:])).verdict, INCONCLUSIVE)
 
     def test_another_destination_is_not_judged(self):
         # Codex review of #431: the logged destination must be FOCC_P9_Dest.
