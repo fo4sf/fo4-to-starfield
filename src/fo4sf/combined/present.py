@@ -124,9 +124,8 @@ def _squad_slots(ws: WorldState, dist: dict[str, int], radius: int) -> list[Slot
             continue
         where = _squad_place(ws, q)
         d = dist.get(where)
-        if d is None or d > radius:        # the nearer end is the far one: show it at the end in range
-            where = min(ends, key=lambda p: (dist[p], p))
-            d = dist[where]
+        if d is None or d > radius:        # still at its far end: not here yet, never shown ahead of its ETA (Codex, #431)
+            continue
         if q.kind == "caravan":
             out.append(Slot(f"caravan:{qid}", "caravan", where, q.faction, CARAVAN_ACTORS, "caravan", d))
         else:

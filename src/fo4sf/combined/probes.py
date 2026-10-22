@@ -797,7 +797,10 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append("no `p5 start` line")
         return v
     start = starts[-1]
-    ticks = [e for e in _by_kind(evs, "p5 tick") if e.line > start.line]
+    # the run's own done line closes it: ticks after it (appended or reordered evidence) never count (Codex, #431)
+    dones = [e for e in _by_kind(evs, "p5 done") if e.line > start.line]
+    done = dones[0] if dones else None
+    ticks = [e for e in _by_kind(evs, "p5 tick") if e.line > start.line and (done is None or e.line < done.line)]
     v.cite(start, *ticks)
     want = int(start.num("ticks") or 0)
     if want < P5_TICKS:
@@ -814,11 +817,10 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE
         return v
-    done = [e for e in _by_kind(evs, "p5 done") if e.line > start.line]
-    if not done or (done[-1].num("ticks") or 0) < want:   # a truncated copy never settles P5 (Codex review of #431)
+    if done is None or (done.num("ticks") or 0) < want:   # a truncated copy never settles P5 (Codex review of #431)
         v.reasons.append(f"no `p5 done ticks={want}` after the ticks: the run did not finish or the log was cut")
         return v
-    v.cite(done[-1])
+    v.cite(done)
     v.extra["baseline_ms"] = {"min": min(ms), "median": statistics.median(ms), "max": max(ms),
                               "per_place_median": statistics.median(ms) / 50, "ticks": len(ms),
                               "note": "record under docs/ai/optimization.md's before/after rule"}

@@ -450,6 +450,11 @@ class P5Tests(unittest.TestCase):
         # Codex review of #431: ten good ticks without `p5 done` may be a truncated copy.
         self.assertEqual(probes.check_p5(col(log=p5_log()[:-1])).verdict, INCONCLUSIVE)
 
+    def test_done_must_follow_the_ticks(self):
+        # Codex review of #431: a done line ahead of the ticks closes the run; ticks after it never count
+        log = p5_log()
+        self.assertEqual(probes.check_p5(col(log=log[:2] + [log[-1]] + log[2:-1])).verdict, INCONCLUSIVE)
+
     def test_repeated_ticks_do_not_count(self):
         log = p5_log()
         self.assertEqual(probes.check_p5(col(log=log[:3] + [log[2]] * 9)).verdict, INCONCLUSIVE)

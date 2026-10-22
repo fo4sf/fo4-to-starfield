@@ -115,14 +115,18 @@ class SquadSlotTests(unittest.TestCase):
         ws.squads[q.id] = q
         return q
 
-    def test_squad_appears_when_either_end_is_in_radius(self):
+    def test_squad_appears_only_where_it_is(self):
         ws = quiet(world(1))
         self.squad(ws)                                        # raider_camp -> farm_a, 12 hours, just left
         ids = lambda centre: [s.id for s in present.plan(ws, centre, radius_hours=0).slots  # noqa: E731
                               if s.kind == "squad"]
-        self.assertEqual(ids("farm_a"), ["squad:s1"])          # goal in radius
-        self.assertEqual(ids("raider_camp"), ["squad:s1"])     # origin in radius
+        # Codex review of #431: a squad still at its far end is not shown at its goal hours ahead of its ETA
+        self.assertEqual(ids("farm_a"), [])                    # goal in radius, squad still near raider_camp
+        self.assertEqual(ids("raider_camp"), ["squad:s1"])     # where it is
         self.assertEqual(ids("market"), [])                    # neither
+        ws.hour += 6                                           # half way: now nearer the goal
+        self.assertEqual(ids("farm_a"), ["squad:s1"])
+        self.assertEqual(ids("raider_camp"), [])
 
     def test_squad_sits_at_its_nearer_end_as_time_passes(self):
         ws = quiet(world(1))
@@ -144,17 +148,19 @@ class SquadSlotTests(unittest.TestCase):
         ws.hour += 6
         self.assertEqual(present._squad_place(ws, q), "farm_b")
 
-    def test_squad_shown_at_in_range_end_when_nearer_end_is_outside(self):
+    def test_squad_not_shown_while_its_nearer_end_is_outside(self):
         ws = quiet(world(1))
         self.squad(ws)                                        # near raider_camp, 12h from market; farm_a is 6h
+        p = present.plan(ws, "market", radius_hours=6, max_actors=10_000)
+        self.assertEqual([x for x in p.slots if x.kind == "squad"], [])
+        ws.hour += 6                                          # now nearer farm_a, which is in range
         s = [x for x in present.plan(ws, "market", radius_hours=6, max_actors=10_000).slots
              if x.kind == "squad"][0]
-        self.assertEqual(s.place, "farm_a")
-        self.assertEqual(s.distance, 6)
+        self.assertEqual((s.place, s.distance), ("farm_a", 6))
 
     def test_squad_actor_count_is_capped_and_kind_kept(self):
         ws = quiet(world(1))
-        self.squad(ws, size=50)
+        self.squad(ws, size=50, at="farm_a", goal="raider_camp")
         s = [x for x in present.plan(ws, "farm_a").slots if x.kind == "squad"][0]
         self.assertEqual(s.count, present.SQUAD_ACTORS_MAX)
         self.assertEqual(s.role, "attack")
