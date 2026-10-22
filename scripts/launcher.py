@@ -7,6 +7,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
                                      [--until step] [--keep-going] [--min-free-gb N --disk <path> ...] [--idle]
     python scripts/launcher.py status <recipe.json> [--set name=value ...] [--json <out.json>]
     python scripts/launcher.py same-ids <build A> <build B> [--plugins a.esm,b.esm] [--report <out.json>]
+    python scripts/launcher.py gui [--settings <json>] [--recipe <json>] [--starfield <game>] [--fo4-data <Data>]
     python scripts/launcher.py snapshot --starfield <game dir> --out <snapshot.json> [--plugins-txt <path>] [--watch <file> ...]
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
     python scripts/launcher.py detect --fo4-data <dir> ... --starfield <game dir> [--out-dir <drive or folder>]
@@ -305,6 +306,12 @@ def cmd_watch(a):
     return 0 if watched and all(x.get("armed") for x in watched) and not any(x.get("stopped") for x in r) else 1
 
 
+def cmd_gui(a):
+    from fo4sf.launcher import gui
+    return gui.launch(__file__, a.settings or default_settings_path(), recipe=a.recipe, overrides=a.set,
+                      fo4_data=a.fo4_data, starfield=a.starfield)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -396,6 +403,12 @@ def main(argv=None):
     s = sub.add_parser("settings")
     s.add_argument("--settings", default="", help="default: %%LOCALAPPDATA%%\\FO4SF\\launcher_settings.json")
     s.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    s = sub.add_parser("gui", help="open the optional launcher window (tkinter)")
+    s.add_argument("--settings", default="")
+    s.add_argument("--recipe", default="")
+    s.add_argument("--set", action="append", default=[], help="recipe variable name=value (for build status)")
+    s.add_argument("--fo4-data", action="append", default=[])
+    s.add_argument("--starfield", default="")
     s = sub.add_parser("play")
     s.add_argument("--starfield", required=True)
     s.add_argument("--settings", default="")
@@ -413,7 +426,7 @@ def main(argv=None):
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
-                "watch": cmd_watch}[a.cmd](a)
+                "watch": cmd_watch, "gui": cmd_gui}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2
