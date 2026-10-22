@@ -96,6 +96,9 @@ def gog_fallout4_from_registry():
 def libraries(steam):
     """Every Steam library folder: Steam's own, then those libraryfolders.vdf lists (new and old layouts)."""
     out = [os.path.normpath(steam)]
+    # Windows paths ignore case, and libraryfolders.vdf may list Steam's own folder in lower case ("c:\\program files
+    # (x86)\\steam", seen on the PC 2026-10-22): compare by normcase, or every depot is listed twice
+    seen = {os.path.normcase(out[0])}
     for rel in (os.path.join("config", "libraryfolders.vdf"), os.path.join("steamapps", "libraryfolders.vdf")):
         text = _read(os.path.join(steam, rel))
         if text is None:
@@ -105,7 +108,8 @@ def libraries(steam):
             if not k.isdigit():
                 continue
             p = _get_ci(v, "path") if isinstance(v, dict) else v      # new layout: {"path": ...}; old: the path
-            if p and os.path.normpath(p) not in out:
+            if p and os.path.normcase(os.path.normpath(p)) not in seen:
+                seen.add(os.path.normcase(os.path.normpath(p)))
                 out.append(os.path.normpath(p))
     return out
 
@@ -118,6 +122,11 @@ def find_app(steam, appid):
             continue
         state = _get_ci(parse_vdf(text), "AppState") or {}
         inst = _get_ci(state, "installdir")
+        flags = _get_ci(state, "StateFlags")
+        # StateFlags bit 4 is "fully installed"; a first download (the owner's Fallout 4, 1042, 2026-10-22) lacks it,
+        # and its half-written files must not be read as the game. An update keeps the bit, so an updating game stays.
+        if flags is not None and str(flags).isdigit() and not int(flags) & 4:
+            continue
         if inst:
             p = os.path.join(lib, "steamapps", "common", inst)
             if os.path.isdir(p):

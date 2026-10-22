@@ -87,10 +87,11 @@ lists Starfield.exe builds by sha256, each with the SFSE files measured with it:
 next to it, by hash, with names read from the folder and never assumed. Detect refuses a Starfield.exe that is not
 listed ("keep Steam set to update Starfield only when launched until support is published"); `--allow-unknown-runtime`
 reports instead. For a listed runtime, an SFSE loader or DLL other than the listed one is refused, and so is a path
-under `XboxGames` or `WindowsApps` (Steam only for version 1). The table ships empty: an entry is added only by
+under `XboxGames` or `WindowsApps` (Steam only for version 1). An entry is added by
 `launcher.py runtimes-add --manifest <manifest of a real install> [--label <text>]`, which refuses a manifest without a
-hashed Starfield.exe or without SFSE. Until the owner's PC is measured, detect refuses every Starfield, which is the
-intended answer. The build manifest now records the `sfse_*.dll` hashes too, and Starfield.exe's own file and
+hashed Starfield.exe or without SFSE. Since 2026-10-22 the table lists one runtime: Steam Starfield.exe 1.16.244.0
+with SFSE 0.2.21, measured on the owner's PC (below); every other Starfield.exe is refused. Play's default route
+(`sfse`) checks the same table before it changes anything or starts the game. The build manifest now records the `sfse_*.dll` hashes too, and Starfield.exe's own file and
 product version from its version resource (`game.exe_version`); without `--label`, runtimes-add names the entry
 "Steam, Starfield.exe <file version>". An `sfse_*.dll` the listed build lacks is refused as well.
 
@@ -133,10 +134,11 @@ work folders). This is the measuring half of the unresolved full-build disk budg
 Owner, 2026-10-21: the crash watcher should start and close with the game, and the launcher is where its toggle and
 other memory-costly settings live. `launcher.py settings` shows each setting with its cost and `--set key=value`
 changes it (one JSON per player, default `%LOCALAPPDATA%\FO4SF\launcher_settings.json`; only changed values are
-written, and an unknown key is refused). Every default changes nothing: watcher off, bridge and Papyrus logging
-`unchanged`. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
+written, and an unknown key is refused). The defaults leave the watcher off and bridge and Papyrus logging
+`unchanged`; two defaults act: `load_order=fix` (below) can rewrite Plugins.txt before a start, and `route=sfse`
+starts through SFSE. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
 `papyrus_logging` (the three `[Papyrus]` keys in StarfieldCustom.ini, with a `.bak-<time>` copy) with the game closed,
-starts the game (`route`: Steam, as the runner does, or Starfield.exe, as the owner does), waits until a
+starts the game (`route`: Steam, as the runner does, Starfield.exe, as the owner does, or sfse_loader.exe, which loads SFSE), waits until a
 Starfield.exe has stayed up `crash_watch.settle_s` (a first process that ends within that time is skipped), then
 attaches ProcDump to that process id with the old watcher's triggers (`-e 1 -f 80000003`), `-mm` by default
 (`crash_watch.dump=full` for `-ma`), `-t` by default (`crash_watch.dump_on_exit`, the owner's choice on 2026-10-21, so a kill or a silent exit leaves a
@@ -147,6 +149,15 @@ ProcDump ends on its own with the game and is never killed. The flow is tested w
 (`tests/test_launcher_crashwatch.py`). On the owner's PC (2026-10-21, automated walk test) `watch` found the game by
 process id, armed ProcDump with `-e 1 -f 80000003 -t` together, caught a 0xC0000005 ACCESS_VIOLATION and wrote two
 145 MB mini dumps. Not yet run on Windows: `play`'s own game start (Steam or exe) and its bridge and Papyrus changes.
+
+Before the start, `play` also puts our plugins in one target order (`load_order`, default `fix`; `check` refuses a
+different order, `off` leaves Plugins.txt alone) through `scripts/game/load_order.py`. Lines that are not ours stay
+first in their own order. Ours follow in five groups: the cores (FO4Terrain*, FO4Actor*), the other FO4SF* plugins
+(the experiments), FO4Port, FO4SFMapMarkers, then FO4SFBridge last. A plugin always follows its masters, and an
+unticked line stays unticked. That is the order the game itself wrote on the owner's PC on 2026-10-22, so a rewrite
+by the game should change nothing; the start and exit comparison in crashwatch.log shows whether it does. Since
+2026-10-22 the default `route` is `sfse` (SFSE is required, NG-1), and Starfield.exe 1.16.244.0 with SFSE 0.2.21 is
+the listed runtime.
 
 `launcher.py watch` is the same watcher for a game it did not start, such as the test runner's own Steam launch: it
 waits for Starfield.exe (or `--pid N`), attaches after `settle_s` with the same ProcDump line, and logs the end;
@@ -215,8 +226,12 @@ wired to any install yet; the format is for the talk (it targets a core master t
 ### Starfield runtime on the owner's PC (2026-10-21 01:1xZ, read only, manifests at 434e8ef and ccc31a1)
 Steam, Starfield.exe file and product version 1.16.244.0, 102,476,200 bytes, sha256
 `7e9adb1414a8e1b325e5e1f097b9b17b78deb7eebeda37a333351a43a60f9d28`. No SFSE (no loader, no `sfse_*.dll`); Creation
-Kit present. Not in `known_runtimes.json`: an entry needs the SFSE build measured with it, so it waits for the owner
-to install SFSE and a `runtimes-add` run on that manifest.
+Kit present. On 2026-10-22 SFSE 0.2.21 was installed from Nexus mod 106 (archive sha256
+`6f196112b0f283c154e8899df4cadf71e40507ddce9e3954b50f6abb766c91ec`; both binaries signed CN=Ian Patterson):
+`sfse_loader.exe` 68,600 bytes, sha256 `16916c2ec47e31774e3d550609a1844fcb368b03060c03511891564b7f5f7526`, and
+`sfse_1_16_244.dll` 116,216 bytes, sha256 `28c5bda41d9959c885efcb6e889de69e92767c80a1a66842d711d215f722f82b`. That
+pair, with this Starfield.exe, is the runtime listed in `known_runtimes.json` (built through `runtimes.add_runtime`
+from these measurements; a detect run on the PC confirms the match).
 
 ## Alternatives for the owner's talk
 
