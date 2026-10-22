@@ -28,6 +28,7 @@ Install (the install session, game closed, on the owner's words): fold, then ver
   python scripts/game/exp_install.py install --exp-dir <folded dir> --starfield <game> --plugins <the core set's list>,FO4SFMission.esm --pack
 """
 import argparse
+import csv
 import datetime
 import hashlib
 import json
@@ -43,6 +44,15 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
 SCRIPT = "FO4SF_Min00Quest"
+# Codsworth's own model (scripts/actors/convert_codsworth.py, PR #361): the asset folders stage copies into Data and the
+# mesh the plugin's ARMA names (relative to Data\Meshes)
+ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
+CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
+# his voice (scripts/actors/codsworth_voice.py, PR #361): lines.tsv plus wem\Windows\<info>_<response>.wem. Each line
+# gets a WEMFile id and its file is named by it under his voice type's folder (verified on the PC: all 20 vanilla
+# robotminibota names are INFO WEMFile values, all below 0x01000000, so ours are too). He inherits RobotMiniBotA.
+VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/robotminibota"
+FIRST_WEM = 0x00F4C001
 STAGES = (10, 20, 30, 40, 200)
 # the script properties dotnet/Mission writes (Program.cs, Write): a renamed property would leave the script unbound
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -121,8 +131,21 @@ def stage(a):
     points = os.path.join(work, "points.json")
     run(tool + ["points", a.fo4, points])
     alias = [] if a.alias else ["--no-alias"]
-    run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias)
-    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias)
+    cods = [] if a.codsworth else ["--no-codsworth"]
+    assets = set()
+    if getattr(a, "codsworth_assets", None):
+        if not a.codsworth:
+            sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
+        assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
+        cods = ["--codsworth-model", CODSWORTH_MESH]
+    if getattr(a, "codsworth_voice", None):
+        if not a.codsworth:
+            sys.exit("--codsworth-voice needs Codsworth (drop --no-codsworth)")
+        voice_json = os.path.join(work, "voice.json")
+        assets |= set(copy_voice(a.codsworth_voice, os.path.join(out, "Data"), voice_json))
+        cods = cods + ["--codsworth-voice", voice_json]
+    run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
+    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)
@@ -137,6 +160,8 @@ def stage(a):
     plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
+            "codsworth": pts.get("codsworth") if a.codsworth else None,
+            "assets": {rel: sha256(os.path.join(out, "Data", rel)) for rel in sorted(assets)},
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
@@ -146,6 +171,7 @@ def stage(a):
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_Min00 (start game enabled), NPC_ FO4_PrestonGarvey, Preston's ACHR
 at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raiders'])} raider ACHRs of FO4_LvlRaider at
 Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
+Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
 Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc (beside this file).
 Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
@@ -157,6 +183,56 @@ Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+
+
+def copy_assets(src, data):
+    """Copies the asset folders (ASSET_DIRS) of a convert_codsworth.py output into data; anything else there (its
+    report) stays out. Refuses a source without the mesh the plugin names. Returns the copied paths, relative to data."""
+    mesh = os.path.join(src, "meshes", *CODSWORTH_MESH.split("\\"))
+    if not os.path.isfile(mesh):
+        sys.exit(f"--codsworth-assets {src} has no meshes\\{CODSWORTH_MESH}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                os.makedirs(os.path.join(data, os.path.dirname(rel)), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), os.path.join(data, rel))
+                copied.append(rel.replace(os.sep, "/"))
+    return copied
+
+
+def copy_voice(src, data, voice_json):
+    """Reads src/lines.tsv, finds each line's src/wem/**/<info>_<response>.wem, copies it to data/VOICE_DIR/<wem>.wem
+    with the line's WEMFile id (FIRST_WEM on, 8 lowercase hex digits) and writes voice.json for the writer. A line that
+    says "sir" is for a male player, "mum" for a female one. Returns the copied paths, relative to data."""
+    with open(os.path.join(src, "lines.tsv"), encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    wems = {}
+    for dirpath, _, files in os.walk(os.path.join(src, "wem")):
+        for name in files:
+            if name.lower().endswith(".wem"):
+                wems.setdefault(name.lower(), []).append(os.path.join(dirpath, name))
+    lines, copied = [], []
+    for i, r in enumerate(rows):
+        want = f"{r['info'].lower()}_{r['response']}.wem"
+        hits = wems.get(want, [])
+        if len(hits) != 1:
+            sys.exit(f"--codsworth-voice: {len(hits)} files named {want} under {os.path.join(src, 'wem')}")
+        wem = f"{FIRST_WEM + i:08x}"
+        text = r["text"]
+        sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
+        rel = f"{VOICE_DIR}/{wem}.wem"
+        os.makedirs(os.path.join(data, *VOICE_DIR.split("/")), exist_ok=True)
+        shutil.copy2(hits[0], os.path.join(data, *rel.split("/")))
+        copied.append(rel)
+        lines.append({"info": r["info"], "response": int(r["response"]), "text": text, "wem": wem, "sex": sex})
+    if not lines:
+        sys.exit(f"--codsworth-voice: {src}/lines.tsv has no lines")
+    with open(voice_json, "w", encoding="utf-8") as f:
+        json.dump(lines, f, indent=1)
+    return copied
 
 
 def pin_masters(paths):
@@ -190,6 +266,8 @@ def verify_dir(exp_dir, plan, raider=None):
 
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     same("script", os.path.join(exp_dir, "Data", "Scripts", plan["script"] + ".pex"), plan["script_sha256"])
+    for rel, want in plan.get("assets", {}).items():
+        same("asset", os.path.join(exp_dir, "Data", *rel.split("/")), want)
     for name, want in plan["masters_sha256"].items():
         path = os.path.join(exp_dir, name)
         if not os.path.isfile(path) and raider and name.lower() == os.path.basename(raider).lower():
@@ -225,16 +303,20 @@ def fold(a):
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
-    os.makedirs(os.path.join(out, "Data", "Scripts"), exist_ok=True)
-    shutil.copy2(os.path.join(a.mission, "Data", "Scripts", plan["script"] + ".pex"),
-                 os.path.join(out, "Data", "Scripts", plan["script"] + ".pex"))
+    for rel in ["Scripts/" + plan["script"] + ".pex"] + sorted(plan.get("assets", {})):
+        dst = os.path.join(out, "Data", *rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"fold refused: the core set already has Data/{rel} (attempt kept in {out})")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(a.mission, "Data", *rel.split("/")), dst)
     problems = verify_dir(out, plan, a.raider)
     if problems:
         for p in problems:
             print("FAIL  " + p)
         sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
-    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex; verify ok")
+    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex"
+          f" + {len(plan.get('assets', {}))} Codsworth asset(s); verify ok")
     return 0
 
 
@@ -293,6 +375,11 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=os.path.join(STARFIELD, "Tools", "ContentResources.zip"))
     s.add_argument("--no-alias", dest="alias", action="store_false")
+    s.add_argument("--no-codsworth", dest="codsworth", action="store_false", help="leave Codsworth out of the plugin")
+    s.add_argument("--codsworth-voice", default=None,
+                   help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
+    s.add_argument("--codsworth-assets", default=None,
+                   help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")
