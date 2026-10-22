@@ -332,6 +332,32 @@ def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
     return items, failures
 
 
+def material_key(path):
+    """The converter's per-material key: decal:/fxdecal:/texset:/glass: keys as recorded, a .bgsm path from materials\\ on, lower case."""
+    if path.startswith(("decal:", "fxdecal:", "texset:", "glass:")):
+        return path
+    m = re.search(r"materials[\\/].*", path, re.I)
+    return (m.group(0) if m else path).replace("/", "\\").lower()
+
+
+def merge_material_evidence(prior, conv):
+    """Material evidence for the stage: a retry keeps the prior run's, and a material converted now drops its old fallback."""
+    done = getattr(conv, "_materials", None) or {}
+    ok = {k for k, v in done.items() if v is not None}
+    errors = dict(conv.material_errors) if conv else {}
+    if prior is None:
+        return sorted(ok), errors, len(ok), len(errors)
+    prior_errors = prior.get("material_fallbacks") or {}
+    merged = {k: v for k, v in prior_errors.items() if material_key(k) not in ok}
+    merged.update(errors)
+    if isinstance(prior.get("materials_converted"), list):
+        ok |= set(prior["materials_converted"]) - {material_key(k) for k in errors}
+        ok_count = len(ok)
+    else:   # a stage written before materials_converted: its count, plus the fallbacks this retry recovered
+        ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(ok & {material_key(k) for k in prior_errors})
+    return sorted(ok), merged, ok_count, len(merged)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fo4-data", required=True)
@@ -644,10 +670,15 @@ def main():
             write_json_atomic(state_path, {"complete": False, "status": "dependency_conflict", "errors": inconsistent})
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
+    materials_converted, material_fallbacks, ok_count, fallback_count = merge_material_evidence(
+        prior_manifest if pending_retry is not None else None, conv)
+    if pending_retry is not None:   # the retry's converter only saw the retried models' materials
+        stats.update(materials_ok=ok_count, materials_fallback=fallback_count)
     stats.update(assets=len(items), failed=len(failures), reused=reused)
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
-    manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
+    manifest = {"items": items, "failures": failures, "material_fallbacks": material_fallbacks,
+                "materials_converted": materials_converted, "stats": stats,
                 "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)

@@ -22,9 +22,13 @@ def convert_ok(name, pose=None, out_suffix=""):
     return {"ok": True, "out_name": Path(name).stem + (out_suffix or ""), "shapes": 1, "fallback_materials": 0}
 
 
-def run_main(staging, collision, names, convert, extra=(), plan=None):
+def run_main(staging, collision, names, convert, extra=(), plan=None, materials=None, material_errors=None):
     src = SimpleNamespace(mesh_names=lambda pattern: list(names), mesh=lambda name: None)
-    converter = SimpleNamespace(stats={}, material_errors={}, convert_nif=Mock(side_effect=convert))
+    materials = materials or {}
+    converter = SimpleNamespace(stats={"materials_ok": sum(v is not None for v in materials.values()),
+                                       "materials_fallback": sum(v is None for v in materials.values())},
+                                _materials=materials, material_errors=dict(material_errors or {}),
+                                convert_nif=Mock(side_effect=convert))
     argv = ["convert_batch.py", "--fo4-data", "unused", "--staging", str(staging),
             "--content-resources", "unused", "--texconv", "unused",
             "--collision-template", str(collision), *extra]
@@ -76,6 +80,55 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertEqual(summary["failed_nifs"], [])
         state = json.loads((self.staging / "build-state.json").read_text())
         self.assertTrue(state["complete"])
+
+    def _initial_with_materials(self):
+        def convert(name):
+            return convert_ok(name) if name == A else {"ok": False, "reason": "boom:" + name}
+        run_main(self.staging, self.collision, [A, B, C], convert, extra=["--limit", "10"],
+                 materials={"materials\\a.bgsm": "a.mat", "materials\\b.bgsm": None},
+                 material_errors={"C:/dev/Data/Materials/B.bgsm": "ValueError: no diffuse"})
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["materials_converted"], ["materials\\a.bgsm"])
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (1, 1))
+
+    def test_retry_keeps_prior_material_evidence(self):
+        self._initial_with_materials()
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"])
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["material_fallbacks"], {"C:/dev/Data/Materials/B.bgsm": "ValueError: no diffuse"})
+        self.assertEqual(man["materials_converted"], ["materials\\a.bgsm"])
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (1, 1))
+
+    def test_retry_that_converts_a_fallback_material_drops_its_reason(self):
+        self._initial_with_materials()
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\b.bgsm": "b.mat"})
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["material_fallbacks"], {})
+        self.assertEqual(man["materials_converted"], ["materials\\a.bgsm", "materials\\b.bgsm"])
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (2, 0))
+
+    def test_retry_that_fails_a_converted_material_moves_it_to_fallbacks(self):
+        self._initial_with_materials()
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\a.bgsm": None}, material_errors={"materials\\a.bgsm": "OSError: gone"})
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(sorted(man["material_fallbacks"]), ["C:/dev/Data/Materials/B.bgsm", "materials\\a.bgsm"])
+        self.assertEqual(man["materials_converted"], [])
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (0, 2))
+
+    def test_retry_of_a_stage_without_materials_converted_keeps_its_count(self):
+        self._initial_with_materials()
+        path = self.staging / "manifest.json"
+        man = json.loads(path.read_text())
+        del man["materials_converted"]
+        man["stats"]["materials_ok"] = 5
+        path.write_text(json.dumps(man))
+        run_main(self.staging, self.collision, [A, B, C], convert_ok, extra=["--retry-failures", "--limit", "10"],
+                 materials={"materials\\b.bgsm": "b.mat"})
+        man = json.loads(path.read_text())
+        self.assertEqual(man["material_fallbacks"], {})
+        self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (6, 0))
 
     def test_limited_retry_keeps_unattempted_failures(self):
         self._initial_abc()
