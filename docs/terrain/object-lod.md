@@ -109,14 +109,22 @@ So the spike needs no clicking if these work. Its plan:
    (Mutagen `LodOwnerComponent`, a raw REFL blob), which our STATs do not carry (`new Static { EditorID, Model }`).
    Warnings: "LOD Owner [] is not a TESObject" and a missing
    `Data\LODSimplygonGenerationSettings\GenerationConfig.json`.
-3. **No generator on the PC (verified).** No Simplygon library and no `GenerationConfig.json` anywhere: the game
-   folder, `ContentResources.zip` and `Reference_Files.zip` were searched. Per-object LOD meshes are
-   Simplygon-generated at Bethesda; the Creation Kit here cannot make them.
+3. **No generator found on the PC (verified as a search).** No Simplygon library and no `GenerationConfig.json`
+   in the game folder, `ContentResources.zip` or `Reference_Files.zip`. The stats run names the config as missing
+   and the Template column as the generator's input.
 
-Conclusion: buildings on the surface map for our statics mean converting FO4's own LOD meshes (the STAT `MNAM`
-distant models under FO4 `Data\Meshes\LOD\`) into Starfield's layout, with the plain-shader NIF conversion the
-Red Rocket crash forced (#460). That is a later phase; Grok is scoping the path mapping (`fo4-lod-mesh-scoping.md`).
-The one cheap test left: `-MockWorldSpaceLOD:FO4TerrainCore.esm FO4Core_Commonwealth` (fallback
-`-MockWorldSpaceLOD:Starfield.esm FO4Core_Commonwealth FO4TerrainCore.esm`) with the same backup protocol, output to
-`D:\Modding\staging\lod_mock_cw\out`; if the game draws the weak-reference placeholders for our world, the map
-gets buildings without any LOD mesh. Installing those loose files waits for the owner's line.
+Supported hypothesis (**unresolved**): the Creation Kit here cannot generate per-object LOD meshes. No generation
+was attempted; the window's "Generate LOD" command, or `-GenerateMeshLODAssociations` on a plugin whose STATs
+carry a LOD owner template, would establish it (or refute it). Until then the plan assumes it, because the other
+route needs no generator: buildings on the surface map for our statics mean converting FO4's own LOD meshes (the
+STAT `MNAM` distant models under FO4 `Data\Meshes\LOD\`) into Starfield's layout, with the plain-shader NIF
+conversion the Red Rocket crash forced (#460). That is a later phase; Grok is scoping the path mapping
+(`fo4-lod-mesh-scoping.md`).
+
+The cheap test left on the placeholder route: `-MockWorldSpaceLOD:FO4TerrainCore.esm FO4Core_Commonwealth` with
+the same backup protocol, output to `D:\Modding\staging\lod_mock_cw\out`. The command takes worldspace names
+only (no trailing plugin argument, unlike the stats command), so the ESM named is the one that holds the world. If
+it writes placeholders for our world and the game draws them, the map gets buildings without any LOD mesh;
+installing those loose files waits for the owner's line. A failure on the full core is inconclusive by itself
+(custom-world support or the 648k references): then the tiny custom-world gate from the plan above decides,
+before the route is closed.
