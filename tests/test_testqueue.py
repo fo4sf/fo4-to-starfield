@@ -325,6 +325,36 @@ class RunnerTests(unittest.TestCase):
             f.write("x\nAssert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'.\n")
         self.assertEqual(tq.foreground_thief(d), "AMDAutoUpdate")
 
+    def test_coc_reads_the_arrival_from_the_bridge_when_the_queue_has_one(self):
+        # v6e stairs 2026-10-21: the HUD's O2 dial over the console's last lines made every OCR read of the arrival fail
+        for bridge, want in ((None, False), ({"dir": "b"}, True)):
+            with self.subTest(bridge=bridge):
+                self.setUp()
+                q = jload(os.path.join(self.d, "queue.json"))
+                if bridge:
+                    q["bridge"] = bridge
+                jdump(q, os.path.join(self.d, "queue.json"))
+                calls = []
+                r = self.runner(self.landing(0.1), max_tests=1)
+                r.cell = "Elsewhere"
+                r._ps = lambda script, args, timeout, steal=False: (calls.append((script, args)), (0, "at"))[1]
+                r.ensure_game("C")
+                cocs = [a for sc, a in calls if sc == "coc.ps1"]
+                self.assertEqual(len(cocs), 1)
+                self.assertEqual("-Bridge" in cocs[0], want)
+
+    def test_coc_ps1_takes_a_fresh_loaded_bridge_line_at_the_marker_before_the_console(self):
+        src = readf(os.path.join(ROOT, "scripts", "game", "coc.ps1"))
+        self.assertIn("[switch]$Bridge", src)
+        b = src.index("if ($Bridge) {")
+        self.assertLess(b, src.index("readpos.ps1"))                    # the bridge first, the OCR only after it
+        block = src[b:src.index("readpos.ps1")]
+        self.assertIn("'latest', '--max-age', '2'", block)               # a fresh line only
+        self.assertIn("$j.loaded -eq $true", block)
+        self.assertIn("if ($d -le 5)", block)                           # the same 5 m as the console read
+        cyc = readf(os.path.join(ROOT, "scripts", "game", "cycle.ps1"))
+        self.assertIn("if (Test-Path (Join-Path $sf 'Data\\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }", cyc)
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step
@@ -333,6 +363,64 @@ class RunnerTests(unittest.TestCase):
         r.run()
         self.assertEqual(self.results()[0]["class"], "CRASH")
         self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+
+    def test_a_game_that_vanishes_and_fails_the_input_is_a_crash_not_the_owner(self):
+        # doors_rounds 2026-10-21: Starfield exited silently mid-step, input.ps1 found no process, no dump was written
+        def step(test, out):
+            self.ctl.pid = None
+            return 2
+        r = self.runner(step, max_tests=1)
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertNotIn("owner took over", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_and_hides_the_hud_is_a_crash_not_a_menu(self):
+        def step(test, out):
+            self.ctl.pid = None
+            return 3
+        r = self.runner(step, max_tests=1)
+        r.recover = lambda: self.fail("no Escapes into a game that is gone")
+        r.run()
+        self.assertEqual(self.results()[0]["class"], "CRASH")
+        self.assertNotIn("menu or overlay", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanishes_while_travelling_is_a_crash(self):
+        for exit_code in (1, 2):                          # Codex on #446: exit 2 (input guard) is not the owner then
+            with self.subTest(exit_code=exit_code):
+                self.setUp()
+
+                def ps(script, args, timeout, steal=False):
+                    self.ctl.pid = None                   # the game exits during the coc
+                    return exit_code, "no arrival"
+                r = self.runner(lambda test, out: 0, max_tests=1)
+                r.cell, r._ps = "Elsewhere", ps
+                r.recover = lambda: self.fail("no Escapes into a game that is gone")
+                r.run()
+                row = self.results()[0]
+                self.assertEqual((row["verdict"], row["class"]), ("INCONCLUSIVE", "CRASH"))
+                self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+                self.assertNotIn("owner", readf(os.path.join(self.d, "run.log")))
+
+    def test_a_game_that_vanished_between_tests_counts_against_the_crash_budget(self):
+        r = self.runner(lambda test, out: 0, crash_budget=1, min_free_gb=0)
+        r.live_pid, self.ctl.pid = 42, None               # up after the last test, gone before the next one
+        r.run()
+        log = readf(os.path.join(self.d, "run.log"))
+        self.assertIn("exited between tests", log)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
+        self.assertIn("--crash-budget 1", log)            # stopped before launching again
+        self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
+
+    def test_a_game_closed_for_a_fresh_test_is_not_a_crash(self):
+        r = self.runner(self.landing(0.1), max_tests=2)
+        r.game_used, r.live_pid = True, 42
+        q = jload(os.path.join(self.d, "queue.json"))
+        q["tests"][0]["fresh"] = True
+        jdump(q, os.path.join(self.d, "queue.json"))
+        r.q = q
+        r.run()
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 0)
 
     def test_a_second_crash_in_the_same_test_is_a_final_fail(self):
         def step(test, out):
@@ -800,6 +888,18 @@ class PlanJsonTests(unittest.TestCase):
         out2 = os.path.join(d, "q2")
         tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out2])
         self.assertEqual(jload(os.path.join(out2, "queue.json"))["rounds_sha256"], hashlib.sha256(rounds.encode()).hexdigest())
+        self.assertNotIn("presence_sha256", jload(os.path.join(out2, "queue.json")))
+        # a presence stage: staged with this plan.json (plan_sha256), its digest is recorded too (Codex on #391)
+        writef(os.path.join(d, "presence.json"), b'{"tests": []}')
+        with self.assertRaises(SystemExit) as stop:
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "qp0")])
+        self.assertIn("no plan_sha256 in presence.json", str(stop.exception))
+        pres = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
+        writef(os.path.join(d, "presence.json"), pres.encode())
+        out3 = os.path.join(d, "qp")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out3])
+        self.assertEqual(jload(os.path.join(out3, "queue.json"))["presence_sha256"],
+                         hashlib.sha256(pres.encode()).hexdigest())
         # Codex on #401: a plan.json edited after staging, or a rounds.json without plan_sha256, is refused
         for body, why in ((json.dumps({"tests": []}), "no plan_sha256"),
                           (json.dumps({"tests": [], "plan_sha256": "0" * 64}), "plan_sha256 differs")):

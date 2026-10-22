@@ -129,6 +129,30 @@ problem.
 other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
 work folders). This is the measuring half of the unresolved full-build disk budget.
 
+### settings and play (crash watcher that follows the game)
+Owner, 2026-10-21: the crash watcher should start and close with the game, and the launcher is where its toggle and
+other memory-costly settings live. `launcher.py settings` shows each setting with its cost and `--set key=value`
+changes it (one JSON per player, default `%LOCALAPPDATA%\FO4SF\launcher_settings.json`; only changed values are
+written, and an unknown key is refused). Every default changes nothing: watcher off, bridge and Papyrus logging
+`unchanged`. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
+`papyrus_logging` (the three `[Papyrus]` keys in StarfieldCustom.ini, with a `.bak-<time>` copy) with the game closed,
+starts the game (`route`: Steam, as the runner does, or Starfield.exe, as the owner does), waits until a
+Starfield.exe has stayed up `crash_watch.settle_s` (a first process that ends within that time is skipped), then
+attaches ProcDump to that process id with the old watcher's triggers (`-e 1 -f 80000003`), `-mm` by default
+(`crash_watch.dump=full` for `-ma`), `-t` by default (`crash_watch.dump_on_exit`, the owner's choice on 2026-10-21, so a kill or a silent exit leaves a
+mini dump; a normal quit writes none, ProcDump reports "Dump count not reached"; `launcher.py settings` lists it as "Crash dump on every exit (off = log only)", and
+`--set crash_watch.dump_on_exit=off` gives log only). It holds its own handle on the game and writes the exit
+code and its name, and the dumps of that run, to `crashwatch.log`, so a silent exit leaves at least its code.
+ProcDump ends on its own with the game and is never killed. The flow is tested with a stand-in
+(`tests/test_launcher_crashwatch.py`). On the owner's PC (2026-10-21, automated walk test) `watch` found the game by
+process id, armed ProcDump with `-e 1 -f 80000003 -t` together, caught a 0xC0000005 ACCESS_VIOLATION and wrote two
+145 MB mini dumps. Not yet run on Windows: `play`'s own game start (Steam or exe) and its bridge and Papyrus changes.
+
+`launcher.py watch` is the same watcher for a game it did not start, such as the test runner's own Steam launch: it
+waits for Starfield.exe (or `--pid N`), attaches after `settle_s` with the same ProcDump line, and logs the end;
+`--repeat` follows each next game of a queue until none appears within `--timeout` (600 s). It changes no setting,
+and it refuses while `crash_watch.enabled` is off, so the owner's toggle still decides.
+
 ### Determinism variants (framework B5)
 `tests/test_determinism_variants.py` runs a static mesh conversion and the driver's step fingerprint in fresh
 interpreters under string-hash seeds 0, 1, 4242 and 7, a German locale and `NPY_DISABLE_CPU_FEATURES="AVX2 AVX512F"`,

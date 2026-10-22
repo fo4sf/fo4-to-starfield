@@ -46,6 +46,13 @@ The judge gives a PASS only with every proof from the test's own attempt:
 - a loaded player position after the ack, in the marker's cell (going in) or in the world the marker resolves in
   (coming out), within 3 m.
 
+Coming out, the player stands in the overlay's runtime instance (an FF world whose id changes every launch), while the
+marker resolves in our base WRLD. The judge takes the runtime world as the marker's in two cases. The first is a pin
+the operator gives (`--world-instance FF005511=02000803`). The second needs no pin: the player's cell is one of the
+core's own cells and the stage recorded exactly one core worldspace (rounds.json `core_worlds`). A cell belongs to one
+WRLD, and the bridge reports a player in the runtime instance inside the core's cell ids (verified: JOURNAL 2026-10-16
+"Step 0 probes" (e)). A stage from before `core_worlds` still needs the pin; re-stage it to drop the pin.
+
 The expected spot is the marker's own record position. Coming out, the core's measured merge offset is added to it.
 The door's VMAD position is never the expectation: the stage refuses a door whose VMAD return position is more than
 1 cm off its marker's merged position. Missing or contradictory evidence is INCONCLUSIVE, never a PASS. INDEX means
