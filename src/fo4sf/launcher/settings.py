@@ -17,6 +17,8 @@ TRISTATE = ("unchanged", "on", "off")
 
 # (key, default, allowed values or type, what it costs)
 SPEC = (
+    ("starfield", "", str, "the Starfield game folder (holds Starfield.exe); play uses it when --starfield is not given."),
+    ("fo4_data", "", str, "Fallout 4 Data folder(s), separated by ;, for the installation check."),
     ("crash_watch.enabled", False, bool,
      "watch the game from launch to exit: ProcDump attached while it runs, the exit code logged when it ends. "
      "ProcDump itself is small; the cost is the dump."),
@@ -50,6 +52,8 @@ SPEC = (
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
 LABELS = {
+    "starfield": "Starfield game folder",
+    "fo4_data": "Fallout 4 Data folders",
     "crash_watch.enabled": "Crash watcher (starts and ends with the game)",
     "crash_watch.dump": "Crash dump size",
     "crash_watch.catch_assertion": "Dump on the engine's assertion stop",
