@@ -7,6 +7,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
                                      [--until step] [--keep-going] [--min-free-gb N --disk <path> ...] [--idle]
     python scripts/launcher.py status <recipe.json> [--set name=value ...] [--json <out.json>]
     python scripts/launcher.py same-ids <build A> <build B> [--plugins a.esm,b.esm] [--report <out.json>]
+    python scripts/launcher.py gui [--settings <json>] [--recipe <json>] [--starfield <game>] [--fo4-data <Data>]
     python scripts/launcher.py snapshot --starfield <game dir> --out <snapshot.json> [--plugins-txt <path>] [--watch <file> ...]
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
     python scripts/launcher.py detect --fo4-data <dir> ... --starfield <game dir> [--out-dir <drive or folder>]
@@ -20,6 +21,9 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py bundle --out <support.zip> [--state-dir <dir> ...] [--manifest <json>] [--detect-report <json>]
                                       [--starfield <game dir>] [--plugins-txt <path>] [--my-games <dir>] [--file <path> ...]
     python scripts/launcher.py measure <folder> ...
+    python scripts/launcher.py settings [--set key=value ...] [--settings <json>]
+    python scripts/launcher.py play --starfield <game dir> [--settings <json>] [--dry-run]
+    python scripts/launcher.py watch [--pid N] [--repeat] [--timeout S] [--settings <json>] [--dry-run]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -40,6 +44,13 @@ measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
            and refuses while the game runs or on any conflict.
+settings   shows the optional pieces (crash watcher, bridge, Papyrus logging, how the game starts) and what each one
+           costs; --set changes them. Saved per player (default %LOCALAPPDATA%\FO4SF\launcher_settings.json).
+play       applies the settings with the game closed, starts Starfield, and with the crash watcher on attaches
+           ProcDump once the game has settled and logs how it ended (src/fo4sf/launcher/crashwatch.py).
+watch      the same watcher for a game something else starts (the test runner): waits for Starfield.exe (or --pid),
+           attaches after it settles, logs its end; --repeat goes on to each next game until none appears within
+           --timeout. Starts nothing and changes no setting; refuses while the watcher is off in the settings.
 """
 import argparse
 import json
@@ -48,8 +59,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (bundle, detect, driver, files, locate, manifest, plugin_checks, restore, runtimes,  # noqa: E402
-                            same_ids)
+from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, plugin_checks,  # noqa: E402
+                            restore, runtimes, same_ids, settings)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -260,6 +271,47 @@ def cmd_measure(a):
     return 0
 
 
+def default_settings_path():
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "FO4SF", "launcher_settings.json")
+
+
+def cmd_settings(a):
+    path = a.settings or default_settings_path()
+    values = settings.load(path)
+    if a.set:
+        values = settings.assign(values, a.set)
+        settings.save(path, values)
+        print(f"saved {path}")
+    for line in settings.describe(values):
+        print(line)
+    for p in settings.problems(values):
+        print(f"play would refuse: {p}")
+    return 0
+
+
+def cmd_play(a):
+    values = settings.load(a.settings or default_settings_path())
+    r = crashwatch.play(values, a.starfield, dry_run=a.dry_run)
+    return 0 if r.get("dry_run") or r.get("started") else 1
+
+
+def cmd_watch(a):
+    values = settings.load(a.settings or default_settings_path())
+    r = crashwatch.watch(values, pid=a.pid, repeat=a.repeat, start_timeout_s=a.timeout, dry_run=a.dry_run)
+    if r[0].get("dry_run"):
+        return 0
+    watched = [x for x in r if x.get("started")]
+    # 0 only when every game seen was armed and nothing stopped the watch early (Codex, #449)
+    return 0 if watched and all(x.get("armed") for x in watched) and not any(x.get("stopped") for x in r) else 1
+
+
+def cmd_gui(a):
+    from fo4sf.launcher import gui
+    return gui.launch(__file__, a.settings or default_settings_path(), recipe=a.recipe, overrides=a.set,
+                      fo4_data=a.fo4_data, starfield=a.starfield)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -348,13 +400,33 @@ def main(argv=None):
     s.add_argument("--file", action="append", default=[])
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
+    s = sub.add_parser("settings")
+    s.add_argument("--settings", default="", help="default: %%LOCALAPPDATA%%\\FO4SF\\launcher_settings.json")
+    s.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    s = sub.add_parser("gui", help="open the optional launcher window (tkinter)")
+    s.add_argument("--settings", default="")
+    s.add_argument("--recipe", default="")
+    s.add_argument("--set", action="append", default=[], help="recipe variable name=value (for build status)")
+    s.add_argument("--fo4-data", action="append", default=[])
+    s.add_argument("--starfield", default="")
+    s = sub.add_parser("play")
+    s.add_argument("--starfield", required=True)
+    s.add_argument("--settings", default="")
+    s.add_argument("--dry-run", action="store_true", help="print what play would do; change and start nothing")
+    s = sub.add_parser("watch", help="watch a game something else starts (the test runner): ProcDump as play attaches it")
+    s.add_argument("--settings", default="")
+    s.add_argument("--pid", type=int, default=None, help="follow this process only (default: the next Starfield.exe)")
+    s.add_argument("--repeat", action="store_true", help="go on to each next game until none appears within --timeout")
+    s.add_argument("--timeout", type=float, default=600.0, help="seconds to wait for a game to appear (default 600)")
+    s.add_argument("--dry-run", action="store_true", help="print what watch would do; attach nothing")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
-                "status": cmd_status}[a.cmd](a)
+                "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
+                "watch": cmd_watch, "gui": cmd_gui}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2
