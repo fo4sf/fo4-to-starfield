@@ -69,7 +69,8 @@ PLACEHOLDERS = {
 
 # Plugin-local ids of the probe records (plan "records"); the scripts log the local id they resolved, we only compare.
 LOCAL = {"p2_loc": 2054, "p3_noparent": 2055, "p3_chained": 2056, "p10_quest": 2080,
-         "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B, "p10_event": 0x81F}   # dotnet/CombinedProbe ids
+         "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B, "p10_event": 0x81F,
+         "holder": 0x805, "p6_list": 0x81C, "p7_list": 0x81D, "p7_rep": 0x81E}   # dotnet/CombinedProbe ids
 # what the cards ask for (docs/spikes/combined-core-probes.md P4 / P5): a shorter run is INCONCLUSIVE, not a PASS, so
 # a typo in `cgf "FOCC_Probe.P4Run" 3 8.0` is never recorded as the 20-cycle bloat answer
 P4_CYCLES = 20
@@ -891,8 +892,10 @@ def _base_match(e: Event, plan: dict | None, key_a: str, key_b: str):
     return None
 
 
-def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: dict, plan, pa, pb, readback_key):
-    """Shared P6/P7 judge: for each value in `cases` (value -> expected entry), 3 trials naming that entry."""
+def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: dict, plan, pa, pb, readback_key,
+                      ids: dict):
+    """Shared P6/P7 judge: for each value in `cases` (value -> expected entry), 3 trials naming that entry. `ids` maps
+    a trial line's form id field to the probe record's local id (the list and what its conditions read)."""
     trials = _by_kind(evs, kind)
     refused = [e for e in evs if e.kind == f"{kind} refused"]
     v.cite(*trials, *refused)
@@ -909,6 +912,14 @@ def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: 
                              "from one call")
             return INCONCLUSIVE
         for e in mine:
+            # the script's properties must be the probe's own records, or a stale or foreign binding passes without
+            # exercising our LVLN / KYWD / GLOB (Codex review of #431)
+            bad = [f for f, want_local in ids.items() if _local(e, f) != want_local]
+            if bad:
+                v.reasons.append(f"{key}={value}: " + ", ".join(f"{f}={e.fields.get(f, 'missing')}" for f in bad) +
+                                 " is not the probe's record (locals " +
+                                 ", ".join(f"{f} {hex(n)}" for f, n in ids.items()) + ")")
+                return INCONCLUSIVE
             rb = e.num(readback_key)
             if rb is not None and not _close(rb, value):
                 v.reasons.append(f"{key}={value}: readback {rb} differs ({readback_key})")
@@ -946,7 +957,8 @@ def check_p6(c: Collection) -> Verdict:
     if evs is None:
         v.reasons.append("no log (focc.0.log)")
         return v
-    v.verdict = _conditioned_list(v, evs, "p6", "datum", {1.0: "A", 2.0: "B"}, c.plan, "lvln_a", "lvln_b", "readback")
+    v.verdict = _conditioned_list(v, evs, "p6", "datum", {1.0: "A", 2.0: "B"}, c.plan, "lvln_a", "lvln_b", "readback",
+                                 {"list": LOCAL["p6_list"], "holder": LOCAL["holder"]})
     return v
 
 
@@ -964,7 +976,8 @@ def check_p7(c: Collection) -> Verdict:
     if evs is None:
         v.reasons.append("no log (focc.0.log)")
         return v
-    v.verdict = _conditioned_list(v, evs, "p7", "tier", {3.0: "A", 9.0: "B"}, c.plan, "lvln_a", "lvln_b", "glob")
+    v.verdict = _conditioned_list(v, evs, "p7", "tier", {3.0: "A", 9.0: "B"}, c.plan, "lvln_a", "lvln_b", "glob",
+                                 {"list": LOCAL["p7_list"], "rep": LOCAL["p7_rep"]})
     return v
 
 

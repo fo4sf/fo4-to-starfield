@@ -287,9 +287,10 @@ cgf "FOCC_Probe.P6" 2.0 3
 
 Quit; collect `focc.0.log` and the stage's `plan.json` (it names `lvln_a` / `lvln_b`) into
 `D:\Modding\testqueue\focc_P6_$date`; judge `probes p6`. Expect six lines `p6 datum=<1|2>.000000 loc=<id>
-readback=<same> trial=<1..3> base=<id> baselocal=a|b|other|none` (a and b are the plan's entries A and B), then `p6 reset`. PASS = datum 1
+readback=<same> list=<id> holder=<id> trial=<1..3> base=<id> baselocal=a|b|other|none` (a and b are the plan's entries A and B), then `p6 reset`. PASS = datum 1
 spawns entry A three times and datum 2 entry B three times. FAIL = the other entry or `base=none`. INCONCLUSIVE =
-`loc=none` (you were not in a location), fewer trials, or a `baselocal` the judge cannot map. Note: the datum is set on the core's overlay location; the script resets it to 0 (`p6 reset`).
+`loc=none` (you were not in a location), a `list=` or `holder=` that is not the probe's own record (locals 0x81C,
+0x805), fewer trials, or a `baselocal` the judge cannot map. Note: the datum is set on the core's overlay location; the script resets it to 0 (`p6 reset`).
 
 ## P7: a condition reads our reputation global
 
@@ -306,8 +307,9 @@ cgf "FOCC_Probe.P7" 9.0 3
 ```
 
 Quit; collect `focc.0.log` and `plan.json` into `D:\Modding\testqueue\focc_P7_$date`; judge `probes p7`. Expect
-`p7 tier=3.000000 glob=3.000000 trial=<k> ... baselocal=a` three times and `tier=9.000000 ... baselocal=b` three times.
-INCONCLUSIVE when `glob=` differs from the tier set.
+`p7 tier=3.000000 glob=3.000000 list=<id> rep=<id> trial=<k> ... baselocal=a` three times and `tier=9.000000 ... baselocal=b` three times.
+INCONCLUSIVE when `glob=` differs from the tier set, or `list=` / `rep=` is not the probe's own record (locals 0x81D,
+0x81E).
 
 ## P8: enable-parent stage swap and its save cost
 

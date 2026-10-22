@@ -90,6 +90,9 @@ def validate_pack(pack: dict, ws: WorldState | None = None) -> list[str]:
             problems.append(f"place {pid}: kind {p['kind']!r} not in {', '.join(PLACE_KINDS)}")
         if not _is_int(p.get("defence", 0)) or p.get("defence", 0) < 0:
             problems.append(f"place {pid}: defence must be a non-negative integer")
+        lock = p.get("story_lock")
+        if lock is not None and not _is_id(lock):    # Place.story_lock is str | None; the sim tests it by truthiness
+            problems.append(f"place {pid}: story_lock {lock!r} must be a story id (a non-empty string) or null")
         new_places[pid] = p
     new_factions = {}
     for f in factions:

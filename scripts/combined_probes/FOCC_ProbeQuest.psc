@@ -348,7 +348,7 @@ Function P6(float datum, int trials)
         return
     endif
     l.SetKeywordData(Holder, datum)
-    string head = "datum=" + datum + " loc=" + l.GetFormID() + " readback=" + l.GetKeywordData(Holder)
+    string head = "datum=" + datum + " loc=" + l.GetFormID() + " readback=" + l.GetKeywordData(Holder) + " list=" + Id(P6List) + " holder=" + Id(Holder)
     SpawnTrials("p6", head, P6List, trials)
     ; the player's current location may be the core's shared overlay location: leave no datum behind
     l.SetKeywordData(Holder, 0.0)
@@ -361,7 +361,7 @@ Function P7(float tier, int trials)
         return
     endif
     P7Rep.SetValue(tier)
-    string head = "tier=" + tier + " glob=" + P7Rep.GetValue()
+    string head = "tier=" + tier + " glob=" + P7Rep.GetValue() + " list=" + Id(P7List) + " rep=" + Id(P7Rep)
     SpawnTrials("p7", head, P7List, trials)
 EndFunction
 

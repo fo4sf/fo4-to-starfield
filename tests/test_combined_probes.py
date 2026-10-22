@@ -500,24 +500,28 @@ class P5Tests(unittest.TestCase):
 
 # the trial line exactly as FOCC_ProbeQuest.SpawnTrials writes it: `base=<signed decimal> baselocal=a|b|other|none`
 # (BaseName()), no match= field. `baselocal=` may be given as a plugin:id to exercise the plan.json mapping instead.
-def p6_log(pairs=((1.0, "A"), (2.0, "B")), loc=RUNTIME_LOC, baselocal=None):
+P6_IDS = f"list={0x0300081C} holder={0x03000805}"     # FOCC_P6_HolderList, FOCC_Holder at load index 03
+P7_IDS = f"list={0x0300081D} rep={0x0300081E}"        # FOCC_P7_RepList, FOCC_Rep_Test
+
+
+def p6_log(pairs=((1.0, "A"), (2.0, "B")), loc=RUNTIME_LOC, baselocal=None, ids=P6_IDS):
     lines = [INIT]
     for datum, which in pairs:
         for k in range(1, 4):
             bl = (baselocal or {}).get(which, {"A": "a", "B": "b", "other": "other", "none": "none"}[which])
             base = {"none": "none", "B": "4660"}.get(which, "2826524")
-            lines.append(f"FOCC rt=2.0 p6 datum={datum:.6f} loc={loc} readback={datum:.6f} trial={k} base={base} baselocal={bl}")
+            lines.append(f"FOCC rt=2.0 p6 datum={datum:.6f} loc={loc} readback={datum:.6f} {ids} trial={k} base={base} baselocal={bl}")
     return lines
 
 
-def p7_log(pairs=((3.0, "A"), (9.0, "B")), glob=None):
+def p7_log(pairs=((3.0, "A"), (9.0, "B")), glob=None, ids=P7_IDS):
     lines = [INIT]
     for tier, which in pairs:
         for k in range(1, 4):
             g = tier if glob is None else glob
             bl = {"A": "a", "B": "b", "other": "other", "none": "none"}[which]
             base = {"none": "none", "B": "4660"}.get(which, "2826524")
-            lines.append(f"FOCC rt=1.0 p7 tier={tier:.6f} glob={g:.6f} trial={k} base={base} baselocal={bl}")
+            lines.append(f"FOCC rt=1.0 p7 tier={tier:.6f} glob={g:.6f} {ids} trial={k} base={base} baselocal={bl}")
     return lines
 
 
@@ -626,6 +630,18 @@ class P6P7Tests(unittest.TestCase):
         self.assertEqual(probes.check_p7(pcol(p7_log(glob=0.0))).verdict, INCONCLUSIVE)     # GLOB readback differs
         self.assertEqual(probes.check_p7(pcol(p7_log()[:4])).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p7(pcol([INIT])).verdict, INCONCLUSIVE)
+
+    def test_the_lists_and_what_they_read_must_be_the_probes_own(self):
+        # Codex review of #431: a stale or foreign P6List/Holder or P7List/P7Rep binding never passes
+        for ids in (f"list={0x0300081D} holder={0x03000805}", f"list={0x0300081C} holder={0x03000806}",
+                    f"list={0x0300081C}", ""):
+            v = probes.check_p6(pcol(p6_log(ids=ids)))
+            self.assertEqual(v.verdict, INCONCLUSIVE, ids)
+            self.assertTrue(any("not the probe's record" in r for r in v.reasons), v.reasons)
+        for ids in (f"list={0x0300081C} rep={0x0300081E}", f"list={0x0300081D} rep={0x03000805}", ""):
+            self.assertEqual(probes.check_p7(pcol(p7_log(ids=ids))).verdict, INCONCLUSIVE, ids)
+        fe = f"list={0xFE00181C - (1 << 32)} holder={0xFE001805 - (1 << 32)}"      # a light plugin's signed ids
+        self.assertEqual(probes.check_p6(pcol(p6_log(ids=fe))).verdict, PASS)
 
 
 # ----------------------------------------------------------------------------------------------- P8

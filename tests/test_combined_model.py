@@ -100,6 +100,17 @@ class PackLoadTests(unittest.TestCase):
         again = {"settlements": [dict(r1()["settlements"][0])]}
         self.assertTrue(any("already defined" in p for p in pack.validate_pack(again, ws)))
 
+    def test_story_lock_is_a_story_id_or_null(self):
+        # Codex review of #431: the sim tests story_lock by truthiness, so "" would drop a lock and [] or 0 mislead
+        for bad in ("", 0, [], {"id": "x"}, True):
+            p = r1()
+            p["places"][0]["story_lock"] = bad
+            self.assertTrue(any("story_lock" in q for q in pack.validate_pack(p)), bad)
+        for ok in (None, "main_story_1"):
+            p = r1()
+            p["places"][0]["story_lock"] = ok
+            self.assertFalse(any("story_lock" in q for q in pack.validate_pack(p)), ok)
+
     def test_partial_role_and_stock_tables_are_filled(self):
         p = r1()
         p["settlements"][0]["roles"] = {"farmer": 5}
