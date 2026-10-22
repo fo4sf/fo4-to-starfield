@@ -72,3 +72,19 @@ Full-size bootstrap preserves both plugin files and the complete map byte-for-by
 Private failing/passing evidence: persistent-full-stage-work. Source scope is
 TerrainIdentityAudit.Check; no producer, game or active stage changes. Independent
 review and native acceptance remain pending; optional FO4/Archive2 checks were omitted.
+### 2026-10-22 Claude-cloud: `convert_batch.py --retry-failures` reruns only the failed models (#333, Grok)
+Synthetic, not yet measured on the PC. `scripts/testing/bench_retry_failures.py` stubs the FO4 archives and the
+converter; each `convert_nif` call sleeps 0.085 s (the PC's 2026-10-09 rate, 4,014 models in 311-373 s). Same staged
+input every round: 200 models, 20 of them failed in the first run. Before: the rerun without the flag, 200 convert
+calls, median **17.13 s** (3 rounds). After: the same command with `--retry-failures`, 20 convert calls, median
+**1.72 s** (-90%). Merging into the prior manifest costs nothing measurable: at zero conversion cost with 4,014 models
+and 40 failures, 0.446 s before and 0.078 s after (`--cost 0 --models 4014 --failures 40 --rounds 5`). Cloud
+container, 4 CPUs, Python 3.13. The saving scales with the failure share (a retry costs about failures x per-model
+time). Pending: the same before/after on the owner's PC with a real failure-summary.json.
+
+### 2026-10-22 Claude: snapshot.ps1 writes Plugins.txt as plain strings
+Before: `state.json` kept every Plugins.txt line as a Get-Content object, with PSPath, PSDrive and Provider. Install saw
+3 MB on the owner's PC. Change: `plugins_txt` turns each line into a plain string (PR #484). Measured by Codex desktop on
+Windows with the real script, real Get-Content/ConvertTo-Json, the same synthetic ten-line Plugins.txt and a stubbed
+capture: **4,551,695 bytes before, 794 bytes after** (parent vs 1da8aba3). The list keeps the same strings in the same
+order.

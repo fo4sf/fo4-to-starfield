@@ -60,6 +60,23 @@ class StageOutputTests(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_batch_refuses_pending_root_or_port_before_inventory_or_game_access(self):
+        for entry in (deploy.install, deploy.install_batch):
+            for relative in (Path('.'), Path('port')):
+                for marker in (stages.PENDING, stages.LEASE):
+                    with self.subTest(entry=entry.__name__, location=str(relative), marker=marker), \
+                         tempfile.TemporaryDirectory() as directory:
+                        pending = Path(directory) / relative / marker
+                        pending.parent.mkdir(parents=True, exist_ok=True)
+                        pending.write_bytes(b'preserve unresolved batch publication')
+                        # Deliberately no game path: refusal must precede any game access.
+                        args = SimpleNamespace(batch=directory, staging='')
+                        with patch.object(deploy, 'batch_install_set') as inventory:
+                            with self.assertRaisesRegex(stages.PendingPublication, 'publication is pending'):
+                                entry(args)
+                        inventory.assert_not_called()
+                        self.assertEqual(pending.read_bytes(), b'preserve unresolved batch publication')
+
     def test_pending_publication_checkpoints_runner_stop_before_any_game_action(self):
         from test_testqueue import FakeControls, args, make_queue, tq
         for marker in (stages.PENDING, stages.LEASE):

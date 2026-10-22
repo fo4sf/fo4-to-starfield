@@ -107,9 +107,9 @@ def core_params(core, ready=require_ready_stage):
 
 
 def core_params_view(prm):
-    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
+    """core64c's overlays_params.json without what stage adds: objects, navmesh, persistent_ids, world_data, each overlay's
     map_markers (check compares the rest with core64's)."""
-    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh", "persistent_ids")}
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh", "persistent_ids", "world_data")}
     if "overlays" in out:
         out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
     return out
@@ -527,6 +527,12 @@ class CoreWorld(x2c.World):
 # ---------------------------------------------------------------------------------------------------------------- plan
 NEAR_M = 510.0              # core64 probes this close to the arrival (exact in the core64 run, 2026-10-11)
 AREA_M = 560.0              # local collision world: arrival +- this (every point and every teleport position)
+# --world-border: the WRLD fields TerrainOverlays changes on LC172World's copy (params "world_data", docs/terrain/border.md).
+# "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5). Whether they stop "BOUNDARY REACHED" is not yet proven:
+# the one city run that passed (2026-10-22) had the markers plugin's template WRLD as the last override; the repeat
+# test in border.md decides.
+WORLD_DATA = {"template": None, "city": {"small_world": False, "hnam": 5}}
+WORLD_SMALL_WORLD = 0x01                                  # WRLD DATA flag bit
 DROP_MARGIN = 40.0          # drop at least this far above the highest expected landing of the entry (as core64)
 TOP_CLEAR = 10.0            # and at least this far above every collision top within 1 m of a point
 REF_LABEL = x2c.REF_LABEL
@@ -1605,6 +1611,67 @@ def cluster_doors(bases, placed, cluster):
     return keep, out
 
 
+# Step C (docs/spikes/load-door-animations.md; --animated-doors <manifest>, off by default): the exterior side of a
+# scripted load door opens before the trip, as the interior side does in a port staged with interior_batch.py
+# --animated-doors. The manifest is that port's door_anim manifest (convert_batch --rig-load-doors, load_door_anim.py
+# plan / flags / sounds): the rigged NIF it names lives in FO4Port's archive, which the game loads with the port.
+ANIM_KEYS = ("anim_graph", "skeleton", "animations", "bounds", "open_sound", "close_sound")
+
+
+def animate_doors(doors, manifest, source_of):
+    """Door entries (cluster_doors) whose FO4 model (source_of[src], the base's FO4 source) has load_door.anim in the
+    manifest gain "anim" {anim_graph, skeleton, animations, open_seconds[, bounds, open_sound, close_sound,
+    fo4_door_flags]}, the rig's model (the twin's when the rig is borrowed) and the position shifted by the rig's
+    origin offset (rotated and scaled as exterior.place shifts a rigged door; the cell follows the shifted position).
+    Returns (new entries, rows {"src", "edid", "animated", "reason"}); entries without a rig are returned unchanged.
+    ValueError for a rig without its graph, skeleton, clips or a finite open length in 0..30 s."""
+    def key(path):                                    # convert_batch's model identity, slashes and case aside
+        return str(path).replace("/", "\\").lstrip("\\").lower()
+    items = {key(i["source"]): i for i in manifest.get("items", []) if i.get("source")}
+    out, rows = [], []
+    for e in doors:
+        src = source_of.get(e["src"])
+        item = items.get(key(src)) if src else None
+        ld = (item or {}).get("load_door")
+        anim = ld.get("anim") if isinstance(ld, dict) else None
+        if not isinstance(anim, dict):
+            why = ("no FO4 source" if not src else "model not in the manifest" if item is None
+                   else "not a load door in the manifest" if not isinstance(ld, dict) else "no rig (load_door.anim)")
+            rows.append({"src": e["src"], "edid": e["edid"], "animated": False, "reason": why})
+            out.append(e)
+            continue
+        missing = [k for k in ("anim_graph", "skeleton", "animations") if not anim.get(k)]
+        if missing:
+            raise ValueError(f"{e['src']}: load_door.anim of {src} lacks {missing}")
+        seconds = anim.get("open_seconds") or 0.0
+        if not (isinstance(seconds, (int, float)) and math.isfinite(seconds) and 0.0 <= seconds <= 30.0):
+            raise ValueError(f"{e['src']}: open seconds {seconds!r} outside 0..30")
+        rig = {k: anim[k] for k in ANIM_KEYS if anim.get(k) is not None}
+        rig["open_seconds"] = float(seconds)
+        if isinstance(ld.get("fo4_door_flags"), int):
+            rig["fo4_door_flags"] = ld["fo4_door_flags"] & 0x7E
+        off = anim.get("origin_offset") or [0.0, 0.0, 0.0]
+        m = exterior.ref_matrix(e["rot"])
+        pos = [round(e["pos"][a] + e["scale"] * sum(m[3 * a + k] * off[k] for k in range(3)), 5) for a in range(3)]
+        new = dict(e, model=anim.get("model") or item["model"], anim=rig, pos=pos, cell=list(tg.sf_cell_of(pos[0], pos[1])))
+        rows.append({"src": e["src"], "edid": e["edid"], "animated": True, "reason": None})
+        out.append(new)
+    shared_base_agrees(out, "door", ("name", "model"))
+    seen = {}
+    for e in out:
+        first = seen.setdefault(e["edid"], (e["src"], e.get("anim")))
+        if first[1] != e.get("anim"):
+            raise ValueError(f"{e['src']} and {first[0]} share door {e['edid']} with a different rig")
+    return out, rows
+
+
+def animated_door_bases(objects, ids):
+    """Local ids of the DOOR bases of step C's animated doors (formids.json doors[src]["base"] of entries with "anim")."""
+    got = ids.get("doors") or {}
+    return {int(got[e["src"]]["base"], 16) for e in objects.get("doors") or []
+            if e.get("anim") and isinstance(got.get(e["src"]), dict) and "base" in got[e["src"]]}
+
+
 def door_arrivals_inside(doors, ov):
     """ValueError for a door whose arrival marker falls outside the overlay's cells (off the overlay's terrain; the
     writer refuses it too)."""
@@ -1806,8 +1873,9 @@ def promoted_record_check(recs, own_prefix, objects, ids, masters=("Starfield.es
             else:
                 base_fid = own_prefix | int(v["base"], 16)
                 base = by_fid.get(base_fid)
-                if base is None or base["sig"] != sig:
-                    problems.append(f"{e['src']}: base {base_fid:08X} is not a {sig}")
+                want = "DOOR" if k == "doors" and e.get("anim") else sig                # step C: an animated door
+                if base is None or base["sig"] != want:
+                    problems.append(f"{e['src']}: base {base_fid:08X} is not a {want}")
                     continue
             q = fo4land.parse_ref(rec["fields"])
             if q["base"] != base_fid:
@@ -1819,17 +1887,17 @@ def promoted_record_check(recs, own_prefix, objects, ids, masters=("Starfield.es
             if base is None:
                 continue
             if overlay_records.edid(base) != e["edid"]:
-                problems.append(f"{e['src']}: {sig} edid {overlay_records.edid(base)!r} != {e['edid']!r}")
+                problems.append(f"{e['src']}: {want} edid {overlay_records.edid(base)!r} != {e['edid']!r}")
             if fo4land.zstring(overlay_records.field(base, "MODL", b"")).casefold() != e["model"].casefold():
-                problems.append(f"{e['src']}: {sig} model differs from {e['model']!r}")
-            if sig == "MISC":
+                problems.append(f"{e['src']}: {want} model differs from {e['model']!r}")
+            if want == "MISC":
                 data = overlay_records.field(base, "DATA", b"")
                 vw = struct.unpack_from("<if", data) if len(data) >= 8 else None
                 if vw is None or vw[0] != e["value"] or not close(vw[1], e["weight"], 1e-6 * max(1.0, abs(e["weight"]))):
                     problems.append(f"{e['src']}: MISC DATA {vw} != value {e['value']}, weight {e['weight']}")
-            if sig in ("MISC", "ACTI", "TERM", "FLOR") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
-                problems.append(f"{e['src']}: {sig} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
-            if sig == "TERM":
+            if want in ("MISC", "ACTI", "TERM", "FLOR", "DOOR") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
+                problems.append(f"{e['src']}: {want} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
+            if want == "TERM":
                 problems += terminal_menu_problems(by_fid, own_prefix, base, e, v)
             if k == "workshops":
                 problems += workshop_problems(base, e, masters)
@@ -1989,7 +2057,9 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     for sig in dict.fromkeys(sig for _k, sig in PROMOTED):
         classes = [k for k, s in PROMOTED if s == sig]
         named = [k for k in classes if entries[k]] or classes[:1]
-        counted.append((" + ".join(named), sig, [e for k in classes for e in entries[k]], "edid"))
+        # step C's animated doors are DOOR records, counted with the bases (animated_door_bases)
+        counted.append((" + ".join(named), sig, [e for k in classes for e in entries[k] if not (k == "doors" and e.get("anim"))],
+                        "edid"))
     counted.append(("terminals", "TMLM", entries["terminals"], "menu_edid"))
     for key, sig, es, field in counted:
         n_recs = sum(1 for r in recs if r["sig"] == sig)
@@ -2314,6 +2384,11 @@ def door_record_problems(recs, own_prefix, objects, ids):
             problems.append(f"{e['src']}: not declared in formids.json doors (base, ref, arrival)")
             continue
         acti = by_fid.get(own_prefix | int(v["base"], 16))
+        if acti is not None and acti["sig"] == "DOOR" and e.get("anim"):           # step C: the rig's graph on the DOOR
+            if overlay_records.field(acti, "VMAD") is not None:
+                problems.append(f"{e['src']}: the DOOR carries a VMAD (the script goes on the REFR)")
+            if e["anim"]["anim_graph"].encode("utf-8") not in b"".join(d for _s, d in acti["fields"]):
+                problems.append(f"{e['src']}: DOOR does not name its graph {e['anim']['anim_graph']}")
         if acti is not None and acti["sig"] == "ACTI":
             pnam, fnam, jnam = (overlay_records.field(acti, s) for s in ("PNAM", "FNAM", "JNAM"))
             if pnam != bytes.fromhex("cc4c3300") or fnam != b"\0\0" or jnam != struct.pack("<H", 360):
@@ -2325,13 +2400,17 @@ def door_record_problems(recs, own_prefix, objects, ids):
             problems.append(f"{e['src']}: no REFR {own_prefix | int(v['ref'], 16):08X}")
         else:
             vm = [d for s, d in rec["fields"] if s == b"VMAD"]
+            anim = e.get("anim")
+            target = vmad_patch.animated_load_door_target if anim else vmad_patch.load_door_target
             try:
-                dest = vmad_patch.load_door_target(vm[0]) if len(vm) == 1 else None
+                dest = target(vm[0]) if len(vm) == 1 else None
             except ValueError as err:
                 dest = f"bad: {err}"
             want = (e["destination"]["plugin"], int(e["destination"]["id"]), e["destination"]["arrival"]["pos"])
             if not (isinstance(dest, tuple) and dest[:2] == want[:2] and vmad_patch.same_position(dest[2], want[2])):
                 problems.append(f"{e['src']}: REFR VMAD {dest} != {want}")
+            elif anim and not close([dest[3]], [anim["open_seconds"]], 1e-5):
+                problems.append(f"{e['src']}: REFR OpenSeconds {dest[3]} != {anim['open_seconds']}")
             if vm and [s for s, _d in rec["fields"]][:2] not in ([b"VMAD", b"NAME"], [b"EDID", b"VMAD"]):
                 problems.append(f"{e['src']}: VMAD not first after EDID ({[s.decode() for s, _d in rec['fields']][:3]})")
         mk = by_fid.get(own_prefix | int(v["arrival"], 16))
@@ -2371,6 +2450,21 @@ def without_marker_chain(rec):
     if rec["sig"] == "LCTN":
         fields = [(s, v) for s, v in fields if s not in (b"LCSR", b"LCID")]
     return rec["sig"], rec["flags"], fields
+
+
+def with_world_data(rec, world_data, world):
+    """core64's record as stage --world-border changes it (params "world_data", TerrainOverlays): the overlay world's
+    WRLD with SmallWorld cleared from DATA and HNAM set; every other record as it is."""
+    if not world_data or rec["sig"] != "WRLD" or overlay_records.edid(rec) != world:
+        return rec
+    fields = []
+    for s, v in rec["fields"]:
+        if s == b"DATA" and world_data.get("small_world") is False:
+            v = bytes([v[0] & ~WORLD_SMALL_WORLD]) + bytes(v[1:])
+        elif s == b"HNAM" and "hnam" in world_data:
+            v = bytes([world_data["hnam"]])
+        fields.append((s, v))
+    return {**rec, "fields": fields}
 
 
 def map_marker_problems(recs, own_index, ov, ids):
@@ -2624,7 +2718,16 @@ def cmd_stage(a):
     if getattr(a, "cluster", None):
         try:
             cluster = merge_clusters(a.cluster.split(","))
+            source_of = {p["src"]: bases[p["base"]].get("source") for p in placed}
             placed, promoted = cluster_promote(bases, placed, cluster)
+            if getattr(a, "animated_doors", ""):
+                promoted["doors"], door_rows = animate_doors(promoted["doors"], load(a.animated_doors), source_of)
+                outside = [e["src"] for e in promoted["doors"] if not (ov["cell_min"] <= e["cell"][0] <= ov["cell_max"]
+                                                                       and ov["cell_min"] <= e["cell"][1] <= ov["cell_max"])]
+                if outside:
+                    raise ValueError(f"animated doors shifted outside the overlay's cells: {outside}")
+                print(f"--animated-doors: {sum(r['animated'] for r in door_rows)} of {len(door_rows)} door(s) open before "
+                      f"the trip" + "".join(f"; {r['src']}: {r['reason']}" for r in door_rows if not r["animated"]))
             door_arrivals_inside(promoted["doors"], ov)
             # exterior lights (docs/terrain/exterior-lights.md): never placed, so new REFR ids after every reserved one
             lights, light_bases, skipped, n_out = stage_lights(cluster, ov, placed,
@@ -2699,6 +2802,12 @@ def cmd_stage(a):
     params["overlays"] = [dict(ov, map_markers=markers)]
     print(f"map markers ({len(markers)}): " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers[:4])
           + (f", ... {len(markers) - 4} more" if len(markers) > 4 else ""))
+    world_data = WORLD_DATA[getattr(a, "world_border", "template")]
+    if world_data:
+        params["world_data"] = world_data
+        print(f"world border: {a.world_border} {world_data}")
+    else:
+        params.pop("world_data", None)
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -3052,11 +3161,15 @@ def check_stage(a, audit=None):
     new = overlay_records.walk_plugin(os.path.join(out, prm["plugin"]))
     by = {r["fid"]: r for r in new["records"]}
     # core64's own map marker (if its writer made one) is not kept: core64c writes its markers after every object,
-    # and its Location's LCSR / LCID point at those (map_marker_problems)
+    # and its Location's LCSR / LCID point at those (map_marker_problems); with --world-border the world's WRLD must
+    # carry exactly the requested DATA / HNAM change (with_world_data)
     kept = [r for r in old["records"] if not is_map_marker_ref(r)]
-    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]]) == without_marker_chain(r))
+    wd = prm.get("world_data")
+    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]])
+               == without_marker_chain(with_world_data(r, wd, ov["world"])))
     need(same == len(kept), f"every core64 record unchanged ({same}/{len(kept)}; "
-                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced)")
+                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced"
+                            + (f"; {ov['world']} WRLD with world_data {wd}" if wd else "") + ")")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
     own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
@@ -3069,8 +3182,14 @@ def check_stage(a, audit=None):
     # 2. object records: STAT / DOOR = bases, models, dependencies, REFRs as objects.json, cells
     own = len(new["masters"]) << 24
     recs = new["records"]
-    stats = [r for r in recs if r["sig"] in ("STAT", "DOOR")]
+    animated = animated_door_bases(objects, ids)
+    stats = [r for r in recs if r["sig"] in ("STAT", "DOOR") and r["fid"] & 0xFFFFFF not in animated]
     need(len(stats) == len(objects["bases"]), f"{len(stats):,} STAT/DOOR = {len(objects['bases']):,} bases")
+    if animated:
+        # step C: the animated doors' DOORs (judged in promotion_checks) carry the rigged model of FO4Port's archive,
+        # so they are neither bases of objects.json nor in this build's Data\meshes
+        got = sorted(r["fid"] & 0xFFFFFF for r in recs if r["fid"] & 0xFFFFFF in animated and r["sig"] == "DOOR")
+        need(got == sorted(animated), f"{len(got)} animated door DOOR records = {len(animated)} declared")
     if prm.get("navmesh"):
         # 2b. navmesh records (stage --navmesh, docs/actors/navmesh-conversion.md): NAVM count = navmesh.json's, one NAVI
         # override (000FF1:Starfield.esm), every NAVM after the last object record, formids.json names them
@@ -3438,8 +3557,16 @@ def main():
                            "kind, instead of statics (each in its original reference slot), and whose "
                            "\"lights\" become native LIGH and new light REFRs after every other record")
 
+            s.add_argument("--animated-doors", default="", metavar="MANIFEST",
+                           help="off by default (step C, docs/spikes/load-door-animations.md): with --cluster, scripted "
+                                "load doors whose FO4 model has load_door.anim in this manifest (a port staged with "
+                                "interior_batch.py --animated-doors: door_anim/manifest_*.json) become animated DOOR "
+                                "records with FO4SF_AnimatedLoadDoor instead of ACTI with FO4SF_LoadDoor")
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
+            s.add_argument("--world-border", choices=sorted(WORLD_DATA), default="template",
+                           help="the world's border fields: template = LC172World's (SmallWorld, HNAM 0), city = "
+                                "NewAtlantis's (no SmallWorld, HNAM 5; docs/terrain/border.md)")
             s.add_argument("--fo4-map-markers", default="", help="a Fo4Land export-mapmarkers json (Commonwealth): "
                            "every named marker inside the overlay becomes a map marker after the fixed four "
                            "(docs/terrain/map-markers.md)")

@@ -2244,3 +2244,118 @@ Current-head independent delta QA and hosted CI remain pending. Paired-stage's
 pinned request CLI does not gain new keep/animation options; command compatibility
 is tested separately, while the existing synthetic core ESM suite covers default
 paired generation and retained failed generations. Full-size/native gates remain.
+## 2026-10-22: Phase 0 ledger (what is verified, what is not)
+
+Build on the owner's PC since 03:14 UTC: v6i_plainshader (FO4Port 9AF962D2, core
+DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, Bridge 63C746BB)
+plus FO4SFMapMarkers pinned to core DC751664 (installed 11:50 UTC). The roadmap's
+phase 0 exit (approved 19 Oct) is: the owner's v6 checks and the automated door
+rounds pass, and #353 merges after Codex's review. docs/ROADMAP.md carries the
+ledger; this entry records the evidence behind it.
+
+In game, 21 Oct, v6e (core 06C0DECD), the doors_out queue (runner 62df40bb, judge
+6159dcb): 15 OUT legs, PASS 10 (Vault114 x2, FortHagen01 x2, SuperDuperMart01 x2,
+BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 test 0011, PrydwenHull01),
+FAIL 3 WRONG_PLACE (CambridgePolymerLabs01 34.6 m off sideways; MuseumOfWitchcraft01
+test 0012 16.4 m too high; FortHagen02 12.2 m too low), INCONCLUSIVE 2 NOT_ACTIVATED
+(Vault75: the launch coc failed; ParsonsState01: console not opened safely). The IN
+legs (doors_rounds, 30 tests) stopped at test 0000 when the game left at the Red
+Rocket spawn; the crash was later traced to Codsworth's model (entry above). Stairs
+on v6e: 18 PASS, 0 FAIL, 2 NOCELL. No door round has run on v6i; the Vault 95
+OUT-only runs _e and _f are the border evidence below.
+
+In game, 22 Oct, v6i_plainshader: the Red Rocket walks pass both ways (entry
+above). The owner's play test: Codsworth renders on the plain-shader model; on the
+owner's existing save he was not at his Sanctuary spot until enabled by console
+(`prid 05000811`, enable, moveto player). The index was 06 in the morning session
+and 05 in the afternoon one: Install read Plugins.txt rewritten 25 s after the
+launcher started the game, with FO4Port moved from first to after FO4SFMission
+(docs/testing/load-order.md). The map markers: the mover log shows the quest
+started at 55 s and moved all four markers at 70 s (first position read FLT_MAX),
+and the owner saw the four icons on the surface map after coming back to the area
+(placement and fast travel PASS, with the first-read delay open; the icons read the
+location name instead of their own, and the Concord arrival was half in the ground,
+so the #483 override installed at 19:32 UTC still needs its in-game check). The launcher: the owner's desktop shortcut
+opened the window and started the game (the owner's word, "it works").
+
+The boundary (Interiors, PC run _f at a43afef, v6i): the Vault 95 exit after a coc
+from Red Rocket ends STAYED with "Boundary reached" while the border is on; with
+`SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands
+0.00 m from its marker. The earlier report of a walking wall north of Vault 111 is
+withdrawn (correction entry below): there is no wall on foot. The 8-ray border walk
+(cc1d594) got stuck on converted objects 6 to 200 m out and raised no popup, so no
+walk has met the border. Owner's decision, 22 Oct: B, a fix for our world only.
+BorderProbe (#485, merged) ran on the owner's swap line of 18:13 UTC: none of the
+three variants ran (NOT RUN, the owner was active at the PC). The rerun with the
+idle wait: city (SmallWorld cleared, HNAM 5) PASSED the Vault 95 OUT leg with the
+border on (0.00 m off in xy), hnam5 (HNAM 5 only) FAILED STAYED, nosmall (SmallWorld
+cleared only) PASSED (Install's report, 20:46 UTC). Not proven: the markers plugin
+loaded after the probe with a copy of the core's WRLD, so the live record may have
+been the control's, and a single pass against a single fail may be chance; the
+settling test (each variant's fields in the markers plugin, 3 runs each of control,
+city and nosmall on one save) is staged and waits on the owner's line. #495 lets
+the core build take the city fields; that core, v6j (v6i plus the border fix, no
+reconversion), is held until the settling test answers, then the markers, new game,
+questprobe_v2 and interiors b10 are restaged on it and Bugs' cards J, K and L run
+on it. v6j is installed only after border.md's wider checks (a second long exit, a
+long map fast travel, a vanilla planet's border still showing).
+
+Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston
+friendly, 100 credits; on v6c, 19 Oct, only completion was verified, Preston
+targeted the player on that run and the faction fix came after), Codsworth's greeting voice, the map
+extent (getpos plus a zoomed-out surface map screenshot; Map dropped the 3D-view
+spots on 22 Oct, the border question being answered), the Red Rocket side door, the
+elevator entrance prompts, the roof hatch and manhole prompts, cans and books. The
+Ctrl+Alt+K box fix (#463) is merged. The results that close the phase are the ones
+taken on v6j after its install; a session on v6i before that is a preview.
+
+## 2026-10-22: Correction: no walking wall north of Vault 111
+
+The phase 0 ledger above, README's boundary row, playtest-issues.md row 29 and
+the owner's test sheet carried a wall the owner hit on foot at getpos (-2606, -908),
+about 490 m north of Vault 111, and put it down to Starfield's border region by
+inference. That report was a misreading and is withdrawn: on 22 Oct (18:55 UTC)
+the owner said they never hit a wall there and walked far north of Vault 111, past
+where Fallout 4's own border would be, without the popup (docs/terrain/border.md,
+"What is known", verified). The only border evidence is the Vault 95 exit after a
+coc (run _f): STAYED with "Boundary reached" with the border on, 0.00 m off with it
+off. The border is read as a limit on how far one teleport may move the player,
+not a fence at a position (supported hypothesis, border.md). The four places now
+say so, and no on-foot recheck is planned.
+
+## 2026-10-22: Correction: the border settling test is running, not waiting
+
+The phase 0 ledger entry above was written before 20:53 UTC and says the settling
+test (each variant's fields in the markers plugin, 3 runs each of control, city and
+nosmall on one save) is staged and waits on the owner's line. The owner gave the
+line in the Install thread at 20:53 UTC ("Go ahead and run the test"), so the test
+is running on the PC. The ROADMAP, README and playtest row 29 say so (#498); this
+entry records the change, and the entry above stands as written.
+
+## 2026-10-22 Codex: paired-stage reconciliation with animated doors and batch install
+
+Merged main db7c015c into the isolated #410 branch, resolving six real conflicts.
+Both parents' nonempty journal and optimization lines remain in order. The core
+stage retains multi-file clusters, source-model lookup for animated doors, and
+the separate persistent-identity and world-border controls. The immutable paired
+request gains no options; its orchestration, marker store, allocator and VMAD
+caller sources are unchanged from e185e7ac.
+
+The initial merge failed both new actual-writer mixed-door tests: the new DOOR
+constructor called the stable allocator without a semantic key. Both DOOR and
+ACTI constructors now retain the door-base key. Mixed animated/plain doors keep
+base/reference/arrival identities and raw records through reorder/growth/removal;
+legacy bootstrap preserves plugin/map bytes. Both resulting maps also pass the
+read-only identity audit (record fields are checked separately by the tests).
+
+Eight new batch entry/location/control cases reproduced a readiness bypass:
+batch dispatch reached game-path access despite an unresolved root or port
+publication. Both pending and lease controls now refuse before inventory/game
+access, preserving their bytes. Existing valid synthetic install/uninstall cases
+remain valid. These calls used temporary synthetic game directories only.
+
+Selected TerrainOverlays build, 168 targeted Windows tests (167 passes, one
+symlink-privilege skip), guard and whitespace checks pass. Original failures,
+passing fixtures and parent continuity evidence are retained. Independent
+current-head QA and hosted CI remain pending. No private stage, game action,
+deployment, main merge or native door/return/save acceptance is implied.

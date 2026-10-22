@@ -171,7 +171,7 @@ def stage(a):
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_Min00 (start game enabled), NPC_ FO4_PrestonGarvey, Preston's ACHR
 at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raiders'])} raider ACHRs of FO4_LvlRaider at
 Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
-Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
+Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m, kept by QUST FO4SF_CodsworthKeeper (start game enabled, so it also starts on an existing save)" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
 Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc (beside this file).
 Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
