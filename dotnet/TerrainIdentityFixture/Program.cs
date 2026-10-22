@@ -10,7 +10,11 @@ var key = ModKey.FromNameAndExtension("Starfield.esm");
 var release = StarfieldRelease.Starfield;
 var mod = new StarfieldMod(key, release);
 mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
-var world = new Worldspace(new FormKey(key, 0x02DF8C), release) { EditorID = "SyntheticTemplateWorld" };
+// LC172World's two border fields (docs/terrain/border.md): SmallWorld and HNAM 0, which "world_data" may change
+var world = new Worldspace(new FormKey(key, 0x02DF8C), release)
+{
+    EditorID = "SyntheticTemplateWorld", Flags = Worldspace.Flag.SmallWorld, HNAM = new Noggog.MemorySlice<byte>(new byte[] { 0 }),
+};
 world.Components.Add(new WorldSpaceOverlayComponent());
 mod.Worldspaces.Add(world);
 mod.SurfaceBlocks.Add(new SurfaceBlock(new FormKey(key, 0x102382), release) { EditorID = "SyntheticTemplateBlock" });

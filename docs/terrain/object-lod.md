@@ -80,7 +80,8 @@ So the spike needs no clicking if these work. Its plan:
    `Data`, and a name listing cannot tell a new file from one it overwrote (a file left by an interrupted run, or
    another loose-file mod's), so before the run copy every loose file under the output paths above
    (`LODSettings`, `Meshes\LOD\Generated`, `Materials\LOD\Generated`, `Textures\LOD\Generated`, `distantlod`)
-   to the staging folder and record a sha256 listing of all of `Data`'s loose files; after the run, move every
+   to the staging folder (and `Meshes\Terrain\<World>\Objects`, where the oracle run put its NIFs; see below) and
+   record a sha256 listing of all of `Data`'s loose files; after the run, move every
    new file to staging, restore every changed file from the copy, and check the listing matches again. Only then
    is `Data` as it was. This install reads no loose files, so nothing reaches the game meanwhile.
 2. The tiny custom-world gate from the plan above, with the same backup: the same command on a plugin of ours
@@ -91,3 +92,56 @@ So the spike needs no clicking if these work. Its plan:
    has 648k references, so it is timed, run at Idle, and needs disk room.
 4. If it works, the generated files go into a ba2 beside the core, with their own installer, as for the map
    markers.
+
+## What the runs showed (Claude-cloud, 2026-10-22; Install ran them on the PC, read-only, Data restored)
+
+1. **Oracle (verified).** `CreationKit.exe -MockWorldSpaceLOD:Starfield.esm LC172World` exits 0 after 130 s with
+   no window. It writes placeholders only: a zeroed 20-byte `LODSettings\LC172World.LOD` and four 10,843-byte
+   `Meshes\Terrain\LC172World\Objects\LC172World.{1,2,4,8}.0.0.nif`, real NIFs whose `BSWeakReferenceNode`
+   names the full meshes with their transforms. That is the FO4-style per-block layout
+   (`<World>.<level>.<x>.<y>.nif`), not the shipped per-mesh `meshes/lod/generated/<mesh>_lod_<n>.nif` form; which
+   of the two a custom world is read from is **unresolved**. A mock run shows only what the CK writes; which
+   layout the game reads is answered in game only, by staging the output and looking at the surface map (the
+   tiny-overlay check in `surface-map.md`).
+   Output under `D:\Modding\staging\lod_spike_lc172\out`.
+2. **Stats (verified).** `-GenerateMeshLODStats:Starfield.esm stats.csv FO4TerrainCore.esm` (the destination must
+   end in `.csv`; the trailing argument loads our plugin) exits 0 after 194 s and writes only `stats.csv`: 3,187
+   rows (Name, Template, Form Type, triangle counts, LOD1-3 ratios and sizes), every one a vanilla mesh and none
+   of ours. The Template column (Reduction 1,577, Rock 888, Tree 668, Treehorizontal 37, Signage 2, Nozfighting 1)
+   is the per-base-record setting the generator reduces by; it lives in the base record's `BGSLodOwner_Component`
+   (Mutagen `LodOwnerComponent`, a raw REFL blob), which our STATs do not carry (`new Static { EditorID, Model }`).
+   Warnings: "LOD Owner [] is not a TESObject" and a missing
+   `Data\LODSimplygonGenerationSettings\GenerationConfig.json`.
+3. **No generator found on the PC (verified as a search).** No Simplygon library and no `GenerationConfig.json`
+   in the game folder, `ContentResources.zip` or `Reference_Files.zip`. The stats run names the config as missing
+   and the Template column as the generator's input.
+
+Supported hypothesis (**unresolved**): the Creation Kit here cannot generate per-object LOD meshes. No generation
+was attempted; the window's "Generate LOD" command, or `-GenerateMeshLODAssociations` on a plugin whose STATs
+carry a LOD owner template, would establish it (or refute it). Until then the plan assumes it, because the other
+route needs no generator: buildings on the surface map for our statics mean converting FO4's own LOD meshes (the
+STAT `MNAM` distant models under FO4 `Data\Meshes\LOD\`) into Starfield's layout, with the plain-shader NIF
+conversion the Red Rocket crash forced (#460). That is a later phase; Grok is scoping the path mapping
+(`fo4-lod-mesh-scoping.md`).
+
+4. **Mock run on our core (verified, 2026-10-22 19:35Z).** `-MockWorldSpaceLOD:FO4TerrainCore.esm
+   FO4Core_Commonwealth` (worldspace names only, no plugin fallback: the command has no trailing plugin argument,
+   unlike the stats command) exits 0 after 192 s and writes nothing: 732 loose files before, 0 new, 0 changed,
+   0 missing (listings in `D:\Modding\staging\lod_mock_cw`, log `lod_mock_cw.log`). `EditorDataFilesLoaded`
+   lists 000 Starfield.esm and 001 FO4TerrainCore.esm, so the plugin loaded; `EditorWarnings` says
+   `LODGENERATION: Failed to find worldspace: [FO4Core_Commonwealth]` (and an unrelated
+   `PARTICLE_ENGINE: Failed to find VFX LOD curve preset for ID: 1`). The WRLD's EDID is `FO4Core_Commonwealth`
+   (BorderProbe reads it; 02000803 at run time, local 000803). The backup copy set for this and every later run
+   includes `Meshes\Terrain\<World>\Objects`, where the oracle put its NIFs.
+
+Why the CK did not find our world is **unresolved**; the candidates, cheapest first, each one run of about three
+minutes with the backup protocol: (A) `-MockWorldSpaceLOD:FO4TerrainCore.esm LC172World`: if the vanilla world
+is found with our plugin named, the lookup is global and the fault is in our record or name, not the load; (B)
+a zeroed 20-byte `LODSettings\FO4Core_Commonwealth.LOD` placed first (a copy of the oracle's zeroed output,
+renamed, removed after the run): if the warning goes away, the LOD generator finds worldspaces through their
+`lodsettings` files, not the form table; (C) the form ID in place of the name (`01000803`, then `000803`), in
+case the lookup takes IDs. A pass on any of them is generation evidence only: it revives the placeholder route up to the in-game
+check (stage the output and look at the surface map; if the game draws the weak-reference placeholders for our
+world, the map gets buildings without any LOD mesh; installing those loose files waits for the owner's line). A
+fail on all three sends the question to the tiny custom-world gate from the
+plan above, which tells custom-world support from anything about the core, before the route is closed.
