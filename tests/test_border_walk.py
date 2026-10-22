@@ -70,6 +70,10 @@ class ReportTests(unittest.TestCase):
                       open(os.path.join(queue, "queue.json"), "w"))
             json.dump({"spawn_read": " ".join(map(str, arrival)), "legs": legs, "walk_stopped": "boundary"},
                       open(os.path.join(queue, "tests", "0000_walk_border_h000", "a1", "obs.json"), "w"))
+            stale = os.path.join(queue, "tests", "0000_walk_border_h000", "a1_interrupted_20261022T120000")
+            os.makedirs(stale)                              # Codex on #444: a renamed interrupted attempt never counts
+            json.dump({"spawn_read": " ".join(map(str, arrival)), "legs": legs[:1], "walk_stopped": "stopped"},
+                      open(os.path.join(stale, "obs.json"), "w"))
             svg, out = os.path.join(d, "b.svg"), os.path.join(d, "b.csv")
             with redirect_stdout(io.StringIO()) as s:
                 bw.main(["report", "--queue", queue, "--plan", plan, "--svg", svg, "--csv", out,

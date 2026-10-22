@@ -24,7 +24,6 @@ Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
 import csv
-import glob
 import json
 import math
 import os
@@ -187,6 +186,15 @@ def ray_result(test, obs):
     return r
 
 
+def latest_attempt(qdir, test_id):
+    """The test's newest attempt folder a<n> (door_rounds.latest_attempt): an interrupted attempt's renamed folder
+    (a1_interrupted...) never counts (Codex on #444)."""
+    d = os.path.join(qdir, "tests", test_id)
+    tries = sorted((int(m.group(1)), n) for n in (os.listdir(d) if os.path.isdir(d) else [])
+                   for m in [re.fullmatch(r"a(\d+)", n)] if m)
+    return os.path.join(d, tries[-1][1]) if tries else None
+
+
 def svg_map(results, offset, markers, extra, path):
     pts = [p for r in results for p in (r["arrival"], r["last"]) if p] + [e[1] for e in extra]
     if not pts:
@@ -242,9 +250,8 @@ def cmd_report(a):
     for t in q.get("tests") or []:
         if t.get("kind") != "walk" or t.get("ref") not in labels:
             continue
-        hits = sorted(glob.glob(os.path.join(a.queue, "tests", t["id"], "a*", "obs.json")),
-                      key=lambda d: int(re.sub(r"\D", "", os.path.basename(os.path.dirname(d))) or 0))
-        obs = load(hits[-1]) if hits else {}
+        d = latest_attempt(a.queue, t["id"])
+        obs = load(os.path.join(d, "obs.json")) if d and os.path.exists(os.path.join(d, "obs.json")) else {}
         results.append(ray_result(t, obs))
     offset = None
     for r in results:
