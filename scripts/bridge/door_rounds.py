@@ -16,9 +16,10 @@ usage:
       door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door that fails a
       check is listed as skipped, with why, and never planned. Writes plan.json (two terrain tests per door),
       rounds.json (what each test must read) and README.txt. Refuses an existing --out. Nothing is linked or copied.
-      --legs out plans only the OUT legs, so each one starts with a coc from wherever the launch put the player (the
-      owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary Reached;
-      with both legs the IN leg hops to the door first and the OUT jump is short). --border-off adds console_pre
+      --legs out plans, per door, the core's Red Rocket arrival (unjudged) and then the OUT leg's coc into the interior
+      (the owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary
+      Reached; with both legs the IN leg hops to the door first and the OUT jump is short). Plan it without --fresh:
+      the launch cell is an interior (Vault111Cryo), so a relaunch would lose the Red Rocket arrival. --border-off adds console_pre
       GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI to every test (and a GetINI after the arrival), to learn whether the border can be
       switched off in a running game (unresolved, docs/ai/test-queue.md).
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
@@ -299,8 +300,13 @@ def stage(a):
     plan, expect = [], []
     for k, r in enumerate(rounds):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
-        legs = [(f, ef), (b, eb)] if a.legs == "both" else [(b, eb)]
+        # --legs out: each OUT leg follows a fresh arrival at Red Rocket in the same session (the core plan's own first
+        # entry, judged by nobody), so its coc leaves the engine's last exterior position there, as the owner's was
+        legs = [(f, ef), (b, eb)] if a.legs == "both" else [(dict(first), None), (b, eb)]
         for entry, exp in legs:
+            if exp is None:
+                plan.append(entry)
+                continue
             if a.border_off:
                 entry = border_off(entry)
             expect.append(dict(exp, test=len(plan)))
@@ -323,14 +329,15 @@ def stage(a):
 
 
 def stage_readme(info):
-    each = "two tests each" if info.get("legs", "both") == "both" else "the OUT leg only (a coc from the launch's position)"
+    each = ("two tests each" if info.get("legs", "both") == "both"
+            else "the OUT leg only, each after an unjudged Red Rocket arrival")
     lines = [f"Door round trips (scripts/bridge/door_rounds.py): {len(info['doors'])} scripted load doors, {each}."
              + (' Every test first types GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI.'
                 if info.get("border_off") else ""),
              f"Checked against the installed plugins {info['core_plugin']} (index {info['core_index']}) and",
              f"{info['port_plugin']} (index {info['port_index']}); the core build {info['core']} gave the pairs.",
              "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>"
-             + (" --fresh  (required: each OUT leg must start from a new launch, not where the last one left the player)"
+             + ("  (no --fresh: each OUT leg runs right after its own Red Rocket arrival, in the same session)"
                 if info.get("legs", "both") == "out" else ""),
              "  --bridge <the installed bridge staging>  (no --plugins: the installed set is not touched).",
              "Judge: door_rounds.py judge --queue <queue>.", ""]

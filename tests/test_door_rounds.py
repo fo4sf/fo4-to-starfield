@@ -114,22 +114,24 @@ class StageTests(unittest.TestCase):
         core, port, _back = build(d)
         both, both_plan = stage(core, port, os.path.join(d, "both"))
         rounds, plan = stage(core, port, os.path.join(d, "out"), "--legs", "out", "--border-off")
-        self.assertEqual(len(plan), 1)                          # the OUT leg only: a coc from the launch, no hops first
-        self.assertEqual(plan[0]["coc"], "FO4Port_SuperDuperMart01")
-        self.assertEqual(plan[0]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
+        with open(os.path.join(core, "plan.json")) as f:
+            spawn = json.load(f)[0]
+        self.assertEqual(len(plan), 2)                          # Red Rocket first (Codex on #444), then the OUT leg
+        self.assertEqual(plan[0], spawn)
+        self.assertEqual(plan[0]["coc"], dr.SPAWN_COC)
+        self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
+        self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
                                                   'SetINI "bBorderRegionsEnabled:General" 0',
                                                   'GetINI "bBorderRegionsEnabled:General"'])
-        self.assertEqual(plan[0]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
-        self.assertEqual({k: v for k, v in plan[0].items() if k not in ("console_pre", "console_post")},
+        self.assertEqual(plan[1]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual({k: v for k, v in plan[1].items() if k not in ("console_pre", "console_post")},
                          {k: v for k, v in both_plan[1].items() if k != "console_post"})
-        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=0)])
+        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=1)])   # the arrival is judged by nobody
         self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
         self.assertNotIn("console_pre", both_plan[0])
-        with open(os.path.join(d, "out", "README.txt")) as f:   # Codex on #444: each OUT leg from a new launch
-            self.assertIn("--fresh  (required", f.read())
-        with open(os.path.join(d, "both", "README.txt")) as f:
-            self.assertNotIn("--fresh", f.read())
-        for line in plan[0]["console_pre"] + plan[0]["console_post"]:   # the runner types only whitelisted lines
+        with open(os.path.join(d, "out", "README.txt")) as f:   # a relaunch would land in Vault111Cryo, not Red Rocket
+            self.assertIn("no --fresh", f.read())
+        for line in plan[1]["console_pre"] + plan[1]["console_post"]:   # the runner types only whitelisted lines
             self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
 
     def test_the_stage_records_the_cores_worldspaces(self):
