@@ -4,14 +4,87 @@ For the owner, by Claude (2026-10-16). Every line below is a console command (op
 the grave key `` ` ``; close it the same way). Copy a line, paste it into the console, Enter. Nothing here changes your
 saves on disk unless you save; the test save `fo4sf_test_2470f876` is the runner's and can be overwritten.
 
-**What is installed for you right now:** `terrain_core64k` = the whole playable Commonwealth exterior (64 x 64 cells,
+**What was installed on 16 Oct (history; section A names today's build):** `terrain_core64k` = the whole playable Commonwealth exterior (64 x 64 cells,
 648,358 placed objects) + its navmesh (12,104 NAVM) + 5,156 containers and 12,438 loose items as real Starfield containers and items, 2,246 activators, 140 terminals, 6,249 exterior lights, 29 workshops (build stations) and 269 crafting benches; interiors = `integ_1018` (vault door rigs, posed skeletons and scanners, the shooting-crash collision fix #274; the exterior carries the same fix) + the converted
 raider (`FO4ActorRaider.esm`), on top of the pinned interior build `FO4Port.esm` and the observation bridge
 `FO4SFBridge.esm`. Section 8 says what is known not to work yet. If Starfield shows a "load order changed" dialog at
 start, choose **Current**.
 
-**Form ids in this sheet** start with `03`, the load index of `FO4TerrainCore.esm` in your load order (FO4Port.esm is
-`02`). The runner's own sessions load it at `02`, so its logs show `02...` for the same objects.
+**Form ids in sections 1 to 8** are the 16 Oct load order: `03` was the load index of `FO4TerrainCore.esm` and `02`
+FO4Port.esm (the runner's own sessions loaded it at `02`, so its logs show `02...` for the same objects). They are
+not the v6i indexes, which moved on 22 Oct (section A), so read the current Plugins.txt before any `prid` from those
+sections, or use the cell and object names instead.
+
+## A. Next session (22 Oct 2026): the checks that close phase 0
+
+Added 22 Oct. The installed build is now v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8) plus
+the map markers plugin; sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
+section A is on the owner's live test sheet (https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b), with copy buttons
+and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth rendering, the four map markers. Console ids
+moved on 22 Oct (Codsworth went from 06000811 to 05000811 because Plugins.txt was rewritten 25 s after start; the
+game is the inferred writer, not a traced one), so this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
+
+**Which build closes the phase:** v6j (v6i plus the border fix) is being built. If it is installed when the owner
+plays, this session's results close phase 0. On v6i they are a preview: failures get fixed before the rebuild, and
+A2 to A5 are run again on v6j.
+
+**Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
+starts fresh; the 19 Oct save already completed it and cannot replay it.
+
+### A1. Start
+
+Through the launcher window (the desktop shortcut). The crash watcher starts with the game. Pick **Current** at the
+plugin warning if it shows. At the main menu choose Load and pick `fo4sf_test_1d4591b6_s100`. Once in control, open
+the console and go to Red Rocket: `coc FO4Core_RedRocketSpawn` (on 19 Oct this crashed v6; the cause was Codsworth's
+model, fixed on 22 Oct, and the automated Red Rocket walks passed after the fix). Take a Ctrl+Alt+L screenshot of
+anything odd, all the way through.
+
+### A2. Mission: When Freedom Calls (NPC thread's asks)
+
+Walk the road from Red Rocket to the Museum of Freedom in Concord. Expected: the Missions tab shows When Freedom Calls
+with Find the Last Minutemen; the raiders fight you near the museum; Preston never shoots you, even after he is downed;
+after the raiders die, walk up to Preston: +100 credits and the mission reads complete.
+Report: `Mission: tab YES/NO | raiders fought YES/NO | Preston shot me YES/NO | credits YES/NO | complete YES/NO`.
+
+### A3. Codsworth (NPC and Bugs)
+
+Then walk to Sanctuary. Expected: a small hovering robot named Codsworth near his house, with his own Fallout 4 look
+(size and textures). Stand near him: his greeting is heard, subtitle only, or neither.
+Report: `Codsworth: at his house YES/NO | look OK/OFF (what) | greeting HEARD/SUBTITLE/NEITHER`. If he is not there on
+this save either, say so; that is the fix Bugs is working on.
+
+### A4. Map extent (Map thread's ask)
+
+Back at Red Rocket: `player.getpos x`, `player.getpos y`, `player.getpos z`. Open the surface map, zoom out until the
+whole merged area shows, and take a Ctrl+Alt+L screenshot of it. (The 3D-view spots, Cydonia and the landing
+coordinates, are dropped: that was the border question, now answered.)
+On the same map, the four markers should now read their own names, Red Rocket Truck Stop, Sanctuary Hills, Vault 111
+and Concord, not "COMMONWEALTH 00 (FO4 TERRAIN)" (the fix installed at 19:32 UTC). Then fast travel to Concord: you
+should arrive standing on the ground, not in it.
+Report: `Map: getpos X Y Z | screenshot taken YES | names: own / location | Concord arrival: on the ground / in it`.
+
+### A5. Doors and prompts (Bugs and Interiors)
+
+For each: the prompt text (or "none"), and where you end up.
+
+- (a) Outside Fort Hagen (near -2470, -2772): walk up to the elevator entrance. Is there a prompt, what does it say,
+  does it take you inside?
+- (b) Outside Vault 95 (near -1916, -3985): the same at its elevator entrance.
+- (c) Inside the Museum of Witchcraft (`coc FO4Port_MuseumOfWitchcraft01`): climb to the roof hatch. Prompt? Does it
+  put you on the roof?
+- (d) Inside Fort Hagen (`coc FO4Port_FortHagen01`): the roof hatch, the same.
+- (e) Inside Vault 114 (`coc FO4Port_Vault114`, then walk to the manhole): at the exit manhole and ladder, prompt? Does
+  it put you outside on the street?
+- (f) Red Rocket's side door: does it slide open?
+
+Report per door: `(a) prompt "..." / none | ended up: ...`.
+
+### A6. Extras
+
+Any time: cans and books still pick up; press Ctrl+Alt+K once and the describe box opens in front (fixed on 22 Oct).
+No wall to check north of Vault 111: that report was a misreading and is withdrawn (the owner walked past the spot
+without the popup, 22 Oct). The border fix the owner picked (B, our world only) is being tested on the PC at the
+Vault 95 exit.
 
 ## 1. Get there
 

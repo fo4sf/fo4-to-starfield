@@ -5,7 +5,7 @@ Read only: finding and checking never writes; the window saves what the player c
 import os
 import shutil
 
-from . import locate
+from . import locate, settings
 
 # (setting, label, kind, what it is). kind: dir, file, dirs (several folders, one per line in the window, ";" saved)
 LOCATIONS = (
@@ -20,7 +20,8 @@ PROCDUMP_NAMES = ("procdump64.exe", "procdump.exe")
 
 
 def split_dirs(value):
-    return [p.strip() for p in str(value or "").replace("\n", ";").split(";") if p.strip()]
+    """The folders in a ;-separated list, each once (compared as Windows compares paths: settings.one_each)."""
+    return [p for p in settings.one_each(value).split(";") if p]
 
 
 def join_dirs(folders):

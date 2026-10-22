@@ -23,6 +23,7 @@ With the watcher off, play still starts the game and prints its exit code (a han
 
 Everything Windows-specific goes through a `System` object, so the flow is tested on synthetic stand-ins.
 """
+import codecs
 import datetime
 import os
 import re
@@ -30,14 +31,16 @@ import subprocess
 import sys
 import time
 
-from . import detect, settings as settings_mod
+from . import detect, manifest as mf, runtimes as rt, settings as settings_mod
 
 STEAM_URL = "steam://rungameid/1716740"
 ATTACH_CHECK_S = 5.0               # how long ProcDump must stay up after attaching before the watcher counts as armed
 GAME_EXE = "Starfield.exe"
+SFSE_LOADER = "sfse_loader.exe"                         # starts Starfield.exe with SFSE; the watcher follows the game
 BRIDGE = "FO4SFBridge.esm"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLUGIN_TOGGLE = os.path.join(REPO, "scripts", "game", "plugin_toggle.py")
+LOAD_ORDER = os.path.join(REPO, "scripts", "game", "load_order.py")   # the target order (its module doc)
 
 # Windows NTSTATUS / exception codes a game exit is likely to carry (winnt.h / ntstatus.h names)
 EXIT_NAMES = {
@@ -143,7 +146,8 @@ class System:
         if route == "steam":
             os.startfile(STEAM_URL)                         # noqa: the Windows shell opens Steam's URL
         else:
-            subprocess.Popen([os.path.join(starfield, GAME_EXE)], cwd=starfield)
+            exe = SFSE_LOADER if route == "sfse" else GAME_EXE
+            subprocess.Popen([os.path.join(starfield, exe)], cwd=starfield)
 
     def open_process(self, pid):
         """A handle that stays valid after the process ends, so its exit code can be read; None if refused."""
@@ -175,6 +179,18 @@ class System:
 
     def free_gb(self, path):
         return detect.free_gb(path)
+
+    def runtime_problems(self, starfield):
+        """[problems] with the game folder's Starfield.exe and SFSE against the known-runtimes table, as detect
+        judges them: an unlisted Starfield.exe, or an SFSE loader or DLL that is not the build listed with it."""
+        g = mf.game_pins(starfield)
+        exe = (g["files"].get("Starfield.exe") or {}).get("sha256")
+        if not exe:
+            return [f"{GAME_EXE} not found in {starfield}"]
+        known = rt.match_runtime(rt.load_runtimes(), exe)
+        if known is None:
+            return [f"this {GAME_EXE} (sha256 {exe[:12]}...) is not listed as a good runtime"]
+        return rt.sfse_problems(known, g)
 
     def plugin_order(self):
         """The plugins ticked in the player's Plugins.txt, in file order, or None when it cannot be read."""
@@ -323,16 +339,24 @@ PAPYRUS = ("bEnableLogging", "bEnableTrace", "bLoadDebugInformation")
 
 
 def set_papyrus(text, on):
-    """StarfieldCustom.ini text with the three [Papyrus] keys set to 1 (on) or 0 (off); everything else kept.
-    Returns (new_text, changed)."""
+    """StarfieldCustom.ini text with the three [Papyrus] keys set to 1 (on) or 0 (off); everything else kept as it
+    was, line endings included (a CRLF file stays CRLF). Returns (new_text, changed)."""
     v = "1" if on else "0"
-    lines, out, in_sec, seen, found, changed = text.splitlines(), [], False, set(), False, False
+    nl = "\r\n" if "\r\n" in text else "\r" if "\r" in text else "\n"
+    # each line with its own ending: CRLF, LF or a lone CR (Codex, #487); never the other characters splitlines takes
+    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$", text)
+    out, in_sec, seen, found, changed = [], False, set(), False, False
+
+    def add(line):
+        if out and not out[-1].endswith(("\n", "\r")):
+            out[-1] += nl                                          # the old last line had no ending
+        out.append(line + nl)
 
     def close():
         nonlocal changed
         for k in PAPYRUS:
             if k.lower() not in seen:
-                out.append(f"{k}={v}")
+                add(f"{k}={v}")
                 changed = True
     for line in lines:
         s = line.strip()
@@ -349,16 +373,33 @@ def set_papyrus(text, on):
             if hit:
                 seen.add(hit.lower())
                 if old != v:
-                    out.append(f"{hit}={v}")
+                    body = line.rstrip("\r\n")
+                    out.append(f"{hit}={v}" + line[len(body):])
                     changed = True
                     continue
         out.append(line)
     if in_sec:
         close()
     if not found:
-        out += ["[Papyrus]"] + [f"{k}={v}" for k in PAPYRUS]
+        for line in ["[Papyrus]"] + [f"{k}={v}" for k in PAPYRUS]:
+            add(line)
         changed = True
-    return "\n".join(out) + "\n", changed
+    return "".join(out), changed
+
+
+def keep_copy(path, raw):
+    """Write raw to path.bak-<time>, never over an earlier copy (two changes in one second get -2, -3, ...); the
+    copy's path. (Codex, #487)"""
+    stem = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 1000):
+        bak = stem if n == 1 else f"{stem}-{n}"
+        try:
+            with open(bak, "xb") as f:
+                f.write(raw)
+            return bak
+        except FileExistsError:
+            continue
+    raise OSError(f"no free backup name beside {path}")
 
 
 def apply_papyrus(values, say):
@@ -367,24 +408,29 @@ def apply_papyrus(values, say):
         return
     path = os.path.join(values["my_games"], "StarfieldCustom.ini")
     try:
-        old = ""
+        raw = b""
         if os.path.exists(path):
-            with open(path, encoding="utf-8-sig") as f:
-                old = f.read()
-        new, changed = set_papyrus(old, want == "on")
+            with open(path, "rb") as f:
+                raw = f.read()
+        # bytes in and out: a BOM, CRLF endings and any non-UTF-8 byte all come back as they were (phase audit)
+        if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) or b"\0" in raw:
+            # UTF-16 (or anything with NUL bytes) is not edited: a UTF-8 section appended to it would break the file
+            # (Codex, #487)
+            raise ValueError(f"papyrus logging: {path} is UTF-16 or binary, not changed; save it as UTF-8 (or ANSI) "
+                             "first, or set papyrus_logging=unchanged")
+        bom = codecs.BOM_UTF8 if raw.startswith(codecs.BOM_UTF8) else b""
+        new, changed = set_papyrus(raw[len(bom):].decode("utf-8", "surrogateescape"), want == "on")
         if not changed:
             say(f"papyrus logging: already {want} in {path}")
             return
         if os.path.exists(path):
-            bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            with open(bak, "w", encoding="utf-8") as f:
-                f.write(old)
+            bak = keep_copy(path, raw)
             say(f"papyrus logging: kept {bak}")
         # written beside it and swapped in whole: a failed write never leaves the live INI cut short (Codex, #449)
         tmp = path + ".fo4sf-tmp"
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(new)
+            with open(tmp, "wb") as f:
+                f.write(bom + new.encode("utf-8", "surrogateescape"))
             os.replace(tmp, path)
         except OSError:
             if os.path.exists(tmp):
@@ -394,6 +440,39 @@ def apply_papyrus(values, say):
         raise ValueError(f"papyrus logging: cannot read or write {path} ({e.strerror or e}); Windows Controlled "
                          "Folder Access may block Python in Documents") from None
     say(f"papyrus logging: turned {want} in {path}")
+
+
+def apply_load_order(values, starfield, system, say, dry_run=False):
+    """load_order=fix puts our plugins in the target order before the game starts, check refuses a different order,
+    off leaves Plugins.txt alone. A dry run only checks and says what fix would do. Raises on refusal."""
+    want = values["load_order"]
+    if want == "off":
+        return
+    cmd = "check" if dry_run or want == "check" else "fix"
+    code, out = system.run([sys.executable, "-I", LOAD_ORDER, cmd, "--starfield", starfield])
+    for line in out.strip().splitlines():
+        say(line if line.startswith("load order") else f"load order: {line.strip()}")
+    if code == 9 and dry_run and want == "fix":
+        say("load order: play would put it right before the start")
+        return
+    if code:
+        raise ValueError(f"load order: {out.strip().splitlines()[-1] if out.strip() else f'exit {code}'}"
+                         + ("; set load_order=fix to put it right, or off" if code == 9
+                            else "; put Plugins.txt right, or set load_order=off to start without this check"))
+
+
+def _without_sfse(values, starfield, system):
+    """The note on a start line whose route skips SFSE while an SFSE loader is in the game folder: the switch to
+    route=sfse when the listed runtime checks out, else what keeps it from working (Codex, #497)."""
+    if values["route"] == "sfse" or not os.path.isfile(os.path.join(starfield, SFSE_LOADER)):
+        return ""
+    try:
+        problems = system.runtime_problems(starfield)
+    except OSError as e:                            # an unreadable file is no reason to stop a dry run
+        return f" (without SFSE; {SFSE_LOADER} is here but its runtime could not be read: {e.strerror or e})"
+    if not problems:
+        return f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
+    return f" (without SFSE; {SFSE_LOADER} is here but route=sfse would be refused: {'; '.join(problems)})"
 
 
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):
@@ -409,8 +488,15 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             free = system.free_gb(values["crash_watch.folder"])
             if free < needed_free_gb(values):
                 bad.append(f"crash watcher: {free:.1f} GB free for dumps, under {free_floor_text(values)}")
-    if values["route"] == "exe" and not os.path.isfile(os.path.join(starfield, GAME_EXE)):
-        bad.append(f"route=exe: {GAME_EXE} not found in {starfield}")
+    for route, exe in (("exe", GAME_EXE), ("sfse", SFSE_LOADER)):
+        if values["route"] == route and not os.path.isfile(os.path.join(starfield, exe)):
+            bad.append(f"route={route}: {exe} not found in {starfield}")
+            break
+    else:
+        if values["route"] == "sfse":
+            # the loader alone is not enough: a missing or other SFSE DLL starts nothing, and play would wait for a
+            # game that never comes (Codex, #487)
+            bad += [f"route=sfse: {p} (launcher.py detect shows the whole check)" for p in system.runtime_problems(starfield)]
     if system.pids():
         bad.append("Starfield is already running: close it first (settings change only with the game closed, and "
                    "the watcher follows a game it started)")
@@ -418,14 +504,18 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         raise ValueError("; ".join(bad))
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
+            f"load order: {values['load_order']}",
             f"start: {values['route']}",
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")
                                  if cw else "off")]
     if dry_run:
+        # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
+        plan[3] += _without_sfse(values, starfield, system)
         for p in plan:
             say(p)
+        apply_load_order(values, starfield, system, say, dry_run=True)
         return {"dry_run": True, "plan": plan}
     if cw:
         try:                                        # before the game starts: the log must be writable (Codex, #449)
@@ -443,6 +533,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         apply_bridge(values, starfield, system, say)
         apply_papyrus(values, say)
 
+    apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
     order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
     t0 = system.now()
     try:
