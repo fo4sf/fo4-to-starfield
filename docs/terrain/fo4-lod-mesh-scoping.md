@@ -9,7 +9,7 @@ Scanner: `scripts/lod/list_fo4_lod_meshes.py` (JSON). Default `--radius 1` FO4 c
 ## Short answers
 
 1. **STAT MNAM names distant-LOD models under `LOD\...`.** In the three landmark cells every named file is present in `Fallout4 - Meshes.ba2` as `Meshes\LOD\...`. **verified**, offline.
-2. **Starfield per-object target is keyed by the path `convert_static` gives the full mesh**, `meshes/fo4core/<modl stem>_lod_<0-3>.nif` under `meshes/lod/generated/`. `convert_static` can write that nif + hashed `.mesh` + placeholder `.mat` if the caller passes the mapped `out_name`; pipeline/convert_batch as they stand key from the source nif and would land under `meshes/fo4core/lod/`. **verified** mapping, **supported** that CK generate would use the same key.
+2. **Starfield per-object target is keyed by the path `convert_static` gives the full mesh**, `meshes/fo4core/<modl stem>_lod_<0-3>.nif` under `meshes/lod/generated/`. `convert_static` can write that nif + hashed `.mesh` if the caller passes the mapped `out_name`; the NIF **references** vanilla placeholder `Materials\Common\Metal\MetalIronCast01.mat` and does not write a `.mat` (generated `.mat` is the pipeline path). pipeline/convert_batch as they stand key from the source nif and would land under `meshes/fo4core/lod/`. **verified** mapping, **supported** that CK generate would use the same key.
 3. **`lodsettings/fo4core_commonwealth.lod` is 20 bytes** `-32, -32, 64` then eight zeros: `e0ffffff e0ffffff 40000000 00000000 00000000`. **supported** (overlay cell range **verified**; the three-i32 meaning is the Map thread's supported hypothesis).
 4. **Unresolved, Claude in-game:** `distantlod/lodruntimedb.bgsdb` entry; per-world composite LOD; whether the game draws per-object LOD for a world with no CK output; which of the two layouts (per-mesh generated vs per-block `Meshes\Terrain\<world>\Objects\`) a custom world is read from.
 5. **Not the surface-map NOT-go.** Re-keying into `meshes/lod/generated/` is a different path and consumer from shipping converted FO4 `*_lod.nif` under `meshes/fo4core/lod`.
@@ -98,7 +98,7 @@ Many MNAM records repeat the same path in slots 0 and 1. Trees often name `_LOD_
 
 ## 2. Starfield path mapping
 
-`convert_batch --prefix fo4core` (core64c) sets `out_name = fo4core/<modl without Meshes/ prefix, lower, no extension>`. `convert_static` writes `meshes/{out_name}.nif` plus `geometries/<sha1[:20]>/<sha1[20:40]>.mesh` and names `Materials\Common\Metal\MetalIronCast01.mat` unless the caller passes `material_paths`. **verified** (`pipeline.convert_nif`, `convert_static.convert_static`).
+`convert_batch --prefix fo4core` (core64c) sets `out_name = fo4core/<modl without Meshes/ prefix, lower, no extension>`. `convert_static` writes `meshes/{out_name}.nif` plus `geometries/<sha1[:20]>/<sha1[20:40]>.mesh` and **references** vanilla `Materials\Common\Metal\MetalIronCast01.mat` in the NIF unless the caller passes `material_paths`; it does not write a `.mat`. Generated `.mat` output is `pipeline.convert_nif`. **verified** (`pipeline.convert_nif`, `convert_static.convert_static`).
 
 Per-object form from object-lod.md (Map thread; not edited here): `meshes/lod/generated/<mesh path>_lod_<0-3>.nif`, keyed by the full mesh. Applying that to the converted full mesh:
 
@@ -108,8 +108,8 @@ Per-object form from object-lod.md (Map thread; not edited here): `meshes/lod/ge
 | converted full mesh | `meshes/fo4core/interiors/redrocket/redrext_workshop01.nif` |
 | per-object LOD 0 | `meshes/lod/generated/meshes/fo4core/interiors/redrocket/redrext_workshop01_lod_0.nif` |
 | `.mesh` | content-addressed `geometries/<20 hex>/<20 hex>.mesh` |
-| material as `convert_static` stands | `Materials\Common\Metal\MetalIronCast01.mat` |
-| pipeline material if converted as a normal STAT | `materials/fo4core/interiors/redrocket/redrext_workshop01.mat` (**supported**; vanilla per-object LOD keeps the source mesh's materials) |
+| material referenced by `convert_static` (not written) | vanilla `Materials\Common\Metal\MetalIronCast01.mat` |
+| generated `.mat` if converted as a normal STAT (pipeline) | `materials/fo4core/interiors/redrocket/redrext_workshop01.mat` (**supported**; vanilla per-object LOD keeps the source mesh's materials) |
 
 `convert_static` **as it stands**:
 

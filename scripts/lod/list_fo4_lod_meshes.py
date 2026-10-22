@@ -148,8 +148,9 @@ def starfield_targets(fo4_modl: str, prefix: str = CONVERT_PREFIX) -> dict:
         "material": PLACEHOLDER_MATERIAL,
         "convert_static_as_stands": (
             "convert_static(fo4_lod_nif, out_name=convert_static_out_name[level]) writes the "
-            "per-object nif path plus hashed .mesh and PLACEHOLDER_MATERIAL. It does not pick "
-            "that out_name itself (pipeline keys from the source nif under --prefix). No "
+            "per-object nif path plus hashed .mesh and references PLACEHOLDER_MATERIAL; it "
+            "does not write a .mat. Generated .mat output is the pipeline path. It does not "
+            "pick that out_name itself (pipeline keys from the source nif under --prefix). No "
             "collision unless a template is passed. It cannot write the per-block Terrain\\"
             "<world>\\Objects form."
         ),

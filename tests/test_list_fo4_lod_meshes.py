@@ -117,8 +117,17 @@ class PathMappingTests(unittest.TestCase):
             lod.per_object_generated_lod_path(full, 1),
         )
 
-    def test_placeholder_material_matches_convert_static(self):
+    def test_placeholder_material_is_referenced_not_written(self):
         self.assertEqual(lod.PLACEHOLDER_MATERIAL, convert_static.PLACEHOLDER_MATERIAL)
+        self.assertEqual(
+            lod.PLACEHOLDER_MATERIAL,
+            "Materials\\Common\\Metal\\MetalIronCast01.mat",
+        )
+        note = lod.starfield_targets("Interiors\\RedRocket\\RedRExt_Workshop01.nif")
+        self.assertEqual(note["material"], convert_static.PLACEHOLDER_MATERIAL)
+        self.assertIn("references PLACEHOLDER_MATERIAL", note["convert_static_as_stands"])
+        self.assertIn("does not write a .mat", note["convert_static_as_stands"])
+        self.assertIn("Generated .mat output is the pipeline path", note["convert_static_as_stands"])
 
     def test_per_block_and_lodsettings_overlay_range(self):
         self.assertEqual(
