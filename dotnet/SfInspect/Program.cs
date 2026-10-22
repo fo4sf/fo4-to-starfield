@@ -14,6 +14,7 @@
 //   dotnet run -- <Starfield.esm> npc <hex,hex>      all fields of NPC_ records (verifies the FormIDs exist)
 //   dotnet run -- <Starfield.esm> props <Class>      Mutagen's Starfield schema for a record class (Npc, NavmeshGeometry)
 //   dotnet run -- <Starfield.esm> doortsv            one TSV row per DOOR: graph (ANAM), rig (BNAM), clip folder (CNAM), flags
+//   dotnet run -- <Starfield.esm> doorsounds         one TSV row per DOOR with sounds: open / close WWise events, graph, rig
 //   dotnet run -- <Starfield.esm> furn <substr> [n]   FURN without a bench type (chairs, beds, ...): markers, template, graph
 //   dotnet run -- <Starfield.esm> scripted <Script>  bases and placed refs with that script (base, graph, linked-ref keywords)
 using Mutagen.Bethesda.Plugins.Cache;
@@ -117,6 +118,21 @@ switch (args[1])
             Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), d.Model?.File?.ToString() ?? "",
                 agc?.ANAM ?? "", agc?.BNAM ?? "", agc?.CNAM ?? "", d.Flags.ToString(),
                 string.Join("|", d.Keywords?.Select(k => k.FormKey.ToString()) ?? Array.Empty<string>())));
+        }
+        break;
+    case "doorsounds":  // read-only: one TSV row per DOOR with a sound (WWise start / stop events, condition, event mapping)
+        {
+            string Snd(ISoundReferenceGetter? r) => r == null ? "\t\t\t" : string.Join("\t", r.Start.ToString(), r.Stop.ToString(),
+                r.Condition.IsNull ? "" : r.Condition.FormKey.ToString(), r.EventMapping.IsNull ? "" : r.EventMapping.FormKey.ToString());
+            Console.WriteLine("editor_id\tformkey\tanam\tbnam\topen_start\topen_stop\topen_condition\topen_mapping" +
+                              "\tclose_start\tclose_stop\tclose_condition\tclose_mapping\tloop");
+            foreach (var d in mod.Doors)
+            {
+                if (d.OpenSound == null && d.CloseSound == null && d.LoopSound == null) continue;
+                var agc = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+                Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), agc?.ANAM ?? "", agc?.BNAM ?? "",
+                    Snd(d.OpenSound), Snd(d.CloseSound), d.LoopSound == null ? "" : d.LoopSound.Start.ToString()));
+            }
         }
         break;
     case "doorprops":
@@ -418,6 +434,50 @@ switch (args[1])
         }
         break;
     }
+    case "doorrefs":   // read-only: doorrefs <DOOR EditorID substr> [n]: placed doors of those bases, every REFR property, their linked
+                       // references with each target's base, and the references that link to them (how a vanilla load elevator is wired)
+        {
+            var sub = args[2]; var max = args.Length > 3 ? int.Parse(args[3]) : 6;
+            var placed = new List<(IPlacedObjectGetter r, string where)>();
+            foreach (var c in cells)
+                foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) placed.Add((r, c.EditorID ?? c.FormKey.ToString()));
+            foreach (var w in mod.Worldspaces)
+            {
+                if (w.TopCell != null)
+                    foreach (var r in w.TopCell.Persistent.Concat(w.TopCell.Temporary).OfType<IPlacedObjectGetter>()) placed.Add((r, w.EditorID ?? ""));
+                foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
+                    foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) placed.Add((r, (w.EditorID ?? "") + "/" + (c.EditorID ?? c.FormKey.ToString())));
+            }
+            var byKey = new Dictionary<Mutagen.Bethesda.Plugins.FormKey, IPlacedObjectGetter>();
+            foreach (var (r, _) in placed) byKey.TryAdd(r.FormKey, r);
+            string BaseOf(Mutagen.Bethesda.Plugins.FormKey fk) =>
+                byKey.TryGetValue(fk, out var t) && cache.TryResolve<Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter>(t.Base.FormKey, out var b)
+                    ? $"{b.GetType().Name.Replace("BinaryOverlay", "")} {b.EditorID}" : "?";
+            var picked = placed.Where(x => cache.TryResolve<IDoorGetter>(x.r.Base.FormKey, out var d) && (d.EditorID ?? "").Contains(sub, StringComparison.OrdinalIgnoreCase)).Take(max).ToList();
+            Console.WriteLine($"placed objects: {placed.Count}; doors of bases matching '{sub}' shown: {picked.Count}");
+            foreach (var (r, where) in picked)
+            {
+                Console.WriteLine($"== {r.FormKey} base {Edid(cache, r.Base.FormKey)} in {where} pos {r.Position} flags 0x{r.MajorRecordFlagsRaw:X}");
+                foreach (var p in r.GetType().GetProperties())
+                {
+                    if (p.GetIndexParameters().Length > 0 || p.Name is "StaticRegistration" or "Registration") continue;
+                    object? v; try { v = p.GetValue(r); } catch (Exception e) { v = "ERR " + e.GetType().Name; }
+                    if (v == null) continue;
+                    var s = v is System.Collections.IEnumerable en && v is not string ? "[" + string.Join(", ", en.Cast<object>().Take(16)) + "]" : v.ToString() ?? "";
+                    if (s.Length == 0 || s == "[]") continue;
+                    Console.WriteLine($"   {p.Name} = {(s.Length > 240 ? s.Substring(0, 240) + "..." : s)}");
+                }
+                if (r.TeleportDestination is { } t)
+                    Console.WriteLine($"   XTEL -> {t.Door.FormKey} ({BaseOf(t.Door.FormKey)}) flags {t.Flags} at {t.Position}");
+                foreach (var l in r.LinkedReferences)
+                    Console.WriteLine($"   link {Edid(cache, l.KeywordOrReference.FormKey)} -> {l.Reference.FormKey} ({BaseOf(l.Reference.FormKey)})");
+                foreach (var (o, ow) in placed.Where(x => x.r.LinkedReferences.Any(l => l.Reference.FormKey == r.FormKey)).Take(12))
+                    Console.WriteLine($"   linked from {o.FormKey} ({BaseOf(o.FormKey)}) in {ow} by {string.Join(",", o.LinkedReferences.Where(l => l.Reference.FormKey == r.FormKey).Select(l => Edid(cache, l.KeywordOrReference.FormKey)))}");
+                if (r.EnableParent is { } ep)
+                    Console.WriteLine($"   enable parent {ep.Reference.FormKey} ({BaseOf(ep.Reference.FormKey)}) flags {ep.Flags}");
+            }
+        }
+        break;
     case "doorrec":   // one DOOR record by EditorID substring: every property, for comparing a load door with a hinged door
         foreach (var d in mod.Doors.Where(d => (d.EditorID ?? "").Contains(args[2], StringComparison.OrdinalIgnoreCase)).Take(3))
         {

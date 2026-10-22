@@ -1,8 +1,10 @@
 """scripts/bridge/door_rounds.py: door round trips planned against the installed plugins and judged from the bridge's
 log (synthetic core and port plugins, synthetic logs)."""
+import hashlib
 import io
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -13,6 +15,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "bridge"))
 import door_rounds as dr  # noqa: E402
 import vmad_patch as vp  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+import console_plan  # noqa: E402
 
 OWN = 0x01000000
 MERGE = (-1200.0, -2700.0, 0.0)
@@ -101,6 +105,60 @@ class StageTests(unittest.TestCase):
         for got, want in zip(t1["pos"], back):
             self.assertAlmostEqual(got, want, places=3)
         self.assertEqual(t0["hops"], 3)                        # 728 m at 185 m a hop
+        with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
+        self.assertEqual(rounds["core_worlds"], [])           # the synthetic core has no WRLD record
+
+    def test_out_legs_alone_and_the_border_switch(self):
+        d = tempfile.mkdtemp()
+        core, port, _back = build(d)
+        both, both_plan = stage(core, port, os.path.join(d, "both"))
+        rounds, plan = stage(core, port, os.path.join(d, "out"), "--legs", "out", "--border-off")
+        with open(os.path.join(core, "plan.json")) as f:
+            spawn = json.load(f)[0]
+        self.assertEqual(len(plan), 2)                          # a Red Rocket prelude (Codex on #444), then the OUT leg
+        self.assertEqual((plan[0]["coc"], plan[0]["spawn_local"], plan[0]["points"]),
+                         (dr.SPAWN_COC, spawn["spawn_local"], spawn["points"][:1]))   # arrival only, no sweep
+        self.assertEqual(plan[0]["beyond"], {"x": spawn["points"][0]["x"], "y": spawn["points"][0]["y"]})
+        self.assertNotIn("activate", plan[0])
+        self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
+        self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
+                                                  'SetINI "bBorderRegionsEnabled:General" 0',
+                                                  'GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual(plan[1]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual({k: v for k, v in plan[1].items() if k not in ("console_pre", "console_post")},
+                         {k: v for k, v in both_plan[1].items() if k != "console_post"})
+        origin = rounds["tests"][0].pop("origin")               # the prelude is judged by nobody; the OUT leg checks it
+        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=1)])
+        self.assertEqual(origin["tol_m"], dr.ORIGIN_TOL_M)
+        for got, want in zip(origin["pos"], vp.merged([spawn["points"][0]["x"], spawn["points"][0]["y"]], rounds["merge"])):
+            self.assertAlmostEqual(got, want, places=3)
+        self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
+        self.assertNotIn("console_pre", both_plan[0])
+        with open(os.path.join(d, "out", "README.txt")) as f:   # a relaunch would land in Vault111Cryo, not Red Rocket
+            self.assertIn("no --fresh", f.read())
+        for line in plan[1]["console_pre"] + plan[1]["console_post"]:   # the runner types only whitelisted lines
+            self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
+
+    def test_the_stage_records_the_cores_worldspaces(self):
+        d = tempfile.mkdtemp()
+        core, port, _ = build(d)
+        p = os.path.join(core, "FO4TerrainCore.esm")
+        with open(p, "ab") as f:                               # one WRLD top group after the cells
+            f.write(vp.Group(b"WRLD", 0, bytes(8), [rec(b"WRLD", OWN | 0x803, [(b"EDID", b"FO4Core_Commonwealth\0")])]).serialize())
+        self.assertEqual(dr.Installed(p).worlds(), ["000803"])
+        rounds, _ = stage(core, port, os.path.join(d, "out"))
+        self.assertEqual(rounds["core_worlds"], ["000803"])
+        self.assertEqual(dr.core_world(rounds), {"index": "03", "world": "03000803"})
+
+    def test_a_skipped_doors_cell_falls_back_to_its_planned_destination_cell(self):
+        d = tempfile.mkdtemp()                         # Codex on #397: no marker, but the plan still names the cell
+        _, port, _ = build(d)
+        p = dr.Installed(os.path.join(port, "FO4Port.esm"))
+        self.assertEqual(dr.marker_cell(p, {"destination": {"id": 0x900}}), "FO4Port_SuperDuperMart01")
+        self.assertEqual(dr.marker_cell(p, {"destination": {"id": 0x999, "cell": "000801"}}), "FO4Port_SuperDuperMart01")
+        self.assertIsNone(dr.marker_cell(p, {"destination": {"id": 0x999}}))
+        self.assertIsNone(dr.marker_cell(p, {"destination": {"id": 0x999, "cell": "zz"}}))
 
     def test_a_door_whose_installed_vmad_leads_elsewhere_is_skipped_with_why(self):
         d = tempfile.mkdtemp()
@@ -142,6 +200,17 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(dr.order(lines), {"FO4TerrainCore.esm": 2, "FO4TerrainCore_Mars.esm": 3, "FO4SFMission.esm": 4,
                                            "FO4Port.esm": 5, "FO4SFBridge.esm": 6})
 
+    def test_the_map_markers_plugin_follows_the_port(self):
+        # PC run 2026-10-22 (Vault 95 _e): Plugins.txt had the markers plugin before the re-deployed port; cycle.ps1
+        # loaded TerrainCore, Mars, Raider, Mission, Port, MapMarkers, Bridge: the port at 06, not 07
+        lines = ["*FO4TerrainCore.esm", "*FO4TerrainCore_Mars.esm", "*FO4Raider.esm", "*FO4SFMission.esm",
+                 "*FO4SFMapMarkers.esm", "*FO4Port.esm", "*FO4SFBridge.esm"]
+        idx = dr.order(lines)
+        self.assertEqual(idx["FO4Port.esm"], 6)
+        self.assertEqual(idx["FO4SFMapMarkers.esm"], 7)
+        self.assertEqual(idx["FO4SFBridge.esm"], 8)
+        self.assertNotIn("FO4SFMapMarkers.esm", dr.order([ln for ln in lines if "MapMarkers" not in ln]))
+
 
 def log(*lines):
     return [e for e in (dr.bridge_log.parse_event(s) for s in lines) if e is not None]
@@ -154,8 +223,8 @@ EXP_OUT = {"ack": "door-ret-0", "pos": [-1669.444, -2063.926, 42.356], "cell": N
 CELL, WORLD, ACT = str(0x02000801), "-16707575", {"activate": {"selected": True}}
 
 
-def pos(x, y, z, cell=CELL, world="none", loaded="true"):
-    return f"FO4SF rt=9.0 pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
+def pos(x, y, z, cell=CELL, world="none", loaded="true", rt=9.0):
+    return f"FO4SF rt={rt} pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
 
 
 def res(plugin, local, index, cell=CELL, world="none"):
@@ -201,6 +270,23 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict(IN_OK, dict(EXP_IN, pos=[float("nan"), 17.291, -3.654])), ("INCONCLUSIVE", "BAD_PLAN"))
         self.assertEqual(dr.judge_test(log(*IN_OK), ACT, EXP_IN, tol=float("nan"))[1].split(":")[0], "BAD_PLAN")
 
+    def test_an_out_leg_alone_must_start_at_its_red_rocket_prelude(self):
+        # Codex on #444: a crash between the prelude and the OUT leg relaunches into Vault111Cryo
+        exp = dict(EXP_OUT, origin={"pos": [-2185.26, -1561.49], "tol_m": 100.0})
+        start = pos(-2180, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        # Codex on #444: the log is the whole session's, launch in Vault111Cryo first: the last exterior read counts
+        self.assertEqual(verdict((pos(1, 2, 3), start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        far = pos(-1000, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((far, start) + OUT_OK, exp)[0], "PASS")                       # an earlier test's exit
+        self.assertEqual(verdict((start, far) + OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))     # left Red Rocket since
+        self.assertEqual(verdict((start, pos(1, 2, 3, rt=2.0)) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # a relaunch since
+        self.assertEqual(verdict((pos(-1000, -1555, 105, cell="-7", world=WORLD),) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # began elsewhere
+        self.assertEqual(verdict(OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))                        # no reading at all
+        self.assertEqual(verdict(OUT_OK, EXP_OUT)[0], "PASS")                                     # two-leg stages: no gate
+
     def test_contradictory_targets_are_inconclusive(self):
         other = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0xFF011009 - (1 << 32))),
                  pos(-1668, -2062, 42.5, cell="-5", world="42"))
@@ -209,6 +295,67 @@ class JudgeTests(unittest.TestCase):
                          ("INCONCLUSIVE", "TARGET"))
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
+
+    def test_out_crosses_worlds_only_for_a_pinned_runtime_instance(self):
+        # doors_out2 (2026-10-19): the player stood in FF00552F, the marker resolved in our WRLD 02000803, 0.0 to
+        # 0.3 m off. Codex on #383: an FF prefix does not say which WRLD it instantiates, so only a pinned pair crosses
+        runtime, base = str(0xFF00552F - (1 << 32)), str(0x02000803)
+        out = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base),
+               pos(-1669.3, -2063.8, 42.4, cell="-6", world=runtime))
+        pin = {"FF00552F": "02000803"}
+        self.assertEqual(verdict(out, EXP_OUT), ("INCONCLUSIVE", "WORLD"))      # no pin: as before daff232
+
+        def v(lines, pins=pin):
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins)
+            return r, why
+        self.assertEqual(v(out)[0], "PASS")
+        self.assertIn("taken as 02000803 by --world-instance", v(out)[1])
+        far = out[:2] + (pos(-469, 636, 42, cell="-6", world=runtime),)
+        self.assertEqual(v(far)[0], "FAIL")                                       # a pin never excuses distance
+        other_rt = out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=str(0xFF123456 - (1 << 32))),)
+        self.assertEqual(v(other_rt)[0], "INCONCLUSIVE")                          # an unpinned runtime world
+        other_base = (out[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0x04000803)), out[2])
+        self.assertEqual(v(other_base)[0], "INCONCLUSIVE")                        # pinned to another WRLD
+        self.assertIn("no --world-instance pins the pair", v(other_base)[1])
+        self.assertEqual(v(out[:2] + (pos(-1669.3, -2063.8, 42.4),))[0], "FAIL")  # still inside: STAYED
+
+    def test_out_crosses_worlds_when_the_players_cell_is_the_cores(self):
+        # doors_out retry 4 (2026-10-21): the runtime world changed per launch (FF00552F, then FF005511) and needed a hand
+        # pin each time; the player's cell is one of the core's own (JOURNAL 2026-10-16 (e): 0x02000DAF in the runtime
+        # world), and a cell belongs to one WRLD
+        runtime, base = str(0xFF005511 - (1 << 32)), str(0x03000803)
+        core = {"index": "03", "world": "03000803"}
+        tgt = res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base)
+
+        def v(cell, pins=None, c=core, world=runtime, x=-1669.3):
+            lines = (OUT_OK[0], tgt, pos(x, -2063.8, 42.4, cell=cell, world=world))
+            r, why, _ = dr.judge_test(log(*lines), ACT, EXP_OUT, instances=pins, core=c)
+            return r, why
+        r, why = v(str(0x03000DAF))
+        self.assertEqual(r, "PASS")
+        self.assertIn("taken as 03000803 because the player's cell 03000DAF is the core's", why)
+        self.assertEqual(v(str(0x03000DAF), x=-469)[0], "FAIL")                     # the tie never excuses distance
+        self.assertEqual(v(str(0x04000DAF))[0], "INCONCLUSIVE")                     # another plugin's cell
+        self.assertEqual(v(str(0x03000DAF), c=None)[0], "INCONCLUSIVE")             # no single core world recorded
+        self.assertEqual(v(str(0x03000DAF), c={"index": "03", "world": "03000900"})[0], "INCONCLUSIVE")
+        self.assertEqual(v(str(0x03000DAF), world=str(0x05000001))[0], "INCONCLUSIVE")   # not a runtime (FF) world
+        other_pin = {"FF005511": "03000900"}                                        # the operator's pin decides
+        self.assertEqual(v(str(0x03000DAF), pins=other_pin)[0], "INCONCLUSIVE")
+        self.assertIn("by --world-instance", v(str(0x03000DAF), pins={"FF005511": "03000803"})[1])
+
+    def test_the_core_world_needs_exactly_one_core_worldspace(self):
+        self.assertEqual(dr.core_world({"core_index": "02", "core_worlds": ["000803"]}),
+                         {"index": "02", "world": "02000803"})
+        for info in ({"core_index": "02"}, {"core_index": "02", "core_worlds": []},
+                     {"core_index": "02", "core_worlds": ["000803", "000900"]}, {"core_index": "2", "core_worlds": ["000803"]}):
+            with self.subTest(info=info):
+                self.assertIsNone(dr.core_world(info))
+
+    def test_world_pins_are_checked(self):
+        self.assertEqual(dr.world_pairs(["ff00552f=02000803", "FF00552F=02000803"]), {"FF00552F": "02000803"})
+        for bad in (["FF00552F"], ["02000803=FF00552F"], ["FF00552F=FF000001"], ["FF00552F=02000803", "FF00552F=02000804"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                dr.world_pairs(bad)
 
     def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
         # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
@@ -259,7 +406,89 @@ class JudgeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])
-        self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
+        with open(os.path.join(d, "door_rounds_judge.json")) as f:
+            judged = json.load(f)
+        with open(os.path.join(d, "rounds.json"), "rb") as f:          # the file it read, for regress (Codex on #401)
+            self.assertEqual(judged["rounds_sha256"], hashlib.sha256(f.read()).hexdigest())
+
+
+class OutLegsTests(unittest.TestCase):
+    def setUp(self):
+        import door_out_legs
+        self.dol = door_out_legs
+        self.d = tempfile.mkdtemp()
+        core, port, _ = build(self.d)
+        self.st = os.path.join(self.d, "st")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", self.st])
+        self.plan, self.rounds = (self.load(self.st, n) for n in ("plan.json", "rounds.json"))
+
+    @staticmethod
+    def load(d, name):
+        with open(os.path.join(d, name)) as f:
+            return json.load(f)
+
+    def run_on(self, plan, rounds, min_m, name):
+        src = os.path.join(self.d, name + "_src")
+        os.makedirs(src)
+        for n, v in (("plan.json", plan), ("rounds.json", rounds)):
+            with open(os.path.join(src, n), "w") as f:
+                json.dump(v, f)
+        out = os.path.join(self.d, name)
+        with redirect_stdout(io.StringIO()):
+            self.dol.main([src, out, str(min_m)])
+        return self.load(out, "plan.json"), self.load(out, "rounds.json")
+
+    def test_keeps_the_far_out_legs_renumbered(self):
+        kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
+        self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
+        self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
+            self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
+        self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
+        with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
+            self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
+
+    def test_a_border_off_stage_keeps_its_console_lines(self):
+        core, port, _ = build(os.path.join(self.d, "b"))
+        st = os.path.join(self.d, "st_border")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", st, "--border-off"])
+        plan, rounds = self.load(st, "plan.json"), self.load(st, "rounds.json")
+        kept, out = self.run_on(plan, rounds, 0, "border")      # Codex on #444: the filter rebuilt it without them
+        self.assertEqual(kept, [plan[1]])
+        self.assertEqual(kept[0]["console_pre"][:3], dr.BORDER_OFF)
+        self.assertEqual((out["legs"], out["border_off"]), ("out", True))
+        rounds["border_off"] = False                            # a stage that lies about its lines is refused
+        with self.assertRaises(SystemExit):
+            self.run_on(plan, rounds, 0, "border_lie")
+
+    def test_the_distance_comes_from_the_geometry_not_the_label(self):
+        # Codex's review of #383: 728.53 m from the spawn; labels are display only
+        plan = json.loads(json.dumps(self.plan))
+        plan[0]["label"] = plan[0]["label"].replace("729 m", "99999 m")
+        self.assertEqual(self.run_on(plan, self.rounds, 728.6, "label")[0], [])
+        self.assertEqual(len(self.run_on(plan, self.rounds, 728.5, "exact")[0]), 1)
+
+    def test_a_mismatched_stage_is_refused_before_anything_is_written(self):
+        def bad(change):
+            plan, rounds = json.loads(json.dumps(self.plan)), json.loads(json.dumps(self.rounds))
+            change(plan, rounds)
+            return plan, rounds
+        cases = {
+            "out_points_at_in": lambda p, r: r["tests"][1].update(test=0),
+            "coc": lambda p, r: p[1].update(coc="FO4Core_RedRocketSpawn"),
+            "activation": lambda p, r: p[1]["activate"].update(ref="02000701"),
+            "ack": lambda p, r: p[1]["console_post"].__setitem__(0, dr.ack("door-fwd-0")),
+            "spawn": lambda p, r: p[0].update(spawn_local=[float("nan"), 0.0, 0.0]),
+            "in_leg": lambda p, r: p[0].update(coc="FO4Port_SuperDuperMart01"),
+        }
+        for name, change in cases.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.run_on(*bad(change), 0, name)
+            self.assertFalse(os.path.exists(os.path.join(self.d, name)))
 
 
 if __name__ == "__main__":

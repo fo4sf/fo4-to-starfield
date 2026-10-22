@@ -7,6 +7,7 @@ half-extents: 36 words depend on the box and fit exactly (6 centre/half-size wor
 docs/spikes/S6-collision.md). Six other varying words are constant/zero and the rest are mass/inertia or padding; they are left as
 in the template. In game the resulting props are solid and fixed (the player cannot push them).
 """
+import math
 import struct
 from typing import Tuple
 
@@ -35,6 +36,9 @@ def _build_table():
 
 LINEAR = _build_table()
 MIN_HALF = 0.005
+# door leaf boxes: a flat leaf (zero thickness on one axis) gets this half-extent. Was 0.02, the exact value every Red
+# Rocket crash dump reads as an index (rcx 0x3ca3d70a, docs/spikes/red-rocket-crash-bisect.md); thick leaves never crash
+MIN_LEAF_HALF = 0.05
 
 
 class CollisionError(ValueError):
@@ -244,6 +248,9 @@ def mesh_boxes(points, triangles, max_surface=160, max_voxel=96, report=None):
 def read_box(blob: bytes):
     """Inverse of box_blob for the fields we write: (centre, half-extents) from the 8 corners."""
     pts = [struct.unpack_from("<3f", blob, 592 + 12 * k) for k in range(8)]
+    if not all(math.isfinite(x) for p in pts for x in p):   # min / max would skip a NaN that is not the first corner
+        nan = (math.nan,) * 3
+        return nan, nan
     lo = [min(p[a] for p in pts) for a in range(3)]
     hi = [max(p[a] for p in pts) for a in range(3)]
     return tuple((lo[a] + hi[a]) / 2 for a in range(3)), tuple((hi[a] - lo[a]) / 2 for a in range(3))

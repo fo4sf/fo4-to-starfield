@@ -7,6 +7,166 @@ comes after the current testing, and it is the brief Codex and Grok work from. S
 Two independent reviews of this document (17 Oct) are folded in; their corrections are the reason several claims
 below are narrower than the first draft.
 
+## Update, 22 October 2026: the current phase, what closes it, and what is left
+
+The owner approved the next phases and their order on 19 October (the roadmap page, "yes to all"). The roadmap
+page's phase 0 is **finish the current phase**: Codsworth, the mission, the map markers and the boundary, on the v6
+build. Its exit, as approved: **the owner's v6 checks and the automated door rounds pass, and #353 merges after
+Codex's review.** Phase 1 (the Vault 111 new game) exits when the owner starts a new game on their PC, wakes in
+Vault 111 with no Starfield intro, the quest list shows none of Starfield's 144 start-game quests, and they walk out
+to Sanctuary. Nothing below counts as in game unless it says so.
+
+Installed on the owner's PC (22 Oct 03:14 UTC): v6i_plainshader on Starfield 1.16.244.0: FO4Port 9AF962D2, core
+FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, Bridge 63C746BB, plus FO4SFMapMarkers
+(pinned to core DC751664, installed 22 Oct 11:50 UTC).
+
+### Phase 0 ledger
+
+| Criterion | State | Evidence |
+|---|---|---|
+| #353 merged after Codex review | **done** (20 Oct) | #353, #432 |
+| Red Rocket crash | **in game: solved**; both Red Rocket to Sanctuary walks pass on v6i_plainshader | #460, #461; journal 22 Oct |
+| Codsworth renders | **in game: yes** (plain-shader model, owner's screenshot) | Bugs thread, 22 Oct |
+| Codsworth at his Sanctuary spot on the owner's existing save | **in game: not met.** He was not there until enabled by console (`prid 05000811`, then enable and moveto). Plugins.txt was rewritten 25 s after the launcher started the game, moving FO4Port after FO4SFMission, so his index changed from 06 to 05 between sessions; the writer is inferred to be the game (the launcher's code does not write it then), not traced | playtest row 27; [testing/load-order.md](testing/load-order.md) |
+| Map markers on the surface map | **in game: partly checked** (22 Oct 17:40 UTC): the mover quest started 55 s into the session and moved all four markers, the icons drew (only after the owner came back to the area; the first-read delay is open) and fast travel landed on them. Not passed on that run: every icon read "COMMONWEALTH 00 (FO4 TERRAIN)" instead of its own name, and the Concord arrival put the player half in the ground (docs/terrain/map-markers.md, Overrides). The fix #483 merged 19:14 UTC and was installed on the owner's line at 19:32 UTC (mapmarkers_v6i_ovr); its in-game check (the four own names on the map, the Concord arrival above ground; the 2.5 m lift is unresolved until then) is in item 5 | playtest row 28; docs/terrain/map-markers.md (#483, merged) |
+| The boundary (the Vault 95 exit) | **in game: cause proven for the Vault 95 exit; no wall on foot.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The earlier report of a walking wall north of Vault 111 was a misreading and is withdrawn: the owner walked far north of Vault 111, past where Fallout 4's own border would be, without the popup (22 Oct 18:55 UTC; [terrain/border.md](terrain/border.md); playtest-issues.md row 29; journal correction 22 Oct). The border is read as a limit on how far one teleport may move the player, not a fence at a position (supported hypothesis, border.md). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city), one Vault 95 OUT leg each on the PC with the border on: the 18:13 UTC pass ran none of the three (NOT RUN: the owner was active at the PC); the rerun with the idle wait: **city (SmallWorld cleared, HNAM 5) PASSED (0.00 m off in xy, 0.02 m in z; the Red Rocket spawn leg passed too); hnam5 (HNAM 5 only, SmallWorld kept) FAILED STAYED; nosmall (SmallWorld cleared only) PASSED** (city and hnam5 on border.md's results list; nosmall by Install's report through the coordinator at 20:46 UTC). **Not yet proven:** FO4SFMapMarkers.esm was installed in those runs, carries a copy of the core's WRLD (SmallWorld, HNAM 0) and loaded after the probe, so by record order the live WRLD was the control's, and moves of 3 or more cells fail about 11 times in 28 without any border change, so one pass against one fail may be chance. The settling test (border.md): the markers plugin carries each variant's fields, and control, city and nosmall each run 3 times on the same save; it is running on the PC since 20:53 UTC, on the owner's line in the Install thread. #495 (merged 20:45 UTC) lets the core build take the city fields (`make_core64c.py stage --world-border city`); v6j is held until the settling test answers | #485 (merged 19:45 UTC; adds docs/terrain/border.md, the method and results); #444 |
+| Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. No door round has run on the installed v6i set; Bugs' card J runs on v6j after its install and is the round that counts (item 1) | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger) |
+| The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; on v6c, 19 Oct, only completion was verified: Preston targeted the player twice on that run and the ally-faction fix came after it, so the friendliness check has no pass yet; docs/mission/when-freedom-calls.md), Codsworth's greeting voice (heard, subtitle only, neither), the map extent (getpos at Red Rocket plus a zoomed-out surface map screenshot; Map dropped the 3D-view spots, Cydonia and the landing coordinates, on 22 Oct because the border question they served is answered), the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up. A v6i session is a preview; the results that close the phase are taken on v6j after its install (item 5) | test sheet; journal 22 Oct (ledger) |
+| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; #487 (load-order fix before play, Fallout 4 found once, start through SFSE, StarfieldCustom.ini written as bytes so the BOM and CRLF survive) merged 22 Oct (main ab55f272); the PC checkout update is queued | Launcher thread; #481, #487 (merged) |
+
+v6e door exits, 21 Oct (runner 62df40bb, judged on 6159dcb): PASS Vault114 (both doors), FortHagen01 (both),
+SuperDuperMart01 (both), BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 (test 0011), PrydwenHull01. FAIL, all
+WRONG_PLACE: CambridgePolymerLabs01 (34.6 m off sideways), MuseumOfWitchcraft01 test 0012 (16.4 m too high),
+FortHagen02 (12.2 m too low); cause open (timing or overlap, a look in game decides). INCONCLUSIVE, both NOT_ACTIVATED
+from harness failures at the start of the session: Vault75 (launch coc failed) and ParsonsState01 (console not opened
+safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
+
+### What is left to close phase 0, with an owner
+
+1. **Door rounds on v6j** (Bugs, with Install): the doors plan on the plans branch still pins the v6e core (06C0DECD)
+   and its build folder. Bugs' card J is a local copy of doors/plan.ps1 with the final core's CorePin and CoreBuild and
+   a matching `-Tag`, so doors_out (15) and doors_rounds (30) land in new folders; Bugs moved it to v6j on 22 Oct
+   (20:36 UTC): it runs after the v6j install, not on v6i (a pin to the old core would refuse the changed core or
+   measure the wrong one). plan.ps1 does not read the v6e campaign file, so its Red Rocket hold stays as it is (only
+   the owner releases it). That run settles Vault75, ParsonsState01 and every IN leg, re-measures the three failures,
+   and is the round that closes phase 0: doors_out and doors_rounds both must pass on v6j. The v6e campaign and its
+   results stay as they are.
+2. **The three wrong-place exits** (Bugs): card L, after J on v6j, one in-game look per exit still wrong to tell timing
+   from overlap, then the fix (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install
+   on the owner's line; the exit fix follows L's result.
+3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued on v6j, read-only on a save from before
+   the 22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
+   quest logs). If K confirms it, the fix is a new start-game-enabled keeper quest, because only a new quest runs on an
+   existing save whose timers are dead; it also enables him. That fix is #493 (keeper quest
+   FO4SF_CodsworthKeeper, 0x814), **merged 22 Oct (main f77c25c)**: CI green and Codex approved at e1f3811; the
+   Codex desktop ran the Mission build and selftest and the Papyrus compile offline (compiler 4.7.0.5, one script,
+   exit 0), so Bugs' build-only PC card is dropped. It folds into Interiors' v6j Mission refold. What it does on an
+   existing save (the quest starting, OnPlayerLoadGame, Codsworth's placement) is unproven until the v6j install, when
+   card K on an old save is the in-game proof, folded once with NPC (no console ids in any owner instruction; ids move
+   between sessions).
+4. **The border fix** (Interiors, with Install): a BorderProbe PASS makes its variant a candidate, not the fix. The
+   22 Oct rerun: city (SmallWorld cleared, HNAM 5) PASSED the Vault 95 leg with the border on, hnam5 (HNAM 5 only)
+   FAILED STAYED, nosmall (SmallWorld cleared only) PASSED. Not proven yet: the markers plugin loaded after the probe
+   with a copy of the core's WRLD, so the live record may have been the control's, and one pass against one fail may
+   be chance ([terrain/border.md](terrain/border.md), Results). The settling test is running on the PC since 20:53 UTC, on
+   the owner's line in the Install thread: the markers plugin carries each variant's fields, and control, city and nosmall
+   each run 3 times on the same save; city 3 of 3 with control 0 of 3 makes the fix real. The core build can take the
+   city fields since #495 (`make_core64c.py stage --world-border city`, merged 20:45 UTC), and that rebuilt core is
+   **v6j**, v6i plus the border fix, no reconversion, held until the settling test answers. Before v6j is installed on
+   the owner's line, the wider checks in border.md have to pass on the PC: a second long coc exit elsewhere in the
+   Commonwealth, a long map fast travel, and a vanilla planet landing that still shows its border. The core rebuild means a mission
+   refold, and every stage pinned to the core is restaged on v6j after it (map markers, new game, questprobe_v2,
+   interiors b10 through #494, the focc probe), and Bugs' cards K and L run on v6j. If the wider checks fail, the fallback is an SFSE plugin
+   that turns the border off only inside our world. There is nothing to recheck on foot: the wall north of Vault 111
+   is withdrawn.
+5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the map extent, Bugs and Interiors for
+   the doors and prompts): written up as section A of [owner/in-game-test-sheet.md](owner/in-game-test-sheet.md)
+   (the same text is on the owner's live test sheet, https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b) for their
+   next session: a fresh test save, since the mission completed on the 19 Oct save; coc FO4Core_RedRocketSpawn; the
+   Missions tab, Preston and the credits; Codsworth's greeting; getpos plus a zoomed-out surface map screenshot, the
+   four markers reading their own names (Red Rocket Truck Stop, Sanctuary Hills, Vault 111, Concord) and a fast travel
+   to Concord that lands above ground (the #483 override, installed 19:32 UTC); the Fort Hagen elevator, the Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114
+   manhole, the Red Rocket side door; cans and books. Results go to playtest-issues.md. **The results that close
+   phase 0 are the ones taken on the final core, v6j** (item 4), because v6j changes the core, refolds the mission and
+   restages the markers, which is what A2 to A5 exercise. A session on v6i before v6j is installed is a preview, worth
+   doing (the #483 override and the exit prompts are checked early and failures are fixed before the rebuild), but
+   A2 to A5 are run again on v6j after its install and only those results count.
+6. **One load order** (Launcher, with Bridge): the runner's deploy appends FO4Port last when it owns the line (a
+   hand-placed line keeps its position), the owner's install had it first, and the file was rewritten after start
+   (the game is the inferred writer; not traced);
+   #481 reports the change. #487 (merged 22 Oct) defines the target in `scripts/game/load_order.py check|fix`:
+   lines that are not ours first, then the cores (FO4Terrain*, FO4Actor*), the other FO4SF* experiments, FO4Port,
+   FO4SFMapMarkers, FO4SFBridge, each plugin after its masters; that is the order the game wrote on 22 Oct. The
+   launcher's new `load_order` setting (default fix; check refuses a mismatch; off) runs it before every play. The
+   runner (cycle.ps1) does not call it yet ([testing/load-order.md](testing/load-order.md)).
+
+### Phase 1 (new game) and the other staged plugins
+
+The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
+against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it is
+restaged against the installed core (or the border-fixed core, if one comes) before the owner's line "Install the new
+game." The same holds for the focc probe (#431, head 1db5919, 3,349 tests pass): CombinedCore restages it at that
+commit with `--core` on the installed FO4TerrainCore.esm into a new staging folder once Interiors names the core that
+ends up installed (v6j, the border-fixed core, is planned); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
+owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
+probe_install.py uninstall restores Plugins.txt afterwards. The quest probe is pinned to the port, which is unchanged
+(9AF962D2); a read-only pin check precedes "Install the quest probe plugin." The object test room and the merge probe
+have no install route while the core set holds exp_install's one experiment slot. Interiors b10 (all 253 interiors,
+coc-only) gets its installer from #494 (merged 22 Oct; `deploy_starfield.py install --batch <stage>`: the batch's whole set,
+companions included, each file checked against its pinned sha256; it refuses when Data's FO4TerrainCore.esm is not the
+core the batch's doors were wired to), so b10, built against v6c, needs a restage against the installed or post-border
+core before its install line; its Commonwealth doors still need a core rebuilt against that port (phase 3). The door animation groups G1 to G3 (#392, switches off) get their
+staging path from #489 (`interior_batch.py build --animated-doors`, draft, with Codex): a recompile (compile5), a
+port build into D:\Modding\staging\doors_anim_b00 (about 15 min) and a read-only SfInspect elevator read, queued for
+Install after BorderProbe, the launcher paths and the Map LOD job. G2 (Fort Hagen, port only) and G3 (out through
+the animated interior door, back through the core's ACTI) can run on the installed core once that port is in; the
+owner's line, only after the build passes, is "Install the animated doors port." (rollback swap_v6i_plainshader.ps1).
+G1 waits for the core-side step C (the exterior ACTI becomes the same animated DOOR with FO4SF_AnimatedLoadDoor,
+switch off by default), which rides the next core rebuild; Bugs has the plan.
+
+The 19 Oct table below is history: #393, #392, #396, #394 and #399 merged on 21 Oct, #391 and #397 on 22 Oct.
+
+## Update, 20 October 2026
+
+On 19 October the owner set the combined core as the first priority from here on: a GAMMA-style second way to play
+around settlements that grow, factions that act and a connected wasteland, built on the Commonwealth first, because
+it has value without the open legal questions. The stories are still wanted, and the work in flight continues (the
+v6e test, the mission, the Vault 111 start and the approved phases in their order). The owner's decisions for each
+phase, and the critical path, are in docs/research/framework/dependencies.md on draft PR #408; they are not repeated
+here. The project is not offered for download or play for now.
+
+## Update, 19 October 2026
+
+Phase A and the start of Phase B overlap: the B4 mission ("When Freedom Calls", cut down) has run to completion in
+game on the v6c build (#353, notes in docs/mission/when-freedom-calls.md), and Codsworth stands in Sanctuary as a
+robot stand-in (#361). Phase A is not closed: v6 crashes near Red Rocket and the Museum of Freedom are under a
+bisect (#375; the v6e test build is staged), and the map markers do not draw yet (#376).
+
+On 19 October the owner approved the order of the next phases. It replaces section 2's order where they differ:
+
+1. **New game:** a Vault 111 start with no Starfield intro, which everything else plugs into.
+2. **Doors:** load doors with their enter and exit animations.
+3. **Interiors:** all of them (about 190 are still unconverted), in batches.
+4. **Launcher:** it ships no assets and builds the port from the player's own Fallout 4 and DLC; it may require
+   Starfield's free Creation Kit, and the port may require SFSE.
+
+The owner also decided: the Commonwealth, Far Harbor and Nuka-World share one Earth-like planet with real days and
+weather; the player is silent by default; Starfield's own animations come first; releases go to GitHub first. The
+order after the launcher is open. Research inputs are in draft PR #380 (docs/research/next-phase/), with Grok's
+proposals (#381, PR #386) and Codex's review (#382). Offline work on the four phases has started on separate branches;
+nothing from it is installed until the current crash test is done.
+
+Offline work in flight (draft PRs, not merged, nothing installed; 19 Oct):
+
+| Phase | Draft PR | What it holds |
+|---|---|---|
+| 1. New game | #393 | FO4SFNewGame.esm, a Vault 111 start built offline |
+| 2. Doors | #392 | load doors that play their opening before the trip, behind a switch that is off by default |
+| 3. Interiors | #396 | a census of all interiors, a 9-batch plan, and staged batch builds that keep the installed port's ids |
+| 4. Launcher | #394 | the build manifest, a resumable build, a recorded restore and a same-ids check |
+| Testing | #391, #397 | the night-chain arm check and direct exe launch; door round trips per interior batch and the v6e test campaign |
+| Map | #399 | an installer for FO4SFMapMarkers.esm next to the core set (#376 is merged) |
+
 ## 0. Where we are (17 October 2026): Phase A, the Commonwealth slice, in testing
 
 Phase A is "the playable Commonwealth exterior plus the first interiors, running natively in Starfield". It maps to

@@ -1,0 +1,1092 @@
+"""The Fallout 4 new game (docs/newgame/vault111-start.md): the contract between dotnet/NewGame (the plugin),
+FO4SF_NewGameQuest.psc / FO4SF_NewGameLooks.psc / FO4SF_NewGameSpecial.psc / FO4SF_NewGameVersion.psc (the scripts) and
+make_newgame.py (precheck, staging, verify, fold, the log reader). Synthetic only; the C# writer's own self-test runs
+when a dotnet SDK is on PATH."""
+import io
+import unittest.mock
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "scripts", "newgame"))
+import make_newgame as ng  # noqa: E402
+
+PSC = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameQuest.psc")
+LOOKS = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameLooks.psc")
+SPECIAL = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameSpecial.psc")
+VERSION = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameVersion.psc")
+CS = os.path.join(ROOT, "dotnet", "NewGame", "Program.cs")
+RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
+DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
+# the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
+DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
+                version=True, build_version=None, clear_inventory=False, vault_suit=None, require_persistent_anchor=False)
+
+
+def namespace(**kw):
+    return ng.main.__globals__["argparse"].Namespace(**{**DEFAULTS, **kw})
+
+
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def written_properties(cs):
+    """(quest, looks, special, version): the property names Program.cs writes to each script. The quest's are the
+    Properties() table plus its three object properties; the looks script's are LooksProperties() plus StartMessage;
+    the SPECIAL script's are SpecialProperties() plus Special, TerminalMessage and SpecialMessage; the version
+    script's (on the player alias) is BuildVersion alone."""
+    def values(table):
+        body = cs[cs.index(table):]
+        return set(re.findall(r'\("(\w+)",', body[:body.index("};")]))
+
+    def objects(entry, end):
+        body = cs[cs.index(entry):]
+        body = body[:body.index(end)]
+        return set(re.findall(r'Obj\("(\w+)"', body)) | set(re.findall(r'ListProperty \{ Name = "(\w+)"', body))
+    quest = values("public static List<(string Name, object Value)> Properties")
+    looks = values("LooksProperties(Options o)")
+    special = values("SpecialProperties(JsonElement pts, Places p)")
+    looks |= objects("var looks = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(looks)")
+    special |= objects("var special = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(special)")
+    quest |= objects("var script = new SF.ScriptEntry", "quest.VirtualMachineAdapter = new SF.QuestAdapter")
+    version = objects("var version = new SF.ScriptEntry", "var bound = new SF.QuestFragmentAlias")
+    return quest, looks, special, version
+
+
+class ContractTests(unittest.TestCase):
+    def test_no_variable_shares_a_property_name(self):
+        """Papyrus names are case-insensitive: a script variable or local named like a property fails to compile
+        (newgame_v4 on the PC, 21 Oct: CenterTicks and centerTicks)."""
+        decl = re.compile(r"^\s*(?!Event|Function|EndFunction|EndEvent|return|if|elseif|while|Scriptname)"
+                          r"[A-Za-z_]\w*(?:\[\])?\s+([A-Za-z_]\w*)\s*(?:=|$)")
+        for d in ("newgame", "questprobe"):
+            folder = os.path.join(ROOT, "scripts", d)
+            for name in sorted(n for n in os.listdir(folder) if n.endswith(".psc")):
+                text = read(os.path.join(folder, name))
+                props = {m.lower() for m in re.findall(r"\bProperty\s+(\w+)", text)}
+                names = [m.group(1) for line in text.splitlines() if "Property" not in line
+                         for m in [decl.match(line.split(";")[0])] if m]
+                with self.subTest(script=name):
+                    self.assertEqual([n for n in names if n.lower() in props], [])
+
+    def test_plugin_names_match_the_resolver(self):
+        """The writer refuses references not owned by the plugin the script resolves them in (Codex review on #393);
+        those names must be the script's own defaults."""
+        cs, psc = read(CS), read(PSC)
+        for prop, const in (("VaultPlugin", "PortPlugin"), ("CorePlugin", "CorePluginFile")):
+            want = re.search(rf'string Property {prop} = "([^"]+)"', psc).group(1)
+            self.assertIn(f'{const} = "{want}"', cs)
+
+    def test_the_record_reader_is_documented(self):
+        """The records verb (Records.cs) answers newgame.md's K and N record questions in one PC run: the doc names
+        the exact command, every section's NG id, and the reader's own defaults; the verb is dispatched and the main
+        selftest runs the records one."""
+        cs, rec, doc = read(CS), read(RECORDS), read(DOC)
+        self.assertIn('"records" when args.Length >= 2', cs)
+        self.assertIn('NewGameRecords.SelfTest(Path.Combine(dir, "records"))', cs)
+        sf_data = re.search(r'DefaultSfData = @"([^"]+)"', rec).group(1)
+        self.assertEqual(sf_data, r"D:\SteamLibrary\steamapps\common\Starfield\Data")
+        self.assertIn(f"`{sf_data}`", doc)
+        self.assertIn("-- records \"<Fallout 4>\\Data\" --out ", doc)
+        for section in ("NG-K1", "NG-K2", "NG-K4", "NG-K9", "NG-N4"):
+            self.assertIn(f'o.Section("{section} ', rec.replace("$\"", "\""))
+            self.assertIn(f"| `{section}` | {section}", doc)
+        self.assertIn('o.Section($"anchor: ', rec)
+        self.assertIn("| `anchor` |", doc)
+        self.assertIn("SustenanceId = 0x2EEA4D", rec)
+        self.assertIn("002EEA4D", doc)
+        self.assertIn("**unresolved** until that PC run", doc)
+
+    def test_saving_and_hud_restored_after_the_hold_off(self):
+        """MQ101's stage 0 turns saving off and hides the HUD; its stop (stage 9000) restores neither (PC read of
+        QF_MQ101_00003448.psc, 19 Oct). The quest restores both right after stopping it, before the move."""
+        psc = read(PSC)
+        body = psc[psc.index("Event OnTimer"):]
+        hold = body.index("HoldOffPass(1)")
+        self.assertLess(hold, body.index("Game.SetInChargen(false, false, false)"))
+        self.assertLess(body.index("Game.SetInChargen(false, false, false)"), body.index("EnterVault(player)"))
+        self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
+
+    def test_every_mandatory_property_is_written_and_every_written_one_declared(self):
+        written, looks_written, special_written, version_written = written_properties(read(CS))
+        for psc, written_here in ((PSC, written), (LOOKS, looks_written), (SPECIAL, special_written), (VERSION, version_written)):
+            declared = ng.declared_properties(read(psc))
+            mandatory = {n for n, m in declared.items() if m}
+            self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
+            self.assertEqual(written_here - set(declared), set(), f"properties the plugin writes that {psc} lacks")
+        self.assertIn("HoldOff", written)
+        self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
+        self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
+        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
+        self.assertEqual(version_written, {"BuildVersion"})   # SavedVersion is the script's own, written in game, never by the plugin
+        self.assertFalse(ng.declared_properties(read(VERSION))["SavedVersion"])
+
+    def test_the_save_version_check(self):
+        """NG-15 / NG-L2: the build's version number is one constant in the writer and Python, written to our own
+        constant GLOB (--build-version, --no-version drops the check); the quest's alias 0 is the player (PlayerRef
+        00000014), its script records the GLOB when the alias fills and compares it on OnPlayerLoadGame, logging both
+        and notifying on a mismatch; it never changes the save otherwise."""
+        cs, version, psc = read(CS), read(VERSION), read(PSC)
+        self.assertIn(f"DefaultBuildVersion = {ng.DEFAULT_BUILD_VERSION}f", cs)
+        self.assertIn('ArgOrNull(a, "--build-version")', cs)
+        self.assertIn('a.Contains("--no-version")', cs)
+        self.assertIn('VersionGlobEdid = "FO4SF_NewGameVersion", VersionScript = "FO4SF_NewGameVersion"', cs)
+        self.assertIn("PlayerRefId = 0x000014, PlayerAlias = 0", cs)
+        self.assertIn("MajorFlags = SF.Global.MajorFlag.Constant", cs)
+        self.assertIn("ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(new FormKey(SfEsm, PlayerRefId))", cs)
+        self.assertIn("quest.VirtualMachineAdapter.Aliases.Add(bound)", cs)
+        self.assertIn(f"Scriptname {ng.VERSION} extends ReferenceAlias", version)
+        self.assertIn("GlobalVariable Property BuildVersion Auto Const Mandatory", version)
+        self.assertIn("float Property SavedVersion = -1.0 Auto", version)
+        self.assertIn("Event OnInit()", version)
+        self.assertIn("Event OnPlayerLoadGame()", version)
+        code = version[version.index("GlobalVariable Property BuildVersion"):]
+        self.assertEqual(code.count("SavedVersion = BuildVersion.GetValue()"), 1)
+        self.assertIn("if SavedVersion < 0.0", code)         # recorded once, when the alias fills
+        self.assertIn('Trace("version saved=" + SavedVersion + " (new game)")', code)
+        self.assertIn('Trace("version load saved=" + SavedVersion + " installed=" + installed)', code)
+        self.assertIn("if SavedVersion != installed", code)
+        self.assertIn('Trace("version mismatch")', code)
+        self.assertIn("Debug.Notification(", code)
+        self.assertEqual(code.count("Debug.Notification("), 1)   # on the mismatch alone
+        self.assertEqual(code.count("Debug.OpenUserLog(LogName)"), 2)   # in OnInit (the quest script's open may not have run yet) and on load (a new game session)
+        for forbidden in ("SetStage(", "SetValue(", "MoveTo(", "Stop(", "SetPosition(", "Clear(", "ForceRefTo("):
+            self.assertNotIn(forbidden, code)              # the check changes nothing
+        self.assertNotIn("Version", psc.split("}", 1)[1])   # the quest script knows nothing of it
+        self.assertEqual(ng.OPTIONAL[ng.VERSION], "--no-version")
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.build_version_option(namespace()), ng.DEFAULT_BUILD_VERSION)
+        self.assertEqual(ng.tool_options(namespace(version=False)), ["--no-version"])
+        self.assertIsNone(ng.build_version_option(namespace(version=False)))
+        self.assertEqual(ng.tool_options(namespace(build_version=2)), ["--build-version", "2"])
+        self.assertEqual(ng.build_version_option(namespace(build_version=2)), 2)
+
+    def test_the_starting_inventory_reset(self):
+        """NG-K8: the reset is one default (off) in the writer and Python; --clear-inventory makes the quest script
+        empty the inventory (quest items kept) right after the move into the pod and before stage 10, logging the count;
+        --vault-suit names the port's ARMO the writer resolves by EditorID (refused without --clear-inventory) and the
+        script adds and equips after the reset, logging it. Every native of it is prechecked, and the plan records both."""
+        cs, psc = read(CS), read(PSC)
+        self.assertIn(f"DefaultClearInventory = {str(ng.DEFAULT_CLEAR_INVENTORY).lower()};", cs)
+        self.assertFalse(ng.DEFAULT_CLEAR_INVENTORY)
+        self.assertIn('a.Contains("--clear-inventory")', cs)
+        self.assertIn('ArgOrNull(a, "--vault-suit")', cs)
+        self.assertIn("it needs --clear-inventory", cs)
+        self.assertIn('("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit)', cs)
+        self.assertIn("port.Armors.Where(x => string.Equals(x.EditorID, vaultSuit", cs)
+        self.assertIn('Owned(suits[0], port.ModKey, $"the vault suit {vaultSuit}")', cs)
+        self.assertIn("bool Property ClearInventory = false Auto Const", psc)
+        self.assertIn("int Property VaultSuitId = 0 Auto Const", psc)
+        body = psc[psc.index("Event OnTimer"):]
+        enter = body.index("if !EnterVault(player)")
+        self.assertLess(enter, body.index("if ClearInventory\n            ResetInventory(player)"))
+        self.assertLess(body.index("ResetInventory(player)"), body.index("AdvanceTo(10)"))
+        reset = psc[psc.index("Function ResetInventory"):psc.index("Function InVault")]
+        self.assertEqual(reset.count("player.RemoveAllItems("), 1)   # once; the doc comment names the call too
+        self.assertIn("player.RemoveAllItems(None, false, false)", reset)   # quest items kept (the third argument)
+        self.assertIn("int before = player.GetItemCount(None)", reset)
+        self.assertIn('Trace("inventory cleared removed=" + (before - after) + " left=" + after', reset)
+        self.assertIn("if VaultSuitId > 0", reset)
+        self.assertIn("Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor", reset)
+        self.assertLess(reset.index("player.AddItem(suit, 1, true)"), reset.index("player.EquipItem(suit, false, true)"))
+        self.assertIn('Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))', reset)
+        self.assertIn('Trace("vault suit " + VaultPlugin + ":" + VaultSuitId + " does not resolve")', reset)
+        for native in ("RemoveAllItems", "GetItemCount", "AddItem"):
+            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["ObjectReference"])
+        for native in ("EquipItem", "IsEquipped"):
+            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["Actor"])
+        self.assertNotIn("RemoveAllItems", read(LOOKS) + read(SPECIAL) + read(VERSION))
+        self.assertEqual(ng.tool_options(namespace(clear_inventory=True)), ["--clear-inventory"])
+        self.assertEqual(ng.tool_options(namespace(clear_inventory=True, vault_suit="FO4Port_VaultSuit111")),
+                         ["--clear-inventory", "--vault-suit", "FO4Port_VaultSuit111"])
+        with self.assertRaises(SystemExit):
+            ng.tool_options(namespace(vault_suit="FO4Port_VaultSuit111"))
+        self.assertIn("--clear-inventory", read(DOC))
+        self.assertIn("--vault-suit", read(DOC))
+        self.assertIn("## 4c. The starting inventory reset", read(DOC))
+
+    def test_the_vault_anchor_modes(self):
+        """PC result 21 Oct: the installed port's FO4Port_Vault111Cryo has no persistent reference (0 of 1,166; the COC
+        marker 001338 and every terminal temporary), so the persistent-only resolver refused the build. A temporary
+        reference of an unloaded cell resolves to None (verified 16 Oct), so the writer now falls back to the temporary
+        COC marker and tells the script (AnchorTemporary, VaultCell) to load the cell with Debug.CenterOnCell once before
+        the same MoveTo; the retry is bounded (CenterTicks, one more centering at most, then a failure line each 10
+        ticks). The persistent mode stays preferred; --require-persistent-anchor restores the refusal; write and check
+        print the mode after the anchor id; plan.json records it; the log summary reads the centering line."""
+        cs, psc = read(CS), read(PSC)
+        self.assertIn(f"DefaultRequirePersistentAnchor = {str(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR).lower()};", cs)
+        self.assertFalse(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR)
+        self.assertIn('a.Contains("--require-persistent-anchor")', cs)
+        self.assertIn("bool requirePersistentAnchor = DefaultRequirePersistentAnchor", cs)
+        self.assertIn("if (persistent is null && requirePersistentAnchor)", cs)
+        self.assertIn("var anchor = persistent ?? cocs[0];", cs)
+        self.assertIn("bool anchorTemporary = persistent is null;", cs)
+        self.assertIn('("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell)', cs)
+        self.assertIn('AnchorTemporary ? "temporary" : "persistent"', cs)
+        self.assertIn("vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode} at", cs)       # write's line
+        self.assertIn("  vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode}, cog door", cs)   # check's line
+        self.assertIn("string s => new SF.ScriptStringProperty", cs)
+        self.assertIn("(string s, SF.IScriptStringPropertyGetter sp) => sp.Data == s", cs)
+        # the script: the two properties the writer fills, the bound, and the centering only in the temporary mode
+        self.assertIn("bool Property AnchorTemporary = false Auto Const", psc)
+        self.assertIn('string Property VaultCell = "FO4Port_Vault111Cryo" Auto Const', psc)
+        self.assertIn('VaultCell = "FO4Port_Vault111Cryo"', cs)
+        self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
+        enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
+        self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
+        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
+        self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
+        self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
+        self.assertIn("if centered == 0 || (centered == 1 && centerTries > CenterTicks)", center)
+        self.assertIn("elseif centerTries > CenterTicks && centerTries % 10 == 0", center)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTries', center)
+        self.assertIn('does not resolve after " + centerTries + " ticks and " + centered + " centerings', center)
+        self.assertEqual(center.count("return false"), 1)          # the caller's retry does the move; no MoveTo here
+        self.assertNotIn("MoveTo(", center)
+        self.assertIsNone(re.search(r"^\s*while\b", center, re.M))   # no loop: the timer's retry is the only repeat
+        # the guard and the hold-off still run first, once: EnterVault (and so any centering) comes after both
+        body = psc[psc.index("Event OnTimer"):]
+        self.assertLess(body.index("HoldOffPass(1)"), body.index("if !EnterVault(player)"))
+        self.assertIn("anchor_temporary=", psc[psc.index("Event OnQuestInit"):psc.index("Function AdvanceTo")])
+        # the precheck reads the native; the stage option, the plan and the README carry the mode
+        self.assertIn("CenterOnCell", ng.NATIVES[ng.SCRIPT]["Debug"])
+        self.assertEqual(ng.tool_options(namespace(require_persistent_anchor=True)), ["--require-persistent-anchor"])
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.anchor_mode("  vault anchor FO4Port.esm:001338 temporary, cog door none, exit anchor FO4TerrainCore.esm:0A775B\n"),
+                         {"id": "001338", "mode": "temporary"})
+        self.assertEqual(ng.anchor_mode("x\n  vault anchor FO4Port.esm:000805 persistent, cog door 000802 Door X, exit anchor FO4TerrainCore.esm:0A775B\n"),
+                         {"id": "000805", "mode": "persistent"})
+        self.assertIsNone(ng.anchor_mode("  vault anchor FO4Port.esm:000805, cog door none"))   # the line before the modes
+        self.assertIsNone(ng.anchor_mode(""))
+        src = read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py"))
+        self.assertIn('"anchor": anchor,', src)
+        self.assertIn('"require_persistent_anchor": bool(a.require_persistent_anchor)', src)
+        doc = read(DOC)
+        self.assertIn("--require-persistent-anchor", doc)
+        self.assertIn("## 3a. The vault anchor: persistent, or the temporary COC marker", doc)
+        self.assertRegex(doc, r"0 persistent references of\s+1,166")
+        self.assertIn("`CenterOnCell`", doc)
+
+    def test_special_at_the_vault_terminal(self):
+        """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
+        message's buttons are the stats in order, then Reset, Confirm, Leave; the script applies Confirm with
+        Actor.SetValue on the seven AVIF and logs every ending as "special <how>"; the quest never waits on it (no
+        SPECIAL wait in the quest script), and a --no-special build drops the script, its MESG and the AVIF."""
+        cs, special, psc = read(CS), read(SPECIAL), read(PSC)
+        self.assertIn("SpecialNames = { " + ", ".join(f'"{n}"' for n in ng.SPECIAL_STATS) + " }", cs)
+        self.assertIn("SpecialExtraButtons = { " + ", ".join(f'"{n}"' for n in ng.SPECIAL_BUTTONS[len(ng.SPECIAL_STATS):]) + " }", cs)
+        self.assertIn(f"SpecialBase = {ng.SPECIAL_BASE}, SpecialPoints = {ng.SPECIAL_POINTS}, SpecialMax = {ng.SPECIAL_MAX};", cs)
+        self.assertIn(f"int Property SpecialBase = {ng.SPECIAL_BASE} Auto Const", special)
+        self.assertIn(f"int Property SpecialPoints = {ng.SPECIAL_POINTS} Auto Const", special)
+        self.assertIn(f"int Property SpecialMax = {ng.SPECIAL_MAX} Auto Const", special)
+        self.assertIn(f"int Property MaxPresses = {ng.SPECIAL_MAX_PRESSES} Auto Const", special)
+        self.assertIn("while presses < MaxPresses", special)   # the loop is bounded: no spin on a box that returns at once
+        self.assertNotIn("while true", special)
+        self.assertGreater(ng.SPECIAL_MAX_PRESSES, 10 * (ng.SPECIAL_POINTS + 1))   # ten full passes with a Reset each
+        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)         # FO4's MESG limit; the script's button indices
+        self.assertIn("if button >= 0 && button < 7", special)
+        self.assertIn("elseif button == 7", special)         # Reset
+        self.assertIn("elseif button == 8", special)         # Confirm
+        self.assertIn("int[] values = new int[7]", special)
+        self.assertIn("player.SetValue(Special[i], values[i] as float)", special)
+        self.assertIn('Trace("special set S="', special)
+        self.assertIn('Trace("special skipped: left the vault with SPECIAL unset")', special)
+        self.assertIn('Trace("special later")', special)
+        self.assertIn('Trace("special left: ', special)
+        self.assertIn("ActorValue[] Property Special Auto Const Mandatory", special)
+        self.assertIn('string Property VaultPlugin = "FO4Port.esm" Auto Const', special)
+        self.assertNotIn("Special", psc.split("}", 1)[1])     # the quest script knows nothing of it
+        self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
+        self.assertIn('a.Contains("--no-special")', cs)
+        self.assertIn("Types.SpecialAttribute", cs)
+        self.assertIn("Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen", cs)
+        self.assertIn("Max = SpecialMax, Flags = SpecialAvifFlags", cs)
+        self.assertIn('"TerminalId", (int)p.Terminal', cs)
+        self.assertEqual(ng.tool_options(namespace(special=False)), ["--no-special"])
+        self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special", ng.VERSION: "--no-version"})
+
+    def test_the_allocation_rule(self):
+        """special_press is FO4SF_NewGameSpecial.Allocate's rule: base 1 each, 21 points, 10 at most per stat, Reset
+        starts over, Confirm only with every point spent, Leave (or a closed message) keeps the defaults."""
+        base, pts = [ng.SPECIAL_BASE] * 7, ng.SPECIAL_POINTS
+        values, left, end = ng.special_press(base, pts, 0)
+        self.assertEqual((values, left, end), ([2, 1, 1, 1, 1, 1, 1], 20, None))
+        for _ in range(12):                                   # Strength stops at 10 and costs nothing past it
+            values, left, end = ng.special_press(values, left, 0)
+        self.assertEqual((values[0], left, end), (ng.SPECIAL_MAX, 12, None))
+        self.assertEqual(ng.special_press(values, left, 8), (values, 12, None))          # Confirm with points left
+        for b in (1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 6):        # spend the rest
+            values, left, end = ng.special_press(values, left, b)
+        self.assertEqual((values, left, end), ([10, 2, 2, 2, 2, 2, 8], 0, None))
+        self.assertEqual(sum(values), 7 * ng.SPECIAL_BASE + ng.SPECIAL_POINTS)
+        self.assertEqual(ng.special_press(values, 0, 3), (values, 0, None))              # no points left
+        self.assertEqual(ng.special_press(values, 0, 8), (values, 0, "set"))
+        self.assertEqual(ng.special_press(values, 0, 7), (base, pts, None))
+        self.assertEqual(ng.special_press(values, 0, 9), (values, 0, "left"))
+        self.assertEqual(ng.special_press(base, pts, -1), (base, pts, "left"))
+
+    def test_the_race_menu_mode_and_the_opening_choice(self):
+        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 0) is the looks script's RaceMenuMode, passed
+        to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
+        calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
+        the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
+        cs, looks, psc = read(CS), read(LOOKS), read(PSC)
+        self.assertIn(f"DefaultRaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE};", cs)
+        self.assertIn('ArgOrNull(a, "--race-menu-mode")', cs)
+        self.assertIn(f"int Property RaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE} Auto Const", looks)
+        code = looks[looks.index("Message Property StartMessage"):]   # past the header's signature note
+        self.assertEqual(code.count("ShowRaceMenu("), 1)
+        self.assertIn("Game.ShowRaceMenu(None, RaceMenuMode)", code)
+        self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
+        self.assertIn('Text = "Create character"', cs)
+        self.assertIn('Text = "Quick start"', cs)
+        self.assertIn("Message Property StartMessage Auto Const Mandatory", looks)
+        body = looks[looks.index("Event OnTimer"):]
+        self.assertLess(body.index("StartMessage.Show()"), body.index("RegisterForMenuOpenCloseEvent(MenuName)"))
+        self.assertLess(body.index("RegisterForMenuOpenCloseEvent(MenuName)"), body.index("Game.ShowRaceMenu("))
+        self.assertIn('string Property MenuName = "ChargenMenu" Auto Const', looks)
+        self.assertIn("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", looks)
+        self.assertIn("if asMenuName == MenuName && !abOpening && waiting", looks)
+        self.assertIn('Done("quick start")', looks)
+        self.assertIn('Done("creator closed")', looks)
+        self.assertIn('Trace("looks done: " + how)', looks)
+        self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
+        self.assertEqual(ng.tool_options(namespace(race_menu_mode=1)), ["--race-menu-mode", "1"])
+
+    def test_stages_match(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn("Stages = { " + ", ".join(str(s) for s in ng.STAGES) + " }", cs)
+        for s in ng.STAGES:
+            if s not in (20, 30):                            # 20 is set by the looks script or the wait, 30 by the cog door
+                self.assertRegex(psc, rf"AdvanceTo\({s}\)")
+        self.assertIn("SetStage(20)", read(LOOKS))
+        self.assertIn("AdvanceTo(30)", psc)
+        self.assertIn("SetObjectiveDisplayed(10)", psc)
+        self.assertIn("Objective = 10", cs)
+
+    def test_the_stage_contract_is_the_scripts(self):
+        """NG-14: the stages are a published contract. The .psc header lists each stage with its meaning; the Python
+        constants (the log summary, plan.json) and the doc's table must say the same."""
+        header = read(PSC).split("}", 1)[0]
+        listed = {int(m.group(1)): m.group(2).strip()
+                  for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
+        self.assertEqual(listed, ng.STAGE_CONTRACT)
+        self.assertEqual(ng.STAGES, (1, 10, 20, 30, 40, 200))
+        self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
+        doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
+        for n, what in ng.STAGE_CONTRACT.items():
+            self.assertIn(f"| {n} | {what} |", doc)
+
+    def test_the_writer_defaults_match_the_python_ones(self):
+        """NG-2: the default build sets GLOB MQ101Debug to 10 (what MQ00 writes), off under --no-mq101debug. NG-19 /
+        NG-N1: the default hold list has the two quests MQ101's stage 9000 starts on stop."""
+        cs = read(CS)
+        self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
+        self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
+        self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
+        p = namespace()
+        self.assertEqual(ng.tool_options(p), [])
+        self.assertEqual(ng.mq101debug_option(p), 10)
+        p.no_mq101debug = True
+        self.assertEqual(ng.tool_options(p), ["--no-mq101debug"])
+        self.assertIsNone(ng.mq101debug_option(p))
+        p.no_mq101debug, p.mq101debug, p.looks = False, 8.0, False
+        self.assertEqual(ng.tool_options(p), ["--mq101debug", "8.0", "--no-looks"])
+        self.assertEqual(ng.mq101debug_option(p), 8.0)
+
+    def test_the_hold_off_runs_twice(self):
+        """Stopping MQ101 runs its stage 9000, which starts MQ101PostQuest and MQ_TutorialQuest_Misc04 (PC read 19 Oct,
+        NG-N1): the list is walked again one tick after the first pass, and each stop is logged with its pass."""
+        psc = read(PSC)
+        body = psc[psc.index("Event OnTimer"):]
+        self.assertLess(body.index("HoldOffPass(2)"), body.index("if stage == 0"))
+        self.assertIn("if holdPasses == 1\n        HoldOffPass(2)", body)
+        gate = body.index("if holdPasses == 0")
+        self.assertIn("HoldOffPass(1)", body[gate:body.index("endif\n        ;", gate)])
+        self.assertIn('" pass=" + pass', psc)
+        for q in ng.DEFAULT_HOLD:
+            self.assertIn(q, psc)                            # the HoldOff property's doc names the default list
+
+    def test_script_names_and_log_name(self):
+        cs = read(CS)
+        self.assertIn(f'ScriptName = "{ng.SCRIPT}"', cs)
+        self.assertIn(f'LooksScript = "{ng.LOOKS}"', cs)
+        self.assertIn(f'Plugin = "{ng.PLUGIN}"', cs)
+        self.assertRegex(read(PSC), rf"Scriptname {ng.SCRIPT} extends Quest")
+        self.assertRegex(read(LOOKS), rf"Scriptname {ng.LOOKS} extends Quest")
+        self.assertIn(f'SpecialScript = "{ng.SPECIAL}"', cs)
+        self.assertRegex(read(SPECIAL), rf"Scriptname {ng.SPECIAL} extends Quest")
+        self.assertIn(f'VersionScript = "{ng.VERSION}"', cs)
+        self.assertRegex(read(VERSION), rf"Scriptname {ng.VERSION} extends ReferenceAlias")
+        self.assertIn('"FO4SF_NEWGAME rt="', read(PSC))
+        self.assertIn('"FO4SF_NEWGAME rt="', read(SPECIAL))
+        self.assertIn('"FO4SF_NEWGAME rt="', read(VERSION))
+
+    def test_merge_offset_is_the_measured_one(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
+        import vmad_patch
+        x, y, _ = vmad_patch.MERGE_MEASURED
+        self.assertIn(f"MergeX = {x:g}f, MergeY = {y:g}f", read(CS))
+        self.assertIn(f"MergeOffsetX = {x}", read(PSC))
+        self.assertIn(f"MergeOffsetY = {y}", read(PSC))
+
+    def test_the_guard_rule_matches_the_script(self):
+        self.assertIn("return days < MaxNewGameDays && level <= MaxNewGameLevel", read(PSC))
+        self.assertTrue(ng.is_new_game(0.0, 1))
+        self.assertTrue(ng.is_new_game(0.2, 1))
+        self.assertFalse(ng.is_new_game(0.25, 1))            # six game hours in: not a fresh start
+        self.assertFalse(ng.is_new_game(0.0, 2))
+        self.assertFalse(ng.is_new_game(12.5, 30))           # the owner's test saves
+
+    def test_an_early_existing_save_is_not_a_fresh_start(self):
+        """21 Oct review on #393: days and level alone let an early level-1 save under six hours through."""
+        psc = read(PSC)
+        self.assertIn("return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)", psc)
+        self.assertIn(f"int Property SaveableStage = {ng.SAVEABLE_STAGE} Auto Const", psc)
+        self.assertIn("if !fresh || !IsNewGame(days, level)", psc)
+        # the guard runs only before the hold-off, so a retried move never re-judges the opening it stopped
+        guard = psc.index("if !fresh || !IsNewGame(days, level)")
+        gate = psc.rindex("if holdPasses == 0", 0, guard)
+        self.assertNotIn("endif", psc[gate:psc.index("bool fresh", gate)])
+        self.assertLess(guard, psc.index("HoldOffPass(1)", gate))
+        self.assertTrue(ng.is_fresh_start(0, False, True))     # MQ101 not started yet
+        self.assertTrue(ng.is_fresh_start(0, False, False))    # MQ101 at its stage 0, saving still off
+        self.assertFalse(ng.is_fresh_start(105, False, False))  # saving is back on: a save could exist
+        self.assertFalse(ng.is_fresh_start(300, False, False))
+        self.assertFalse(ng.is_fresh_start(0, True, True))     # completed
+        self.assertFalse(ng.is_fresh_start(30, False, True))   # stopped after it began
+        self.assertIn('Obj("Opening", opening.FormKey)', read(CS))
+
+    def test_every_native_the_script_calls_is_prechecked(self):
+        psc = read(PSC)
+        calls = set(re.findall(r"\.(\w+)\(", psc))
+        listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
+        own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
+        # GetPositionY/Z share GetPositionX's script; GetDistance is not used; the rest must be listed or our own
+        missing = calls - listed - own - {"GetPositionY", "GetPositionZ"}
+        self.assertEqual(missing, set())
+        # Starfield's Utility.psc has no IsInMenuMode (precheck on the PC, 2026-10-19): neither script may call it
+        self.assertNotIn("IsInMenuMode(", psc)
+        self.assertNotIn("IsInMenuMode(", read(LOOKS))
+        # the looks script: every dotted call, its bare self calls (RegisterForMenuOpenCloseEvent, StartTimer) and the
+        # event it handles must be listed, or the precheck could pass a script that does not compile
+        looks = read(LOOKS)
+        looks_calls = set(re.findall(r"\.(\w+)\(", looks)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", looks, re.M))
+        looks_calls |= set(re.findall(r"^Event (On\w+)\(", looks, re.M)) - {"OnQuestInit", "OnTimer"}
+        looks_own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", looks, re.M))
+        looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
+        self.assertEqual(looks_calls - looks_listed - looks_own, set())
+        self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
+        # the SPECIAL script the same way; its Actor.SetValue / GetValue are the unverified pair the precheck reads
+        special = read(SPECIAL)
+        special_calls = set(re.findall(r"\.(\w+)\(", special)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", special, re.M))
+        special_calls |= set(re.findall(r"^Event (On\w+)\(", special, re.M)) - {"OnQuestInit", "OnTimer"}
+        special_own = set(re.findall(r"^\s*[\w\[\]]*\s*Function\s+(\w+)", special, re.M))
+        special_listed = {f for bases in ng.NATIVES[ng.SPECIAL].values() for f in bases}
+        self.assertEqual(special_calls - special_listed - special_own - {"GetPositionY", "GetPositionZ"}, set())
+        self.assertEqual(set(ng.NATIVES[ng.SPECIAL]["Actor"]), {"SetValue", "GetValue"})
+        self.assertNotIn("IsInMenuMode(", special)
+        self.assertNotIn("Function Reset(", special)          # Quest.psc has Reset(); Papyrus has no overloads
+        # the version script the same way; its two events (OnInit, OnPlayerLoadGame) are declarations the precheck
+        # looks up in ScriptObject.psc and ReferenceAlias.psc
+        version = read(VERSION)
+        version_calls = set(re.findall(r"\.(\w+)\(", version)) | set(re.findall(r"^Event (On\w+)\(", version, re.M))
+        version_own = set(re.findall(r"^\s*[\w\[\]]*\s*Function\s+(\w+)", version, re.M))
+        version_listed = {f for bases in ng.NATIVES[ng.VERSION].values() for f in bases}
+        self.assertEqual(version_calls - version_listed - version_own, set())
+        self.assertEqual(ng.NATIVES[ng.VERSION]["ReferenceAlias"], ["OnPlayerLoadGame"])
+        self.assertEqual(ng.NATIVES[ng.VERSION]["ScriptObject"], ["OnInit"])
+        self.assertNotIn("IsInMenuMode(", version)
+
+    def test_declared_properties_parser(self):
+        text = ("Quest[] Property A Auto Const Mandatory\nfloat Property B = 0.25 Auto Const\n"
+                "string Property C = \"x.esm\" Auto Const\n  int Property D Auto Const Mandatory\n")
+        self.assertEqual(ng.declared_properties(text), {"A": True, "B": False, "C": False, "D": True})
+
+
+# Starfield's Game.psc declarations (PC read, 19 Oct): the restore after the hold-off calls both
+CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
+           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
+# Actor.psc's declarations the quest script itself needs: the guard's GetLevel and the inventory reset's EquipItem /
+# IsEquipped (FO4's signatures; Starfield's are what the precheck reads). ObjectReference's RemoveAllItems, GetItemCount
+# and AddItem are generated from NATIVES below
+ACTOR_CORE = ("int Function GetLevel() native\n"
+              "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
+              "bool Function IsEquipped(Form akItem) native\n")
+
+
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None):
+    base = {
+        # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
+        # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
+        "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\n" + ACTOR_CORE +
+                                                 "Function SetValue(ActorValue akAV, float afValue) native\n"
+                                                 "float Function GetValue(ActorValue akAV) native\n",
+        # Debug.psc: CenterOnCell with FO4's signature (the temporary-anchor mode); Starfield's declaration is what the
+        # precheck reads, unverified until then
+        "Debug": debug if debug is not None else
+                 "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
+                 "Function Notification(string a) native global\nFunction CenterOnCell(string asCellname) native global\n",
+        "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
+                                              "Form Function GetFormFromFile(int a, string b) native global\n"
+                                              "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
+                                              + CHARGEN,
+        "GlobalVariable": "float Function GetValue() native\n",
+        "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
+        "ObjectReference": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
+        "Quest": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["Quest"]),
+        # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
+        "ScriptObject": scriptobject if scriptobject is not None else
+                        "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
+        # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
+        "ReferenceAlias": referencealias if referencealias is not None else
+                          "Scriptname ReferenceAlias extends Alias\nEvent OnPlayerLoadGame()\nEndEvent\n",
+        "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
+                                                       "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
+    }
+    with zipfile.ZipFile(path, "w") as z:
+        for name, text in base.items():
+            z.writestr(f"Scripts/Source/{name}.psc", text)
+        z.writestr("Scripts/Source/Starfield_Papyrus_Flags.flg", "")
+        z.writestr("Scripts/Source/Fragments/Quests/QF_MQ101_00003448.psc",
+                   extra if extra is not None else "if MQ101Debug.GetValue() == 8\n  ; start in the spaceport\nendif\n")
+
+
+class PrecheckTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_all_found(self):
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z)
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertTrue(all(r["natives"][ng.SPECIAL].values()))
+        self.assertTrue(all(r["natives"][ng.VERSION].values()))
+        self.assertEqual(r["drop"], [])
+        self.assertEqual(len(r["mq101debug"]), 1)
+        self.assertIn("QF_MQ101_00003448.psc:1:", r["mq101debug"][0])
+
+    def test_missing_show_race_menu_only_drops_the_looks(self):
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                    + CHARGEN)
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
+        out = os.path.join(self.tmp, "p.json")
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            rc = ng.main(["precheck", "--content-resources", z, "--out", out])
+        self.assertEqual(rc, 0)
+        self.assertIn("--no-looks", o.getvalue())
+        self.assertNotIn("--no-special", o.getvalue())
+        self.assertTrue(os.path.isfile(out))
+
+    def test_missing_set_value_only_drops_the_special(self):
+        """Actor.SetValue / GetValue are what the SPECIAL script needs beyond the quest's natives: a source set
+        without them fails only that script, and the precheck says --no-special."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE)
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.GetValue"])
+        self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertEqual(r["drop"], ["--no-special"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("FO4SF_NewGameSpecial cannot compile: stage with --no-special", o.getvalue())
+        self.assertNotIn("--no-looks", o.getvalue())
+
+    def test_missing_player_load_event_only_drops_the_version(self):
+        """OnPlayerLoadGame on ReferenceAlias (PC read 19 Oct) is what the version script needs beyond the quest's
+        natives: a source set without it fails only that script, and the precheck says --no-version."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, referencealias="Scriptname ReferenceAlias extends Alias\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.VERSION]["ReferenceAlias.OnPlayerLoadGame"])
+        self.assertTrue(r["natives"][ng.VERSION]["ScriptObject.OnInit"])
+        self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertTrue(all(r["natives"][ng.SPECIAL].values()))
+        self.assertEqual(r["drop"], ["--no-version"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("FO4SF_NewGameVersion cannot compile: stage with --no-version", o.getvalue())
+        self.assertNotIn("--no-looks", o.getvalue())
+        self.assertNotIn("--no-special", o.getvalue())
+
+    def test_missing_core_native_fails(self):
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, utility="Function Wait(float a) native global\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["Utility.GetCurrentRealTime"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
+
+    def test_missing_inventory_natives_fail_the_core_script(self):
+        """The inventory reset lives in the quest script (its ClearInventory property is off by default, but the
+        natives must compile): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
+        self.assertEqual(r["drop"], [])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.RemoveAllItems"])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.GetItemCount"])
+        self.assertTrue(r["natives"][ng.SCRIPT]["ObjectReference.AddItem"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
+        self.assertIn("MISSING  FO4SF_NewGameQuest: Actor.EquipItem", o.getvalue())
+
+    def test_missing_center_on_cell_fails_the_core_script(self):
+        """Debug.CenterOnCell is the temporary-anchor mode's native in the quest script (the property is off in a
+        persistent-anchor build, but the script must compile): a Debug.psc without it is a core miss, not an optional
+        drop."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, debug="Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
+                          "Function Notification(string a) native global\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["Debug.CenterOnCell"])
+        self.assertEqual(r["drop"], [])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
+        self.assertIn("MISSING  FO4SF_NewGameQuest: Debug.CenterOnCell", o.getvalue())
+
+    def test_has_function_needs_the_declaration(self):
+        self.assertTrue(ng.has_function("bool Function IsInMenuMode() native global", "IsInMenuMode"))
+        self.assertFalse(ng.has_function("; IsInMenuMode() is not here\nFunction IsInMenuModeX()", "IsInMenuMode"))
+        self.assertTrue(ng.has_function("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", "OnMenuOpenCloseEvent"))
+        self.assertFalse(ng.has_function("Function RegisterForMenuOpenCloseEvent(string a) native", "OnMenuOpenCloseEvent"))
+
+    def test_missing_menu_event_only_drops_the_looks(self):
+        """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
+        PC read 19 Oct): a source set without them fails only the looks script, and the precheck says --no-looks."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.RegisterForMenuOpenCloseEvent"])
+        self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.OnMenuOpenCloseEvent"])
+        self.assertTrue(r["natives"][ng.LOOKS]["ScriptObject.StartTimer"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("--no-looks", o.getvalue())
+
+
+# the guard's stand-down line as the quest script writes it since the fresh-start check joined the guard (days and level,
+# then the opening's stage and the verdict); test_the_stand_down_line_is_the_scripts holds the fixture to the script
+STOOD_DOWN = "not a new game: days=41.200000 level=12 opening_stage=300 fresh=False: standing down"
+
+
+class LogTests(unittest.TestCase):
+    LINES = [
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2 (quest items kept)",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
+        "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 held off [Quest < (00013579)>] running_after=False pass=2",
+        "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 hold-off pass 2 stopped=1 of 4",
+        "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
+        "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",             # the looks script's Done, in its order
+        "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 terminal prompt button=1",
+        "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 special later",
+        "[10/20/2026 - 09:00:58AM] FO4SF_NEWGAME rt=58.0 terminal prompt button=0",
+        "[10/20/2026 - 09:00:59AM] FO4SF_NEWGAME rt=59.0 special set S=10 P=2 E=2 C=2 I=2 A=2 L=8 readback=10.000000 8.000000",
+        "[10/20/2026 - 09:01:00AM] FO4SF_NEWGAME rt=60.0 status stage=20 pos=50 10 0 cell=x world=None",
+        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
+        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface setposition pos=-2450 -1410 110 target=-2450 -1410 110",
+        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 stage 40",
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 landed z=110.0",
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 stage 200",
+    ]
+
+    def test_summary(self):
+        s = ng.summarize(self.LINES)
+        self.assertEqual(s["stages"], [10, 20, 40, 200])
+        self.assertEqual(s["stages_named"], [f"{n} {ng.STAGE_CONTRACT[n]}" for n in (10, 20, 40, 200)])
+        self.assertEqual(s["looks_done"], "creator closed")
+        self.assertEqual(s["special"], "set S=10 P=2 E=2 C=2 I=2 A=2 L=8 readback=10.000000 8.000000")
+        self.assertEqual(s["held_off"], ["[Quest < (00012345)>]", "[Quest < (00013579)>]"])
+        self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
+        self.assertTrue(s["entered_vault"])
+        self.assertTrue(s["landed"])
+        self.assertFalse(s["fell"])
+        self.assertFalse(s["stood_down"])
+        self.assertIn("stage=20", s["last_status"])
+        self.assertEqual(s["version_saved"], "1.000000")
+        self.assertIsNone(s["version_load"])                 # no save was loaded in this run
+        self.assertFalse(s["version_mismatch"])
+        self.assertEqual(s["inventory_cleared"], "removed=14 left=2 (quest items kept)")
+        self.assertEqual(s["vault_suit"], "equipped [Armor < (0A000820)>] worn=True")
+        self.assertIsNone(s["centered"])                     # a persistent-anchor run never centers
+
+    def test_centered_line(self):
+        """The temporary-anchor mode: the first centering line is the summary's "centered" (the bound's second centering
+        and its failure lines change nothing); the lines are the ones the script writes."""
+        psc = read(PSC)
+        self.assertIn('Trace("centered on " + VaultCell + " attempt=" + centered + " tick=" + centerTries + ": temporary anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve before the cell loads")', psc)
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:4920 anchor_temporary=True core=FO4TerrainCore.esm:685915\n"
+        first = "centered on FO4Port_Vault111Cryo attempt=1 tick=1: temporary anchor FO4Port.esm:4920 does not resolve before the cell loads"
+        code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=7.0 {first}\n"
+                                      "[x] FO4SF_NEWGAME rt=8.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]\n")
+        self.assertEqual(s["centered"], first[len("centered on "):])
+        self.assertTrue(s["entered_vault"])
+        code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=7.0 {first}\n"
+                                      "[x] FO4SF_NEWGAME rt=38.0 centered on FO4Port_Vault111Cryo attempt=2 tick=31: temporary anchor FO4Port.esm:4920 does not resolve before the cell loads\n"
+                                      "[x] FO4SF_NEWGAME rt=47.0 vault anchor FO4Port.esm:4920 does not resolve after 40 ticks and 2 centerings on FO4Port_Vault111Cryo: the temporary-anchor start failed\n")
+        self.assertEqual(s["centered"], first[len("centered on "):])
+        self.assertIsNone(s["entered_vault"])
+        self.assertEqual(code, 1)
+
+    def test_stage_20_is_traced_by_whichever_script_sets_it(self):
+        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n>" is traced, but the looks script sets
+        stage 20 itself (SetStage, not AdvanceTo), so a looks run logged no "stage 20" and the summary's "stages"
+        skipped it; the fixture above hid that with a line no script wrote. The looks script's Done now traces the same
+        line, to the same log in the same format, right after SetStage(20); the summary reads it, and a looks run
+        without it would still miss the stage."""
+        quest, looks = read(PSC), read(LOOKS)
+        self.assertIn('Trace("stage " + n)', quest[quest.index("Function AdvanceTo"):quest.index("EndFunction", quest.index("Function AdvanceTo"))])
+        done = looks[looks.index("Function Done"):]
+        done = done[:done.index("EndFunction")]
+        self.assertLess(done.index('Trace("looks done: " + how)'), done.index("SetStage(20)"))
+        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20")'))
+        # the same log and the same line format as the quest's Trace
+        self.assertIn('string LogName = "fo4sf_newgame"', quest)
+        self.assertIn('Debug.TraceUser(LogName, "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', quest)
+        self.assertIn('Debug.TraceUser("fo4sf_newgame", "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', looks)
+        self.assertIn(20, ng.summarize(self.LINES)["stages"])
+        without = [ln for ln in self.LINES if not ln.endswith(" stage 20")]
+        self.assertEqual(ng.summarize(without)["stages"], [10, 40, 200])
+
+    def test_inventory_lines(self):
+        """The inventory reset (NG-K8): a default build logs neither line (both None); a --clear-inventory build logs
+        the count; a --vault-suit build the suit, or that it did not resolve."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=x\n")[1]
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0 (quest items kept)\n")[1]
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0 (quest items kept)", None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1 (quest items kept)\n"
+                                "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
+        self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")
+
+    def test_the_stand_down_line_is_the_scripts(self):
+        """The fixtures' stand-down line must be one the script writes: the guard's trace gained the opening's stage and
+        the fresh verdict (21 Oct), and a fixture still naming days and level alone was a line no script produced."""
+        trace = ('Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage()'
+                 ' + " fresh=" + fresh + ": standing down")')
+        self.assertIn(trace, read(PSC))
+        parts = re.findall(r'"([^"]*)"', trace[len('Trace('):])
+        self.assertEqual(parts, ["not a new game: days=", " level=", " opening_stage=", " fresh=", ": standing down"])
+        rest = STOOD_DOWN
+        for literal in parts:                                # the literals in order, with a value between each pair
+            self.assertIn(literal, rest)
+            rest = rest[rest.index(literal) + len(literal):]
+        self.assertEqual(rest, "")
+        self.assertTrue(self.run_log(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n")[1]["stood_down"])
+
+    def test_the_init_line_is_the_scripts(self):
+        """The fixtures' init line must be one the script writes: OnQuestInit's trace gained the anchor's mode
+        (anchor_temporary=, 21 Oct), and a fixture without it was a line no script produced. Every init line of this
+        file's fixtures carries the literals of the script's trace in order, with a value between each pair."""
+        trace = ('Trace("init holdoff=" + HoldOff.Length + " vault=" + VaultPlugin + ":" + VaultAnchorId'
+                 ' + " anchor_temporary=" + AnchorTemporary + " core=" + CorePlugin + ":" + ExitAnchorId)')
+        self.assertIn(trace, read(PSC))
+        parts = re.findall(r'"([^"]*)"', trace[len('Trace('):])
+        self.assertEqual(parts, ["init holdoff=", " vault=", ":", " anchor_temporary=", " core=", ":"])
+        # every fixture posing as the script's init line (split_runs' "init x" placeholders test the prefix alone)
+        inits = re.findall(r'FO4SF_NEWGAME rt=[-\d.]+ (init holdoff=[^"\\]*)', read(__file__))
+        self.assertGreaterEqual(len(inits), 8)
+        for line in inits:
+            rest = line
+            for literal in parts:
+                self.assertIn(literal, rest, line)
+                rest = rest[rest.index(literal) + len(literal):]
+            self.assertRegex(rest, r"^\d+$", line)             # the exit anchor's id ends the line
+            self.assertRegex(line, r" anchor_temporary=(True|False) ", line)
+
+    def test_stood_down_and_exit_code(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, "fo4sf_newgame.0.log")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
+                    "[x] FO4SF_NEWGAME rt=3.0 stage 1\n")
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["log", "--file", path]), 1)
+        self.assertTrue(json.loads(o.getvalue())["stood_down"])
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(self.LINES))
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(ng.main(["log", "--file", path]), 0)
+
+
+    def run_log(self, text):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, "fo4sf_newgame.0.log")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            code = ng.main(["log", "--file", path])
+        return code, json.loads(o.getvalue())
+
+    def test_an_older_completion_never_passes_a_newer_run(self):
+        """Codex review on #393: the log is appended across sessions, so only the latest run is judged."""
+        done = "\n".join(self.LINES) + "\n"
+        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+        cases = {
+            "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
+            "stood down": init + f"[y] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
+                                 "[y] FO4SF_NEWGAME rt=3.0 stage 1\n",
+            "init only": init,
+        }
+        for name, newer in cases.items():
+            with self.subTest(name):
+                code, s = self.run_log(done + newer)
+                self.assertEqual(code, 1)
+                self.assertEqual(s["runs"], 2)
+                self.assertTrue(s["earlier_completed"])
+                self.assertNotIn(200, s["stages"])
+        self.assertFalse(self.run_log(done + cases["failed"])[1]["entered_vault"])
+        self.assertTrue(self.run_log(done + cases["stood down"])[1]["stood_down"])
+
+    def test_the_latest_run_completing_passes(self):
+        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n" \
+                 "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n"
+        code, s = self.run_log(failed + "\n".join(self.LINES) + "\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(s["runs"], 2)
+        self.assertFalse(s["earlier_completed"])
+        self.assertTrue(s["entered_vault"])
+
+    def test_looks_done_endings(self):
+        """What ended the looks wait: the creator's close event, the quick start, or the quest's LooksWait fallback;
+        the first ending counts, and a run without one reads None."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+        for ending, want in (("quick start", "quick start"), ("LooksWait fallback after 120.0 s", "LooksWait fallback after 120.0 s")):
+            code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=9.0 looks done: {ending}\n[x] FO4SF_NEWGAME rt=9.0 stage 20\n")
+            self.assertEqual(s["looks_done"], want)
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 looks done: creator closed\n"
+                                      "[x] FO4SF_NEWGAME rt=130.0 looks done: LooksWait fallback after 120.0 s\n")
+        self.assertEqual(s["looks_done"], "creator closed")
+        self.assertIsNone(self.run_log(head)[1]["looks_done"])
+
+    def test_special_endings(self):
+        """The SPECIAL ending: set at the terminal, or skipped when the player left the vault without it; "later" and
+        "left" are not endings, and a run without one reads None."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n[x] FO4SF_NEWGAME rt=12.0 special left: defaults kept, 21 points unspent\n"
+                                      "[x] FO4SF_NEWGAME rt=90.0 stage 40\n[x] FO4SF_NEWGAME rt=91.0 special skipped: left the vault with SPECIAL unset\n")
+        self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
+        self.assertIsNone(self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n")[1]["special"])
+
+    def test_version_lines(self):
+        """The save version check (NG-15 / NG-L2): the version recorded at the new game, the last load's comparison
+        (a load logs no "init", so its lines join the run before it) and whether any load found a mismatch."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n" \
+               "[x] FO4SF_NEWGAME rt=2.0 version saved=1.000000 (new game)\n"
+        code, s = self.run_log(head + "[y] FO4SF_NEWGAME rt=1.5 version load saved=1.000000 installed=1.000000\n")
+        self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), ("1.000000", "saved=1.000000 installed=1.000000", False))
+        code, s = self.run_log(head + "[y] FO4SF_NEWGAME rt=1.5 version load saved=1.000000 installed=1.000000\n"
+                                      "[z] FO4SF_NEWGAME rt=1.7 version load saved=1.000000 installed=2.000000\n"
+                                      "[z] FO4SF_NEWGAME rt=1.7 version mismatch\n")
+        self.assertEqual((s["version_load"], s["version_mismatch"]), ("saved=1.000000 installed=2.000000", True))
+        self.assertEqual(s["runs"], 1)
+        s = self.run_log("[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n")[1]
+        self.assertEqual((s["version_saved"], s["version_load"], s["version_mismatch"]), (None, None, False))
+
+    def test_split_runs(self):
+        lines = ["[a] FO4SF_NEWGAME rt=1 status stage=20", "[b] other log", "[c] FO4SF_NEWGAME rt=2 init x",
+                 "[d] FO4SF_NEWGAME rt=3 stage 10", "[e] FO4SF_NEWGAME rt=4 init y"]
+        self.assertEqual(ng.split_runs(lines, ng.LINE), [["status stage=20"], ["init x", "stage 10"], ["init y"]])
+        self.assertEqual(ng.split_runs([], ng.LINE), [])
+
+    def test_a_version_line_before_init_joins_the_new_run(self):
+        """21 Oct review on #393: the alias script's OnInit may trace before the quest's; either order is one run."""
+        old = ["[a] FO4SF_NEWGAME rt=1 init old", "[b] FO4SF_NEWGAME rt=2 status stage=200"]
+        for first, second in ((["version saved=7 installed=7"], ["init new"]),
+                              (["init new"], ["version saved=7 installed=7"])):
+            with self.subTest(first=first[0]):
+                lines = old + [f"[c] FO4SF_NEWGAME rt=3 {m}" for m in first + second] + \
+                    ["[d] FO4SF_NEWGAME rt=4 status stage=10"]
+                runs = ng.split_runs(lines, ng.LINE, carry=("version saved=",))
+                self.assertEqual(len(runs), 2)
+                self.assertEqual(sorted(runs[1][:2]), ["init new", "version saved=7 installed=7"])
+                self.assertEqual(ng.summarize(lines)["version_saved"], "7")
+
+class VerifyFoldTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        t = self.tmp
+        self.stage = os.path.join(t, "stage")
+        os.makedirs(os.path.join(self.stage, "Data", "Scripts"))
+        files = {ng.PLUGIN: b"plugin", "Data/Scripts/FO4SF_NewGameQuest.pex": b"pex1"}
+        for rel, data in files.items():
+            with open(os.path.join(self.stage, *rel.split("/")), "wb") as f:
+                f.write(data)
+        with open(os.path.join(self.stage, "README.txt"), "w", encoding="utf-8") as f:
+            f.write("Fallout 4 new game (Claude-cloud). Install: not now.\n")
+        self.core_dir = os.path.join(t, "core_set")
+        os.makedirs(os.path.join(self.core_dir, "Data", "Terrain"))
+        for name, data in (("FO4TerrainCore.esm", b"core"), ("Mars.esm", b"mars"), ("Data/Terrain/core.btd", b"btd")):
+            with open(os.path.join(self.core_dir, *name.split("/")), "wb") as f:
+                f.write(data)
+        # the core set's README as make_core64c.py readme() writes it: FO4TerrainCore first (it names the --pack archive)
+        self.core_install = ("scripts/game/exp_install.py install --exp-dir <this folder> --starfield <game> "
+                             "--plugins FO4TerrainCore.esm,Mars.esm --pack")
+        self.core_readme = ("Terrain core64c (Claude, 2026-10-12).\n\nInstall (game closed). The runner does it:\n  "
+                            + self.core_install + "\n  --pack builds \"FO4TerrainCore - Main.ba2\" from Data\\\n"
+                            "Queue: testqueue.py plan-terrain --exp-dir <this folder> --plugins FO4TerrainCore.esm,Mars.esm --fresh\n")
+        with open(os.path.join(self.core_dir, "README.txt"), "w", encoding="utf-8") as f:
+            f.write(self.core_readme)
+        self.port = os.path.join(t, "FO4Port.esm")
+        with open(self.port, "wb") as f:
+            f.write(b"port")
+        plan = {"kind": "newgame", "plugin": ng.PLUGIN, "plugin_sha256": ng.sha256(os.path.join(self.stage, ng.PLUGIN)),
+                "scripts": {"FO4SF_NewGameQuest": ng.sha256(os.path.join(self.stage, "Data", "Scripts", "FO4SF_NewGameQuest.pex"))},
+                "checked_against_sha256": {"FO4Port.esm": ng.sha256(self.port), "formids.json": "x",
+                                           "FO4TerrainCore.esm": ng.sha256(os.path.join(self.core_dir, "FO4TerrainCore.esm"))}}
+        with open(os.path.join(self.stage, "plan.json"), "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+
+    def fold(self, out, **kw):
+        args = ["fold", "--stage", self.stage, "--core-dir", self.core_dir, "--out", out]
+        for k, v in kw.items():
+            args += [f"--{k}", v]
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            return ng.main(args)
+
+    def test_fold_then_verify(self):
+        out = os.path.join(self.tmp, "folded")
+        self.assertEqual(self.fold(out, port=self.port), 0)
+        self.assertTrue(os.path.isfile(os.path.join(out, "Mars.esm")))
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(ng.main(["verify", "--exp-dir", out, "--plan", os.path.join(self.stage, "plan.json"),
+                                      "--port", self.port]), 0)
+
+    def install_namespace(self, command):
+        """The folded README's command as exp_install.py's own parser reads it (install patched out: nothing is
+        installed), with the placeholders filled: the real CLI, not a string this test believes in."""
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import exp_install
+        argv = command.split()[1:]
+        self.assertEqual(argv[:3], ["install", "--exp-dir", "<this"])
+        argv = ["install", "--exp-dir", self.folded, "--starfield", os.path.join(self.tmp, "game")] + argv[6:]
+        with unittest.mock.patch.object(exp_install, "install", side_effect=lambda a: a) as install:
+            exp_install.main(argv)
+        return exp_install, install.call_args[0][0]
+
+    def test_folded_readme_installs_every_plugin(self):
+        """Codex review on #393 (P1): exp_install.py activates only the plugins of --plugins (none listed: the first
+        .esm alphabetically), so the core README's own install command, copied into the fold as it was, would install
+        the core set and never FO4SFNewGame.esm. The folded README's every install line names every plugin and
+        --pack, and carries the stage's README."""
+        self.folded = os.path.join(self.tmp, "folded")
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["fold", "--stage", self.stage, "--core-dir", self.core_dir, "--out", self.folded,
+                                      "--port", self.port]), 0)
+        every = "FO4TerrainCore.esm,Mars.esm,FO4SFNewGame.esm"
+        self.assertIn(f"--plugins {every} --pack", o.getvalue())
+        readme = read(os.path.join(self.folded, "README.txt"))
+        install_lines = [ln for ln in readme.splitlines() if "exp_install.py install" in ln]
+        self.assertEqual(len(install_lines), 2)              # the core's own line, widened, and the fold's
+        for ln in install_lines:
+            self.assertIn(f"--plugins {every} --pack", ln)
+        self.assertNotIn(self.core_install, readme)           # the core-only command is gone
+        self.assertIn("Terrain core64c (Claude, 2026-10-12).", readme)
+        self.assertIn("Fallout 4 new game (Claude-cloud). Install: not now.", readme)
+        # the real installer's reading of that command: every plugin selected, the new game's plugin and script staged
+        exp_install, a = self.install_namespace(install_lines[-1].strip())
+        self.assertTrue(a.pack)
+        plugins = a.plugins.split(",")
+        self.assertEqual(plugins, every.split(","))
+        staged = {rel for _, rel in exp_install.staged_files(self.folded, plugins)}
+        self.assertIn(ng.PLUGIN, staged)
+        self.assertIn(os.path.join("Scripts", "FO4SF_NewGameQuest.pex"), staged)
+        self.assertIn(os.path.join("Terrain", "core.btd"), staged)
+        # ...and what the review found: the core's list, or no list at all, never stages the new game's plugin
+        core_only = {rel for _, rel in exp_install.staged_files(self.folded, ["FO4TerrainCore.esm", "Mars.esm"])}
+        self.assertNotIn(ng.PLUGIN, core_only)
+        first = sorted(f for f in os.listdir(self.folded) if f.lower().endswith(".esm"))[:1]
+        self.assertEqual(len(first), 1)                       # --plugins omitted: one plugin of three
+
+    def test_fold_without_a_core_readme_lists_the_esm_files(self):
+        os.remove(os.path.join(self.core_dir, "README.txt"))
+        out = os.path.join(self.tmp, "folded")
+        self.assertEqual(self.fold(out, port=self.port), 0)
+        readme = read(os.path.join(out, "README.txt"))
+        self.assertIn("--plugins FO4TerrainCore.esm,Mars.esm,FO4SFNewGame.esm --pack", readme)
+        self.assertEqual(readme.count("exp_install.py install"), 1)
+
+    def test_fold_refuses_a_core_readme_that_installs_other_plugins(self):
+        with open(os.path.join(self.core_dir, "README.txt"), "w", encoding="utf-8") as f:
+            f.write(self.core_readme.replace("Mars.esm", "Venus.esm"))
+        out = os.path.join(self.tmp, "folded")
+        with self.assertRaises(SystemExit) as cm:
+            self.fold(out, port=self.port)
+        self.assertIn("Venus.esm", str(cm.exception))
+        self.assertFalse(os.path.exists(out))
+
+    def test_fold_refuses_another_port(self):
+        other = os.path.join(self.tmp, "other_port.esm")
+        with open(other, "wb") as f:
+            f.write(b"rebuilt port")
+        out = os.path.join(self.tmp, "folded")
+        with self.assertRaises(SystemExit):
+            self.fold(out, port=other)
+        self.assertFalse(os.path.exists(out))                # nothing published; the attempt stays beside it
+
+    def test_verify_catches_a_changed_core(self):
+        out = os.path.join(self.tmp, "folded")
+        self.assertEqual(self.fold(out, port=self.port), 0)
+        with open(os.path.join(out, "FO4TerrainCore.esm"), "wb") as f:
+            f.write(b"another core")
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["verify", "--exp-dir", out, "--plan", os.path.join(self.stage, "plan.json"),
+                                      "--port", self.port]), 1)
+        self.assertIn("FO4TerrainCore.esm", o.getvalue())
+
+    def test_existing_out_refused(self):
+        out = os.path.join(self.tmp, "folded")
+        os.makedirs(out)
+        with self.assertRaises(SystemExit):
+            self.fold(out, port=self.port)
+
+
+@unittest.skipUnless(shutil.which("dotnet"), "no dotnet SDK on PATH")
+class WriterSelfTest(unittest.TestCase):
+    def test_selftest(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        r = subprocess.run(["dotnet", "run", "-c", "Release", "--project", os.path.join(ROOT, "dotnet", "NewGame"), "--",
+                            "selftest", tmp], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-2000:])
+        self.assertIn("selftest pass", r.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

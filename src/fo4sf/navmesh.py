@@ -563,8 +563,7 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
             h = FLT_MAX if not math.isfinite(h) or abs(h) > NO_CEILING else h / units_per_metre
             new_flags = fl & ~(LINK_MASK | F_DOOR | F_WATER)
             cut = (cx0, cy0) != (cx1, cy1)
-            if cut:
-                rep["clipped_triangles"] += 1
+            kept_cells = set()
             for cx in range(cx0, cx1 + 1):
                 for cy in range(cy0, cy1 + 1):
                     poly = base
@@ -599,6 +598,11 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
                         pc.tri_src.append(ti)
                         pc.flags.append(new_flags)
                         pc.heights.append(h)
+                    kept_cells.add((cx, cy))
+            # A vertex on a cell line expands the bbox across that line (eps), so the old counter
+            # reported a clip when the triangle was never split. Count only a real multi-cell split (#209).
+            if len(kept_cells) > 1:
+                rep["clipped_triangles"] += 1
     # adjacency inside each piece, open edges for the cross-piece links
     open_edges: Dict[tuple, list] = {}
     for pk, pc in pieces.items():
