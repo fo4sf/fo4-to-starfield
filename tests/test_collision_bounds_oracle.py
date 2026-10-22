@@ -71,7 +71,166 @@ def huge_offset_blob():
         return w.build()
 
 
+IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+
+def node(children=(), t=(0, 0, 0), rot=IDENT, scale=1.0, coll=-1, extra=(), controller=-1):
+    """An unnamed NiNode block: NiAVObject (extra refs, controller, flags, transform, collision ref), child table."""
+    return (struct.pack("<iI", -1, len(extra)) + struct.pack(f"<{len(extra)}i", *extra)
+            + struct.pack("<iI3f9ffiI", controller, 0xE, *t, *rot, scale, coll, len(children))
+            + struct.pack(f"<{len(children)}i", *children))
+
+
+def root(children=(4,), coll=2, **av):
+    """box_scene's root node: BSXFlags (block 1) as extra data, collision object 2, BSGeometry 4 as its child."""
+    return node(children, coll=coll, extra=(1,), **av)
+
+
+def box_scene(center=(0, 0, 0.5)):
+    """The matching box fixture as a NifFile: 0 root NiNode, 1 BSXFlags, 2 bhkNPCollisionObject (target 0, system 3),
+    3 bhkPhysicsSystem, 4 BSGeometry (collision ref @72, skin @116), 5 its NiIntegerExtraData, 6 its shader."""
+    box = sfcollision.box_blob(fake_template(), center, (0.4, 0.4, 0.5))
+    return nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box))
+
+
+def two_body_blob():
+    """One physics system holding two convex bodies: a 0.1 m cube (body 0) inside the 0.8 x 0.8 x 1 m box (body 1)."""
+    w = TagWriter()
+    body_types(w, "hknpConvexShape")
+    w.type("hull", 48, [("vertices", 0, "ptr"), ("faces", 16, "ptr"), ("indices", 32, "ptr")])
+    w.type("hknpConvexShape", 80, [("convexRadius", 8, "float3"), ("hull", 16, "hull")])
+    for lo, hi in (((-0.05, -0.05, 0), (0.05, 0.05, 0.1)), ((-0.4, -0.4, 0), (0.4, 0.4, 1))):
+        v, faces = cube(lo, hi)
+        s = w.item("hknpConvexShape", bytes(80))
+        idx = b"".join(bytes(face) for face in faces)
+        parts = (w.item("float3", b"".join(struct.pack("<3f", *p) for p in v), len(v)),
+                 w.item("face", b"".join(struct.pack("<HBB", 4 * k, 4, 0) for k in range(len(faces))), len(faces)),
+                 w.item("u8", idx, len(idx)))
+        for off, item in zip((16, 32, 48), parts):
+            w.ptr(s, off, item)
+        add_body(w, s)
+    return w.build()
+
+
+def scene_graph_cases():
+    """{name: (NifFile, error)}. nif.world_transforms composed the geometry and the root's collision alike in each, so
+    the boxes matched and the report was clean."""
+    cases = {}
+    f = box_scene()                                    # the engine reparents a child it attaches twice
+    f.blocks[0] = root((4, f.add_block("NiNode", node((4,), t=(5, 0, 0)))))
+    cases["two parents"] = f, "block 4: listed as a child by nodes [0, 7]"
+    f = box_scene()                                    # the first parent is an unattached node
+    f.add_block("NiNode", node((4,)))
+    f.blocks[0] = root((f.add_block("NiNode", node((4,), t=(5, 0, 0))),))
+    cases["first parent outside the graph"] = f, "block 4: listed as a child by nodes [7, 8]"
+    f = box_scene()                                    # never attached, so never drawn: it sat at the origin
+    f.blocks[0] = root(())
+    cases["geometry outside the graph"] = f, "BSGeometry 4: not in the scene graph below root 0"
+    f = box_scene()
+    f.blocks[0] = root((4, f.add_block("NiNode", node((0,)))))
+    cases["root in a cycle"] = f, "root 0: listed as a child by nodes [7]"
+    for footer in (struct.pack("<II", 1, 99), struct.pack("<II", 1, 1), struct.pack("<I", 0), b"\x01\x00"):
+        f = box_scene()
+        f.footer = footer
+        cases[f"footer {footer.hex()}"] = f, f"footer ({len(footer)} bytes) does not name a scene root"
+    f = box_scene()                                    # world_transforms dropped the top 5 levels, x = 5 among them
+    chain = [f.add_block("NiNode", b"") for _ in range(70)]
+    for k, i in enumerate(chain):
+        f.blocks[i] = node(chain[k + 1:k + 2] or (4,), t=(0, 0, 0) if k else (5, 0, 0))
+    f.blocks[0] = root(chain[:1])
+    cases["70 levels"] = f, "scene graph deeper than 64 levels below root 0"
+    f = box_scene()                                    # 5 marker positions (8 + 5 * 20 bytes) read as a child table
+    f.add_block("BSFurnitureMarkerNode", node((4,), extra=(0,) * 5) + bytes(8))
+    f.blocks[0] = root((f.add_block("NiNode", node((4,), t=(5, 0, 0))),))
+    cases["furniture marker"] = f, "block 4: world transform follows parent 7, scene parent 8"
+    f = box_scene()                                    # world_transforms gives BSFaceGenNiNode's children no parent
+    f.blocks[0] = root((f.add_block("BSFaceGenNiNode", node((4,), t=(5, 0, 0))),))
+    cases["face gen node"] = f, "block 7: BSFaceGenNiNode is not a plain NiNode / BSFadeNode"
+    f = box_scene()                                    # turns its children to the camera at run time
+    f.blocks[0] = root((f.add_block("NiBillboardNode", node((4,)) + struct.pack("<H", 0)),))
+    cases["billboard node"] = f, "block 7: NiBillboardNode is not a plain NiNode / BSFadeNode"
+    return cases
+
+
+def collision_ownership_cases():
+    """{name: (NifFile, error)}. The oracle measured every bhkNPCollisionObject at its target, whether or not the
+    collision ref of a loaded block named it."""
+    cases = {}
+    f = box_scene()                                    # nothing loads it, yet its box matched
+    f.blocks[0] = root(coll=-1)
+    cases["named by no block"] = f, "collision object 2: named by the collision refs of blocks [] below root 0"
+    f = box_scene()
+    f.blocks[0] = root((4, f.add_block("NiNode", node(coll=2))))
+    cases["named by two blocks"] = f, "collision object 2: named by the collision refs of blocks [0, 7]"
+    f = box_scene()                                    # the block that names it is not attached
+    f.blocks[2] = struct.pack("<iHiI", f.add_block("NiNode", node(coll=2)), 0x80, 3, 0)
+    f.blocks[0] = root(coll=-1)
+    cases["named outside the graph"] = f, "collision object 2: named by the collision refs of blocks [] below root 0"
+    f = box_scene()
+    f.blocks[0] = root((4, f.add_block("NiNode", node())))
+    f.blocks[2] = struct.pack("<iHiI", 7, 0x80, 3, 0)
+    cases["target is not the naming block"] = f, "collision object 2: target 7 is not block 0, which references it"
+    f = box_scene()                                    # the BSGeometry's own collision ref names its extra data
+    f.blocks[4] = f.blocks[4][:72] + struct.pack("<i", 5) + f.blocks[4][76:]
+    cases["collision ref to extra data"] = f, "block 4: collision ref 5 is not a bhkNPCollisionObject"
+    return cases
+
+
+def collision_body_cases():
+    """{name: (NifFile, error)}. The oracle read a 10-byte header and every body of a system for each object."""
+    cases = {}
+    f = box_scene()                                    # a body the one-body system does not have
+    f.blocks[2] = struct.pack("<iHiI", 0, 0x80, 3, 1)
+    cases["body id 1"] = f, "collision object 2: body id 1, not 0"
+    f = box_scene()
+    f.blocks[2] = f.blocks[2][:12]
+    cases["12-byte header"] = f, "collision object 2: truncated header (12 bytes)"
+    f = box_scene()
+    f.blocks[2] += bytes(4)
+    cases["18-byte header"] = f, "collision object 2: trailing bytes after its header (18 bytes)"
+    f = box_scene()
+    f.blocks[3] += bytes(4)
+    cases["bytes after the blob"] = f, (f"collision object 2: physics system 3 has 4 bytes after its "
+                                        f"{sfcollision.BLOB_SIZE}-byte blob")
+    box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+    hull = convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)))
+    f = nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[hull]))
+    f.blocks[8] = struct.pack("<iHiI", 7, 0x80, 3, 0)   # the child node's object takes the root's system instead
+    cases["shared physics system"] = f, "collision object 8: physics system 3 is also collision object 2's"
+    f = nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[two_body_blob()]))
+    cases["two bodies"] = f, "collision object 6: physics system 7 holds 2 bodies, not 1"
+    return cases
+
+
+def transform_cases():
+    """{name: (NifFile, error)}. Transforms composed for a box that the engine does not apply as the oracle did."""
+    cases = {}
+    for name, av, error in (("root scale 0", {"scale": 0.0}, "block 0: scale 0.0 is not positive"),
+                            ("root matrix 0", {"rot": (0,) * 9}, "block 0: matrix is not a rotation")):
+        f = box_scene((8, 0, 0.5))                     # an offset box: both boxes shrank below MIN_EXTENT
+        f.blocks[0] = root(**av)
+        cases[name] = f, error
+    f = box_scene()
+    f.blocks[0] = root(controller=5)
+    cases["root controller"] = f, "block 0: controller 5 can move its transform"
+    f = box_scene()
+    f.blocks[4] = f.blocks[4][:116] + struct.pack("<i", 5) + f.blocks[4][120:]
+    cases["skinned geometry"] = f, "BSGeometry 4: skin 5 places it by bones"
+    hull = convex_blob(*cube((1.6, -0.4, 0), (2.4, 0.4, 1)))      # mirrored onto the mesh at x = -2; Havok cannot
+    f = nif.parse(nif_bytes((-2, 0, 0.5, 0.4, 0.4, 0.5), children=[(hull, (0, 0, 0), (-1, 0, 0, 0, 1, 0, 0, 0, 1))]))
+    cases["mirrored collision node"] = f, "block 5: matrix is not a rotation"
+    return cases
+
+
 class CollisionBoundsOracleTests(unittest.TestCase):
+    def assert_unreadable_cases(self, cases):
+        for name, (f, error) in cases.items():
+            report = oracle.audit(nif.serialize(f), path=f"{name}.nif")
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertTrue(any(e.startswith(error) for e in report["errors"]), msg=(name, report["errors"]))
+            self.assertTrue(oracle.failed([report]), msg=name)
+            json.dumps(report, allow_nan=False)
+
     def test_matching_box_is_clean(self):
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
         report = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box), path="match.nif")
@@ -241,16 +400,17 @@ class CollisionBoundsOracleTests(unittest.TestCase):
     def test_collision_target_that_is_not_a_scene_object_is_unreadable(self):
         # The range check let a target on any block through: one whose bytes read as an identity transform placed the
         # box like the root and reported clean. BSFurnitureMarkerNode ends in "Node" but is NiExtraData.
-        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
-        f = nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box))
-        av = struct.pack("<iIiI3f9ffiI", -1, 0, -1, 0xE, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0, -1, 0)
-        targets = {t: f.add_block(t, av) for t in ("BogusBlock", "BSFurnitureMarkerNode", "NiNode")}
+        f = box_scene()
+        targets = {t: f.add_block(t, node(coll=2)) for t in ("BogusBlock", "BSFurnitureMarkerNode", "NiNode")}
         targets["BSGeometry"] = 4
-        npco = f.blocks[2]                                 # build_static_nif: the root's collision object
+        geometry = f.blocks[4]
         for name, target in targets.items():
-            f.blocks[2] = struct.pack("<i", target) + npco[4:]
+            control = name in ("NiNode", "BSGeometry")     # identity scene objects that name the object: clean
+            f.blocks[0] = root((4, target) if name == "NiNode" else (4,), coll=-1 if control else 2)
+            f.blocks[4] = geometry[:72] + struct.pack("<i", 2) + geometry[76:] if name == "BSGeometry" else geometry
+            f.blocks[2] = struct.pack("<iHiI", target, 0x80, 3, 0)
             report = oracle.audit(nif.serialize(f), path=f"{name}-target.nif")
-            if name in ("NiNode", "BSGeometry"):           # identity scene objects, like the root: clean controls
+            if control:
                 self.assertEqual(report["flags"], [], msg=name)
                 continue
             self.assertIn("unreadable", report["flags"], msg=name)
@@ -347,6 +507,33 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             self.assertTrue(any(e.startswith("node 0: ") for e in report["errors"]), msg=(name, report.get("errors")))
             self.assertTrue(oracle.failed([report]), msg=name)
             json.dumps(report, allow_nan=False)
+
+    def test_scene_graph_that_is_not_a_plain_tree_is_unreadable(self):
+        self.assertEqual(oracle.audit(nif.serialize(box_scene()))["flags"], [])
+        f = box_scene()                                # the x = 5 node most cases hid puts the geometry off the box
+        f.blocks[0] = root((f.add_block("NiNode", node((4,), t=(5, 0, 0))),))
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], ["offset"])
+        self.assert_unreadable_cases(scene_graph_cases())
+
+    def test_collision_object_not_named_by_its_target_is_unreadable(self):
+        f = box_scene()                                # control: an attached child node names the object it targets
+        n = f.add_block("NiNode", node(coll=2))
+        f.blocks[0] = root((4, n), coll=-1)
+        f.blocks[2] = struct.pack("<iHiI", n, 0x80, 3, 0)
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])
+        self.assert_unreadable_cases(collision_ownership_cases())
+
+    def test_collision_body_selection_and_block_sizes_are_unreadable(self):
+        self.assert_unreadable_cases(collision_body_cases())
+
+    def test_degenerate_or_animated_transform_on_a_box_path_is_unreadable(self):
+        self.assertEqual(oracle.audit(nif.serialize(box_scene((8, 0, 0.5))))["flags"], ["offset"])
+        hull = convex_blob(*cube((1.6, -0.4, 0), (2.4, 0.4, 1)))
+        self.assertEqual(oracle.audit(nif_bytes((-2, 0, 0.5, 0.4, 0.4, 0.5), children=[hull]))["flags"], ["offset"])
+        f = box_scene()                                # control: a root turned 90 degrees about z, scaled 2 and moved
+        f.blocks[0] = root(t=(1, 2, 3), rot=(0, -1, 0, 1, 0, 0, 0, 0, 1), scale=2.0)
+        self.assertEqual(oracle.audit(nif.serialize(f))["flags"], [])
+        self.assert_unreadable_cases(transform_cases())
 
     def test_cli_truncated_collision_headers_emit_json(self):
         script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"

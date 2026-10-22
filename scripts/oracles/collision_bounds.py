@@ -2,9 +2,15 @@
 
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
 (missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
-decode, truncated collision object / physics system headers, a collision target that is not a
-node or BSGeometry, a node child table that does not fit its block or names a block past the
-end, and malformed manifest entries.
+decode, a collision object / physics system whose size disagrees with its layout, a body id other
+than 0, a physics system shared by two collision objects or not holding exactly one body, a
+collision target that is not a node or BSGeometry, a scene graph that is not a plain tree under
+the footer root (a node child table that does not fit its block or names a block past the end, a
+block with two parents, a cycle, more than 64 levels, a parent nif.world_transforms would read
+differently, geometry or a collision object outside the tree, a collision object whose target is
+not the block that names it), a transform composed for a box that is not a plain NiNode /
+BSFadeNode / unskinned BSGeometry one with no controller, scale > 0 and a rotation, and
+malformed manifest entries.
 Nonfinite or non-positive --scale / per-item scale is rejected before comparison, and a nonfinite
 point anywhere, or bounds whose centre / extent / diagonal overflow, make the model unreadable. JSON
 output never emits NaN/Infinity, and a structurally malformed NIF or manifest is an unreadable report,
@@ -103,13 +109,37 @@ def _is_node(t):
     return t.endswith("Node") and t != "BSFurnitureMarkerNode"
 
 
-def _child_table_errors(f):
-    """Nodes whose child table nif.node_children cannot read. It returns no children for a count past the block (or over
-    its 100000 cap) and drops refs past the block list, so geometry and collision below that node both lose its
-    transform and the bounds can still match."""
-    errors = []
+_PLAIN_NODES = ("NiNode", "BSFadeNode")                # draw every child at its stored transform
+_MAX_DEPTH = 64                                        # world_transforms stops composing parents at depth > 64
+
+
+def _av_fields(blk):
+    """(controller, rotation, scale, collision ref) of a node or BSGeometry block (nif._av_transform's layout)."""
+    _, nextra = struct.unpack_from("<iI", blk, 0)
+    controller, = struct.unpack_from("<i", blk, 8 + 4 * nextra)
+    *rot, scale, coll = struct.unpack_from("<9ffi", blk, 8 + 4 * nextra + 20)    # past controller, flags, translation
+    return controller, rot, scale, coll
+
+
+def _is_rotation(r, tol=1e-3):
+    """Orthonormal with determinant +1. A singular matrix shrinks both boxes below MIN_EXTENT, and Havok turns a body
+    but cannot shear or mirror it the way the oracle's matrix product does."""
+    det = r[0] * (r[4] * r[8] - r[5] * r[7]) - r[1] * (r[3] * r[8] - r[5] * r[6]) + r[2] * (r[3] * r[7] - r[4] * r[6])
+    return det > 0 and all(abs(sum(r[3 * a + k] * r[3 * b + k] for k in range(3)) - (a == b)) <= tol
+                           for a in range(3) for b in range(3))
+
+
+def _scene_errors(f):
+    """The scene graph behind the transforms the oracle composes. nif.world_transforms reads any "...Node" child table
+    leniently (a table past the block or over 100000 is childless, refs past the end are dropped), takes a block's
+    first parent, gives an unlisted block none and stops composing parents 65 levels up, so its result is right only
+    for a plain tree under the footer root. Geometry or a collision object outside that tree is never loaded, a collision object
+    belongs to the block whose collision ref names it, and every transform composed for a box must be a plain
+    NiNode / BSFadeNode or BSGeometry transform: no controller, no skin, scale > 0 and a rotation."""
+    errors, n = [], len(f.blocks)
+    children = {}
     for i, blk in enumerate(f.blocks):
-        if not _is_node(f.type_of(i)) or f.type_of(i) == "BSFaceGenNiNode":   # world_transforms skips its children
+        if not _is_node(f.type_of(i)):
             continue
         try:
             _, nextra = struct.unpack_from("<iI", blk, 0)
@@ -121,9 +151,88 @@ def _child_table_errors(f):
         if count > 100000 or p + 4 + 4 * count > len(blk):
             errors.append(f"node {i}: declares {count} children in a {len(blk)}-byte block")
             continue
-        bad = [c for c in struct.unpack_from(f"<{count}i", blk, p + 4) if not -1 <= c < len(f.blocks)]
+        refs = struct.unpack_from(f"<{count}i", blk, p + 4)
+        bad = [c for c in refs if not -1 <= c < n]
         if bad:
-            errors.append(f"node {i}: child refs {bad} past {len(f.blocks)} blocks")
+            errors.append(f"node {i}: child refs {bad} past {n} blocks")
+        children[i] = [c for c in refs if 0 <= c < n]
+    parents = {}
+    for i, kids in children.items():
+        for c in kids:
+            parents.setdefault(c, []).append(i)
+    errors.extend(f"block {c}: listed as a child by nodes {ps}" for c, ps in parents.items() if len(ps) > 1)
+    try:
+        count, = struct.unpack_from("<I", f.footer, 0)
+        roots = struct.unpack_from(f"<{count}i", f.footer, 4) if len(f.footer) == 4 + 4 * count else ()
+    except struct.error:
+        roots = ()
+    root = roots[0] if roots else -1
+    if not (0 <= root < n and (_is_node(f.type_of(root)) or f.type_of(root) == "BSGeometry")):
+        return errors + [f"footer ({len(f.footer)} bytes) does not name a scene root"]
+    if root in parents:
+        errors.append(f"root {root}: listed as a child by nodes {parents[root]}")
+    depth, up, todo = {root: 0}, {root: None}, [root]  # up: the parent each block in the tree is reached from
+    while todo:
+        i = todo.pop()
+        for c in children.get(i, ()):
+            if c not in depth:                         # a second parent or a cycle is reported above
+                depth[c], up[c] = depth[i] + 1, i
+                todo.append(c)
+    if max(depth.values()) > _MAX_DEPTH:
+        errors.append(f"scene graph deeper than {_MAX_DEPTH} levels below root {root}")
+    nif_parent = _geometry_parents(f)                  # marker bytes can claim children; BSFaceGenNiNode's lose theirs
+    errors.extend(f"block {b}: world transform follows parent {nif_parent.get(b)}, scene parent {up[b]}"
+                  for b in sorted(depth) if nif_parent.get(b) != up[b])
+    owners, leaves = {}, []
+    for b in sorted(depth):
+        t = f.type_of(b)
+        if not (_is_node(t) or t == "BSGeometry"):
+            continue
+        try:
+            coll = _av_fields(f.blocks[b])[3]
+            skin = sfnif.parse_bsgeometry(f.blocks[b]).skin if t == "BSGeometry" else -1
+        except (struct.error, ValueError, IndexError):
+            continue                                   # a truncated node / BSGeometry is reported on its own
+        if t == "BSGeometry":
+            leaves.append(b)
+        if skin != -1:
+            errors.append(f"BSGeometry {b}: skin {skin} places it by bones, not by its node")
+        if coll != -1 and not (0 <= coll < n and f.type_of(coll) == "bhkNPCollisionObject"):
+            errors.append(f"block {b}: collision ref {coll} is not a bhkNPCollisionObject")
+        elif coll != -1:
+            owners.setdefault(coll, []).append(b)
+    for i in range(n):
+        if f.type_of(i) == "BSGeometry" and i not in depth:
+            errors.append(f"BSGeometry {i}: not in the scene graph below root {root}")
+        if f.type_of(i) != "bhkNPCollisionObject":
+            continue
+        refs = owners.get(i, [])
+        if len(refs) != 1:
+            errors.append(f"collision object {i}: named by the collision refs of blocks {refs} below root {root}, "
+                          "not by one")
+            continue
+        leaves.append(refs[0])
+        target = struct.unpack_from("<i", f.blocks[i], 0)[0] if len(f.blocks[i]) >= 4 else refs[0]
+        if target != refs[0]:
+            errors.append(f"collision object {i}: target {target} is not block {refs[0]}, which references it")
+    seen = set()
+    for b in leaves:                                   # every transform composed for a box, up to the root
+        while b is not None and b not in seen:
+            seen.add(b)
+            t = f.type_of(b)
+            if _is_node(t) and t not in _PLAIN_NODES:
+                errors.append(f"block {b}: {t} is not a plain NiNode / BSFadeNode")
+            try:
+                controller, rot, scale, _ = _av_fields(f.blocks[b])
+            except struct.error:
+                controller, rot, scale = -1, (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0     # reported on its own
+            if controller != -1:
+                errors.append(f"block {b}: controller {controller} can move its transform")
+            if not scale > 0:
+                errors.append(f"block {b}: scale {scale} is not positive")
+            if not _is_rotation(rot):
+                errors.append(f"block {b}: matrix is not a rotation")
+            b = up[b]
     return errors
 
 
@@ -181,24 +290,35 @@ def collision_bodies(f, scale=1.0):
 
     Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.blob_bodies
     (existing Starfield tagfile readback). fo4collision.decode is FO4 packfile-only and is not used.
-    A bhkNPCollisionObject shorter than its 10-byte header (target i32, flags u16, data i32), a
-    bhkPhysicsSystem shorter than its u32 length field or than the blob length it declares, a target
-    that is not a node or BSGeometry (any other block's bytes can still read as a transform), or a
-    blob that fails to decode is an error for that object only.
+    A bhkNPCollisionObject that is not its 14-byte layout (target i32, flags u16, data i32, body id
+    u32), a body id other than 0 (it picks one body of the system; converted systems hold one), a
+    bhkPhysicsSystem whose size is not its u32 length field plus the blob length it declares, or that
+    another collision object already uses, a target that is not a node or BSGeometry (any other
+    block's bytes can still read as a transform), or a blob that fails to decode or does not hold
+    exactly one body is an error for that object only.
     """
     bodies = []
     errors = []
+    systems = {}
     world = nif.world_transforms(f)
     for i in range(len(f.blocks)):
         if f.type_of(i) != "bhkNPCollisionObject":
             continue
-        if len(f.blocks[i]) < 10:
-            errors.append(f"collision object {i}: truncated header ({len(f.blocks[i])} bytes)")
+        if len(f.blocks[i]) != 14:
+            what = "truncated header" if len(f.blocks[i]) < 14 else "trailing bytes after its header"
+            errors.append(f"collision object {i}: {what} ({len(f.blocks[i])} bytes)")
             continue
-        target, _, data = struct.unpack_from("<iHi", f.blocks[i], 0)
+        target, _, data, body_id = struct.unpack_from("<iHiI", f.blocks[i], 0)
+        if body_id != 0:
+            errors.append(f"collision object {i}: body id {body_id}, not 0")
+            continue
         if not (0 <= data < len(f.blocks)) or f.type_of(data) != "bhkPhysicsSystem":
             errors.append(f"collision object {i}: bad physics system")
             continue
+        if data in systems:
+            errors.append(f"collision object {i}: physics system {data} is also collision object {systems[data]}'s")
+            continue
+        systems[data] = i
         if len(f.blocks[data]) < 4:
             errors.append(f"collision object {i}: truncated physics system {data} "
                           f"({len(f.blocks[data])} bytes)")
@@ -207,6 +327,10 @@ def collision_bodies(f, scale=1.0):
         if 4 + n > len(f.blocks[data]):
             errors.append(f"collision object {i}: truncated physics system {data} "
                           f"({len(f.blocks[data]) - 4} of {n} blob bytes)")
+            continue
+        if 4 + n < len(f.blocks[data]):
+            errors.append(f"collision object {i}: physics system {data} has "
+                          f"{len(f.blocks[data]) - 4 - n} bytes after its {n}-byte blob")
             continue
         blob = f.blocks[data][4:4 + n]
         if not (0 <= target < len(f.blocks)):
@@ -236,6 +360,9 @@ def collision_bodies(f, scale=1.0):
         except (sfbodies.BodyError, ValueError, struct.error, IndexError, KeyError, OverflowError,
                 RecursionError) as err:                # a tagfile missing a section, offsets >= 2**63, cyclic types
             errors.append(f"collision object {i}: {type(err).__name__}: {err}")
+            continue
+        if len(decoded) != 1:                          # body id 0 picks one; the rest would not follow this target
+            errors.append(f"collision object {i}: physics system {data} holds {len(decoded)} bodies, not 1")
             continue
         for body in decoded:
             pts = [_place(p, t, rot, s) for tri in body["triangles"] for p in tri]
@@ -300,7 +427,7 @@ def audit(data, scale=1.0, path=""):
         return {"path": path, "scale": scale, "flags": ["unreadable"], "error": str(err)}
     errors = []
     try:
-        errors.extend(_child_table_errors(f))          # both sides would drop that node's transform alike
+        errors.extend(_scene_errors(f))                # a malformed graph can misplace both boxes alike
         mesh = mesh_aabb(f, scale)
     except (ValueError, struct.error, IndexError, nif.NifError) as err:
         mesh = None
