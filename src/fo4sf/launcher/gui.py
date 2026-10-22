@@ -116,9 +116,11 @@ class SettingsModel:
         keep = [k for k in raw if (k in paths.KEYS) == (part == "settings")]
         return dict(raw, **{k: self.saved[k] for k in keep if k in self.saved})
 
-    def locations(self, found, prefer=()):
-        """Rows for the Locations tab: the saved value, or what was found and waits for the player's yes."""
-        return paths.rows(self.saved, found, prefer)
+    def locations(self, found, prefer=(), dirty=()):
+        """Rows for the Locations tab: the saved value, or what was found and waits for the player's yes. dirty are
+        locations the player typed or browsed and has not saved: a late detection never overwrites them (Codex,
+        #481)."""
+        return [r for r in paths.rows(self.saved, found, prefer) if r["key"] not in dirty]
 
 
 def run_command(argv, on_line, *, popen=subprocess.Popen):
@@ -339,9 +341,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             item["note"].configure(text=f"{item['what']}  ·  {note}" if note else item["what"])
 
         def render_locations(self):
-            for row in model.locations(self.found, prefer=given):
-                if row["key"] in self.dirty:       # a finishing detection never overwrites the player's edit (Codex, #481)
-                    continue
+            for row in model.locations(self.found, prefer=given, dirty=self.dirty):
                 self.set_location(row["key"], row["value"])
                 self.show_mark(row["key"], row["status"], row["note"])
             self.refresh_play()

@@ -137,6 +137,13 @@ class GuiModelTests(unittest.TestCase):
         self.model.reload()
         self.assertIn("ProcDump path: file not found", self.model.play_reason(self.model.saved, "", [], windows=True))
 
+    def test_a_late_detection_leaves_the_players_edits_alone(self):
+        found = {"starfield": (self.game, "Steam library")}
+        self.assertEqual([r["key"] for r in self.model.locations(found)], list(paths.KEYS))
+        rows = self.model.locations(found, dirty={"starfield"})
+        self.assertNotIn("starfield", [r["key"] for r in rows])
+        self.assertEqual(len(rows), len(paths.KEYS) - 1)
+
     def test_play_delegates_to_existing_cli_for_both_routes(self):
         for route in ("steam", "exe"):
             self.path.write_text(json.dumps({"route": route}), encoding="utf-8")
@@ -320,6 +327,71 @@ class LocationsCliTests(unittest.TestCase):
         # no Steam here, so nothing is saved or found for the game folder
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("still needed to play: Starfield game folder", result.stdout)
+
+
+WINDOW_SCRIPT = r"""
+import gc, json, os, sys, tempfile, threading, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+from fo4sf.launcher import gui, paths
+d = tempfile.mkdtemp()
+def made(name, file):
+    os.makedirs(os.path.join(d, name))
+    open(os.path.join(d, name, file), "wb").close()
+    return os.path.join(d, name)
+detected, typed = made("SteamGame", "Starfield.exe"), made("MyGame", "Starfield.exe")
+gate = threading.Event()
+def late_detect(**_kw):
+    gate.wait(10)
+    return {k: ("", "") for k in paths.KEYS} | {"starfield": (detected, "Steam library")}
+paths.detect = late_detect
+errors = []
+tk.Tk.report_callback_exception = lambda self, *a: errors.append(repr(a[1]))
+def pump(root, s):
+    end = time.time() + s
+    while time.time() < end:
+        root.update()
+        time.sleep(0.02)
+def run(root):
+    w = next(o for o in gc.get_objects() if type(o).__name__ == "Window")
+    pump(root, 0.3)
+    entry = w.loc["starfield"]["entry"]
+    entry.delete(0, "end")
+    entry.insert(0, typed)                      # the player types while detection is still running
+    pump(root, 0.2)
+    gate.set()
+    pump(root, 1.0)
+    out = {"after_detect": w.location_value("starfield")}
+    w.detect_locations()                        # Detect again
+    pump(root, 1.0)
+    out["after_redetect"] = w.location_value("starfield")
+    out["errors"] = errors
+    print(json.dumps(out))
+    root.destroy()
+tk.Tk.mainloop = lambda self, n=0: run(self)
+gui.launch(sys.argv[2], os.path.join(d, "settings.json"))
+"""
+
+
+def can_open_a_window():
+    try:
+        import tkinter
+        tkinter.Tk().destroy()
+        return True
+    except Exception:            # no tkinter, or no display (CI): the model tests above still run
+        return False
+
+
+@unittest.skipUnless(can_open_a_window(), "needs tkinter and a display")
+class GuiWindowTests(unittest.TestCase):
+    def test_a_late_detection_keeps_a_typed_location_in_the_real_window(self):
+        result = subprocess.run([sys.executable, "-I", "-c", WINDOW_SCRIPT, str(ROOT / "src"),
+                                 str(ROOT / "scripts" / "launcher.py")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["errors"], [])
+        self.assertTrue(out["after_detect"].endswith("MyGame"), out)
+        self.assertTrue(out["after_redetect"].endswith("MyGame"), out)
 
 
 class GuiEntryTests(unittest.TestCase):
