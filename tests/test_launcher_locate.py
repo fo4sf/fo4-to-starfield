@@ -66,6 +66,18 @@ class LocateTests(unittest.TestCase):
         self.assertIsNone(r["starfield"])
         self.assertIn("Starfield not found in any Steam library", r["notes"])
 
+    def test_a_game_still_downloading_is_not_an_install_yet(self):
+        os.makedirs(os.path.join(self.steam, "steamapps", "common", "Fallout 4", "Data"))
+        acf = os.path.join(self.steam, "steamapps", "appmanifest_377160.acf")
+        for flags, found in (("1042", False), ("4", True), ("1028", True)):   # downloading; installed; updating
+            write(acf, manifest("377160", "Fallout 4").replace('"name"', f'"StateFlags"\t\t"{flags}"\n\t"name"'))
+            with self.subTest(flags=flags):
+                self.assertEqual(locate.find_app(self.steam, "377160") is not None, found)
+        r = locate.locate(self.steam, gog="")
+        self.assertEqual(r["fallout4"], os.path.join(self.steam, "steamapps", "common", "Fallout 4"))
+        # once installed, its Data comes after the depot downloads: detect uses the later copy of any archive
+        self.assertEqual(locate.fo4_data_folders(r)[-1], os.path.join(r["fallout4"], "Data"))
+
     def test_old_libraryfolders_layout(self):
         old = os.path.join(self.steam, "steamapps", "libraryfolders.vdf")
         write(old, '"LibraryFolders"\n{\n\t"TimeNextStatsReport"\t"1"\n\t"1"\t"' + self.lib2.replace("\\", "\\\\")

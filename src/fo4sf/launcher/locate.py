@@ -122,6 +122,11 @@ def find_app(steam, appid):
             continue
         state = _get_ci(parse_vdf(text), "AppState") or {}
         inst = _get_ci(state, "installdir")
+        flags = _get_ci(state, "StateFlags")
+        # StateFlags bit 4 is "fully installed"; a first download (the owner's Fallout 4, 1042, 2026-10-22) lacks it,
+        # and its half-written files must not be read as the game. An update keeps the bit, so an updating game stays.
+        if flags is not None and str(flags).isdigit() and not int(flags) & 4:
+            continue
         if inst:
             p = os.path.join(lib, "steamapps", "common", inst)
             if os.path.isdir(p):
