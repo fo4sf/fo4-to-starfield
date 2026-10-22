@@ -62,12 +62,13 @@ class LodGateTests(unittest.TestCase):
         self.assertEqual((self.out / "FO4SFLodGate1.esm").read_bytes()[8:12], (1).to_bytes(4, "little"))   # Master
 
     def test_gate_2_is_the_same_world_without_the_master_flag(self):
-        shown = self.show("FO4SFLodGate2.esp")
-        self.assertIn("FO4SFLodGate2.esp: header flags 0, masters [Starfield.esm]", shown)
-        self.assertIn(f"FO4SF_LodGate2 000800:FO4SFLodGate2.esp: Flags SmallWorld, HNAM [0], location 3807BE:Starfield.esm, components [], "
-                      f"persistent cell 000801:FO4SFLodGate2.esp, 9 cell(s) at {CELLS}", shown)
+        shown = self.show("FO4SFLodGate2.esm")                      # the .esm name kept: the flag is the only difference
+        self.assertIn("FO4SFLodGate2.esm: header flags 0, masters [Starfield.esm]", shown)
+        self.assertIn(f"FO4SF_LodGate2 000800:FO4SFLodGate2.esm: Flags SmallWorld, HNAM [0], location 3807BE:Starfield.esm, components [], "
+                      f"persistent cell 000801:FO4SFLodGate2.esm, 9 cell(s) at {CELLS}", shown)
         self.assertEqual(shown.count("    ref "), 3)
-        self.assertEqual((self.out / "FO4SFLodGate2.esp").read_bytes()[8:12], (0).to_bytes(4, "little"))
+        self.assertEqual((self.out / "FO4SFLodGate2.esm").read_bytes()[8:12], (0).to_bytes(4, "little"))
+        self.assertFalse((self.out / "FO4SFLodGate2.esp").exists())
 
     def test_gate_3_copies_our_core_world_and_masters_the_core(self):
         shown = self.show("FO4SFLodGate3.esm")

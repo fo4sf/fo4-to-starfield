@@ -5,7 +5,8 @@
 // origin plus a few references to the largest vanilla statics (so a bake has objects to write placeholders for):
 //   FO4SFLodGate1.esm  FO4SF_LodGate1  the WRLD record copied from vanilla LC172World (the writer's own template),
 //                                      master-flagged like the core; masters: Starfield.esm
-//   FO4SFLodGate2.esp  FO4SF_LodGate2  the same without the Master header flag
+//   FO4SFLodGate2.esm  FO4SF_LodGate2  the same without the Master header flag (the .esm name kept, so the flag is
+//                                      the only difference between 1 and 2)
 //   FO4SFLodGate3.esm  FO4SF_LodGate3  the WRLD record copied from our core's FO4Core_Commonwealth (its location
 //                                      and surface block links kept); masters: Starfield.esm, FO4TerrainCore.esm
 // The run card: CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1 with the plugin in Data (the
@@ -97,7 +98,7 @@ if (args[0] == "build" && args.Length >= 4)
                  (3, true, ours, new[] { sf.ModKey, core.ModKey }),
              })
     {
-        var modKey = ModKey.FromFileName($"FO4SFLodGate{n}.{(master ? "esm" : "esp")}");
+        var modKey = ModKey.FromFileName($"FO4SFLodGate{n}.esm");           // the same extension for all: the flag alone varies
         var mod = new StarfieldMod(modKey, release);
         if (master) mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         uint next = 0x800;

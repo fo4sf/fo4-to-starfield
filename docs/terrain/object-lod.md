@@ -165,7 +165,8 @@ plan above, which tells custom-world support from anything about the core, befor
    to the three vanilla statics with the widest object bounds (so a bake has objects to write placeholders for;
    the build prints which): `FO4SFLodGate1.esm` (world `FO4SF_LodGate1`, the WRLD record copied from vanilla
    LC172World, the writer's own template, master-flagged like the core, master Starfield.esm);
-   `FO4SFLodGate2.esp` (the same without the Master header flag); `FO4SFLodGate3.esm` (world `FO4SF_LodGate3`,
+   `FO4SFLodGate2.esm` (the same without the Master header flag, the `.esm` name kept so the flag is the only
+   difference); `FO4SFLodGate3.esm` (world `FO4SF_LodGate3`,
    the WRLD record copied from our core's `FO4Core_Commonwealth`, its location and surface-block links kept,
    masters Starfield.esm and the core). `LodGate show <plugin> <Starfield.esm> [<core>]` reads one back
    (`tests/test_lod_gate.py` covers the three on a synthetic fixture). The run: the plugin copied into `Data`
@@ -176,8 +177,9 @@ plan above, which tells custom-world support from anything about the core, befor
    to bake, and each changes the template's EditorID and name, replaces both cell trees and drops OFST / CLSZ,
    so a failed gate can also mean a loading or registration prerequisite the gate misses, or a defect in this
    synthetic layout): 1 bakes and 3 does not → the candidates narrow to the fields the two WRLD records differ
-   in (diff them next); 1 and 3 bake → the candidates narrow to the core's scale or cell tree (648k
-   references); 1 does not bake → the generator did not find this plugin world, and 2 then says whether the
+   in (diff them next); 1 and 3 bake → the core's own world still differs from gate 3 in its scale and cell
+   tree (648k references), but also in its identity (plugin, FormKey, EditorID and name), its dropped OFST /
+   CLSZ and its freshly made persistent cell, and each of those stays a candidate; 1 does not bake → the generator did not find this plugin world, and 2 then says whether the
    Master flag is among the reasons; nothing bakes → the route stays **unproved**, not closed: a claim that
    custom worlds are unsupported needs a positive control first (a plugin-added world the CK itself made and is
    known to bake) or a narrower follow-up, and meanwhile the surface map's buildings wait on the FO4 LOD mesh
