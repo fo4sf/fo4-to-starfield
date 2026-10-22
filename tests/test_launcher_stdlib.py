@@ -19,8 +19,13 @@ def _is_allowed(name, stdlib):
     return False
 
 
+def non_stdlib_tops(names, stdlib):
+    return sorted({n.split(".")[0] for n in names if not _is_allowed(n, stdlib)})
+
+
 def probe(root):
     """Run inside `python -I`. Print non-stdlib modules or Data/ opens, then exit 1 if any."""
+    before = set(sys.modules)
     src = os.path.join(root, "src")
     sys.path.insert(0, src)
     data_opens = []
@@ -49,7 +54,7 @@ def probe(root):
         loaded.append(info.name)
 
     stdlib = set(sys.stdlib_module_names)
-    bad = sorted({n.split(".")[0] for n in sys.modules if not _is_allowed(n, stdlib)})
+    bad = non_stdlib_tops(set(sys.modules) - before, stdlib)
     print("loaded:" + ",".join(loaded))
     if bad:
         print("non-stdlib:" + ",".join(bad))
@@ -60,6 +65,18 @@ def probe(root):
 
 
 class LauncherStdlibTests(unittest.TestCase):
+    def test_preloaded_sitecustomize_is_ignored(self):
+        stdlib = set(sys.stdlib_module_names)
+        before = {"sitecustomize", "_distutils_hack", "os", "sys"}
+        after = before | {"fo4sf.launcher", "fo4sf.launcher.settings", "pkgutil"}
+        self.assertEqual(non_stdlib_tops(after - before, stdlib), [])
+
+    def test_new_non_stdlib_after_imports_is_reported(self):
+        stdlib = set(sys.stdlib_module_names)
+        before = {"os", "sys"}
+        after = before | {"numpy", "fo4sf.launcher"}
+        self.assertEqual(non_stdlib_tops(after - before, stdlib), ["numpy"])
+
     def test_every_launcher_module_imports_stdlib_only_in_isolated_python(self):
         r = subprocess.run(
             [sys.executable, "-I", os.path.abspath(__file__), PROBE, ROOT],
