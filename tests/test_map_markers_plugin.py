@@ -24,6 +24,7 @@ import test_terrain_lights_writer as tlw  # noqa: E402
 
 SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
 Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
+Z_LIFT_STEP = 0.1                # dotnet/MapMarkers ZLiftStep: the build takes a lift on this grid only
 USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
 
 
@@ -131,6 +132,16 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertIn(f"not the core's {self.num(self.markers[0]['pos'][2])} lifted {Z_LIFT} m", other.stdout)
         bad = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-bad-lift", "--z-lift", "-1")
         self.assertEqual(bad.returncode, 2)
+        # lifts come in steps of Z_LIFT_STEP: a change between builds smaller than the script's ZTolerance would
+        # never reach a saved game (Codex on #483), so the build refuses a lift off that grid
+        fine = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-fine-lift", "--z-lift", "0.55")
+        self.assertEqual(fine.returncode, 2, fine.stdout + fine.stderr)
+        self.assertIn("multiple of 0.1 m", fine.stderr)
+        self.assertIn("ZTolerance (0.05 m)", fine.stderr)
+        stepped = self.root / "plugin-step-lift"
+        step = self.tool_run("build", "--core", self.core, "--out", stepped, "--z-lift", "0.5")
+        self.assertEqual(step.returncode, 0, step.stdout + step.stderr)
+        self.assertEqual(self.tool_run("check", stepped / "FO4SFMapMarkers.esm", self.core, "--z-lift", "0.5").returncode, 0)
 
     def test_check_rejects_an_override_that_still_uses_the_location_name(self):
         out = self.root / "plugin-locname"
@@ -268,12 +279,17 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_a_marker_at_the_old_height_is_moved_again(self):
         # a save from before a lifted build holds the markers at the old z (Codex on #483): the reposition test
-        # reads the height too, with a tolerance below the default lift, so the first pass moves them once more
+        # reads the height too, so the first pass moves them once more. The tolerance is half the lift step the
+        # build enforces, so every supported change between builds (0.1 m up) is seen, while a landed move is not
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         self.assertIn("ez * ez > ZTolerance * ZTolerance", place)
         tol = float(re.search(r"float Property ZTolerance = ([0-9.]+) Auto Const", self.text).group(1))
-        self.assertLess(tol, Z_LIFT)
+        self.assertEqual(tol, Z_LIFT_STEP / 2)
         self.assertGreater(tol, 0.01)                                     # a landed move is within 0.01 m (22 Oct log)
+        placed = lambda ez: not (ez * ez > tol * tol)                     # the script's test, in Python
+        self.assertTrue(placed(0.01) and placed(-0.01))                   # landed: left alone
+        self.assertFalse(placed(Z_LIFT_STEP) or placed(-Z_LIFT_STEP))     # the smallest change between builds: moved
+        self.assertFalse(placed(Z_LIFT))                                  # a save from before the default lift: moved
 
     def test_moves_only_outdoors_capped_and_logged(self):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]

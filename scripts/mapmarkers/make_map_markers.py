@@ -7,7 +7,7 @@ usage:
       1. dotnet/MapMarkers build: the plugin (one start-game-enabled quest carrying FO4SF_MapMarkers, its Markers the
          core's MapMarker REFRs, LocalX / LocalY / LocalZ their positions as overridden below), plus an override of
          each of those REFRs: the marker's own name on the map (no UseLocationName flag) and the arrival lifted
-         --z-lift metres (default the tool's 2.5) above the core's sampled terrain height;
+         --z-lift metres (a multiple of 0.1; default the tool's 2.5) above the core's sampled terrain height;
       2. the Papyrus compile of FO4SF_MapMarkers.psc (base sources from the Creation Kit's ContentResources.zip, as
          scripts/bridge/make_bridge.py), the .pex into <out>/Data/Scripts;
       3. dotnet/MapMarkers check: the plugin read back against the core (offline_check.txt); core.json (the core's
@@ -96,7 +96,7 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(make_bridge.STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=os.path.join(make_bridge.STARFIELD, "Tools", "ContentResources.zip"))
     s.add_argument("--z-lift", type=float, default=None,
-                   help="metres the override lifts each marker above the core's height (default: the tool's 2.5)")
+                   help="metres the override lifts each marker above the core's height, a multiple of 0.1 (default: the tool's 2.5)")
     a = ap.parse_args(argv)
     stage(a)
 

@@ -29,6 +29,8 @@ using Noggog;
 const uint QuestId = 0x800, MapMarkerStat = 0x10;
 const int PerQuest = 100, DefaultMaxMoves = 40;
 const float DefaultZLift = 2.5f;        // metres above the core's sampled terrain height (local units are metres)
+const float ZLiftStep = 0.1f;           // lifts come in steps of 0.1 m: the mover's ZTolerance (0.05 m, half a step) then tells
+                                        // a marker a save holds at an earlier build's height from one that landed (Codex on #483)
 const string ScriptName = "FO4SF_MapMarkers";
 var sfKey = ModKey.FromFileName("Starfield.esm");
 
@@ -44,6 +46,12 @@ float zLift;
 if (!float.TryParse(Arg("--z-lift", F(DefaultZLift)), NumberStyles.Float, CultureInfo.InvariantCulture, out zLift) || !float.IsFinite(zLift) || zLift < 0)
 {
     Console.Error.WriteLine("--z-lift needs a non-negative number of metres");
+    return 2;
+}
+if (Math.Abs(zLift / ZLiftStep - Math.Round(zLift / ZLiftStep)) > 1e-3)
+{
+    Console.Error.WriteLine($"--z-lift must be a multiple of {F(ZLiftStep)} m: FO4SF_MapMarkers.psc re-moves a saved marker only when its height " +
+                            $"is off by more than ZTolerance ({F(ZLiftStep / 2)} m), so a smaller change between builds would never reach a save");
     return 2;
 }
 

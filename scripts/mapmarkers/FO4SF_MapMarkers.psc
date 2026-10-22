@@ -31,10 +31,12 @@ float Property MaxY = 500.0 Auto Const
 float Property Tolerance = 5.0 Auto Const
 {A marker within this many units of its merged spot (x, y), in the player's world, counts as placed.}
 
-float Property ZTolerance = 1.0 Auto Const
+float Property ZTolerance = 0.05 Auto Const
 {The same for height: a save made before a build that lifted LocalZ holds the markers at the old height, and the
  moved markers' saved positions outlive the records (docs/JOURNAL.md, changed references); a marker more than this
- far from its LocalZ is moved again (a move lands within 0.01 m, fo4sf_map.0.log 22 Oct).}
+ far from its LocalZ is moved again. Half the lift step: dotnet/MapMarkers accepts --z-lift in steps of 0.1 m only,
+ so any change between builds is at least 0.1 m and is seen, while a landed move (within 0.01 m, fo4sf_map.0.log
+ 22 Oct) is not moved again.}
 
 float Property SameWorld = 100000.0 Auto Const
 {GetDistance above this means the marker is in another world (it reads float max there, 18 Oct).}
