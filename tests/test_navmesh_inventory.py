@@ -196,3 +196,55 @@ class NavmeshInventoryTests(unittest.TestCase):
         self.assertNotIn("vertex_retention_percent", report)
         self.assertNotIn("verts", report["summary"])
 
+    def _assert_no_vertex_retention(self, report):
+        self.assertEqual(report["total_fo4_vertices"], 0)
+        self.assertEqual(report["total_sf_vertices"], 0)
+        self.assertNotIn("vertex_retention_percent", report)
+        self.assertNotIn("verts", report["summary"])
+
+    def test_vertices_on_disjoint_cells_are_not_compared(self):
+        # PR #221 review: FO4 counts only cell a and SF only cell b are different populations.
+        fo4 = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 20},
+            "b": {"triangles": 10, "area": 5.0},
+        }
+        sf = {
+            "a": {"triangles": 10, "area": 5.0},
+            "b": {"triangles": 10, "area": 5.0, "vertices": 18},
+        }
+        self._assert_no_vertex_retention(inv.inventory(fo4, sf))
+
+    def test_partial_vertices_on_one_side_are_not_compared(self):
+        fo4 = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 20},
+            "b": {"triangles": 10, "area": 5.0, "vertices": 20},
+        }
+        sf = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 20},
+            "b": {"triangles": 10, "area": 5.0},
+        }
+        self._assert_no_vertex_retention(inv.inventory(fo4, sf))
+
+    def test_unmatched_cell_without_vertices_blocks_comparison(self):
+        fo4 = {"a": {"triangles": 10, "area": 5.0, "vertices": 20}}
+        sf = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 20},
+            "new": {"triangles": 4, "area": 2.0},
+        }
+        self._assert_no_vertex_retention(inv.inventory(fo4, sf))
+
+    def test_complete_vertices_cover_the_triangle_population(self):
+        # With counts on every cell, unmatched cells count on their own side, as triangles do.
+        fo4 = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 20},
+            "lost": {"triangles": 6, "area": 3.0, "vertices": 10},
+        }
+        sf = {
+            "a": {"triangles": 10, "area": 5.0, "vertices": 18},
+            "new": {"triangles": 2, "area": 1.0, "vertices": 3},
+        }
+        report = inv.inventory(fo4, sf)
+        self.assertEqual(report["total_fo4_vertices"], 30)
+        self.assertEqual(report["total_sf_vertices"], 21)
+        self.assertEqual(report["vertex_retention_percent"], 70.0)
+        self.assertIn("verts 30 -> 21", report["summary"])

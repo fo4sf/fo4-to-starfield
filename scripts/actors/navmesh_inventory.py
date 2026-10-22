@@ -4,6 +4,8 @@ usage: python scripts/actors/navmesh_inventory.py --fo4-stats <json> --sf-stats 
 
 Reads two JSON maps of cell_id -> {"triangles": N, "area": F, "vertices": N} (or similar) and reports
 cells that lost coverage (zero or significantly reduced triangles/area in SF) and why (missing, reduced, etc.).
+"vertices" is optional per record; vertex totals and retention are reported only when every validly
+measured cell on both sides carries a count, so both totals cover the same cells as the triangle totals.
 
 No game data; synthetic-fixture friendly. Deterministic.
 """
@@ -55,7 +57,12 @@ def _measure(record):
 
 
 def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) -> dict:
-    """Return inventory of losses. Keys are cell identifiers (str)."""
+    """Return inventory of losses. Keys are cell identifiers (str).
+
+    Vertex totals and vertex_retention_percent are reported only when each side has at least one
+    validly measured cell and all of them carry "vertices"; otherwise the totals are 0 and the
+    percent is omitted.
+    """
     if not _ratio(area_tol) or not _ratio(tri_tol):
         raise ValueError("area_tol and tri_tol must be finite ratios in (0, 1]")
     if not isinstance(fo4, dict) or not isinstance(sf, dict):
@@ -106,14 +113,18 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             gained.append({"cell": cell, "sf_triangles": sf_tri, "reason": "new in SF"})
         else:
             unchanged.append(cell)
-    fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
-    sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
-    fo4_vert_vals = [m[2] for c in fo4 if (m := _measure(fo4[c])) and m[2] is not None]
-    sf_vert_vals = [m[2] for c in sf if (m := _measure(sf[c])) and m[2] is not None]
-    verts_comparable = bool(fo4_vert_vals) and bool(sf_vert_vals)
+    fo4_measured = [m for c in fo4 if (m := _measure(fo4[c]))]
+    sf_measured = [m for c in sf if (m := _measure(sf[c]))]
+    fo4_tris = sum(m[0] for m in fo4_measured)
+    sf_tris = sum(m[0] for m in sf_measured)
+    # A partial vertex field would sum different cells on each side; require it on every measured cell.
+    verts_comparable = (
+        bool(fo4_measured) and bool(sf_measured)
+        and all(m[2] is not None for m in fo4_measured + sf_measured)
+    )
     if verts_comparable:
-        fo4_verts = sum(fo4_vert_vals)
-        sf_verts = sum(sf_vert_vals)
+        fo4_verts = sum(m[2] for m in fo4_measured)
+        sf_verts = sum(m[2] for m in sf_measured)
         vert_pct = round(100.0 * sf_verts / fo4_verts, 1) if fo4_verts else 100.0
         vert_summary = f"; verts {fo4_verts} -> {sf_verts}"
     else:
