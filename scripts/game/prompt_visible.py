@@ -4,17 +4,20 @@ usage: python prompt_visible.py shot.png
 The prompt is a solid white title bar (e.g. "DOOR") right of the crosshair; in shot.ps1's 1280x720 output it spans about
 x 780..1060, y 174..191. Checks that most pixels of an inner strip of that bar are near white.
 """
+import os
 import sys
 
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import game_frame  # noqa: E402
+
 
 def visible(path):
     im = Image.open(path).convert("L")
-    w, h = im.size
-    sx, sy = w / 1280.0, h / 720.0
-    box = (int(800 * sx), int(176 * sy), int(1040 * sx), int(189 * sy))
-    hist = im.crop(box).histogram()
+    # the prompt is held to the screen's centre (game_frame.centred), never to the HUD's bottom edge: a bright strip in
+    # the bottom layout's box is not a prompt, and qstep's travel step presses E on a yes (Codex on #442)
+    hist = im.crop(game_frame.centred(im)(800, 176, 1040, 189)).histogram()
     return sum(hist[216:]) / max(sum(hist), 1) > 0.6
 
 
