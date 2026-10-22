@@ -36,6 +36,15 @@ those folders.
 Copy `config.example.toml` to `config.toml` (git-ignored) and fill in your paths. `work_dir` and
 `staging_dir` must be outside the repository.
 
+After editing, verify the paths and tools offline:
+
+```
+python -m fo4sf status
+```
+
+It reports which configured directories and tools exist on disk and, if a `manifest.json` is present
+in work or staging, a short coverage summary (types, tiers, optional asset mix).
+
 ## Extracting Fallout 4 data
 
 If your Fallout 4 `Data` folder is mixed with mods, point `fo4.data_dirs` at a **clean copy** of the
