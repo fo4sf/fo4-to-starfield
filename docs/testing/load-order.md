@@ -39,8 +39,12 @@ verified beyond what each line says.
 
 - Console ids of our records (`prid`, `placeatme`) are not stable across sessions. Owner instructions should name the
   object, or Install reads the current Plugins.txt first and gives the index for that session.
-- The door judge (`scripts/bridge/door_rounds.py`) plans its read indexes from the order the stage predicted and
-  reports a changed index as INCONCLUSIVE INDEX, not as a pass or a fail. The walk judge
+- The door judge (`scripts/bridge/door_rounds.py`) plans its read indexes from the order the stage predicted and never
+  turns a changed index into a pass or a fail, but it does not always name it: `judge_test` checks the runner's
+  activation proof and the ack first, so an index change that breaks the GetIsID proof against the planned door id
+  comes back as INCONCLUSIVE NOT_ACTIVATED (or NO_ACK), and only a leg that got as far as resolving its destination
+  marker at the wrong index reads INCONCLUSIVE INDEX. Any INCONCLUSIVE after an order change is a cue to read
+  Plugins.txt before diagnosing the harness. The walk judge
   (`scripts/game/walk_eval.py`) has no such gate: it judges positions, ground, crossings and screenshots without
   comparing the planned index to the runtime one, so a walk run after an order change needs its indexes checked by
   hand.
