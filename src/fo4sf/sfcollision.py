@@ -445,3 +445,14 @@ def convex_obb(points, triangles):
             centre = tuple(u[k] * mid[0] + v[k] * mid[1] + w[k] * mid[2] for k in range(3))
             best = (vol, centre, tuple((hi[k] - lo[k]) / 2 for k in range(3)), _basis_rotation(u, v, w))
     return best[1], best[2], best[3]
+
+def clamped_leaf_halves(raw_halves, floor=MIN_LEAF_HALF):
+    """Return the leaf half-extents after applying the minimum floor, and a count of axes that were raised.
+    raw_halves: iterable of 3 positive floats (metres).
+    """
+    raw = tuple(float(h) for h in raw_halves)
+    if len(raw) != 3:
+        raise ValueError("raw_halves must be length 3")
+    clamped = tuple(max(floor, h) for h in raw)
+    raised = sum(1 for r, c in zip(raw, clamped) if c > r + 1e-9)
+    return clamped, raised

@@ -410,3 +410,17 @@ class CheckpointInventoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeafClampHelperTests(unittest.TestCase):
+    def test_clamped_leaf_halves_raises_thin_axes(self):
+        from fo4sf import sfcollision
+        # SafeDoor01 measured raw ~0.021, 0.011, 0.093
+        raw = (0.021, 0.011, 0.093)
+        clamped, raised = sfcollision.clamped_leaf_halves(raw)
+        self.assertEqual(clamped, (0.05, 0.05, 0.093))
+        self.assertEqual(raised, 2)
+        # already thick
+        clamped2, raised2 = sfcollision.clamped_leaf_halves((0.1, 0.2, 0.3))
+        self.assertEqual(clamped2, (0.1, 0.2, 0.3))
+        self.assertEqual(raised2, 0)

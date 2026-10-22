@@ -35,3 +35,7 @@ builds a synthetic 0.029 m-deep leaf and asserts the decoded box `half[0] == 0.0
 `scripts/game/value_scan.py` / `nif_float_scan.py` remain the zero-hit gate on converted output.
 
 Status: **verified** (owner-PC BA2 read, 2026-10-22). Offline; no game assets committed.
+
+## Helper (2026-10-22)
+
+`sfcollision.clamped_leaf_halves(raw_halves)` returns the floored half-extents and the count of axes raised by the 0.05 floor. Used by offline diagnostics and covered by `LeafClampHelperTests`.
