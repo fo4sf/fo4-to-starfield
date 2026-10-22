@@ -17,8 +17,8 @@ usage:
          [--extra "label:x,y" ...] [--svg <file>] [--csv <file>]
       per ray: why the walk stopped (boundary, stuck, the goal, ...), the last position read before it (the game's
       world frame and the core's local frame), its distance and bearing from the arrival, and the screenshot taken
-      with the popup. Writes a CSV and an SVG map: the arrival, each ray's walked line, a red cross where Boundary
-      Reached stopped it, FO4 locations (--markers) and any --extra world points (e.g. the owner's own reading).
+      with the popup, and the runner's verdict (results.jsonl). Writes a CSV and an SVG map: the arrival, each ray's walked line, a red cross where Boundary
+      Reached stopped it and the runner judged FAIL BOUNDARY, FO4 locations (--markers) and any --extra world points (e.g. the owner's own reading).
 A ray that ends on stuck or off the route says only that the border is beyond its last read, never where it is.
 Game data stays outside the repo; nothing here touches the game or its install.
 """
@@ -172,8 +172,11 @@ def parse3(s):
     return p if all(math.isfinite(x) for x in p) else None
 
 
-def ray_result(test, obs):
-    """One ray's summary from its walk observations: the stop, the last read and the popup's leg."""
+def ray_result(test, obs, row=None):
+    """One ray's summary from its walk observations: the stop, the last read and the popup's leg. A popup counts as the
+    border only when the runner's verdict for that attempt (row, its results.jsonl line) is FAIL BOUNDARY: an
+    INCONCLUSIVE attempt (unsettled arrival, missing evidence, another install) is "boundary_unconfirmed", never a
+    red cross (Codex on #444)."""
     legs = [x for x in obs.get("legs") or [] if isinstance(x, dict)]
     reads = [(x, parse3(x.get("used") or x.get("read"))) for x in legs]
     reads = [(x, p) for x, p in reads if p is not None]
@@ -182,10 +185,12 @@ def ray_result(test, obs):
     arrival = parse3(obs.get("spawn_read")) or (reads[0][1] if reads else None)
     last = before[-1] if before else None
     stop = obs.get("walk_stopped") or ""
+    judged = f"{row.get('verdict')} {row.get('class')}" if row else "UNJUDGED"
     if popup is not None:
-        stop = "boundary"
+        stop = "boundary" if judged == "FAIL BOUNDARY" else "boundary_unconfirmed"
     shots = [x.get("shot") for x in legs if x.get("shot")]
-    r = {"label": test.get("ref") or test.get("id"), "stop": stop or "none recorded", "legs": len(legs),
+    r = {"label": test.get("ref") or test.get("id"), "stop": stop or "none recorded", "verdict": judged,
+         "legs": len(legs),
          "arrival": arrival, "last": last, "popup_leg": popup.get("n") if popup else None,
          "popup_text": str(popup.get("popup")).strip()[:80] if popup else "",
          "popup_shot": (popup.get("shot") or popup.get("popup_shot")) if popup else None,
@@ -195,6 +200,22 @@ def ray_result(test, obs):
         r["dist_m"] = round(math.hypot(dx, dy), 1)
         r["bearing"] = round(math.degrees(math.atan2(dx, dy)) % 360.0, 1)
     return r
+
+
+def last_rows(qdir):
+    """{test id: its last results.jsonl row} (the runner's verdict per attempt; the last line is the latest)."""
+    out = {}
+    p = os.path.join(qdir, "results.jsonl")
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as f:
+            for ln in f:
+                try:
+                    r = json.loads(ln)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("id"):
+                    out[r["id"]] = r
+    return out
 
 
 def latest_attempt(qdir, test_id):
@@ -257,13 +278,16 @@ def cmd_report(a):
     q = load(os.path.join(a.queue, "queue.json"))
     rays = load(os.path.join(a.plan, "rays.json"))
     labels = {r["label"] for r in rays["rays"]}
+    verdicts = last_rows(a.queue)
     results = []
     for t in q.get("tests") or []:
         if t.get("kind") != "walk" or t.get("ref") not in labels:
             continue
-        d = latest_attempt(a.queue, t["id"])
+        row = verdicts.get(t["id"])
+        d = os.path.join(a.queue, "tests", t["id"], f"a{row['attempt']}") if row and row.get("attempt") \
+            else latest_attempt(a.queue, t["id"])
         obs = load(os.path.join(d, "obs.json")) if d and os.path.exists(os.path.join(d, "obs.json")) else {}
-        results.append(ray_result(t, obs))
+        results.append(ray_result(t, obs, row))
     offset = None
     for r in results:
         if r["arrival"]:
@@ -282,14 +306,14 @@ def cmd_report(a):
         loc = [round(r["last"][k] - offset[k], 1) for k in range(2)] if r["last"] and offset else None
         rows.append([r["label"], r["stop"], r["legs"], r.get("dist_m"), r.get("bearing"),
                      *(r["last"][:2] if r["last"] else ["", ""]), *(loc or ["", ""]), r["popup_text"],
-                     r["popup_shot"] or "", r["last_shot"] or ""])
-        print(f"{r['label']:14s} {r['stop']:10s} {r.get('dist_m', '?')} m on bearing {r.get('bearing', '?')}; "
+                     r["popup_shot"] or "", r["last_shot"] or "", r["verdict"]])
+        print(f"{r['label']:14s} {r['stop']:10s} ({r['verdict']}) {r.get('dist_m', '?')} m on bearing {r.get('bearing', '?')}; "
               f"last read {r['last']}" + (f"; popup {r['popup_text']!r} ({r['popup_shot']})" if r["popup_leg"] is not None else ""))
     if a.csv:
         with open(a.csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["ray", "stop", "legs", "dist_m", "bearing", "world_x", "world_y", "local_x", "local_y",
-                        "popup", "popup_shot", "last_shot"])
+                        "popup", "popup_shot", "last_shot", "verdict"])
             w.writerows(rows)
     if a.svg:
         svg_map(results, offset, markers, extra, a.svg)

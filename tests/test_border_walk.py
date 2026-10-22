@@ -69,38 +69,60 @@ class ImportTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
-    def test_a_boundary_stop_reports_the_last_read_before_the_popup(self):
-        arrival = [-2189.0, -1554.0, 12.0]
-        legs = [{"n": 1, "used": "-2189.0 -1540.0 12.0"}, {"n": 2, "used": "-2189.0 -1000.0 30.0"},
-                {"n": 3, "used": "-2189.0 -908.0 31.0", "popup": "BOUNDARY REACHED", "shot": "walk_003.png"},
-                {"n": 4, "used": "-2189.0 -950.0 31.0"}]
+    ARRIVAL = [-2189.0, -1554.0, 12.0]
+    LEGS = [{"n": 1, "used": "-2189.0 -1540.0 12.0"}, {"n": 2, "used": "-2189.0 -1000.0 30.0"},
+            {"n": 3, "used": "-2189.0 -908.0 31.0", "popup": "BOUNDARY REACHED", "shot": "walk_003.png"},
+            {"n": 4, "used": "-2189.0 -950.0 31.0"}]
+
+    def report(self, verdict):
+        """(printed text, CSV rows, SVG text) of a one-ray queue whose attempt a1 saw the popup and was judged
+        `verdict` (verdict, class) in results.jsonl (None: no row)."""
+        tid = "0000_walk_border_h000"
         with tempfile.TemporaryDirectory() as d:
             plan, queue = os.path.join(d, "plan"), os.path.join(d, "queue")
             os.makedirs(plan)
-            os.makedirs(os.path.join(queue, "tests", "0000_walk_border_h000", "a1"))
-            json.dump({"spawn_local": SPAWN, "rays": [{"label": "border_h000"}]}, open(os.path.join(plan, "rays.json"), "w"))
-            json.dump({"tests": [{"id": "0000_walk_border_h000", "kind": "walk", "ref": "border_h000"}]},
-                      open(os.path.join(queue, "queue.json"), "w"))
-            json.dump({"spawn_read": " ".join(map(str, arrival)), "legs": legs, "walk_stopped": "boundary"},
-                      open(os.path.join(queue, "tests", "0000_walk_border_h000", "a1", "obs.json"), "w"))
-            stale = os.path.join(queue, "tests", "0000_walk_border_h000", "a1_interrupted_20261022T120000")
+            os.makedirs(os.path.join(queue, "tests", tid, "a1"))
+
+            def dump(obj, *path):
+                with open(os.path.join(*path), "w") as f:
+                    json.dump(obj, f)
+            dump({"spawn_local": SPAWN, "rays": [{"label": "border_h000"}]}, plan, "rays.json")
+            dump({"tests": [{"id": tid, "kind": "walk", "ref": "border_h000"}]}, queue, "queue.json")
+            obs = {"spawn_read": " ".join(map(str, self.ARRIVAL)), "legs": self.LEGS, "walk_stopped": "boundary"}
+            dump(obs, queue, "tests", tid, "a1", "obs.json")
+            stale = os.path.join(queue, "tests", tid, "a1_interrupted_20261022T120000")
             os.makedirs(stale)                              # Codex on #444: a renamed interrupted attempt never counts
-            json.dump({"spawn_read": " ".join(map(str, arrival)), "legs": legs[:1], "walk_stopped": "stopped"},
-                      open(os.path.join(stale, "obs.json"), "w"))
+            dump(dict(obs, legs=self.LEGS[:1], walk_stopped="stopped"), stale, "obs.json")
+            if verdict:
+                dump({"id": tid, "attempt": 1, "verdict": verdict[0], "class": verdict[1]}, queue, "results.jsonl")
             svg, out = os.path.join(d, "b.svg"), os.path.join(d, "b.csv")
             with redirect_stdout(io.StringIO()) as s:
                 bw.main(["report", "--queue", queue, "--plan", plan, "--svg", svg, "--csv", out,
                          "--extra", "owner wall:-2606.46,-907.91"])
-            self.assertIn("boundary", s.getvalue())
-            rows = open(out).read().splitlines()
-            self.assertEqual(len(rows), 2)
-            row = rows[1].split(",")
-            self.assertEqual(row[1], "boundary")
-            self.assertEqual(float(row[3]), 646.0)             # distance from the arrival to the popup's read
-            self.assertEqual(float(row[8]), round(-908.0 - (arrival[1] - SPAWN[1]), 1))   # local y
-            self.assertIn("walk_003.png", rows[1])
-            self.assertIn("owner wall", open(svg).read())
+            with open(out) as f:
+                rows = [r.split(",") for r in f.read().splitlines()]
+            with open(svg) as f:
+                return s.getvalue(), rows, f.read()
 
+    def test_a_boundary_stop_reports_the_last_read_before_the_popup(self):
+        text, rows, svg = self.report(("FAIL", "BOUNDARY"))
+        self.assertEqual(len(rows), 2)
+        row = rows[1]
+        self.assertEqual(row[1], "boundary")
+        self.assertEqual(float(row[3]), 646.0)             # distance from the arrival to the popup's read
+        self.assertEqual(float(row[8]), round(-908.0 - (self.ARRIVAL[1] - SPAWN[1]), 1))   # local y
+        self.assertIn("walk_003.png", row)
+        self.assertEqual(row[-1], "FAIL BOUNDARY")
+        self.assertIn("owner wall", svg)
+        self.assertIn('stroke="#c0392b" stroke-width="3"', svg)                          # the red cross
+
+    def test_a_popup_the_runner_did_not_judge_a_boundary_is_no_cross(self):
+        # Codex on #444: an INCONCLUSIVE attempt's popup is evidence the runner rejected
+        for verdict in (("INCONCLUSIVE", "INSTALL"), None):
+            text, rows, svg = self.report(verdict)
+            self.assertEqual(rows[1][1], "boundary_unconfirmed")
+            self.assertEqual(rows[1][-1], " ".join(verdict) if verdict else "UNJUDGED")
+            self.assertNotIn('stroke-width="3"', svg)
 
 if __name__ == "__main__":
     unittest.main()
