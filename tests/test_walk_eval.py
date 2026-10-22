@@ -299,6 +299,37 @@ class WalkPlanTests(unittest.TestCase):
         self.assertEqual((code, rec["verdict"], status), (0, "PASS", "finished"), rec["detail"])
         self.assertEqual(rec["install"]["files"]["FO4TerrainCore - Main.ba2"], "cd" * 32)
 
+    def test_a_crash_on_another_install_is_not_counted_toward_fail_crash(self):
+        # Codex on #402: the crash on the wrong install was counted, and one crash on the pinned one made a FAIL CRASH
+        d = tempfile.mkdtemp()
+        sf = os.path.join(d, "starfield")
+        out, core = planned_queue(d)
+        ctl = tt.FakeControls()
+
+        def crash(test, out_dir):
+            ctl.pid = None                                             # the game exits during the step
+            return 0
+
+        def run():
+            ctl.pid = ctl.owned_pid()
+            r = tq.Runner(out, tt.args(starfield=sf), ctl=ctl, step=crash)   # max_attempts 2 (Codex on #402)
+            r.session, r.cell = True, "C"
+            r._ps = lambda *a, **k: (0, "at the cell")
+            code = r.run()
+            with open(os.path.join(out, "results.jsonl"), encoding="utf-8") as f:
+                return code, [json.loads(x) for x in f][-1], r.state
+        code, rec, st = run()                                          # no install record yet
+        self.assertEqual((code, rec["verdict"], rec["class"]), (3, "INCONCLUSIVE", "CRASH"), rec["detail"])
+        self.assertIn("not counted toward FAIL CRASH or the attempts: no install record", rec["detail"])
+        self.assertEqual(st.get("test_crashes", {}), {})
+        self.assertEqual((st["attempts"].get(rec["id"], 0), st["done"]), (0, {}))   # no attempt spent, not done
+        install_record(sf, core)                                       # the pinned experiment installed
+        code, rec, st = run()
+        self.assertEqual((rec["verdict"], rec["class"]), ("INCONCLUSIVE", "CRASH"), rec["detail"])
+        self.assertEqual(st["test_crashes"], {rec["id"]: 1})
+        code, rec, st = run()
+        self.assertEqual((rec["verdict"], rec["class"]), ("FAIL", "CRASH"), rec["detail"])
+
 
 class StopControlTests(unittest.TestCase):
     """Codex on PR #103: the runner is blocked in a walk step, so the step honours the owner's stop controls itself."""
