@@ -10,12 +10,17 @@ usage:
       bridge goes last): read them before planning; the judge checks them again against the game's own lines.
   python scripts/bridge/door_rounds.py stage --core <core build dir> --port <installed FO4Port staging>
          --core-index HH --port-index HH --out <NEW folder> [--core-plugin <installed FO4TerrainCore.esm>]
-         [--only <cell editor id or FO4 door src>,...] [--limit N]
+         [--only <cell editor id or FO4 door src>,...] [--limit N] [--legs both|out] [--border-off]
       reads the doors (objects.json / formids.json of --core) and checks each one in the INSTALLED plugins: the
       exterior door REFR, its base and its FO4SF_LoadDoor VMAD (destination = the port's arrival marker), the interior
       door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door that fails a
       check is listed as skipped, with why, and never planned. Writes plan.json (two terrain tests per door),
       rounds.json (what each test must read) and README.txt. Refuses an existing --out. Nothing is linked or copied.
+      --legs out plans only the OUT legs, so each one starts with a coc from wherever the launch put the player (the
+      owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary Reached;
+      with both legs the IN leg hops to the door first and the OUT jump is short). --border-off adds console_pre
+      GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI to every test, to learn whether the border can be
+      switched off in a running game (unresolved, docs/ai/test-queue.md).
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
@@ -211,6 +216,10 @@ def full(index, local_hex):
     return f"{index:02X}{local_hex}"
 
 
+BORDER = '"bBorderRegionsEnabled:General"'
+BORDER_OFF = [f"GetINI {BORDER}", f"SetINI {BORDER} 0", f"GetINI {BORDER}"]
+
+
 def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     """(forward entry, return entry, forward expectation, return expectation) for door k."""
     ex, it = r["exterior"], r["interior"]
@@ -283,25 +292,34 @@ def stage(a):
     plan, expect = [], []
     for k, r in enumerate(rounds):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
-        plan += [f, b]
-        expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
+        legs = [(f, ef), (b, eb)] if a.legs == "both" else [(b, eb)]
+        for entry, exp in legs:
+            if a.border_off:
+                entry["console_pre"] = list(BORDER_OFF) + entry.get("console_pre", [])
+            expect.append(dict(exp, test=len(plan)))
+            plan.append(entry)
     os.makedirs(out)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
-            "tests": expect, "core_worlds": core.worlds()}
+            "tests": expect, "core_worlds": core.worlds(), "legs": a.legs, "border_off": bool(a.border_off)}
     save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")
-    for r, e in zip(rounds, expect[::2]):
+    hops = {e["door"]: e["hops"] for e in expect if e["leg"] == "in"}
+    for k, r in enumerate(rounds):
         print(f"  {r['cell_edid']:32s} {r['src']}  out door {r['exterior']['door']} -> in marker {r['interior']['marker']}"
-              f"; in door {r['interior']['door']} -> out marker {r['exterior']['arrival']}; {e['hops']} hops")
+              f"; in door {r['interior']['door']} -> out marker {r['exterior']['arrival']}"
+              + (f"; {hops[k]} hops" if k in hops else "; OUT leg only"))
     for s in skipped:
         print(f"  SKIPPED {s['src']}: {s['why']}")
 
 
 def stage_readme(info):
-    lines = [f"Door round trips (scripts/bridge/door_rounds.py): {len(info['doors'])} scripted load doors, two tests each.",
+    each = "two tests each" if info.get("legs", "both") == "both" else "the OUT leg only (a coc from the launch's position)"
+    lines = [f"Door round trips (scripts/bridge/door_rounds.py): {len(info['doors'])} scripted load doors, {each}."
+             + (' Every test first types GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI.'
+                if info.get("border_off") else ""),
              f"Checked against the installed plugins {info['core_plugin']} (index {info['core_index']}) and",
              f"{info['port_plugin']} (index {info['port_index']}); the core build {info['core']} gave the pairs.",
              "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>",
@@ -512,6 +530,10 @@ def main(argv=None):
     s.add_argument("--out", required=True, help="a NEW folder")
     s.add_argument("--only", default="", help="only these doors: interior cell editor ids or FO4 door srcs, comma-separated")
     s.add_argument("--limit", type=int, default=0)
+    s.add_argument("--legs", choices=("both", "out"), default="both",
+                   help="out: only the OUT legs, each starting with a coc from the launch's position")
+    s.add_argument("--border-off", action="store_true",
+                   help='console_pre GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI on every test')
     j = sub.add_parser("judge")
     j.add_argument("--queue", required=True)
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")

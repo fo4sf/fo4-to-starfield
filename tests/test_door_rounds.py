@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -14,6 +15,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "bridge"))
 import door_rounds as dr  # noqa: E402
 import vmad_patch as vp  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+import console_plan  # noqa: E402
 
 OWN = 0x01000000
 MERGE = (-1200.0, -2700.0, 0.0)
@@ -105,6 +108,23 @@ class StageTests(unittest.TestCase):
         with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(rounds["core_worlds"], [])           # the synthetic core has no WRLD record
+
+    def test_out_legs_alone_and_the_border_switch(self):
+        d = tempfile.mkdtemp()
+        core, port, _back = build(d)
+        both, both_plan = stage(core, port, os.path.join(d, "both"))
+        rounds, plan = stage(core, port, os.path.join(d, "out"), "--legs", "out", "--border-off")
+        self.assertEqual(len(plan), 1)                          # the OUT leg only: a coc from the launch, no hops first
+        self.assertEqual(plan[0]["coc"], "FO4Port_SuperDuperMart01")
+        self.assertEqual(plan[0]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
+                                                  'SetINI "bBorderRegionsEnabled:General" 0',
+                                                  'GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual({k: v for k, v in plan[0].items() if k != "console_pre"}, both_plan[1])
+        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=0)])
+        self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
+        self.assertNotIn("console_pre", both_plan[0])
+        for line in plan[0]["console_pre"]:                     # the runner types only whitelisted lines
+            self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
 
     def test_the_stage_records_the_cores_worldspaces(self):
         d = tempfile.mkdtemp()
