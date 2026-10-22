@@ -91,3 +91,32 @@ So the spike needs no clicking if these work. Its plan:
    has 648k references, so it is timed, run at Idle, and needs disk room.
 4. If it works, the generated files go into a ba2 beside the core, with their own installer, as for the map
    markers.
+
+## What the runs showed (Claude-cloud, 2026-10-22; Install ran them on the PC, read-only, Data restored)
+
+1. **Oracle (verified).** `CreationKit.exe -MockWorldSpaceLOD:Starfield.esm LC172World` exits 0 after 130 s with
+   no window. It writes placeholders only: a zeroed 20-byte `LODSettings\LC172World.LOD` and four 10,843-byte
+   `Meshes\Terrain\LC172World\Objects\LC172World.{1,2,4,8}.0.0.nif`, real NIFs whose `BSWeakReferenceNode`
+   names the full meshes with their transforms. That is the FO4-style per-block layout
+   (`<World>.<level>.<x>.<y>.nif`), not the shipped per-mesh `meshes/lod/generated/<mesh>_lod_<n>.nif` form; which
+   of the two a custom world is read from is **unresolved** (the mock run on our core, below, is the test).
+   Output under `D:\Modding\staging\lod_spike_lc172\out`.
+2. **Stats (verified).** `-GenerateMeshLODStats:Starfield.esm stats.csv FO4TerrainCore.esm` (the destination must
+   end in `.csv`; the trailing argument loads our plugin) exits 0 after 194 s and writes only `stats.csv`: 3,187
+   rows (Name, Template, Form Type, triangle counts, LOD1-3 ratios and sizes), every one a vanilla mesh and none
+   of ours. The Template column (Reduction 1,577, Rock 888, Tree 668, Treehorizontal 37, Signage 2, Nozfighting 1)
+   is the per-base-record setting the generator reduces by; it lives in the base record's `BGSLodOwner_Component`
+   (Mutagen `LodOwnerComponent`, a raw REFL blob), which our STATs do not carry (`new Static { EditorID, Model }`).
+   Warnings: "LOD Owner [] is not a TESObject" and a missing
+   `Data\LODSimplygonGenerationSettings\GenerationConfig.json`.
+3. **No generator on the PC (verified).** No Simplygon library and no `GenerationConfig.json` anywhere: the game
+   folder, `ContentResources.zip` and `Reference_Files.zip` were searched. Per-object LOD meshes are
+   Simplygon-generated at Bethesda; the Creation Kit here cannot make them.
+
+Conclusion: buildings on the surface map for our statics mean converting FO4's own LOD meshes (the STAT `MNAM`
+distant models under FO4 `Data\Meshes\LOD\`) into Starfield's layout, with the plain-shader NIF conversion the
+Red Rocket crash forced (#460). That is a later phase; Grok is scoping the path mapping (`fo4-lod-mesh-scoping.md`).
+The one cheap test left: `-MockWorldSpaceLOD:FO4TerrainCore.esm FO4Core_Commonwealth` (fallback
+`-MockWorldSpaceLOD:Starfield.esm FO4Core_Commonwealth FO4TerrainCore.esm`) with the same backup protocol, output to
+`D:\Modding\staging\lod_mock_cw\out`; if the game draws the weak-reference placeholders for our world, the map
+gets buildings without any LOD mesh. Installing those loose files waits for the owner's line.
