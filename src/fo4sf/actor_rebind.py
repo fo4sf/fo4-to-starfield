@@ -128,13 +128,13 @@ def _merge(shapes):
 def rebind(template_nif: bytes, fo4_nif: bytes, bone_for: Callable[[Optional[str]], str],
            materials: Optional[Dict[str, str]] = None, target: Optional[str] = None,
            unit_scale: float = convert_static.UNIT_SCALE, default_material: str = convert_static.PLACEHOLDER_MATERIAL,
-           skip_shapes=(), plain_shader: bool = False) -> RebindResult:
+           skip_shapes=(), plain_shader: bool = True) -> RebindResult:
     """See the module docstring. bone_for(fo4 bone name or None) returns a bone name of the template's skin instance;
     materials maps FO4 shape names to .mat paths; target names the template BSGeometry to replace (default: the first
-    skinned one); other template geometries are detached so only the FO4 actor shows. plain_shader writes each shader
-    property as the static converter does (the .mat name, no extra data, no controller) instead of the template's own
-    block with its name swapped. For the Red Rocket crash bisect; the hypothesis under test, not yet confirmed in game,
-    is that the loader reads the template block's later bytes as a link."""
+    skinned one); other template geometries are detached so only the FO4 actor shows. plain_shader (the default) writes
+    each shader property as the static converter does (the .mat name, no extra data, no controller); False keeps the
+    template's own block with its name swapped, which crashed the game when Codsworth's model loaded (Red Rocket crash
+    bisect: the plain blocks walk clean in game, 2026-10-22)."""
     materials = materials or {}
     t = nifmod.parse(template_nif)
     geoms = [i for i in range(len(t.blocks)) if t.type_of(i) == "BSGeometry"]

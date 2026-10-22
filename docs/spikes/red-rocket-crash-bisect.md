@@ -1,8 +1,9 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **cause found, fix in test**. The crash is Codsworth's converted model (meshes\fo4port\actors\codsworth\
-codsworth.nif): every crashing thread was loading it, and v6i without it walks Red Rocket and back with no crash. Next:
-find which part of the model the loader misreads (see "Codsworth's model").
+Status: **fixed**. The crash is Codsworth's converted model (meshes\fo4port\actors\codsworth\codsworth.nif): every
+crashing thread was loading it, and v6i without it walks Red Rocket and back with no crash. Its shader blocks were the
+mini bot template's 166-byte block with the name swapped; written as the static converter writes them (the .mat name
+only), the model walks clean, so that is now `convert_codsworth.py`'s default (see "Card I result").
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -187,5 +188,15 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
   material, so the model keeps only the template's own geometry set, with no copied blocks. Test `--plain-shader`
   first: if it walks clean, it is the fix and Codsworth keeps his materials. If it still crashes, `--one-material`
   tests the copied geometry, shader and skin blocks.
+
+## Card I result (2026-10-22)
+- I1, v6i with Codsworth rebuilt with `--plain-shader` (all five shader blocks 12 bytes, checked in the built NIF;
+  mission 03C2A7A8, core DC751664): Red Rocket to Sanctuary PASS and Sanctuary to Red Rocket PASS, both from a fresh
+  start, about 9 minutes past arrival, no access violation, working set peak 8.77 GB. **Verified.** I2 was not needed.
+- So the template's shader block, carried into our model, is what crashed the game; the plain block keeps Codsworth's
+  materials and does not. Why the game reads the template block differently in our file than in the mini bot's is not
+  shown: the 0.02 link reading stays a **supported hypothesis**, and the fix does not depend on it.
+- `--plain-shader` is now the default; `--no-plain-shader` rebuilds the crashing model for any further study.
+- Still open: why the model loaded in the mission-off run (Card D).
 
 v6c, v6e, v6h and v6i are tested in game (all crash at Red Rocket).

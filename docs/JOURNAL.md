@@ -1951,3 +1951,30 @@ Legacy no-warning tests now explicitly supply an empty synthetic profile, keepin
 their original tool/source assertions. Only detect() changes among production
 functions; CLI dispatch is unchanged. Independent QA pending; no real profile,
 game action, staging, deployment or native acceptance.
+
+## 2026-10-22: Red Rocket crash: Codsworth's shader blocks (in game, Card I1)
+
+Game: Starfield 1.16.244.0 with FO4 1.10.163 data, v6i core (DC751664), mission
+03C2A7A8. The bisect is in docs/spikes/red-rocket-crash-bisect.md (v6c to v6i
+crashed; v6i without codsworth.nif walked clean). Card I1 rebuilt the model with
+`scripts/actors/convert_codsworth.py` and the PC's usual arguments plus
+`--plain-shader`; the report says plain_shader true, one_material false. The built
+NIF has 56 blocks, and all five BSLightingShaderProperty blocks are 12 bytes (the
+.mat name, 0 extras, -1 controller). The mission was restaged with that folder and
+folded into the core (50 Codsworth assets; verify ok), then installed.
+
+Result: the walk queue (tag plainshader, crash watcher and 1 s memory log on)
+passed both legs from a fresh start. Red Rocket to Sanctuary: 29 of 29 steps,
+253.9 of 254.33 m, end error 0.1 m, |dz| max 0.13. Sanctuary to Red Rocket: 253.9 m,
+end error 0.0 m, |dz| max 0.14. Each ran about 9 minutes past arrival. The run
+exited 0, and the typed-lines audit found nothing outside
+ClearConsole/getpos/setangle. The watcher saw a normal exit, plus one forced stop
+(0xFFFFFFFF) by the runner's Stop-Process, with no access violation. Working set
+peak 8.77 GB, commit peak 14.75 GB, minimum free 4.27 GB. The single-material test
+(I2) was not needed.
+
+Conclusion: the crash came from the mini bot template's 166-byte shader block,
+carried into our model with only the name swapped. `--plain-shader` is now the
+default; `--no-plain-shader` rebuilds the crashing model. Why the game misreads
+that block in our file is not shown. Why the model loaded in the mission-off run
+(Card D) is open. Nobody has yet checked how Codsworth looks in game.
