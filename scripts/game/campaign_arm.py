@@ -809,11 +809,17 @@ def show(res):
             print(f"    . {n}")
 
 
+PS_QUOTES = "'\u2018\u2019\u201a\u201b"                   # PowerShell's single-quote characters
+
+
 def ps(s):
-    """A PowerShell single-quoted string; exits on a quote."""
-    if "'" in str(s) or "\n" in str(s):
-        sys.exit(f"{s!r}: a quote or a line break in a path or argument")
-    return f"'{s}'"
+    """A PowerShell single-quoted string, each quote character doubled (PowerShell's own
+    EscapeSingleQuotedStringContent; Codex on #391: an apostrophe is a valid Windows path character); exits on a line
+    break."""
+    s = str(s)
+    if "\n" in s or "\r" in s:
+        sys.exit(f"{s!r}: a line break in a path or argument")
+    return "'" + "".join(c + c if c in PS_QUOTES else c for c in s) + "'"
 
 
 def psa(args):
@@ -862,11 +868,11 @@ def chain(camp, path, release, digest=None):
              "$PSNativeCommandUseErrorActionPreference = $false; $global:LASTEXITCODE = $null; "
              "try { & $py -I @argv | Out-Host; $c = $global:LASTEXITCODE } "
              "catch { Write-Host \"$py could not be run: $_\"; $c = $null }; if ($null -eq $c) { 1 } else { $c } }",
-             f"if (-not (Get-Command $py -ErrorAction SilentlyContinue)) {{ Write-Host 'no python at {py}: nothing run'; "
-             "exit 1 }",
+             "if (-not (Get-Command $py -ErrorAction SilentlyContinue)) { Write-Host ('no python at ' + $py + "
+             "': nothing run'); exit 1 }",
              # Codex on #391: Set-Location's error does not stop a script; never run the caller's checkout's scripts
              f"try {{ Set-Location -LiteralPath {ps(camp['checkout'])} -ErrorAction Stop }} catch {{ "
-             f"Write-Host 'no checkout at {camp['checkout']}: nothing run'; exit 1 }}",
+             f"Write-Host ('no checkout at ' + {ps(camp['checkout'])} + ': nothing run'); exit 1 }}",
              # Codex on #391: the runner reuses a game it started earlier; the first queue must launch the armed build
              "if (Get-Process Starfield -ErrorAction SilentlyContinue) { Write-Host 'Starfield is running: close it "
              "so the first queue launches the armed build; nothing run'; exit 1 }",

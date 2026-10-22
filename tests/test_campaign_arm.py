@@ -874,6 +874,14 @@ class ScriptAndGateTests(Base):
         c["queues"] = [{"name": "b", "queue": q2, "judge": ["scripts/bridge/presence.py", "judge", "--queue", q2]}]
         self.assertIn("records no presence_sha256", " ".join(self.check(c)[1]))
 
+    def test_powershell_strings_double_their_quotes(self):
+        # Codex on #391: an apostrophe is a valid Windows path character; the check passed and the script exited
+        self.assertEqual(ca.ps("D:\\Aaron's\\q"), "'D:\\Aaron''s\\q'")
+        self.assertEqual(ca.ps("a\u2019b"), "'a\u2019\u2019b'")
+        self.assertEqual(ca.psa(["x", "it's"]), "@('x', 'it''s')")
+        with self.assertRaises(SystemExit):
+            ca.ps("a\nb")
+
     def test_the_campaign_name_is_one_plain_line(self):
         # Codex on #391: chain() writes the name into its header comment; a line break would end the comment
         q = self.queue("a", [{"coc": "FO4Port_X"}])
