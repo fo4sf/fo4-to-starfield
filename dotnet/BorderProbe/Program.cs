@@ -18,6 +18,9 @@
 // <plugin>... is every plugin of ours in load order (at least the core, and every later plugin that overrides the
 // world: FO4SFMission.esm does). The probe masters all of them, so it loads after the last override and wins.
 // Read-only on its inputs; writes FO4SFBorderProbe_<variant>.esm into <out dir>.
+//        BorderProbe fixture <dir>   synthetic Starfield.esm, FO4TerrainCore.esm (a SmallWorld, HNAM 0 world with a
+//                                    persistent cell) and FO4SFMission.esm (an override of it) for tests/test_border_probe.py;
+//                                    no game file is read
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
@@ -30,6 +33,7 @@ static int Usage()
                             "BorderProbe build <Starfield.esm> <out dir> --variant nosmall|hnam5|city [--world <EditorID>] <plugin>...");
     return 2;
 }
+if (args.Length == 2 && args[0] == "fixture") return Fixture(args[1]);
 if (args.Length < 3 || (args[0] != "show" && args[0] != "build")) return Usage();
 var opts = new Dictionary<string, string>();
 var rest = new List<string>();
@@ -136,4 +140,48 @@ try
 finally
 {
     foreach (var d in Enumerable.Reverse(disposables)) d.Dispose();
+}
+
+static int Fixture(string dir)
+{
+    var rel = StarfieldRelease.Starfield;
+    Directory.CreateDirectory(dir);
+    var sfKey = ModKey.FromFileName("Starfield.esm");
+    var sf = new StarfieldMod(sfKey, rel);
+    sf.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+    var loc = new Location(new FormKey(sfKey, 0x800), rel) { EditorID = "SyntheticLocation" };
+    sf.Locations.Add(loc);
+    sf.ModHeader.Stats.NextFormID = 0x801;
+    sf.BeginWrite.ToPath(Path.Combine(dir, sfKey.FileName)).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
+
+    var coreKey = ModKey.FromFileName("FO4TerrainCore.esm");
+    var core = new StarfieldMod(coreKey, rel);
+    core.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+    var world = new Worldspace(new FormKey(coreKey, 0x803), rel)
+    {
+        EditorID = "SyntheticCoreWorld", Name = "Core", Flags = Worldspace.Flag.SmallWorld, HNAM = new MemorySlice<byte>(new byte[] { 0 }),
+    };
+    world.Location.SetTo(loc.FormKey);
+    world.TopCell = new Cell(new FormKey(coreKey, 0x900), rel);
+    world.TopCell.Persistent.Add(new PlacedObject(new FormKey(coreKey, 0x800), rel) { EditorID = "SyntheticAnchor" });
+    core.Worldspaces.Add(world);
+    core.ModHeader.Stats.NextFormID = 0x901;
+    core.BeginWrite.ToPath(Path.Combine(dir, coreKey.FileName)).WithLoadOrder(sfKey)
+        .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full)).Write();
+
+    var missionKey = ModKey.FromFileName("FO4SFMission.esm");
+    var mission = new StarfieldMod(missionKey, rel);
+    mission.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+    var over = new Worldspace(world.FormKey, rel)
+    {
+        EditorID = "SyntheticCoreWorld", Name = "Mission", Flags = Worldspace.Flag.SmallWorld, HNAM = new MemorySlice<byte>(new byte[] { 0 }),
+    };
+    over.Location.SetTo(loc.FormKey);
+    mission.Worldspaces.Add(over);
+    mission.ModHeader.Stats.NextFormID = 0x800;
+    var lo = new[] { sfKey, coreKey };
+    mission.BeginWrite.ToPath(Path.Combine(dir, missionKey.FileName)).WithLoadOrder(lo)
+        .WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+    Console.WriteLine($"wrote {sfKey}, {coreKey}, {missionKey} in {dir}");
+    return 0;
 }
