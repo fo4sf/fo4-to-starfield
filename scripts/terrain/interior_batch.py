@@ -8,6 +8,7 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> [--spec-mask-roughness] [--promote-arg ARG ...]
          [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
          [--allow-source-change] [--pack-ratio R] [--census <census.json>]
+         [--animated-doors --animated-pex <FO4SF_AnimatedLoadDoor.pex> [--door-flags] [--doorsounds <doorsounds.tsv>]]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
   python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --successor <interiors_bMM> --archive <dir>
@@ -61,6 +62,13 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
      packs over the limit is replanned with the ratio it measured and repacked, up to three attempts; one still over
      4,095 MiB fails the batch (archive_check), one over 90% of that is listed as near_limit.
      port\textures_parts.json records the assignment for the next batch.
+  --animated-doors (off by default; docs/spikes/load-door-animations.md): step 3 adds convert_batch --rig-load-doors
+     (a work staging converted without it is reconverted: its checkpoint signature differs, so give a new --work), then
+     scripts/door_bridge/load_door_anim.py plan (and flags over the exports with --door-flags, sounds with --doorsounds)
+     writes --out/door_anim/manifest*.json, the manifest PluginSpike reads instead of <work>/manifest.json; step 5 adds
+     vmad_patch port --animated-doors with it; step 7 packs --animated-pex as Scripts\FO4SF_AnimatedLoadDoor.pex into
+     "FO4Port - Main.ba2" (it extends FO4SF_LoadDoor, which the installed bridge's archive carries). steps.door_anim
+     records the counts and the PEX's sha256.
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
      sha256s of the plugins and maps), the sources (sha256 of Fallout4.esm and of each DLC plugin a cell is exported
      from; size and mtime of every BA2 under --fo4-data and --dlc-data), the files to install and their Plugins.txt
@@ -101,6 +109,7 @@ import deploy_starfield  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 MARKER = "result.json"
+CORE_PLUGIN = "FO4TerrainCore.esm"   # the --core build's plugin; pins.core_plugin (deploy_starfield.py install --batch)
 BATCH_DIR = re.compile(r"^interiors_b(\d{2})$")
 
 
@@ -597,6 +606,9 @@ def build(a):
     for need in (PLUGIN, "formids.json", "doors.json"):
         if not os.path.isfile(os.path.join(a.base, need)):
             sys.exit(f"--base {a.base} lacks {need} (the installed port's doors staging)")
+    anim_problem = animated_args_problem(a)
+    if anim_problem:
+        sys.exit(anim_problem)
     new_cells = batch_cells(plan, a.batch)
     old_cells = base_cells(a.base_exports)
     clash = sorted(set(c.casefold() for c in new_cells) & set(c.casefold() for c in old_cells))
@@ -728,6 +740,8 @@ def build(a):
     for d in a.dlc_data:
         cmd += ["--extra-data", d]
     cmd += a.convert_arg
+    if getattr(a, "animated_doors", False) and "--rig-load-doors" not in a.convert_arg:
+        cmd.append("--rig-load-doors")
     rc, s = run(cmd, log, cwd=ROOT)
     os.remove(merged)                                         # the exports are kept; the merge is rebuilt each time
     steps["convert"] = {"exit": rc, "seconds": s}
@@ -735,6 +749,11 @@ def build(a):
         return finish_("convert failed")
     manifest = load(os.path.join(a.work, "manifest.json"))
     failed_models = {f["nif"].replace("/", "\\").lower(): f.get("reason", "") for f in manifest.get("failures", [])}
+    plugin_manifest = os.path.join(a.work, "manifest.json")
+    if getattr(a, "animated_doors", False):
+        plugin_manifest, steps["door_anim"] = door_anim_manifest(a, plugin_manifest, export_paths, log)
+        if not plugin_manifest:
+            return finish_("load_door_anim failed")
 
     # 4. plugin
     raw = os.path.join(a.out, "plugin")
@@ -759,7 +778,7 @@ def build(a):
     if rc != 0:
         return finish_("port_promote failed")
     env = dict(os.environ, STARFIELD_DATA=sf_data)
-    rc, s = run(["dotnet", a.pluginspike, raw, os.path.join(a.work, "manifest.json")] + export_paths, log, env=env)
+    rc, s = run(["dotnet", a.pluginspike, raw, plugin_manifest] + export_paths, log, env=env)
     steps["pluginspike"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("PluginSpike failed")
@@ -769,9 +788,12 @@ def build(a):
             cells[c].update(placed[c])
 
     # 5. doors
+    core_plugin = os.path.join(a.core, CORE_PLUGIN)          # pinned before vmad_patch reads the core, checked in finish
+    a.core_pin = sha256(core_plugin) if os.path.isfile(core_plugin) else None
     port = os.path.join(a.out, "port")
     rc, s = run([sys.executable, os.path.join(HERE, "vmad_patch.py"), "port", "--port", raw, "--core", a.core, "--out", port,
-                 "--keep-markers", os.path.join(a.base, "doors.json")], log, cwd=ROOT)
+                 "--keep-markers", os.path.join(a.base, "doors.json")]
+                + (["--animated-doors", plugin_manifest] if getattr(a, "animated_doors", False) else []), log, cwd=ROOT)
     steps["doors"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("vmad_patch port failed")
@@ -819,6 +841,60 @@ def build(a):
     ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
           and steps.get("pack", {}).get("pass", True))
     return finish_(None if ok else "checks failed (see steps)")
+
+
+# --------------------------------------------------------------------------------------------------- animated doors
+ANIMATED_PEX = "FO4SF_AnimatedLoadDoor.pex"
+DOOR_ANIM = os.path.join(ROOT, "scripts", "door_bridge", "load_door_anim.py")
+
+
+def animated_args_problem(a):
+    """Why the --animated-doors options cannot run, or None."""
+    if not getattr(a, "animated_doors", False):
+        if getattr(a, "animated_pex", "") or getattr(a, "door_flags", False) or getattr(a, "doorsounds", ""):
+            return "--animated-pex, --door-flags and --doorsounds need --animated-doors"
+        return None
+    if not a.no_pack and not a.animated_pex:
+        return "--animated-doors needs --animated-pex (the compiled FO4SF_AnimatedLoadDoor.pex), or --no-pack"
+    if a.animated_pex and (os.path.basename(a.animated_pex) != ANIMATED_PEX or not os.path.isfile(a.animated_pex)):
+        return f"--animated-pex {a.animated_pex} is not an existing {ANIMATED_PEX}"
+    if a.doorsounds and not os.path.isfile(a.doorsounds):
+        return f"--doorsounds {a.doorsounds} not found"
+    return None
+
+
+def door_anim_manifest(a, manifest, export_paths, log):
+    """Step 3b (--animated-doors): load_door_anim.py plan, then flags (--door-flags) and sounds (--doorsounds), each
+    a new manifest under --out/door_anim. Returns (the last manifest or None on a failure, steps.door_anim)."""
+    d = os.path.join(a.out, "door_anim")
+    os.makedirs(d)
+    step, cur = {"runs": []}, manifest
+    runs = [("plan", ["--manifest", cur])]
+    if a.door_flags:
+        runs.append(("flags", ["--cells"] + export_paths))
+    if a.doorsounds:
+        runs.append(("sounds", ["--doorsounds", a.doorsounds]))
+    for name, extra in runs:
+        new = os.path.join(d, f"manifest_{name}.json")
+        args = extra if name == "plan" else ["--manifest", cur] + extra
+        rc, s = run([sys.executable, DOOR_ANIM, name] + args + ["--out", new], log, cwd=ROOT)
+        step["runs"].append({"cmd": name, "exit": rc, "seconds": s})
+        if rc != 0:
+            return None, step
+        cur = new
+    items = load(cur).get("items", [])
+    step["manifest"] = os.path.abspath(cur)
+    step["load_doors"] = sum(1 for i in items if isinstance(i.get("load_door"), dict))
+    step["animated"] = sum(1 for i in items if isinstance(i.get("load_door"), dict) and i["load_door"].get("anim"))
+    if a.animated_pex:
+        # a build-local snapshot: the archive packs these bytes, whatever happens to the source file meanwhile
+        snap = os.path.join(d, ANIMATED_PEX)
+        shutil.copyfile(a.animated_pex, snap)
+        a.animated_pex_snapshot = snap
+        step["pex"] = {"file": os.path.abspath(a.animated_pex), "snapshot": os.path.abspath(snap),
+                       "bytes": os.path.getsize(snap), "sha256": sha256(snap)}
+        a.animated_pex_sha256 = step["pex"]["sha256"]
+    return cur, step
 
 
 # -------------------------------------------------------------------------------------------------------------- pack
@@ -965,7 +1041,26 @@ def pack(a, port, prev_port, prev_result, log):
     t = time.time()
     packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
     main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
-    deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
+    pex = getattr(a, "animated_pex_snapshot", "") if getattr(a, "animated_doors", False) else ""
+    scripts = os.path.join(a.work, "scripts")
+    if pex:
+        # The PEX rides this build's Main archive: door_anim_manifest's snapshot, checked against the sha256 result.json
+        # records, is put into the work staging for Archive2 and taken out after, so a later build from the same
+        # staging without the switch packs no script.
+        if os.path.exists(scripts):
+            raise ValueError(f"{scripts} exists: the work staging must not hold scripts of its own")
+        os.makedirs(scripts)
+        staged = os.path.join(scripts, ANIMATED_PEX)
+        shutil.copyfile(pex, staged)
+        if sha256(staged) != a.animated_pex_sha256:
+            shutil.rmtree(scripts, ignore_errors=True)
+            raise ValueError(f"{pex} changed since it was pinned (sha256 {a.animated_pex_sha256[:12]}): refusing to pack it")
+        main_dirs.append("scripts")
+    try:
+        deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
+    finally:
+        if pex:
+            shutil.rmtree(scripts, ignore_errors=True)
     sizes = texture_sizes(a.work)
     previous = {}
     if prev_port and os.path.isfile(os.path.join(prev_port, PARTS)):
@@ -1076,6 +1171,12 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     port = os.path.join(a.out, "port")
     pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(os.path.join(a.base, PLUGIN)),
             "base_formids": sha256(os.path.join(a.base, "formids.json"))}
+    core_pin = getattr(a, "core_pin", None)                  # the core vmad_patch wired the door returns to
+    if core_pin:
+        core_plugin = os.path.join(a.core, CORE_PLUGIN)
+        if (sha256(core_plugin) if os.path.isfile(core_plugin) else None) != core_pin:
+            error = error or f"--core's {CORE_PLUGIN} changed while the batch was built (doors wired to {core_pin[:8]})"
+        pins["core_plugin"] = core_pin
     if os.path.isfile(os.path.join(port, PLUGIN)):
         pins["plugin"] = sha256(os.path.join(port, PLUGIN))
         pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))
@@ -1428,6 +1529,11 @@ def main(argv=None):
     b.add_argument("--census", default="",
                    help="interior_census.py's census: which plugins hold each cell, for a plan written before its rows "
                         "carried `plugins` (docs/terrain/data/interior-census.json)")
+    b.add_argument("--animated-doors", action="store_true",
+                   help="off by default: rigged load doors that open before the trip (docs/spikes/load-door-animations.md)")
+    b.add_argument("--animated-pex", default="", help="with --animated-doors: the compiled FO4SF_AnimatedLoadDoor.pex to pack")
+    b.add_argument("--door-flags", action="store_true", help="with --animated-doors: copy FO4's door flags (load_door_anim flags)")
+    b.add_argument("--doorsounds", default="", help="with --animated-doors: SfInspect doorsounds TSV (load_door_anim sounds)")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)

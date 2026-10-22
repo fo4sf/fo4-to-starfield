@@ -145,7 +145,7 @@ class GuiModelTests(unittest.TestCase):
         self.assertEqual(len(rows), len(paths.KEYS) - 1)
 
     def test_play_delegates_to_existing_cli_for_both_routes(self):
-        for route in ("steam", "exe"):
+        for route in ("sfse", "steam", "exe"):
             self.path.write_text(json.dumps({"route": route}), encoding="utf-8")
             self.model.reload()
             argv = self.model.command("play", self.model.saved, starfield=self.game, pids=[], windows=True)
