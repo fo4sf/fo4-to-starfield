@@ -36,6 +36,9 @@ from verify_packed_experiment import verify_archive  # noqa: E402
 from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
+TOGGLE = "FO4SF.toggle.json"                             # plugin_toggle.py: our plugins held off for a test
+# bridge_install.py's RECORD and PLUGIN (it imports this module): active checks an installed bridge too
+BRIDGE_RECORD, BRIDGE_PLUGIN = "FO4SFBridge.install.json", "FO4SFBridge.esm"
 PACKING_POLICY = "general-stored-verified-v2"
 _UNSET = object()
 
@@ -161,6 +164,16 @@ def order(a):
         if plugins is None:
             plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
             plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+        held = held_off(data)
+        if any(p.casefold() in held for p in plugins):
+            ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
+                      if ln.strip().startswith("*")}
+            again = [p for p in plugins if p.casefold() in held and p.casefold() in ticked]
+            if again:                                     # the game ticked it again: never launch with it loaded
+                raise ValueError(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
+                                 f"run plugin_toggle.py on, or off again")
+            print(f"held off (plugin_toggle.py), left unticked: {', '.join(p for p in plugins if p.casefold() in held)}")
+            plugins = [p for p in plugins if p.casefold() not in held]
         masters = {}
         for p in plugins:
             f = data_path(data, p)
@@ -188,25 +201,48 @@ def order(a):
 
 
 def active(a):
-    """Read-only: is every plugin this install activated still active ("*") in Plugins.txt? 0 yes or nothing installed,
+    """Read-only: is recovery finished and every plugin still active ("*")? 0 yes or nothing installed,
     8 no. Starfield itself can deactivate them while running (2026-10-13: answering "Save" to its "different Creations
     Load Order" dialog after Continue rewrote Plugins.txt with every experiment plugin inactive; coc then froze)."""
     rec_p = os.path.join(a.starfield, "Data", RECORD)
+    try:
+        held = held_off(os.path.join(a.starfield, "Data"))
+    except (OSError, ValueError) as error:
+        print(f"toggle record unreadable: {error}")
+        return 8
+    if held:                                              # every held plugin, the bridge too, must stay unticked
+        ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
+                  if ln.strip().startswith("*")} & held
+        if ticked:
+            print(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(sorted(ticked))}")
+            return 8
+    lines, _, _ = read_plugins(plugins_txt())
+    on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
+    # an installed bridge not held off must still be ticked, with or without an experiment record: a bridge-only run
+    # went on with the bridge unticked by the game (Codex on #407)
+    bridge = (os.path.exists(os.path.join(a.starfield, "Data", BRIDGE_RECORD))
+              and BRIDGE_PLUGIN.casefold() not in held)
+    if bridge and BRIDGE_PLUGIN.casefold() not in on:
+        print(f"inactive in Plugins.txt: {BRIDGE_PLUGIN}")
+        return 8
     if not os.path.exists(rec_p):
-        print("nothing installed")
+        print(f"active: {BRIDGE_PLUGIN}" if bridge else "nothing installed")
         return 0
     rec = read_json(rec_p)
+    if not rec.get("complete", True) or rec.get("cleanup_pending") or "rollback_completed" in rec:
+        print("incomplete experiment install; finish uninstall before relaunching")
+        return 8
     plugins = rec.get("plugins")
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
-    lines, _, _ = read_plugins(plugins_txt())
-    on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
-    off = [p for p in plugins if p.casefold() not in on]
+    off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
         return 8
-    print(f"active: {', '.join(plugins)}")
+    kept = [p for p in plugins if p.casefold() not in held]
+    print(f"active: {', '.join(kept) or 'none'}" + (f"; held off: {', '.join(p for p in plugins if p not in kept)}"
+                                                       if len(kept) < len(plugins) else ""))
     return 0
 
 
@@ -321,13 +357,17 @@ def plan_activation(lines, plugins):
     return updated, added, replaced
 
 
-def verify_relaunch(a, data, plugins, packed, rec):
+def verify_relaunch(a, data, plugins, packed, rec, held=frozenset()):
     if packed and rec.get("packing_policy") != PACKING_POLICY:
         sys.exit("experiment packing policy changed or is unknown; uninstall before relaunching")
     active = {line.strip()[1:].casefold() for line in read_plugins(plugins_txt())[0]
               if line.strip().startswith("*")}
-    if any(name.casefold() not in active for name in plugins):
+    if any(name.casefold() not in active and name.casefold() not in held for name in plugins):
         sys.exit("experiment plugin is inactive; recover the installation before relaunching")
+    again = [name for name in plugins if name.casefold() in held and name.casefold() in active]
+    if again:
+        sys.exit(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
+                 f"run plugin_toggle.py on, or off again, before relaunching")
     if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
         sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
     for relative, identity in rec["files"].items():
@@ -344,8 +384,51 @@ class RollbackReceiptPending(OSError):
     """Confirmed publications were undone, but the original receipt is retained."""
 
 
+def completed_rollback_receipt(rec):
+    """Return the exact pre-rollback receipt only for a consistent completion checkpoint."""
+    if "rollback_completed" not in rec:
+        return None
+    try:
+        proof = rec["rollback_completed"]
+        if (not isinstance(proof, dict) or set(proof) != {"schema", "original_sha256", "original_receipt_b64"}
+                or type(proof["schema"]) is not int or proof["schema"] != 1):
+            raise ValueError("unknown completion schema")
+        original = base64.b64decode(proof["original_receipt_b64"], validate=True)
+        if hashlib.sha256(original).hexdigest() != proof["original_sha256"]:
+            raise ValueError("original receipt digest differs")
+        written = json.loads(original)
+        if (not isinstance(written, dict) or written.get("complete") is not False
+                or "rollback_completed" in written or rec != dict(written, rollback_completed=proof)):
+            raise ValueError("completion does not match its original incomplete receipt")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"invalid rollback completion checkpoint: {error}") from error
+    return original
+
+
+def record_completed_rollback(rec_p, original):
+    """Called only after successful undo; retain the full original bytes inside the active journal."""
+    rec = json.loads(original)
+    rec["rollback_completed"] = {"schema": 1, "original_sha256": hashlib.sha256(original).hexdigest(),
+                                 "original_receipt_b64": base64.b64encode(original).decode("ascii")}
+    completed_rollback_receipt(rec)
+    deployment.atomic_write_bytes(rec_p, json.dumps(rec, indent=1).encode("utf-8"),
+                                  ".fo4sfexp-rollback-", expected_current=original)
+
+
 def cleanup(data, rec_p, rec, *, rollback=False):
     """Undo confirmed publications; preserve changed/unproven files and a retryable journal."""
+    if completed_rollback_receipt(rec) is not None:
+        # These effects were already undone. Replaying the old inventory could
+        # remove a file recreated later, even if its bytes happen to be equal.
+        before = read_bytes(rec_p)
+        if before is None or json.loads(before) != rec:
+            raise OSError("active experiment receipt changed; completion retirement refused")
+        history = preserve_receipt(rec_p)
+        if read_bytes(rec_p) != before:
+            raise OSError("active experiment receipt changed; completion retirement refused")
+        os.remove(rec_p)
+        print(f"preserved completed rollback receipt: {history}")
+        return
     targets = {rel: data_path(data, rel) for rel in rec["files"]}
     directories = {rel: data_path(data, rel) for rel in rec["dirs"]}
     p = plugins_txt()
@@ -369,7 +452,8 @@ def cleanup(data, rec_p, rec, *, rollback=False):
         # A history outage must not leave a failed install enabled. The caller
         # still knows which files it actually published, even if its final
         # journal write failed. Undo only those unchanged publications, keeping
-        # the FULL durable receipt byte-for-byte until history can be retried.
+        # the FULL durable receipt until history can be retried. A completed
+        # rollback checkpoints the exact original bytes plus its outcome.
         history_error = error
     errors = []
     try:
@@ -418,6 +502,12 @@ def cleanup(data, rec_p, rec, *, rollback=False):
         pending = f"receipt preservation pending at {rec_p}: {history_error}"
         if errors:
             raise OSError(f"{pending}; {'; '.join(errors)}")
+        try:
+            record_completed_rollback(rec_p, before)
+        except (OSError, ValueError) as error:
+            pending += (f"; completion checkpoint unavailable ({error}); leave Plugins.txt and the former "
+                        "experiment paths unchanged until recovery finishes")
+        pending += "; restore receipt history and run uninstall; the runner remains blocked until recovery finishes"
         raise RollbackReceiptPending(pending)
     if errors:
         rec["cleanup_pending"] = True
@@ -437,6 +527,37 @@ def build_ba2(a, root, out):
     deployment.build_archive(argparse.Namespace(starfield=a.starfield, staging=root), out, folders, "General",
                              compression="None")
     return out
+
+
+def held_off(data):
+    """The plugins plugin_toggle.py holds off (Data\\FO4SF.toggle.json), casefolded: order, active and the relaunch
+    of the same install leave them unticked; a new install or an uninstall refuses until they are back on (their
+    Plugins.txt lines are no longer the ones a record wrote). Empty without the file; an unreadable file, or a hold
+    recorded for another user's Plugins.txt (its plugins are unticked there, not in this profile's), is a
+    ValueError, so every caller refuses it (Codex on #407)."""
+    p = os.path.join(data, TOGGLE)
+    if not os.path.exists(p):
+        return set()
+    rec = read_json(p)
+    off = rec.get("off") if isinstance(rec, dict) else None
+    if not isinstance(off, list) or not all(isinstance(x, str) and x for x in off):
+        raise ValueError(f"{p}: off must be a list of plugin names")
+    mine = rec.get("plugins_txt")
+    if off and mine is not None:
+        here = plugins_txt()
+        if not isinstance(mine, str) or os.path.normcase(os.path.abspath(mine)) != os.path.normcase(os.path.abspath(here)):
+            raise ValueError(f"{p}: the record's Plugins.txt ({mine}) is not the current user's ({here})")
+    return {x.casefold() for x in off}
+
+
+def refuse_while_held(data, what):
+    try:
+        held = held_off(data)
+    except (OSError, ValueError) as error:
+        sys.exit(f"{what}: {error}")
+    if held:
+        sys.exit(f"{what}: plugins held off by plugin_toggle.py ({', '.join(sorted(held))}); run "
+                 f"plugin_toggle.py on first")
 
 
 def install(a):
@@ -470,10 +591,16 @@ def _install(a, packing_dir=None):
         if same:                                          # a relaunch of the same experiment: nothing to do
             if bool(rec.get("pack", False)) != requested_pack:
                 sys.exit("experiment packing mode changed; uninstall it before changing modes")
-            verify_relaunch(a, data, plugins, packed, rec)
-            print("already installed")
+            try:
+                held = held_off(data)
+            except (OSError, ValueError) as error:
+                sys.exit(f"experiment not installed: {error}")
+            verify_relaunch(a, data, plugins, packed, rec, held)
+            print("already installed" + (f"; held off: {', '.join(p for p in plugins if p.casefold() in held)}"
+                                         if any(p.casefold() in held for p in plugins) else ""))
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
+    refuse_while_held(data, "experiment not installed")
     names = [rel for _, rel in files]
     if packed:
         # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
@@ -587,6 +714,7 @@ def uninstall(a):
     if not os.path.exists(rec_p):
         print("nothing installed")
         return
+    refuse_while_held(data, "experiment not uninstalled")
     try:
         require_complete_master(data)
     except (OSError, ValueError) as error:
@@ -594,8 +722,9 @@ def uninstall(a):
     with open(rec_p) as f:
         rec = json.load(f)
     try:
-        rec["cleanup_pending"] = True
-        deployment.write_manifest(rec_p, rec)
+        if "rollback_completed" not in rec:
+            rec["cleanup_pending"] = True
+            deployment.write_manifest(rec_p, rec)
         cleanup(data, rec_p, rec)
     except (OSError, ValueError) as e:
         sys.exit(f"uninstall incomplete: {e}")

@@ -1,4 +1,5 @@
 """Exercise converter cache behavior without game assets or texture tools."""
+import struct
 import sys
 from pathlib import Path
 import unittest
@@ -8,13 +9,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fo4sf.pipeline import Converter
 
 
+def _bgsm(greyscale="", palette_color=0, palette_scale=1.0):
+    head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 35)
+    head[62] = palette_color
+    def s(t):
+        b = t.encode() + b"\0"
+        return struct.pack("<I", len(b)) + b
+    return bytes(head) + s("a/b_d.dds") + s("a/b_n.dds") + s("a/b_s.dds") + s(greyscale) + s("env/c.dds") + s("") \
+        + b"\x00" * 40 + struct.pack("<fB", palette_scale, 0)
+
+
 class ProductionCacheTests(unittest.TestCase):
     def setUp(self):
         self.converter = Converter.__new__(Converter)
         self.converter._materials = {}
         self.converter.stats = {"materials_ok": 0, "materials_fallback": 0}
         self.converter.material_errors = {}
-        self.converter._convert_texture_set = Mock(side_effect=lambda stem, *args: stem + ".mat")
+        self.converter._convert_texture_set = Mock(side_effect=lambda stem, *args, **kwargs: stem + ".mat")
 
     def test_each_texture_changes_material_identity(self):
         c = self.converter
@@ -31,6 +42,44 @@ class ProductionCacheTests(unittest.TestCase):
         self.assertEqual(first, c.texture_set_material("textures\\a.dds", "textures\\n.dds", "textures\\s.dds"))
         c._convert_texture_set.assert_called_once()
 
+    def test_greyscale_palette_changes_material_identity(self):
+        c = self.converter
+        plain = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds")
+        paletted = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                          greyscale="textures/p.dds")
+        self.assertNotEqual(plain, paletted)
+        again = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                       greyscale="textures/p.dds")
+        self.assertEqual(paletted, again)
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+        self.assertEqual(c._convert_texture_set.call_args.kwargs.get("greyscale"), "textures/p.dds")
+
+    def test_nif_palette_scale_changes_material_identity(self):
+        c = self.converter
+        a = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=1.0)
+        b = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=0.12)
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                                   greyscale="textures/p.dds", palette_scale=1.0))
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+        self.assertAlmostEqual(c._convert_texture_set.call_args.kwargs.get("palette_scale"), 0.12, places=5)
+
+    def test_near_half_palette_scales_do_not_share_cache(self):
+        # Codex 5560482169: float32 neighbors of 0.5 both became ".5f" 0.50000.
+        c = self.converter
+        lo, hi = 0.4999989867210388, 0.5000010132789612
+        a = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=lo)
+        b = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=hi)
+        self.assertNotEqual(a, b)
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+        self.assertEqual(a, c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                                   greyscale="textures/p.dds", palette_scale=lo))
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+
     def test_failure_is_cached_and_different_texture_can_succeed(self):
         c = self.converter
         c._convert_texture_set.side_effect = [FileNotFoundError("missing normal"), "good.mat"]
@@ -41,3 +90,33 @@ class ProductionCacheTests(unittest.TestCase):
         self.assertEqual(c._convert_texture_set.call_count, 2)
         self.assertEqual(c.stats, {"materials_ok": 1, "materials_fallback": 1})
         self.assertEqual(len(c.material_errors), 1)
+
+    def test_bgsm_greyscale_string_is_passed_to_texture_set(self):
+        c = self.converter
+        c.src = Mock()
+        c.src.material = Mock(return_value=_bgsm(greyscale="a/b_p.dds", palette_color=1, palette_scale=0.12))
+        self.assertEqual(c._convert_material("materials/x.bgsm"), "x.mat")
+        self.assertEqual(c._convert_texture_set.call_args.kwargs.get("greyscale"), "a/b_p.dds")
+        self.assertAlmostEqual(c._convert_texture_set.call_args.kwargs.get("palette_scale"), 0.12, places=5)
+
+    def test_bgsm_without_greyscale_omits_the_palette(self):
+        c = self.converter
+        c.src = Mock()
+        c.src.material = Mock(return_value=_bgsm())
+        c._convert_material("materials/x.bgsm")
+        self.assertIsNone(c._convert_texture_set.call_args.kwargs.get("greyscale"))
+
+    def test_bgsm_greyscale_string_without_flag_is_not_a_palette(self):
+        c = self.converter
+        c.src = Mock()
+        c.src.material = Mock(return_value=_bgsm(greyscale="Shared/Cubemaps/mipblur.dds", palette_color=0))
+        c._convert_material("materials/concreteroadhw01.bgsm")
+        self.assertIsNone(c._convert_texture_set.call_args.kwargs.get("greyscale"))
+
+    def test_missing_palette_texture_is_a_failure(self):
+        c = Converter.__new__(Converter)
+        c.src = Mock()
+        c.src.texture = Mock(side_effect=lambda p: None if "p.dds" in p.replace("\\", "/") else b"DDS")
+        with self.assertRaises(FileNotFoundError) as err:
+            c._convert_texture_set("x", "d.dds", "n.dds", "s.dds", greyscale="p.dds")
+        self.assertIn("palette", str(err.exception).lower())

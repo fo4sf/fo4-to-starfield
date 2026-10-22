@@ -7,6 +7,47 @@ comes after the current testing, and it is the brief Codex and Grok work from. S
 Two independent reviews of this document (17 Oct) are folded in; their corrections are the reason several claims
 below are narrower than the first draft.
 
+## Update, 20 October 2026
+
+On 19 October the owner set the combined core as the first priority from here on: a GAMMA-style second way to play
+around settlements that grow, factions that act and a connected wasteland, built on the Commonwealth first, because
+it has value without the open legal questions. The stories are still wanted, and the work in flight continues (the
+v6e test, the mission, the Vault 111 start and the approved phases in their order). The owner's decisions for each
+phase, and the critical path, are in docs/research/framework/dependencies.md on draft PR #408; they are not repeated
+here. The project is not offered for download or play for now.
+
+## Update, 19 October 2026
+
+Phase A and the start of Phase B overlap: the B4 mission ("When Freedom Calls", cut down) has run to completion in
+game on the v6c build (#353, notes in docs/mission/when-freedom-calls.md), and Codsworth stands in Sanctuary as a
+robot stand-in (#361). Phase A is not closed: v6 crashes near Red Rocket and the Museum of Freedom are under a
+bisect (#375; the v6e test build is staged), and the map markers do not draw yet (#376).
+
+On 19 October the owner approved the order of the next phases. It replaces section 2's order where they differ:
+
+1. **New game:** a Vault 111 start with no Starfield intro, which everything else plugs into.
+2. **Doors:** load doors with their enter and exit animations.
+3. **Interiors:** all of them (about 190 are still unconverted), in batches.
+4. **Launcher:** it ships no assets and builds the port from the player's own Fallout 4 and DLC; it may require
+   Starfield's free Creation Kit, and the port may require SFSE.
+
+The owner also decided: the Commonwealth, Far Harbor and Nuka-World share one Earth-like planet with real days and
+weather; the player is silent by default; Starfield's own animations come first; releases go to GitHub first. The
+order after the launcher is open. Research inputs are in draft PR #380 (docs/research/next-phase/), with Grok's
+proposals (#381, PR #386) and Codex's review (#382). Offline work on the four phases has started on separate branches;
+nothing from it is installed until the current crash test is done.
+
+Offline work in flight (draft PRs, not merged, nothing installed; 19 Oct):
+
+| Phase | Draft PR | What it holds |
+|---|---|---|
+| 1. New game | #393 | FO4SFNewGame.esm, a Vault 111 start built offline |
+| 2. Doors | #392 | load doors that play their opening before the trip, behind a switch that is off by default |
+| 3. Interiors | #396 | a census of all interiors, a 9-batch plan, and staged batch builds that keep the installed port's ids |
+| 4. Launcher | #394 | the build manifest, a resumable build, a recorded restore and a same-ids check |
+| Testing | #391, #397 | the night-chain arm check and direct exe launch; door round trips per interior batch and the v6e test campaign |
+| Map | #399 | an installer for FO4SFMapMarkers.esm next to the core set (#376 is merged) |
+
 ## 0. Where we are (17 October 2026): Phase A, the Commonwealth slice, in testing
 
 Phase A is "the playable Commonwealth exterior plus the first interiors, running natively in Starfield". It maps to
@@ -40,7 +81,7 @@ Open before Phase A closes (the [test sheet](owner/in-game-test-sheet.md) is the
 | Vault 111 flat grey floor | the gear-room pit's water sheet was converted as an opaque plank; #300 leaves water planes out; needs an interior rebuild | Claude |
 | Vault 111 cog door (an activator with Stage clips, played from its console) and the exit elevator | not built | Claude |
 | Picking up and carrying objects in the world (not into the inventory) | does not work (owner, row 26); hypothesis: FO4 masses are 2 to 10 times Starfield's for small items (research log); the owner's in-game mass experiment decides | Claude |
-| Garage button does nothing | #303 (Grok, open): FO4's XAPR link becomes the vanilla DefaultActivateLinkedRefOnActivate plus an XLKR on the button, with Opening/Closing clip aliases for the garage door rig; next: independent QA, then the garage NIF reconversion | Grok, Codex QA, Claude build |
+| Garage button does nothing | #303 (Grok, open, wire-only): FO4's XAPR link becomes the vanilla DefaultActivateLinkedRefOnActivate plus an XLKR on the button; no Opening/Closing clip alias (that made garage meshes passable). Garage NIF rig is later, Claude on the build side | Grok, Codex QA, Claude build |
 | Nothing visible beyond the loaded cells | no distant LOD for converted statics; #303 carries the object-LOD plan (no build yet; next a small LOD trial) | Grok research, Claude build |
 | Textures: foliage cutouts, greyscale palettes, vines, white walls | Grok's #288/#289 need the review fixes, then Claude reconverts | Grok, Codex QA |
 | Map surface view and markers | what the surface map shows over the Commonwealth is not recorded yet (a playtest row with the owner's screenshot comes first); #296 restores the first marker; the 3D view is section 3's first Grok item | Grok |
@@ -186,7 +227,7 @@ equivalents and which are rebuilt, and PLAN.md is updated once the owner agrees.
      appear there from our own plugin and locally generated files; then the build on #296's marker after its LCSR fix.
      Acceptance: a screenshot of the surface map opened at Red Rocket showing the Commonwealth terrain in 3D with the
      Red Rocket marker (Claude takes it);
-  2. the review fixes on #288, #289, #290, #296 and the #303 review; after Codex's QA, Claude runs the reconversion and
+  2. the review fixes on #288, #289, #290, #296 and the #303 wire-only review (clip alias out); after Codex's QA, Claude runs the reconversion and
      the in-game checks;
   3. the object-LOD trial from #303's plan, with Claude on the build side (the exterior writer and staging are Claude's;
      Grok hands over patches, or the file scope is agreed on #32 first).

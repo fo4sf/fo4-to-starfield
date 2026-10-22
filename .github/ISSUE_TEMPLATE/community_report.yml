@@ -1,0 +1,55 @@
+name: Player report (community)
+description: Found something wrong while playing the port? Report it here. A maintainer reviews every report before any work starts.
+title: "[Player report]: "
+labels: ["community", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. Reports are read by the project owner first; nothing is worked on until it has been reviewed,
+        so please be patient. Guide: docs/community/reporting-tool.md (includes the screenshot hotkey).
+        Do not upload game files, extracted assets or converted plugins. Check your screenshots and state.json for
+        personal paths or your user name before attaching them.
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong?
+      description: What you did, what you expected, what happened instead. If you used the report hotkey's description box, paste description.txt here.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the game?
+      description: Location name, or the cell/position from the capture's state.json (bridge section) if you have it.
+  - type: textarea
+    id: capture
+    attributes:
+      label: Screenshots and capture files
+      description: Drag in screen.png. Paste the relevant part of state.json and papyrus_tail.txt if the hotkey produced them.
+  - type: input
+    id: build
+    attributes:
+      label: Port build and game version
+      description: The port release or commit you installed and your Starfield version. Load order if you changed it.
+    validations:
+      required: true
+  - type: dropdown
+    id: repeat
+    attributes:
+      label: Can you make it happen again?
+      options:
+        - "Yes, every time"
+        - "Sometimes"
+        - "Only saw it once"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I searched open issues and this is not already reported.
+          required: true
+        - label: I removed personal paths and attached no game files.
+          required: true

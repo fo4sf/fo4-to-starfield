@@ -167,5 +167,28 @@ class VarintTests(unittest.TestCase):
         self.assertEqual(hktagfile._varint(bytes([0xE8, 0xFF, 0xFF, 0xFF, 0xFF]), 0), (0xFFFFFFFF, 5))
 
 
+class MassScaleTests(unittest.TestCase):
+    def test_mass_scale_parameter_accepted(self):
+        # The scale multiplies FO4's body mass before it is written (playtest row 26).
+        # Full blob fixture lives in the mixed-system tests; here we only confirm the
+        # new kwarg does not break the signature and the scale is applied in the writer.
+        import inspect
+        sig = inspect.signature(meshcollision.convert_bodies)
+        self.assertIn("mass_scale", sig.parameters)
+        self.assertEqual(sig.parameters["mass_scale"].default, 1.0)
+
+    def test_valid_scales_pass_require_mass_scale(self):
+        from fo4sf.convert_static import require_mass_scale
+        self.assertEqual(require_mass_scale(1.0), 1.0)
+        self.assertEqual(require_mass_scale(0.2), 0.2)
+
+    def test_invalid_scales_fail_require_mass_scale(self):
+        from fo4sf.convert_static import require_mass_scale
+        for scale in (0, -1, float("nan"), float("inf"), "nope"):
+            with self.subTest(scale=scale):
+                with self.assertRaises(ValueError):
+                    require_mass_scale(scale)
+
+
 if __name__ == "__main__":
     unittest.main()

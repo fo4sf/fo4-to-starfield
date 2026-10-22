@@ -94,6 +94,24 @@ class SelectTests(unittest.TestCase):
             # one model, two references (case differs): one convert_batch entry
             self.assertEqual(len(mk.convert_list(kept)), 1)
 
+    def test_a_model_placed_as_a_teleporting_door_is_converted_as_a_load_door(self):
+        door = {"formkey": "000009:Fallout4.esm", "type": "Door", "model": "SetDressing\\Elevator\\Lift01.nif",
+                "teleport_destination": {"door": "00000A:Fallout4.esm"}}
+        plain = dict(door, formkey="00000B:Fallout4.esm", teleport_destination=None)
+        self.assertTrue(mk.slim(door)["teleports"])
+        self.assertNotIn("teleports", mk.slim(plain))
+        for refs in ([plain, door], [door, plain]):
+            self.assertEqual(mk.convert_list([mk.slim(r) for r in refs])[0]["teleport_destination"], True)
+        self.assertNotIn("teleport_destination", mk.convert_list([mk.slim(plain)])[0])
+
+    def test_models_placed_only_as_statics_keep_a_static_body(self):
+        cone = {"formkey": "000011:Fallout4.esm", "type": "MovableStatic", "model": "Props\\TrafficCone01.nif"}
+        can = {"formkey": "000012:Fallout4.esm", "type": "MiscItem", "model": "Props\\TinCan01.nif"}
+        both = [dict(can, formkey="000013:Fallout4.esm", type="Static"), can]
+        out = {e["model"]: e for e in mk.convert_list([mk.slim(r) for r in [cone, can] + both])}
+        self.assertTrue(out["Props\\TrafficCone01.nif"]["static_body"])
+        self.assertNotIn("static_body", out["Props\\TinCan01.nif"])               # an item anywhere: dynamic
+
     def test_a_reference_in_two_bands_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
@@ -139,11 +157,31 @@ class MeasureTests(unittest.TestCase):
         dry = mk.DryConverter(src)
         dry._texture_set("set1", "a_d.dds", "a_n.dds", "a_s.dds", alpha_test=True)
         dry._texture_set("set2", "a_d.dds", "a_n.dds", "")
+        dry._texture_set("set_ts", "a_d.dds", "a_n.dds", "", two_sided=True)
         self.assertEqual(dry.outputs["set1"], [("color", "BC1", 1024, 512), ("normal", "BC5", 512, 512),
                                                ("rough", "BC4", 256, 256), ("opacity", "BC4", 1024, 512)])
         self.assertEqual(dry.outputs["set2"][2], ("rough", "BC4", 128, 128))      # no spec: a quarter of the normal
+        self.assertNotIn("opacity", [k for k, *_ in dry.outputs["set_ts"]])       # two_sided alone is not a cutout
         with self.assertRaises(FileNotFoundError):
             dry._texture_set("set3", "missing_d.dds", "a_n.dds", "")
+
+        class Src:
+            def __init__(self):
+                self.textures = [Arc()]
+
+            def material(self, path):
+                head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 35)
+                head[48] = 1
+                def s(t):
+                    b = t.encode() + b"\0"
+                    return struct.pack("<I", len(b)) + b
+                return bytes(head) + s("a_d.dds") + s("a_n.dds") + s("") + s("") + s("") + s("") + b"\x00" * 40
+
+        dry2 = mk.DryConverter(Src())
+        got = dry2.conv.material("materials/car00.bgsm")
+        self.assertIsNotNone(got)
+        self.assertEqual(dry2.conv.stats["materials_fallback"], 0)
+        self.assertNotIn("opacity", [k for k, *_ in dry2.outputs["car00"]])
 
 
 class TerrainTests(unittest.TestCase):
@@ -449,6 +487,39 @@ class StageTests(unittest.TestCase):
 
 
 class ContainerPerBaseTests(unittest.TestCase):
+    def test_plugin_punctuation_and_extension_do_not_merge_source_bases(self):
+        plugins = ("SomeDLC.esm", "Some-DLC.esm", "Some_DLC.esm", "Some.DLC.esm", "SomeDLC.esp", "SomeDLC.esl")
+        keys = [mk.container_edid(f"04B6E9:{plugin}", "000001:Fallout4.esm") for plugin in plugins]
+        self.assertEqual(len(set(keys)), len(plugins))
+        for plugin, key in zip(plugins, keys):
+            self.assertEqual(mk.container_edid(f"04b6e9:{plugin.upper()}", "000002:Fallout4.esm"), key)
+
+    def test_existing_simple_master_and_r05_names_stay_stable(self):
+        for plugin, suffix in (("Fallout4.esm", "fallout4"), ("DLCCoast.esm", "dlccoast"), ("DLCNukaWorld.esm", "dlcnukaworld")):
+            self.assertEqual(mk.container_edid(f"04B6E9:{plugin}", "x"), f"FO4Core_cont_04b6e9_{suffix}")
+        self.assertEqual(mk.container_edid(None, "19EE52:Fallout4.esm"), "FO4Core_cont_19ee52")
+
+    def test_unshared_reference_keys_keep_the_source_plugin(self):
+        refs = ("19EE52:Fallout4.esm", "19EE52:SomeDLC.esm", "19EE52:SomeDLC.esp")
+        self.assertEqual(len({mk.container_edid(None, src) for src in refs}), len(refs))
+        self.assertEqual(mk.container_edid(None, refs[-1]), mk.container_edid(None, refs[-1].upper()))
+
+    def test_unicode_expansion_cannot_alias_another_plugin_name(self):
+        self.assertNotEqual(mk.container_edid("04B6E9:Ma\u00dfe.esm", "x"), mk.container_edid("04B6E9:Masse.esm", "x"))
+        self.assertNotEqual(mk.container_edid(None, "19EE52:Ma\u00dfe.esm"), mk.container_edid(None, "19EE52:Masse.esm"))
+
+    def test_key_collision_is_refused_even_when_metadata_matches(self):
+        from unittest.mock import patch
+        bases = [{"model": "synthetic.nif"}]
+        placed = [{"src": f"{i:06X}:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0],
+                   "rot": [0, 0, 0], "scale": 1.0} for i in (1, 2)]
+        cluster = {"containers": [{"src": p["src"], "base": base, "name": "Box",
+                                   "items": [{"form": "Starfield.esm:00000F", "count": 1}]}
+                                  for p, base in zip(placed, ("04B6E9:SomeDLC.esm", "04B6E9:Other.esm"))]}
+        with patch.object(mk, "container_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "distinct source identities"):
+                mk.cluster_containers(bases, placed, cluster)
+
     def test_entries_of_one_base_share_the_cont_edid(self):
         bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
         placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
@@ -653,6 +724,18 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertEqual(res[:2], [True, False])                                           # a reference lost in promotion
         res = [ok for _w, ok in mk.promotion_checks(recs[:-1], own, objects, ids, exp)]
         self.assertFalse(res[0])                                                           # one REFR short
+        marked = dict(ids, map_marker_refs={"W": {"RedRocket": "00080C", "Concord": "00080D"}})
+        res = mk.promotion_checks(recs + [{"sig": "REFR", "fid": own | 0x80C + k, "flags": 0, "fields": []}
+                                          for k in range(2)], own, objects, marked, exp)
+        self.assertTrue(res[0][1] and "2 map markers" in res[0][0], res[0])            # the map markers counted
+        self.assertFalse(mk.promotion_checks(recs, own, objects, marked, exp)[0][1])
+
+    def test_params_view_leaves_out_map_markers(self):
+        core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
+        staged = {"plugin": "P.esm", "objects": "objects.json",
+                  "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
+        self.assertEqual(mk.core_params_view(staged), core)
+        self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
 
 
 class ItemValidationReviewTests(unittest.TestCase):
@@ -822,7 +905,7 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm"])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "doors": [], "benches": []})
+                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "flora": [], "doors": [], "benches": []})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {"000003:Fallout4.esm": "000805"},
                "containers": {"000007:Fallout4.esm": {"base": "00080A", "ref": "000809"}},
@@ -843,10 +926,15 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
                 mk.cluster_promote(self.BASES, self.placed(), two)
 
     def test_an_edid_standing_for_two_fo4_sources_is_refused(self):
-        # promoted_edid strips the plugin's punctuation and extension: A-B.esm and AB.esp both give FO4Core_acti_0bb1e1_ab
+        from unittest.mock import patch
+        # Full plugin identities are distinct, while an actual forced collision still refuses.
         cl = {"activators": [self.acti(1, base="0BB1E1:A-B.esm"), self.acti(3, base="0BB1E1:AB.esp")]}
-        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
-            mk.cluster_promote(self.BASES, self.placed(), cl)
+        entries = mk.cluster_promote(self.BASES, self.placed(), cl)[1]["activators"]
+        self.assertEqual(len({e["edid"] for e in entries}), 2)
+        self.assertEqual([e["reference_index"] for e in entries], [1, 3])
+        with patch.object(mk, "promoted_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+                mk.cluster_promote(self.BASES, self.placed(), cl)
         cl = {"activators": [self.acti(1, base="0BB1E1:AB.esm"), self.acti(3, base="0bb1e1:ab.ESM")]}   # ASCII case: one
         self.assertEqual(len({e["edid"] for e in mk.cluster_promote(self.BASES, self.placed(), cl)[1]["activators"]}), 1)
 
@@ -965,6 +1053,102 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         self.assertIsNone(mk.record_text(None))
 
 
+class FloraPromotionTests(unittest.TestCase):
+    """Harvestable plants (docs/terrain/flora.md): --cluster "flora" become native FLOR with PFIG the ingredient."""
+    BASES = [{"edid": "FO4Core_melon", "model": "fo4core\\setdressing\\flora\\florawildmelonvine01.nif"},
+             {"edid": "FO4Core_tato", "model": "fo4core\\setdressing\\flora\\floratatoplant01.nif"}]
+    ING = "00260DF2:Starfield.esm"
+
+    @staticmethod
+    def placed(n=5, disabled=()):
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": 0 if i < 3 else 1, "cell": [0, i],
+                 "pos": [1.0 + i, 2.0, 3.0], "rot": [0, 0, 0.5], "scale": 1.0, "disabled": i in disabled}
+                for i in range(n)]
+
+    @classmethod
+    def plant(cls, i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Melon Vine", "base": "01C25E:Fallout4.esm",
+             "editor_id": "FloraWildMelonVine01", "ingredient": cls.ING}
+        e.update(kw)
+        return e
+
+    def test_flora_of_one_base_share_the_flor_and_carry_the_ingredient(self):
+        cl = {"flora": [self.plant(1), self.plant(0), self.plant(3, base="01C25F:Fallout4.esm", name="Tato")]}
+        keep, out = mk.cluster_flora(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm", "000005:Fallout4.esm"])
+        self.assertEqual([e["edid"] for e in out],
+                         ["FO4Core_flor_01c25e_fallout4", "FO4Core_flor_01c25e_fallout4", "FO4Core_flor_01c25f_fallout4"])
+        self.assertEqual([e["reference_index"] for e in out], [0, 1, 3])
+        self.assertEqual([e["ingredient"] for e in out], [self.ING, self.ING, self.ING])
+        e = out[0]
+        self.assertEqual((e["model"], e["name"], e["cell"], e["pos"]),
+                         (self.BASES[0]["model"], "Melon Vine", [0, 0], [1.0, 2.0, 3.0]))
+        self.assertEqual(mk.flora_edid(None, "01C25E:Fallout4.esm"), "FO4Core_flor_01c25e")
+        self.assertEqual(mk.cluster_flora(self.BASES, self.placed(), {}), (self.placed(), []))
+        no_ing = self.plant(0)
+        del no_ing["ingredient"]
+        self.assertEqual(mk.cluster_flora(self.BASES, self.placed(), {"flora": [no_ing]})[1][0]["ingredient"], self.ING)
+        import make_cluster as mc
+        self.assertEqual(mk.FLORA_INGREDIENT, mc.FLORA_INGREDIENT)
+
+    def test_bad_flora_entries_are_refused(self):
+        P = self.placed()
+        cases = (
+            {"flora": [self.plant(0), self.plant(1, name="Gourd")]},
+            {"flora": [self.plant(0), self.plant(3)]},
+            {"flora": [self.plant(0, name="")]},
+            {"flora": [self.plant(0, name="a\nb")]},
+            {"flora": [self.plant(0, name=None)]},
+            {"flora": [self.plant(0), self.plant(0)]},
+            {"flora": [self.plant(0, src="ABCDEF:Fallout4.esm")]},
+            {"flora": [self.plant(0, ingredient="not-a-form")]},
+            {"flora": [self.plant(0, ingredient="00260DF2:Fallout4.esm")]},
+        )
+        for cl in cases:
+            with self.assertRaises(ValueError, msg=cl):
+                mk.cluster_flora(self.BASES, P, cl)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_flora(self.BASES, self.placed(disabled=(0,)), {"flora": [self.plant(0)]})
+
+    def test_flora_joins_the_one_slot_plan(self):
+        cl = {"flora": [self.plant(2)], "activators": [{"src": "000001:Fallout4.esm", "name": "Bell",
+                                                        "base": "0BB1E1:Fallout4.esm"}]}
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items() if v},
+                         {"flora": [2], "activators": [0]})
+        cl["activators"].append({"src": "000003:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"})
+        with self.assertRaisesRegex(ValueError, "listed as both an activator and a flora"):
+            mk.cluster_promote(self.BASES, self.placed(), cl)
+
+    def test_flora_record_check_wants_organic_keyword_and_pfig(self):
+        keep, out = mk.cluster_flora(self.BASES, self.placed(), {"flora": [self.plant(0)]})
+        objects = {"refs": keep, "flora": out}
+        ids = {"bases": {"a": "000800"}, "refs": {p["src"]: f"{0x802 + i:06X}" for i, p in enumerate(keep)},
+               "flora": {out[0]["src"]: {"base": "000810", "ref": "000801"}}}
+        own = 0x01000000
+
+        def z(text):
+            return text.encode("utf-8") + b"\0"
+
+        recs = [{"sig": "REFR", "fid": own | 0x801, "flags": 0,
+                 "fields": [(b"NAME", struct.pack("<I", own | 0x810)),
+                            (b"DATA", struct.pack("<6f", *out[0]["pos"], *out[0]["rot"]))]},
+                {"sig": "FLOR", "fid": own | 0x810, "flags": 0, "fields": [
+                    (b"EDID", z(out[0]["edid"])), (b"FULL", z(out[0]["name"])), (b"MODL", z(out[0]["model"])),
+                    (b"KSIZ", struct.pack("<I", 1)), (b"KWDA", struct.pack("<I", 0x00222E03)),
+                    (b"PFIG", struct.pack("<I", 0x00260DF2))]}]
+        recs += [{"sig": "REFR", "fid": own | int(v, 16), "flags": 0, "fields": []} for v in ids["refs"].values()]
+        recs += [{"sig": "REFR", "fid": own | 0x820, "flags": 0, "fields": []},
+                 {"sig": "REFR", "fid": own | 0x821, "flags": 0, "fields": []}]
+        self.assertEqual(mk.promoted_record_check(recs, own, objects, ids), [])
+        recs_no_pfig = [dict(r) for r in recs]
+        recs_no_pfig[1] = dict(recs[1], fields=[f for f in recs[1]["fields"] if f[0] != b"PFIG"])
+        self.assertTrue(any("PFIG" in p for p in mk.promoted_record_check(recs_no_pfig, own, objects, ids)))
+        recs_no_kw = [dict(r) for r in recs]
+        recs_no_kw[1] = dict(recs[1], fields=[f for f in recs[1]["fields"] if f[0] not in (b"KWDA", b"KSIZ")])
+        self.assertTrue(any("FloraTypeOrganic" in p for p in mk.promoted_record_check(recs_no_kw, own, objects, ids)))
+
+
 def light_base(**kw):
     b = {"editor_id": "defaultLightFire01NSFlicker", "time": -1, "radius": 3.657143, "color": [237, 168, 122], "flags": 1,
          "type": 0, "falloff": 1.0, "fov": 90.0, "near_clip": 0.103106, "flicker": [0.36, 0.8, 0.011], "flicker_effect": 1,
@@ -972,6 +1156,50 @@ def light_base(**kw):
          "intensity_scale": 3.96, "dropped": []}
     b.update(kw)
     return b
+
+
+class GarageButtonTests(unittest.TestCase):
+    """Playtest row 21: the two Commonwealth RedRGarageDoor / RedR_ButtonBox pairs (docs/terrain/garage-button.md)."""
+
+    def test_pairs_only_when_both_activators_are_promoted(self):
+        shop = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shop), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons(shop + [{"src": "000866C7:Fallout4.esm"},
+                                                           {"src": "000866C0:Fallout4.esm"}]), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
+            {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
+        short = [{"src": "056331:Fallout4.esm"}, {"src": "056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(short), [
+            {"door": "056331:Fallout4.esm", "button": "056BBA:Fallout4.esm"}])
+
+    def test_pairs_keep_plugin_identity(self):
+        foreign = [{"src": "00056331:Other.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(foreign), [])
+        mixed = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(mixed), [])
+        shadow = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"},
+                  {"src": "00056331:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shadow), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        with self.assertRaisesRegex(ValueError, "same FO4 source"):
+            mk.cluster_garage_buttons([{"src": "00056331:Fallout4.esm"}, {"src": "056331:Fallout4.esm"}])
+
+    def test_vmad_linked_ref_keyword_matches_xlkr(self):
+        door = 0x01000DB0
+        vmad = mk.garage_button_vmad()
+        xlkr = mk.garage_button_xlkr(door)
+        props = mk.vmad_patch.decode(vmad)["scripts"][0]["properties"]
+        self.assertEqual(props[0]["name"], mk.GARAGE_SCRIPT_PROPERTY)
+        self.assertEqual(props[0]["value"]["form"], mk.GARAGE_LINK_KEYWORD)
+        self.assertEqual(struct.unpack("<II", xlkr), (mk.GARAGE_LINK_KEYWORD, door))
+        path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("LinkedRefKeyword", src)
+        self.assertIn("0x5D5E7", src)
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
 
 
 class LightTests(unittest.TestCase):
@@ -1192,7 +1420,8 @@ class StationPromotionTests(unittest.TestCase):
         self.assertEqual({k: v[0] for k, v in mk.BENCH_VANILLA.items()}, {k: v["vanilla"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual({k: v[1] for k, v in mk.BENCH_VANILLA.items()}, {k: v["wbdt"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual((mk.WORKSHOP_TEMPLATE, mk.WORKSHOP_RADIUS_AV), (0x024DC7, 0x063FC5))
-        self.assertEqual(mk.PROMOTED[-2:], (("workshops", "ACTI"), ("doors", "ACTI")))   # the doors' ACTIs come last (appended)
+        self.assertEqual(mk.PROMOTED[-3:], (("workshops", "ACTI"), ("flora", "FLOR"), ("doors", "ACTI")))  # doors last (appended)
+        self.assertEqual(mk.FLORA_INGREDIENT, mc.FLORA_INGREDIENT)
         self.assertEqual(mk.VANILLA_PROMOTED, (("benches", "FURN"),))
         self.assertEqual(mk.APPENDED, ("doors",))
         self.assertEqual(mk.master_fid("2B6A63:Starfield.esm"), 0x002B6A63)
@@ -1273,7 +1502,7 @@ class StationPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], [])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "doors": [], "benches": [4, 5]})
+                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "flora": [], "doors": [], "benches": [4, 5]})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {},
                "containers": {"000008:Fallout4.esm": {"base": "00080B", "ref": "00080A"}},
@@ -1300,8 +1529,13 @@ class StationPromotionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "listed as both an? \\w+ and an? \\w+"):
                 mk.cluster_promote(self.BASES, self.placed(), two)
         cl = {"workshops": [self.wk(1, base="0C1AEB:A-B.esm"), self.wk(2, base="0C1AEB:AB.esp")]}
-        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
-            mk.cluster_promote(self.BASES, self.placed(), cl)
+        entries = mk.cluster_promote(self.BASES, self.placed(), cl)[1]["workshops"]
+        self.assertEqual(len({e["edid"] for e in entries}), 2)
+        self.assertEqual([e["reference_index"] for e in entries], [1, 2])
+        from unittest.mock import patch
+        with patch.object(mk, "promoted_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+                mk.cluster_promote(self.BASES, self.placed(), cl)
 
     def test_slot_check_refuses_bad_station_identities(self):
         _cl, objects, good = self.plan()
@@ -1570,6 +1804,16 @@ class DoorPromotionTests(unittest.TestCase):
                "doors": {"000002:Fallout4.esm": {"base": "00080D", "ref": "000803", "arrival": "00080C"}},
                "navmeshes": ["000808", "000809"], "lights": {"L1": {"base": "00080B", "ref": "00080A"}}}
         return objects, ids
+
+    def test_map_markers_after_the_doors_keep_the_identity_checks(self):
+        # the PC's full cluster build (#328): formids.json map_marker_refs {world: {tag: id}} is not a promoted class
+        objects, ids = self.ids()
+        ids["map_markers"] = {"W": "00080E"}
+        ids["map_marker_refs"] = {"W": {"RedRocket": "00080E", "Sanctuary": "00080F"}}
+        mk.check_reference_slots(objects, ids)
+        mk.check_light_identities(objects, ids)
+        mk.check_door_identities(objects, ids)
+        self.assertNotIn(0x80E, mk.ids_before(ids, mk.APPENDED))
 
     def test_door_identities_after_the_lights_and_the_slot_kept(self):
         objects, ids = self.ids()

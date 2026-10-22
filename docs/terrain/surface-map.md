@@ -87,6 +87,9 @@ uses the same merge.
 2. LCSR tail fix on #296, then Claude scratch overlay: `coc` Red Rocket, open the surface map, screenshot.
    Expectation: overlay-shaped terrain (Commonwealth heights) in the 3D view, Mars beyond the mask, one marker
    at the station if #296 is in the build.
+   Done offline (Claude-cloud, 2026-10-17): the LCSR tail fix is on #296, and the stacked PR adds Sanctuary,
+   Vault 111 and Concord beside Red Rocket ([map-markers.md](map-markers.md), "Commonwealth markers"). Both wait
+   for a core64c rebuild on the PC and the screenshot.
 3. Object-LOD trial on a **tiny** overlay via CK `-MockWorldSpaceLOD` (Claude window), then the same for
    `FO4Core_Commonwealth` if the tiny overlay's 3D map shows structures. Grok hands patches; Claude owns the
    writer/staging/game. That is ROADMAP §3 item 3, not a build in this PR.

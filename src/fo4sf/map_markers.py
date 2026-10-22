@@ -4,6 +4,7 @@ Map markers are REFR of STAT MapMarker (00000010) with an empty XMRK. A Location
 (MasterSpecialReferences) in a 5 x u32 stride and usually LCID (MasterInitiallyDisabledReferences) = that REFR.
 Synthetic only: no game files.
 """
+import math
 import struct
 
 MAPMARKER_STAT = 0x00000010
@@ -54,3 +55,94 @@ def pack_lcsr(entries):
 def map_marker_lcsr(refr, wrld):
     """One MapMarkerRefType LCSR row for a marker REFR in wrld."""
     return pack_lcsr([{"lcrt": MAPMARKER_REF_TYPE, "refr": refr, "wrld": wrld}])
+
+
+# Commonwealth map markers of the core overlay (docs/terrain/map-markers.md, "Commonwealth markers"). FO4 positions in
+# FO4 units from Fallout4.esm (the landmarks scripts/terrain/make_cw_overlays.py already uses: the Sanctuary, Vault 111
+# and Concord map-marker REFRs). Red Rocket sits on the COC arrival (the flat vertex at the station), so its icon and
+# the tested spawn are one place. The overlay's local frame is the CW frame: position = FO4 position / 70.
+FO4_UNITS_PER_M = 70.0
+COMMONWEALTH_MARKERS = (
+    # (tag, map name, FO4 source REFR, FO4 x, FO4 y); None position = the COC arrival
+    ("RedRocket", "Red Rocket Truck Stop", 0x000211C0, None, None),
+    ("Sanctuary", "Sanctuary Hills", 0x00072A48, -80768.19, 88174.80),
+    ("Vault111", "Vault 111", 0x0009F272, -89271.98, 91369.30),
+    ("Concord", "Concord", 0x00082138, -60286.01, 72977.79),
+)
+EDGE_KEEP_M = 200.0     # two cells inside the overlay, as the ray plans keep their probes
+
+
+def sf_cell(x, y, cell_m=100.0):
+    return [int(math.floor(x / cell_m)), int(math.floor(y / cell_m))]
+
+
+def overlay_markers(spawn, bounds_m, ground, markers=COMMONWEALTH_MARKERS, keep=EDGE_KEEP_M):
+    """The overlay's "map_markers" params entries: {tag, name, src, pos [x, y, z], cell}, local metres.
+
+    spawn: the COC marker position (x, y, z); bounds_m: (min, max) of the overlay's square in local metres; ground:
+    f(x, y) -> terrain height (the BTD). A marker outside the overlay (less than `keep` from its edge) raises: the core
+    always contains these four, and a silent drop would ship a map without one of them."""
+    lo, hi = bounds_m
+    out = []
+    for tag, name, src, fx, fy in markers:
+        if fx is None:
+            x, y, z = (float(v) for v in spawn)
+        else:
+            x, y = fx / FO4_UNITS_PER_M, fy / FO4_UNITS_PER_M
+            if not (lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep):
+                raise ValueError(f"map marker {tag} at ({x:.1f}, {y:.1f}) m is not {keep:.0f} m inside the overlay "
+                                 f"[{lo}, {hi}]")
+            z = float(ground(x, y))
+        out.append({"tag": tag, "name": name, "src": f"{src:06X}:Fallout4.esm",
+                    "pos": [round(x, 4), round(y, 4), round(z, 4)], "cell": sf_cell(x, y)})
+    if len({m["tag"] for m in out}) != len(out):
+        raise ValueError("map marker tags repeat")
+    return out
+
+
+def load_fo4_markers(doc):
+    """The rows of a Fo4Land export-mapmarkers document (dotnet/Fo4Land/MapMarkersExport.cs) as overlay_markers
+    tuples (tag, name, src, FO4 x, FO4 y), FormID order. A marker without a name is left out (no label to show), and
+    so are the core's fixed four (COMMONWEALTH_MARKERS, by source REFR): they stay first, as written before. Returns
+    (markers, left out: [{"src", "reason"}])."""
+    if doc.get("world") != "Commonwealth":
+        raise ValueError(f"map markers export of world {doc.get('world')!r}, not Commonwealth")
+    fixed = {src for _t, _n, src, _x, _y in COMMONWEALTH_MARKERS}
+    out, left = [], []
+    for r in doc.get("markers") or []:
+        fid = int(r["fid"], 16)
+        src = f"{fid:06X}:{doc.get('plugin', 'Fallout4.esm')}"
+        if fid in fixed:
+            left.append({"src": src, "reason": "one of the core's fixed markers"})
+        elif not r.get("name"):
+            left.append({"src": src, "reason": "no name"})
+        elif r.get("pos") is None or len(r["pos"]) < 2 or not all(math.isfinite(v) for v in r["pos"][:2]):
+            left.append({"src": src, "reason": "no finite position"})
+        else:
+            out.append((f"M{fid:06X}", r["name"], fid, float(r["pos"][0]), float(r["pos"][1])))
+    return out, left
+
+
+NEAR_FIXED_M = 100.0    # an exported marker this close to a fixed one, with its name, is that place's second icon
+
+
+def extra_markers(markers, bounds_m, ground, keep=EDGE_KEEP_M, fixed=(), near_m=NEAR_FIXED_M):
+    """overlay_markers for exported markers (load_fo4_markers): a marker less than `keep` inside the overlay is left
+    out with its reason instead of stopping the build (the core covers only part of the Commonwealth), and so is one
+    within `near_m` of a fixed entry with the same name (overlay_markers output: Red Rocket's sits on the COC arrival,
+    not on FO4's own Red Rocket marker, so that one would draw a second icon there). A differently named place close by
+    (the Museum of Freedom in Concord) is its own location and stays. Returns (entries, left out: [{"src", "reason"}])."""
+    lo, hi = bounds_m
+    inside, left = [], []
+    for tag, name, src, fx, fy in markers:
+        x, y = fx / FO4_UNITS_PER_M, fy / FO4_UNITS_PER_M
+        near = next((f for f in fixed if f["name"].casefold() == name.casefold()
+                     and math.hypot(f["pos"][0] - x, f["pos"][1] - y) < near_m), None)
+        if not (lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep):
+            left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"outside the overlay ({x:.1f}, {y:.1f}) m"})
+        elif near is not None:
+            left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"{name}: within {near_m:.0f} m of the fixed "
+                         f"marker {near['tag']}"})
+        else:
+            inside.append((tag, name, src, fx, fy))
+    return overlay_markers(None, bounds_m, ground, markers=inside, keep=keep), left

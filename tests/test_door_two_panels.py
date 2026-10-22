@@ -257,6 +257,19 @@ class NativeClipConventionTests(unittest.TestCase):
         self.assertEqual(files["animations/Open.af"], b"Open")
 
 
+class LeafBoxFloorTests(unittest.TestCase):
+    def test_a_flat_single_leaf_gets_the_leaf_floor_not_the_crash_value(self):
+        # the leaf is 2 units (0.029 m) deep: its box is clamped. 0.02 was the value every Red Rocket crash read as an index
+        f = door_nif([("Leaf", (0, 0, 0), IDENTITY, [(0, quat_z(0)), (1, quat_z(-90))], None)])
+        count = len([s for s in nif.fo4_trishapes(f) if s.positions and s.triangles])
+        files, _offset, _bounds = convert_static.convert_door(nif.serialize(f), "fo4port/doors/testsingle",
+                                                              ["Materials\\x.mat"] * count, collision_template=fake_template())
+        (blob,) = collision_targets(nif.parse(files["meshes/fo4port/doors/testsingle.nif"])).values()
+        _centre, half = sfcollision.read_box(blob)
+        self.assertAlmostEqual(half[0], 0.05, places=6)
+        self.assertEqual(sfcollision.MIN_LEAF_HALF, 0.05)
+
+
 class MultipartDoorTests(unittest.TestCase):
     def convert(self, parts, **kw):
         f = door_nif(parts, **kw)
@@ -275,7 +288,7 @@ class MultipartDoorTests(unittest.TestCase):
             for offset, size in sfcollision.KEYFRAMED_FIELDS:
                 self.assertEqual(blob[offset:offset + size], donor()[offset:offset + size])   # keyframed like the vanilla leaf
             centre, half = sfcollision.read_box(blob)                         # leaf-local: 1 m wide, 2 m tall
-            for got, want in zip(centre + half, (1 / 70, 0.5, 1.0, 0.02, 0.5, 1.0)):
+            for got, want in zip(centre + half, (1 / 70, 0.5, 1.0, sfcollision.MIN_LEAF_HALF, 0.5, 1.0)):
                 self.assertAlmostEqual(got, want, places=3)
         self.assertEqual(nif._av_transform(model.blocks[nodes["Root"]])[0], (0.0, 0.0, 0.0))   # placed: no root shift
         self.assertEqual(nif._av_transform(model.blocks[nodes["LeafB"]])[0], (0.0, 1.0, 0.0))

@@ -1442,6 +1442,27 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
+
+Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
+plugin punctuation/extensions still alias distinct source bases. Three unit controls and all three actual-writer
+plugin-pair subcases reproduce the failure. The identity helper now retains unambiguous legacy names and uses
+the full key for other groups, normalizing ASCII case without Unicode expansion, with a separate collision refusal.
+Four actual-writer methods verify distinct CONTs and preserved original REFR IDs/data/flags/parents.
+See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
+No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
+mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.
+
+### 2026-10-16: Codex extends full-source grouping to MISC
+
+Merged current main into the owned PR176 branch after PR235 introduced shared CONT/MISC
+promotion. Resolved the identity helper conflict by preserving both class wrappers and
+full canonical source keys; added the same explicit collision refusal to loose items.
+Five synthetic methods produce 13 failing subcases on PR235's reviewed caller; all58
+focused Python checks pass with the fix. The compiled-writer tests now include three
+MISC source-plugin pairs, preserving original reference slots and serialized placement.
+Private evidence: promoted-identity-176-20261016. No writer source, staging or live changes;
+independent review remains required. This does not fix the separate NaN output-check finding.
 ## 2026-10-16: Codex native bases for persistent door relationships
 
 The owner's persistent-door priority led back to PR174's actual ReferenceLinks
@@ -1635,6 +1656,45 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok FLOR harvest research (offline, row 14)
+
+Starfield.esm 1.16.244 still has `FLOR` as the harvest record: 300 bases, `PFIG` ingredient + `PFPC` seasons.
+Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `OutpostCanDomesticate`, seed item
+`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases before exclusion (writer 3,518 / 47).
+Mutagen 0.55.0-alpha.67 `Flora.Ingredient` writes `PFIG` (default seed and a custom MISC); a STAT ingredient is
+refused; no byte patch. `Fallout4.esm` is at depot_377163; a produce table is still unresolved because Starfield
+`PFIG` is MISC/LVLI, not FO4 ALCH. Promotion class: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
+TerrainOverlays Duplicate of `FloraMaizeCrop01`. In-game harvest is Claude's after a scratch overlay
+([docs/terrain/flora.md](terrain/flora.md)).
+
+## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). FO4 GreyscaleToPalette_Color (nif.xml
+flags1 bit 4 = 0x10; BGSM `bGrayscaleToPaletteColor` byte 62) was parsed and never applied, so index maps
+shipped as albedo. Converter now bakes the palette lookup into the colour map (green channel as U,
+`fGrayscaleToPaletteScale` as V) before BC1. Texture-set slot 3 is only used when the NIF flag is set.
+A greyscale string with the flag off is not a palette (ConcreteRoadHW01 names a cubemap there). A named
+palette that is missing from the archives is a conversion error, not a grey albedo. Synthetic tests:
+palette lookup, flag/scale parse, flag gating, missing-palette failure, cache identity.
+
+Row 15 frames/plaque are **not** palette materials (Claude review, vanilla BA2s): both painting BGSMs have
+an empty greyscale string and byte 62 = 0; BrassPlaque flags1 has bit 0x10 clear and slot 4 is a cubemap.
+This PR does not change those outputs. The frames need per-reference material swaps (MODS/XMSP), which
+nothing in this repo reads. In-game check of real palette materials is Claude's after a scratch reconvert.
+Vertex-colour V and GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls remain
+a separate root cause.
+
+## 2026-10-17: Grok playtest textures, row 11 vines (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Hanging vines (`vinehanging06/07`,
+`vinecreeper*`) use `vine.mat`: opacity slot 2 and AlphaSettings were already written, but the material still clones
+`MetalIronCast01` / `PlasticPlainSmooth01` (one-sided opaque). Vanilla foliage uses `TwoSided1Layer`.
+`Summary.Layer1.Textures` had no Opacity key. `vine_color.dds` luma 3.8 because 85% of the card is BC1-black
+cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map exists, writes Summary Opacity, and
+zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
+vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
+separate root causes, not this PR.
+
 ## 2026-10-17: Grok map-marker research (playtest row 7)
 
 Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
@@ -1646,6 +1706,12 @@ so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 65
 Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
 a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
 Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+
+Writer (same day, `grok/map-marker-restore`): TerrainOverlays Duplicates LC172's MapMarker `REFR` `003E5E12`, sets it
+persistent+initially-disabled (`0xC00`) at the COC spawn, `FULL` "Red Rocket", `LCSR` MapMarkerRefType + `LCID` with
+Grid from spawn_cell and Unknown -1 (`0xFFFFFFFF` tail). Skips when the master has no `003E5E12`. New FormIDs after
+doors/lights. In-game overlay: Claude.
+
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
@@ -1673,6 +1739,26 @@ world switch and adds a `SetPosition` to the destination's merged coordinates (p
 script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
 door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
 probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
+
+## 2026-10-17: Codex activation-parent metadata preservation (offline)
+
+Grok's [garage-button investigation](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6230797494)
+identified dropped activation relationships. A synthetic Fo4Export regression first failed because
+`activate_parents` was absent. The shared interior/exterior serializer now retains the raw flags,
+ordered source FormKeys and float32 delays, including deferred actors, null links and empty blocks.
+ReferenceLinks reports non-null blocks as untranslated even when a reference has no placed target;
+it neither invents native wiring nor changes existing links/identities.
+
+Verified with Mutagen Fallout4 0.55.0-alpha.67 and synthetic records: the generated REFR's XAPD
+contains byte `81`; its three XAPR payloads are eight bytes each, preserve distinct own/master/null
+parent IDs, and store delay 0.1 as float32 `3DCCCCCD`. The production binary-overlay getter retains
+the same metadata. `dotnet run --project dotnet/Fo4Export.Tests -c Release` and
+`dotnet run --project dotnet/ReferenceLinks.Tests -c Release` pass; the latter also passes its existing
+11 native-door and 13 missing-door CLI controls. `dotnet build dotnet/Fo4Land -c Release` succeeds
+without warnings, confirming the shared exterior producer compiles; no full exterior export was run.
+Initial harness compilation and missing-restore failures are retained alongside the reproduced
+missing-field failure and passing results in private evidence. Guard passes. No installed data,
+native garage animation, scripts or game control changed; independent review remains pending.
 
 ## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
 
@@ -1718,6 +1804,19 @@ integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the
 **Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
 texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
 
+## 2026-10-17 — Codex: activation-parent warnings keep interior exports usable (#305)
+
+Claude requested nonblocking, counted warnings for preserved activation-parent metadata.
+The previous default returned exit 2 for a synthetic cell with a non-null activation block;
+the new eight-case CLI regression reproduced that before the change. ReferenceLinks now
+lists these blocks in `Warnings` and stderr, retains all source data, and writes
+`partial_with_warnings` rather than claiming complete relationship fidelity. Strict callers
+can select `--strict-activation-parents`; `--allow-unresolved` explicitly overrides that gate.
+Missing enable-parent targets and other existing issues still block default publication.
+Report-only never publishes a plugin or marks the build complete. Synthetic output is reopened
+to check identities and that no activation behavior or substitute link was invented.
+This is offline export policy, not a native door/activation fix. Delta peer QA remains required.
+
 ## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
 
 Starfield 1.16.244. Offline. Pinned `terrain_core64k`: LCTN parent `SSol_PMars_Surface`, overlay SNAM 0 / PNAM 4, Mars
@@ -1725,6 +1824,7 @@ PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 
 `meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
 after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
 Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
 ## 2026-10-17: Codex raw light-patch bounds (offline)
 
 Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
@@ -1747,3 +1847,134 @@ record layout. Both reject before byte/lumens comparison and retain both inputs.
 Removing only B validation causes both cases to fail. All 31 focused light-patch
 and FO4-light tests pass; guard and whitespace checks pass. Production source is
 unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok #288 review fixes (offline)
+
+Codex/Claude on a77edfa: `build_from_template(..., metalness=0)` only updated an existing TextureReplacement
+index 4. ConduitKit01TwoSided has none (only MRTextureFile index 4 = conduit metal), so vine.mat kept the metal
+map and Summary said UseReplacement/0 — the 2026-10-08 metallic-summary shape. Now the writer drops that metal
+file and appends an enabled replacement (MetalIronCast01's shape). Opacity maps stay gated on `alpha_test or
+decal`; `two_sided` alone no longer cuts out cars/glass (40 FO4 two-sided materials without alpha test).
+DryConverter._texture_set accepts `two_sided` so a core64c dry run no longer TypeErrors every BGSM. One-sided
+FO4 cutouts (hair, chain-link) still clone TwoSided1Layer when they have an opacity map. In-game still Claude.
+
+## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
+
+Row 21: FO4 garage is an ACTI with XAPR to the button, not a DOOR. Writer wires vanilla
+`DefaultActivateLinkedRefOnActivate` + XLKR LinkCustom02 on the two Commonwealth pairs (no new FormIDs).
+Row 24: object LOD research only (`lodsettings` + generated `_lod_0..3`); do not raise the cell buffer.
+[docs/terrain/garage-button.md](terrain/garage-button.md), [docs/terrain/object-lod.md](terrain/object-lod.md).
+
+## 2026-10-17: Codex production garage-link regression (offline)
+
+Added an actual TerrainOverlays writer test for #303. Two synthetic builds, without
+and with the button link, must retain all existing identity-map sections and record
+IDs, changing only the button REFR. Its serialized VMAD must carry edited
+LinkedRefKeyword = Starfield.esm:05D5E7 (alias -1); the one XLKR must use that same
+keyword and the garage REFR in the output plugin, not the ACTI base.
+
+The new test fails against the actual pre-fix 7eaab94 writer because its script has
+no properties, and passes against 0168350. Both runs and synthetic output bytes are
+preserved privately. No game files, stage, installation or native acceptance; the
+garage animation/receiver remains a separate gate. Independent test review pending.
+
+## 2026-10-17: Grok #303 wire-only (clip alias out)
+
+Claude 08:04 on #32: the Opening/Closing clip alias in pipeline.py is P2 inside this change, not a lead
+item; it turns both FO4 garage meshes into passable statics because RedRGarageDoor.nif is skinned and the
+rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
+out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
+the build side. No deploy, no game.
+
+- **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
+
+## 2026-10-18: Grok Ba2.largest_entries
+
+Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+### 2026-10-20 Codex: include ordered plugin masters in same-IDs verification
+
+Scoped identity/output-verification correction to394/774cb7f, coordinated on its PR. The old checker flattened
+repeated MAST subrecords and allowed SAME_IDS after master reorder or earlier-entry replacement. The reader now
+retains all raw MAST bytes in order; a changed table sets ids.masters_changed and refuses identity equivalence.
+This is a strict ordered-table comparison, not runtime load-order or semantic rebasing proof. Other metadata and
+content changes with the same masters retain explained SAME_IDS results. Sixteen focused methods pass after
+new cases fail on the original source. Sixteen separate controlled actual-CLI calls reproduce/fix five false
+PASS cases and retain three positive outcomes; all eight synthetic input pairs remain unchanged. Only reader
+header handling and comparison change; launcher driver, restore and other parent findings remain untouched.
+No private plugin, real installer, game/stage/input or main merge. Independent QA remains pending.
+
+### 2026-10-20 Codex: distinguish manifest metadata agreement from input content proof
+
+Continued the scoped427 identity proposal for394 finding6. The comparison now includes recorded BA2 versions;
+same-sized v1/v7/v8 header captures no longer pass as equal metadata. The existing list API remains, while the
+read-only CLI lists unhashed master/archive/game inputs and labels their content unverified. Exit0 still means
+no detected compared differences, not a content-proof gate; full matches are stated only for hashed declared
+files. Wired the existing optional hash_game_esm capability to --hash-game-esm alongside --hash-archives, leaving
+cheap default capture unchanged. Paths/timestamps remain informational across PCs. Seven new methods and the
+existing identity/manifest controls pass (28 total). Fourteen controlled actual-CLI replays retain positive
+hashed comparisons and qualify hidden same-sized content changes; ten synthetic input files remain unchanged.
+No new hashing/build job on private inputs, decoder, driver, restore or native action. Independent QA is pending.
+
+## 2026-10-20: Codex restore Plugins.txt namespace binding (offline)
+
+PR394 finding5: a snapshot could name a different file while its installer always
+used LOCALAPPDATA/Starfield/Plugins.txt. Two original-source backend replays
+(wrong filename and wrong parent) returned an empty differences list after an
+injected installer changed the canonical file. The correction validates and
+canonicalizes that address before reading snapshots, planning, verifying, writing
+or applying; mismatched snapshots refuse. Valid custom roots, Windows case aliases
+of the same namespace, missing files and no-op restores remain supported.
+
+Eight new synthetic methods and seven existing read-only restore methods pass.
+Six retained old/new backend calls reproduce both false successes, show refusal
+before the callback with all state unchanged, and preserve both valid no-ops.
+Install effects were injected in temporary profiles, not performed on a game.
+Initial test setup mistakes (imported TestCase discovery and missing LOCALAPPDATA
+isolation) and original failures are retained privately; corrected tests pin a
+temporary profile in every case. Other PR394 findings and independent QA remain
+open. No physical restore, deployment, game input or native acceptance.
+
+## 2026-10-20: Codex detect profile-INI coverage warning (offline)
+
+PR394 finding7: detect could print READY without checking My Games INIs or saying
+they were unchecked. It now warns when --my-games is omitted or the supplied
+folder is unavailable. Paths remain explicit, never guessed. READY and exit-code
+policy are unchanged: the warning is not proof of a clean profile. Supplied
+profile and game-folder sTestFile entries still refuse; loose files still warn.
+
+Five new methods plus thirteen existing detect/measure methods pass. Twelve
+old/new actual CLI calls cover omitted, missing, clean, blocked, game-blocked and
+loose-file profiles on identical synthetic inputs. Only coverage warnings change;
+refusals/readiness and all input bytes remain unchanged. The initial four new
+methods produced six pre-fix assertion failures, retained with their green runs.
+Legacy no-warning tests now explicitly supply an empty synthetic profile, keeping
+their original tool/source assertions. Only detect() changes among production
+functions; CLI dispatch is unchanged. Independent QA pending; no real profile,
+game action, staging, deployment or native acceptance.
+
+## 2026-10-22: Red Rocket crash: Codsworth's shader blocks (in game, Card I1)
+
+Game: Starfield 1.16.244.0 with FO4 1.10.163 data, v6i core (DC751664), mission
+03C2A7A8. The bisect is in docs/spikes/red-rocket-crash-bisect.md (v6c to v6i
+crashed; v6i without codsworth.nif walked clean). Card I1 rebuilt the model with
+`scripts/actors/convert_codsworth.py` and the PC's usual arguments plus
+`--plain-shader`; the report says plain_shader true, one_material false. The built
+NIF has 56 blocks, and all five BSLightingShaderProperty blocks are 12 bytes (the
+.mat name, 0 extras, -1 controller). The mission was restaged with that folder and
+folded into the core (50 Codsworth assets; verify ok), then installed.
+
+Result: the walk queue (tag plainshader, crash watcher and 1 s memory log on)
+passed both legs from a fresh start. Red Rocket to Sanctuary: 29 of 29 steps,
+253.9 of 254.33 m, end error 0.1 m, |dz| max 0.13. Sanctuary to Red Rocket: 253.9 m,
+end error 0.0 m, |dz| max 0.14. Each ran about 9 minutes past arrival. The run
+exited 0, and the typed-lines audit found nothing outside
+ClearConsole/getpos/setangle. The watcher saw a normal exit, plus one forced stop
+(0xFFFFFFFF) by the runner's Stop-Process, with no access violation. Working set
+peak 8.77 GB, commit peak 14.75 GB, minimum free 4.27 GB. The single-material test
+(I2) was not needed.
+
+Conclusion: the crash came from the mini bot template's 166-byte shader block,
+carried into our model with only the name swapped. `--plain-shader` is now the
+default; `--no-plain-shader` rebuilds the crashing model. Why the game misreads
+that block in our file is not shown. Why the model loaded in the mission-off run
+(Card D) is open. Nobody has yet checked how Codsworth looks in game.

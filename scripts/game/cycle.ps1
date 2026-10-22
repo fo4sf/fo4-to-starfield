@@ -14,12 +14,33 @@
 # 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
 # 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched),
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
-# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close).
+# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
+# 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
+# nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe) was asked to start the game and no Starfield process was alive 20 s
+# after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
 $repo = Split-Path (Split-Path $PSScriptRoot); $sf = $Starfield
 $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
+# Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with FO4SF_LEASE_DIR set, the game is only
+# closed, redeployed and launched while FO4SF_LEASE_OWNER (default Claude) holds an unexpired lease in that folder;
+# otherwise exit 9 before anything is touched. Unset, this block does nothing and the script behaves as before.
+# lease.py reads the folder from FO4SF_LEASE_DIR itself: passed as an argument, a folder with a space and a trailing
+# backslash would reach python mangled (PowerShell 5.1 quoting) and the check could fail open.
+# The gate fails closed on the invocation itself, not only on lease.py's exit code (QA on #179): python that cannot be
+# resolved raises CommandNotFoundException and leaves $LASTEXITCODE as it was, so in a reused host (& cycle.ps1 after
+# another command) an earlier 0 passed the old guard. Now python is resolved first, the stale code is cleared, an
+# invocation error is caught, and only lease.py's own fresh exit 0 launches.
+if ($env:FO4SF_LEASE_DIR) {
+  $leaseOwner = if ($env:FO4SF_LEASE_OWNER) { $env:FO4SF_LEASE_OWNER } else { 'Claude' }
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { "python not found: the controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) cannot be checked: not launching"; exit 9 }
+  $global:LASTEXITCODE = $null   # global: native commands set the global variable, a plain assignment here would shadow it
+  try { $leaseOut = python -I "$repo\scripts\game\lease.py" status --require $leaseOwner; $leaseCode = $LASTEXITCODE }
+  catch { $leaseOut = "lease.py could not be run: $_"; $leaseCode = $null }
+  $leaseOut | Select-Object -Last 1
+  if ($null -eq $leaseCode -or $leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
+}
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
 $pidFile = Join-Path $PSScriptRoot 'cycle_pid.txt'           # local only: the PID of the game this script launched
 $own = if (Test-Path $pidFile) { [int](Get-Content $pidFile) } else { 0 }
@@ -36,10 +57,23 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {
   $ord | Select-Object -Last 1
   if ($ordCode -ne 0) { "experiment plugin order could not be fixed (exit $ordCode): not launching"; exit 7 }
 }
+# The map markers plugin (map_markers_install.py) goes after FO4Port, so the planned reads' load indexes stay as they were.
+# A master of it inactive or missing from Data: it refuses before writing, exit 7, no launch (Codex, #399).
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {
+  $mmOrd = python -I "$repo\scripts\game\map_markers_install.py" order --starfield $sf
+  $mmCode = $LASTEXITCODE
+  $mmOrd | Select-Object -Last 1
+  if ($mmCode -ne 0) { "map markers plugin order refused (exit $mmCode): not launching"; exit 7 }
+}
 # The observation bridge (bridge_install.py) goes LAST: the planned reads address the experiment's records by load
 # index, and a bridge line above them shifted every index by one (cave_core64c_1015 a1, 2026-10-15)
+# A bridge held off by plugin_toggle.py that the game ticked again makes order exit nonzero: no launch, or a bridge-off
+# run would be judged with the bridge active (Codex on #407)
 if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
-  python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf | Select-Object -Last 1
+  $bord = python -I "$repo\scripts\game\bridge_install.py" order --starfield $sf
+  $bordCode = $LASTEXITCODE
+  $bord | Select-Object -Last 1
+  if ($bordCode -ne 0) { "bridge plugin order refused (exit $bordCode): not launching"; exit 7 }
 }
 function Wait-Screen($label, $maxSec, $check) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
@@ -61,10 +95,45 @@ $HudShown = { param($png)                                       # in game: oxyge
   $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
   return ((& $py (Join-Path $PSScriptRoot 'hud_visible.py') $png 2>$null) -eq 'yes') }
 
-Start-Process 'steam://rungameid/1716740'
-$deadline = (Get-Date).AddSeconds(150); while ((Get-Date) -lt $deadline) { $q = Get-Process Starfield -ErrorAction SilentlyContinue; if ($q) { $q.Id | Set-Content $pidFile; break }; Start-Sleep 3 }
+# One Steam launch; it counts once a Starfield process is still alive 20 s after it appeared. The first launch of a
+# session can exit within ~2 s (2026-10-18: the runner's launch at 14:32:38 and the owner's own first try at 14:38:16
+# both died after 2 s; the owner's second try stayed up; Steam console_log.txt, no error line). Another try is the
+# runner's (exit 10): it re-checks the lease, STOP, the Guardian and idle before every launch (Codex, #358).
+# FO4SF_LAUNCH=exe (opt-in, 2026-10-19): start Starfield.exe from the game folder instead of asking Steam; the game
+# inherits this script's token. Steam error 84 on the night run (07:46Z) was the game's own exit code 0x54 about 3 s
+# after start; crashwatch's ProcDump (-w, waiting for Starfield.exe) logged a BREAKPOINT on that process a second
+# before, as on every short-lived start since Oct 18 (supported: the debugger attach ends the game). An exe launch is
+# not expected to avoid that; stop the watcher for runner launches. Unset or any other value: the steam:// launch.
+$launch = 'steam://rungameid/1716740'
+if ($env:FO4SF_LAUNCH -eq 'exe') {
+  $launch = Join-Path $sf 'Starfield.exe'
+  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "FO4SF_LAUNCH=exe but $launch is missing: nothing launched, nothing tested"; exit 10 }
+  Start-Process -FilePath $launch -WorkingDirectory $sf
+} else {
+  Start-Process $launch
+}
+$q = $null
+$deadline = (Get-Date).AddSeconds(150)
+while ((Get-Date) -lt $deadline) {
+  $q = Get-Process Starfield -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($q) { break }
+  Start-Sleep 1
+}
+if ($q) {
+  Start-Sleep 20
+  $q = Get-Process -Id $q.Id -ErrorAction SilentlyContinue
+  if ($q) { $q.Id | Set-Content $pidFile }
+}
+if (-not $q) {
+  # no game to drive: say so, with the screen (a Steam dialog, say), instead of failing later as an input-guard exit 2
+  # (door_rounds_sdm, 2026-10-18 20:32Z: cycle exit 2 after 5 minutes with no Starfield process)
+  powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
+  "Starfield did not stay up 20 s after $launch (screen: $Shot): nothing tested"; exit 10
+}
 Start-Sleep 10
-Wait-Screen 'main menu' 120 $MenuShown | Out-Null
+# 240 s and 300 s (were 120 s): the first v6e launch (2026-10-21, doors_out and the evidence launch) reached gameplay
+# after both 120 s waits had run out, so coc.ps1 found no HUD; a wait ends as soon as its screen is seen
+Wait-Screen 'main menu' 240 $MenuShown | Out-Null
 
 function Send($seq) {
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
@@ -94,13 +163,33 @@ $lo = $LASTEXITCODE
 if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
 if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
-Send 'hold:e,300|wait:3000'
-Wait-Screen 'save loaded' 120 $HudShown | Out-Null
-if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can still have switched the load order
+# No blind E here: Continue loads the newest save, and on the owner's vanilla save the player faces Vasco. An E sent
+# after the load most likely opened his dialogue and hid the HUD for the whole 300 s wait (v6e retry 4, 2026-10-21:
+# "save loaded: not seen within 300 s", then the runner's recover got the HUD back with one Escape; supported, not
+# seen on screen). E now only closes the achievements popup, when its text is read.
+Clear-AchievementsPopup | Out-Null
+if (-not (Wait-Screen 'save loaded' 300 $HudShown)) {
+  # a dialogue, menu or popup hides the HUD: up to two Escapes, each followed by a check. Two, not recover's three: if
+  # the HUD check itself missed, the first Escape opens the pause menu and the second closes it again
+  $n = 0
+  while ($n -lt 2) {
+    Send 'key:esc|wait:2000'; $n++
+    if (Wait-Screen "save loaded after $n Escape(s)" 15 $HudShown) { break }
+  }
+}
+# Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
+# split) the game ticked again must stop the run too (Codex on #407)
+if ((Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) -or (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json'))) {
   $act = python -I "$repo\scripts\game\exp_install.py" active --starfield $sf
   $actCode = $LASTEXITCODE
   $act | Select-Object -Last 1
-  if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
+  if ($actCode -ne 0) { "Starfield changed our plugins' activation while loading the save: not testing (exit $actCode)"; exit 8 }
+}
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {   # the same check for the map markers plugin (Codex, #399)
+  $mmAct = python -I "$repo\scripts\game\map_markers_install.py" active --starfield $sf
+  $mmActCode = $LASTEXITCODE
+  $mmAct | Select-Object -Last 1
+  if ($mmActCode -ne 0) { "Starfield deactivated the map markers plugin while loading the save: not testing (exit $mmActCode)"; exit 8 }
 }
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it
@@ -121,7 +210,9 @@ Send 'hold:e,300|wait:1500'
 Clear-AchievementsPopup | Out-Null
 if ($CellJson) {
   $name = $Cell -replace '^FO4Port_', ''
-  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') -Cell $name -CellJson $CellJson
+  $cocArgs = @('-Cell', $name, '-CellJson', $CellJson)
+  if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }   # the arrival read from the bridge
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') @cocArgs
   if ($LASTEXITCODE -ne 0) { "coc.ps1 could not verify the arrival in $Cell (exit $LASTEXITCODE)"; exit 4 }
 } else {
   $clear = 'key:back|' * 40                                    # empties the console line, whatever was left in it

@@ -283,7 +283,8 @@ class WalkPlanTests(unittest.TestCase):
         self.assertIn("raw verdict PASS PASS", rec["detail"])
         self.assertTrue(status.startswith("stopped: no install record"), status)
         self.assertIn("error", rec["install"])
-        for change, why in (({"complete": False}, "incomplete"), ({"plugins": PLUGINS[:1]}, "installed plugins"),
+        for change, why in (({"complete": False}, "incomplete"), ({"cleanup_pending": True}, "cleanup pending"),
+                            ({"plugins": PLUGINS[:1]}, "installed plugins"),
                             ({"exp_dir": os.path.join(d, "other")}, "is not the pinned"),
                             ({"source_inputs": {"plugin/FO4TerrainCore.esm": "00" * 32}}, "inputs differ")):
             d2 = tempfile.mkdtemp()
@@ -297,6 +298,37 @@ class WalkPlanTests(unittest.TestCase):
         code, rec, status, _ = self.walk_run(d3, sf3, lambda core: install_record(sf3, core))
         self.assertEqual((code, rec["verdict"], status), (0, "PASS", "finished"), rec["detail"])
         self.assertEqual(rec["install"]["files"]["FO4TerrainCore - Main.ba2"], "cd" * 32)
+
+    def test_a_crash_on_another_install_is_not_counted_toward_fail_crash(self):
+        # Codex on #402: the crash on the wrong install was counted, and one crash on the pinned one made a FAIL CRASH
+        d = tempfile.mkdtemp()
+        sf = os.path.join(d, "starfield")
+        out, core = planned_queue(d)
+        ctl = tt.FakeControls()
+
+        def crash(test, out_dir):
+            ctl.pid = None                                             # the game exits during the step
+            return 0
+
+        def run():
+            ctl.pid = ctl.owned_pid()
+            r = tq.Runner(out, tt.args(starfield=sf), ctl=ctl, step=crash)   # max_attempts 2 (Codex on #402)
+            r.session, r.cell = True, "C"
+            r._ps = lambda *a, **k: (0, "at the cell")
+            code = r.run()
+            with open(os.path.join(out, "results.jsonl"), encoding="utf-8") as f:
+                return code, [json.loads(x) for x in f][-1], r.state
+        code, rec, st = run()                                          # no install record yet
+        self.assertEqual((code, rec["verdict"], rec["class"]), (3, "INCONCLUSIVE", "CRASH"), rec["detail"])
+        self.assertIn("not counted toward FAIL CRASH or the attempts: no install record", rec["detail"])
+        self.assertEqual(st.get("test_crashes", {}), {})
+        self.assertEqual((st["attempts"].get(rec["id"], 0), st["done"]), (0, {}))   # no attempt spent, not done
+        install_record(sf, core)                                       # the pinned experiment installed
+        code, rec, st = run()
+        self.assertEqual((rec["verdict"], rec["class"]), ("INCONCLUSIVE", "CRASH"), rec["detail"])
+        self.assertEqual(st["test_crashes"], {rec["id"]: 1})
+        code, rec, st = run()
+        self.assertEqual((rec["verdict"], rec["class"]), ("FAIL", "CRASH"), rec["detail"])
 
 
 class StopControlTests(unittest.TestCase):
@@ -540,6 +572,13 @@ class JudgeTests(unittest.TestCase):
         obs = good_obs()
         obs["legs"][2]["popup"] = "BOUNDARY REACHED Open the map to explore another region"
         self.assertEqual(self.judge(obs)[:2], ("FAIL", "BOUNDARY"))
+
+    def test_any_other_popup_is_not_a_pass(self):
+        # #214: qstep.ps1 records FAST TRAVEL and PLANET MAP boxes too; a walk with one on screen is not evidence
+        for text in ("PLANET MAP", "FAST TRAVEL Travel to Red Rocket?"):
+            obs = good_obs()
+            obs["legs"][2]["popup"] = text
+            self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "POPUP"), text)
 
     def test_through_the_terrain_and_off_the_deck_are_falls(self):
         pts = [WPS[0], WPS[1], (-1010.0, 1190.0, slope_z(-1010.0) - 40.0)]
