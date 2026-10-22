@@ -322,12 +322,14 @@ gamma". New items continue the design's numbering (CC-60 to CC-62 are in the fra
 - **CC-63. Our own A-Life style simulation.** The persistent world sim prototyped here (L2 `sim.py`, L3 `present.py`)
   grows into the full system: factions, squads, caravans and settlements living off-screen and becoming real actors
   near the player. Open: where its state lives in the save (probes P1 to P3, CC-02); the tick in game (P5); how far
-  out actors are real (the design's L2/L3 split); how many squads a cell can carry (P4).
+  out actors are real (the design's L2/L3 split); how many squads a cell can carry, which no probe measures yet (P4
+  only spawns and removes three actors, judging spawn reliability and save growth; a load-scaling probe is needed).
 - **CC-64. Travel between areas without walking paths.** The converted worlds (L0) will be separate worldspaces or
   interiors, not one continuous map, so the core needs a travel layer between them: the player moves area to area,
   and the sim moves squads, caravans and news along the same links. Open: how the player travels (map, vertibird or
   ship (CC-61), a scripted transition (NG-9), doors); how much time passes and what can happen on the way; how
-  off-screen movement between worldspaces is shown (P9 tests one caravan within one worldspace only).
+  off-screen movement between worldspaces is shown. P9 does not answer this: it drives one console actor with
+  `PathToRef` across one converted exterior (actor pathing only, the travel-package variant deferred).
   Building note (owner): a large place may be better built as an interior than as an exterior; check how Starfield
   and its mods build their big city spaces (the owner named Cydonia and the city people compare to Cyberpunk) before
   choosing, place by place.
