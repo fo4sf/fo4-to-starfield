@@ -62,11 +62,12 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
    redone after it. If no variant passes, the fallback is an SFSE plugin that turns the border off only inside our
    world. The owner's wall north of Vault 111 is rechecked with the border on after the fix.
 5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the 3D view, Bugs and Interiors for
-   the doors and prompts): written up as section A of the owner's test sheet for their next session (a fresh test
-   save, since the mission completed on the 19 Oct save; coc FO4Core_RedRocketSpawn; the Missions tab, Preston and
-   the credits; Codsworth's greeting; getpos plus a zoomed-out surface map screenshot; the Fort Hagen elevator, the
-   Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114 manhole, the Red Rocket side
-   door; cans and books). Results go to playtest-issues.md.
+   the doors and prompts): written up as section A of [owner/in-game-test-sheet.md](owner/in-game-test-sheet.md)
+   (the same text is on the owner's live test sheet, https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b) for their
+   next session: a fresh test save, since the mission completed on the 19 Oct save; coc FO4Core_RedRocketSpawn; the
+   Missions tab, Preston and the credits; Codsworth's greeting; getpos plus a zoomed-out surface map screenshot; the
+   Fort Hagen elevator, the Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114
+   manhole, the Red Rocket side door; cans and books. Results go to playtest-issues.md.
 6. **One load order** (Launcher, with Bridge): the runner's deploy appends FO4Port last when it owns the line (a
    hand-placed line keeps its position), the owner's install had it first, and the game rewrote the file after start;
    #481 reports the change. #487 (Launcher, with Codex) defines the target in `scripts/game/load_order.py check|fix`:

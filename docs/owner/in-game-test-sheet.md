@@ -13,6 +13,69 @@ start, choose **Current**.
 **Form ids in this sheet** start with `03`, the load index of `FO4TerrainCore.esm` in your load order (FO4Port.esm is
 `02`). The runner's own sessions load it at `02`, so its logs show `02...` for the same objects.
 
+## A. Next session on v6i (22 Oct 2026): the checks that close phase 0
+
+Added 22 Oct. The installed build is now v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8) plus
+the map markers plugin; sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
+section A is on the owner's live test sheet (https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b), with copy buttons
+and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth rendering, the four map markers. Console ids
+moved on 22 Oct (Codsworth went from 06000811 to 05000811 because the game reshuffled the plugin list after start), so
+this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
+
+**Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
+starts fresh; the 19 Oct save already completed it and cannot replay it.
+
+### A1. Start
+
+Through the launcher window (the desktop shortcut). The crash watcher starts with the game. Pick **Current** at the
+plugin warning if it shows. At the main menu choose Load and pick `fo4sf_test_1d4591b6_s100`. Once in control, open
+the console and go to Red Rocket: `coc FO4Core_RedRocketSpawn` (on 19 Oct this crashed v6; the cause was Codsworth's
+model, fixed on 22 Oct, and the automated Red Rocket walks passed after the fix). Take a Ctrl+Alt+L screenshot of
+anything odd, all the way through.
+
+### A2. Mission: When Freedom Calls (NPC thread's asks)
+
+Walk the road from Red Rocket to the Museum of Freedom in Concord. Expected: the Missions tab shows When Freedom Calls
+with Find the Last Minutemen; the raiders fight you near the museum; Preston never shoots you, even after he is downed;
+after the raiders die, walk up to Preston: +100 credits and the mission reads complete.
+Report: `Mission: tab YES/NO | raiders fought YES/NO | Preston shot me YES/NO | credits YES/NO | complete YES/NO`.
+
+### A3. Codsworth (NPC and Bugs)
+
+Then walk to Sanctuary. Expected: a small hovering robot named Codsworth near his house, with his own Fallout 4 look
+(size and textures). Stand near him: his greeting is heard, subtitle only, or neither.
+Report: `Codsworth: at his house YES/NO | look OK/OFF (what) | greeting HEARD/SUBTITLE/NEITHER`. If he is not there on
+this save either, say so; that is the fix Bugs is working on.
+
+### A4. Map extent (Map thread's ask)
+
+Back at Red Rocket: `player.getpos x`, `player.getpos y`, `player.getpos z`. Open the surface map, zoom out until the
+whole merged area shows, and take a Ctrl+Alt+L screenshot of it. (The 3D-view spots, Cydonia and the landing
+coordinates, are dropped: that was the border question, now answered.)
+Report: `Map: getpos X Y Z | screenshot taken YES`.
+
+### A5. Doors and prompts (Bugs and Interiors)
+
+For each: the prompt text (or "none"), and where you end up.
+
+- (a) Outside Fort Hagen (near -2470, -2772): walk up to the elevator entrance. Is there a prompt, what does it say,
+  does it take you inside?
+- (b) Outside Vault 95 (near -1916, -3985): the same at its elevator entrance.
+- (c) Inside the Museum of Witchcraft (`coc FO4Port_MuseumOfWitchcraft01`): climb to the roof hatch. Prompt? Does it
+  put you on the roof?
+- (d) Inside Fort Hagen (`coc FO4Port_FortHagen01`): the roof hatch, the same.
+- (e) Inside Vault 114 (`coc FO4Port_Vault114`, then walk to the manhole): at the exit manhole and ladder, prompt? Does
+  it put you outside on the street?
+- (f) Red Rocket's side door: does it slide open?
+
+Report per door: `(a) prompt "..." / none | ended up: ...`.
+
+### A6. Extras
+
+Any time: cans and books still pick up; press Ctrl+Alt+K once and the describe box opens in front (fixed on 22 Oct).
+Skip the wall north of Vault 111 this session: the border fix the owner picked (B, our world only) is being tested on
+the PC, and that spot is rechecked once it lands.
+
 ## 1. Get there
 
 | Line | What happens |

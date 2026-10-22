@@ -13,8 +13,10 @@ verified beyond what each line says.
   runner's `scripts/game/cycle.ps1:49-50` runs uninstall then install before every cycle, so FO4Port lands after
   every other line only where the manifest owns the appended line (the usual runner case); a FO4Port line the owner
   put in by hand keeps its position through the cycle.
-- `scripts/game/exp_install.py install` appends the experiment's plugins; `order` moves each experiment plugin right
-  after its active masters before launch (module doc, `order_lines`). It refuses missing or disabled masters.
+- `scripts/game/exp_install.py install` appends the experiment's plugins; `order` guarantees before launch that each
+  experiment plugin comes after all of its active masters (`order_lines`): a plugin that stands before one of its
+  masters is moved to just after the last of them, and a plugin already after them is left where it is, so an
+  unrelated line can sit between a master and the experiment. It refuses missing or disabled masters.
 - `scripts/game/map_markers_install.py order` moves `*FO4SFMapMarkers.esm` to the end; cycle.ps1 runs it before the
   bridge's order, so the planned read indexes of the experiment and FO4Port stay as they were (module doc).
 - The launcher (`src/fo4sf/launcher/crashwatch.py`, #449, #481) writes Plugins.txt only before start and only when the
