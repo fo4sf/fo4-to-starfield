@@ -20,7 +20,10 @@ verified beyond what each line says.
 - `scripts/game/map_markers_install.py order` moves `*FO4SFMapMarkers.esm` to the end; cycle.ps1 runs it before the
   bridge's order, so the planned read indexes of the experiment and FO4Port stay as they were (module doc).
 - The launcher (`src/fo4sf/launcher/crashwatch.py`, #449, #481) writes Plugins.txt only before start and only when the
-  bridge toggle changes; since #481 it compares the order at start and at exit and reports a change in crashwatch.log.
+  bridge toggle changes; since #481 it compares the order at start and at exit and reports a change in its own output
+  ("Plugins.txt load order changed while the game ran: ..."). The crashwatch.log line for it is written only when the
+  crash watcher is on (`crash_watch.enabled`; `play()` has no log path otherwise), so an ordinary launcher run with
+  the watcher off leaves no persistent record of the change.
 - The game itself: `docs/PLAY-AND-TEST.md` says to choose **Current** at the "load order changed" dialog because
   saving it can switch the port's plugins off, and `map_markers_install.py active` notes that loading a save can
   restore the save's own order after `order` ran.
