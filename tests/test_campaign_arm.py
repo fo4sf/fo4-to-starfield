@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import campaign_arm as ca  # noqa: E402
 REAL_REV = ca.checkout_rev_why                                           # setUp mocks it for the other tests
 REAL_KEPT = ca.game_kept_why
+REAL_HERE = ca.checkout_here_why
 import testqueue as tq  # noqa: E402
 
 CAPS = {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"}
@@ -55,7 +56,7 @@ class Base(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         # the checkout's commit (checkout_rev_why) and a running game (game_running) have tests of their own
-        for name in ("checkout_rev_why", "game_running", "game_kept_why"):
+        for name in ("checkout_rev_why", "game_running", "game_kept_why", "checkout_here_why"):
             m = mock.patch.object(ca, name, return_value=None)
             m.start()
             self.addCleanup(m.stop)
@@ -788,7 +789,7 @@ class ScriptAndGateTests(Base):
         pins = re.findall(r"'--only', '(\w+)', '--queue-sha256', '([0-9a-f]{64})'", text)
         self.assertEqual([n for n, _ in pins], ["a", "a", "b", "b"])          # before and after each run
         self.assertLess(text.index("'--only', 'b'"), text.index("'--queue', '%s'" % qb))
-        self.assertLess(text.index("'gate', '--queue', '%s'" % qa), text.index("'--only', 'b'"))
+        self.assertLess(text.index("'gate', '--game', '--queue', '%s'" % qa), text.index("'--only', 'b'"))
         digest = re.search(r"'--sha256', '([0-9a-f]{64})'", text).group(1)
 
         def recheck(name, pin):
@@ -999,6 +1000,9 @@ class RunChainTests(Base):
 
     def test_run_refuses_a_campaign_whose_checkout_is_not_this_one(self):
         # Codex on #391: the arm checks would be this checkout's and the runner another's
+        here = mock.patch.object(ca, "checkout_here_why", REAL_HERE)
+        here.start()
+        self.addCleanup(here.stop)
         q = self.queue("a", [{"coc": "FO4Port_X"}])
         cp_ = os.path.join(self.d, "c.json")
         with open(cp_, "w") as f:
@@ -1012,6 +1016,12 @@ class RunChainTests(Base):
         with redirect_stdout(io.StringIO()), mock.patch.object(ca, "run_chain", return_value=0) as rc:
             self.assertEqual(ca.main(["run", "--campaign", cp_]), 0)
         rc.assert_called_once()
+        with open(cp_, "w") as f:                                         # and the chain it writes, too
+            json.dump(self.camp([("a", q)]), f)
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(ca.main(["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")]), 1)
+        self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(self.d, "c.ps1")))
 
     def test_run_runs_again_on_the_campaigns_python(self):
         # Codex on #391: the arming checks import the judges; on another python they could refuse or pass otherwise
@@ -1090,21 +1100,40 @@ class RunChainTests(Base):
         self.assertEqual(self.lines[-1], "a: STOP Starfield exited after its run")
         self.calls.clear()
         kept = iter([None, "Starfield exited after its run"])
-        with mock.patch.object(ca, "game_kept_why", side_effect=lambda: next(kept)):
+        with mock.patch.object(ca, "game_kept_why", side_effect=lambda q: next(kept)):
             self.assertEqual(ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished"})), 1)
         self.assertEqual([a[1] for a, _ in self.calls], ["run", "run"])           # the last queue's crash too
         self.assertEqual(self.lines[-1], "b: STOP Starfield exited after its run")
-        with mock.patch.object(ca, "game_running", return_value=None):
-            self.assertIn("exited", REAL_KEPT())
-        with mock.patch.object(ca, "game_running", return_value=4242):
-            self.assertIsNone(REAL_KEPT())
         cp = os.path.join(self.d, "c.json")
         with open(cp, "w") as f:
             json.dump(c, f)
         text = ca.chain(c, cp, set())
-        for name in ("a", "b"):
-            self.assertIn(f"Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped after {name}",
-                          text)
+        for q in (qa, qb):
+            self.assertIn("'before', '--queue', '%s'" % q, text)
+            self.assertIn("'gate', '--game', '--queue', '%s'" % q, text)
+
+    def test_a_game_is_owed_only_when_the_run_launched_or_inherited_one(self):
+        # Codex on #391: a run of PRECONDITION or skipped tests finishes without ever launching the game
+        q = self.queue("a", [{"coc": "FO4Port_X"}])
+        state = lambda **st: tq.save_atomic(os.path.join(q, "state.json"), dict({"status": "finished"}, **st))
+        state(relaunches=0)
+        with mock.patch.object(ca, "game_running", return_value=None):
+            ca.game_before(q)
+            self.assertIsNone(REAL_KEPT(q))                                    # nothing launched, nothing found
+            state(relaunches=1)
+            self.assertIn("exited after its run", REAL_KEPT(q))                # launched, then gone
+        with mock.patch.object(ca, "game_running", return_value=4242):
+            self.assertIsNone(REAL_KEPT(q))
+            ca.game_before(q)                                                  # inherited from the queue before
+        state(relaunches=1)
+        with mock.patch.object(ca, "game_running", return_value=None):
+            self.assertIn("exited after its run", REAL_KEPT(q))
+            os.remove(os.path.join(q, ca.GAME_SNAP))                           # no record: owed, fail closed
+            self.assertIn("exited after its run", REAL_KEPT(q))
+            with redirect_stdout(io.StringIO()) as buf, mock.patch.object(ca, "game_kept_why", REAL_KEPT):
+                self.assertEqual(ca.main(["gate", "--game", "--queue", q, "--run-exit", "0"]), 1)
+                self.assertEqual(ca.main(["gate", "--queue", q, "--run-exit", "0"]), 0)
+            self.assertIn("STOP Starfield exited", buf.getvalue())
 
     def test_a_failed_judge_stops_the_chain(self):
         # Codex on #391: a judge exit 2 was only logged; the next queue ran and the chain ended 0

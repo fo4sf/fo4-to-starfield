@@ -643,11 +643,31 @@ def game_running():
         return None
 
 
-def game_kept_why():
-    """Why the game a queue's runner launched is gone after its run, else None. The runner keeps its game running for
-    the next queue; a fresh runner does not know the game it should find (its live_pid starts empty), so a game that
-    exited after a run would be launched again, or the chain end clean, not counted as a crash (Codex on #391)."""
-    if not game_running():
+GAME_SNAP = "chain_game.json"
+
+
+def launches(qdir):
+    """The launches a queue's state.json counts: its first launch and relaunches, and its fresh launches."""
+    st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
+    return int(st.get("relaunches") or 0) + int(st.get("fresh_launches") or 0)
+
+
+def game_before(qdir):
+    """Before a queue's run: whether a game is running for it to inherit, and the launches its state counts so far."""
+    tq.save_atomic(os.path.join(qdir, GAME_SNAP), {"game": bool(game_running()), "launches": launches(qdir)})
+
+
+def game_kept_why(qdir):
+    """Why the game a queue's run launched or inherited is gone after the run, else None. The runner keeps its game
+    running for the next queue; a fresh runner does not know the game it should find (its live_pid starts empty), so a
+    game that exited after a run would be launched again, or the chain end clean, not counted as a crash (Codex on
+    #391). A run that neither launched nor found one (every test a PRECONDITION or skipped) owes none."""
+    try:
+        snap = tq.load(os.path.join(qdir, GAME_SNAP))
+    except ValueError:
+        snap = None
+    owed = not isinstance(snap, dict) or snap.get("game") or launches(qdir) > int(snap.get("launches") or 0)
+    if owed and not game_running():
         return "Starfield exited after its run (counted as a crash: the campaign stops at the first)"
     return None
 
@@ -837,9 +857,13 @@ def chain(camp, path, release, digest=None):
     for e, _, _ in check(camp, release)[0]["queues"]:
         pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", digest,
                "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
+        before = ["scripts\\game\\campaign_arm.py", "before", "--queue", e["queue"]]
         lines += ["", f"# {e['name']}",
                   f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
                   "was armed'; exit 1 }",
+                  # Codex on #391: what the run inherits and launches, so the gate knows whether a game is owed after
+                  f"if ((Py {psa(before)}) -ne 0) "
+                  f"{{ Write-Host 'stopped before {e['name']}: its game state could not be recorded'; exit 1 }}",
                   "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
         # Codex on #391: the judge reads queue.json and its definition file when it runs, hours after the check, and
@@ -849,12 +873,11 @@ def chain(camp, path, release, digest=None):
         if e.get("judge"):
             lines += ["$jr = Py " + psa([x.replace("/", "\\") if i == 0 else x for i, x in enumerate(e["judge"])])]
             judge = " --judge-exit $jr"
-        gate_argv = psa(["scripts\\game\\campaign_arm.py", "gate", "--queue", e["queue"], "--run-exit"])[:-1]
+        # --game: the runner keeps its game; one gone after the run, the last queue's too, crashed (Codex on #391)
+        gate_argv = psa(["scripts\\game\\campaign_arm.py", "gate", "--game", "--queue", e["queue"],
+                         "--run-exit"])[:-1]
         gate_argv += ', "$rc"' + (', \'--judge-exit\', "$jr"' if judge else "") + ")"
-        lines += [f"if ((Py {gate_argv}) -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}",
-                  # Codex on #391: the runner keeps its game; one gone after the run, the last queue's too, crashed
-                  f"if (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) {{ Write-Host 'stopped after "
-                  f"{e['name']}: Starfield exited after its run (counted as a crash)'; exit 1 }}"]
+        lines += [f"if ((Py {gate_argv}) -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
     lines += ["", "Write-Host 'chain finished: every queue ran clean (the verdicts are in each judge report)'"]
     return "\r\n".join(lines) + "\r\n"
 
@@ -926,6 +949,7 @@ def run_chain(camp, log=print, call=None):
         if why:
             log(f"{e['name']}: STOP before the run: " + "; ".join(why))
             return 1
+        game_before(e["queue"])
         rc = call([py, "-I", os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
                   env)
         log(f"{e['name']}: run exit {rc}")
@@ -944,7 +968,7 @@ def run_chain(camp, log=print, call=None):
             jr = call([py, "-I", e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
         good, why = gate(e["queue"], rc, jr)
-        kept = game_kept_why() if good else None
+        kept = game_kept_why(e["queue"]) if good else None
         if kept:
             # Codex on #391: the runner keeps its game; one gone after the run (the last queue's too) crashed
             good, why = False, kept
@@ -953,6 +977,15 @@ def run_chain(camp, log=print, call=None):
             return 1
     log("chain finished: every queue ran clean (the verdicts are in each judge's report)")
     return 0
+
+
+def checkout_here_why(camp):
+    """Why this campaign_arm.py is not the campaign checkout's own, else None. Codex on #391: the checks and the
+    commands it writes are this checkout's code, the runner the campaign's: one checkout for both."""
+    here = os.path.dirname(os.path.dirname(HERE))
+    if norm(os.path.abspath(here)) != norm(os.path.abspath(str(camp.get("checkout") or ""))):
+        return f"run campaign_arm.py from the campaign checkout {camp.get('checkout')}, not {here}"
+    return None
 
 
 def run_python_why(camp):
@@ -985,13 +1018,22 @@ def main(argv=None):
                                                                    "after the run and before the judge)")
         if name == "script":
             s.add_argument("--out", required=True)
+    b = sub.add_parser("before")
+    b.add_argument("--queue", required=True)
     g = sub.add_parser("gate")
     g.add_argument("--queue", required=True)
+    g.add_argument("--game", action="store_true", help="also stop when the game the run launched or inherited is gone")
     g.add_argument("--run-exit", type=int, required=True)
     g.add_argument("--judge-exit", type=int, default=None)
     a = ap.parse_args(argv)
+    if a.cmd == "before":
+        game_before(a.queue)
+        return 0
     if a.cmd == "gate":
         ok, why = gate(a.queue, a.run_exit, a.judge_exit)
+        kept = game_kept_why(a.queue) if ok and a.game else None
+        if kept:
+            ok, why = False, kept
         print(("OK " if ok else "STOP ") + why)
         return 0 if ok else 1
     if a.cmd == "run":
@@ -1003,10 +1045,9 @@ def main(argv=None):
             with open(logp, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         camp = read_campaign(a.campaign)
-        here = os.path.dirname(os.path.dirname(HERE))
-        if norm(os.path.abspath(here)) != norm(os.path.abspath(str(camp.get("checkout") or ""))):
-            # Codex on #391: the checks below are this checkout's, the runner the campaign's: one checkout for both
-            log(f"REFUSED campaign: run campaign_arm.py from the campaign checkout {camp.get('checkout')}, not {here}")
+        why = checkout_here_why(camp)
+        if why:
+            log(f"REFUSED campaign: {why}")
             return 1
         exe, why = run_python_why(camp) or (None, None)
         if why:
@@ -1046,6 +1087,11 @@ def main(argv=None):
     show(res)
     if a.cmd == "check" or not ok:
         return 0 if ok else 1
+    why = checkout_here_why(camp)
+    if why:
+        # Codex on #391: the chain's commands are written by this checkout's code and run by the campaign's
+        print(f"REFUSED campaign: {why}")
+        return 1
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: the script writes a new file only")
     if not camp.get("checkout"):
