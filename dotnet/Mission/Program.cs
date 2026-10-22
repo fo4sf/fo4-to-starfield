@@ -18,7 +18,8 @@
 //        reference alias and the objective targets (no quest markers): the fallback when the alias is suspected.
 //        Codsworth (ROADMAP B2 stretch; a Mr. Handy has no Starfield skeleton): a copy of the Starfield robot NPC_
 //        named by --codsworth-body under his name, Essential and Unique, without its factions and scripts, placed
-//        persistent at his Fallout 4 spot in Sanctuary. No dialogue or voice yet. --no-codsworth leaves him out.
+//        persistent at his Fallout 4 spot in Sanctuary, kept by the quest FO4SF_CodsworthKeeper (start game enabled; the
+//        same script with KeeperOnly). --no-codsworth leaves him and his keeper out.
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth] [--codsworth-model <mesh>]
 //        --codsworth-model: his own model, ARMA FO4_AA_Codsworth (a copy of AA_MiniBotA_Gardening with that mesh) in
 //        ARMO FO4_Skin_Codsworth (a copy of Skin_MiniBotA_Gardening with only it), set as his skin (WNAM); check requires them
@@ -97,6 +98,11 @@ static class Mission
     // his own model (Codsworth thread, PR #361): an ARMA copied from the mini bot's with the FO4 mesh, a skin ARMO with
     // only that ARMA, set as his WNAM. Ids follow the ACHR.
     public const uint CodsworthArmaId = 0x812, CodsworthSkinId = 0x813, MiniBotArmaId = 0x081886, MiniBotSkinId = 0x3FFD3A;
+    // his keeper (22 Oct): a quest of its own, start game enabled, carrying FO4SF_Min00Quest with KeeperOnly. A new
+    // start-game-enabled quest starts on a save made before it existed, where FO4SF_Min00 had already ended (stage 200
+    // cancels the timer that started his) or ran OnQuestInit before his timer existed; nothing else runs on such a save.
+    public const uint KeeperQuestId = 0x814;
+    public const string KeeperEdid = "FO4SF_CodsworthKeeper";
     // his voice (Codsworth thread, PR #361): a Hello DIAL in the mission quest with one INFO per FO4 line, said by him
     // only. Each response's WEMFile names its .wem: verified on the PC, all 20 starfield.esm\robotminibota\*.wem names
     // are the WEMFile (8 lowercase hex digits) of an INFO, e.g. BE_KT03's Hellos (DIAL 025C46, Misc / Hello, flags Random).
@@ -509,13 +515,31 @@ static class Mission
         foreach (var r in raiderRefs) list.Objects.Add(Obj("", r.FormKey));
         script.Properties.Add(list);
         script.Properties.Add(Obj("Credits", credits.FormKey));
-        if (codsRef is not null) script.Properties.Add(Obj("Codsworth", codsRef.FormKey));   // moved with the others (Relocate)
-        quest.VirtualMachineAdapter = new SF.QuestAdapter
+        SF.QuestAdapter Adapter(SF.ScriptEntry entry)
         {
-            Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
-            Script = new SF.ScriptEntry { Name = "", Flags = SF.ScriptEntry.Flag.Local },
-        };
-        quest.VirtualMachineAdapter.Scripts.Add(script);
+            var vm = new SF.QuestAdapter
+            {
+                Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
+                Script = new SF.ScriptEntry { Name = "", Flags = SF.ScriptEntry.Flag.Local },
+            };
+            vm.Scripts.Add(entry);
+            return vm;
+        }
+        quest.VirtualMachineAdapter = Adapter(script);
+        SF.Quest? keeper = null;                                        // Codsworth is moved by his keeper only
+        if (codsRef is not null)
+        {
+            keeper = new SF.Quest(new FormKey(modKey, KeeperQuestId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = KeeperEdid, FormVersion = 581, Version2 = 12,
+                Data = new SF.QuestData { Flags = SF.Quest.Flag.StartGameEnabled, Priority = 50 },
+            };
+            var ks = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
+            foreach (var sp in script.Properties) ks.Properties.Add(sp.DeepCopy());   // the Mandatory ones, as the mission's
+            ks.Properties.Add(Obj("Codsworth", codsRef.FormKey));
+            ks.Properties.Add(new SF.ScriptBoolProperty { Name = "KeeperOnly", Flags = SF.ScriptProperty.Flag.Edited, Data = true });
+            keeper.VirtualMachineAdapter = Adapter(ks);
+        }
         var lines = codsworthVoice is null ? [] : VoiceLines(codsworthVoice);
         if (lines.Count > 0)
         {
@@ -542,6 +566,7 @@ static class Mission
             quest.DialogTopics.Add(dial);
         }
         mod.Quests.Add(quest);
+        if (keeper is not null) mod.Quests.Add(keeper);
 
         mod.ModHeader.Stats.NextFormID = Math.Max(MinutemenFactionId + 1, lines.Count > 0 ? FirstCodsworthInfoId + (uint)lines.Count
                                        : cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1);
@@ -740,10 +765,29 @@ static class Mission
                 Need(props.TryGetValue("Credits", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, CreditsId), "property Credits");
                 Need(props.TryGetValue("Raiders", out var rp) && rp is SF.IScriptObjectListPropertyGetter rl &&
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
-                if (codsworth)
-                    Need(props.TryGetValue("Codsworth", out var wp) && wp is SF.IScriptObjectPropertyGetter wo && wo.Object.FormKey == codsRef?.FormKey,
-                         "property Codsworth is not his ACHR (the script moves him into the merged world)");
-                else Need(!props.ContainsKey("Codsworth"), "a --no-codsworth build sets property Codsworth");
+                Need(!props.ContainsKey("Codsworth") && !props.ContainsKey("KeeperOnly"), "FO4SF_Min00 sets Codsworth or KeeperOnly (his keeper quest moves him)");
+            }
+        }
+        var kq = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, KeeperQuestId));
+        if (!codsworth) Need(kq is null, $"a --no-codsworth build carries {KeeperEdid}");
+        else if (kq is null) problems.Add($"no QUST 0x{KeeperQuestId:X} {KeeperEdid} (Codsworth would stay unmoved on an existing save)");
+        else
+        {
+            Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count}");
+            Need(kq.EditorID == KeeperEdid && kq.Data is not null && kq.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled)
+                 && !kq.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce), $"{KeeperEdid} is not start game enabled (or is run once)");
+            var ks = kq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == ScriptName);
+            if (ks is null) problems.Add($"script {ScriptName} not attached to {KeeperEdid}");
+            else
+            {
+                var props = ks.Properties.ToDictionary(p => p.Name);
+                Console.WriteLine($"  script {ks.Name} on {KeeperEdid}: " + string.Join(", ", props.Keys));
+                Need(props.TryGetValue("Codsworth", out var wp) && wp is SF.IScriptObjectPropertyGetter wo && wo.Object.FormKey == codsRef?.FormKey,
+                     "property Codsworth is not his ACHR (the keeper moves him into the merged world)");
+                Need(props.TryGetValue("KeeperOnly", out var kp) && kp is SF.IScriptBoolPropertyGetter kb && kb.Data,
+                     "property KeeperOnly is not True (the keeper would run the mission)");
+                Need(props.TryGetValue("Preston", out var pp) && pp is SF.IScriptObjectPropertyGetter po && po.Object.FormKey == preston?.FormKey
+                     && props.ContainsKey("Raiders") && props.ContainsKey("Credits"), "the keeper lacks a Mandatory property");
             }
         }
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
@@ -899,6 +943,7 @@ static class Mission
             }
         }
         // mutations of the default output, each of which check must reject (Codex review 5564480667)
+        static SF.Quest Keeper(SF.StarfieldMod m) => m.Quests[new FormKey(m.ModKey, KeeperQuestId)];
         var good = Path.Combine(outDir, "alias", Plugin);
         var mutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
         {
@@ -911,7 +956,12 @@ static class Mission
             ("Codsworth not Essential", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Essential),
             ("Codsworth not Unique", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Unique),
             ("Codsworth respawns", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags |= SF.Npc.Flag.Respawn),
-            ("Codsworth script property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Codsworth")),
+            ("Codsworth script property removed", m => Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Codsworth")),
+            ("keeper quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, KeeperQuestId))),
+            ("keeper not start game enabled", m => Keeper(m).Data!.Flags &= ~SF.Quest.Flag.StartGameEnabled),
+            ("keeper runs the mission", m => ((SF.ScriptBoolProperty)Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "KeeperOnly")).Data = false),
+            ("Codsworth also set on the mission", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.Add(
+                Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "Codsworth").DeepCopy())),
             ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
             ("quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
