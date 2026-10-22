@@ -199,13 +199,17 @@ plan above, which tells custom-world support from anything about the core, befor
    001 FO4TerrainCore.esm, 002 FO4SFLodGate3.esm, nothing written. Every gate plugin was in
    `EditorDataFilesLoaded`, so no run was inconclusive and the Plugins.txt rerun was not needed. Reading, per
    the key in 6: the command found none of the three plugin worlds, with or without the Master flag, with the
-   vanilla record or the core's; so the core's scale, cell tree and identity are not needed for the failure
-   (gate 1 has none of them and fails the same way), and the Master flag alone does not decide it (gate 2).
-   The route stays **unproved**, not closed. What every gate and the core share, and vanilla LC172World does
-   not, is where the remaining candidates sit: being a plugin-added world at all, the dropped OFST / CLSZ, the
-   freshly made persistent cell, and anything the CK registers at save time for a world it made itself. Only a
-   positive control tells those apart: a world made and saved in the CK, then the same command on it. That
-   control needs the owner at the CK (a new worldspace, the plugin saved, the mock run on it) and is parked as
-   an optional item for a future session there, not asked for now: a found world would still get only the
-   placeholder files of run 1, since real per-object LOD needs the generator of run 3, absent on the PC, so the
-   surface map's buildings wait on the FO4 LOD mesh conversion (`fo4-lod-mesh-scoping.md`) either way.
+   vanilla record or the core's. The result does not differentiate. Gate 1 fails without the core's scale, cell
+   tree or identity, so none of those is needed for a plugin world to be missed; but gate 1 and the core can be
+   missed for different reasons (item 6 allows a loading or registration prerequisite the gate lacks, or a defect
+   in its synthetic layout), so the core-only differences stay **unresolved** candidates for the core run's
+   failure until a controlled variant changes an outcome. Gate 2 shows only that the Master flag alone does not
+   change gate 1's outcome. The route stays **unproved**, not closed. The candidates every failed world shares
+   (being a plugin-added world at all, the dropped OFST / CLSZ, the freshly made persistent cell, and anything
+   the CK registers at save time for a world it made itself) are told apart only by a positive control: a world
+   made and saved in the CK, then the same command on it. That control needs the owner at the CK (a new
+   worldspace, the plugin saved, the mock run on it) and is parked as an optional item for a future session
+   there, not asked for now: on what runs 1 and 3 showed, even a found world gets the placeholder files of run 1
+   unless per-object generation turns out to be possible here (the **unresolved** hypothesis under item 3: no
+   generation was attempted), so for now the surface map's buildings wait on the FO4 LOD mesh conversion
+   (`fo4-lod-mesh-scoping.md`) either way.
