@@ -206,10 +206,14 @@ plan above, which tells custom-world support from anything about the core, befor
    failure until a controlled variant changes an outcome. Gate 2 shows only that the Master flag alone does not
    change gate 1's outcome. The route stays **unproved**, not closed. The candidates every failed world shares
    (being a plugin-added world at all, the dropped OFST / CLSZ, the freshly made persistent cell, and anything
-   the CK registers at save time for a world it made itself) are told apart only by a positive control: a world
-   made and saved in the CK, then the same command on it. That control needs the owner at the CK (a new
-   worldspace, the plugin saved, the mock run on it) and is parked as an optional item for a future session
-   there, not asked for now: on what runs 1 and 3 showed, even a found world gets the placeholder files of run 1
+   the CK registers at save time for a world it made itself) need a positive control first: a world made and
+   saved in the CK, then the same command on it. A CK-made world changes those candidates together, so on its
+   own it separates none of them: if it bakes, it is the known-good custom world item 6 asks for, and
+   one-variable variants between it and gate 1 (OFST / CLSZ kept or dropped, the CK's persistent cell or a fresh
+   one, saved by the CK or written by Mutagen) are what then tell the causes apart; if it does not bake, there
+   is still no plugin-added world known to bake and the question stays open. That control needs the owner at
+   the CK (a new worldspace, the plugin saved, the mock run on it) and is parked as an optional item for a
+   future session there, not asked for now: on what runs 1 and 3 showed, even a found world gets the placeholder files of run 1
    unless per-object generation turns out to be possible here (the **unresolved** hypothesis under item 3: no
    generation was attempted), so for now the surface map's buildings wait on the FO4 LOD mesh conversion
    (`fo4-lod-mesh-scoping.md`) either way.
