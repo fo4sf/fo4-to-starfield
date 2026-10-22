@@ -47,6 +47,8 @@ class ArrivalContractTests(unittest.TestCase):
             'TracePosition("before_move", akActionRef)',
             "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)",
             'TracePosition("after_move", akActionRef)',
+            "while retries < MoveRetries && !Arrived(akActionRef, destination)",
+            'TracePosition("after_retry", akActionRef)',
             "if UseDestinationPosition",
             "akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)",
             'TracePosition("after_position", akActionRef)',
@@ -57,6 +59,23 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertNotIn(".SetAngle(", self.code)
         load = self.code.split("Event OnLoad()", 1)[1].split("EndEvent", 1)[0]
         self.assertEqual(load.strip(), "Moving = False")
+
+    def test_a_missed_trip_is_retried_a_bounded_number_of_times(self):
+        self.assertIn("int Property MoveRetries = 1 Auto", self.code)
+        self.assertIn("float Property RetryWaitSeconds = 0.5 Auto", self.code)
+        loop = re.search(r"while (.*?)\n(.*?)endwhile", self.activate, re.S)
+        self.assertIsNotNone(loop)
+        self.assertEqual(loop[1].strip(), "retries < MoveRetries && !Arrived(akActionRef, destination)")
+        body = loop[2]
+        # wait, look again, and only then count and repeat the same MoveTo
+        steps = ["Utility.Wait(RetryWaitSeconds)", "if !Arrived(akActionRef, destination)", "retries += 1",
+                 "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)"]
+        indices = [body.index(step) for step in steps]
+        self.assertEqual(indices, sorted(indices))
+        self.assertEqual(self.activate.count(".MoveTo("), 2)
+        arrived = self.code.split("bool Function Arrived(", 1)[1].split("EndFunction", 1)[0]
+        self.assertIn("destination.GetWorldSpace()", arrived)
+        self.assertIn("target.GetParentCell() == destination.GetParentCell()", arrived)
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
         trace = self.code.split("Function TracePosition(", 1)[1]

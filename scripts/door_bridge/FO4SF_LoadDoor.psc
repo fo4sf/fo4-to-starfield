@@ -9,6 +9,11 @@ bool Property UseDestinationPosition = False Auto
 float Property DestinationX Auto
 float Property DestinationY Auto
 float Property DestinationZ Auto
+; A missed trip (the player still outside the destination's world or interior cell, with the engine's
+; "BOUNDARY REACHED"; docs/terrain/border.md) is retried with the same MoveTo this many times, each after
+; RetryWaitSeconds. 0 turns retries off.
+int Property MoveRetries = 1 Auto
+float Property RetryWaitSeconds = 0.5 Auto
 bool Moving = False
 
 Event OnLoad()
@@ -38,6 +43,16 @@ Event OnActivate(ObjectReference akActionRef)
     ; Return from the native call is NOT a judged arrival or successful round trip.
     Debug.Trace("FO4SF_LoadDoor MoveTo returned")
     TracePosition("after_move", akActionRef)
+    int retries = 0
+    while retries < MoveRetries && !Arrived(akActionRef, destination)
+        Utility.Wait(RetryWaitSeconds)
+        if !Arrived(akActionRef, destination)
+            retries += 1
+            Debug.Trace("FO4SF_LoadDoor retry " + retries + " of " + MoveRetries)
+            akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)
+            TracePosition("after_retry", akActionRef)
+        endif
+    endwhile
     if UseDestinationPosition
         ; Experimental: the writer must supply this runtime instance's measured
         ; merged arrival, never a guessed or globally reused merge offset.
@@ -50,6 +65,16 @@ Event OnActivate(ObjectReference akActionRef)
     endif
     Moving = False
 EndEvent
+
+; In the destination's world, or for an interior destination in its cell. Not a judged arrival: the doors_out
+; judge still decides where the player ended up.
+bool Function Arrived(ObjectReference target, ObjectReference destination)
+    WorldSpace world = destination.GetWorldSpace()
+    if target.GetWorldSpace() != world
+        return False
+    endif
+    return world != None || target.GetParentCell() == destination.GetParentCell()
+EndFunction
 
 Function TracePosition(string phase, ObjectReference target)
     string line = "FO4SF_LoadDoor phase=" + phase + " destination=" + DestinationPlugin + ":" + DestinationId

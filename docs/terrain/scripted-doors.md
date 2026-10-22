@@ -23,6 +23,15 @@ the player is put with `SetPosition` after the MoveTo, see "Return trip" below) 
 the script applies the three floats only when it is true; zero is a valid coordinate, so the bool, not the values,
 is the switch). No plugin masters the other.
 
+**Retry on a missed trip (2026-10-22, not yet run in game).** The Vault 95 exit fails intermittently: the player stays
+in the interior and the engine shows "BOUNDARY REACHED" (3 of 9 runs in the settling test, whatever the world's border
+fields; docs/terrain/border.md). After the MoveTo the script checks whether the player is in the destination's world
+(for an interior destination, its cell). If not, it waits `RetryWaitSeconds` (default 0.5), checks again, and repeats
+the same MoveTo, at most `MoveRetries` times (default 1; 0 turns it off). Both properties have defaults, so existing
+VMADs need no change. Each retry traces `FO4SF_LoadDoor retry N of M` and `phase=after_retry`. A door PASS in the
+doors_out judge's results can therefore come from the second MoveTo; the trace tells which. The check is not a judged
+arrival either: the judge still reads where the player ended up.
+
 Per door, this build writes:
 
 | side | record | where | what |
