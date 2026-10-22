@@ -165,11 +165,12 @@ class MapMarkersPluginTests(unittest.TestCase):
         plugin = out / "FO4SFMapMarkers.esm"
         fresh = self.tool_run("check", plugin, self.core)
         self.assertEqual(fresh.returncode, 0, fresh.stdout)
-        self.assertIn("  worldspace 000803:Synthetic.esm SyntheticWorld: flags -, HNAM [], as the core's", fresh.stdout)
+        # the writer gives the synthetic world the real one's SmallWorld flag and HNAM 0 (#495)
+        self.assertIn("  worldspace 000803:Synthetic.esm SyntheticWorld: flags SmallWorld, HNAM [0], as the core's", fresh.stdout)
         data = bytearray(plugin.read_bytes())
         rec = data.index(b"WRLD", data.index(b"WRLD") + 4)            # the record, after the group label
-        at = data.index(b"EDID", rec) + 6                             # the synthetic world has no flags byte to
-        data[at] ^= 0x20                                              # flip: its EditorID changes case instead
+        at = data.index(b"EDID", rec) + 6                             # a stale copy: its EditorID changes case
+        data[at] ^= 0x20
         plugin.write_bytes(bytes(data))
         stale = self.tool_run("check", plugin, self.core)
         self.assertEqual(stale.returncode, 1, stale.stdout)
@@ -181,7 +182,7 @@ class MapMarkersPluginTests(unittest.TestCase):
         # the marker overrides untouched; check wants the same --world, and fails the copy under any other
         control = self.root / "plugin-world-control"
         self.assertEqual(self.tool_run("build", "--core", self.core, "--out", control).returncode, 0)
-        for world, flags, hnam in [("nosmall", "0", ""), ("city", "0", "5")]:
+        for world, flags, hnam in [("nosmall", "0", "0"), ("city", "0", "5")]:     # the core's: SmallWorld, HNAM [0]
             out = self.root / f"plugin-world-{world}"
             proc = self.tool_run("build", "--core", self.core, "--out", out, "--world", world)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -199,11 +200,8 @@ class MapMarkersPluginTests(unittest.TestCase):
             at = body.index(b"DATA")
             flag_bytes = body[at + 6: at + 6 + int.from_bytes(body[at + 4: at + 6], "little")]
             self.assertTrue(flag_bytes and not any(flag_bytes), flag_bytes)
-            if world == "city":
-                at = body.index(b"HNAM")
-                self.assertEqual(body[at + 6: at + 6 + int.from_bytes(body[at + 4: at + 6], "little")], b"\5")
-            else:
-                self.assertNotIn(b"HNAM", body)                           # the synthetic core's world has none
+            at = body.index(b"HNAM")                                      # city sets 5; nosmall keeps the core's 0
+            self.assertEqual(body[at + 6: at + 6 + int.from_bytes(body[at + 4: at + 6], "little")], b"\5" if world == "city" else b"\0")
             plain = self.tool_run("check", plugin, self.core)             # another --world: not this stage's
             self.assertEqual(plain.returncode, 1, plain.stdout)
             self.assertIn("NOT the core's", plain.stdout)
