@@ -1,0 +1,23 @@
+{
+ "name": "v6e",
+ "checkout": "D:\\Modding\\wt_nightrun",
+ "python": "C:\\Modding\\venv-render\\Scripts\\python.exe",
+ "staging": "D:\\Modding\\staging\\integ_v6_specmask_doors_c",
+ "bridge": "C:\\Modding\\staging\\bridge_t4",
+ "installed_exp": "D:\\Modding\\staging\\terrain_core64v6e_l125_mission_wfc10",
+ "installed_plugins": ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4ActorRaider.esm", "FO4SFMission.esm"],
+ "caps": {"max_attempts": 1, "max_relaunch": 1, "crash_budget": 1, "min_free_gb": 43, "dump_drive": "D:\\"},
+ "launch": "steam",
+ "holds": {"red_rocket": ["FO4Core_RedRocketSpawn"]},
+ "released": [],
+ "queues": [
+  {"name": "doors_out", "queue": "D:\\Modding\\testqueue_v6e\\doors_out",
+   "judge": ["scripts/bridge/door_rounds.py", "judge", "--queue", "D:\\Modding\\testqueue_v6e\\doors_out"]},
+  {"name": "stairs_bpl", "queue": "D:\\Modding\\testqueue_v6e\\stairs_bpl",
+   "judge": ["scripts/game/testqueue.py", "report", "--queue", "D:\\Modding\\testqueue_v6e\\stairs_bpl"]},
+  {"name": "movable", "queue": "D:\\Modding\\testqueue_v6e\\movable",
+   "judge": ["scripts/game/testqueue.py", "report", "--queue", "D:\\Modding\\testqueue_v6e\\movable"]},
+  {"name": "walk", "queue": "D:\\Modding\\testqueue_v6e\\walk",
+   "judge": ["scripts/game/testqueue.py", "report", "--queue", "D:\\Modding\\testqueue_v6e\\walk"]}
+ ]
+}
