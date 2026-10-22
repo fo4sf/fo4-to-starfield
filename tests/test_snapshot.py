@@ -29,6 +29,23 @@ class SnapshotTests(unittest.TestCase):
             self.assertIn("exit 2", state["screen_error"])
             self.assertFalse(os.path.exists(os.path.join(out, "screen.png")), "the stale picture must be gone")
 
+    def test_the_look_button_press_takes_a_snapshot(self):
+        # look_hotkey.ps1 -TestFire runs the press handler once (no hotkey registered): a snapshot appears
+        hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
+        root = tempfile.mkdtemp(prefix="fo4sf_snaps_")             # never the owner's C:\Modding\snapshots
+        before = set()
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", hot, "-TestFire"],
+                           capture_output=True, text=True, timeout=60, env=dict(os.environ, FO4SF_SNAPSHOT_ROOT=root))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pressed", r.stdout)
+        import time
+        for _ in range(30):
+            after = set(os.listdir(root))
+            if after - before:
+                break
+            time.sleep(1)
+        self.assertTrue(after - before, "no new snapshot folder")
+
     def test_writes_state_and_screen_without_a_game(self):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "snap")
@@ -46,6 +63,110 @@ class SnapshotTests(unittest.TestCase):
             # the bridge line is read from $FO4SF_BRIDGE_LOG only when the tool is told; here the real log may or may not
             # exist, so only the shape is checked
             self.assertIn("bridge", state)
+
+
+    def run_snapshot(self, out, answer):
+        env = dict(os.environ, FO4SF_ASK_ANSWER=answer)          # stands in for the typed text: no window opens
+        return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                               "-MaxAge", "1", "-Ask"], capture_output=True, text=True, timeout=120, env=env)
+
+    def test_ask_saves_the_description_with_the_capture(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            r = self.run_snapshot(out, "the door at Red Rocket does not open")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("described=yes", r.stdout)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["description"], "the door at Red Rocket does not open")
+            self.assertNotIn("description_pending", state)       # written while the box was open, cleared after
+            self.assertEqual(open(os.path.join(out, "description.txt"), encoding="utf-8-sig").read().strip(),
+                             "the door at Red Rocket does not open")
+            self.assertTrue(os.path.exists(os.path.join(out, "screen.png")))
+
+    def test_an_unanswered_box_leaves_a_describe_later_note(self):
+        # the owner's play test, 2026-10-22: boxes behind full-screen Starfield waited unseen; one that times out says so
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            os.makedirs(out)
+            open(os.path.join(out, "description.txt"), "w").write("the previous capture's text")   # Codex on #463
+            r = self.run_snapshot(out, "<timeout>")                   # stands in for the box closing at -AskTimeout
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertIsNone(state["description"])
+            self.assertEqual(state["description_timed_out"], 600)
+            self.assertNotIn("description_pending", state)
+            self.assertTrue(os.path.exists(os.path.join(out, "describe_later.txt")))
+            self.assertFalse(os.path.exists(os.path.join(out, "description.txt")))
+            self.assertIn(out, open(os.path.join(d, "describe_later.txt"), encoding="utf-8-sig").read())
+
+    def test_screenshot_only_when_the_box_is_left_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            r = self.run_snapshot(out, "   ")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertIsNone(state["description"])
+            self.assertFalse(os.path.exists(os.path.join(out, "description.txt")))
+
+    def test_submit_fills_the_player_report_form(self):
+        # players' kit: the link opens the community form (labels community + needs-triage), never a folder path
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            env = dict(os.environ, FO4SF_ASK_ANSWER="door will not open\nat Red Rocket", FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Ask", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            url = open(os.path.join(out, "issue_url.txt"), encoding="utf-8-sig").read().strip()
+            self.assertTrue(url.startswith("https://github.com/fo4sf/fo4-to-starfield/issues/new?template=community_report.yml"))
+            self.assertIn("title=%5BPlayer%20report%5D%3A%20door%20will%20not%20open&", url)
+            self.assertIn("what=door%20will%20not%20open", url)
+            self.assertNotIn("%3A%5C", url, "no Windows folder path in the link")
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["issue_url"], "issue_url.txt")
+
+    def test_submit_skips_the_form_when_the_capture_failed(self):
+        # Codex's review of #350: no screenshot means no link promising one on the clipboard
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            stub = os.path.join(d, "shot_fails.ps1")
+            open(stub, "w").write("param([string]$Out)\nexit 2\n")
+            env = dict(os.environ, FO4SF_SHOT_SCRIPT=stub, FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(out, "issue_url.txt")))
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["submit_skipped"], "no screenshot")
+            self.assertIn("exit 2", state["screen_error"])
+
+    def test_submit_lists_only_enabled_port_plugins(self):
+        # Codex's review of #350: Plugins.txt keeps disabled entries without '*'
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            os.makedirs(os.path.join(d, "Starfield"))
+            open(os.path.join(d, "Starfield", "Plugins.txt"), "w").write("*FO4Active.esm\nFO4Disabled.esm\n*Other.esm\n")
+            env = dict(os.environ, LOCALAPPDATA=d, FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            url = open(os.path.join(out, "issue_url.txt"), encoding="utf-8-sig").read()
+            self.assertIn("FO4Active.esm", url)
+            self.assertNotIn("FO4Disabled", url)
+            self.assertNotIn("Other.esm", url)
+
+    def test_the_ask_setting_switches_the_main_key(self):
+        hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
+        d = tempfile.mkdtemp(prefix="fo4sf_ask_")                 # the presses' snapshots land here after the test returns
+        env = dict(os.environ, FO4SF_LOOK_SETTINGS=os.path.join(d, "look.settings.json"),
+                   FO4SF_SNAPSHOT_ROOT=d, FO4SF_ASK_ANSWER=" ")   # " ": Windows drops an empty variable
+        ps = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", hot]
+        run = lambda *a: subprocess.run(ps + list(a), capture_output=True, text=True, timeout=60, env=env)
+        self.assertIn("ask=False", run("-TestFire").stdout, "off by default: screenshots only")
+        self.assertEqual(run("-SetAsk", "on").returncode, 0)
+        self.assertIn("ask=True", run("-TestFire").stdout)
+        self.assertIn("ask=True", run("-TestAsk").stdout, "the second key always asks")
+        run("-SetAsk", "off")
+        self.assertIn("ask=False", run("-TestFire").stdout)
 
 
 if __name__ == "__main__":

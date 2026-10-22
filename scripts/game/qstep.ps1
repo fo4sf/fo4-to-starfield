@@ -231,7 +231,8 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}")\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}"|cgf "FO4SF_Probe\.Resolve" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8}|cgf "FO4SF_Probe\.MoveTo" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8} -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})?|player\.getav speedmult|player\.setav speedmult 100)\z'
+$moveToPrefix = 'cgf "FO4SF_Probe.MoveTo" '      # console_plan.MOVETO_PREFIX: Run-Console waits for the HUD after it
 function Console-List($list, [string]$what) {
   $out = @()
   foreach ($c in @($list | Where-Object { $null -ne $_ })) {
@@ -241,13 +242,28 @@ function Console-List($list, [string]$what) {
   if ($out.Count -gt 12) { "bad $what"; exit 4 }
   return ,$out
 }
-function Read-Console([string]$name) {
-  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply)
-  $cap = Join-Path $Out "$name.png"; $prep = Join-Path $Out "${name}_prep.png"
+# the brightness thresholds ocr_prep.py tries on one console capture, in order: Item-Capture's and the npc steps' four
+# (written out in their loops), used by the activate step's Read-Console
+$ocrThresholds = @(135, 140, 130, 145)
+function Read-Console([string]$name, [int[]]$thresholds = @(135), [string]$until = '') {
+  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply).
+  # With $until the same capture (nothing typed again) is prepared and OCR'd at each of $thresholds in turn until the
+  # text matches $until: core64g_accept_1016 test 0002 read "prid 02008C5F / GetIsID 020A2AB2" at 135 without the
+  # reply line that activate_sel.png shows ("GetIsID >> 1.00"), and 130 and 145 read it. Returns the matching text and its
+  # threshold (th), else the first threshold's text and th = $null; ${name}_prep.png is the first threshold's image,
+  # ${name}_prep<th>.png a later one's.
+  $cap = Join-Path $Out "$name.png"
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
-  & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
-  $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
-  return @{ ocr = $txt; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
+  $first = $null; $hit = $null; $hitTh = $null
+  foreach ($th in $thresholds) {
+    $prep = if ($null -eq $first) { Join-Path $Out "${name}_prep.png" } else { Join-Path $Out "${name}_prep$th.png" }
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+    if ($null -eq $first) { $first = $txt }
+    if (-not $until -or $txt -match $until) { $hit = $txt; $hitTh = $th; break }
+  }
+  if ($null -eq $hit) { $hit = $first }
+  return @{ ocr = $hit; th = $hitTh; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
 }
 function Run-Console($cmds, [string]$phase) {
   # one console session per command: type it, capture the console, OCR, close. The OCR text and the capture
@@ -261,7 +277,17 @@ function Run-Console($cmds, [string]$phase) {
     Send "type:$c|key:enter|wait:900"
     $r = Read-Console "console_$k"
     Send 'key:grave|wait:800'
-    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    $rec = [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    if ($c.StartsWith($moveToPrefix)) {
+      # FO4SF_Probe.MoveTo (the scripted door's Step 0, 2026-10-16) can load another cell: wait for the HUD before the
+      # next console session (Console-Open would find the loading screen and end the step), then 3 s of game time for
+      # the script's "phase=settled" line (Utility.Wait 1.0 counts only while no menu is open). hud_back false: a
+      # popup or a load that did not end in 90 s (console_<k>_hud.png shows which); the next Console-Open decides.
+      $w = Wait-Hud 90 "console_${k}_hud.png"
+      $rec['hud_back'] = [bool]$w.up; $rec['load_s'] = $w.secs; $rec['hud_shot'] = "console_${k}_hud.png"
+      if ($w.up) { Start-Sleep 3 }
+    }
+    $obs['console'] += $rec
     Save-Obs
   }
 }
@@ -356,6 +382,12 @@ function Item-Capture([string[]]$cmds, [string[]]$need, [string]$tag = 'item') {
     if ($r -and $missing.Count -eq 0) { break }
   }
   return $r
+}
+function Self-Other([string]$self, [string]$ref) {
+  # GetSelf, after prid <ref>, named another ref than <ref>. 00000000 names none: form id 0 is never a reference. The
+  # movable queue of 2026-10-18 read GetSelf 00000000 after prid of every placed vanilla item but the first and called
+  # them all "another ref is selected" (INCONCLUSIVE SPAWN); GetIsID <base> 1 and the position still decide
+  return [bool]($self -and ($self -ne $ref) -and ($self -notmatch '^0{8}$'))
 }
 function Select-Item([string]$ref, [string]$base, [string]$tag = 'item') {
   # console open, prid <ref>, GetIsID <base> must read 1 (a second try only repeats the session: an OCR miss). Returns
@@ -529,6 +561,14 @@ switch ($kind) {
     Console-Open
     $r1 = Item-Capture @('plr') @('ref') 'spawn_plr'
     $pk = [ordered]@{ 'ref' = $null; self = $null; isid = $null; read = $null; place_ocr = $s0.ocr; plr_ocr = $r1.ocr }
+    if ("$($r1.ref)" -cnotmatch '^FF[0-9A-F]{6}$') {
+      # PickLastRef named no FFxxxxxx id (the movable queue of 2026-10-18, every converted item): once more after the
+      # game ran another 2 s (N0_base: plr named the citizen only after the game had run). Its OCR is kept either way
+      Send 'key:grave|wait:2000'
+      Console-Open
+      $r1 = Item-Capture @('plr') @('ref') 'spawn_plr2'
+      $pk['plr2_ocr'] = $r1.ocr
+    }
     if ("$($r1.ref)" -cmatch '^FF[0-9A-F]{6}$') {
       $pk['ref'] = "$($r1.ref)"
       $r2 = Item-Capture @("prid $($pk['ref'])", 'GetSelf') @('self') 'spawn_self'
@@ -542,7 +582,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $base read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it lies $([math]::Round($dist, 2)) m from the spot (more than $handleTol m)" }
@@ -595,7 +635,8 @@ switch ($kind) {
       Save-Obs
       # 8. the impulse ladder when the walk did not move it
       $d = Dist-3 $obs['item_before'] $obs['item_after']
-      if ($imps.Count -gt 0 -and $null -ne $d -and $d -lt $min) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
+      # (impulse_control: a vanilla control gets the ladder after any walk, the positive control for FAIL STUCK)
+      if ($imps.Count -gt 0 -and $null -ne $d -and ($d -lt $min -or $t.impulse_control -eq $true)) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
     }
     # 9. remove the item: disable and markfordelete on a confirmed selection only (a world ref is never touched)
     $clean = [ordered]@{ removed = $false }
@@ -796,12 +837,17 @@ switch ($kind) {
       if ($aref -notmatch '^[0-9A-Fa-f]{8}$' -or $abase -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
       Console-Open
       Send "type:prid $aref|key:enter|wait:400|type:GetIsID $abase|key:enter|wait:700"
-      $sel = Read-Console 'activate_sel'
       # the reply "GetIsID >> 1.00": on the echo's line, or (r05_medkit_1015f: the OCR split the row) as ">> 1.00" on the
       # line after the echo "GetIsID <8 hex>"; OCR confuses l/I/1 and sometimes loses the >>. The line anchor keeps a
-      # base id that starts with 1 from passing (the echo never ends in a lone 1)
-      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$')
-      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr }
+      # base id that starts with 1 from passing (the echo never ends in a lone 1). The one capture is read at each OCR
+      # threshold until the reply is found (core64g_accept_1016 0002: lost at 135, "Get ISID > > 1.00" at 140, which the
+      # pattern does not take, read at 130 and 145);
+      # obs.activate.sel_threshold is the threshold that read it (null: none did, sel_ocr is the first threshold's text)
+      $isidReply = '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$'
+      $sel = Read-Console 'activate_sel' $ocrThresholds $isidReply
+      $selected = [bool]("$($sel.ocr)" -match $isidReply)
+      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr;
+                                     sel_threshold = $sel.th }
       Save-Obs
       if ($selected) {
         Send "type:activate player|key:enter|wait:400|key:grave|wait:2500"
@@ -1030,7 +1076,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $npc read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it stands $([math]::Round($dist, 2)) m from the player at A (more than $handleTol m)" }
@@ -1110,7 +1156,7 @@ switch ($kind) {
       $pk2 = Pick-Npc 'remove'
       $da = Dist-XY $pk2['read'] $ax $ay; $db = Dist-XY $pk2['read'] $bx $by
       $near = ($null -ne $da) -and ([Math]::Min($da, $db) -lt 40)
-      $selfOk = (-not $pk2['self']) -or ($pk2['self'] -eq $pk2['ref'])
+      $selfOk = -not (Self-Other $pk2['self'] $pk2['ref'])
       $same = $pk2['ref'] -and ($pk2['ref'] -eq $spawnRef) -and $spawnNear -and ($pk2['self'] -eq $pk2['ref'])
       $ok = $pk2['ref'] -and $selfOk -and $near -and (($pk2['isid'] -eq 1) -or $same)
       $clean['by_plr'] = [ordered]@{ 'ref' = $pk2['ref']; self = $pk2['self']; isid = $pk2['isid']; read = $pk2['read']; near = $near }

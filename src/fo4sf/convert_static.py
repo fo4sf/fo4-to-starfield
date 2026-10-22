@@ -7,6 +7,7 @@ Unverified assumptions (see docs/RISKS.md S4): 1 Fallout 4 unit = 1/70 m, same h
 convention, Z-up in both. Collision, materials and skinning are not converted yet.
 """
 import hashlib
+import math
 import struct
 from dataclasses import replace
 from typing import Dict, Tuple
@@ -17,6 +18,17 @@ from . import sfcollision, sfmesh, sfnif
 UNIT_SCALE = 1.0 / 70.0           # Fallout 4 units -> metres (Starfield .mesh coordinates are metres)
 PLACEHOLDER_MATERIAL = "Materials\\Common\\Metal\\MetalIronCast01.mat"   # vanilla material, T0 look
 DYNAMIC_BSX = 0x42                 # havok + dynamic: 145 of 150 vanilla MiscItem NIFs (statics: mostly 0x2)
+
+
+def require_mass_scale(scale) -> float:
+    """CLI/API --mass-scale: finite and > 0. Rejects 0, negatives, nan, inf before any archive or staging I/O."""
+    try:
+        value = float(scale)
+    except (TypeError, ValueError):
+        raise ValueError("must be a finite positive number") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("must be a finite positive number")
+    return value
 
 
 def _sub(a, b):
@@ -129,24 +141,27 @@ def _rigid_ragdoll(src, objs, world, dynamic_template: bytes, motion: dict):
 
 
 def fo4_native_collision(src, universal_template: bytes, report: dict = None, dynamic_template: bytes = None,
-                         motion: dict = None):
+                         motion: dict = None, pose: dict = None, mass_scale: float = 1.0):
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
     report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
-    out and the rest of the model keeps its native bodies.
+    out and the rest of the model keeps its native bodies. report["mesh_fixes"]: what a mesh body needed for
+    Starfield's decoder (meshcollision._emit_mesh: primitive slots replaced, FO4 section flags cleared).
     dynamic_template (a vanilla dynamic body): a model whose only collision object sits on the root node and holds
     one dynamic FO4 body becomes movable (motion["dynamic"] = kg, the single blob is that body); so does a model whose
     collision objects share one all-dynamic system (ragdoll skeleton), merged into ONE rigid body (_rigid_ragdoll,
-    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"]."""
+    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"].
+    pose: {node block: local transform} (nif.world_transforms local_overrides, e.g. a reference's XRGD ragdoll pose):
+    every body sits on its node as posed."""
     from . import meshcollision
     objs = [i for i in range(len(src.blocks)) if src.type_of(i) == "bhkNPCollisionObject"]
     if not objs:
         return None
     motion = {} if motion is None else motion
-    blobs, skipped = [], []
+    blobs, skipped, notes = [], [], []
     # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
     # converted stairs the wrong way round; FO4's precombined physics only matches without it).
-    world = nifmod.world_transforms(src, placed=True)
+    world = nifmod.world_transforms(src, placed=True, local_overrides=pose)
     rigid = _rigid_ragdoll(src, objs, world, dynamic_template, motion) if dynamic_template is not None and len(objs) > 1 else None
     if rigid is not None:                            # phase A ragdoll: one rigid movable body on the root node
         if report is not None:
@@ -180,7 +195,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             dyn = dynamic_template if (len(objs) == 1 and target == 0) else None
             new = meshcollision.convert_bodies(src.blocks[data][4:4 + n], universal_template,
                                                select=[body] if shared > 1 else None, node_rot=tuple(rot),
-                                               skipped=skipped, dynamic_template=dyn, motion=motion)
+                                               skipped=skipped, dynamic_template=dyn, motion=motion, notes=notes,
+                                               mass_scale=mass_scale)
             node = place or ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
             for b in new:
                 if isinstance(b, tuple):                 # rotated compound instance: node transform * instance
@@ -197,6 +213,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             return None
     if report is not None and skipped:
         report["skipped_parts"] = skipped
+    if report is not None and notes:                     # what a mesh body needed for Starfield's decoder
+        report["mesh_fixes"] = notes
     if report is not None and blobs:
         report["source"] = "fo4-native"
         report["bodies"] = len(blobs)
@@ -205,6 +223,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
         report["mass_kg"] = round(motion["dynamic"], 4)
     if report is not None and motion.get("kept_static"):
         report["dynamic_kept_static"] = motion["kept_static"]
+    if report is not None and motion.get("relayered"):      # frozen L_CLUTTER_NOCUT leaves written as L_STATIC
+        report["relayered"] = motion["relayered"]
     return blobs or None
 
 
@@ -231,23 +251,92 @@ def fo4_mesh_collision(src, sf_mesh_template: bytes, report: dict = None):
     return None
 
 
+ANIMATED_BLOCKS = ("NiControllerManager", "NiControllerSequence")
+
+
+def pose_skinned_shapes(src, shapes, report: dict = None, world=None):
+    """Skinned shapes posed the way the NIF's nodes stand (fo4skin.node_world), in NIF root space with an identity shape
+    transform, so the mesh lands where FO4 draws it and where its bone-node collision is (research log 2026-10-10 "FO4
+    skin reader": SkeletonClothed01's root bone is turned 45 degrees from the bind pose; a vault sink's tap is stored at
+    the model origin and posed on the basin rim). Normals and tangents turn with each vertex's heaviest bone. The node
+    pose is the rest pose of animated NIFs too (controllers move nodes from there; the sink's tap is only right when
+    posed), so they are posed as well and counted in report["skinned_posed_animated"] for the in-game check. Unreadable
+    skins keep the stored positions, counted in report["skinned_kept_stored"].
+    world: the nif.world_transforms lookup the bones are read from; default placed=True, the frame fo4_trishapes(placed=
+    True) and fo4_native_collision use (the scene root's own transform left out), so mesh and bodies stay together.
+    A reference's ragdoll pose (local_overrides) comes in the same way."""
+    from . import fo4skin
+    world = world or nifmod.world_transforms(src, placed=True)
+    animated = any(src.type_of(i) in ANIMATED_BLOCKS for i in range(len(src.blocks)))
+    out, posed, kept, odd_root = [], 0, 0, 0
+    ident = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    for s in shapes:
+        if not s.skinned:
+            out.append(s)
+            continue
+        try:
+            skin = fo4skin.read_skin(src, s.block)
+            bones = fo4skin.node_world(src, skin, world) if skin else None
+        except (nifmod.NifError, ValueError, struct.error):
+            skin = bones = None
+        if skin is None or bones is None:
+            kept += 1
+            out.append(s)
+            continue
+        if skin.skeleton_root not in (0, -1):            # untested case (QA on PR #45): every vanilla file checked roots at block 0
+            odd_root += 1
+        positions = fo4skin.pose_vertices(s.positions, skin, bones)
+        rots = [r for _, r, _ in fo4skin.skin_transforms(skin, bones)]
+
+        def turn(vecs):
+            res = []
+            for v, ws, ks in zip(vecs, skin.weights, skin.indices):
+                r = rots[ks[max(range(len(ws)), key=lambda j: ws[j])]]
+                d = (r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2],
+                     r[6] * v[0] + r[7] * v[1] + r[8] * v[2])
+                ln = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
+                res.append((d[0] / ln, d[1] / ln, d[2] / ln))
+            return res
+        out.append(replace(s, positions=positions, normals=turn(s.normals) if s.normals else s.normals,
+                           tangents=turn(s.tangents) if s.tangents else s.tangents,
+                           translation=(0.0, 0.0, 0.0), rotation=ident, scale=1.0))
+        posed += 1
+    if report is not None:
+        if posed:
+            report["skinned_posed"] = posed
+            if animated:
+                report["skinned_posed_animated"] = posed
+        if kept:
+            report["skinned_kept_stored"] = kept
+        if odd_root:
+            report["skinned_root_not_block0"] = odd_root   # posed in NIF root space anyway; flagged for the in-game look
+    return out
+
+
 def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLDER_MATERIAL,
                    unit_scale: float = UNIT_SCALE, collision_template: bytes = None,
                    material_paths: list = None, collision_mode: str = "box",
                    include_skinned: bool = False, report: dict = None, sf_mesh_template: bytes = None,
-                   allow_guess: bool = True, dynamic_template: bytes = None) -> Dict[str, bytes]:
+                   allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None,
+                   mass_scale: float = 1.0) -> Dict[str, bytes]:
     """collision_mode: "box" = one AABB on the root; "surfaces" = thin boxes behind flat surfaces, one body each.
     sf_mesh_template: a vanilla Starfield mesh-collision blob; when given, FO4's own collision mesh is transplanted
     (meshcollision.transplant) and the box methods are only the fallback.
     allow_guess=False: FO4's own collision or nothing, never a guessed box (vegetation, mounds, door frames: a box
     around them would be an invisible wall). A failed native conversion is reported as "fo4-native-failed".
     dynamic_template: FO4 loose items (one dynamic body on the root) become movable: their body goes on the root node
-    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"])."""
+    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"]).
+    pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
+    reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
+    pose; the result is a model for that reference only (placed_pose)."""
+    mass_scale = require_mass_scale(mass_scale)
     src = nifmod.parse(fo4_nif)
-    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True)
+    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
               if (include_skinned or not s.skinned) and s.positions and s.triangles]
     if not shapes:
         raise nifmod.NifError("no static BSTriShape geometry found")
+    if include_skinned:                                       # node pose (or the reference's pose), as FO4 draws them
+        shapes = pose_skinned_shapes(src, shapes, report, nifmod.world_transforms(src, placed=True, local_overrides=pose))
     files, static_shapes, all_pts, all_tris = {}, [], [], []
     for i, s in enumerate(shapes):
         if material_paths and material_paths[i] is None:      # caller asked to drop this shape (e.g. effect shader)
@@ -269,7 +358,9 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     fo4_has_collision = any(src.type_of(i) == "bhkNPCollisionObject" for i in range(len(src.blocks)))
     if sf_mesh_template is not None and collision_template is not None:
         native = fo4_native_collision(src, sf_mesh_template, report,      # FO4's own bodies as native Starfield bodies
-                                      dynamic_template=dynamic_template, motion=motion)
+                                      dynamic_template=dynamic_template, motion=motion,
+                                      mass_scale=mass_scale,
+                                      **({"pose": pose} if pose is not None else {}))
     if sf_mesh_template is not None and collision_template is not None and not fo4_has_collision:
         # FO4 gives this model no collision (rubble, debris, paper, signs, posters, plants): the player walks through
         # it there, so it gets none here either. A guessed box would be an invisible wall.
@@ -338,7 +429,7 @@ def convert_door(fo4_nif: bytes, out_name: str, material_paths: list, unit_scale
         lo = [min(p[a] for p in moving_pts) for a in range(3)]
         hi = [max(p[a] for p in moving_pts) for a in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[a] + hi[a]) / 2 for a in range(3)),
-                                    tuple(max(0.02, (hi[a] - lo[a]) / 2) for a in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[a] - lo[a]) / 2) for a in range(3)))
         if leaf_physics_donor is not None:      # a static body pins its node: make it keyframed like vanilla door leaves
             blob = sfcollision.keyframed(blob, leaf_physics_donor)
     out = sfnif.build_door_nif(out_name.rsplit("/", 1)[-1].encode(), static_shapes, moving_shapes, template,
@@ -370,8 +461,95 @@ def _apply(transform, point):
     return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
 
 
+BIND_TOLERANCE = 1e-4      # skin_to_bone entries that still count as one bind (float rounding)
+
+
+def _same_bind(a, b):
+    """Two (t, R, s) skin_to_bone transforms equal within BIND_TOLERANCE (relative for translation)."""
+    (ta, ra, sa), (tb, rb, sb) = a, b
+    scale = max(1.0, *(abs(x) for x in tuple(ta) + tuple(tb)))
+    return (all(abs(x - y) <= BIND_TOLERANCE * scale for x, y in zip(ta, tb))
+            and all(abs(x - y) <= BIND_TOLERANCE for x, y in zip(ra, rb)) and abs(sa - sb) <= BIND_TOLERANCE)
+
+
+RIGID_SKIN_TOLERANCE = 1e-3   # weight a rigid vertex may put on other bones: half-float rounding, not a blend
+# (Codex on #354: 0.995 / 0.005 across two bones was accepted and drifted 5 cm from real skinning at 10 m of travel)
+
+
+def rigid_skinned_parts(src, shape, bones):
+    """A skinned door shape whose every drawn vertex follows one bone fully, cut into one piece per bone and re-expressed
+    in that bone's space so the rig carries each piece as an ordinary attachment: [(bone index, shape), ...] or None.
+    Weight 1 on one bone makes skinning bone_world * skin_to_bone, so bone-local positions are skin_to_bone(stored) and a
+    piece moves exactly as FO4 draws it, at any pose (RedRPedDoor.nif, PC check 2026-10-18: Door:0 is wholly on b_Door,
+    Door:7 has 363 vertices on b_Door and 118 on b_Handle, none blended). A vertex putting more than
+    RIGID_SKIN_TOLERANCE of its weight on other bones (a blend), two slots of one bone with different skin_to_bone (the
+    weighted result is then not either bind; Codex on #354), a triangle across two bones or a bone outside the rig
+    give None."""
+    from . import fo4skin
+    try:
+        skin = fo4skin.read_skin(src, shape.block)
+    except (nifmod.NifError, ValueError, struct.error):
+        return None
+    if skin is None or len(skin.weights) != len(shape.positions):
+        return None
+    slot_of = {}
+    for v in {i for t in shape.triangles for i in t}:
+        per_bone = {}                              # weights summed per bone node (two slots may name one bone)
+        for w, k in zip(skin.weights[v], skin.indices[v]):
+            if w:
+                if not 0 <= k < len(skin.bones):
+                    return None
+                entry = per_bone.setdefault(skin.bones[k], [0.0, k])
+                if k != entry[1] and not _same_bind(skin.skin_to_bone[k], skin.skin_to_bone[entry[1]]):
+                    return None                    # one bone, two different inverse binds: one bind cannot stand in
+                entry[0] += w
+        total = sum(w for w, _ in per_bone.values())
+        if total <= 0:
+            return None
+        bone = max(per_bone, key=lambda b: per_bone[b][0])
+        if total - per_bone[bone][0] > RIGID_SKIN_TOLERANCE * total:     # a real blend, however small: refuse
+            return None
+        slot_of[v] = per_bone[bone][1]
+    by_slot = {}
+    for t in shape.triangles:
+        slots = {slot_of[i] for i in t}
+        if len(slots) != 1:
+            return None
+        by_slot.setdefault(slots.pop(), []).append(t)
+    index = {b.get("node"): i for i, b in enumerate(bones) if b.get("node") is not None}
+    if any(skin.bones[k] not in index for k in by_slot):
+        return None
+    parts = []
+    for slot in sorted(by_slot):
+        tris = by_slot[slot]
+        keep = sorted({i for t in tris for i in t})
+        remap = {v: n for n, v in enumerate(keep)}
+        xf = skin.skin_to_bone[slot]
+        r = xf[1]
+
+        def turn(vecs):
+            out = []
+            for v in vecs:
+                d = tuple(r[3 * a] * v[0] + r[3 * a + 1] * v[1] + r[3 * a + 2] * v[2] for a in range(3))
+                ln = math.sqrt(sum(x * x for x in d)) or 1.0
+                out.append(tuple(x / ln for x in d))
+            return out
+
+        def pick(values):
+            return [values[v] for v in keep] if values else values
+        parts.append((index[skin.bones[slot]], replace(
+            shape, positions=[fo4skin.apply(xf, shape.positions[v]) for v in keep], uvs=pick(shape.uvs),
+            normals=turn(pick(shape.normals)) if shape.normals else shape.normals,
+            tangents=turn(pick(shape.tangents)) if shape.tangents else shape.tangents, colors=pick(shape.colors),
+            triangles=[tuple(remap[i] for i in t) for t in tris],
+            translation=(0.0, 0.0, 0.0), rotation=(1, 0, 0, 0, 1, 0, 0, 0, 1), scale=1.0, skinned=False)))
+    return parts
+
+
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
-                           collision_template: bytes = None, leaf_physics_donor: bytes = None) -> Tuple[Dict[str, bytes], dict]:
+                           collision_template: bytes = None, leaf_physics_donor: bytes = None,
+                           rest_pose_check: bool = False, aliases: dict = None,
+                           drop_skinned: bool = False) -> Tuple[Dict[str, bytes], dict]:
     """FO4 door whose "Open" sequence moves geometry under more than one node (frozen_door_parts: double doors,
     shutters, sliding panel sets) -> Starfield door with its OWN rig and clips, as vanilla double doors have
     (IndIntRmSmWallMid_DoorA01: one rig bone and one clip track per leaf, one keyframed body per leaf).
@@ -384,14 +562,21 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     with the external CALUMI library); they are stored next to the NIF under meshes/<out_name>/.
     material_paths: one per shape of nif.fo4_trishapes(src) with geometry, None = left out (effect shaders, markers).
     The NIF keeps FO4's origin, so the reference needs no offset. Returns (files, door) where door is the manifest entry
-    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files)."""
+    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files).
+    rest_pose_check: refuse a door whose Open does not start, or whose Close does not end, at the bind pose
+    (door_rig.rest_pose_issue; the sliding / lifting route, which takes every NOT_HINGED_RE door).
+    aliases: door_rig.plan's sequence aliases (an animated activator converted as a door, pipeline.OWN_RIG_ALIASES).
+    drop_skinned: leave skinned shapes out instead of refusing the door (a rig cannot carry them); the door entry lists
+    them under "dropped_skinned_shapes"."""
     from . import door_model, door_rig, native_door
     if collision_template is None or leaf_physics_donor is None:
         raise ValueError("multi-part door needs the box template and a keyframed donor body")
     src = nifmod.parse(fo4_nif)
-    plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True))
+    plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True, aliases=aliases))
     if sorted(c["name"] for c in plan["clips"]) != ["Close", "Open"]:
         raise nifmod.NifError("door needs exactly one Open and one Close sequence")   # the graph plays both
+    if rest_pose_check and (issue := door_rig.rest_pose_issue(plan)):
+        raise nifmod.NifError(issue)
     base = out_name.rsplit("/", 1)[-1]
     lowered = [b["name"].lower() for b in plan["bones"]] + [("FO4Port_" + base).lower()]
     if len(set(lowered)) != len(lowered):           # Bethesda node-name lookups have ignored case in earlier engines
@@ -400,9 +585,31 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     if len(material_paths) != len(shapes):
         raise ValueError("one material entry per shape required")
     kept = {s.block: (s, m) for s, m in zip(shapes, material_paths) if m is not None}
-    if any(s.skinned for s, _ in kept.values()):
-        raise nifmod.NifError("skinned door shapes cannot be rigged")
-    plan["attachments"] = [a for a in plan["attachments"] if a["shape"] in kept]
+    shape_name = lambda b, s: (s.name or f"Shape{b}".encode()).decode("latin-1")    # noqa: E731
+    rebound = {}                         # piece key -> rig bone it rides rigidly (rigid_skinned_parts); one piece per bone
+    for b, (s, m) in list(kept.items()):
+        if s.skinned and (parts := rigid_skinned_parts(src, s, plan["bones"])) is not None:
+            del kept[b]
+            for k, (bone, piece) in enumerate(parts):
+                key = b if len(parts) == 1 else f"{b}.{k}"
+                kept[key] = (piece, m)
+                rebound[key] = bone
+    dropped_skinned = sorted(shape_name(b, s) for b, (s, _) in kept.items() if s.skinned)
+    if dropped_skinned and not drop_skinned:
+        raise nifmod.NifError("skinned door shapes cannot be rigged (blended or off-rig weights)")
+    kept = {b: v for b, v in kept.items() if not v[0].skinned}
+    ident = {"translation_source_units": [0.0, 0.0, 0.0], "rotation_row_major": [1, 0, 0, 0, 1, 0, 0, 0, 1], "scale": 1.0}
+    pieces = {}                                    # source shape block -> its piece keys
+    for key in rebound:
+        pieces.setdefault(int(str(key).split(".")[0]), []).append(key)
+    attachments = []
+    for a in plan["attachments"]:
+        if a["shape"] in pieces:
+            attachments += [{**a, "shape": key, "bone": rebound[key], "local_transform": dict(ident)}
+                            for key in pieces[a["shape"]]]
+        elif a["shape"] in kept:
+            attachments.append(a)
+    plan["attachments"] = attachments
     if not plan["attachments"]:
         raise nifmod.NifError("door has no rendered geometry")
     files, sf_shapes, local_pts = {}, {}, {}
@@ -444,7 +651,7 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
         lo = [min(p[k] for p in pts) for k in range(3)]
         hi = [max(p[k] for p in pts) for k in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[k] + hi[k]) / 2 for k in range(3)),
-                                    tuple(max(0.02, (hi[k] - lo[k]) / 2) for k in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[k] - lo[k]) / 2) for k in range(3)))
         collision[bones[i]["node"]] = sfcollision.keyframed(blob, leaf_physics_donor)
     if not collision:
         raise nifmod.NifError("door has no moving geometry")
@@ -463,5 +670,15 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
             "rig": "native",
             "animated_bones": sorted({bones[i]["name"] for i in range(len(bones)) if bones[i]["node"] in animated}),
             "moving_bodies": len(collision),
+            "open_motion": door_rig.open_motion(plan, unit_scale),
             "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
+    if plan.get("ignored_tracks"):                  # shader / visibility tracks FO4 also plays: not ported, said so
+        door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
+    if dropped_skinned:
+        door["dropped_skinned_shapes"] = dropped_skinned
+    if rebound:
+        door["rebound_skinned_shapes"] = sorted({shape_name(b, kept[b][0]) for b in rebound})
+        door["rebound_skinned_pieces"] = len(rebound)
+    if aliases:
+        door["sequence_aliases"] = dict(aliases)
     return files, door

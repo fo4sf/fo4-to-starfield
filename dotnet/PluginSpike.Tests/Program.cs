@@ -1,5 +1,6 @@
-// Synthetic checks for TeleportLinks (load-door teleports between converted cells). No game data: two synthetic cells, a
-// graph-less DOOR base, a STAT base, hand-written cell exports.
+// Synthetic checks for TeleportLinks (load-door teleports between converted cells) and for PluginSpike's door state
+// (open by default, locks; run through its entry point). No game data: synthetic cells, a graph-less DOOR base, a STAT
+// base, hand-written manifests and cell exports.
 //   dotnet run --project dotnet/PluginSpike.Tests
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
@@ -9,6 +10,8 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 
 void Require(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
+// an asset path as written, with either separator (Mutagen gives back Windows separators on Windows: Codex, #357)
+static string? AssetPath(object? file) => file?.ToString()?.Replace('\\', '/');
 var release = StarfieldRelease.Starfield;
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
@@ -106,3 +109,694 @@ try
 }
 finally { Directory.Delete(directory, true); }
 Console.WriteLine("Load-door teleport synthetic checks and binary round-trip passed.");
+
+// ---- posed models (PosedBases): a reference with its own posed model gets that base, every other reference keeps the
+// shared base of its model; malformed or conflicting pose entries fail the build instead of placing the wrong base.
+using var poseManifest = JsonDocument.Parse("""
+{"items":[
+ {"editor_id":"FO4Port_Skel","model":"fo4port\\skel.nif","source":"meshes\\SetDressing\\Skel.nif"},
+ {"editor_id":"FO4Port_Skel_xrgd_0123456789","model":"fo4port\\skel_xrgd_0123456789.nif","source":"meshes\\SetDressing\\Skel.nif",
+  "pose":{"kind":"xrgd","key":"0123456789","refs":["0A:Fallout4.esm","0B:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Bad","model":"x.nif","source":"meshes\\x.nif","pose":{"kind":"xrgd","refs":[]}}]}
+""");
+var poseItems = poseManifest.RootElement.GetProperty("items").EnumerateArray().ToList();
+Require(PosedBases.RefsOf(poseItems[0]).Count == 0, "ordinary item reported as posed");
+Require(PosedBases.RefsOf(poseItems[1]).SequenceEqual(new[] { "0A:Fallout4.esm", "0B:Fallout4.esm" }), "posed references not read");
+var emptyRefs = false;
+try { PosedBases.RefsOf(poseItems[2]); } catch (InvalidOperationException) { emptyRefs = true; }
+Require(emptyRefs, "a pose without references was accepted");
+var byRefBases = new Dictionary<string, string>();
+var bySourceBases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+foreach (var it in poseItems.Take(2))                                     // posed item first or last: same result
+    PosedBases.Register(byRefBases, bySourceBases, it.GetProperty("source").GetString()!, PosedBases.RefsOf(it),
+                        it.GetProperty("editor_id").GetString()!);
+Require(bySourceBases.Count == 1 && bySourceBases["meshes\\setdressing\\skel.nif"] == "FO4Port_Skel", "posed item replaced the shared base");
+Require(PosedBases.TryResolve(byRefBases, bySourceBases, "0A:Fallout4.esm", "SetDressing\\Skel.nif", out var posedBase)
+        && posedBase == "FO4Port_Skel_xrgd_0123456789", "posed reference did not get its own base");
+Require(PosedBases.TryResolve(byRefBases, bySourceBases, "0C:Fallout4.esm", "SetDressing\\Skel.nif", out var sharedBase)
+        && sharedBase == "FO4Port_Skel", "unposed reference of the same model lost the shared base");
+Require(!PosedBases.TryResolve(byRefBases, bySourceBases, "0D:Fallout4.esm", "SetDressing\\Other.nif", out _)
+        && !PosedBases.TryResolve(byRefBases, bySourceBases, "0E:Fallout4.esm", "", out _), "unconverted model resolved");
+var twice = false;
+try { PosedBases.Register(byRefBases, bySourceBases, "meshes\\SetDressing\\Skel.nif", new[] { "0B:Fallout4.esm" }, "FO4Port_Skel_xrgd_other"); }
+catch (InvalidOperationException) { twice = true; }
+Require(twice && byRefBases["0B:Fallout4.esm"] == "FO4Port_Skel_xrgd_0123456789", "a reference with two posed models was accepted");
+Console.WriteLine("Posed-model base selection checks passed.");
+
+// ---- posed models end to end (PR #244 review): run PluginSpike itself on a synthetic manifest (a shared and a posed
+// MoveableStatic, the posed one last; a posed and a shared Static, the posed one first) and one cell export, then read the
+// written plugin back and check every reference's base. Catches a base path in Program.cs that bypasses PosedBases.
+var spikeDir = Path.Combine(Path.GetTempPath(), "fo4sf-posed-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(spikeDir);
+var oldSfData = Environment.GetEnvironmentVariable("STARFIELD_DATA");
+try
+{
+    File.WriteAllText(Path.Combine(spikeDir, "manifest.json"), """
+{"items":[
+ {"editor_id":"FO4Port_Skel","model":"fo4port\\skel.nif","source":"meshes\\SetDressing\\Skel.nif","movable":{"mass_kg":10}},
+ {"editor_id":"FO4Port_Skel_xrgd_0123456789","model":"fo4port\\skel_xrgd_0123456789.nif","source":"meshes\\SetDressing\\Skel.nif",
+  "movable":{"mass_kg":10},"pose":{"kind":"xrgd","refs":["0A:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Saw_xrgd_abcdef0123","model":"fo4port\\saw_xrgd_abcdef0123.nif","source":"meshes\\SetDressing\\Saw.nif",
+  "pose":{"kind":"xrgd","refs":["0C:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Saw","model":"fo4port\\saw.nif","source":"meshes\\SetDressing\\Saw.nif"}]}
+""");
+    string Ref(string fk, string model) =>
+        $$"""{"formkey":"{{fk}}","model":"{{model}}","base_editor_id":"X","type":"Static","scale":1.0,"pos":[0,0,0],"rot":[0,0,0]}""";
+    File.WriteAllText(Path.Combine(spikeDir, "cell.json"), "{\"cell\":\"Posed\",\"refs\":[" + string.Join(",",
+        Ref("0A:Fallout4.esm", "SetDressing\\\\Skel.nif"), Ref("0B:Fallout4.esm", "SetDressing\\\\Skel.nif"),
+        Ref("0C:Fallout4.esm", "SetDressing\\\\Saw.nif"), Ref("0D:Fallout4.esm", "SetDressing\\\\Saw.nif"),
+        Ref("0E:Fallout4.esm", "SetDressing\\\\Other.nif")) + "]}");
+    Environment.SetEnvironmentVariable("STARFIELD_DATA", spikeDir);        // masters come from WithKnownMasters
+    typeof(PosedBases).Assembly.EntryPoint!.Invoke(null, new object[] {
+        new[] { spikeDir, Path.Combine(spikeDir, "manifest.json"), Path.Combine(spikeDir, "cell.json") } });
+    var sfMaster = ModKey.FromNameAndExtension("Starfield.esm");
+    var spikeMasters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+    spikeMasters.Set(new KeyedMasterStyle(sfMaster, MasterStyle.Full));
+    using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(spikeDir, "FO4Port.esm"), release,
+                                                            new BinaryReadParameters { MasterFlagsLookup = spikeMasters });
+    var baseIds = written.MoveableStatics.Select(x => (x.FormKey, x.EditorID)).Concat(written.Statics.Select(x => (x.FormKey, x.EditorID)))
+        .ToDictionary(x => x.FormKey, x => x.EditorID ?? "");
+    Require(written.MoveableStatics.Count == 2 && written.Statics.Count == 2, "expected 2 MSTT and 2 STAT bases");
+    var spikeIds = StableFormIds.Load(Path.Combine(spikeDir, "formids.json"));
+    var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single().Temporary
+        .OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey.ID, r => baseIds[r.Base.FormKey]);
+    string BaseOf(string fk) => refs[spikeIds["REFR:FO4Port_Posed:" + fk]];
+    Require(refs.Count == 4 && !spikeIds.ContainsKey("REFR:FO4Port_Posed:0E:Fallout4.esm"), "unconverted reference placed");
+    Require(BaseOf("0A:Fallout4.esm") == "FO4Port_Skel_xrgd_0123456789", "posed MSTT reference not on its posed base");
+    Require(BaseOf("0B:Fallout4.esm") == "FO4Port_Skel", "unposed MSTT reference not on the shared base");
+    Require(BaseOf("0C:Fallout4.esm") == "FO4Port_Saw_xrgd_abcdef0123", "posed STAT reference not on its posed base");
+    Require(BaseOf("0D:Fallout4.esm") == "FO4Port_Saw", "unposed STAT reference not on the shared base");
+}
+finally
+{
+    Environment.SetEnvironmentVariable("STARFIELD_DATA", oldSfData);
+    Directory.Delete(spikeDir, true);
+}
+Console.WriteLine("Posed-model plugin round trip passed.");
+
+// Review of PR #242, P3: an FO4 load reference that shares an opening door's model gets that model's DOOR base, which plays
+// its own rig (manifest rig "native"). Such a source is reported, not linked; a plain load door linking to it still links.
+{
+    var rigMod = new StarfieldMod(modKey, release);
+    var rigged = new Door(Key(0x902), release) { EditorID = "FO4Port_SyntheticElevatorDoor" };
+    var plainLoad = new Door(Key(0x903), release) { EditorID = "FO4Port_SyntheticLoadDoor2" };
+    rigMod.Doors.Add(rigged); rigMod.Doors.Add(plainLoad);
+    var third = MakeCell(0x802, "FO4Port_Third");
+    var up = Place(third, 0x820, rigged.FormKey, 1);
+    var down = Place(third, 0x821, plainLoad.FormKey, 2);
+    using var elevator = JsonDocument.Parse("""
+{"cell":"Third","refs":[
+ {"formkey":"U","teleport_destination":{"door":"V","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}},
+ {"formkey":"V","teleport_destination":{"door":"U","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}}]}
+""");
+    var rigPlaced = new Dictionary<string, (PlacedObject, Cell)> { ["U"] = (up, third), ["V"] = (down, third) };
+    var guarded = TeleportLinks.Apply(rigMod, rigPlaced, new[] { elevator.RootElement }, new HashSet<FormKey> { rigged.FormKey });
+    Require(up.TeleportDestination == null && guarded.Issues.Single().Source == "U" && guarded.Issues.Single().Reason.Contains("own opening rig"),
+            "XTEL written on a door with its own opening rig");
+    Require(guarded.Linked == 1 && down.TeleportDestination!.Door.FormKey == up.FormKey, "plain load door no longer links");
+}
+
+// Review of PR #242, P2: PluginSpike end to end (its entry point, a synthetic manifest and cell export). FO4's open-by-default
+// state reaches the placed references of animated DOOR bases, never a STAT; FO4 lock data is counted, not written.
+{
+    var doorDir = Path.Combine(Path.GetTempPath(), "fo4sf-doorstate-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(doorDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(doorDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\doors\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations",
+          "origin_offset":[0,0,0],"rig":"native"}},
+ {"editor_id":"FO4Port_SynthWall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}
+""");
+        var export = Path.Combine(doorDir, "Synth.json");
+        File.WriteAllText(export, """
+{"cell":"Synth","formkey":"cell","refs":[
+ {"formkey":"000801:Fallout4.esm","base_editor_id":"D","type":"Door","model":"doors\\d.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,
+  "open_by_default":true,"lock_data":null},
+ {"formkey":"000802:Fallout4.esm","base_editor_id":"D","type":"Door","model":"doors\\d.nif","pos":[70,0,0],"rot":[0,0,0],"scale":1,
+  "open_by_default":false,"lock_data":{"level":253,"key":null,"flags":0,"unused":0}},
+ {"formkey":"000803:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[140,0,0],"rot":[0,0,0],"scale":1,
+  "open_by_default":true}]}
+""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", doorDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(TeleportLinks).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var spikeMasters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        spikeMasters.Set(new KeyedMasterStyle(ModKey.FromNameAndExtension("Starfield.esm"), MasterStyle.Full));
+        using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+            new BinaryReadParameters { MasterFlagsLookup = spikeMasters });
+        var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+            .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+        IPlacedObjectGetter Ref(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Synth:{fo4}:Fallout4.esm"])];
+        Require(Ref("000801").OpenByDefault, "FO4 open-by-default door written shut");
+        Require(!Ref("000802").OpenByDefault && Ref("000802").Lock == null, "shut FO4 door opened or given a lock");
+        Require(!Ref("000803").OpenByDefault, "open-by-default written on a STAT reference");
+        Require(log.ToString().Contains("doors: 1 open by default (as in FO4), 1 locked in FO4 (lock not written)"), "door state not reported:\n" + log);
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(doorDir, true); }
+}
+Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed.");
+
+// Load doors that open before the trip (load_door.anim, scripts/door_bridge/load_door_anim.py): PluginSpike end to end.
+// The animated load door gets the rig's graph, skeleton and clips and the twin's model, its reference shifts by the rig's
+// origin offset; a load door without "anim" stays the graph-less DOOR every earlier build wrote.
+{
+    var animDir = Path.Combine(Path.GetTempPath(), "fo4sf-loadanim-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(animDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(animDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoorLoad","model":"fo4port\\doorload.nif","source":"meshes\\doors\\doorload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],
+   "anim":{"anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx","skeleton":"t\\skeleton.rig","animations":"t\\animations",
+           "origin_offset":[0.5,0,0],"bounds":[[-1.5,-0.1,0],[0.5,0.1,2.2]],"model":"fo4port\\door.nif","twin":"meshes\\doors\\door.nif",
+           "open_seconds":1.0333}}},
+ {"editor_id":"FO4Port_SynthPlainLoad","model":"fo4port\\plainload.nif","source":"meshes\\doors\\plainload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}},
+ {"editor_id":"FO4Port_SynthTplLoad","model":"fo4port\\tplload.nif","source":"meshes\\doors\\tplload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],"fo4_door_flags":138,
+   "anim":{"anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx","skeleton":"ak\\skeleton.rig","animations":"ak\\animations",
+           "origin_offset":[0,0,0],"bounds":[[-1,-0.1,0],[1,0.1,2.2]],"open_seconds":1.0333,
+           "xtel_anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx",
+           "open_sound":{"start":"11111111-2222-3333-4444-555555555555","stop":"00000000-0000-0000-0000-000000000000","condition":null,"mapping":"000ABC:Starfield.esm"},
+           "close_sound":{"start":"66666666-2222-3333-4444-555555555555","stop":"00000000-0000-0000-0000-000000000000"}}}}]}
+""");
+        var export = Path.Combine(animDir, "Anim.json");
+        File.WriteAllText(export, """
+{"cell":"Anim","formkey":"cell","refs":[
+ {"formkey":"000A01:Fallout4.esm","base_editor_id":"DL","type":"Door","model":"doors\\doorload.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
+ {"formkey":"000A02:Fallout4.esm","base_editor_id":"PL","type":"Door","model":"doors\\plainload.nif","pos":[70,0,0],"rot":[0,0,0],"scale":1},
+ {"formkey":"000A03:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[140,0,0],"rot":[0,0,0],"scale":1,"teleport_destination":{"door":"000A04:Fallout4.esm","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}},
+ {"formkey":"000A04:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[210,0,0],"rot":[0,0,0],"scale":1,"teleport_destination":{"door":"000A03:Fallout4.esm","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}},
+ {"formkey":"000A05:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[280,0,0],"rot":[0,0,0],"scale":1}]}
+""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", animDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(TeleportLinks).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var spikeMasters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        spikeMasters.Set(new KeyedMasterStyle(ModKey.FromNameAndExtension("Starfield.esm"), MasterStyle.Full));
+        using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+            new BinaryReadParameters { MasterFlagsLookup = spikeMasters });
+        var doorsBy = written.Doors.ToDictionary(x => x.EditorID!);
+        var animated = doorsBy["FO4Port_SynthDoorLoad"];
+        var graph = animated.Components.OfType<IAnimationGraphComponentGetter>().Single();
+        Require(graph.ANAM == "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx" && graph.BNAM == "t\\skeleton.rig" && graph.CNAM == "t\\animations",
+                "animated load door lost its graph, skeleton or clips");
+        Require(AssetPath(animated.Model?.File)?.EndsWith("fo4port/door.nif") == true, "animated load door does not use the twin's rigged model: " + AssetPath(animated.Model?.File));
+        Require(animated.ObjectBounds.First.X == -1.5f && animated.ObjectBounds.Second.X == 0.5f, "animated load door keeps the static model's bounds");
+        var plainDoor = doorsBy["FO4Port_SynthPlainLoad"];
+        Require(!plainDoor.Components.Any() && AssetPath(plainDoor.Model?.File)?.EndsWith("fo4port/plainload.nif") == true, "a load door without anim changed");
+        var cellRec = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single();
+        var refs = cellRec.Temporary.Concat(cellRec.Persistent).OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+        IPlacedObjectGetter Ref(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Anim:{fo4}:Fallout4.esm"])];
+        // a template-rigged load door with xtel_anim_graph: its XTEL references play the vanilla load graph on a copy of the
+        // record (same model, skeleton and clips); a reference of the same door without an XTEL (scripted) keeps the original
+        var tpl = doorsBy["FO4Port_SynthTplLoad"];
+        var tplXtel = doorsBy["FO4Port_SynthTplLoad_XtelLoad"];
+        var xg = tplXtel.Components.OfType<IAnimationGraphComponentGetter>().Single();
+        Require(xg.ANAM == "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx" && xg.BNAM == "ak\\skeleton.rig" && xg.CNAM == "ak\\animations",
+                "XTEL copy lost the load graph, skeleton or clips");
+        Require(tpl.Components.OfType<IAnimationGraphComponentGetter>().Single().ANAM.EndsWith("SimpleOpenClose01.agx"), "scripted record lost its graph");
+        Require(AssetPath(tplXtel.Model?.File) == AssetPath(tpl.Model?.File), "XTEL copy has another model");
+        // load_door_anim.py flags: FO4's FNAM bits on both records (0x8A: Automatic and Minimal Use; 0x80 is not an FO4 bit and
+        // is dropped); a door without fo4_door_flags keeps 0
+        Require((int)tpl.Flags == 0x0A && (int)tplXtel.Flags == 0x0A, $"FO4 door flags not copied: {tpl.Flags} / {tplXtel.Flags}");
+        Require((int)plainDoor.Flags == 0 && (int)animated.Flags == 0, "door flags written without fo4_door_flags");
+        Require(Ref("000A03").Base.FormKey == tplXtel.FormKey && Ref("000A04").Base.FormKey == tplXtel.FormKey, "XTEL references not on the load-graph copy");
+        Require(Ref("000A03").TeleportDestination != null && Ref("000A05").TeleportDestination == null && Ref("000A05").Base.FormKey == tpl.FormKey,
+                "reference without an XTEL moved onto the load-graph copy");
+        // load_door_anim.py sounds: the vanilla door's WWise events on both records; doors without them stay silent
+        foreach (var r in new[] { tpl, tplXtel })
+            Require(r.OpenSound?.Start == Guid.Parse("11111111-2222-3333-4444-555555555555") && r.OpenSound.EventMapping.FormKey.ID == 0xABC
+                    && r.CloseSound?.Start == Guid.Parse("66666666-2222-3333-4444-555555555555") && r.CloseSound.EventMapping.IsNull,
+                    "vanilla door sounds not written on " + r.EditorID);
+        Require(animated.OpenSound == null && plainDoor.OpenSound == null, "sounds written on a door without them");
+        Require(!doorsBy.ContainsKey("FO4Port_SynthDoorLoad_XtelLoad"), "load-graph copy written for a rig without xtel_anim_graph");
+        Require(log.ToString().Contains("2 animated load doors on their load graph"), "load-graph moves not reported:\n" + log);
+        Require(Math.Abs(Ref("000A01").Position.X - 0.5f) < 1e-5 && Ref("000A01").Base.FormKey == animated.FormKey, "animated load door reference not shifted by the rig's origin offset");
+        Require(Math.Abs(Ref("000A02").Position.X - 1f) < 1e-5 && Ref("000A02").Base.FormKey == plainDoor.FormKey, "plain load door reference moved");
+        Require(log.ToString().Contains("3 load doors (2 open before the trip)"), "animated load doors not counted:\n" + log);
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(animDir, true); }
+}
+Console.WriteLine("Animated load-door checks passed.");
+
+// Interior promotions (Promotions.cs, scripts/terrain/port_promote.py): PluginSpike end to end with a promote.json. FO4
+// containers, inventory items, activators and terminals get a CONT / MISC / ACTI / TERM + TMLM base carrying the model
+// their STAT / MSTT would have had, shared per edid; the reference keeps its stable REFR FormID; a door base is kept; two
+// entries of one edid that disagree stop the build.
+{
+    var promoDir = Path.Combine(Path.GetTempPath(), "fo4sf-promote-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(promoDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        // a synthetic master holding the vanilla terminal template 0155A2 with a furniture block
+        var master = new StarfieldMod(sfKey, release);
+        master.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        var marker = new Keyword(new FormKey(sfKey, 0x000900), release) { EditorID = "SynthFurnitureKeyword" };
+        master.Keywords.Add(marker);
+        master.Terminals.Add(new Terminal(new FormKey(sfKey, 0x0155A2), release)
+        {
+            EditorID = "OE_AustinF_DeployMicrobe_Terminal", MarkerModel = "Furniture\\furn_human_standingterminal.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+        });
+        // and a vanilla chair template 0027D5 (as NPCChairTech03_Free_270: one marker, one Sit entry block)
+        master.Furniture.Add(new Furniture(new FormKey(sfKey, 0x0027D5), release)
+        {
+            EditorID = "NPCChairTech03_Free_270", MarkerModel = "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+            MarkerParameters = new ExtendedList<FurnitureMarkerParameters> { new FurnitureMarkerParameters { Offset = new P3Float(0, 0.12f, 0) } },
+            MarkerEntryPoints = new ExtendedList<FurnitureMarkerEntryPoints> { new FurnitureMarkerEntryPoints() },
+        });
+        var sfPath = Path.Combine(promoDir, "Starfield.esm");
+        master.BeginWrite.ToPath(sfPath).WithNoLoadOrder().Write();
+        var manifest = Path.Combine(promoDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_Crate","model":"fo4port\\crate.nif","source":"meshes\\crate.nif"},
+ {"editor_id":"FO4Port_Can","model":"fo4port\\can.nif","source":"meshes\\can.nif","movable":{"mass_kg":1}},
+ {"editor_id":"FO4Port_Switch","model":"fo4port\\switch.nif","source":"meshes\\switch.nif"},
+ {"editor_id":"FO4Port_Term","model":"fo4port\\term.nif","source":"meshes\\term.nif"},
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations","origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_Chair","model":"fo4port\\chair.nif","source":"meshes\\chair.nif"},
+ {"editor_id":"FO4Port_Wall","model":"fo4port\\wall.nif","source":"meshes\\wall.nif"}]}
+""");
+        // an activate parents block as Fo4Export writes it (PR #305): flags + parents [{reference, delay}]
+        string Parents(string parent, float delay) => $$"""{"reference":"{{parent}}:Fallout4.esm","delay":{{delay}}}""";
+        string R(string id, string type, string model, string? parents = null, uint flags = 0) =>
+            $$"""{"formkey":"{{id}}:Fallout4.esm","base_editor_id":"X","type":"{{type}}","model":"{{model}}","pos":[0,0,0],"rot":[0,0,0],"scale":1""" +
+            (parents == null ? "}" : $$$""","activate_parents":{"flags":{{{flags}}},"parents":[{{{parents}}}]}}""");
+        var export = Path.Combine(promoDir, "Promo.json");
+        File.WriteAllText(export, "{\"cell\":\"Promo\",\"refs\":[" + string.Join(",",
+            R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
+            R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif", Parents("0009FF", 0)),
+            R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0)),
+            R("000909", "Furniture", "chair.nif"), R("00090A", "Furniture", "chair.nif"),
+            // a second switch drives two FO4 doors, one of them not converted (no model in the manifest): no partial wire
+            R("00090B", "Activator", "switch.nif"), R("00090C", "Door", "d.nif", Parents("00090B", 0)),
+            R("00090D", "Door", "unconverted.nif", Parents("00090B", 0))) + "]}");
+        string Promote(string canName) => $$"""
+{"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
+ "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
+               {"src":"000906:Fallout4.esm","edid":"FO4Port_cont_D","name":"Door","items":[]},
+               {"src":"000907:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]}],
+ "items":[{"src":"000902:Fallout4.esm","edid":"FO4Port_misc_B","name":"Can","value":1,"weight":0.5},
+          {"src":"000903:Fallout4.esm","edid":"FO4Port_misc_B","name":"{{canName}}","value":1,"weight":0.5}],
+ "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null},
+               {"src":"00090B:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
+ "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}],
+ "furniture":[{"src":"000909:Fallout4.esm","edid":"FO4Port_furn_F","name":"Chair","template":"0027D5",
+               "markers":[{"offset":[0,-0.2,0],"rotation_z":180},{"offset":[0.5,-0.2,0],"rotation_z":180}]},
+              {"src":"00090A:Fallout4.esm","edid":"FO4Port_furn_G","name":"Stool","template":"0027D5","markers":null}]}
+""";
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Can"));
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", promoDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            FormKey BaseOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])].Base.FormKey;
+            var cont = written.Containers.Single();
+            Require(BaseOf("000901") == cont.FormKey && cont.FormKey.ID == ids["CONT:FO4Port_cont_A"], "container not on its CONT");
+            Require(AssetPath(cont.Model?.File) == "Meshes/fo4port/crate.nif" && cont.Name!.String == "Crate"
+                    && cont.Items!.Single().Item.Count == 10 && cont.Items!.Single().Item.Item.FormKey == new FormKey(sfKey, 0x00000F),
+                    "CONT model, name or inventory wrong");
+            var misc = written.MiscItems.Single();
+            Require(BaseOf("000902") == misc.FormKey && BaseOf("000903") == misc.FormKey, "the two items do not share one MISC");
+            Require(AssetPath(misc.Model?.File) == "Meshes/fo4port/can.nif" && misc.Name!.String == "Can" && misc.Value == 1 && misc.Weight == 0.5f,
+                    "MISC model, name, value or weight wrong");
+            var acti = written.Activators.Single();
+            Require(BaseOf("000904") == acti.FormKey && acti.Name == null && AssetPath(acti.Model?.File) == "Meshes/fo4port/switch.nif",
+                    "activator not on a nameless ACTI with its model");
+            var term = written.Terminals.Single();
+            var menu = written.TerminalMenus.Single();
+            Require(BaseOf("000905") == term.FormKey && term.Menu.FormKey == menu.FormKey && term.Name!.String == "Terminal"
+                    && term.MarkerModel == "Furniture\\furn_human_standingterminal.nif" && term.Keywords!.Single().FormKey == marker.FormKey
+                    && menu.BodyTexts!.Single().Text.String == "FO4 terminal", "terminal, its furniture block or its menu wrong");
+            Require(written.Doors.Any(d => d.FormKey == BaseOf("000906")), "a door listed for promotion lost its DOOR base");
+            // chairs: copies of the vanilla template with our model, the FO4 name and FO4's marker places
+            var chair = written.Furniture.Single(f => f.FormKey == BaseOf("000909"));
+            var stool = written.Furniture.Single(f => f.FormKey == BaseOf("00090A"));
+            Require(chair.EditorID == "FO4Port_furn_F" && AssetPath(chair.Model?.File) == "Meshes/fo4port/chair.nif" && chair.Name!.String == "Chair"
+                    && chair.MarkerModel == "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif" && chair.Keywords!.Single().FormKey == marker.FormKey,
+                    "chair not a copy of the template with our model and name");
+            Require(chair.MarkerParameters!.Count == 2 && chair.MarkerEntryPoints!.Count == 2
+                    && Math.Abs(chair.MarkerParameters[1].Offset.X - 0.5f) < 1e-6 && Math.Abs(chair.MarkerParameters[0].RotationZ - 180f) < 1e-4,
+                    "chair markers not FO4's places");
+            Require(stool.MarkerParameters!.Single().Offset.Y == 0.12f && stool.Name!.String == "Stool", "a chair without FO4 markers lost the template's");
+            // the switch (a promoted activator) activates the door it is FO4's activate parent of
+            IPlacedObjectGetter RefOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])];
+            var wire = RefOf("000904");
+            Require(wire.VirtualMachineAdapter?.Scripts.Single().Name == "DefaultActivateLinkedRefOnActivate"
+                    && wire.LinkedReferences.Single().Reference.FormKey == RefOf("000906").FormKey
+                    && wire.LinkedReferences.Single().KeywordOrReference.FormKey == new FormKey(sfKey, 0x5D5E7),
+                    "switch -> door activation chain not written");
+            Require(RefOf("00090B").VirtualMachineAdapter == null && RefOf("00090B").LinkedReferences.Count == 0
+                    && RefOf("00090C").VirtualMachineAdapter == null,
+                    "a switch whose second FO4 child was not converted got a partial one-child wire");
+            Require(RefOf("000901").VirtualMachineAdapter == null && RefOf("000901").LinkedReferences.Count == 0,
+                    "a container (not a usable parent) got an activation wire");
+            Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 5
+                    && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
+        }
+        var text = log.ToString();
+        var unwired = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "activation.json"))).RootElement.ToString();
+        Require(unwired.Contains("00090D:Fallout4.esm: parent drives 2 children (one linked ref per script) (child not placed)"),
+                "the unconverted child of a two-child switch is not named in activation.json:\n" + unwired);
+        Require(text.Contains("promotions: 2 activators, 1 containers, 2 furniture, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
+                "promotions not reported:\n" + text);
+        Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 2 parent drives several, " +
+                              "0 parent already scripted, 1 child not placed; 1 delays and 1 parent-activate-only flags not carried"),
+                "activation chains not reported:\n" + text);
+        // a second build keeps every FormID; a disagreeing entry of one edid stops it
+        var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Tin"));
+        var refused = false;
+        Console.SetOut(new StringWriter());
+        try { typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } }); }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is InvalidDataException ide && ide.Message.Contains("FO4Port_misc_B"))
+        { refused = true; }
+        Console.SetOut(stdout);
+        Require(refused, "two entries of one edid with different names were not refused");
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == before, "a refused build changed the FormID map");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(promoDir, true); }
+}
+Console.WriteLine("Interior promotion checks passed.");
+
+// Locations (Locations.cs, D1): PluginSpike end to end with schema-3 cell exports and a locations.json sidecar. Two cells
+// of one FO4 location share one LCTN carrying the first cell's encounter-zone leveling; a cell without a resolved FO4
+// location gets its own (leveled by its zone when it has one); an unshared FO4 location without a zone stays unleveled;
+// every LCTN hangs under the root FO4Port_InteriorsLocation (parent SSol_PMars_Surface); no keywords; CELL bit 16 only
+// with LOCATION_AS_NAME from lighting.json (a stray environment variable must not set it); an export without the keys
+// reads the sidecar, one with them beats it; a second build adding a cell of the shared location keeps every FormID.
+{
+    var locDir = Path.Combine(Path.GetTempPath(), "fo4sf-locations-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(locDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    var port = ModKey.FromNameAndExtension("FO4Port.esm");
+    try
+    {
+        var manifest = Path.Combine(locDir, "manifest.json");
+        File.WriteAllText(manifest, """{"items":[{"editor_id":"FO4Port_Wall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}""");
+        const string vault = """
+            {"formkey":"0001A0:Fallout4.esm","editor_id":"VaultLocation","name":"The Vault","parent":"0001A1:Fallout4.esm",
+             "parent_chain":[{"formkey":"0001A1:Fallout4.esm","editor_id":"CommonwealthLocation","name":"Commonwealth"}],
+             "keywords":[{"formkey":"0001B0:Fallout4.esm","editor_id":"LocTypeVault"}]}
+            """;
+        string Zone(string fk, int min, int max, int flags) =>
+            $$"""{"formkey":"{{fk}}","editor_id":"Zone","min_level":{{min}},"max_level":{{max}},"rank":0,"flags":{{flags}},"owner":null,"location":null}""";
+        string Export(string cell, string? keys) =>
+            $$"""{"schema_version":3,"cell":"{{cell}}","formkey":"{{cell}}-cell","refs":[{"formkey":"{{cell}}:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1}]""" +
+            (keys == null ? "}" : "," + keys + "}");
+        string Cell(string name, string? loc, string? zone, string cellName) =>
+            $$"""
+            "cell_data":{"flags":1,"name":"{{cellName}}"},"location":{{loc ?? "null"}},"encounter_zone":{{zone ?? "null"}}
+            """;
+        // VaultA / VaultB share the FO4 location; VaultB's zone differs (reported, VaultA's kept); Shack has none; Ruin's is
+        // unresolved; Den has a zone but no location (the zone levels its per-cell LCTN); Lone has an unshared location and
+        // no zone (its LCTN gets no Owner); Pinned carries no keys at all (a pinned base-cell export) and is served by the
+        // sidecar, whose entry for Shack must lose to Shack's own (empty) keys
+        const string hermit = """{"formkey":"0001A3:Fallout4.esm","editor_id":"HermitLocation","name":"Hermit's Hole","parent":null,"parent_chain":[],"keywords":[]}""";
+        var cellExports = new Dictionary<string, string>
+        {
+            ["VaultA"] = Export("VaultA", Cell("VaultA", vault, Zone("0001C0:Fallout4.esm", 3, 10, 5), "Vault A")),   // NeverResets | DisableCombatBoundary
+            ["VaultB"] = Export("VaultB", Cell("VaultB", vault, Zone("0001C1:Fallout4.esm", 20, 30, 2), "Vault B")),
+            ["Shack"] = Export("Shack", Cell("Shack", null, null, "Shack")),
+            ["Ruin"] = Export("Ruin", Cell("Ruin", """{"formkey":"0001A9:DLCMissing.esm","unresolved":true}""", null, "Ruin")),
+            ["Den"] = Export("Den", Cell("Den", null, Zone("0001C3:Fallout4.esm", 7, 12, 1), "Den")),
+            ["Lone"] = Export("Lone", Cell("Lone", hermit, null, "Lone")),
+            ["Pinned"] = Export("Pinned", null),
+        };
+        foreach (var (name, text) in cellExports) File.WriteAllText(Path.Combine(locDir, name + ".json"), text);
+        var pinnedLoc = """{"formkey":"0001A2:Fallout4.esm","editor_id":null,"name":"Pinned Place","parent":null,"parent_chain":[],"keywords":[]}""";
+        File.WriteAllText(Path.Combine(outDir, "locations.json"), "{\"schema_version\":1,\"cells\":{" +
+            "\"Pinned\":{" + Cell("Pinned", pinnedLoc, Zone("0001C2:Fallout4.esm", 200, 255, 31), "Pinned") + "}," +
+            "\"Shack\":{" + Cell("Shack", vault, null, "Shack") + "}}}");
+        File.WriteAllText(Path.Combine(outDir, "lighting.json"), """{"VaultB":{"LOCATION_AS_NAME":"1"}}""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("LOCATION_AS_NAME", "1");        // a stray variable (a one-cell PC test) must not flip every cell
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", locDir);
+        string[] Args(params string[] cells) => new[] { outDir, manifest }.Concat(cells.Select(c => Path.Combine(locDir, c + ".json"))).ToArray();
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { Args("VaultA", "VaultB", "Shack", "Ruin", "Den", "Lone", "Pinned") });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var lctns = written.Locations.ToDictionary(l => l.EditorID!);
+            var cells = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).ToDictionary(c => c.EditorID!);
+            Require(lctns.Count == 7 && cells.Count == 7, $"expected 7 LCTNs (root, shared, Shack, Ruin, Den, Hermit, Pinned) and 7 cells, got {lctns.Count}/{cells.Count}");
+            var root = lctns["FO4Port_InteriorsLocation"];
+            Require(root.ParentLocation.FormKey == new FormKey(sfKey, 0x01B736) && root.FormKey.ID == ids["LCTN:FO4Port_InteriorsLocation"],
+                    "root LCTN not parented to SSol_PMars_Surface or not keyed");
+            var shared = lctns["FO4Port_VaultLocation"];
+            Require(shared.FormKey.ID == ids["LCTN:FO4Port_VaultLocation"] && shared.Name!.String == "The Vault", "shared LCTN key or name wrong");
+            Require(cells["FO4Port_VaultA"].Location.FormKey == shared.FormKey && cells["FO4Port_VaultB"].Location.FormKey == shared.FormKey,
+                    "the two cells of one FO4 location do not share one LCTN");
+            Require(shared.Owner != null && shared.Owner.EncounterMinLevel == 3 && shared.Owner.EncounterMaxLevel == 10
+                    && shared.Owner.EncounterFlags == (LocationOwnerData.EncounterFlag.NeverResets | LocationOwnerData.EncounterFlag.DisableCombatBoundry),
+                    "encounter zone leveling not folded into the shared LCTN (or VaultB's zone replaced VaultA's)");
+            foreach (var l in lctns.Values)
+                Require(l.ParentLocation.FormKey == root.FormKey || l == root, $"{l.EditorID} not parented to the root");
+            Require(lctns.Values.All(l => l.Keywords == null || l.Keywords.Count == 0), "keywords written on an LCTN");
+            Require(cells.Values.All(c => !c.Location.IsNull), "a converted cell has no location");
+            // per-cell LCTNs: no FO4 location, an unresolved one, and the sidecar's nameless FO4 location (keyed by FormKey)
+            var shack = lctns["FO4Port_ShackLocation"];
+            Require(cells["FO4Port_Shack"].Location.FormKey == shack.FormKey && shack.Owner == null && shack.Name!.String == "Shack",
+                    "a cell without an FO4 location did not get its own unleveled LCTN named after the cell (or the sidecar beat the cell JSON)");
+            Require(cells["FO4Port_Ruin"].Location.FormKey == lctns["FO4Port_RuinLocation"].FormKey, "an unresolved FO4 location was not treated as absent");
+            // a zone without an FO4 location levels the per-cell LCTN (never the zone's own location)
+            var den = lctns["FO4Port_DenLocation"];
+            Require(cells["FO4Port_Den"].Location.FormKey == den.FormKey && den.Owner != null && den.Owner.EncounterMinLevel == 7
+                    && den.Owner.EncounterMaxLevel == 12 && den.Owner.EncounterFlags == LocationOwnerData.EncounterFlag.NeverResets,
+                    "a cell with a zone but no FO4 location did not get the zone's leveling on its per-cell LCTN");
+            // an FO4 location without a zone (shared by no other cell) carries no leveling at all
+            var hermitLoc = lctns["FO4Port_HermitLocation"];
+            Require(cells["FO4Port_Lone"].Location.FormKey == hermitLoc.FormKey && hermitLoc.Owner == null && hermitLoc.Name!.String == "Hermit's Hole",
+                    "an FO4 location without a zone was given Owner data (or lost its name)");
+            var pinned = lctns["FO4Port_LCTN_0001A2_Fallout4.esm"];
+            Require(cells["FO4Port_Pinned"].Location.FormKey == pinned.FormKey && pinned.Name!.String == "Pinned Place", "sidecar entry not used for an export without the keys");
+            Require(pinned.Owner != null && pinned.Owner.EncounterMinLevel == 127 && pinned.Owner.EncounterMaxLevel == 127
+                    && (int)pinned.Owner.EncounterFlags == 0xF, "levels above 127 not clamped or flag bits above 0xF carried");
+            // bit 16 "Use Location as Name": only VaultB asked for it; the raw bit must round-trip through Mutagen's write + read
+            Require(((int)cells["FO4Port_VaultB"].Flags! & 0x10000) != 0, "LOCATION_AS_NAME setting did not set CELL flag bit 16 (or it did not round-trip)");
+            Require(cells.Values.Where(c => c.EditorID != "FO4Port_VaultB").All(c => ((int)c.Flags! & 0x10000) == 0),
+                    "CELL flag bit 16 set without the setting (the LOCATION_AS_NAME environment variable must not count)");
+        }
+        var locLog = log.ToString();
+        Require(locLog.Contains("locations: 3 shared FO4 locations, 3 per-cell, 3 with encounter-zone leveling; 1 cells from locations.json, 0 without FO4 location data"),
+                "locations not reported:\n" + locLog);
+        Require(locLog.Contains("warning FO4Port_VaultLocation: VaultB has encounter zone 0001C1:Fallout4.esm (20-30, flags 2); kept VaultA's 0001C0:Fallout4.esm")
+                && locLog.Contains("clamped to 127"), "differing zone or clamped levels not reported:\n" + locLog);
+        Require(ids.Keys.Count(k => k.StartsWith("LCTN:")) == 7, "LCTN keys in formids.json not one per LCTN");
+        // second build: a third cell of the shared location; every earlier key keeps its id, the shared LCTN gains no twin
+        File.WriteAllText(Path.Combine(locDir, "VaultC.json"), Export("VaultC", Cell("VaultC", vault, null, "Vault C")));
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { Args("VaultA", "VaultB", "Shack", "Ruin", "Den", "Lone", "Pinned", "VaultC") });
+        Console.SetOut(stdout);
+        var rebuilt = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        Require(ids.All(kv => rebuilt.TryGetValue(kv.Key, out var v) && v == kv.Value), "a second build renumbered an existing key");
+        Require(rebuilt.Count == ids.Count + 2 && rebuilt.ContainsKey("CELL:FO4Port_VaultC"), "second build did not add exactly the new cell and its reference");
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var vaultC = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single(c => c.EditorID == "FO4Port_VaultC");
+            Require(written.Locations.Count == 7 && vaultC.Location.FormKey == new FormKey(port, ids["LCTN:FO4Port_VaultLocation"]),
+                    "the added cell did not join the shared LCTN at its old FormID");
+        }
+    }
+    finally { Console.SetOut(stdout); Environment.SetEnvironmentVariable("LOCATION_AS_NAME", null); Directory.Delete(locDir, true); }
+}
+Console.WriteLine("Location (LCTN) checks passed.");
+
+// The coc arrival marker (COCMarkerHeading) is written to the cell's persistent group, so scripts reach it before the cell
+// loads; the cell's other references stay temporary, and the marker keeps its FormID across a rebuild.
+{
+    var cocDir = Path.Combine(Path.GetTempPath(), "fo4sf-coc-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(cocDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        var manifest = Path.Combine(cocDir, "manifest.json");
+        File.WriteAllText(manifest, """{"items":[{"editor_id":"FO4Port_Wall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}""");
+        File.WriteAllText(Path.Combine(cocDir, "Cryo.json"), """
+            {"schema_version":3,"cell":"Cryo","formkey":"Cryo-cell","refs":[
+             {"formkey":"000901:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
+             {"formkey":"000902:Fallout4.esm","base_editor_id":"COCMarkerHeading","type":"Static","model":"","pos":[100,0,0],"rot":[0,0,1],"scale":1}]}
+            """);
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", cocDir);
+        var cocArgs = new[] { outDir, manifest, Path.Combine(cocDir, "Cryo.json") };
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var cryo = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single(c => c.EditorID == "FO4Port_Cryo");
+            var persistent = cryo.Persistent.OfType<IPlacedObjectGetter>().ToList();
+            var temporary = cryo.Temporary.OfType<IPlacedObjectGetter>().ToList();
+            Require(persistent.Count == 1 && persistent[0].Base.FormKey == new FormKey(sfKey, 0x000032)
+                    && persistent[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000902:Fallout4.esm"], "the coc marker is not a persistent reference with its keyed FormID");
+            Require((persistent[0].MajorRecordFlagsRaw & 0x400) != 0, "the coc marker lacks the Persistent record flag (0x400)");
+            Require((temporary[0].MajorRecordFlagsRaw & 0x400) == 0, "a temporary reference carries the Persistent record flag");
+            Require(temporary.Count == 1 && temporary[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000901:Fallout4.esm"], "a non-marker reference left the temporary group");
+        }
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var rebuilt = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        Require(ids.All(kv => rebuilt.TryGetValue(kv.Key, out var v) && v == kv.Value) && rebuilt.Count == ids.Count, "a rebuild renumbered the coc marker");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(cocDir, true); }
+}
+Console.WriteLine("Persistent coc marker checks passed.");
+// Door names (DoorNames.cs): PluginSpike end to end. Each FO4 name of a converted model gets a stable copy of its DOOR
+// base that keeps the animation graph, and that name's references move to it. No name, or a name that is not one line,
+// stays on the base as "Door". A grown export with the same map keeps every old reference on its old base and name.
+{
+    var nameDir = Path.Combine(Path.GetTempPath(), "fo4sf-doornames-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(nameDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(nameDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\doors\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations",
+          "origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_SynthHatch","model":"fo4port\\h.nif","source":"meshes\\doors\\h.nif","load_door":{"bounds":[[0,0,0],[1,1,1]]}}]}
+""");
+        string Ref(string fk, string baseKey, string model, float x) =>
+            $$"""{"formkey":"{{fk}}:Fallout4.esm","base_editor_id":"B","base_formkey":"{{baseKey}}:Fallout4.esm","type":"Door","model":"{{model}}","pos":[{{x}},0,0],"rot":[0,0,0],"scale":1}""";
+        string Base(string key, string name) => $"\"{key}:Fallout4.esm\":{{\"editor_id\":\"B\",\"model\":\"m\",\"record\":{{\"Name\":{name}}},\"scripts\":[]}}";
+        var export = Path.Combine(nameDir, "Synth.json");
+        var oldRefs = new[] {
+            Ref("000901", "00A001", "doors\\\\d.nif", 0), Ref("000902", "00A001", "doors\\\\d.nif", 70),
+            Ref("000903", "00A002", "doors\\\\d.nif", 140), Ref("000904", "00A003", "doors\\\\d.nif", 210),
+            Ref("000906", "00A005", "doors\\\\d.nif", 280), Ref("000905", "00A004", "doors\\\\h.nif", 350) };
+        var bases = new[] { Base("00A001", "\"Front Door\""), Base("00A002", "\" Storage Room \""),
+            Base("00A003", "null"), Base("00A005", "\"bad\\nname\""), Base("00A004", "\"Roof Hatch\""), Base("00A006", "\"Back Door\"") };
+        void WriteExport(IEnumerable<string> refList) => File.WriteAllText(export, "{\"cell\":\"Synth\",\"formkey\":\"cell\",\"refs\":[" +
+            string.Join(",", refList) + "],\"door_bases\":{" + string.Join(",", bases) + "}}");
+        WriteExport(oldRefs);
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", nameDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(DoorNames).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(ModKey.FromNameAndExtension("Starfield.esm"), MasterStyle.Full));
+        // FO4 ref -> its DOOR base's ID and name, as written
+        Dictionary<string, (uint id, string? name)> Bindings(IEnumerable<string> fo4Refs)
+        {
+            using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                new BinaryReadParameters { MasterFlagsLookup = masters });
+            var doorsByKey = written.Doors.ToDictionary(x => x.FormKey);
+            var placed = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            var map = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+            return fo4Refs.ToDictionary(fo4 => fo4, fo4 =>
+            {
+                var door = doorsByKey[placed[new FormKey(port, map[$"REFR:FO4Port_Synth:{fo4}:Fallout4.esm"])].Base.FormKey];
+                return (door.FormKey.ID, door.Name?.String);
+            });
+        }
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var doorsByKey = written.Doors.ToDictionary(x => x.FormKey);
+            var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            IDoorGetter DoorOf(string fo4) => doorsByKey[refs[new FormKey(port, ids[$"REFR:FO4Port_Synth:{fo4}:Fallout4.esm"])].Base.FormKey];
+            Require(DoorOf("000901").Name?.String == "Front Door" && DoorOf("000902").FormKey == DoorOf("000901").FormKey &&
+                    DoorOf("000901").FormKey.ID == ids["DOOR:FO4Port_SynthDoor|name:Front Door"], "FO4 name's copy not shared:\n" + log);
+            var storage = DoorOf("000903");
+            Require(storage.Name?.String == "Storage Room" && storage.FormKey.ID == ids["DOOR:FO4Port_SynthDoor|name:Storage Room"] &&
+                    storage.EditorID != "FO4Port_SynthDoor" && storage.Components.OfType<IAnimationGraphComponentGetter>().Single().ANAM == "SimpleOpenClose01.agx",
+                "name's copy wrong (name, stable id, editor id or graph)");
+            Require(DoorOf("000904").Name?.String == "Door" && DoorOf("000906").FormKey == DoorOf("000904").FormKey &&
+                    DoorOf("000904").FormKey.ID == ids["DOOR:FO4Port_SynthDoor"], "unnamed and refused names not kept on the base as Door");
+            Require(DoorOf("000905").Name?.String == "Roof Hatch", "load door not named");
+            Require(written.Doors.Select(x => x.EditorID).Distinct().Count() == written.Doors.Count, "door editor ids collide");
+        }
+        Require(log.ToString().Contains("door names: 3 named copies of door bases (4 references moved), " +
+                                        "2 door references without an FO4 name, 1 refused"), "door names not reported:\n" + log);
+        // a second build allocates nothing new
+        var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        var old = Bindings(new[] { "000901", "000902", "000903", "000904", "000905", "000906" });
+        File.Delete(Path.Combine(outDir, "FO4Port.esm"));
+        Console.SetOut(new StringWriter());
+        typeof(DoorNames).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == before, "a repeat build changed the FormID map");
+        // growth with the same map (Codex, #400): Storage Room and a new name outnumber Front Door, references reordered;
+        // every old reference keeps its base and name
+        WriteExport(new[] { Ref("000910", "00A006", "doors\\\\d.nif", 420), Ref("000907", "00A002", "doors\\\\d.nif", 490),
+                            Ref("000908", "00A002", "doors\\\\d.nif", 560), Ref("000911", "00A006", "doors\\\\d.nif", 630),
+                            Ref("000909", "00A002", "doors\\\\d.nif", 700), Ref("000912", "00A006", "doors\\\\d.nif", 770) }
+                    .Concat(Enumerable.Reverse(oldRefs)));
+        File.Delete(Path.Combine(outDir, "FO4Port.esm"));
+        Console.SetOut(new StringWriter());
+        typeof(DoorNames).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var grown = Bindings(old.Keys.Concat(new[] { "000907", "000910" }));
+        foreach (var (fo4, binding) in old)
+            Require(grown[fo4] == binding, $"growth moved {fo4} from {binding} to {grown[fo4]}");
+        Require(grown["000907"] == old["000903"] && grown["000910"].name == "Back Door" &&
+                grown["000910"].id == StableFormIds.Load(Path.Combine(outDir, "formids.json"))["DOOR:FO4Port_SynthDoor|name:Back Door"],
+            "grown references not on their names' copies");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(nameDir, true); }
+}
+Console.WriteLine("Door name checks passed.");

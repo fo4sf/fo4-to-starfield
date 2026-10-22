@@ -1,5 +1,7 @@
 """bridge_log.py: the observation bridge's log lines (synthetic; the real log is written by FO4SF_Bridge.psc)."""
 import os
+import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -226,6 +228,19 @@ class ClockAgeTests(unittest.TestCase):
         self.assertIsNone(bridge_log.clock_age(None))
         self.assertIsNone(bridge_log.clock_age("rt=5"))
 
+    def test_clock_age_is_positive_for_a_stamp_from_yesterday(self):
+        # Issue #213: a stamp 12-24h ago (afternoon when now is early morning) must be positive.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))  # 02:00
+        age = bridge_log.clock_age("13:00:00", now)
+        self.assertGreater(age, 0)
+        self.assertAlmostEqual(age, 13 * 3600, delta=1)  # 13h ago
+
+    def test_clock_age_treats_small_future_skew_as_old(self):
+        # A stamp 1s in the future (clock skew) becomes ~24h old so latest() rejects it as not fresh.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))
+        age = bridge_log.clock_age("02:00:01", now)
+        self.assertAlmostEqual(age, 86399.0, delta=1)
+
     def test_latest_uses_the_stamp_not_the_mtime(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "fo4sf.0.log")
@@ -258,3 +273,149 @@ class SignedFormIdTests(unittest.TestCase):
         self.assertEqual(d["n"], 26)
         r = bridge_log.parse_event("FO4SF ref=-5 pos=1 2 3 cell=-16708235")
         self.assertEqual(r["cell"], f"{-16708235 & 0xFFFFFFFF:08X}")
+
+
+# FO4SF_Probe.Resolve / MoveTo lines (the scripted door's Step 0), in the order FO4SF_Probe.psc concatenates them
+RESOLVE = ("[16:20:01] FO4SF resolve plugin=FO4TerrainCore.esm id=2048 form=33556480 ref=true pos=-989.257080 1146.514282 "
+           "105.142899 ang=0.000000 cell=33560581 cellname= world=-16707575 worldname= disabled=false loaded=true")
+MOVETO = ("[16:20:09] FO4SF moveto plugin=FO4TerrainCore.esm id=2048 offset=-1200.000000 -2700.000000 0.000000 phase=after "
+          "pos=-2189.257080 -1553.485718 105.142899 ang=0.000000 cell=33557935 cellname=FO4Core_RedRocketSpawn "
+          "world=-16707575 worldname=MarsWorld loaded=True")
+
+
+class ProbeLineTests(unittest.TestCase):
+    """FO4SF_Probe.Resolve / MoveTo replies: what GetFormFromFile returned and where MoveTo put the player."""
+    def test_resolve_of_a_reference(self):
+        e = bridge_log.parse_event(RESOLVE)
+        self.assertEqual(e, {"kind": "resolve", "plugin": "FO4TerrainCore.esm", "id": 2048, "form": "02000800",
+                             "ref": True, "pos": [-989.25708, 1146.514282, 105.142899], "ang": 0.0, "cell": "02001805",
+                             "cellname": "", "world": f"{-16707575 & 0xFFFFFFFF:08X}", "worldname": "",
+                             "disabled": False, "loaded": True})
+
+    def test_none_not_a_reference_and_moveto_phases(self):
+        self.assertEqual(bridge_log.parse_event("FO4SF resolve plugin=FO4TerrainCore.esm id=184876 form=none"),
+                         {"kind": "resolve", "plugin": "FO4TerrainCore.esm", "id": 184876, "form": None})
+        t = bridge_log.parse_event("FO4SF target plugin=FO4TerrainCore.esm id=71419 form=33625851 ref=false")
+        self.assertEqual((t["kind"], t["form"], t["ref"]), ("target", "020116FB", False))
+        m = bridge_log.parse_event(MOVETO)
+        self.assertEqual((m["kind"], m["offset"], m["phase"], m["pos"][:2], m["cell"], m["cellname"], m["loaded"]),
+                         ("moveto", [-1200.0, -2700.0, 0.0], "after", [-2189.25708, -1553.485718], "02000DAF",
+                          "FO4Core_RedRocketSpawn", True))
+        r = bridge_log.parse_event("FO4SF moveto plugin=FO4TerrainCore.esm id=2048 offset=0.000000 0.000000 0.000000 "
+                                   "phase=refused")
+        self.assertEqual((r["phase"], "pos" in r), ("refused", False))
+        inside = bridge_log.parse_event("FO4SF moveto plugin=FO4TerrainCore.esm id=2048 offset=0.0 0.0 0.0 "
+                                        "phase=settled pos=1 2 3 ang=4 cell=67117880 cellname= world=none worldname= "
+                                        "loaded=true")
+        self.assertEqual((inside["cell"], inside["world"]), ("04002338", None))
+
+    def test_torn_or_foreign_lines_are_not_probe_lines(self):
+        for s in ("FO4SF resolve plugin=FO4TerrainCore.esm id=2048 form=33556480 ref=tru",      # torn bool
+                  "FO4SF resolve plugin=FO4TerrainCore.esm id=2048 form=33556480 ref=true pos=1 2",  # torn position
+                  "FO4SF resolve form=none",                                                  # no plugin / id
+                  "FO4SF resolvex plugin=a.esm id=1 form=none", "FO4SF moveto", "resolve plugin=a.esm id=1 form=none"):
+            self.assertIsNone(bridge_log.parse_event(s), s)
+        self.assertEqual(bridge_log.parse_event(FULL)["kind"], "pos")             # the timer's line is not taken for one
+        self.assertEqual(bridge_log.parse_event("FO4SF ref=20 none")["kind"], "ref")
+
+    def test_events_lists_them_in_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("\n".join(["[1] FO4SF ack door-probe-d", RESOLVE, FULL, RESOLVE.replace("resolve", "target"),
+                                   MOVETO.replace("phase=after", "phase=before"), MOVETO,
+                                   MOVETO.replace("phase=after", "phase=settled"), "[2] FO4SF ref=20 pos=1 2 3"]) + "\n")
+            ev = [e for e in bridge_log.read_events(log) if e["kind"] != "pos"]
+            self.assertEqual([e["kind"] for e in ev], ["ack", "resolve", "target", "moveto", "moveto", "moveto", "ref"])
+            self.assertEqual([e.get("phase") for e in ev if e["kind"] == "moveto"], ["before", "after", "settled"])
+
+
+class StageLineTests(unittest.TestCase):
+    """The proposed FO4SF_Probe.Stage line (docs/testing/probe-stage.md): the parser's half of the contract."""
+
+    def test_a_quest_its_stage_and_flags(self):
+        e = bridge_log.parse_event("[12:00:01] FO4SF stage plugin=FO4SFNewGame.esm id=2049 form=16779265 quest=true "
+                                   "stage=10 running=true completed=false name=MQ101")
+        self.assertEqual(e, {"kind": "stage", "plugin": "FO4SFNewGame.esm", "id": 2049, "form": "01000801",
+                             "quest": True, "stage": 10, "running": True, "completed": False, "name": "MQ101"})
+
+    def test_no_form_not_a_quest_and_torn_lines(self):
+        self.assertEqual(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=none"),
+                         {"kind": "stage", "plugin": "a.esm", "id": 1, "form": None})
+        self.assertFalse(bridge_log.parse_event("FO4SF stage plugin=a.esm id=1 form=33556480 quest=false")["quest"])
+        for s in ("FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=1x",          # torn stage
+                  "FO4SF stage plugin=a.esm id=1 form=1 quest=true stage=10 running=tr",  # torn bool
+                  "FO4SF stage form=none"):
+            self.assertIsNone(bridge_log.parse_event(s), s)
+
+
+class ProbeKindCaseTests(unittest.TestCase):
+    """Native probe event names can differ in case from the source spelling."""
+
+    def test_case_variants_normalize_only_the_event_kind(self):
+        for kind, variants in (("resolve", ("resolve", "Resolve", "RESOLVE", "rEsOlVe")),
+                               ("target", ("target", "Target", "TARGET", "tArGeT")),
+                               ("moveto", ("moveto", "MoveTo", "MOVETO", "mOvEtO"))):
+            for variant in variants:
+                with self.subTest(kind=variant):
+                    line = f"[12:00:00] FO4SF {variant} plugin=MiXeD.esm id=8 form=none"
+                    self.assertEqual(bridge_log.parse_event(line),
+                                     {"kind": kind, "plugin": "MiXeD.esm", "id": 8, "form": None})
+
+    def test_resolved_identity_and_payload_case_are_preserved(self):
+        line = ("FO4SF Resolve plugin=MiXeD.esm id=8 form=33554440 ref=true pos=1 2 3 ang=90 "
+                "cell=33554441 cellname=Test Cell world=-2 worldname=MiXeDWorld disabled=false loaded=false")
+        self.assertEqual(bridge_log.parse_event(line),
+                         {"kind": "resolve", "plugin": "MiXeD.esm", "id": 8, "form": "02000008",
+                          "ref": True, "pos": [1., 2., 3.], "ang": 90., "cell": "02000009",
+                          "cellname": "Test Cell", "world": "FFFFFFFE", "worldname": "MiXeDWorld",
+                          "disabled": False, "loaded": False})
+
+    def test_mixed_case_target_and_refused_move_remain_negative(self):
+        target = bridge_log.parse_event("FO4SF Target plugin=Test.esm id=9 form=33554441 ref=false")
+        self.assertEqual(target, {"kind": "target", "plugin": "Test.esm", "id": 9,
+                                  "form": "02000009", "ref": False})
+        move = bridge_log.parse_event("FO4SF MoveTo plugin=Test.esm id=9 offset=4 5 6 phase=refused")
+        self.assertEqual(move, {"kind": "moveto", "plugin": "Test.esm", "id": 9,
+                                "offset": [4., 5., 6.], "phase": "refused"})
+
+    def test_kind_case_does_not_relax_keys_or_values(self):
+        for line in ("FO4SF ResolveX plugin=Test.esm id=8 form=none",
+                     "FO4SF Resolve PLUGIN=Test.esm id=8 form=none",
+                     "FO4SF Resolve plugin=Test.esm id=8 ref=tru",
+                     "FO4SF Resolve plugin=Test.esm id=8 pos=1 2",
+                     "FO4SF Resolve form=none",
+                     "FO4SF MoveTo"):
+            with self.subTest(line=line):
+                self.assertIsNone(bridge_log.parse_event(line))
+
+    def test_prefix_case_retains_the_merged_parser_contract(self):
+        self.assertEqual(bridge_log.parse_event("fo4sf Resolve plugin=MiXeD.esm id=8 form=none"),
+                         {"kind": "resolve", "plugin": "MiXeD.esm", "id": 8, "form": None})
+
+    def test_ack_case_preserves_exact_tag_identity(self):
+        for event in ("ack", "Ack", "ACK"):
+            self.assertEqual(bridge_log.parse_event(f"[12:00:00] FO4SF {event} Run-AbC"),
+                             {"kind": "ack", "tag": "Run-AbC"})
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "ack.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("FO4SF Ack Run-AbC\n")
+            self.assertTrue(bridge_log.wait_ack(log, "Run-AbC", timeout=0))
+            self.assertFalse(bridge_log.wait_ack(log, "run-abc", timeout=0))
+
+    def test_events_cli_keeps_mixed_case_replies_and_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "probe.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("\n".join(["FO4SF Ack synthetic-probe", FULL,
+                                   "FO4SF Resolve plugin=MiXeD.esm id=8 form=none",
+                                   "FO4SF Target plugin=MiXeD.esm id=8 form=none",
+                                   "FO4SF MoveTo plugin=MiXeD.esm id=8 offset=0 0 0 phase=refused"]))
+            result = subprocess.run([sys.executable, "-I", "-B", bridge_log.__file__, "events", "--log", log],
+                                    capture_output=True, text=True, check=True)
+            events = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([e["kind"] for e in events], ["ack", "resolve", "target", "moveto"])
+            self.assertEqual(events[1]["plugin"], "MiXeD.esm")
+            self.assertIsNone(events[1]["form"])
+            self.assertEqual(events[3]["phase"], "refused")

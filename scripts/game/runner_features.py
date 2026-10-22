@@ -12,6 +12,8 @@ file has an exp_install.py that refuses the unknown option, so even it stops bef
 """
 import sys
 
+import console_plan
+
 # light:   time_of_day / weather (sky_light.py): the time ladder with OCR'd replies and second shots, the probe shots'
 #          light, the time command typed again before every terrain probe
 # console: console_pre / console_post (console_plan.py)
@@ -47,6 +49,10 @@ import sys
 #               the walk reached the item, SetRigidBodyMass judged only on a GetMass reading of the mass set (read in a
 #               session of its own after the game ran), the player's and the item's heights at the spot. The first
 #               impulse runner (91f3d17) would pass an item the player cannot push as PASS IMPULSE
+# impulse_control: movable_control "impulse_control" (2026-10-18): the impulse ladder also runs on an item the walk
+#               moved (a vanilla control), so the queue shows whether ApplyHavokImpulse moves a vanilla body at all
+#               before an item's FAIL STUCK means anything (movable_1019c: two converted items STUCK, no impulse ever
+#               typed on a vanilla item). An older qstep.ps1 skips the ladder after a walk that moved the item
 # npc_combat:   npc_nav combat_reads (docs/ai/test-queue.md "Combat engagement"): every sample's console session also
 #               types GetCombatState / GetCombatTarget / GetLineOfSight player and the test is judged ENGAGED / NOCOMBAT
 #               by those replies, the walk as detail only. An older runner would drop the key at planning time (unknown
@@ -59,7 +65,13 @@ import sys
 #               position comes from the game's own log (qstep.ps1 Bridge-Read), never from a console capture, and the
 #               runner installs the staged bridge plugin before every launch (bridge_install.py). An older qstep.ps1
 #               would read the console as before and call the result a read of the same test
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge", "activate")
+# probe_moveto: console lines cgf "FO4SF_Probe.Resolve" / "FO4SF_Probe.MoveTo" (the scripted door's Step 0,
+#               2026-10-16): on the whitelist, and the HUD waited for after a MoveTo (it can load another cell). An
+#               older qstep.ps1 refuses the line (exit 4) only after the game was launched for the test
+# speedmult:    console lines player.getav speedmult / player.setav speedmult 100 (2026-10-17) and the run condition
+#               judged on them (console_plan.speedmult_condition: a test that does not start at speedmult 100 is
+#               INCONCLUSIVE RUNCOND). An older qstep.ps1 refuses the line (exit 4) only after the game was launched
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult")
 
 
 def needs(tests):
@@ -70,6 +82,10 @@ def needs(tests):
             out.add("light")
         if t.get("console_pre") or t.get("console_post"):
             out.add("console")
+        if console_plan.uses_probe_travel(t):
+            out.add("probe_moveto")
+        if console_plan.uses_speedmult(t):
+            out.add("speedmult")
         if "precommand_m" in t or "arrive_progress" in t:
             out.add("npc_t0")
         if t.get("combat_reads"):
@@ -90,6 +106,8 @@ def needs(tests):
             out.add("walk")
         if t.get("kind") == "movable_control" or (t.get("kind") == "movable" and t.get("impulses")):
             out.update(("impulse", "push_judge"))
+            if t.get("impulse_control"):
+                out.add("impulse_control")
     return sorted(out)
 
 

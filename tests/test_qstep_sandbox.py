@@ -17,6 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GAME = os.path.join(ROOT, "scripts", "game")
 SANDBOX = os.path.join(ROOT, "tests", "qstep_sandbox")
 sys.path.insert(0, GAME)
+import bridge_log  # noqa: E402
 import testqueue as tq  # noqa: E402
 import walk_eval  # noqa: E402
 
@@ -381,6 +382,85 @@ class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
             self.assertEqual(self.typed, [], bad)
         out, _, _ = self.run_step(test=dict(self.terrain(), console_post=["coc Elsewhere"]), code=4)
         self.assertEqual(self.typed, [])
+
+    def test_a_moveto_line_waits_for_the_hud_before_the_next_line(self):
+        # the scripted door's Step 0: FO4SF_Probe.MoveTo loads another cell (5 s here); the next console line is typed
+        # only once the HUD is back, and the console entry records the wait
+        post = ['cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" 2048',
+                'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 -1200.0 -2700.0 0.0', 'cgf "FO4SF_Probe.Pos" 20']
+        t = dict(self.terrain(console_post=post), points=[{"label": "p0", "x": -2189.0, "y": -1553.0, "expect": 5.0}],
+                 beyond={"x": -2188.0, "y": -1553.0})
+        log = os.path.join(tempfile.mkdtemp(), "fo4sf.0.log")
+        v, obs, _ = self.run_step(test=t, world={"load_secs": 5, "probe_refs": {"2048": [-989.0, 1147.0, 105.0]}},
+                                  env={"FO4SF_BRIDGE_LOG": log})
+        self.assertEqual([c["cmd"] for c in obs["console"]], post)
+        self.assertNotIn("hud_back", obs["console"][0])
+        mv = obs["console"][1]
+        self.assertTrue(mv["hud_back"])
+        self.assertGreaterEqual(mv["load_s"], 4)
+        self.assertEqual(mv["hud_shot"], "console_2_hud.png")
+        ev = [e for e in bridge_log.read_events(log) if e["kind"] in ("resolve", "target", "moveto", "ref")]
+        self.assertEqual([e["kind"] for e in ev], ["resolve", "target", "moveto", "ref"])
+        self.assertEqual(ev[2]["pos"], [-2189.0, -1553.0, 105.0])
+        self.assertEqual(v[0], "PASS", v[2])
+
+
+# activate (docs/ai/test-queue.md "Activate"): the core64g garage cabinet, a promoted container ref of its own CONT base;
+# the simulated console holds it as a selectable ref (an "actors" entry) next to the probe
+CABINET = {"ref": "02008C5F", "base": "020A2AB2", "expect": ["Prewar Cabinet", "Credits"]}
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepActivateSandboxTests(SandboxStep, unittest.TestCase):
+    """The activate step's selection proof read from one console capture at each OCR threshold in turn (core64g_accept_1016
+    test 0002: the GetIsID reply on activate_sel.png was lost at 135 and read at 130 and 145)."""
+    def terrain(self, activate=CABINET):
+        return {"id": "0002_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke", "model": "",
+                "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}], "beyond": {"x": 3.0, "y": 1.0},
+                "activate": dict(activate)}
+
+    def world(self, **knobs):
+        return dict({"land_z": 5.0, "actors": {"02008C5F": {"base": "020A2AB2", "pos": [1.5, 1.0, 5.0]}}}, **knobs)
+
+    def test_a_reply_lost_at_the_first_thresholds_is_read_at_a_later_one(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world(isid_lost_at=[135, 140]))
+        a = obs["activate"]
+        self.assertTrue(a["selected"], a["sel_ocr"])                        # the old step: one read at 135, unproven
+        self.assertEqual(a.get("sel_threshold"), 130)
+        self.assertIn("GetlslD 1.00", a["sel_ocr"])
+        self.assertEqual(self.typed.count("prid 02008C5F"), 1)               # the one capture read again, nothing retyped
+        self.assertEqual(self.typed.count("GetIsID 020A2AB2"), 1)
+        self.assertLess(self.typed.index("GetIsID 020A2AB2"), self.typed.index("activate player"))
+        for f in ("activate_sel_prep.png", "activate_sel_prep140.png", "activate_sel_prep130.png"):
+            self.assertTrue(os.path.exists(os.path.join(self.out, f)), f)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "activate_sel_prep145.png")))
+        self.assertNotIn("selection not confirmed", v[2])
+
+    def test_the_first_threshold_reads_it_without_a_second_pass(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world())
+        self.assertEqual((obs["activate"]["selected"], obs["activate"]["sel_threshold"]), (True, 135))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "activate_sel_prep140.png")))
+        self.assertIn("activate player", self.typed)
+
+    def test_a_reply_lost_at_every_threshold_activates_nothing(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world(isid_lost_at=[135, 140, 130, 145]))
+        a = obs["activate"]
+        self.assertEqual((a["selected"], a["sel_threshold"]), (False, None))
+        self.assertTrue(a["sel_ocr"].rstrip().endswith("GetlsID 020A2AB2"), a["sel_ocr"])   # the first threshold's text
+        self.assertNotIn("activate player", self.typed)
+        self.assertIn("[activate 02008C5F: selection not confirmed (GetIsID 020A2AB2 did not reply 1); nothing activated]",
+                      v[2])
+
+    def test_a_reference_of_another_base_is_never_activated(self):
+        # GetIsID replies 0.00 at every threshold: four reads, no selection, nothing activated
+        v, obs, _ = self.run_step(test=self.terrain(dict(CABINET, base="020A2AB7")), world=self.world())
+        a = obs["activate"]
+        self.assertEqual((a["selected"], a["sel_threshold"]), (False, None))
+        self.assertIn("0.00", a["sel_ocr"])
+        self.assertNotIn("activate player", self.typed)
+        for th in (140, 130, 145):
+            self.assertTrue(os.path.exists(os.path.join(self.out, f"activate_sel_prep{th}.png")), th)
 
 
 # door_trip (docs/slice/redrocket-door.md): the Red Rocket cave link as staged, in the world's own frame / the interior
@@ -896,6 +976,25 @@ class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
         # the player was moved off the spot in the placeatme session, before the game ran again
         k = self.typed.index("player.placeatme 0200CE2A 1")
         self.assertEqual(self.typed[k + 1:k + 3], ["player.setpos x -3", "player.setpos y 1"])
+
+    def test_getself_naming_no_ref_still_confirms_the_item(self):
+        # the movable queue of 2026-10-18: GetSelf read (00000000) after prid of a placed vanilla item; GetIsID 1 and
+        # the position confirm it
+        v, obs, left = self.item(world={"self_fmt": "zero"})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertEqual(obs["spawn"]["self"], "00000000")
+        self.assertTrue(obs["spawn"]["confirmed"], obs["spawn"]["why"])
+        self.assertEqual(left, [], obs.get("cleanup"))
+
+    def test_plr_is_read_again_when_it_names_no_id(self):
+        v, obs, _ = self.item(world={"plr_misses": 1})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("plr2_ocr", obs["spawn"])
+        self.assertEqual(obs["spawn"]["ref"], "FF000800")
+        v, obs, left = self.item(world={"plr_misses": 2})       # still nothing: not confirmed, nothing acted on
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SPAWN"), v[2])
+        self.assertIn("PickLastRef gave no FFxxxxxx id", v[2])
+        self.assertFalse([c for c in self.typed if c.startswith(("ApplyHavokImpulse", "disable"))])
 
     def test_the_ladder_climbs_until_the_item_moves(self):
         v, obs, _ = self.item(world={"impulse_dv_min": 5.0})

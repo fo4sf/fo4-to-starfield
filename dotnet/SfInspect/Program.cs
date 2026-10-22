@@ -2,6 +2,7 @@
 //   dotnet run -- <Starfield.esm> cells <substr>     interior cells (EditorID contains substr) + lighting template
 //   dotnet run -- <Starfield.esm> lights <substr>    LIGH records (EditorID contains substr) + radius/colour
 //   dotnet run -- <Starfield.esm> templates          lighting templates in use by interior cells (most used first)
+//   dotnet run -- <Starfield.esm> envmaps            interior cells' environment maps (most used first) + a sample cell
 //   dotnet run -- <Starfield.esm> models "<a>|<b>"   every record (any type) using a model whose path contains a or b
 // Terrain (read-only, docs/terrain/architecture.md):
 //   wrld [substr]            every WRLD with terrain/planet/parent fields      sfbk [substr]   every SurfaceBlock (BTD path, sizes)
@@ -12,6 +13,10 @@
 //   dotnet run -- <Starfield.esm> npcfind <substr>   NPC_ by EditorID or race EditorID
 //   dotnet run -- <Starfield.esm> npc <hex,hex>      all fields of NPC_ records (verifies the FormIDs exist)
 //   dotnet run -- <Starfield.esm> props <Class>      Mutagen's Starfield schema for a record class (Npc, NavmeshGeometry)
+//   dotnet run -- <Starfield.esm> doortsv            one TSV row per DOOR: graph (ANAM), rig (BNAM), clip folder (CNAM), flags
+//   dotnet run -- <Starfield.esm> doorsounds         one TSV row per DOOR with sounds: open / close WWise events, graph, rig
+//   dotnet run -- <Starfield.esm> furn <substr> [n]   FURN without a bench type (chairs, beds, ...): markers, template, graph
+//   dotnet run -- <Starfield.esm> scripted <Script>  bases and placed refs with that script (base, graph, linked-ref keywords)
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Starfield;
 
@@ -38,6 +43,11 @@ switch (args[1])
         foreach (var g in cells.Where(c => !c.LightingTemplate.IsNull).GroupBy(c => c.LightingTemplate.FormKey)
                      .OrderByDescending(g => g.Count()).Take(25))
             Console.WriteLine($"{g.Count(),5}  {g.Key}  {Name(g.Key)}  e.g. {g.First().EditorID}");
+        break;
+    case "envmaps":
+        foreach (var g in cells.GroupBy(c => c.EnvironmentMap?.ToString() ?? "").OrderByDescending(g => g.Count()).Take(30))
+            Console.WriteLine($"{g.Count(),5}  env='{g.Key}'  e.g. {g.First().EditorID} template={Name(g.First().LightingTemplate.FormKey)} " +
+                $"imagespace={g.First().ImageSpace.FormKey}");
         break;
     case "statics":
         foreach (var s in mod.Statics.Where(s => (s.EditorID ?? "").Contains(args[2], StringComparison.OrdinalIgnoreCase)).Take(30))
@@ -98,6 +108,31 @@ switch (args[1])
             Console.WriteLine($"{g.Count(),5}  {g.Key}");
             foreach (var x in g.Take(4))
                 Console.WriteLine($"         {x.d.EditorID}  {x.d.FormKey}  {x.d.Model?.File}  rig={x.agc!.BNAM}");
+        }
+        break;
+    case "doortsv":  // read-only: one TSV row per DOOR (graph ANAM, rig BNAM, clip folder CNAM, flags) for the sliding-door survey
+        Console.WriteLine("editor_id\tformkey\tmodel\tanam\tbnam\tcnam\tflags\tkeywords");
+        foreach (var d in mod.Doors)
+        {
+            var agc = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+            Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), d.Model?.File?.ToString() ?? "",
+                agc?.ANAM ?? "", agc?.BNAM ?? "", agc?.CNAM ?? "", d.Flags.ToString(),
+                string.Join("|", d.Keywords?.Select(k => k.FormKey.ToString()) ?? Array.Empty<string>())));
+        }
+        break;
+    case "doorsounds":  // read-only: one TSV row per DOOR with a sound (WWise start / stop events, condition, event mapping)
+        {
+            string Snd(ISoundReferenceGetter? r) => r == null ? "\t\t\t" : string.Join("\t", r.Start.ToString(), r.Stop.ToString(),
+                r.Condition.IsNull ? "" : r.Condition.FormKey.ToString(), r.EventMapping.IsNull ? "" : r.EventMapping.FormKey.ToString());
+            Console.WriteLine("editor_id\tformkey\tanam\tbnam\topen_start\topen_stop\topen_condition\topen_mapping" +
+                              "\tclose_start\tclose_stop\tclose_condition\tclose_mapping\tloop");
+            foreach (var d in mod.Doors)
+            {
+                if (d.OpenSound == null && d.CloseSound == null && d.LoopSound == null) continue;
+                var agc = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+                Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), agc?.ANAM ?? "", agc?.BNAM ?? "",
+                    Snd(d.OpenSound), Snd(d.CloseSound), d.LoopSound == null ? "" : d.LoopSound.Start.ToString()));
+            }
         }
         break;
     case "doorprops":
@@ -345,6 +380,57 @@ switch (args[1])
             Console.WriteLine($"  {c.EditorID} {r.FormKey} persistent={persistent} flags=0x{r.MajorRecordFlagsRaw:X} base={d?.EditorID} pos=({r.Position.X:F2},{r.Position.Y:F2},{r.Position.Z:F2}) rotZ={r.Rotation.Z:F3}");
             Console.WriteLine($"     -> {dest.c.EditorID} {dest.r.FormKey} persistent={dest.persistent} base={dd?.EditorID} destpos=({dest.r.Position.X:F2},{dest.r.Position.Y:F2},{dest.r.Position.Z:F2}) destrotZ={dest.r.Rotation.Z:F3}");
             Console.WriteLine($"     XTEL pos=({t.Position.X:F2},{t.Position.Y:F2},{t.Position.Z:F2}) rot=({t.Rotation.X:F3},{t.Rotation.Y:F3},{t.Rotation.Z:F3}) flags={t.Flags} transition={t.TransitionInterior.FormKey} back={(dest.r.TeleportDestination?.Door.FormKey == r.FormKey)}");
+        }
+        break;
+    }
+    case "scripted":   // read-only: scripted <ScriptName>: base records and placed objects whose VMAD names the script, with each
+                       // placed object's base type, model, animation graph and linked-ref keywords (how vanilla wires elevators)
+    {
+        var script = args[2];
+        bool Has(IVirtualMachineAdapterGetter? v) => v?.Scripts.Any(s => string.Equals(s.Name, script, StringComparison.OrdinalIgnoreCase)) == true;
+        foreach (var r in mod.EnumerateMajorRecords())
+            if (r is not IPlacedObjectGetter && r.GetType().GetProperty("VirtualMachineAdapter")?.GetValue(r) is IVirtualMachineAdapterGetter bv && Has(bv))
+                Console.WriteLine($"base {r.GetType().Name.Replace("BinaryOverlay", "")} {r.FormKey} {r.EditorID}");
+        int shown = 0, total = 0;
+        void ShowScripted(ICellGetter c, IPlacedObjectGetter r)
+        {
+            if (!Has(r.VirtualMachineAdapter)) return;
+            total++;
+            if (shown++ >= 12) return;
+            var b = cache.TryResolve<Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter>(r.Base.FormKey, out var br) ? br : null;
+            var agc = (b?.GetType().GetProperty("Components")?.GetValue(b) as System.Collections.IEnumerable)?.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+            var model = (b as IModeledGetter)?.Model?.File?.ToString() ?? "";
+            var links = string.Join(", ", r.LinkedReferences.Select(l =>
+                (cache.TryResolve<IKeywordGetter>(l.KeywordOrReference.FormKey, out var k) ? k.EditorID : l.KeywordOrReference.FormKey.ToString()) + "->" + l.Reference.FormKey));
+            Console.WriteLine($"ref {c.EditorID} {r.FormKey} base={b?.GetType().Name.Replace("BinaryOverlay", "")} {b?.EditorID} model={model} graph={agc?.ANAM} rig={agc?.BNAM} clips={agc?.CNAM}");
+            Console.WriteLine($"    links: {links}");
+        }
+        foreach (var c in cells)
+            foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) ShowScripted(c, r);
+        foreach (var w in mod.Worldspaces)
+            foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items).Concat(w.TopCell != null ? new[] { w.TopCell } : Array.Empty<ICellGetter>()))
+                foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) ShowScripted(c, r);
+        Console.WriteLine($"placed objects with {script}: {total}");
+        break;
+    }
+    case "furn":   // read-only: furn <EditorID substr> [n]: sittable furniture (no bench type) and what a converted chair must copy
+    {
+        var kwEdid = mod.Keywords.ToDictionary(k => k.FormKey, k => k.EditorID);
+        string K(Mutagen.Bethesda.Plugins.FormKey k) => kwEdid.TryGetValue(k, out var e) ? $"{e} {k.ID:X6}" : k.ToString();
+        var limit = args.Length > 3 ? int.Parse(args[3]) : 20;
+        var hits = mod.Furniture.Where(f => (f.BenchType ?? Furniture.BenchTypes.None) == Furniture.BenchTypes.None
+                                            && (f.EditorID ?? "").Contains(args[2], StringComparison.OrdinalIgnoreCase)).ToList();
+        Console.WriteLine($"{hits.Count} FURN without a bench type match '{args[2]}' (showing {Math.Min(limit, hits.Count)})");
+        foreach (var f in hits.Take(limit))
+        {
+            Console.WriteLine($"== {f.EditorID} {f.FormKey.ID:X6} model={f.Model?.File} name={f.Name?.String}");
+            Console.WriteLine($"   template={f.FurnitureTemplate.FormKeyNullable} markerModel={f.MarkerModel} markerFlags={f.MarkerFlags} flags={f.Flags}");
+            Console.WriteLine($"   keywords: {string.Join(", ", (f.Keywords?.Select(k => K(k.FormKey)) ?? Enumerable.Empty<string>()))}");
+            foreach (var e in f.MarkerEntryPoints ?? Enumerable.Empty<IFurnitureMarkerEntryPointsGetter>()) Console.WriteLine($"   entry {e.Type}: {e.EntryPoints}");
+            foreach (var m in f.MarkerParameters ?? Enumerable.Empty<IFurnitureMarkerParametersGetter>())
+                Console.WriteLine($"   marker offset=({m.Offset.X:F2}, {m.Offset.Y:F2}, {m.Offset.Z:F2}) rotZ={m.RotationZ:F3} keyword={K(m.Keyword.FormKey)} entry={m.EntryTypes} exit={m.ExitTypes}");
+            foreach (var g in f.Components.OfType<IAnimationGraphComponentGetter>()) Console.WriteLine($"   graph {g.ANAM} skeleton {g.BNAM} anims {g.CNAM}");
+            Console.WriteLine($"   markerFiles={f.MarkerFiles?.Count ?? 0} properties={f.Properties?.Count ?? 0} sittingAngle={f.ActivationAngleForSittingActor}");
         }
         break;
     }

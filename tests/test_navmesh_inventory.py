@@ -43,6 +43,7 @@ class NavmeshInventoryTests(unittest.TestCase):
         self.assertEqual(report["lost_triangles"], 100)
         self.assertEqual(report["reduced_triangles_approx"], 12)
         self.assertIn("1 lost", report["summary"])
+        self.assertIn("reduced (12 tris approx)", report["summary"])
 
     def test_reduced_triangle_loss_is_never_negative(self):
         # #208: reduced when either triangles or area fell; count only positive triangle losses.

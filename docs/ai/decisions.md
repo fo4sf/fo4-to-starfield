@@ -2,6 +2,29 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-16 FO4 "open by default" is written on converted doors; FO4 locks are not (Claude, proposed)
+PluginSpike sets `OpenByDefault` (`ONAM`) on every placed reference of an animated, non-load DOOR base whose FO4
+reference is open by default (pinned cells: 47 hinged-door refs; 68 with the sliding doors), so a doorway FO4 shows open
+starts open instead of shut (review of PR #242). FO4 lock data (13 / 23 refs; Vault 111 levels 253 / 254) is counted
+per cell and not written: the keys, terminals and quests that open those doors are not in the build, so a ported lock
+would shut a door nothing can open. Alternatives: port locks with their levels (blocks routes until terminals and keys
+exist), leave both out (FO4-open doorways become shut doors that a never-played rig must open). The route planner
+already treats open-by-default doors as open (`scripts/game/routes.py` `moves_aside`).
+
+## 2026-10-16 Sliding, lifting and trapdoor FO4 doors get their own rig, not a vanilla sliding template (Claude, proposed)
+FO4 door models matching `NOT_HINGED_RE` (vault, elevator, hatch, ...) that are not load doors are converted like the
+multi-part doors (`convert_multipart_door`: one rig bone per FO4 node, FO4's own Open / Close keys written with CALUMI, a
+keyframed box per moving part) on the vanilla graph `SimpleOpenClose01.agx`, when `--door-anim-dll` is given; without
+it they stay passable. Why: all 123 vanilla door rigs were read back; sliding and lifting doors use the same graph as
+hinged ones and carry their motion in their own rig and clips, but none moves like the FO4 doors: no vanilla rig
+drops a panel straight down or splits two panels up and down (the vault doors' lower panel drops 0.98 m; the nearest,
+a NASA prototype door, moves two panels 0.52 m down and 0.52 m sideways) and the vanilla sliding pairs travel 1.00 / 1.50 / 4.00 m
+against FO4's 0.64-0.91 m. A template would leave a panel shut or push it 0.09-0.36 m into the wall; FO4's keys give
+the exact travel and timing. Alternatives: `ElvGen_ExSm_DoorInner01` as a template for the elevator doors (9-56 % too
+far), `StsGenIntRmSmWallMid_DoorD01` for the vault doors (upper panel only, the lower one would block), keeping them
+passable (the owner's row 1). Risk shared with #79: our rig and clips have not played in game. Evidence:
+docs/spikes/sliding-doors.md.
+
 ## 2026-10-12 Multi-part FO4 doors get their own rig and clips; single-part doors stay on the Akila template (Claude, proposed)
 A rigged FO4 door whose `Open` sequence moves geometry outside its first node (second leaf, shutter panel, sliding
 panel set, latches) is converted with one rig bone per FO4 node, its own `Open`/`Close` clips written with the external
@@ -305,3 +328,261 @@ claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+- 2026-10-16 (Claude): FO4 settlement workshops become native ACTI build stations in the vanilla pre-placed pattern (OutpostPlayerHouseActivator 00024DC7: WorkshopKeyword + its OutpostCategory keywords read from the master, PRPS OutpostBuildAreaRadius 250, no VMAD; temporary REFR in the original slot), and FO4 crafting benches bind their REFR to the vanilla Starfield bench of their kind (weapon 2B6A63, armor 2B6A62, chem 2B6A61, cooking 2B6A65) with no record of ours; power armor stations stay statics. Why: build mode and the crafting menu are engine behaviour of these records (no script), the vanilla bench carries the animation and menu a converted mesh cannot yet, and a vanilla base keeps every FormID. Alternatives considered: the outpost beacon ACTI 2C60E9 (needs its quest script's mandatory properties), an outpost beacon pack-in (creates an overlay instance, unverified on ours), our own FURN with the FO4 mesh (second step: the animation over a boneless model is unresolved). docs/terrain/stations.md.
+
+## 2026-10-16 Converted compressed meshes must pass the decoder simulation (Claude)
+- Decision: src/fo4sf/meshcheck.py (CLI scripts/oracles/collision_mesh_keys.py) walks every compressed mesh of a
+  converted NIF as Starfield's hknp decoder does and a build with violations is not deployed. The converter writes
+  what vanilla meshes have and nothing else: one SIMD leaf per primitive, primitive slots the decoder cannot type
+  replaced by a neighbour copy, FO4's special-primitive section flag cleared, primitiveStoresIsFlatConvex 0xFF; every
+  other FO4 byte is copied as before (docs/ai/research-log.md 2026-10-16).
+- Why: the owner's crashes since 10-12 are this decoder reading our per-triangle SIMD keys as primitives (vault_cart_01:
+  key 79 + 1 -> primitive 40 of 40). Vanilla gives one invariant set to test against (837 of 837 meshes).
+- Alternatives: dropping bodies with FO4 special primitives (loses the precombines' collision), re-encoding the trees
+  (no vanilla evidence that the engine wants anything but what it has), leaving the flat-convex byte at FO4's 0 (a
+  code path no vanilla asset exercises).
+- 2026-10-16 (Claude): FO4 exterior load doors into the converted interiors become scripted doors (docs/terrain/scripted-doors.md): every record stays temporary on the exterior side (the overlay merge), the door REFR keeps its slot on an ACTI with the converted door mesh and carries the FO4SF_LoadDoor VMAD (PR #243: DestinationPlugin + DestinationId, resolved at run time, no master link between the plugins), each side gets an arrival XMarker at the FO4 XTEL point (exterior: temporary, appended after the lights with the ACTIs; interior: persistent, so it resolves from outside). The exterior side is written by Mutagen (its VMAD bytes equal the raw codec's and vanilla's), the interior side by a raw record-level patch of a copy of the pinned FO4Port.esm (scripts/terrain/vmad_patch.py), proved by a byte diff of every other record. Alternatives rejected: a vanilla XTEL door (persistent references read unmerged, 4 in-game runs); MoveTo onto the interior door itself (temporary: unresolvable from outside, and the player would land in the mesh); rewriting FO4Port.esm with Mutagen (no byte-level proof that nothing else moved); allocating the door ACTIs with the other promoted bases (would shift every NAVM and light id of core64i). Open until Step 0 runs in game: whether a temporary exterior marker resolves from inside (else a persistent twin plus the (-1200, -2700) offset).
+
+### 2026-10-16 - preserve door-stage inputs before output (Codex)
+
+A hard-linked README/report can overwrite the pinned source through the new
+folder. Exclude generated names and replace generated files atomically; checking
+an older hard-linked report must also detach it. Refuse any existing selected
+REFR VMAD before changing the plugin, rather than erase or implicitly merge
+unreviewed behavior. Validate marker-map collisions and disjoint output paths
+before copying. Full-directory transactional publication remains separate.
+
+- 2026-10-17 (Claude): the door return trip, writer side (docs/terrain/scripted-doors.md "Return trip"). Step 0 answered in game: the temporary exterior marker 0A76FD does not resolve from inside (door_trip_sdm_1018, `FO4SF_LoadDoor refused`), and a MoveTo onto a persistent overlay reference lands at its unmerged position, from where a setpos to the merged one stands on the overlay (probe (e)). So each exterior arrival marker itself becomes persistent (flag 0x400, same id: the slot and append rules of #272 and formids.json stay as they were) in the overlay world's persistent cell beside the anchor, and both door VMADs gain DestinationX / Y / Z (float, edited; the names of Codex's draft PR #291): the exterior door the interior marker's position, the interior door the exterior marker's merged position = local + overlays_params planet_target_cell x 100 m, refused unless it equals the measured (-1200, -2700, 0). Why the world's persistent cell and not the exterior cell's persistent children: the only persistent overlay reference seen to resolve and MoveTo in game is the anchor there, and vanilla keeps every persistent worldspace reference there (Starfield.esm 16,057 of 16,057, Fallout4.esm 33,571 of 33,571; 0 in an exterior cell's persistent children; read raw with C:\Modding\scratch\doorreturn\survey_persistent.py). Alternatives rejected: a persistent twin beside the temporary marker (a fourth id per door for no use: nothing resolves the temporary one); a marker written at local + offset (supported, not run: the MoveTo lands at the written position in the unmerged instance, 2.95 km from the door's terrain there, and the position leaves the overlay's cells); the offset as a bare constant (it follows the overlay's registration: a build registered elsewhere is refused until measured).
+- 2026-10-17 (Claude): both door VMADs now carry `UseDestinationPosition` (bool, edited, true) as the sixth property, right after DestinationZ (docs/terrain/scripted-doors.md "Restage with the bool"). Why: PR #291's FO4SF_LoadDoor applies DestinationX/Y/Z with SetPosition only when that bool is true (zero is a valid coordinate, so the values cannot be the switch), so the five-property VMADs staged earlier the same day would have kept the plain MoveTo and ignored the coordinates. The reader (`vmad_patch.load_door_target`, hence `check_port` and `make_core64c.door_record_problems`) refuses floats without the bool, a false bool and the bool without floats; the two-property door stays valid. #291's psc declares the bool before the floats: the names and types match, the order differs, and Papyrus binds VMAD properties by name, so the reader takes both orders and the writer keeps the sixth position. terrain_core64l and integ_1018_doors2 were regenerated (265 of 265, 49 of 49; formids, objects and plan byte-identical to core64k). Alternative rejected: leaving the bool out (the psc defaults it to False, so the coordinates would never be applied).
+- 2026-10-17 (Claude): exterior light lumens scaled 0.375 as a raw patch (terrain_core64l_l125) pending the owner's night check; the build default stays 333 until then. Alternatives: a full rebuild with --lumens-per-m2 125 (hours); a patch plugin (a second master). docs/terrain/exterior-lights.md "Calibration (17 Oct)".
+
+
+## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
+
+The leader core (`src/fo4sf/core/`, to be built per [leader-core.md](leader-core.md)) keeps one append-only
+`leader/ledger.jsonl` of typed events beside the test queues; current state is a fold over it, and existing records
+(queue `results.jsonl`/`state.json`, deploy and install manifests, watchdog state) are imported as events, never
+rewritten. `SKIPPED` and `CIRCUIT_BROKEN` are terminal but undecided outcomes; only an `IN_GAME` `PASS` on the pinned
+build verifies a capability. Why: the 2026-10-14 power cut and the #84 controller races both came from state spread
+over labels, prose and per-queue files; a fold over a ledger resumes without guessing, a truncated last line is the
+worst crash case, and the work-period report generated from the fold cannot drift from the state. Alternatives:
+a SQLite store like `guardian.db` (harder to diff and attach as evidence; a crash mid-write is worse than a
+truncated JSON line); GitHub labels as the state (not machine-checkable, no history of who held the controller);
+rewriting old queue results into a new format (would touch original campaign evidence).
+
+## 2026-10-16 Claude-cloud: the controller lease is a file beside the ledger, consulted only behind an opt-in switch
+
+`src/fo4sf/core/controller.py` keeps the lease in `<leader>/controller.json` and writes every claim, renewal and
+release to the ledger first (the ledger is the record; the file is the cache the PowerShell scripts read through
+`scripts/game/lease.py`). `testqueue.py run`, `cycle.ps1` and `watchdog.ps1` consult it only when `FO4SF_LEASE_DIR`
+(the watchdog: `lease_dir` in `watchdog.json`) is set; unset, every script behaves as before, so the owner's PC does
+not change until the PC session turns the switch on in a window it watches. Why: the live runner, the chain and the
+watchdog are the PC session's, and a cloud session cannot test them against the game; a default-off switch lets the
+code merge and be read without a behaviour change. An expired lease is ambiguous and refuses every claim but the
+holder's own or a forced one with a reason, because a crash leaves exactly that state and the ledger must say who took
+over and why. Alternatives: a lock file alone (no record of who held it and no expiry: the #84 race again); a fold of
+the ledger in PowerShell (duplicated logic in two languages); a key in the PC's `config.toml` (not in git, and the
+runner reads none today); shipping the wiring on by default (would change the next chain on the PC untested).
+
+## 2026-10-16 Claude-cloud: the preflight gate reads through a probe, refuses on UNKNOWN, and ships off
+
+`src/fo4sf/core/preflight.py` keeps every check pure (a probe object supplies the readings; the runner's
+`PreflightProbe` reads the PC, the tests a fake), so the Windows-only readings never enter the core and every check
+has a synthetic PASS and FAIL. A reading the probe cannot give is UNKNOWN and refuses like FAIL, as the owner's brief
+asks; that includes a game version nobody pinned yet, so turning the gate on is a deliberate step by the PC session
+(pin the version, set `--preflight`). Why a probe and not direct reads: the same functions must run on Linux CI and on
+the PC, and a check that raises must become one UNKNOWN line, not a crash of the runner. Alternatives: a PowerShell
+preflight in cycle.ps1 (not testable here, and the runner needs the result in its log and the ledger); making the
+gate always-on (would refuse every current queue, none pins a game version); verifying the absolute load index
+against the game's implicit plugins (which of them the owner's install loads is unresolved: left as a note).
+
+## 2026-10-16 Claude-cloud: task cards and worker results are validated data; a lost attempt expires, never vanishes
+
+`src/fo4sf/core/tasks.py` and `worker.py` make the §4 card and the worker's result typed records the ledger checks
+before it takes them (an undecided outcome never completes, a PASS or FAIL carries evidence, only an IN_GAME PASS
+may claim `verified`, one attempt at a time, dependencies by PASS), and `Worker.expire` turns an attempt past its
+timeout into an INCONCLUSIVE result that says so. Why: the brief's cards were prose, and the two failure modes of
+the last weeks were a result nobody could trace to evidence and a run nobody could tell apart from a lost one; data
+with rules closes both. Alternatives: free-form result dicts (what the queue rows are today; the importer keeps
+reading those unchanged); a scheduler that retries on its own (a retry is a decision the leader records, not a loop).
+
+## 2026-10-16 Claude-cloud: the core carries one reference matrix, in #102's Z-first order, and leaves the old copies in place
+
+`src/fo4sf/core/adapters/transform.py` is the core's only `ref_matrix` (`R = Rx(-x) Ry(-y) Rz(-z)`, the order PR #102
+verified on 146,463 of 146,728 tilted precombined references and on 52 of 52 core64c readings); a parity test pins
+where the two Python copies agree (`routes.py` everywhere, `exterior.py` on heading-only rotations) and where they do
+not. `exterior.ref_matrix` and `PluginSpike.RotateOffset` stay X first on purpose: switching either moves every
+tilted placement or every rigged door hinge, which is a re-staged build, a rebuilt plugin and re-pinned campaigns,
+so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why not fix them now: a cloud session
+cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
+one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
+decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+## 2026-10-18 Claude-cloud: SetRigidBodyMass tests when GetMass cannot be read
+- **Decision:** a movable_control test with `set_mass_kg` whose GetMass probe answers "No script named ..." is judged
+  on a move only. PASS WALKED or PASS IMPULSE stands, with "mass not read back" in the detail. No move stays
+  INCONCLUSIVE MASS.
+- **Why:** in movable_1019c, `cf "ObjectReference.GetMass"` answered "No script named ObjectReference is attached to
+  the object" (**verified**), so the old rule ("judged only when GetMass reads the mass set back") would leave every
+  5 kg test unjudged forever. The set mass can only have made the body lighter or left it unchanged:
+  - A move shows the body moves at a mass no higher than its own.
+  - No move cannot tell a mass that did not take from a heavy body, which is the verifier's "thinness, not mass"
+    concern on PR #110, so a non-move is still not judged.
+- **Alternatives:**
+  - Drop the 5 kg tests: this loses the one comparison that can show mass is the cause.
+  - Judge both ways: this risks a false "mass is not the cause".
+  - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
+- Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
+  choices.
+
+## 2026-10-18: interior usable objects reuse the exterior promotion rules (Claude-cloud)
+- Decision: FO4Port.esm promotes containers, inventory items, activators and terminals with the core's make_cluster rules
+  and tables, through an optional promote.json PluginSpike reads (docs/terrain/port-promotions.md).
+- Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
+- Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
+  hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-19 Claude-cloud: all interiors go into one cumulative FO4Port.esm, every earlier id kept
+- **Decision:** the remaining interiors are converted in staged batches (docs/terrain/interior-batches.md), each a
+  new full FO4Port.esm = the installed port's cells + every batch so far. PluginSpike is seeded with the installed
+  port's formids.json, and `vmad_patch.py port --keep-markers` re-applies the installed scripted doors with their
+  marker ids; `interior_batch.py compare` fails a batch that renumbers or drops an installed id.
+- **Why:** the installed core's exterior doors name FO4Port.esm marker ids (00E175..00E183); a grown port that moved
+  them would break those doors, and saves hold port ids. One plugin keeps the owner's load order unchanged and lets
+  interior-to-interior doors across batches link by XTEL in one build.
+- **Alternatives:** one plugin per batch (FO4PortB01.esm ...): independent rollbacks, but nine more plugins, duplicated
+  bases or a master chain, and cross-batch door links between plugins; a rebuild of the core with every door per
+  batch: forbidden while the v6e test runs, and it is the door gate's own step.
+
+## 2026-10-20 Claude-cloud: one location per FO4 location, rooted in FO4Port.esm, leveling from the encounter zone
+- **Decision:** PluginSpike writes one Starfield LCTN per Fallout 4 LCTN, shared by the cells that name it (one per
+  cell when the cell has no XLCN), keyed `LCTN:FO4Port_<FO4 LCTN editor id>` so the chained formids.json fixes its
+  FormID on first use; every converted cell gets XLCN. All of them are parented to one root LCTN inside FO4Port.esm,
+  `FO4Port_InteriorsLocation`, whose parent is `SSol_PMars_Surface` 01B736:Starfield.esm. The FO4 encounter zone's
+  level band and its four flags fold into the LCTN's owner data (levels clamped to 127); no keywords are written;
+  CELL bit 0x10000 ("Use Location as Name") stays off unless the per-cell setting `LOCATION_AS_NAME` is "1". The
+  FO4 data comes from Fo4Export (schema 3 exports; a `locations` mode writes a sidecar for the 16 pinned base
+  exports). docs/terrain/interior-batches.md "Locations".
+- **Why:** interiors.md C4 and C10 decided that FO4's levels and cleared state are per location, and in FO4 both live
+  on the LCTN and its ECZN: a per-cell location would split Vault 81 and Parsons State into three places each that the
+  combined core (which keys places by FO4 LCTN editor id) would have to re-merge. A root in FO4Port.esm keeps the
+  plugin's masters at Starfield.esm alone, so every earlier FormID and the installed core's door markers stay as they
+  are; re-pointing the root later is a one-record change.
+- **Alternatives:** parent = the overlay location `FO4CW_CommonwealthLocation` in FO4TerrainCore.esm (interiors.md's
+  supported default): rejected, FO4Port.esm would have to master the core, reversing the build order and breaking the
+  "no plugin masters the other" rule the door wiring relies on; whether a chain that bypasses the overlay satisfies the
+  cleared-state system is an in-game test. Per-cell locations only: rejected above. Replicating FO4's parent chain
+  (CommonwealthLocation ...): nothing consumes it yet; the export keeps `parent_chain` for the core's region derivation.
+  Carrying FO4's LocType keywords: no verified Starfield mapping, kept in the export for a later pass. Inheriting a
+  missing zone's leveling from the nearest FO4 ancestor: no evidence Starfield resolves it the same way; left null.
+
+## 2026-10-20 Claude-cloud: textures beyond one archive ride empty companion plugins, full masters for now
+- **Decision:** `interior_batch.py build` packs the textures into as many DDS archives as fit under 90% of the
+  4,095 MiB limit (`plan_parts`: case-insensitive path order, greedy, a file never split, a file keeps the part the
+  `--prev` batch gave it while that part has room, the previous batch's packed/loose ratio widens the cap). Part 0
+  stays `FO4Port - Textures.ba2`; part k is `FO4PortTextures<k+1> - Textures.ba2` next to `FO4PortTextures<k+1>.esm`,
+  an empty full-master plugin (42 bytes, byte for byte Mutagen alpha.67's output for a record-less master: **verified**
+  in a probe, pinned in `tests/test_interior_census.py`), listed in Plugins.txt right after FO4Port.esm. The
+  companions and their archives are pinned, successor-verified and never archived, like the port's own archives.
+  docs/terrain/interior-batches.md "Pack".
+- **Why:** batch 4's Textures.ba2 is 3,590,442,691 bytes (**verified**) and grows about 5% per batch, so the single
+  archive reaches the limit around batch 7, and whether the engine reads a larger one is unresolved (X3). The game
+  loads `<plugin> - Textures.ba2` for a loaded plugin (**verified** for FO4Port.esm and the vanilla SFBGS003 / 00D
+  pairs); an empty plugin is the smallest carrier of that name. Full master because X2's rule keeps every new plugin's
+  type a recorded choice checked in game before release: a small or medium master has never been loaded by this
+  project (S2 verified only a Mutagen full master, docs/spikes/S2-S4-S9), and a record-less plugin gains nothing from
+  the smaller type but a load-order slot. The in-game test that would allow the smaller type: the companion rewritten
+  as a small or medium master, a texture only its archive holds rendering after `coc` (interior-batches.md PC tests);
+  the choice is fixed once released.
+- **Alternatives:** numbered archives of one plugin (`FO4Port - Textures02.ba2`): the executable holds a
+  `%s%s%02u.ba2` pattern (core64c.md) but no installed plugin uses it, so it is a second unverified mechanism; a
+  smaller texture set (`--max-texture` caps as the core uses): changes every converted texture and the pinned
+  batches; a plugin per batch: rejected on 2026-10-19 (ids and doors). Planning by packed size (pack, measure, split,
+  repack): gigabytes of Archive2 time per attempt; the loose-bytes plan with the measured ratio is conservative and
+  deterministic.
+- **Open:** deploy_starfield.py installs FO4Port.esm and its two archives only; a batch with companions is installed by
+  hand from result.json `install` until the installer learns the list.
+
+## 2026-10-20 Claude-cloud: a batch pins the game files it read and refuses a chain built from other ones
+- **Decision:** result.json `sources` holds the sha256 and size of Fallout4.esm and of each DLC plugin a cell is
+  exported from, and the size and mtime of every BA2 under `--fo4-data` and `--dlc-data`. A `--prev`, or a `--base`
+  that is a batch's own stage, with other pins is refused; `--allow-source-change` overrides and is recorded.
+- **Why:** X8 (precedents Q4): the chained batches reuse the previous batch's exports and converted models, so a
+  changed Fallout4.esm or BA2 would silently mix two game versions in one port. Hashing the BA2s (some 30 GB) would
+  take longer than the convert step, so they are pinned by size and mtime; the plugins are hashed (seconds).
+- **Alternatives:** hash everything (too slow per batch); refuse nothing and only record (the mix would go unnoticed
+  until a model looks wrong in game); pin the installed doors staging too (it predates the pins; a base without a
+  record is accepted, said so in the doc).
+
+## 2026-10-20 Claude-cloud: the texture plan replans on an over-limit part; a source pinned for the first time is not a change
+- **Decision:** `interior_batch.py pack` packs a part that came out at or over the 4,095 MiB limit again, replanned
+  with the packed/loose ratio that attempt measured (always above the one planned with: an over-limit part packed
+  more than cap times ratio bytes), repacking only the parts whose file list changed, up to three attempts
+  (`steps.pack.attempts`); `--pack-ratio R` overrides the `--prev`'s measured ratio (`steps.pack.ratio_source`). A
+  measured ratio above 1 is kept, not clamped to 1. `plan_parts` never returns an empty part: one the previous
+  assignment emptied is dropped and the parts after it move down (their files count as moved). `source_changes`
+  counts a pin whose value changed or that is gone; a plugin or BA2 pinned for the first time is listed under
+  `steps.sources.added` and never refused. Review findings on #396, docs/terrain/interior-batches.md "Replanning"
+  and "Sources".
+- **Why:** the ratio is measured on the previous batch's parts, never on the files the batch adds, so a batch whose
+  new textures pack worse could exceed the limit after hours of Archive2 time, and a failed batch is no `--prev`:
+  the chain had no recovery path but editing result.json. Repacking only changed parts bounds the extra Archive2
+  time to the parts that moved. An empty middle part (every file of it gone from the work staging) would have been
+  packed from a link tree never made: a FileNotFoundError past build()'s handler, no result.json. Batch 10 (the DLC
+  cells) pins DLCRobot.esm and its BA2s for the first time; refusing it would force `--allow-source-change`, which
+  would also silence a real Fallout4.esm change in that build.
+- **Alternatives:** plan by packed size (pack, measure, split, repack every part): the replanning does that only
+  when the plan missed; keep gaps in the companion numbering so a file never moves when a part empties (sparse
+  `FO4PortTexturesN` numbers; rejected as confusing, and the case needs every file of a part gone); refuse a
+  first-time pin too (the reviewed behaviour, rejected above).
+
+## 2026-10-19 Claude-cloud: the launcher backbone wraps the existing scripts and installers
+- **Decision:** `src/fo4sf/launcher/` adds a build manifest, a recipe-driven resumable build driver over the existing
+  make scripts, a snapshot-and-restore that acts only through deploy_starfield.py, exp_install.py and
+  bridge_install.py, and a same-ids check (raw record walk plus compare-ids). Pure Python; no C#, so no new GPL-3
+  binary (docs/ai/launcher-backbone.md).
+- **Why:** Grok (#381) and Codex (#382) asked for the build-and-restore spine and the determinism check before
+  doors and interiors; Codex noted the ledger is not the physical restorer, so restore reuses the installers that
+  already own every file. Wrapping keeps the install thread's nightly commands unchanged.
+- **Alternatives:** a build graph importing the converters (rewrites the entry points); MO2 profile or Stock-Game
+  copy for restore (untested at this size / too much disk); a Mutagen check in C# (needs a load order, GPL-3).
+  Listed for the owner's talk in launcher-backbone.md.
+
+## 2026-10-19: the Fallout 4 new game is its own plugin, resolving the port and core at run time (Claude-cloud)
+- Decision: FO4SFNewGame.esm (master Starfield.esm only) holds the start quest; it finds Vault 111 and the core's exit
+  anchor with Game.GetFormFromFile on stable plugin-local ids, and stops MQ00 and MQ101 from Papyrus instead of editing
+  them (docs/newgame/vault111-start.md).
+- Why: the mission plugin is under test; ids in FO4Port and the core are stable, so the start survives their rebuilds;
+  stopping quests edits no Starfield record and goes away with the plugin.
+- Alternatives: changes to FO4SFMission.esm (rejected: it is under test); mastering the port and core with our own
+  markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
+  fallbacks, `--mq101debug`, for the owner's talk).
+
+## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
+- Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
+  bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
+  script (FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor). Every switch is off by default (docs/spikes/load-door-animations.md).
+- Why: the owner's phase 2 (doors with enter and exit animations); Starfield's own visible load doors animate, and its
+  own animations come first (owner 2026-10-19). A child script leaves the FO4SF_LoadDoor contract the passing round
+  trips use untouched.
+- Alternatives:
+  - A separate opening door beside each load door: rejected, two records per door and a prompt clash.
+  - A fade or sound only: rejected, it is not the animation the owner asked for.
+  - Changing FO4SF_LoadDoor itself: rejected while v6e's test runs on it.
+  - Moving the core's exterior ACTI to a DOOR now: deferred until the v6e test is done (the bugs thread owns that path).
+
+## 2026-10-20: one stable DOOR base per converted model and FO4 name (Claude-cloud)
+- **Decision:** PluginSpike's DoorNames.cs gives each FO4 name of a converted door model its own DOOR base, under the
+  identity `DOOR:<editor id>|name:<name>`, and moves that name's references to it. The model's own base
+  `DOOR:<editor id>` keeps the name "Door" and the references without a usable FO4 name, and it is emitted even when
+  no reference uses it. Copies keep the base's open and own-rig roles.
+- **Why:** the first version gave the model base the name most of its references had. Codex showed on #400 (review
+  5580232495) that a grown export with the same formids.json flips the winner. Old references then move to another
+  base, and a published base gets another name, while every REFR ID stays the same. Bases and their names are what
+  saves and other plugins see, so they must not depend on reference counts. The fix was confirmed in review 5581794458.
+- **Alternatives:**
+  - Keep the election and record each base's owner name in formids.json. This adds a map entry that is not a record,
+    and a new name can still win the election.
+  - Name the model base after the first name in ordinal order. A new name that sorts earlier still flips it.
+- **Boundary:** this is not a migration. A plugin or map built with the 4f0ad57 election is not compatible with it,
+  but no staged or installed build used that version. Not verified in game.

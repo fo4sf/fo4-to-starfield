@@ -1,0 +1,15 @@
+{
+ "note": "make_cluster.py benches: the kind of every FO4 crafting station (FURN with a WBDT bench type) by FO4 base editor id (exact, or 'prefix*'); the kind picks the vanilla Starfield bench the reference binds to (make_cluster.BENCH_KINDS: weapon 2B6A63 WorkbenchWeapon, armor 2B6A62 WorkbenchArmor, chem 2B6A61 WorkbenchChem, cooking 2B6A65 WorkbenchFood; docs/terrain/stations.md). A kind of null leaves the station a static, with the reason. No default: a bench type without an entry is listed as skipped (unknown kind), never guessed.",
+ "by_editor_id": {
+  "workbenchWeapons*": {"kind": "weapon"},
+  "WorkbenchArmor*": {"kind": "armor"},
+  "WorkbenchChemistry*": {"kind": "chem"},
+  "WorkbenchCooking*": {"kind": "cooking"},
+  "WorkbenchPowerArmor*": {"kind": null, "reason": "power armor station: Starfield has no bench type 8 (2B6A64 WorkbenchRobotStation is DONOTUSE); stays a static"},
+  "LvlPowerArmorFurniture*": {"kind": null, "reason": "power armor frame (wearable suit placed as furniture, FO4 bench type 8): no Starfield equivalent; stays a static"},
+  "PowerArmorFurniture*": {"kind": null, "reason": "power armor frame (wearable suit placed as furniture, FO4 bench type 8): no Starfield equivalent; stays a static"},
+  "PowerArmorFrameFurniture*": {"kind": null, "reason": "power armor frame (wearable suit placed as furniture, FO4 bench type 8): no Starfield equivalent; stays a static"},
+  "BoSPowerArmorFurniture*": {"kind": null, "reason": "power armor frame (wearable suit placed as furniture, FO4 bench type 8): no Starfield equivalent; stays a static"},
+  "BoSM01_BattleSite_BoSRuinedPowerArmor*": {"kind": null, "reason": "ruined power armor frame (quest set dressing, FO4 bench type 8): no Starfield equivalent; stays a static"}
+ }
+}

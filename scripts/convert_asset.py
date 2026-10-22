@@ -35,9 +35,15 @@ def main():
     ap.add_argument("--content-resources", required=True)
     ap.add_argument("--texconv", required=True)
     ap.add_argument("--metalness", type=float, default=0.0)
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest: FO4 small items 2-10x heavier than Starfield; try 0.2-0.5 for grab)")
     ap.add_argument("--flip-green", action="store_true")
     ap.add_argument("--collision-template", default="", help="a vanilla Starfield NIF with plain box collision; enables box collision")
     a = ap.parse_args()
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
 
     raw = open(a.fo4_nif, "rb").read()
     src = nif.parse(raw)
@@ -47,7 +53,7 @@ def main():
 
     base = a.name.rsplit("/", 1)
     folder, stem = (base[0], base[1]) if len(base) == 2 else ("", base[0])
-    tex_rel = f"textures/{folder}/{stem}".strip("/")
+    tex_rel = f"textures/{folder}/{stem}".replace("//", "/").strip("/")
     out = {}
     with tempfile.TemporaryDirectory() as tmp:
         # colour: DXT5/BC1 sRGB -> BC1_SRGB
@@ -86,7 +92,8 @@ def main():
     if a.collision_template:
         template = convert_static.collision_template_from_nif(open(a.collision_template, "rb").read())
         print("collision: box from template", os.path.basename(a.collision_template))
-    files = convert_static.convert_static(raw, a.name, material_path=mat_rel.replace("/", "\\"), collision_template=template)
+    files = convert_static.convert_static(raw, a.name, material_path=mat_rel.replace("/", "\\"), collision_template=template,
+                                         mass_scale=a.mass_scale)
     for rel, data in files.items():
         p = os.path.join(a.staging, *rel.split("/"))
         os.makedirs(os.path.dirname(p), exist_ok=True)

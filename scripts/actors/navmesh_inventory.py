@@ -137,7 +137,7 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "unknown": unknown,
         "unchanged": len(unchanged),
         "summary": (
-            f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced, {len(gained)} gained, "
+            f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced ({reduced_tris} tris approx), {len(gained)} gained, "
             f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris} ({retention_pct}% retained)"
             + (f"; verts {fo4_verts} -> {sf_verts}" if fo4_verts or sf_verts else "")
         ),
