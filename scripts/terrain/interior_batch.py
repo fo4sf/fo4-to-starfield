@@ -851,11 +851,10 @@ def animated_args_problem(a):
         if getattr(a, "animated_pex", "") or getattr(a, "door_flags", False) or getattr(a, "doorsounds", ""):
             return "--animated-pex, --door-flags and --doorsounds need --animated-doors"
         return None
-    if not a.no_pack:
-        if not a.animated_pex:
-            return "--animated-doors needs --animated-pex (the compiled FO4SF_AnimatedLoadDoor.pex), or --no-pack"
-        if os.path.basename(a.animated_pex) != ANIMATED_PEX or not os.path.isfile(a.animated_pex):
-            return f"--animated-pex {a.animated_pex} is not an existing {ANIMATED_PEX}"
+    if not a.no_pack and not a.animated_pex:
+        return "--animated-doors needs --animated-pex (the compiled FO4SF_AnimatedLoadDoor.pex), or --no-pack"
+    if a.animated_pex and (os.path.basename(a.animated_pex) != ANIMATED_PEX or not os.path.isfile(a.animated_pex)):
+        return f"--animated-pex {a.animated_pex} is not an existing {ANIMATED_PEX}"
     if a.doorsounds and not os.path.isfile(a.doorsounds):
         return f"--doorsounds {a.doorsounds} not found"
     return None

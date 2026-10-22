@@ -855,6 +855,8 @@ class BuildFlowTests(unittest.TestCase):
             ib.main(argv + ["--door-flags"])
         with self.assertRaisesRegex(SystemExit, "needs --animated-pex"):
             ib.main(argv + ["--animated-doors"])
+        with self.assertRaisesRegex(SystemExit, "is not an existing"):                  # a typo is refused before any step
+            ib.main(argv + ["--animated-doors", "--no-pack", "--animated-pex", pex + ".typo"])
         real, real_pack = ib.run, ib.deploy_starfield.build_archive
         ib.run, ib.deploy_starfield.build_archive = fake_run, fake_archive
         try:
