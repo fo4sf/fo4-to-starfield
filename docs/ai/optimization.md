@@ -65,3 +65,10 @@ calls, median **17.13 s** (3 rounds). After: the same command with `--retry-fail
 and 40 failures, 0.446 s before and 0.078 s after (`--cost 0 --models 4014 --failures 40 --rounds 5`). Cloud
 container, 4 CPUs, Python 3.13. The saving scales with the failure share (a retry costs about failures x per-model
 time). Pending: the same before/after on the owner's PC with a real failure-summary.json.
+
+### 2026-10-22 Claude: snapshot.ps1 writes Plugins.txt as plain strings
+Before: `state.json` kept every Plugins.txt line as a Get-Content object, with PSPath, PSDrive and Provider. Install saw
+3 MB on the owner's PC. Change: `plugins_txt` turns each line into a plain string (PR #484). Measured by Codex desktop on
+Windows with the real script, real Get-Content/ConvertTo-Json, the same synthetic ten-line Plugins.txt and a stubbed
+capture: **4,551,695 bytes before, 794 bytes after** (parent vs 1da8aba3). The list keeps the same strings in the same
+order.
