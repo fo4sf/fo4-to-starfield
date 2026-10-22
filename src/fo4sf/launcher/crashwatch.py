@@ -40,6 +40,7 @@ SFSE_LOADER = "sfse_loader.exe"                         # starts Starfield.exe w
 BRIDGE = "FO4SFBridge.esm"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLUGIN_TOGGLE = os.path.join(REPO, "scripts", "game", "plugin_toggle.py")
+LOAD_ORDER = os.path.join(REPO, "scripts", "game", "load_order.py")   # the target order (docs/testing/load-order.md)
 
 # Windows NTSTATUS / exception codes a game exit is likely to carry (winnt.h / ntstatus.h names)
 EXIT_NAMES = {
@@ -410,6 +411,24 @@ def apply_papyrus(values, say):
     say(f"papyrus logging: turned {want} in {path}")
 
 
+def apply_load_order(values, starfield, system, say, dry_run=False):
+    """load_order=fix puts our plugins in the target order before the game starts, check refuses a different order,
+    off leaves Plugins.txt alone. A dry run only checks and says what fix would do. Raises on refusal."""
+    want = values["load_order"]
+    if want == "off":
+        return
+    cmd = "check" if dry_run or want == "check" else "fix"
+    code, out = system.run([sys.executable, "-I", LOAD_ORDER, cmd, "--starfield", starfield])
+    for line in out.strip().splitlines():
+        say(line if line.startswith("load order") else f"load order: {line.strip()}")
+    if code == 9 and dry_run and want == "fix":
+        say("load order: play would put it right before the start")
+        return
+    if code:
+        raise ValueError(f"load order: {out.strip().splitlines()[-1] if out.strip() else f'exit {code}'}"
+                         + ("; set load_order=fix to put it right, or off" if code == 9 else ""))
+
+
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):
     """Apply the settings, start the game and watch it to its end. Returns a result dict; raises ValueError on a
     refusal (nothing started)."""
@@ -433,6 +452,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         raise ValueError("; ".join(bad))
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
+            f"load order: {values['load_order']}",
             f"start: {values['route']}",
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
@@ -441,6 +461,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     if dry_run:
         for p in plan:
             say(p)
+        apply_load_order(values, starfield, system, say, dry_run=True)
         return {"dry_run": True, "plan": plan}
     if cw:
         try:                                        # before the game starts: the log must be writable (Codex, #449)
@@ -458,6 +479,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         apply_bridge(values, starfield, system, say)
         apply_papyrus(values, say)
 
+    apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
     order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
     t0 = system.now()
     try:

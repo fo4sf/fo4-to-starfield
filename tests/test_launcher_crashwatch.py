@@ -46,6 +46,7 @@ class FakeSystem:
 
     def __init__(self, script, free=100.0, running=()):
         self.t, self.script, self.free = 1000.0, script, free
+        self.load_order = []
         self.started_at = None
         self.running = list(running)
         self.spawned, self.ran, self.calls = [], [], []
@@ -101,6 +102,10 @@ class FakeSystem:
     def run(self, argv):
         assert argv[1] == "-I", argv                          # plugin_toggle reads game data: isolated mode
         argv = argv[:1] + argv[2:]
+        if argv[1].endswith("load_order.py"):
+            self.load_order.append(argv[2])
+            code, out = getattr(self, "load_order_result", (0, "load order ok: our plugins are in the target order"))
+            return (0, "load order fixed: 1 line(s) moved") if argv[2] == "fix" and code == 9 else (code, out)
         self.ran.append(argv[2:])
         if argv[2] == "status":
             return 0, json.dumps(self.toggle_status) + "\n"
@@ -604,6 +609,33 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in popen.call_args_list],
                          [[os.path.join(self.game, "sfse_loader.exe")], [os.path.join(self.game, "Starfield.exe")]])
         self.assertEqual(popen.call_args_list[0].kwargs["cwd"], self.game)
+
+    def test_load_order_is_put_right_before_the_start(self):
+        # phase audit: one target order (docs/testing/load-order.md); play fixes or refuses a different one
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        self.play(self.values(), sys_)
+        self.assertEqual(sys_.load_order, ["fix"])
+        self.assertIn("load order fixed: 1 line(s) moved", self.said)
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(load_order="check"), sys_)
+        self.assertIn("set load_order=fix", str(e.exception))
+        self.assertEqual(sys_.calls, [])                               # the game never started
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (6, "load order not judged: FO4Port.esm is listed more than once")
+        with self.assertRaises(ValueError):
+            self.play(self.values(), sys_)
+        self.assertEqual(sys_.calls, [])
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        self.play(self.values(load_order="off"), sys_)
+        self.assertEqual(sys_.load_order, [])
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
+        self.play(self.values(), sys_, dry_run=True)
+        self.assertEqual((sys_.load_order, sys_.calls), (["check"], []))   # a dry run only checks
+        self.assertIn("load order: play would put it right before the start", self.said)
 
     def test_failed_wait_follows_the_process_id(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])

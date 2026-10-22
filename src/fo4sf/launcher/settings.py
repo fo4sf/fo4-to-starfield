@@ -44,6 +44,9 @@ SPEC = (
     ("papyrus_logging", "unchanged", TRISTATE,
      "Papyrus logging, trace and debug information in StarfieldCustom.ini ([Papyrus] bEnableLogging, bEnableTrace, "
      "bLoadDebugInformation): memory and disk for every script. The bridge needs it on."),
+    ("load_order", "fix", ("fix", "check", "off"),
+     "our plugins' order in Plugins.txt (docs/testing/load-order.md): fix puts them in the target order before the "
+     "game starts, keeping a copy of the old file; check refuses to start on a different order; off leaves it."),
     ("my_games", "", str, "Documents\\My Games\\Starfield (required when papyrus_logging is on or off)."),
     ("route", "sfse", ("sfse", "steam", "exe"),
      "how play starts the game: sfse (sfse_loader.exe in the game folder, which starts Starfield.exe with SFSE "
@@ -65,6 +68,7 @@ LABELS = {
     "crash_watch.settle_s": "Seconds before the watcher attaches",
     "bridge": "Test bridge plugin",
     "papyrus_logging": "Papyrus script logging",
+    "load_order": "Load order of our plugins",
     "my_games": "My Games folder",
     "route": "How the game starts",
 }
