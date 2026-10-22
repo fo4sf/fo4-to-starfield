@@ -192,6 +192,39 @@ def mesh_blob(packed, prims, n_shared_idx=0, section_off=(0, 0, 0), scale=(0.01,
     return w.build()
 
 
+def compound_blob(radius, scale):
+    """A dynamic compound (meshcollision._emit_dynamic_compound's layout) of one instance: the unit cube hull with this
+    convex radius, scaled by `scale`."""
+    v, f = cube((0, 0, 0), (1, 1, 1))
+    w = TagWriter()
+    body_types(w, "hknpCompoundShape")
+    w.type("hull", 48, [("vertices", 0, "ptr"), ("faces", 16, "ptr"), ("indices", 32, "ptr")])
+    w.type("hknpConvexShape", 80, [("convexRadius", 8, "float3"), ("hull", 16, "hull")])
+    w.type("freelist", 16, [("elements", 0, "ptr")])
+    w.type("hknpCompoundShape", 32, [("instances", 16, "freelist")])
+    w.type("instance", 64, [("rotation", 0, "float3"), ("translation", 16, "float3"), ("scale", 32, "float3"),
+                            ("shape", 48, "ptr")])
+    shape = bytearray(80)
+    struct.pack_into("<f", shape, 8, radius)
+    child = w.item("hknpConvexShape", shape)
+    vi = w.item("float3", b"".join(struct.pack("<3f", *p) for p in v), len(v))
+    fr, idx = b"", b""
+    for face in f:
+        fr += struct.pack("<HBB", len(idx), len(face), 0)
+        idx += bytes(face)
+    fi, ii = w.item("face", fr, len(f)), w.item("u8", idx, len(idx))
+    for off, target in ((16, vi), (32, fi), (48, ii)):
+        w.ptr(child, off, target)
+    cs = w.item("hknpCompoundShape", bytearray(32))
+    inst = bytearray(64)
+    struct.pack_into("<4f3f4x3f", inst, 0, 0, 0, 0, 1, 0, 0, 0, *scale)
+    ins = w.item("instance", inst, 1)
+    w.ptr(ins, 48, child)
+    w.ptr(cs, 16, ins)
+    add_body(w, cs)
+    return w.build()
+
+
 class SfBodiesTests(unittest.TestCase):
     def test_convex_cube_triangles_and_radius(self):
         v, f = cube((0, 0, 0), (2, 1, 0.5))
@@ -287,20 +320,33 @@ class SfBodiesTests(unittest.TestCase):
                 sfbodies.blob_bodies(convex_blob(v, f, quat=quat))
         self.assertEqual(len(sfbodies.blob_bodies(convex_blob(v, f, quat=(0, 0, 0.6, 0.8)))), 1)
 
-    def test_ball_of_an_unused_hull_vertex_does_not_grow_when_turned(self):
-        # The vertex no face uses was a cube of the convex radius; turned 45 degrees about z its corners widened the x / y
-        # bounds from 0.5 to 0.71 m, which could make a collision beside the mesh overlap it.
+    def test_pieces_bound_a_turned_convex_radius_exactly(self):
+        # The triangles push faces out by the radius (and an unused vertex is an octahedron): turned 45 degrees about z
+        # they reach 0.35 m past the core on x / y, not the 0.5 m the ball does. The pieces carry the radius instead.
         v, f = cube((0, 0, 0), (1, 1, 1))
         blob = convex_blob(v + [(10, 0, 0)], f, radius=0.5)
         c = 0.5 ** 0.5
         n = sfnif.build_static_nif(b"Test", [], child_collision_blobs=[(blob, (0, 0, 0), (c, -c, 0, c, c, 0, 0, 0, 1))])
-        pts = [p for t in sfbodies.nif_bodies(nif.serialize(n))[0]["triangles"] for p in t]
-        far = 10 * c
-        self.assertLessEqual(max(p[0] for p in pts), far + 0.5 + 1e-6)
-        self.assertLessEqual(max(p[1] for p in pts), far + 0.5 + 1e-6)
-        self.assertGreater(max(p[0] for p in pts), far)
-        unturned = [p for t in sfbodies.blob_bodies(blob)[0]["triangles"] for p in t]
-        self.assertAlmostEqual(max(p[0] for p in unturned), 10.5, places=5)    # exact bounds when not turned
+        body = sfbodies.nif_bodies(nif.serialize(n))[0]
+        (pts, radius), = body["pieces"]
+        self.assertEqual(radius, 0.5)
+        self.assertAlmostEqual(max(p[0] for p in pts) + radius, 10 * c + 0.5, places=5)
+        self.assertAlmostEqual(max(p[1] for p in pts) + radius, 10 * c + 0.5, places=5)
+        self.assertAlmostEqual(min(p[0] for p in pts) - radius, -c - 0.5, places=5)    # corner (0, 1, z) turned
+        tri_pts = [p for t in body["triangles"] for p in t]
+        self.assertLess(max(p[0] for p in tri_pts), 10 * c + 0.5 - 0.1)               # the surfaces fall short
+
+    def test_compound_cannot_scale_a_convex_radius(self):
+        # Whether Havok scales the radius with the instance is not known: such a body is an error, not a guess.
+        for scale, ok in (((1, 1, 1), True), ((-1, 1, 1), True), ((2, 2, 2), False), ((1, 1, 0.5), False)):
+            if ok:
+                (pts, radius), = sfbodies.blob_bodies(compound_blob(0.1, scale))[0]["pieces"]
+                self.assertEqual(round(radius, 6), 0.1)
+            else:
+                with self.assertRaises(sfbodies.BodyError, msg=scale):
+                    sfbodies.blob_bodies(compound_blob(0.1, scale))
+        (pts, radius), = sfbodies.blob_bodies(compound_blob(0.0, (2, 2, 2)))[0]["pieces"]   # no radius: any scale
+        self.assertEqual((radius, max(p[1] for p in pts)), (0.0, 2.0))
 
     def test_nif_node_transform_places_each_body(self):
         v, f = cube((0, 0, 0), (1, 1, 1))

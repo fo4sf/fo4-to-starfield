@@ -415,11 +415,18 @@ def collision_bodies(f, scale=1.0):
             errors.extend(f"collision object {i}: {e}" for e in mesh_errors)
             continue
         for body in decoded:
-            pts = [_place(p, t, rot, s) for tri in body["triangles"] for p in tri]
-            if not pts:
+            boxes = []                                 # each piece: its points' bounds grown by its radius (sfbodies)
+            for pts, radius in body["pieces"]:
+                if pts:
+                    p_lo, p_hi = _aabb([_place(p, t, rot, s) for p in pts])
+                    boxes.append(([x - radius * s for x in p_lo], [x + radius * s for x in p_hi]))
+            if not boxes:
                 errors.append(f"collision object {i}: empty {body.get('shape', 'shape')}")
                 continue
-            lo, hi = _aabb(pts)
+            if not all(_finite_aabb(*box) for box in boxes):
+                errors.append(f"collision object {i}: nonfinite {body.get('shape', 'shape')} bounds")
+                continue
+            lo, hi = combined_aabb(boxes)
             blo, bhi = _scale_aabb(lo, hi, scale)
             if not (_finite_aabb(lo, hi) and _finite_aabb(blo, bhi)):
                 errors.append(f"collision object {i}: nonfinite {body.get('shape', 'shape')} bounds")

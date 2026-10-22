@@ -670,6 +670,19 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         clean = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[convex_blob(*hull)]))
         self.assertEqual(clean["flags"], [])
 
+    def test_turned_convex_radius_bounds_are_the_ball_s(self):
+        # Turned 45 degrees about z, an unused vertex's convex radius as a cube widened the bounds by 0.21 m, and as an
+        # octahedron it fell 0.15 m short, so a 2 cm mesh inside the ball read offset. The radius is carried exactly.
+        v, faces = cube((0, 0, 0), (1, 1, 1))
+        blob = convex_blob(v + [(10, 0, 0)], faces, radius=0.5)
+        c = 0.5 ** 0.5
+        data = nif_bytes((7.5210678, 7.0710678, 0, 0.01, 0.01, 0.01),
+                         children=[(blob, (0, 0, 0), (c, -c, 0, c, c, 0, 0, 0, 1))])
+        report = oracle.audit(data, path="ball.nif")
+        self.assertEqual(report["flags"], [])
+        self.assertEqual(report["collision"]["max"][:2], [round(10 * c + 0.5, 4)] * 2)
+        self.assertEqual(report["collision"]["min"][0], round(-c - 0.5, 4))
+
     def test_huge_finite_scale_never_overflows(self):
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
         far = sfcollision.box_blob(fake_template(), (5, 0, 0.5), (0.4, 0.4, 0.5))
