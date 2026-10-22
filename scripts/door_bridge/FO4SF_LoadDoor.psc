@@ -9,7 +9,7 @@ bool Property UseDestinationPosition = False Auto
 float Property DestinationX Auto
 float Property DestinationY Auto
 float Property DestinationZ Auto
-; A missed trip (the player still in this door's cell, with the engine's
+; A missed trip (the player still in the cell they activated from, with the engine's
 ; "BOUNDARY REACHED"; docs/terrain/border.md) is retried with the same MoveTo this many times, each after
 ; RetryWaitSeconds. 0 turns retries off.
 int Property MoveRetries = 1 Auto
@@ -39,21 +39,22 @@ Event OnActivate(ObjectReference akActionRef)
     Debug.Trace("FO4SF_LoadDoor requested " + DestinationPlugin + ":" + DestinationId)
     TracePosition("marker", destination)
     TracePosition("before_move", akActionRef)
+    Cell origin = akActionRef.GetParentCell()
     akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)
     ; Return from the native call is NOT a judged arrival or successful round trip.
     Debug.Trace("FO4SF_LoadDoor MoveTo returned")
     TracePosition("after_move", akActionRef)
     int retries = 0
-    while retries < MoveRetries && !Arrived(akActionRef, destination)
+    while retries < MoveRetries && !Arrived(akActionRef, destination, origin)
         Utility.Wait(RetryWaitSeconds)
-        if !Arrived(akActionRef, destination)
+        if !Arrived(akActionRef, destination, origin)
             retries += 1
             Debug.Trace("FO4SF_LoadDoor retry " + retries + " of " + MoveRetries)
             akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)
             TracePosition("after_retry", akActionRef)
         endif
     endwhile
-    if retries > 0 && !Arrived(akActionRef, destination)
+    if retries > 0 && !Arrived(akActionRef, destination, origin)
         Debug.Trace("FO4SF_LoadDoor retry gave up after " + retries)
     endif
     if UseDestinationPosition
@@ -69,12 +70,12 @@ Event OnActivate(ObjectReference akActionRef)
     Moving = False
 EndEvent
 
-; The trip left this door's cell. Compared by cell, not world: on an exterior trip the player's GetWorldSpace() may
-; be the runtime instance (FF...) while the marker's is the core's WRLD (door-rounds.md, --world-instance). A door whose
-; destination is in its own cell counts as arrived. Not a judged arrival: the doors_out judge still decides.
-bool Function Arrived(ObjectReference target, ObjectReference destination)
-    Cell here = GetParentCell()
-    return destination.GetParentCell() == here || target.GetParentCell() != here
+; The trip left the player's starting cell (an exterior door near a cell edge can be activated from the next cell, so
+; not the door's). Compared by cell, not world: on an exterior trip the player's GetWorldSpace() may be the runtime
+; instance (FF...) while the marker's is the core's WRLD (door-rounds.md, --world-instance). A destination in the
+; starting cell counts as arrived. Not a judged arrival: the doors_out judge still decides.
+bool Function Arrived(ObjectReference target, ObjectReference destination, Cell origin)
+    return destination.GetParentCell() == origin || target.GetParentCell() != origin
 EndFunction
 
 Function TracePosition(string phase, ObjectReference target)

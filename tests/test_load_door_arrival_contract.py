@@ -47,7 +47,7 @@ class ArrivalContractTests(unittest.TestCase):
             'TracePosition("before_move", akActionRef)',
             "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)",
             'TracePosition("after_move", akActionRef)',
-            "while retries < MoveRetries && !Arrived(akActionRef, destination)",
+            "while retries < MoveRetries && !Arrived(akActionRef, destination, origin)",
             'TracePosition("after_retry", akActionRef)',
             "if UseDestinationPosition",
             "akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)",
@@ -65,10 +65,10 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertIn("float Property RetryWaitSeconds = 0.5 Auto", self.code)
         loop = re.search(r"while (.*?)\n(.*?)endwhile", self.activate, re.S)
         self.assertIsNotNone(loop)
-        self.assertEqual(loop[1].strip(), "retries < MoveRetries && !Arrived(akActionRef, destination)")
+        self.assertEqual(loop[1].strip(), "retries < MoveRetries && !Arrived(akActionRef, destination, origin)")
         body = loop[2]
         # wait, look again, and only then count and repeat the same MoveTo
-        steps = ["Utility.Wait(RetryWaitSeconds)", "if !Arrived(akActionRef, destination)", "retries += 1",
+        steps = ["Utility.Wait(RetryWaitSeconds)", "if !Arrived(akActionRef, destination, origin)", "retries += 1",
                  "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)"]
         indices = [body.index(step) for step in steps]
         self.assertEqual(indices, sorted(indices))
@@ -76,8 +76,10 @@ class ArrivalContractTests(unittest.TestCase):
         arrived = self.code.split("bool Function Arrived(", 1)[1].split("EndFunction", 1)[0]
         # by this door's cell, never by world (the player's may be the runtime instance)
         self.assertNotIn("GetWorldSpace", arrived)
-        self.assertIn("Cell here = GetParentCell()", arrived)
-        self.assertIn("return destination.GetParentCell() == here || target.GetParentCell() != here", arrived)
+        # against the player's cell taken before the first MoveTo, not the door's
+        self.assertIn("return destination.GetParentCell() == origin || target.GetParentCell() != origin", arrived)
+        before = self.activate.split(".MoveTo(", 1)[0]
+        self.assertIn("Cell origin = akActionRef.GetParentCell()", before)
         self.assertIn('"FO4SF_LoadDoor retry gave up after "', self.activate.split("endwhile", 1)[1])
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
