@@ -1,7 +1,8 @@
 """dotnet/MapMarkers on a synthetic core (the actual terrain writer, dotnet/TerrainOverlays, on the synthetic master of
 test_terrain_reference_identity with the map-marker template), never a game: the quest's Markers are the core's own
 MapMarker REFRs in FormID order and LocalX / LocalY / LocalZ their written positions (docs/terrain/map-markers.md
-"Markers in the merged world"); plus the Papyrus script's contract (it cannot be compiled here)."""
+"Markers in the merged world"); the plugin's overrides of those REFRs (the marker's own name shown, the arrival lifted,
+docs/terrain/map-markers.md "Overrides"); plus the Papyrus script's contract (it cannot be compiled here)."""
 import copy
 import hashlib
 import json
@@ -22,6 +23,9 @@ import test_terrain_reference_identity as tri  # noqa: E402
 import test_terrain_lights_writer as tlw  # noqa: E402
 
 SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
+Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
+Z_LIFT_STEP = 0.1                # dotnet/MapMarkers ZLiftStep: the build takes a lift on this grid only
+USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
 
 
 def build(dotnet, project):
@@ -81,7 +85,20 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.assertIn("all checks pass", check.stdout)
         recs = tri.records(plugin)
-        self.assertEqual(sorted(recs), [0x800])
+        # the quest, plus an override of each core marker under the core's worldspace and persistent cell: nothing else
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"REFR"), sorted(int(v, 16) for v in self.ids.values()))
+        self.assertEqual(sorted(r[0] for r in recs.values()), [b"CELL", b"QUST"] + [b"REFR"] * 3 + [b"WRLD"])
+        for m in self.markers:
+            sig, payload, _, flags = recs[int(self.ids[m["tag"]], 16)]
+            self.assertEqual(flags & 0xC00, 0x400, m["tag"])                       # persistent, enabled
+            fnam = struct.unpack("<I", tlw.field(payload, b"FNAM"))[0]
+            self.assertEqual(fnam & (USE_LOCATION_NAME | VISIBLE), VISIBLE, m["tag"])  # its own name, visible
+            self.assertEqual(tlw.field(payload, b"FULL"), m["name"].encode() + b"\0")
+            x, y, z = struct.unpack_from("<fff", tlw.field(payload, b"DATA"))
+            self.assertEqual([x, y], [float(v) for v in m["pos"][:2]])
+            self.assertAlmostEqual(z, m["pos"][2] + Z_LIFT, places=4)
+        self.assertEqual(check.stdout.count("  override "), 3)
+        self.assertIn(f"overridden (own name shown, lifted {Z_LIFT} m)", proc.stdout)
         sig, payload, _, flags = recs[0x800]
         self.assertEqual(sig, b"QUST")
         vmad = tlw.field(payload, b"VMAD")
@@ -93,11 +110,50 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(len(want), 3)
         got = [f & 0xFFFFFF for f in self.object_list(vmad)]
         self.assertEqual(got, want)
-        self.assertTrue(all(f >> 24 == 0 for f in self.object_list(vmad)))   # the core is the only master
-        # LocalX in FormID order equals the positions the writer was given
+        # masters: Starfield.esm (the overrides' base STAT) then the core; the quest's references are the core's
+        self.assertTrue(all(f >> 24 == 1 for f in self.object_list(vmad)))
+        # LocalX in FormID order equals the positions the writer was given; LocalZ the lifted height the override holds
         by_id = {int(self.ids[m["tag"]], 16): m["pos"] for m in self.markers}
         self.assertIn(f"LocalX: {', '.join(self.num(by_id[i][0]) for i in want)}", check.stdout)
-        self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2]) for i in want)}", check.stdout)
+        self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2] + Z_LIFT) for i in want)}", check.stdout)
+
+    def test_z_lift_is_an_option_and_the_check_follows_it(self):
+        out = self.root / "plugin-flat"
+        proc = self.tool_run("build", "--core", self.core, "--out", out, "--z-lift", "0")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        plugin = out / "FO4SFMapMarkers.esm"
+        recs = tri.records(plugin)
+        for m in self.markers:
+            z = struct.unpack_from("<fff", tlw.field(recs[int(self.ids[m["tag"]], 16)][1], b"DATA"))[2]
+            self.assertAlmostEqual(z, m["pos"][2], places=4)
+        self.assertEqual(self.tool_run("check", plugin, self.core, "--z-lift", "0").returncode, 0)
+        other = self.tool_run("check", plugin, self.core)               # the default lift is not what was built
+        self.assertEqual(other.returncode, 1, other.stdout)
+        self.assertIn(f"not the core's {self.num(self.markers[0]['pos'][2])} lifted {Z_LIFT} m", other.stdout)
+        bad = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-bad-lift", "--z-lift", "-1")
+        self.assertEqual(bad.returncode, 2)
+        # lifts come in steps of Z_LIFT_STEP: a change between builds smaller than the script's ZTolerance would
+        # never reach a saved game (Codex on #483), so the build refuses a lift off that grid
+        fine = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-fine-lift", "--z-lift", "0.55")
+        self.assertEqual(fine.returncode, 2, fine.stdout + fine.stderr)
+        self.assertIn("multiple of 0.1 m", fine.stderr)
+        self.assertIn("ZTolerance (0.05 m)", fine.stderr)
+        stepped = self.root / "plugin-step-lift"
+        step = self.tool_run("build", "--core", self.core, "--out", stepped, "--z-lift", "0.5")
+        self.assertEqual(step.returncode, 0, step.stdout + step.stderr)
+        self.assertEqual(self.tool_run("check", stepped / "FO4SFMapMarkers.esm", self.core, "--z-lift", "0.5").returncode, 0)
+
+    def test_check_rejects_an_override_that_still_uses_the_location_name(self):
+        out = self.root / "plugin-locname"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out).returncode, 0)
+        plugin = out / "FO4SFMapMarkers.esm"
+        data = bytearray(plugin.read_bytes())
+        at = data.index(b"FNAM\x04\x00") + 6                       # the first override's map-marker flags
+        struct.pack_into("<I", data, at, struct.unpack_from("<I", data, at)[0] | USE_LOCATION_NAME)
+        plugin.write_bytes(bytes(data))
+        check = self.tool_run("check", plugin, self.core)
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("override still uses the location's name", check.stdout)
 
     def test_many_markers_split_into_quests_of_100(self):
         params = copy.deepcopy(self.params)
@@ -117,7 +173,8 @@ class MapMarkersPluginTests(unittest.TestCase):
         check = self.tool_run("check", out / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         recs = tri.records(out / "FO4SFMapMarkers.esm")
-        self.assertEqual(sorted(recs), [0x800, 0x801, 0x802])
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"QUST"), [0x800, 0x801, 0x802])
+        self.assertEqual(sum(1 for r in recs.values() if r[0] == b"REFR"), 205)    # one override per marker
         lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
         self.assertEqual([len(x) for x in lists], [100, 100, 5])
         ids = [f & 0xFFFFFF for x in lists for f in x]
@@ -219,6 +276,60 @@ class ScriptContractTests(unittest.TestCase):
         half = 64 // 2 * 100.0                             # core64: local -3200..3200 m
         for name, v in (("MinX", -half + dx), ("MaxX", half + dx), ("MinY", -half + dy), ("MaxY", half + dy)):
             self.assertIn(f"{name} = {v}", self.text)
+
+    def test_a_marker_at_the_old_height_is_moved_again(self):
+        # a save from before a lifted build holds the markers at the old z (Codex on #483): the reposition test
+        # reads the height too, so the first pass moves them once more. The tolerance is half the lift step the
+        # build enforces, so every supported change between builds (0.1 m up) is seen, while a landed move is not
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertIn("ez * ez > ZTolerance * ZTolerance", place)
+        tol = float(re.search(r"float Property ZTolerance = ([0-9.]+) Auto Const", self.text).group(1))
+        self.assertEqual(tol, Z_LIFT_STEP / 2)
+        self.assertGreater(tol, 0.01)                                     # a landed move is within 0.01 m (22 Oct log)
+        placed = lambda ez: not (ez * ez > tol * tol)                     # the script's test, in Python
+        self.assertTrue(placed(0.01) and placed(-0.01))                   # landed: left alone
+        self.assertFalse(placed(Z_LIFT_STEP) or placed(-Z_LIFT_STEP))     # the smallest change between builds: moved
+        self.assertFalse(placed(Z_LIFT))                                  # a save from before the default lift: moved
+
+    def test_the_move_budget_starts_over_for_a_new_build(self):
+        # moves is saved state, so a save that spent its budget on the first placement and one lift would ignore
+        # the next lift (Codex on #483): the budget is keyed to the build (marker count, LocalZ[0]) and starts over
+        self.assertIn("int budgetN = -1", self.text)
+        self.assertIn("float budgetZ = 0.0", self.text)
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function Place")]
+        self.assertIn("budgetN != Markers.Length || budgetZ != LocalZ[0]", reset)
+        for line in ("budgetN = Markers.Length", "budgetZ = LocalZ[0]", "moves = 0"):
+            self.assertIn(line, reset)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("ResetBudget()"), place.index("IsInInterior"))   # before any early return
+        # the script's loop, modelled: n markers, the build's MaxMoves (2n above 40, as dotnet/MapMarkers sets it),
+        # a pass per Interval; initial placement, then lift A, then lift B, on one save
+        tol = float(re.search(r"float Property ZTolerance = ([0-9.]+) Auto Const", self.text).group(1))
+        n = 100
+        max_moves = max(2 * n, 40)
+        saved_z = [None] * n                                              # None: not yet in the player's world
+        state = {"moves": 0, "budget_n": -1, "budget_z": 0.0}
+
+        def passes(local_z, count=3):
+            moved = 0
+            for _ in range(count):                                        # the script runs until nothing is off
+                if state["budget_n"] != n or state["budget_z"] != local_z[0]:
+                    state["budget_n"], state["budget_z"], state["moves"] = n, local_z[0], 0
+                for i in range(n):
+                    if state["moves"] >= max_moves:
+                        break
+                    off = saved_z[i] is None or (saved_z[i] - local_z[i]) ** 2 > tol * tol
+                    if off:
+                        saved_z[i] = local_z[i] + 0.004                   # a move lands within 0.01 m
+                        state["moves"] += 1
+                        moved += 1
+            return moved
+
+        base = [100.0 + i for i in range(n)]
+        self.assertEqual(passes(base), n)                                 # placed once each
+        self.assertEqual(passes([z + 0.5 for z in base]), n)              # lift A: every marker moved once more
+        self.assertEqual(passes([z + 1.0 for z in base]), n)              # lift B: the budget started over
+        self.assertEqual(passes([z + 1.0 for z in base]), 0)              # the same build again: nothing moves
 
     def test_moves_only_outdoors_capped_and_logged(self):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
