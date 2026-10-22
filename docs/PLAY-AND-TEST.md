@@ -253,7 +253,8 @@ project). The filter means it only catches that one exception, not crashes in ge
 - **With the launcher** the watcher follows one game instead of running all day: turn it on with
   `python scripts/launcher.py settings --set crash_watch.enabled=on --set crash_watch.folder="<dump folder>" --set
   crash_watch.procdump="<path to procdump64.exe>"`, then start the game with
-  `python scripts/launcher.py play --starfield "<game folder>"`. It attaches once the game has stayed up 20 seconds,
+  `python scripts/launcher.py play --starfield "<game folder>"` (or plain `play` once the game folder is saved with
+  `launcher.py paths --accept` or the window's Locations tab). It attaches once the game has stayed up 20 seconds,
   writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
   `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
   For a game started some other way (the test runner), `python scripts/launcher.py watch --repeat` attaches the same

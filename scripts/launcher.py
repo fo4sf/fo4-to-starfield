@@ -59,8 +59,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, plugin_checks,  # noqa: E402
-                            restore, runtimes, same_ids, settings)
+from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, paths,  # noqa: E402
+                            plugin_checks, restore, runtimes, same_ids, settings)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -179,6 +179,12 @@ def cmd_restore(a):
 
 
 def cmd_detect(a):
+    saved = settings.load(a.settings or default_settings_path())
+    a.fo4_data = a.fo4_data or paths.split_dirs(saved["fo4_data"])
+    a.starfield = a.starfield or saved["starfield"]
+    a.my_games = a.my_games or saved["my_games"]
+    if not a.fo4_data or not a.starfield:
+        raise ValueError("needs --fo4-data and --starfield, or both saved as locations (launcher.py paths --accept)")
     r = detect.detect(fo4_data=a.fo4_data, starfield=a.starfield, sources=a.table, out_dir=a.out_dir or None,
                       need_gb=a.need_gb, floor_gb=a.floor_gb, allow_unknown=a.allow_unknown,
                       allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck,
@@ -292,8 +298,35 @@ def cmd_settings(a):
 
 def cmd_play(a):
     values = settings.load(a.settings or default_settings_path())
-    r = crashwatch.play(values, a.starfield, dry_run=a.dry_run)
+    starfield = a.starfield or values["starfield"]
+    if not starfield:
+        raise ValueError("no Starfield folder: confirm it in the window's Locations tab, run `launcher.py paths "
+                         "--accept`, or pass --starfield")
+    r = crashwatch.play(values, starfield, dry_run=a.dry_run)
     return 0 if r.get("dry_run") or r.get("started") else 1
+
+
+def cmd_paths(a):
+    """Each location the launcher needs: the saved one, or what was found on this PC and is waiting to be confirmed."""
+    path = a.settings or default_settings_path()
+    values = settings.load(path)
+    found = paths.detect()
+    accept = []
+    for r in paths.rows(values, found):
+        mark = {"saved": "ok", "found": "found", "problem": "PROBLEM", "missing": "missing"}[r["status"]]
+        print(f"  {r['label']:<24} {mark:<8} {r['value'] or '-'}" + ("" if r["status"] == "saved" else f"  ({r['note']})"))
+        if r["status"] == "found":
+            accept.append(f"{r['key']}={r['value']}")
+    if a.accept and accept:
+        settings.save(path, settings.assign(values, accept))
+        print(f"saved {len(accept)} found location(s) to {path}")
+    elif accept:
+        print("check the found ones, then run again with --accept to save them (or confirm them in the window)")
+    values = settings.load(path) if a.accept else values
+    left = [k for k in paths.needed(values) if paths.check(k, values[k])]
+    for k in left:
+        print(f"  still needed to play: {settings.LABELS[k]}")
+    return 0 if not left else 1
 
 
 def cmd_watch(a):
@@ -358,8 +391,9 @@ def main(argv=None):
     s.add_argument("--port-staging", default="")
     s.add_argument("--apply", action="store_true")
     s = sub.add_parser("detect")
-    s.add_argument("--fo4-data", action="append", required=True)
-    s.add_argument("--starfield", required=True)
+    s.add_argument("--fo4-data", action="append", default=[], help="default: the saved fo4_data location")
+    s.add_argument("--starfield", default="", help="default: the saved starfield location")
+    s.add_argument("--settings", default="")
     s.add_argument("--table", default=SOURCES)
     s.add_argument("--out-dir", default="")
     s.add_argument("--need-gb", type=float, default=0.0)
@@ -409,8 +443,11 @@ def main(argv=None):
     s.add_argument("--set", action="append", default=[], help="recipe variable name=value (for build status)")
     s.add_argument("--fo4-data", action="append", default=[])
     s.add_argument("--starfield", default="")
+    s = sub.add_parser("paths", help="find the folders and files the launcher needs and show what is saved")
+    s.add_argument("--settings", default="")
+    s.add_argument("--accept", action="store_true", help="save the found locations that are not saved yet")
     s = sub.add_parser("play")
-    s.add_argument("--starfield", required=True)
+    s.add_argument("--starfield", default="", help="default: the saved starfield location")
     s.add_argument("--settings", default="")
     s.add_argument("--dry-run", action="store_true", help="print what play would do; change and start nothing")
     s = sub.add_parser("watch", help="watch a game something else starts (the test runner): ProcDump as play attaches it")
@@ -426,7 +463,7 @@ def main(argv=None):
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
-                "watch": cmd_watch, "gui": cmd_gui}[a.cmd](a)
+                "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

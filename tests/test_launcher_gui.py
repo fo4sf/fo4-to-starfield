@@ -11,7 +11,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from fo4sf.launcher import gui, settings  # noqa: E402
+from fo4sf.launcher import gui, paths, settings  # noqa: E402
 
 
 class GuiModelTests(unittest.TestCase):
@@ -28,8 +28,10 @@ class GuiModelTests(unittest.TestCase):
 
     def test_exactly_one_control_per_setting_with_labels_choices_and_costs(self):
         specs = gui.controls()
-        self.assertEqual([s["key"] for s in specs], [s[0] for s in settings.SPEC])
-        for desc, (key, default, kind, cost) in zip(specs, settings.SPEC):
+        # the file locations live on the Locations tab, not among the toggles
+        spec = [s for s in settings.SPEC if s[0] not in paths.KEYS]
+        self.assertEqual([s["key"] for s in specs], [s[0] for s in spec])
+        for desc, (key, default, kind, cost) in zip(specs, spec):
             self.assertEqual((desc["label"], desc["default"], desc["cost"]), (settings.LABELS[key], default, cost))
             expected = "bool" if kind is bool else "choice" if isinstance(kind, tuple) else "text"
             self.assertEqual(desc["kind"], expected)
@@ -93,6 +95,20 @@ class GuiModelTests(unittest.TestCase):
         self.assertIn("Choose", self.model.play_reason(raw, "", [], windows=True))
         raw["route"] = "exe"
         self.assertIn("Save", self.model.play_reason(raw, "game", [], windows=True))
+
+    def test_unconfirmed_locations_block_play_until_saved(self):
+        raw = dict(self.model.saved, starfield="found game folder")
+        self.assertIn("Confirm the locations", self.model.play_reason(raw, "found game folder", [], windows=True))
+        raw["route"] = "exe"
+        self.assertIn("Save the changed settings", self.model.play_reason(raw, "found game folder", [], windows=True))
+
+    def test_play_and_detect_fall_back_to_the_saved_locations(self):
+        self.path.write_text(json.dumps({"starfield": "saved game", "fo4_data": "Data A;Data B"}), encoding="utf-8")
+        self.model.reload()
+        argv = self.model.command("play", self.model.saved, pids=[], windows=True)
+        self.assertEqual(argv[-2:], ["--starfield", "saved game"])
+        argv = self.model.command("detect")
+        self.assertEqual(argv[4:], ["detect", "--starfield", "saved game", "--fo4-data", "Data A", "--fo4-data", "Data B"])
 
     def test_play_delegates_to_existing_cli_for_both_routes(self):
         for route in ("steam", "exe"):
@@ -160,6 +176,101 @@ class GuiModelTests(unittest.TestCase):
         for raw in ({}, dict(self.model.saved, unknown="x")):
             with self.assertRaises(ValueError):
                 self.model.command("save", raw)
+
+
+class PathsTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.game = self.root / "Starfield"
+        self.data = self.root / "Fallout 4" / "Data"
+        self.docs = self.root / "user" / "Documents" / "My Games" / "Starfield"
+        self.tools = self.root / "Program Files" / "Sysinternals"
+        for d in (self.game, self.data, self.docs, self.tools):
+            d.mkdir(parents=True)
+        (self.game / "Starfield.exe").write_bytes(b"")
+        (self.data / "Fallout4.esm").write_bytes(b"")
+        (self.tools / "procdump64.exe").write_bytes(b"")
+        self.env = {"USERPROFILE": str(self.root / "user"), "ProgramFiles": str(self.root / "Program Files"),
+                    "LOCALAPPDATA": str(self.root / "local")}
+
+    def find(self):
+        return {"starfield": str(self.game), "fallout4": str(self.data.parent), "fallout4_depots": []}
+
+    def test_check_names_what_is_wrong(self):
+        self.assertEqual(paths.check("starfield", str(self.game)), "")
+        self.assertIn("Starfield.exe", paths.check("starfield", str(self.data)))
+        self.assertIn("not found", paths.check("starfield", str(self.root / "nope")))
+        self.assertEqual(paths.check("fo4_data", f"{self.data};{self.game}"), "")
+        self.assertIn("Fallout4.esm", paths.check("fo4_data", str(self.game)))
+        self.assertIn("not found", paths.check("fo4_data", f"{self.data};{self.root / 'nope'}"))
+        self.assertEqual(paths.check("crash_watch.procdump", str(self.tools / "procdump64.exe")), "")
+        self.assertIn("not procdump", paths.check("crash_watch.procdump", str(self.game / "Starfield.exe")))
+        self.assertEqual(paths.check("crash_watch.folder", str(self.root / "new dumps")), "")
+        self.assertIn("parent", paths.check("crash_watch.folder", str(self.root / "a" / "b")))
+        self.assertEqual(paths.check("my_games", ""), "not set")
+
+    def test_detect_finds_every_location_without_writing(self):
+        before = sorted(p for p in self.root.rglob("*"))
+        found = paths.detect(env=self.env, find=self.find, which=lambda _n: None)
+        self.assertEqual(found["starfield"][0], os.path.normpath(self.game))
+        self.assertEqual(found["fo4_data"][0], str(self.data))
+        self.assertEqual(found["my_games"][0], os.path.normpath(self.docs))
+        self.assertEqual(found["crash_watch.procdump"], (os.path.normpath(self.tools / "procdump64.exe"), "Program Files"))
+        self.assertEqual(found["crash_watch.folder"][1], "suggested")
+        self.assertEqual(sorted(p for p in self.root.rglob("*")), before)
+
+    def test_detect_reports_nothing_it_cannot_verify(self):
+        (self.game / "Starfield.exe").unlink()
+        def broken():
+            raise OSError("registry unreadable")
+        for find in (self.find, broken):
+            found = paths.detect(env={}, find=find, which=lambda _n: str(self.game / "not-procdump.exe"))
+            self.assertEqual(found["starfield"], ("", ""))
+            self.assertEqual(found["crash_watch.procdump"], ("", ""))
+
+    def test_rows_ask_about_found_values_and_keep_good_saved_ones(self):
+        found = paths.detect(env=self.env, find=self.find, which=lambda _n: None)
+        saved = dict(settings.defaults(), **{"starfield": str(self.game), "my_games": str(self.root / "gone")})
+        rows = {r["key"]: r for r in paths.rows(saved, found)}
+        self.assertEqual(rows["starfield"]["status"], "saved")
+        self.assertEqual(rows["fo4_data"]["status"], "found")
+        self.assertIn("is this right?", rows["fo4_data"]["note"])
+        # a saved value that no longer works is replaced by what was found, and still has to be confirmed
+        self.assertEqual((rows["my_games"]["status"], rows["my_games"]["value"]), ("found", os.path.normpath(self.docs)))
+        rows = {r["key"]: r for r in paths.rows(saved, {})}
+        self.assertEqual(rows["my_games"]["status"], "problem")
+        self.assertEqual(rows["fo4_data"]["status"], "missing")
+
+    def test_needed_follows_the_settings(self):
+        values = settings.defaults()
+        self.assertEqual(paths.needed(values), ["starfield"])
+        values.update({"crash_watch.enabled": True, "papyrus_logging": "on"})
+        self.assertEqual(paths.needed(values), ["starfield", "crash_watch.procdump", "crash_watch.folder", "my_games"])
+
+
+class LocationsCliTests(unittest.TestCase):
+    def run_cli(self, *args):
+        return subprocess.run([sys.executable, str(ROOT / "scripts" / "launcher.py"), *args], cwd=ROOT,
+                              capture_output=True, text=True)
+
+    def test_play_without_any_starfield_folder_is_refused_clearly(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = self.run_cli("play", "--dry-run", "--settings", os.path.join(d, "s.json"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no Starfield folder", result.stdout + result.stderr)
+
+    def test_paths_lists_every_location_and_says_what_play_still_needs(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.json")
+            result = self.run_cli("paths", "--settings", path)
+            self.assertFalse(os.path.exists(path))
+        for _key, label, _kind, _what in paths.LOCATIONS:
+            self.assertIn(label, result.stdout)
+        # no Steam here, so nothing is saved or found for the game folder
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("still needed to play: Starfield game folder", result.stdout)
 
 
 class GuiEntryTests(unittest.TestCase):
