@@ -1120,8 +1120,9 @@ class RunChainTests(Base):
         with open(cp, "w") as f:
             json.dump(c, f)
         text = ca.chain(c, cp, set())
+        self.assertIn("'before', '--queue', '%s')" % qa, text)                     # the first: no previous game
+        self.assertIn("'before', '--queue', '%s', '--prev', '%s'" % (qb, qa), text)
         for q in (qa, qb):
-            self.assertIn("'before', '--queue', '%s'" % q, text)
             self.assertIn("'gate', '--game', '--queue', '%s'" % q, text)
 
     def test_a_game_is_owed_only_when_the_run_launched_or_inherited_one(self):
@@ -1140,6 +1141,14 @@ class RunChainTests(Base):
         state(relaunches=1)
         with mock.patch.object(ca, "game_running", return_value=None):
             self.assertIn("exited after its run", REAL_KEPT(q))
+            # Codex on #391: gone between queues: the next queue does not start a new game over the crash
+            q2 = self.queue("b", [{"coc": "FO4Port_Y"}])
+            self.assertIn("exited after the previous queue", ca.game_before(q2, q))
+            self.assertFalse(os.path.exists(os.path.join(q2, ca.GAME_SNAP)))
+            with redirect_stdout(io.StringIO()) as buf:
+                self.assertEqual(ca.main(["before", "--queue", q2, "--prev", q]), 1)
+            self.assertIn("STOP Starfield exited after the previous queue", buf.getvalue())
+            self.assertIsNone(ca.game_before(q2))                              # the first queue: none owed
             os.remove(os.path.join(q, ca.GAME_SNAP))                           # no record: owed, fail closed
             self.assertIn("exited after its run", REAL_KEPT(q))
             with redirect_stdout(io.StringIO()) as buf, mock.patch.object(ca, "game_kept_why", REAL_KEPT):

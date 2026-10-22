@@ -652,22 +652,33 @@ def launches(qdir):
     return int(st.get("relaunches") or 0) + int(st.get("fresh_launches") or 0)
 
 
-def game_before(qdir):
-    """Before a queue's run: whether a game is running for it to inherit, and the launches its state counts so far."""
-    tq.save_atomic(os.path.join(qdir, GAME_SNAP), {"game": bool(game_running()), "launches": launches(qdir)})
+def game_owed(qdir):
+    """Whether a queue's run launched or inherited a game (game_before's record against its state.json now); a run
+    that did neither (every test a PRECONDITION or skipped) owes none. No record: owed, fail closed."""
+    try:
+        snap = tq.load(os.path.join(qdir, GAME_SNAP))
+    except ValueError:
+        snap = None
+    return not isinstance(snap, dict) or bool(snap.get("game")) or launches(qdir) > int(snap.get("launches") or 0)
+
+
+def game_before(qdir, prev=None):
+    """Before a queue's run: why it may not start (the game the previous queue prev left running is gone: a fresh
+    runner would launch another over the crash, Codex on #391), else None after recording whether a game is running for
+    it to inherit and the launches its state counts so far."""
+    running = bool(game_running())
+    if prev and game_owed(prev) and not running:
+        return "Starfield exited after the previous queue (counted as a crash: the campaign stops at the first)"
+    tq.save_atomic(os.path.join(qdir, GAME_SNAP), {"game": running, "launches": launches(qdir)})
+    return None
 
 
 def game_kept_why(qdir):
     """Why the game a queue's run launched or inherited is gone after the run, else None. The runner keeps its game
     running for the next queue; a fresh runner does not know the game it should find (its live_pid starts empty), so a
     game that exited after a run would be launched again, or the chain end clean, not counted as a crash (Codex on
-    #391). A run that neither launched nor found one (every test a PRECONDITION or skipped) owes none."""
-    try:
-        snap = tq.load(os.path.join(qdir, GAME_SNAP))
-    except ValueError:
-        snap = None
-    owed = not isinstance(snap, dict) or snap.get("game") or launches(qdir) > int(snap.get("launches") or 0)
-    if owed and not game_running():
+    #391)."""
+    if game_owed(qdir) and not game_running():
         return "Starfield exited after its run (counted as a crash: the campaign stops at the first)"
     return None
 
@@ -858,16 +869,19 @@ def chain(camp, path, release, digest=None):
              "if ((Py " + psa(["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256",
                                 digest] + (["--release", rel] if rel else [])) + ") -ne 0) "
              "{ Write-Host 'campaign check refused: nothing run'; exit 1 }"]
+    prev = None
     for e, _, _ in check(camp, release)[0]["queues"]:
         pin = ["scripts\\game\\campaign_arm.py", "check", "--campaign", path, "--sha256", digest,
                "--only", e["name"], "--queue-sha256", queue_sha256(e)] + (["--release", rel] if rel else [])
-        before = ["scripts\\game\\campaign_arm.py", "before", "--queue", e["queue"]]
+        before = ["scripts\\game\\campaign_arm.py", "before", "--queue", e["queue"]] + (["--prev", prev] if prev else [])
+        prev = e["queue"]
         lines += ["", f"# {e['name']}",
                   f"if ((Py {psa(pin)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: it changed since the chain "
                   "was armed'; exit 1 }",
                   # Codex on #391: what the run inherits and launches, so the gate knows whether a game is owed after
-                  f"if ((Py {psa(before)}) -ne 0) "
-                  f"{{ Write-Host 'stopped before {e['name']}: its game state could not be recorded'; exit 1 }}",
+                  # and the game the previous queue left running must still be there (Codex on #391)
+                  f"if ((Py {psa(before)}) -ne 0) {{ Write-Host 'stopped before {e['name']}: the previous queue''s "
+                  "game is gone, or this one''s game state could not be recorded'; exit 1 }",
                   "$rc = Py " + psa(run_args(e["queue"], caps, camp.get("starfield") or STARFIELD))]
         judge = ""
         # Codex on #391: the judge reads queue.json and its definition file when it runs, hours after the check, and
@@ -948,12 +962,17 @@ def run_chain(camp, log=print, call=None):
         log("REFUSED campaign: Starfield is running: close it so the first queue launches the armed build")
         return 1
     pins = [queue_sha256(e) for e, _, _ in res["queues"]]
+    prev = None
     for (e, _, _), pin in zip(res["queues"], pins):
         why = recheck(e, camp, set(released), pin)
         if why:
             log(f"{e['name']}: STOP before the run: " + "; ".join(why))
             return 1
-        game_before(e["queue"])
+        why = game_before(e["queue"], prev)
+        if why:
+            log(f"{e['name']}: STOP before the run: {why}")
+            return 1
+        prev = e["queue"]
         rc = call([py, "-I", os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps, camp.get("starfield") or STARFIELD)[1:],
                   env)
         log(f"{e['name']}: run exit {rc}")
@@ -1043,6 +1062,7 @@ def main(argv=None):
             s.add_argument("--out", required=True)
     b = sub.add_parser("before")
     b.add_argument("--queue", required=True)
+    b.add_argument("--prev", default="", help="the queue that ran before this one: its game must still be running")
     g = sub.add_parser("gate")
     g.add_argument("--queue", required=True)
     g.add_argument("--game", action="store_true", help="also stop when the game the run launched or inherited is gone")
@@ -1050,7 +1070,10 @@ def main(argv=None):
     g.add_argument("--judge-exit", type=int, default=None)
     a = ap.parse_args(argv)
     if a.cmd == "before":
-        game_before(a.queue)
+        why = game_before(a.queue, a.prev or None)
+        if why:
+            print(f"STOP {why}")
+            return 1
         return 0
     if a.cmd == "gate":
         ok, why = gate(a.queue, a.run_exit, a.judge_exit)
