@@ -57,7 +57,7 @@ EXIT_NAMES = {
 
 def exit_name(code):
     if code is None:
-        return "unknown (no handle on the game)"
+        return "unknown (no handle on the game, or the wait failed)"
     code &= 0xFFFFFFFF
     return f"0x{code:08X} {EXIT_NAMES.get(code, 'not a known crash code')}"
 
@@ -494,13 +494,12 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         else:
             _log(log_path, f"NOT armed on process {pid}: {why}; only the exit code will be logged")
             say(f"crash watcher NOT armed: {why}; only the exit code will be logged (see crashwatch.log)")
-    if handle:
-        code = system.wait_exit(handle)
-    else:                           # Windows refused a handle: follow the process id; the exit code stays unknown
-        say(f"no handle on process {pid}: following it by process id, the exit code will be unknown")
-        while pid in system.pids():
+    code = system.wait_exit(handle) if handle else None
+    if code is None:                # no handle, or the wait failed: follow the process id; the exit code stays unknown
+        say(f"{'the wait on process ' + str(pid) + ' failed' if handle else 'no handle on process ' + str(pid)}: "
+            "following it by process id, the exit code will be unknown")
+        while pid in system.pids():  # a failed wait says nothing about the game: never announce an exit it hasn't made
             system.sleep(2)
-        code = None
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - up_since), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")

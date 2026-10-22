@@ -80,6 +80,8 @@ class FakeSystem:
         return None if self.refuse_handle else pid
 
     def wait_exit(self, handle):
+        if getattr(self, "wait_fails", False):
+            return None                                    # a failed wait returns at once, game still up
         for pid, _a, b, code in self.script:
             if pid == handle:
                 self.t = max(self.t, self.started_at + b)
@@ -517,7 +519,7 @@ class CrashWatchTests(unittest.TestCase):
         sys_ = FakeSystem([(5, 0, 700, 0)])
         sys_.refuse_handle = True
         r = self.play(self.values(), sys_)
-        self.assertEqual(r["exit"], "unknown (no handle on the game)")
+        self.assertEqual(r["exit"], "unknown (no handle on the game, or the wait failed)")
         self.assertGreaterEqual(r["seconds"], 700)             # not reported ended while it still ran
         self.assertTrue(any("following it by process id" in s for s in self.said))
 
@@ -567,6 +569,14 @@ class CrashWatchTests(unittest.TestCase):
                     self.play(v, sys_)
                 self.assertIn(text, str(e.exception))
                 self.assertEqual(sys_.calls, [])
+
+    def test_failed_wait_follows_the_process_id(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.wait_fails = True
+        r = self.play(self.values(), sys_)
+        self.assertGreaterEqual(r["seconds"], 90)                  # not announced as ended while the game was up
+        self.assertEqual(r["exit"], crashwatch.exit_name(None))
+        self.assertTrue(any("the wait on process 5 failed" in s for s in self.said))
 
     def test_start_failure_is_a_refusal(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
