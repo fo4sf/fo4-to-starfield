@@ -108,8 +108,19 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             unchanged.append(cell)
     fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
     sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
-    fo4_verts = sum(m[2] or 0 for c in fo4 if (m := _measure(fo4[c])) and m[2] is not None)
-    sf_verts = sum(m[2] or 0 for c in sf if (m := _measure(sf[c])) and m[2] is not None)
+    fo4_vert_vals = [m[2] for c in fo4 if (m := _measure(fo4[c])) and m[2] is not None]
+    sf_vert_vals = [m[2] for c in sf if (m := _measure(sf[c])) and m[2] is not None]
+    verts_comparable = bool(fo4_vert_vals) and bool(sf_vert_vals)
+    if verts_comparable:
+        fo4_verts = sum(fo4_vert_vals)
+        sf_verts = sum(sf_vert_vals)
+        vert_pct = round(100.0 * sf_verts / fo4_verts, 1) if fo4_verts else 100.0
+        vert_summary = f"; verts {fo4_verts} -> {sf_verts}"
+    else:
+        fo4_verts = 0
+        sf_verts = 0
+        vert_pct = None
+        vert_summary = ""
     lost_tris = sum(item["fo4_triangles"] for item in lost)
     # Area-flagged cells can have more SF triangles than FO4; a loss count must not go negative.
     reduced_tris = sum(
@@ -118,7 +129,7 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         if "fo4_triangles" in item
     )
     retention_pct = round(100.0 * sf_tris / fo4_tris, 1) if fo4_tris else 100.0
-    return {
+    report = {
         "total_fo4_cells": len(fo4),
         "total_sf_cells": len(sf),
         "total_fo4_triangles": fo4_tris,
@@ -126,7 +137,6 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "triangle_retention_percent": retention_pct,
         "total_fo4_vertices": fo4_verts,
         "total_sf_vertices": sf_verts,
-        "vertex_retention_percent": round(100.0 * sf_verts / fo4_verts, 1) if fo4_verts else 100.0,
         "lost_triangles": lost_tris,
         "reduced_triangles_approx": reduced_tris,
         "lost_coverage": lost,
@@ -139,9 +149,12 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "summary": (
             f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced ({reduced_tris} tris approx), {len(gained)} gained, "
             f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris} ({retention_pct}% retained)"
-            + (f"; verts {fo4_verts} -> {sf_verts}" if fo4_verts or sf_verts else "")
+            + vert_summary
         ),
     }
+    if vert_pct is not None:
+        report["vertex_retention_percent"] = vert_pct
+    return report
 
 
 def _same_file(left: Path, right: Path) -> bool:

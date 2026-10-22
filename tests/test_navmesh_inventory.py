@@ -182,5 +182,17 @@ class NavmeshInventoryTests(unittest.TestCase):
         report = inv.inventory(fo4, sf)
         self.assertEqual(report["total_fo4_vertices"], 0)
         self.assertEqual(report["total_sf_vertices"], 0)
+        self.assertNotIn("vertex_retention_percent", report)
+        self.assertNotIn("verts", report["summary"])
+
+    def test_vertices_not_reported_when_only_one_side_has_them(self):
+        # compare_to_inventory forwards SF triangles/area only; a missing field is
+        # unavailable, not a 0% retention.
+        fo4 = {"c": {"triangles": 10, "area": 5.0, "vertices": 20}}
+        sf = {"c": {"triangles": 10, "area": 5.0}}
+        report = inv.inventory(fo4, sf)
+        self.assertEqual(report["total_fo4_vertices"], 0)
+        self.assertEqual(report["total_sf_vertices"], 0)
+        self.assertNotIn("vertex_retention_percent", report)
         self.assertNotIn("verts", report["summary"])
 
