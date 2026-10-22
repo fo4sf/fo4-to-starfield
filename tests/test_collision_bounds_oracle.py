@@ -361,7 +361,10 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             collision_blob=box))
         v, f = cube((-0.4, -0.4, 0), (0.4, 0.4, 1))
         v[5] = (nan, v[5][1], v[5][2])
+        bad_corner = bytearray(box)
+        struct.pack_into("<f", bad_corner, 592 + 12 * 1, nan)   # corner 1 of the box template's 8
         cases = {"second shape": two,
+                 "box corner": nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), bytes(bad_corner)),
                  "hull vertex": nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[convex_blob(v, f)]),
                  "body position": nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[
                      convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)), pos=(nan, 0, 0))])}
