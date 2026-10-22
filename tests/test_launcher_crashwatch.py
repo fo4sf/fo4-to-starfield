@@ -13,8 +13,8 @@ from fo4sf.launcher import crashwatch, settings  # noqa: E402
 
 
 class FakeProc:
-    def __init__(self, sys_, argv):
-        self.sys, self.argv = sys_, argv
+    def __init__(self, sys_, argv, out_path=None):
+        self.sys, self.argv, self.out_path = sys_, argv, out_path
 
     def poll(self):
         return self.sys.procdump_quits
@@ -25,6 +25,10 @@ class FakeProc:
         if self.sys.dump_name:
             with open(os.path.join(self.argv[-1], self.sys.dump_name), "wb") as f:
                 f.write(b"MDMP")
+            with open(self.out_path, "wb") as f:              # ProcDump's own report, in UTF-16 as on the PC
+                f.write(("[12:00:00]Dump 1 initiated\r\n" + ("[12:00:02]Dump 1 complete: 145 MB written in 2.0 seconds\r\n"
+                         if self.sys.dump_completes else "[12:00:02]Dump 1 error writing dump file\r\n"))
+                        .encode("utf-16-le"))
         return 0
 
 
@@ -37,6 +41,7 @@ class FakeSystem:
         self.running = list(running)
         self.spawned, self.ran, self.calls = [], [], []
         self.procdump_hangs, self.dump_name = False, None
+        self.dump_completes = True
         self.procdump_quits, self.spawn_error = None, None
         self.refuse_handle = False
         self.toggle_status = {"off": [], "owned": []}
@@ -74,7 +79,7 @@ class FakeSystem:
         if self.spawn_error:
             raise self.spawn_error
         self.spawned.append(argv)
-        return FakeProc(self, argv)
+        return FakeProc(self, argv, log_path)
 
     def run(self, argv):
         self.ran.append(argv[2:])
@@ -324,6 +329,22 @@ class CrashWatchTests(unittest.TestCase):
         data = b"ProcDump v11.0\r\n" + "Dump folder: D:\\\u30c0\u30f3\u30d7\\\r\n".encode("utf-16-le")
         self.assertEqual(crashwatch.decode_mixed(data), "ProcDump v11.0\r\nDump folder: D:\\\u30c0\u30f3\u30d7\\\r\n")
         self.assertEqual(crashwatch.decode_mixed(b"just text\n"), "just text\n")
+
+    def test_a_dump_procdump_did_not_finish_is_not_reported_usable(self):
+        sys_ = FakeSystem([(40, 0, 300, 0xC0000005)])
+        sys_.started_at = sys_.t
+        sys_.dump_name = "Starfield.exe_261022_010000.dmp"
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertNotIn("dumps_unconfirmed", r[0])                 # "Dump 1 complete" was reported
+        sys_ = FakeSystem([(41, 0, 300, 0xC0000005)])
+        sys_.started_at = sys_.t
+        sys_.dump_name, sys_.dump_completes = "Starfield.exe_261022_020000.dmp", False
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertTrue(r[0]["dumps_unconfirmed"])
+        self.assertIn("did not report every dump complete", self.log())
+        self.assertTrue(any("NOT confirmed complete" in x for x in self.said))
+        self.assertFalse(crashwatch.dumps_confirmed("", ["a.dmp"]))
+        self.assertTrue(crashwatch.dumps_confirmed("Dump 1 complete: 1 MB\nDump 2 complete: 1 MB", ["a.dmp", "b.dmp"]))
 
     def test_watch_counts_seconds_from_when_the_game_appeared(self):
         sys_ = FakeSystem([(31, 300, 900, 0)])

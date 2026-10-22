@@ -25,6 +25,7 @@ Everything Windows-specific goes through a `System` object, so the flow is teste
 """
 import datetime
 import os
+import re
 import subprocess
 import sys
 import time
@@ -175,12 +176,12 @@ def decode_mixed(data):
 
 def fold_output(out_path, log_path):
     """Append a finished child's output file to crashwatch.log, decoded (ProcDump writes UTF-16 when its output is
-    redirected), then remove the side file. Nothing happens when there is no file."""
+    redirected), then remove the side file. Returns the text ("" when there is no file)."""
     try:
         with open(out_path, "rb") as f:
             data = f.read()
     except (OSError, TypeError):
-        return
+        return ""
     text = decode_mixed(data)
     with open(log_path, "a", encoding="utf-8") as f:
         for line in text.splitlines():
@@ -190,6 +191,13 @@ def fold_output(out_path, log_path):
         os.remove(out_path)
     except OSError:
         pass
+    return text
+
+
+def dumps_confirmed(text, dumps):
+    """True when ProcDump printed a "Dump N complete" line for every dump listed: a dump without one may be cut short
+    (a full disk, a write error) and is not reported as usable (docs/PLAY-AND-TEST.md)."""
+    return len(re.findall(r"Dump \d+ complete", text or "")) >= len(dumps)
 
 
 def _log(path, line):
@@ -461,10 +469,11 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - up_since), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")
+    pd_text = ""
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
-            fold_output(out_path, log_path)
+            pd_text = fold_output(out_path, log_path)
         except subprocess.TimeoutExpired:
             say(f"ProcDump is still running {dump_wait_s:g} s after the game ended (a dump still being written?); "
                 "left running: never kill it mid-dump")
@@ -472,11 +481,19 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     if cw:
         result["dumps"] = dumps_since(values["crash_watch.folder"], before)
         note = " (a crash code and no dump)" if code not in (None, 0) and not result["dumps"] else ""
+        if result["dumps"] and result.get("procdump_running"):
+            result["dumps_unconfirmed"] = True
+            note += " (still being written: not usable until ProcDump says it is complete)"
+        elif result["dumps"] and not dumps_confirmed(pd_text, result["dumps"]):
+            result["dumps_unconfirmed"] = True
+            note += " (ProcDump did not report every dump complete: may be cut short, see the procdump lines)"
         _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s up, dumps: "
                        f"{', '.join(result['dumps']) or 'none'}{note}"
                        + (f", ProcDump exit {result['procdump_exit']}" if "procdump_exit" in result else ""))
         if result["dumps"]:
-            say("dumps: " + ", ".join(result["dumps"]) + " (never upload a dump; docs/PLAY-AND-TEST.md)")
+            say("dumps: " + ", ".join(result["dumps"])
+                + (" (NOT confirmed complete)" if result.get("dumps_unconfirmed") else "")
+                + " (never upload a dump; docs/PLAY-AND-TEST.md)")
     return result
 
 
