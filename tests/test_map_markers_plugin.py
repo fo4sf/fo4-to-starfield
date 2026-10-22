@@ -176,6 +176,47 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertIn("worldspace record differs from the core's (a core rebuilt since the stage: stage again)", stale.stdout)
         self.assertIn("NOT the core's", stale.stdout)
 
+    def test_world_takes_the_border_probe_variant_and_the_check_expects_it(self):
+        # --world nosmall / city: the WRLD copy as dotnet/BorderProbe's variant (SmallWorld cleared; city HNAM 5),
+        # the marker overrides untouched; check wants the same --world, and fails the copy under any other
+        control = self.root / "plugin-world-control"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", control).returncode, 0)
+        for world, flags, hnam in [("nosmall", "0", ""), ("city", "0", "5")]:
+            out = self.root / f"plugin-world-{world}"
+            proc = self.tool_run("build", "--core", self.core, "--out", out, "--world", world)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn(f"world copy --world {world} (SmallWorld cleared, HNAM {'5' if world == 'city' else 'as the core'}", proc.stdout)
+            plugin = out / "FO4SFMapMarkers.esm"
+            check = self.tool_run("check", plugin, self.core, "--world", world)
+            self.assertEqual(check.returncode, 0, check.stdout)
+            self.assertIn(f"  worldspace 000803:Synthetic.esm SyntheticWorld: flags {flags}, HNAM [{hnam}], as the core's with --world {world}",
+                          check.stdout)
+            self.assertEqual(check.stdout.count("  override "), 3)       # the marker overrides, as under control
+            # the bytes: the WRLD record's DATA flags (0: SmallWorld 0x1 gone) and HNAM
+            data = plugin.read_bytes()
+            rec = data.index(b"WRLD", data.index(b"WRLD") + 4)
+            body = data[rec + 24: rec + 24 + int.from_bytes(data[rec + 4: rec + 8], "little")]
+            at = body.index(b"DATA")
+            flag_bytes = body[at + 6: at + 6 + int.from_bytes(body[at + 4: at + 6], "little")]
+            self.assertTrue(flag_bytes and not any(flag_bytes), flag_bytes)
+            if world == "city":
+                at = body.index(b"HNAM")
+                self.assertEqual(body[at + 6: at + 6 + int.from_bytes(body[at + 4: at + 6], "little")], b"\5")
+            else:
+                self.assertNotIn(b"HNAM", body)                           # the synthetic core's world has none
+            plain = self.tool_run("check", plugin, self.core)             # another --world: not this stage's
+            self.assertEqual(plain.returncode, 1, plain.stdout)
+            self.assertIn("NOT the core's", plain.stdout)
+            self.assertIn("worldspace record differs from the core's (a core rebuilt since the stage: stage again)", plain.stdout)
+            crossed = self.tool_run("check", control / "FO4SFMapMarkers.esm", self.core, "--world", world)
+            self.assertEqual(crossed.returncode, 1, crossed.stdout)
+            self.assertIn(f"NOT the core's with --world {world}", crossed.stdout)
+            self.assertIn(f"worldspace record differs from the core's with --world {world} (a stage with another --world, or a core rebuilt since it: stage again)",
+                          crossed.stdout)
+        other = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-world-other", "--world", "hnam5")
+        self.assertEqual(other.returncode, 2)
+        self.assertIn("--world hnam5: want control", other.stderr)
+
     def test_many_markers_split_into_quests_of_100(self):
         params = copy.deepcopy(self.params)
         params["overlays"][0]["map_markers"] = [
@@ -392,10 +433,18 @@ class StageTests(unittest.TestCase):
                 mm.main(["stage", "--core", core, "--out", out])
             with self.assertRaises(SystemExit):                # one plugin name, the one the installer knows
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s2"), "--plugin", "Custom.esm"])
-        build, comp, check = calls
+            city = os.path.join(d, "city")                      # a world variant goes to build and check alike
+            mm.main(["stage", "--core", core, "--out", city, "--compiler", "PapyrusCompiler.exe", "--world", "city"])
+            with open(os.path.join(city, "README.txt"), encoding="utf-8") as f:
+                self.assertIn("--world city (dotnet/BorderProbe's: SmallWorld cleared, HNAM 5)", f.read())
+            with self.assertRaises(SystemExit):                # the probe's variants only
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s3"), "--world", "hnam5"])
+        build, comp, check, build2, comp2, check2 = calls
         self.assertEqual(build[0][-7:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
         self.assertEqual(comp[0][1], "FO4SF_MapMarkers.psc")
         self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core])
+        self.assertEqual(build2[0][-9:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city"])
+        self.assertEqual(check2[0][-5:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city"])
 
 
 if __name__ == "__main__":

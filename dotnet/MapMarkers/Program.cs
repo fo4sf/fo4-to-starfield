@@ -14,11 +14,18 @@
 //   printed the cell's location name instead of the marker's), and the position lifted by ZLift metres (the Concord
 //   arrival stood half in the ground at the sampled terrain height; the Red Rocket one dropped 1.9 m without harm).
 //   LocalZ holds the lifted height, so the mover puts the marker where the override says.
+// The override's containers, the core's WRLD and its persistent CELL, come along as copies that override the core's
+// records too (this plugin loads after it), so a stage belongs to one core build. --world takes the WRLD copy from
+// dotnet/BorderProbe's variants instead of the core (the border settling test, Interiors, 2026-10-22):
+//   control  as the core (SmallWorld kept, HNAM as the core's: today's)
+//   nosmall  DATA without SmallWorld, HNAM as the core's
+//   city     DATA without SmallWorld, HNAM 5
+// check expects the same variant (--world again) and fails any other copy.
 // The quest's VMAD shape is dotnet/Bridge's (vanilla Starfield quests: version 6, object format 2, extra-bind-data
 // version 3, an empty fragment script entry, object properties with alias -1; record version 581 / 12).
 //
-// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>]
-//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>]   reads both back (exit 1 on a mismatch)
+// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city]
+//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city]   reads both back (exit 1 on a mismatch)
 using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -36,8 +43,8 @@ var sfKey = ModKey.FromFileName("Starfield.esm");
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] | " +
-                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>]");
+    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] | " +
+                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city]");
     return 2;
 }
 if (args.Length == 0) return Usage();
@@ -52,6 +59,12 @@ if (Math.Abs(zLift / ZLiftStep - Math.Round(zLift / ZLiftStep)) > 1e-3)
 {
     Console.Error.WriteLine($"--z-lift must be a multiple of {F(ZLiftStep)} m: FO4SF_MapMarkers.psc re-moves a saved marker only when its height " +
                             $"is off by more than ZTolerance ({F(ZLiftStep / 2)} m), so a smaller change between builds would never reach a save");
+    return 2;
+}
+var world = Arg("--world", "control");
+if (world is not ("control" or "nosmall" or "city"))
+{
+    Console.Error.WriteLine($"--world {world}: want control (the core's world record), nosmall or city (dotnet/BorderProbe's variants of it)");
     return 2;
 }
 
@@ -104,6 +117,7 @@ if (args[0] == "build")
         w.TopCell.Persistent.RemoveAll(r => !lifted.ContainsKey(r.FormKey));
         w.TopCell.Temporary.Clear();
     }
+    foreach (var w in mod.Worldspaces) WorldVariant(w, world);       // the WRLD copy as the probe's variant
 
     var chunks = markers.Chunk(PerQuest).ToList();
     for (int k = 0; k < chunks.Count; k++)
@@ -147,7 +161,9 @@ if (args[0] == "build")
         .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full), new KeyedMasterStyle(core.ModKey, MasterStyle.Full)).Write();
     Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {chunks.Count} quest(s) " +
                       $"{string.Join(", ", mod.Quests.Select(q => $"{q.EditorID} {q.FormKey}"))} script {ScriptName}, " +
-                      $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m):");
+                      $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), world copy --world {world} ({WorldDescribed(world)}):");
+    foreach (var w in mod.Worldspaces)
+        Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]");
     foreach (var m in markers)
         Console.WriteLine($"  {m.FormKey} {m.EditorID} \"{m.MapMarker?.Name}\" local ({F(m.Position.X)}, {F(m.Position.Y)}, {F(m.Position.Z)}) -> z {F(lifted[m.FormKey].Z)}");
     return 0;
@@ -206,10 +222,16 @@ if (args[0] == "check" && args.Length >= 3)
             SubCells = new WorldspaceBlock.TranslationMask(defaultOn: false, onOverall: false),
             SubCellsTimestamp = false, SubCellsUnknown = false,
         };
+        var wantWorld = cw.DeepCopy(wmask);
+        WorldVariant(wantWorld, world);                              // the core's record as the variant asked for
+        var wantName = world == "control" ? "the core's" : $"the core's with --world {world}";
+        var sameWorld = wantWorld.Equals(w.DeepCopy(wmask));
         Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]" +
-                          (cw.DeepCopy(wmask).Equals(w.DeepCopy(wmask)) ? ", as the core's" : ", NOT the core's"));
-        if (!cw.DeepCopy(wmask).Equals(w.DeepCopy(wmask)))
-            problems.Add($"{w.FormKey} worldspace record differs from the core's (a core rebuilt since the stage: stage again)");
+                          (sameWorld ? $", as {wantName}" : $", NOT {wantName}"));
+        if (!sameWorld)
+            problems.Add(world == "control"
+                ? $"{w.FormKey} worldspace record differs from the core's (a core rebuilt since the stage: stage again)"
+                : $"{w.FormKey} worldspace record differs from the core's with --world {world} (a stage with another --world, or a core rebuilt since it: stage again)");
         if (w.SubCells.Count > 0) problems.Add($"{w.FormKey} worldspace carries {w.SubCells.Count} sub-cell block(s)");
         if (w.TopCell == null) continue;
         if (cw.TopCell == null) { problems.Add($"{w.FormKey} has a persistent cell the core lacks"); continue; }
@@ -280,6 +302,18 @@ static void Override(IPlacedObject ov, float lift)
     if (ov.MapMarker == null) throw new InvalidDataException($"{ov.FormKey} has no map-marker data");
     ov.MapMarker.Flags = (ov.MapMarker.Flags | PlacedObjectMapMarker.Flag.Visible) & ~PlacedObjectMapMarker.Flag.UseLocationName;
 }
+// the WRLD copy as dotnet/BorderProbe writes the variant: nosmall and city drop SmallWorld, city sets HNAM 5; control leaves the core's
+static void WorldVariant(IWorldspace w, string variant)
+{
+    if (variant is "nosmall" or "city") w.Flags = (w.Flags ?? 0) & ~Worldspace.Flag.SmallWorld;
+    if (variant is "city") w.HNAM = new MemorySlice<byte>(new byte[] { 5 });
+}
+static string WorldDescribed(string variant) => variant switch
+{
+    "nosmall" => "SmallWorld cleared, HNAM as the core's",
+    "city" => "SmallWorld cleared, HNAM 5",
+    _ => "as the core's",
+};
 static string QuestName(int k) => "FO4SF_MapMarkersQuest" + (k == 0 ? "" : (k + 1).ToString(CultureInfo.InvariantCulture));
 // the script's own default (40) holds up to 20 markers; above that, twice the quest's markers
 static int? MaxMovesFor(int n) => 2 * n > DefaultMaxMoves ? 2 * n : null;
