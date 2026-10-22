@@ -98,11 +98,11 @@ def stub_sidecar(name, counter, tamper=None):
 
 
 def p1_collection(delete="focc_p1_b", sidecar_names=None, extra_sfse=(), saves_json=True, loads=True):
-    log = [json.dumps({"event": "pre_save", "save": "focc_p1_a", "counter": 1}),
+    log = [json.dumps({"event": "pre_save", "save": "focc_p1_a", "counter": 1, "written": True}),
            json.dumps({"event": "post_save", "save": "focc_p1_a"}),
            json.dumps({"event": "pre_load", "save": "Autosave1"}),
            json.dumps({"event": "post_load", "save": "Autosave1", "found": False, "valid": False}),
-           json.dumps({"event": "pre_save", "save": "focc_p1_b", "counter": 2}),
+           json.dumps({"event": "pre_save", "save": "focc_p1_b", "counter": 2, "written": True}),
            json.dumps({"event": "post_save", "save": "focc_p1_b"})]
     if loads:
         log.append(json.dumps({"event": "post_load", "save": "focc_p1_a", "found": True, "valid": True, "counter": 1}))
@@ -140,6 +140,16 @@ class P1Tests(unittest.TestCase):
         self.assertEqual(probes.check_p1(c).verdict, FAIL)
         c.sidecars[fn] = stub_sidecar("focc_p1_a", 7)        # valid body, wrong counter for the pre_save
         self.assertEqual(probes.check_p1(c).verdict, FAIL)
+
+    def test_a_failed_write_fails_even_with_an_old_sidecar_present(self):
+        # Codex review of #431: written=false leaves an older sidecar (same name, counter 1) that would read back
+        for written in (False, None):
+            c = p1_collection()
+            c.sfse_log = [l.replace('"written": true', f'"written": {json.dumps(written)}') if "focc_p1_a" in l else l
+                          for l in c.sfse_log]
+            v = probes.check_p1(c)
+            self.assertEqual(v.verdict, FAIL, written)
+            self.assertTrue(any("was not written" in r for r in v.reasons), v.reasons)
 
     def test_post_load_not_found_fails(self):
         c = p1_collection(loads=False, extra_sfse=[json.dumps({"event": "post_load", "save": "focc_p1_a",
@@ -545,7 +555,7 @@ class LatestAttemptTests(unittest.TestCase):
 
     def test_p1_post_save_must_follow_the_latest_pre_save(self):
         c = p1_collection()
-        retry = json.dumps({"event": "pre_save", "save": "focc_p1_b", "counter": 3})
+        retry = json.dumps({"event": "pre_save", "save": "focc_p1_b", "counter": 3, "written": True})
         c.sfse_log = c.sfse_log + [retry]                  # the newer save of b never finished
         v = probes.check_p1(c)
         self.assertEqual(v.verdict, FAIL)
@@ -917,7 +927,7 @@ class CollectAndCliTests(unittest.TestCase):
         self.write("saves.json", "﻿" + json.dumps(saves(focc_p4_before=1, focc_p4_after=2)))
         self.write("compile_p5_array129.txt", "Compilation succeeded.")
         self.write("plan.json", json.dumps({"lvln_a": "x"}))
-        self.write("sfse/focc_sidecar.log", json.dumps({"event": "pre_save", "save": "s", "counter": 1}) + "\n")
+        self.write("sfse/focc_sidecar.log", json.dumps({"event": "pre_save", "save": "s", "counter": 1, "written": True}) + "\n")
         self.write("sfse/sidecars/" + sidecar.sidecar_name("s"), stub_sidecar("s", 1))
         self.write("sfse/sidecars/readme.txt", "ignored")
         c = probes.collect(self.dir)

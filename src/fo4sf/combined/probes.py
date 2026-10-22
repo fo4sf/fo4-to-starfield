@@ -416,6 +416,10 @@ def check_p1(c: Collection) -> Verdict:
         if name not in post_saves:
             v.reasons.append(f"pre_save {name!r} without post_save")
             failed = True
+        if d.get("written") is not True:        # an older sidecar may still sit under that name (Codex, #431)
+            v.reasons.append(f"pre_save {name!r} reports written={d.get('written')!r}: this run's sidecar was not "
+                             "written, so any file under its name is not this run's")
+            failed = True
         if fn not in c.sidecars:
             v.reasons.append(f"pre_save {name!r} has no sidecar {fn} (name rule mismatch or write failed)")
             failed = True
