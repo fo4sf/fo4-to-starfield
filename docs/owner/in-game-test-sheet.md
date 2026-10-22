@@ -21,8 +21,8 @@ Added 22 Oct. The installed build is now v6i_plainshader (FO4Port 9AF962D2, core
 the map markers plugin; sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
 section A is on the owner's live test sheet (https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b), with copy buttons
 and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth rendering, the four map markers. Console ids
-moved on 22 Oct (Codsworth went from 06000811 to 05000811 because the game reshuffled the plugin list after start), so
-this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
+moved on 22 Oct (Codsworth went from 06000811 to 05000811 because Plugins.txt was rewritten 25 s after start; the
+game is the inferred writer, not a traced one), so this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
 
 **Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
 starts fresh; the 19 Oct save already completed it and cannot replay it.
