@@ -158,6 +158,57 @@ class TerrainDoorsWriterTests(unittest.TestCase):
         wrong = self.with_doors(base, lambda o: o["doors"][0]["destination"]["arrival"].update(pos=[5.449, 17.291, -2.654]))
         self.assertIn("REFR VMAD", mk.door_record_problems(walked["records"], own, wrong, new)[0])   # another inside point
 
+    def test_animated_doors_switch_the_base_to_a_rigged_door_and_nothing_else(self):
+        """Step C (make_core64c stage --animated-doors): the same build with "anim" on both doors writes the shared base
+        as a DOOR with the rig (same new id as the ACTI), each door REFR an FO4SF_AnimatedLoadDoor VMAD with OpenSeconds
+        at its shifted position; every other record keeps its id and bytes, and make_core64c's checks pass. Without
+        "anim" the writer's output is the doors build of the test above, byte for byte (that test's pins)."""
+        base = tlw.TerrainLightsWriterTests.with_lights(self, self.promote([0]))
+        plain, plain_stage = self.run_writer(self.with_doors(base), "doors-plain")
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        rig = {"anim_graph": "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx", "skeleton": "Meshes\\a\\door.rig",
+               "animations": "Meshes\\a\\door", "bounds": [[-1.0, -0.1, 0.0], [1.0, 0.1, 2.5]], "open_seconds": 1.25,
+               "fo4_door_flags": 0x0A}
+
+        def animate(o):
+            for d in o["doors"]:
+                d.update(anim=dict(rig), model="rigged.nif", pos=[d["pos"][0] + 0.5, d["pos"][1], d["pos"][2]])
+        objects = self.with_doors(base, animate)
+        proc, stage = self.run_writer(objects, "doors-animated")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        old, new = (json.loads((x / "formids.json").read_text()) for x in (plain_stage, stage))
+        self.assertEqual(new, old)                                 # every id the same, the door base included
+        before, after = tri.records(plain_stage / "Synthetic.esm"), tri.records(stage / "Synthetic.esm")
+        self.assertEqual(set(after), set(before))
+        doors = new["doors"]
+        door_base = {int(v["base"], 16) for v in doors.values()}.pop()
+        door_refs = {int(v["ref"], 16) for v in doors.values()}
+        for key, rec in before.items():
+            if key not in door_refs | {door_base}:
+                self.assertEqual(after[key], rec)                  # markers, lights, container: same bytes
+        d = dict(subrecords(after[door_base][1]))
+        self.assertEqual((before[door_base][0], after[door_base][0]), (b"ACTI", b"DOOR"))
+        self.assertEqual((d[b"EDID"], d[b"MODL"], d[b"FULL"]), (b"FO4Core_door_018c8b_synthetic\0", b"rigged.nif\0", b"Door\0"))
+        self.assertIn(b"SimpleOpenClose01.agx", after[door_base][1])
+        self.assertNotIn(b"VMAD", d)
+        for src, dest in (("000002:Synthetic.esm", 0xDEFF), ("000003:Synthetic.esm", 0xDF00)):
+            r = after[int(doors[src]["ref"], 16)]
+            plugin, local_id, pos, seconds = vmad_patch.animated_load_door_target(field(r[1], b"VMAD"))
+            self.assertEqual((plugin, local_id, seconds), ("FO4Port.esm", dest, 1.25))
+            self.assertEqual(field(r[1], b"VMAD"), vmad_patch.encode(vmad_patch.animated_load_door_scripts("FO4Port.esm", dest, INSIDE, 1.25)))
+        walked = mk.overlay_records.walk_plugin(str(stage / "Synthetic.esm"))
+        own = len(walked["masters"]) << 24
+        self.assertEqual(mk.door_record_problems(walked["records"], own, objects, new), [])
+        self.assertEqual(mk.promoted_record_check(walked["records"], own, objects, new, masters=("Synthetic.esm",)), [])
+        res = mk.promotion_checks(walked["records"], own, objects, new, {"objects": {"exported": 6, "skipped": {}}})
+        self.assertTrue(all(ok for _w, ok in res), res)            # no ACTI expected for the animated doors' edid
+        self.assertEqual(mk.animated_door_bases(objects, new), {door_base})
+        self.assertEqual(mk.animated_door_bases(self.with_doors(base), new), set())
+        # the plain build's objects against the animated plugin, and the reverse: refused
+        self.assertTrue(mk.promoted_record_check(walked["records"], own, self.with_doors(base), new, masters=("Synthetic.esm",)))
+        slow = self.with_doors(base, lambda o: (animate(o), o["doors"][0]["anim"].update(open_seconds=2.0)))
+        self.assertIn("OpenSeconds", " ".join(mk.door_record_problems(walked["records"], own, slow, new)))
+
     def test_a_navmesh_door_triangle_may_name_a_scripted_door(self):
         """The core's manhole door 042908 is a navmesh door triangle (core64i's navmesh.json): a promoted door keeps
         its REFR id, so the NAVM links to the same record; an unknown source is still refused."""
