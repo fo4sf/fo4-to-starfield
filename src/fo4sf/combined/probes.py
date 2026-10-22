@@ -69,7 +69,7 @@ PLACEHOLDERS = {
 
 # Plugin-local ids of the probe records (plan "records"); the scripts log the local id they resolved, we only compare.
 LOCAL = {"p2_loc": 2054, "p3_noparent": 2055, "p3_chained": 2056, "p10_quest": 2080,
-         "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B}   # dotnet/CombinedProbe ids
+         "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B, "p10_event": 0x81F}   # dotnet/CombinedProbe ids
 # what the cards ask for (docs/spikes/combined-core-probes.md P4 / P5): a shorter run is INCONCLUSIVE, not a PASS, so
 # a typo in `cgf "FOCC_Probe.P4Run" 3 8.0` is never recorded as the 20-cycle bloat answer
 P4_CYCLES = 20
@@ -578,6 +578,8 @@ def check_p2(c: Collection) -> Verdict:
             v.reasons.append("p2 link was True in session1 but session2 has no `p2 linkread`")
             return v
         v.cite(linkreads[-1])
+        if _set_before(s2, "p2 link", linkreads[-1], v):   # relinked in the same launch (Codex review of #431)
+            return v
         if (_local(linkreads[-1], "a"), _local(linkreads[-1], "b")) != want_link:
             v.reasons.append(f"p2 linkread a/b are not the probe locations (locals {want_link[0]} and "
                              f"{want_link[1]})")
@@ -1182,6 +1184,9 @@ def check_p10(c: Collection) -> Verdict:
         v.reasons.append("no `p10 sent` line")
         return v
     s = sent[-1]
+    if _local(s, "event") != LOCAL["p10_event"]:   # the probe's own keyword was sent (Codex review of #431)
+        v.reasons.append(f"p10 sent event={s.fields.get('event')} is not FOCC_P10_Event (local {LOCAL['p10_event']})")
+        return v
     if s.flag("result") is False:           # older stages logged a bool result; Starfield's is not a bool (2d53642)
         v.reasons.append("SendStoryEvent returned False")
         v.verdict = FAIL

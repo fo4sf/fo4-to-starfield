@@ -253,6 +253,13 @@ class P2Tests(unittest.TestCase):
         v = probes.check_p2(col(session1=S1_P2, session2=S2_P2[:2]))     # link set, no linkread
         self.assertEqual(v.verdict, INCONCLUSIVE)
 
+    def test_a_relink_in_the_second_launch_is_not_persistence(self):
+        # Codex review of #431: P2Link again before P2LinkRead measures a fresh link, not a persisted one.
+        relinked = S2_P2[:2] + [S1_P2[2], S2_P2[2]]
+        v = probes.check_p2(col(session1=S1_P2, session2=relinked))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("same launch" in r for r in v.reasons), v.reasons)
+
     def test_other_locations_are_not_judged(self):
         # Codex review of #431: the literal local=2054 proves nothing; the logged form ids must be the probe LCTNs.
         other = [INIT, f"FOCC p2 set loc={RUNTIME_LOC} local=2054 value=37.000000 readback=37.000000"] + S1_P2[2:]
@@ -796,7 +803,7 @@ class P9Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P10
 
 P10_QUEST = str(0x03000820)                 # FOCC_P10_Quest, local 2080, at load index 03
-P10 = [INIT, "FOCC rt=10.0 p10 sent event=50333729", f"FOCC rt=10.4 p10 quest started id={P10_QUEST} local=2080",
+P10 = [INIT, f"FOCC rt=10.0 p10 sent event={0x0300081F}", f"FOCC rt=10.4 p10 quest started id={P10_QUEST} local=2080",
        f"FOCC rt=20.0 p10 state id={P10_QUEST} local=2080 running=True"]
 PSC = "Scriptname FOCC_Probe Hidden\nFunction P10Send() global\n  bool r = Q().P10Event.SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)\nEndFunction\n"
 
@@ -817,7 +824,7 @@ class P10Tests(unittest.TestCase):
         self.assertIsNone(probes.check_p10(c).extra["sendstoryevent_compiles"])
 
     def test_fail_branches(self):
-        self.assertEqual(probes.check_p10(col(log=[INIT, "FOCC rt=1.0 p10 sent result=False"])).verdict, FAIL)
+        self.assertEqual(probes.check_p10(col(log=[INIT, f"FOCC rt=1.0 p10 sent event={0x0300081F} result=False"])).verdict, FAIL)
         self.assertEqual(probes.check_p10(col(log=[P10[0], P10[1], f"FOCC rt=25.0 p10 state id={P10_QUEST} local=2080 running=False"])).verdict, FAIL)
         self.assertEqual(probes.check_p10(col(log=P10[:3] + [f"FOCC rt=25.0 p10 state id={P10_QUEST} local=2080 running=False"])).verdict, FAIL)
 
@@ -837,6 +844,8 @@ class P10Tests(unittest.TestCase):
         # Codex review of #431: the literal local=2080 never stands in for the logged id.
         labelled = [INIT, P10[1], "FOCC rt=10.5 p10 quest started id=1 local=2080", "FOCC rt=20.0 p10 state id=1 local=2080 running=True"]
         self.assertEqual(probes.check_p10(col(log=labelled)).verdict, INCONCLUSIVE)
+        foreign = [INIT, "FOCC rt=10.0 p10 sent event=1"] + P10[2:]   # Codex review of #431: another keyword
+        self.assertEqual(probes.check_p10(col(log=foreign)).verdict, INCONCLUSIVE)
         early = P10[:2] + [f"FOCC rt=10.2 p10 state id={P10_QUEST} local=2080 running=False", P10[2]]
         v = probes.check_p10(col(log=early))            # read before OnQuestInit: says nothing (Codex review of #431)
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
