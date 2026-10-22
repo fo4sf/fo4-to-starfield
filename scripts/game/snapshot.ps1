@@ -19,11 +19,6 @@ $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'C:\Modding\venv-rende
 $root = $(if ($env:FO4SF_SNAPSHOT_ROOT) { $env:FO4SF_SNAPSHOT_ROOT } else { 'C:\Modding\snapshots' })   # tests: a temp root
 if (-not $Out) { $Out = Join-Path $root (Get-Date -Format 'yyyyMMdd-HHmmss') }
 New-Item -ItemType Directory -Force $Out | Out-Null
-# an asking press starts this script visible (look_hotkey.ps1): its console goes before the screenshot, so it is never in it
-if ($Ask -and $null -eq $env:FO4SF_ASK_ANSWER) {
-  try { Add-Type -Namespace W -Name C -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);'
-        $c = [W.C]::GetConsoleWindow(); if ($c -ne [IntPtr]::Zero) { [W.C]::ShowWindow($c, 0) | Out-Null } } catch { }
-}
 $state = [ordered]@{ taken = (Get-Date -Format s); note = $Note; game_running = $false; game_foreground = $null }
 $g = Get-Process Starfield -ErrorAction SilentlyContinue
 if ($g) {
@@ -64,10 +59,10 @@ $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -En
 # the description box (-Ask): after the capture and after state.json is written, so the snapshot is readable while the box
 # waits; $env:FO4SF_ASK_ANSWER stands in for the typed text in tests (no window). The owner's play test (2026-10-22): three
 # boxes sat waiting unseen (visible=False: look_hotkey started this script hidden, and a hidden start hides the first
-# window). Now the hotkey starts this script visible (its console is hidden at the top), the box is shown explicitly
-# (SW_SHOW, whatever the start said), and it takes the foreground (the hotkey hands it the right,
-# AllowSetForegroundWindow; the Alt-key nudge and AttachThreadInput when Windows still refuses), blinking on the taskbar
-# if even that fails.
+# window; a visible start instead put an empty console over the game). The start stays hidden and the box shows itself
+# (SW_SHOW, which a hidden start does not override, re-applied every half second while the window is invisible), then
+# takes the foreground (the hotkey hands it the right, AllowSetForegroundWindow; the Alt-key nudge and AttachThreadInput
+# when Windows still refuses), blinking on the taskbar if even that fails.
 # Unanswered after -AskTimeout seconds (default 600) it closes and leaves describe_later.txt in the folder and the folder in
 # <snapshots>\describe_later.txt: type the description into the folder's description.txt afterwards.
 if ($Ask) {
@@ -86,6 +81,7 @@ if ($Ask) {
 [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);
 [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
 [DllImport("user32.dll")] public static extern bool FlashWindow(System.IntPtr h, bool invert);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h);
 public static bool Front(System.IntPtr h) {
   ShowWindow(h, 5); ShowWindow(h, 9);                                        // SW_SHOW, SW_RESTORE
   if (SetForegroundWindow(h)) return true;
@@ -113,14 +109,18 @@ public static bool Front(System.IntPtr h) {
       $tick = New-Object System.Windows.Forms.Timer; $tick.Interval = 500
       $tick.Add_Tick({
         if ((Get-Date) -ge $deadline) { $script:timedOut = $true; $tick.Stop(); $f.DialogResult = 'Cancel'; $f.Close(); return }
+        if (-not [W.F]::IsWindowVisible($f.Handle)) { [W.F]::ShowWindow($f.Handle, 5) | Out-Null; $script:shown++ }   # SW_SHOW
         # keep trying for the first 10 s: the game may take the foreground back while it minimizes
         if ($script:tries -lt 20 -and [W.F]::GetForegroundWindow() -ne $f.Handle) { $script:tries++; $script:fronted = [W.F]::Front($f.Handle) -or $script:fronted; $tb.Focus() | Out-Null }
       })
-      $f.Add_Shown({ $script:fronted = [W.F]::Front($f.Handle); $f.Activate(); $tb.Focus() | Out-Null; $tick.Start() })
+      $script:shown = 0
+      $f.Add_Load({ $tick.Start() })                                         # runs even when the start hid the window
+      $f.Add_Shown({ $script:fronted = [W.F]::Front($f.Handle); $f.Activate(); $tb.Focus() | Out-Null })
       if ($f.ShowDialog() -eq 'OK') { $text = $tb.Text }
       $tick.Stop(); $tick.Dispose(); $f.Dispose()
       $timedOut = $script:timedOut
       $state.description_box_foreground = $script:fronted
+      $state.description_box_reshown = $script:shown
     } catch { $state.description_error = "$_" }
   }
   if ($timedOut) {

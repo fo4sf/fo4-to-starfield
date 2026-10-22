@@ -6,8 +6,8 @@
 # The description box (2026-10-18): a second hotkey (default Ctrl+Alt+K) always asks "what is wrong?" after the screenshot;
 # the main key asks too only while the setting is on (look.settings.json beside this script, {"ask": true}), switched with
 # -SetAsk on|off, read at every press (no restart). Off = screenshots only. docs/community/reporting-tool.md.
-# The asking press starts snapshot.ps1 visible (a hidden start hid the box itself, 2026-10-22); the box brings itself to the
-# front; unanswered after 10 minutes it closes and the folder gets describe_later.txt (snapshot.ps1 -AskTimeout).
+# The box shows itself (a hidden start hid it, 2026-10-22) and brings itself to the front; unanswered after 10 minutes it
+# closes and the folder gets describe_later.txt (snapshot.ps1 -AskTimeout).
 # -Submit (players' kit): every capture then opens the filled-in "Player report" form with the screenshot on the clipboard
 # (snapshot.ps1 -Submit); the player pastes it and presses Submit. Off for the owner's own captures.
 # usage: look_hotkey.ps1 [-Key L] [-AskKey K] [-Mods Ctrl,Alt] [-TestFire] [-TestAsk] [-SetAsk on|off] [-Submit]
@@ -39,9 +39,9 @@ function Press([bool]$ask) {
     if (-not ('W.Fg' -as [type])) { Add-Type -Namespace W -Name Fg -MemberDefinition '[DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);' }
     [W.Fg]::AllowSetForegroundWindow(-1) | Out-Null                          # ASFW_ANY
   } catch { }
-  # not Hidden when it asks: a process started hidden hands SW_HIDE to its first window, so the box opened invisible (the
-  # owner's play test, 2026-10-22: three boxes visible=False); snapshot.ps1 hides its own console before the box opens
-  Start-Process powershell -WindowStyle $(if ($ask) { 'Normal' } else { 'Hidden' }) -ArgumentList $a | Out-Null
+  # hidden even when it asks (a visible start put an empty console over the game, 2026-10-22): a hidden start hands SW_HIDE
+  # to the box too, so snapshot.ps1 shows the box itself (SW_SHOW) and keeps re-showing it while it is invisible
+  Start-Process powershell -WindowStyle Hidden -ArgumentList $a | Out-Null
   try { [console]::Beep(880, 120) } catch { }
   "pressed $stamp ask=$ask submit=$([bool]$Submit)"
 }
