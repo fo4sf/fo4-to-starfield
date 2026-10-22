@@ -22,12 +22,26 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
-    print(f"  Fallout 4 data dirs: {len(fo4.get('data_dirs', []))} configured")
+    data_dirs = fo4.get("data_dirs", [])
+    print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
+    for i, d in enumerate(data_dirs):
+        exists = d.is_dir() if isinstance(d, Path) else Path(d).is_dir()
+        print(f"    [{i}] {d} ({'exists' if exists else 'MISSING'})")
     sf = cfg.get("starfield", {})
-    print(f"  Starfield data dir: {'set' if sf.get('data_dir') else 'missing'}")
+    sf_dir = sf.get("data_dir")
+    if sf_dir:
+        exists = sf_dir.is_dir() if isinstance(sf_dir, Path) else Path(sf_dir).is_dir()
+        print(f"  Starfield data dir: {sf_dir} ({'exists' if exists else 'MISSING'})")
+    else:
+        print("  Starfield data dir: missing")
     paths = cfg.get("paths", {})
-    print(f"  work_dir: {paths.get('work_dir', 'missing')}")
-    print(f"  staging_dir: {paths.get('staging_dir', 'missing')}")
+    for key in ("work_dir", "staging_dir"):
+        d = paths.get(key)
+        if d:
+            exists = d.is_dir() if isinstance(d, Path) else Path(d).is_dir()
+            print(f"  {key}: {d} ({'exists' if exists else 'MISSING or not created'})")
+        else:
+            print(f"  {key}: missing")
 
     if args.manifest:
         return _print_manifest(Path(args.manifest))
