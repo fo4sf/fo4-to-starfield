@@ -2019,9 +2019,12 @@ withdrawn (correction entry below): there is no wall on foot. The 8-ray border w
 (cc1d594) got stuck on converted objects 6 to 200 m out and raised no popup, so no
 walk has met the border. Owner's decision, 22 Oct: B, a fix for our world only.
 BorderProbe (#485, merged) ran on the owner's swap line of 18:13 UTC: none of the
-three variants ran (NOT RUN, the owner was active at the PC); the rerun with the
-idle wait is pending. A PASS makes a variant a candidate; the core takes the field
-only after border.md's wider checks (a second long exit, a long map fast travel, a
+three variants ran (NOT RUN, the owner was active at the PC). The rerun with the
+idle wait (reported 20:21 UTC): city (SmallWorld cleared, HNAM 5) PASSED the Vault
+95 OUT leg with the border on, hnam5 (HNAM 5 only) FAILED, nosmall (SmallWorld
+cleared only) still running. Interiors started the per-world fix on the core with
+the passing field. A PASS makes a variant a candidate; the core is installed only
+after border.md's wider checks (a second long exit, a long map fast travel, a
 vanilla planet's border still showing).
 
 Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston

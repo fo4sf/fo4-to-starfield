@@ -29,10 +29,10 @@ FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, 
 | Codsworth renders | **in game: yes** (plain-shader model, owner's screenshot) | Bugs thread, 22 Oct |
 | Codsworth at his Sanctuary spot on the owner's existing save | **in game: not met.** He was not there until enabled by console (`prid 05000811`, then enable and moveto). Plugins.txt was rewritten 25 s after the launcher started the game, moving FO4Port after FO4SFMission, so his index changed from 06 to 05 between sessions; the writer is inferred to be the game (the launcher's code does not write it then), not traced | playtest row 27; [testing/load-order.md](testing/load-order.md) |
 | Map markers on the surface map | **in game: pass** (22 Oct 17:40 UTC). The mover quest started 55 s into the session and moved all four markers; the icons drew only after the owner came back to the area. The first-read delay is open. The label and Concord-height fix #483 merged 19:14 UTC and was installed on the owner's line at 19:32 UTC (mapmarkers_v6i_ovr); its in-game check (own names on the map, Concord arrival above ground) is pending | playtest row 28; docs/terrain/map-markers.md (#483, merged) |
-| The boundary (the Vault 95 exit) | **in game: cause proven for the Vault 95 exit; no wall on foot.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The earlier report of a walking wall north of Vault 111 was a misreading and is withdrawn: the owner walked far north of Vault 111, past where Fallout 4's own border would be, without the popup (22 Oct 18:55 UTC; [terrain/border.md](terrain/border.md); playtest-issues.md row 29; journal correction 22 Oct). The border is read as a limit on how far one teleport may move the player, not a fence at a position (supported hypothesis, border.md). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city) is running one Vault 95 exit each on the PC with the border on, on the owner's own swap line (18:13 UTC); that pass ran none of the three (NOT RUN: the owner was active at the PC) and a rerun with the idle wait is in progress (19:38 UTC) | #485 (merged 19:45 UTC; adds docs/terrain/border.md, the method and results); #444 |
+| The boundary (the Vault 95 exit) | **in game: cause proven for the Vault 95 exit; no wall on foot.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The earlier report of a walking wall north of Vault 111 was a misreading and is withdrawn: the owner walked far north of Vault 111, past where Fallout 4's own border would be, without the popup (22 Oct 18:55 UTC; [terrain/border.md](terrain/border.md); playtest-issues.md row 29; journal correction 22 Oct). The border is read as a limit on how far one teleport may move the player, not a fence at a position (supported hypothesis, border.md). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city), one Vault 95 OUT leg each on the PC with the border on: the 18:13 UTC pass ran none of the three (NOT RUN: the owner was active at the PC); the rerun with the idle wait, reported through the coordinator at 20:21 UTC: **city (SmallWorld cleared, HNAM 5) PASSED; hnam5 (HNAM 5 only, SmallWorld kept) FAILED; nosmall (SmallWorld cleared only) still running**. The city field is a candidate, not the fix, until border.md's wider checks pass (item 4) | #485 (merged 19:45 UTC; adds docs/terrain/border.md, the method and results); #444 |
 | Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. No door round has run on the installed v6i set | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger) |
 | The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; on v6c, 19 Oct, only completion was verified: Preston targeted the player twice on that run and the ally-faction fix came after it, so the friendliness check has no pass yet; docs/mission/when-freedom-calls.md), Codsworth's greeting voice (heard, subtitle only, neither), the map extent (getpos at Red Rocket plus a zoomed-out surface map screenshot; Map dropped the 3D-view spots, Cydonia and the landing coordinates, on 22 Oct because the border question they served is answered), the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up | test sheet; journal 22 Oct (ledger) |
-| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; #487 (load-order fix before play, StarfieldCustom.ini written as bytes so the BOM and CRLF survive) with Codex; the PC checkout update is queued | Launcher thread; #481, #487 |
+| Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; #487 (load-order fix before play, Fallout 4 found once, start through SFSE, StarfieldCustom.ini written as bytes so the BOM and CRLF survive) merged 22 Oct (main ab55f272); the PC checkout update is queued | Launcher thread; #481, #487 (merged) |
 
 v6e door exits, 21 Oct (runner 62df40bb, judged on 6159dcb): PASS Vault114 (both doors), FortHagen01 (both),
 SuperDuperMart01 (both), BostonPublicLibrary02, Vault95, MuseumOfWitchcraft01 (test 0011), PrydwenHull01. FAIL, all
@@ -55,17 +55,22 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued, read-only on a save from before the
    22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
    quest logs). If K confirms it, the fix is a new start-game-enabled keeper quest, because only a new quest runs on an
-   existing save whose timers are dead; it also enables him. That fix is up as draft #493 (keeper quest
-   FO4SF_CodsworthKeeper, 0x814; with CI and Codex); after that it needs the PC Mission build plus selftest, and it
-   rides the mission refold after BorderProbe, folded once with NPC (no console ids in any owner instruction; ids move
-   between sessions).
-4. **The border fix** (Interiors): a BorderProbe PASS makes its variant a candidate, not the fix. Before the core
-   build takes the field, the wider checks in [terrain/border.md](terrain/border.md) have to pass on the PC: a second
-   long coc exit elsewhere in the Commonwealth, a long map fast travel, and a vanilla planet landing that still shows
-   its border. Only then does the field go into the core build, which means a core rebuild and a mission refold. Every
-   stage pinned to the core (new game, focc probe, map markers, mission) is redone after it. If no variant passes, the
-   fallback is an SFSE plugin that turns the border off only inside our world. There is nothing to recheck on foot:
-   the wall north of Vault 111 is withdrawn.
+   existing save whose timers are dead; it also enables him. That fix is #493 (keeper quest
+   FO4SF_CodsworthKeeper, 0x814): CI green and Codex approved at e1f3811; the Codex desktop ran the Mission build and
+   selftest and the Papyrus compile offline (compiler 4.7.0.5, one script, exit 0), so Bugs' build-only PC card is
+   dropped, and it waits in the merge queue. What it does on an existing save (the quest starting, OnPlayerLoadGame,
+   Codsworth's placement) is unproven until the mission refold after the border fix is installed and an old save is
+   loaded, folded once with NPC (no console ids in any owner instruction; ids move between sessions).
+4. **The border fix** (Interiors): a BorderProbe PASS makes its variant a candidate, not the fix. The 22 Oct rerun:
+   city (SmallWorld cleared, HNAM 5) PASSED the Vault 95 leg with the border on, hnam5 (HNAM 5 only) FAILED, nosmall
+   (SmallWorld cleared only) was still running at 20:21 UTC; nosmall tells whether clearing SmallWorld alone is enough.
+   Interiors has started the per-world fix on the core with the passing field. Before that core is installed on the
+   owner's line, the wider checks in [terrain/border.md](terrain/border.md) have to pass on the PC: a second long coc
+   exit elsewhere in the Commonwealth, a long map fast travel, and a vanilla planet landing that still shows its
+   border. The core rebuild means a mission refold, and every stage pinned to the core (new game, focc probe, map
+   markers, interiors b10 through #494) is redone after it. If the wider checks fail, the fallback is an SFSE plugin
+   that turns the border off only inside our world. There is nothing to recheck on foot: the wall north of Vault 111
+   is withdrawn.
 5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the map extent, Bugs and Interiors for
    the doors and prompts): written up as section A of [owner/in-game-test-sheet.md](owner/in-game-test-sheet.md)
    (the same text is on the owner's live test sheet, https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b) for their
@@ -76,7 +81,7 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 6. **One load order** (Launcher, with Bridge): the runner's deploy appends FO4Port last when it owns the line (a
    hand-placed line keeps its position), the owner's install had it first, and the file was rewritten after start
    (the game is the inferred writer; not traced);
-   #481 reports the change. #487 (Launcher, with Codex) defines the target in `scripts/game/load_order.py check|fix`:
+   #481 reports the change. #487 (merged 22 Oct) defines the target in `scripts/game/load_order.py check|fix`:
    lines that are not ours first, then the cores (FO4Terrain*, FO4Actor*), the other FO4SF* experiments, FO4Port,
    FO4SFMapMarkers, FO4SFBridge, each plugin after its masters; that is the order the game wrote on 22 Oct. The
    launcher's new `load_order` setting (default fix; check refuses a mismatch; off) runs it before every play. The
