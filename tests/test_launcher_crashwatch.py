@@ -91,6 +91,8 @@ class FakeSystem:
         return FakeProc(self, argv, log_path)
 
     def run(self, argv):
+        assert argv[1] == "-I", argv                          # plugin_toggle reads game data: isolated mode
+        argv = argv[:1] + argv[2:]
         self.ran.append(argv[2:])
         if argv[2] == "status":
             return 0, json.dumps(self.toggle_status) + "\n"
@@ -355,6 +357,13 @@ class CrashWatchTests(unittest.TestCase):
         r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
         self.assertFalse(r[0]["armed"])
         self.assertIn("NOT armed on process 44: ProcDump ended with the game inside the attach check", self.log())
+        # a dump file that shows up meanwhile without this run's "Dump N complete" (an earlier ProcDump's) is no proof
+        sys_ = FakeSystem([(47, 0, 20 + crashwatch.ATTACH_CHECK_S - 1, 0)])
+        sys_.started_at = sys_.t
+        sys_.procdump_quits = 5
+        sys_.dump_name, sys_.dump_completes = "Starfield.exe_261022_050000.dmp", False
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertFalse(r[0]["armed"])
 
     def test_watch_repeat_stops_while_procdump_is_still_writing(self):
         sys_ = FakeSystem([(45, 0, 100, 0xC0000005), (46, 200, 400, 0)])

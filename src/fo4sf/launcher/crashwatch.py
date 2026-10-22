@@ -225,7 +225,8 @@ def apply_bridge(values, starfield, system, say):
     if want == "unchanged":
         return
     import json
-    code, out = system.run([sys.executable, PLUGIN_TOGGLE, "status", "--starfield", starfield])
+    # -I: plugin_toggle reads plugin headers and rewrites Plugins.txt, so no inherited PYTHONPATH or user site (AGENTS.md)
+    code, out = system.run([sys.executable, "-I", PLUGIN_TOGGLE, "status", "--starfield", starfield])
     if code:
         raise ValueError(f"bridge: plugin_toggle.py status failed: {out.strip()}")
     st = json.loads(out.strip().splitlines()[-1])
@@ -237,10 +238,10 @@ def apply_bridge(values, starfield, system, say):
     if want == "off":
         # run off even for a recorded hold: the game may have ticked the bridge again, and a repeated off unticks it
         # (plugin_toggle.py prints "already held off" when nothing needs doing) (Codex, #449)
-        argv = [sys.executable, PLUGIN_TOGGLE, "off", "--plugins", BRIDGE, "--starfield", starfield,
+        argv = [sys.executable, "-I", PLUGIN_TOGGLE, "off", "--plugins", BRIDGE, "--starfield", starfield,
                 "--why", "launcher setting bridge=off"]
     elif want == "on" and BRIDGE.casefold() in held:
-        argv = [sys.executable, PLUGIN_TOGGLE, "on", "--plugins", BRIDGE, "--starfield", starfield]
+        argv = [sys.executable, "-I", PLUGIN_TOGGLE, "on", "--plugins", BRIDGE, "--starfield", starfield]
     else:
         # not held is not proof of on: a restore that could not load the bridge releases the hold and leaves it
         # unticked (Codex, #449)
@@ -456,8 +457,9 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
                 pd_text = fold_output(out_path, log_path)
                 if pid in system.pids():
                     why = f"ProcDump exited at once (code {rc})"
-                elif not (dumps_since(values["crash_watch.folder"], before) or re.search(r"Dump \d+ complete", pd_text)):
-                    # the game ended inside the check too: only a dump shows ProcDump had attached (Codex, #449)
+                elif not re.search(r"Dump \d+ complete", pd_text):
+                    # the game ended inside the check too: only this run's own report of a finished dump shows its
+                    # ProcDump had attached; a new file in the folder may be an earlier ProcDump's (Codex, #449)
                     why = f"ProcDump ended with the game inside the attach check and wrote no dump (code {rc})"
             armed = not why
         if armed:
