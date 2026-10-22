@@ -15,6 +15,9 @@ import re
 import struct
 import sys
 
+# python -I ignores PYTHONPATH; add this checkout's src like the other scripts.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
+
 USAGE = (
     "usage: python -I scripts/lod/list_fo4_lod_meshes.py "
     "--plugin <Fallout4.esm> --fo4-data <Data dir> [--radius N]"

@@ -1,5 +1,6 @@
 """Offline path-mapping tests for scripts/lod/list_fo4_lod_meshes.py. No game files."""
 import importlib.util
+import json
 import os
 import struct
 import subprocess
@@ -53,6 +54,35 @@ def refr(fid, base, pos):
         (b"NAME", struct.pack("<I", base)),
         (b"DATA", struct.pack("<6f", pos[0], pos[1], pos[2], 0.0, 0.0, 0.0)),
     ])
+
+
+def synthetic_plugin_bytes():
+    tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 0, 0))])
+    stat = rec(b"STAT", 0x100, [
+        (b"EDID", b"RedRExt_Workshop01\0"),
+        (b"OBND", struct.pack("<6h", -50, -50, 0, 60, 60, 300)),
+        (b"MODL", b"Interiors\\RedRocket\\RedRExt_Workshop01.nif\0"),
+        (b"MNAM", mnam_slots("LOD\\Interiors\\RedRocket\\RedRExtAll01_LOD.nif", "", "", "")),
+    ])
+    bare = rec(b"STAT", 0x101, [
+        (b"EDID", b"NoLodRock\0"),
+        (b"MODL", b"Landscape\\Rocks\\Rock.nif\0"),
+    ])
+    stats = grup(b"STAT", 0, [stat, bare])
+    pcell = rec(b"CELL", 0x200, [(b"EDID", b"\0"), (b"XCLC", struct.pack("<iiI", 0, 0, 0))])
+    cell = rec(b"CELL", 0x300, [(b"DATA", b"\0\0"), (b"XCLC", struct.pack("<iiI", -17, 19, 0))])
+    kids = grup(0x300, 6, [grup(0x300, 9, [
+        rec(b"LAND", 0x301, [(b"VHGT", b"\0" * 1093)]),
+        refr(0x211C0, 0x100, (-69232.0, 80304.0, 7360.0)),
+        refr(0x211C1, 0x101, (-69200.0, 80300.0, 7360.0)),
+    ])])
+    world_items = [
+        pcell,
+        grup(0x200, 6, [grup(0x200, 8, [])]),
+        grup(b"\0\0\0\0", 4, [grup(b"\0\0\0\0", 5, [cell, kids])]),
+    ]
+    wrld = rec(b"WRLD", 0x3C, [(b"EDID", b"Commonwealth\0")])
+    return tes4 + stats + grup(b"WRLD", 0, [wrld, grup(0x3C, 1, world_items)])
 
 
 class PathMappingTests(unittest.TestCase):
@@ -178,39 +208,42 @@ class IsolatedCliTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("plugin not found", proc.stderr)
 
-
-class SyntheticScanTests(unittest.TestCase):
-    def test_scan_emits_row_for_stat_with_mnam(self):
-        tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 0, 0))])
-        stat = rec(b"STAT", 0x100, [
-            (b"EDID", b"RedRExt_Workshop01\0"),
-            (b"OBND", struct.pack("<6h", -50, -50, 0, 60, 60, 300)),
-            (b"MODL", b"Interiors\\RedRocket\\RedRExt_Workshop01.nif\0"),
-            (b"MNAM", mnam_slots("LOD\\Interiors\\RedRocket\\RedRExtAll01_LOD.nif", "", "", "")),
-        ])
-        bare = rec(b"STAT", 0x101, [
-            (b"EDID", b"NoLodRock\0"),
-            (b"MODL", b"Landscape\\Rocks\\Rock.nif\0"),
-        ])
-        stats = grup(b"STAT", 0, [stat, bare])
-        pcell = rec(b"CELL", 0x200, [(b"EDID", b"\0"), (b"XCLC", struct.pack("<iiI", 0, 0, 0))])
-        cell = rec(b"CELL", 0x300, [(b"DATA", b"\0\0"), (b"XCLC", struct.pack("<iiI", -17, 19, 0))])
-        kids = grup(0x300, 6, [grup(0x300, 9, [
-            rec(b"LAND", 0x301, [(b"VHGT", b"\0" * 1093)]),
-            refr(0x211C0, 0x100, (-69232.0, 80304.0, 7360.0)),
-            refr(0x211C1, 0x101, (-69200.0, 80300.0, 7360.0)),
-        ])])
-        world_items = [
-            pcell,
-            grup(0x200, 6, [grup(0x200, 8, [])]),
-            grup(b"\0\0\0\0", 4, [grup(b"\0\0\0\0", 5, [cell, kids])]),
-        ]
-        wrld = rec(b"WRLD", 0x3C, [(b"EDID", b"Commonwealth\0")])
-        plugin = tes4 + stats + grup(b"WRLD", 0, [wrld, grup(0x3C, 1, world_items)])
+    def _assert_isolated_scan(self, cwd):
         with tempfile.TemporaryDirectory() as tmp:
             esm = os.path.join(tmp, "Fallout4.esm")
             with open(esm, "wb") as fh:
-                fh.write(plugin)
+                fh.write(synthetic_plugin_bytes())
+            proc = subprocess.run(
+                [sys.executable, "-I", SCRIPT, "--plugin", esm, "--fo4-data", tmp, "--radius", "0"],
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("No module named", proc.stderr)
+            report = json.loads(proc.stdout)
+        self.assertEqual(report["row_count"], 1)
+        row = report["rows"][0]
+        self.assertEqual(row["ref"], "000211c0")
+        self.assertEqual(row["base"], "00000100")
+        self.assertEqual(row["base_edid"], "RedRExt_Workshop01")
+        self.assertEqual(row["fo4_lod_paths"][0]["path"], "LOD\\Interiors\\RedRocket\\RedRExtAll01_LOD.nif")
+        self.assertFalse(row["fo4_lod_paths"][0]["present"])
+
+    def test_isolated_scan_from_repo_root(self):
+        self._assert_isolated_scan(ROOT)
+
+    def test_isolated_scan_from_unrelated_cwd(self):
+        with tempfile.TemporaryDirectory() as cwd:
+            self._assert_isolated_scan(cwd)
+
+
+class SyntheticScanTests(unittest.TestCase):
+    def test_scan_emits_row_for_stat_with_mnam(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            esm = os.path.join(tmp, "Fallout4.esm")
+            with open(esm, "wb") as fh:
+                fh.write(synthetic_plugin_bytes())
             report = lod.scan(esm, tmp, radius=0)
         self.assertEqual(report["row_count"], 1)
         row = report["rows"][0]
