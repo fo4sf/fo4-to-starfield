@@ -179,10 +179,18 @@ def cmd_restore(a):
 
 
 def cmd_detect(a):
-    saved = settings.load(a.settings or default_settings_path())
-    a.fo4_data = a.fo4_data or paths.split_dirs(saved["fo4_data"])
-    a.starfield = a.starfield or saved["starfield"]
-    a.my_games = a.my_games or saved["my_games"]
+    # settings are read only for a missing argument; when only the optional my_games is missing, a settings file
+    # that cannot be read leaves it unset instead of stopping a check that was given everything it needs (Codex, #481)
+    if not (a.fo4_data and a.starfield):
+        saved = settings.load(a.settings or default_settings_path())
+        a.fo4_data = a.fo4_data or paths.split_dirs(saved["fo4_data"])
+        a.starfield = a.starfield or saved["starfield"]
+        a.my_games = a.my_games or saved["my_games"]
+    elif not a.my_games:
+        try:
+            a.my_games = settings.load(a.settings or default_settings_path())["my_games"]
+        except (OSError, ValueError) as e:
+            print(f"settings not read ({e}); detect runs without --my-games")
     if not a.fo4_data or not a.starfield:
         raise ValueError("needs --fo4-data and --starfield, or both saved as locations (launcher.py paths --accept)")
     r = detect.detect(fo4_data=a.fo4_data, starfield=a.starfield, sources=a.table, out_dir=a.out_dir or None,

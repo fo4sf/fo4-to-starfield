@@ -351,6 +351,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 item["entry"].edit_modified(False)
             if item["quiet"]:
                 return
+            given.pop(key, None)                       # the player's own choice now beats the command line (Codex, #481)
             value = self.location_value(key)
             problem = paths.check(key, value) if value else "not set"
             if value == model.saved[key] and not problem:
@@ -506,7 +507,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             if argv is None:
                 self.message.set("Nothing changed; nothing written")
                 return
-            self.busy, self.action = True, action
+            self.busy, self.action, self.part = True, action, part
             for widget, _state in self.widgets:
                 widget.configure(state="disabled")
             self.message.set(f"Running {action}…")
@@ -564,6 +565,8 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                     for widget, state in self.widgets:
                         widget.configure(state=state)
                     if kind == "done" and value == 0 and self.action == "save":
+                        if self.part == "locations":   # confirmed: the command-line paths have had their say
+                            given.clear()
                         try:
                             model.reload()
                             for key, var in self.vars.items():

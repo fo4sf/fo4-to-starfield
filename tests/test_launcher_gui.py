@@ -299,6 +299,17 @@ class LocationsCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no Starfield folder", result.stdout + result.stderr)
 
+    def test_detect_given_every_location_does_not_need_a_readable_settings_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad = os.path.join(d, "s.json")
+            Path(bad).write_text('{"newer_setting": 1}', encoding="utf-8")
+            args = ("detect", "--settings", bad, "--fo4-data", os.path.join(d, "Data"), "--starfield", d)
+            full = self.run_cli(*args, "--my-games", d)
+            self.assertNotIn("newer_setting", full.stdout + full.stderr)
+            part = self.run_cli(*args)
+            self.assertIn("settings not read", part.stdout)
+            self.assertIn("detect runs without --my-games", part.stdout)
+
     def test_paths_lists_every_location_and_says_what_play_still_needs(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "s.json")
