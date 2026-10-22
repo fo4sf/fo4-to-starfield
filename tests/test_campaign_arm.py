@@ -1444,3 +1444,10 @@ class ShippedCampaignTests(unittest.TestCase):
         self.assertEqual([q["name"] for q in c["queues"]][-1], "walk")              # the held queue last
         self.assertIn(c["launch"], ca.LAUNCHES)
         self.assertNotIn("commit", c)                    # Codex on #397: `pin` writes the armed copy with it
+        with open(os.path.join(ROOT, "docs", "testing", "v6e-queues.md"), encoding="utf-8") as f:
+            doc = f.read()                               # Codex on #397: the documented steps must pass the check
+        cmds = [l for l in doc.splitlines() if "testqueue.py plan" in l]
+        self.assertTrue(cmds)
+        self.assertFalse([l for l in cmds if "--fresh" in l])    # a fresh test outside the first queue is refused
+        self.assertIn("campaign_arm.py run", doc)        # runs only through the campaign, which enforces the holds
+        self.assertNotIn("one queue at a time", doc)

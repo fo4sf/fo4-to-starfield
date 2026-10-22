@@ -29,10 +29,12 @@ and keeps 43 GB free on D:.
      checks each door's VMAD in the installed v6e core again rather than trusting that.
 3. stairs_bpl: `testqueue.py plan --staging D:\Modding\staging\integ_v6_specmask_doors_c --out D:\Modding\testqueue_v6e\stairs_bpl --cells BostonPublicLibrary02 --kinds stairs --routes-prefix routesfull_ --routes-dir <routes re-planned on this port>`
    - The 1014 routes were planned on 2470f876. With them, a STUCK could be false.
-4. movable: `testqueue.py plan-movable --staging D:\Modding\staging\integ_v6_specmask_doors_c --exp-dir C:\Modding\staging\movable_control_1013b --out D:\Modding\testqueue_v6e\movable --fresh`
+4. movable: `testqueue.py plan-movable --staging D:\Modding\staging\integ_v6_specmask_doors_c --exp-dir C:\Modding\staging\movable_control_1013b --out D:\Modding\testqueue_v6e\movable`
 5. walk:
    - `walk_route.py plan --fo4 <Fallout4.esm> --core <the v6e core build folder> --out D:\Modding\staging\walk_v6e`
-   - `testqueue.py plan-walk --staging D:\Modding\staging\integ_v6_specmask_doors_c --exp-dir D:\Modding\staging\walk_v6e --install-exp D:\Modding\staging\terrain_core64v6e_l125_mission_wfc10 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4ActorRaider.esm,FO4SFMission.esm --bridge C:\Modding\staging\bridge_t4 --out D:\Modding\testqueue_v6e\walk --fresh --time-of-day 12`
+   - `testqueue.py plan-walk --staging D:\Modding\staging\integ_v6_specmask_doors_c --exp-dir D:\Modding\staging\walk_v6e --install-exp D:\Modding\staging\terrain_core64v6e_l125_mission_wfc10 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4ActorRaider.esm,FO4SFMission.esm --bridge C:\Modding\staging\bridge_t4 --out D:\Modding\testqueue_v6e\walk --time-of-day 12`
+   - No `--fresh` on any queue: the campaign has one launch, and campaign_arm refuses a fresh test outside the
+     first queue's first test.
    - The walk queue's pre-launch re-installs exactly the installed v6e set, so it changes nothing. campaign_arm
      refuses any other experiment or plugin list.
    - Unresolved: the four plugin names here. Copy them from swap_v6e.ps1 before planning. A mismatch is refused, not run.
@@ -45,5 +47,6 @@ and keeps 43 GB free on D:.
 7. Run, with the game closed:
    - stop the crashwatch loop first, never while ProcDump is attached to a live game. Its attach ended every
      short-lived start since Oct 18 with exit 0x54, Steam's "error 84" (supported, docs/ai/test-queue.md);
-   - run `campaign_arm.py run --campaign D:\Modding\testqueue_v6e\v6e.armed.json`, or one queue at a time with the caps;
+   - run `campaign_arm.py run --campaign D:\Modding\testqueue_v6e\v6e.armed.json`. Never run a queue with
+     `testqueue.py run` directly: only campaign_arm enforces the Red Rocket hold;
    - afterwards, restart crashwatch and put FO4Port back first in the owner's order.
