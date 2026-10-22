@@ -35,8 +35,8 @@ class SettingsModel:
             raise ValueError("The settings fields do not match the launcher's settings specification")
         return {key: settings.coerce(key, raw[key]) for key in settings.KEYS}
 
-    def command(self, action, raw=None, *, recipe="", overrides=(), fo4_data=(), starfield="", pids=None,
-                windows=None):
+    def command(self, action, raw=None, *, recipe="", overrides=(), fo4_data=(), starfield="", my_games="",
+                pids=None, windows=None):
         argv = [sys.executable, "-I", "-u", self.launcher]
         if action == "save":
             values = self.values(raw)
@@ -58,8 +58,9 @@ class SettingsModel:
             # this window's settings file, never the default one: my_games falls back to it (Codex, #481)
             argv += ["detect", "--settings", self.path, "--starfield", starfield]
             argv += [a for path in fo4_data for a in ("--fo4-data", path)]
-            if self.saved["my_games"]:
-                argv += ["--my-games", self.saved["my_games"]]
+            my_games = my_games or self.saved["my_games"]       # the folder on screen first (Codex, #481)
+            if my_games:
+                argv += ["--my-games", my_games]
             return argv  # no --report or other output argument: the status panes are read-only
         if action == "play":
             starfield = starfield or (raw or self.saved).get("starfield", "")
@@ -506,6 +507,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 argv = model.command(action, self.raw(part), recipe=self.recipe.get(), overrides=overrides,
                                      starfield=self.location_value("starfield"),
                                      fo4_data=paths.split_dirs(self.location_value("fo4_data")),
+                                     my_games=self.location_value("my_games"),
                                      pids=None if self.process_error else self.pids)
             except ValueError as e:
                 self.message.set(str(e))

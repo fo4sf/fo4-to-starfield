@@ -368,6 +368,9 @@ def run(root):
     data = w.loc["fo4_data"]["entry"]          # the player browses to other Data folders, then checks the install
     data.delete("1.0", "end")
     data.insert("1.0", "Data A\nData B")
+    games = w.loc["my_games"]["entry"]
+    games.delete(0, "end")
+    games.insert(0, "Other My Games")
     ran = []
     gui.run_command = lambda argv, on_line, **_kw: ran.append(argv) or 0
     w.start("detect")
@@ -402,7 +405,8 @@ class GuiWindowTests(unittest.TestCase):
         self.assertTrue(out["after_redetect"].endswith("MyGame"), out)
         # Check installation uses the folders on screen, not the saved ones (Codex, #481)
         argv = out["detect_argv"]
-        self.assertEqual(argv[argv.index("--fo4-data"):], ["--fo4-data", "Data A", "--fo4-data", "Data B"], out)
+        self.assertEqual(argv[argv.index("--fo4-data"):], ["--fo4-data", "Data A", "--fo4-data", "Data B",
+                                                           "--my-games", "Other My Games"], out)
         self.assertTrue(argv[argv.index("--starfield") + 1].endswith("MyGame"), out)
 
 
