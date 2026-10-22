@@ -291,7 +291,9 @@ core wrote them. The quest's `LocalZ` holds the lifted height, so the mover plac
 says; a save made before a lifted build keeps the markers at the old height (moved references outlive their
 records), so the script also re-moves a marker whose height is off by more than `ZTolerance` (0.05 m), and the
 build takes `--z-lift` in steps of 0.1 m only, so every change between builds reaches a saved game while a landed
-move (within 0.01 m) stays. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
+move (within 0.01 m) stays. The move budget (`MaxMoves`) is saved state too, so the script starts it over when a
+build changes the markers' count or height: a save whose budget the first placement spent still takes a later
+lift. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
 uses the location name, is Initially Disabled, is at another height, or overrides anything that is not a core
 marker (the override's parents arrive as copies of the worldspace and its persistent cell; the build prunes
 them to the markers). The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values

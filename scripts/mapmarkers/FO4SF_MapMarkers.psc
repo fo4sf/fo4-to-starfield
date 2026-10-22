@@ -44,16 +44,31 @@ float Property SameWorld = 100000.0 Auto Const
 float Property Interval = 2.0 Auto Const
 
 int Property MaxMoves = 40 Auto Const
-{Stop moving after this many moves in one session (a move that never lands would otherwise repeat every Interval).}
+{Stop moving after this many moves for one build (a move that never lands would otherwise repeat every Interval).
+ The count is saved state; it starts over when a build changes the markers' count or their height (budgetN, budgetZ),
+ so a later lift reaches a save whose budget an earlier placement spent (Codex on #483).}
 
 string LogName = "fo4sf_map"
 int moves = 0
+; the build the move budget was spent on: the marker count and LocalZ[0] (every lift changes it). Const properties
+; read the installed records, these two the save, so a new build differs on the first pass after it.
+int budgetN = -1
+float budgetZ = 0.0
 
 Event OnInit()
     Debug.OpenUserLog(LogName)
     Trace("init markers=" + Markers.Length)
     StartTimer(Interval, 1)
 EndEvent
+
+Function ResetBudget()
+    if Markers.Length > 0 && (budgetN != Markers.Length || budgetZ != LocalZ[0])
+        Trace("budget reset for markers=" + Markers.Length + " z0=" + LocalZ[0] + " (was " + budgetN + " / " + budgetZ + ", moves=" + moves + ")")
+        budgetN = Markers.Length
+        budgetZ = LocalZ[0]
+        moves = 0
+    endif
+EndFunction
 
 Event OnTimer(int aiTimerID)
     if aiTimerID == 1
@@ -63,6 +78,7 @@ Event OnTimer(int aiTimerID)
 EndEvent
 
 Function Place(Actor player)
+    ResetBudget()
     if player.IsInInterior()
         return
     endif

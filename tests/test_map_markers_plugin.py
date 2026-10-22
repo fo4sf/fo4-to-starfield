@@ -291,6 +291,46 @@ class ScriptContractTests(unittest.TestCase):
         self.assertFalse(placed(Z_LIFT_STEP) or placed(-Z_LIFT_STEP))     # the smallest change between builds: moved
         self.assertFalse(placed(Z_LIFT))                                  # a save from before the default lift: moved
 
+    def test_the_move_budget_starts_over_for_a_new_build(self):
+        # moves is saved state, so a save that spent its budget on the first placement and one lift would ignore
+        # the next lift (Codex on #483): the budget is keyed to the build (marker count, LocalZ[0]) and starts over
+        self.assertIn("int budgetN = -1", self.text)
+        self.assertIn("float budgetZ = 0.0", self.text)
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function Place")]
+        self.assertIn("budgetN != Markers.Length || budgetZ != LocalZ[0]", reset)
+        for line in ("budgetN = Markers.Length", "budgetZ = LocalZ[0]", "moves = 0"):
+            self.assertIn(line, reset)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("ResetBudget()"), place.index("IsInInterior"))   # before any early return
+        # the script's loop, modelled: n markers, the build's MaxMoves (2n above 40, as dotnet/MapMarkers sets it),
+        # a pass per Interval; initial placement, then lift A, then lift B, on one save
+        tol = float(re.search(r"float Property ZTolerance = ([0-9.]+) Auto Const", self.text).group(1))
+        n = 100
+        max_moves = max(2 * n, 40)
+        saved_z = [None] * n                                              # None: not yet in the player's world
+        state = {"moves": 0, "budget_n": -1, "budget_z": 0.0}
+
+        def passes(local_z, count=3):
+            moved = 0
+            for _ in range(count):                                        # the script runs until nothing is off
+                if state["budget_n"] != n or state["budget_z"] != local_z[0]:
+                    state["budget_n"], state["budget_z"], state["moves"] = n, local_z[0], 0
+                for i in range(n):
+                    if state["moves"] >= max_moves:
+                        break
+                    off = saved_z[i] is None or (saved_z[i] - local_z[i]) ** 2 > tol * tol
+                    if off:
+                        saved_z[i] = local_z[i] + 0.004                   # a move lands within 0.01 m
+                        state["moves"] += 1
+                        moved += 1
+            return moved
+
+        base = [100.0 + i for i in range(n)]
+        self.assertEqual(passes(base), n)                                 # placed once each
+        self.assertEqual(passes([z + 0.5 for z in base]), n)              # lift A: every marker moved once more
+        self.assertEqual(passes([z + 1.0 for z in base]), n)              # lift B: the budget started over
+        self.assertEqual(passes([z + 1.0 for z in base]), 0)              # the same build again: nothing moves
+
     def test_moves_only_outdoors_capped_and_logged(self):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         self.assertLess(place.index("IsInInterior"), place.index("MoveTo"))
