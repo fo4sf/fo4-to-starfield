@@ -2023,9 +2023,11 @@ three variants ran (NOT RUN, the owner was active at the PC). The rerun with the
 idle wait (reported 20:21 UTC): city (SmallWorld cleared, HNAM 5) PASSED the Vault
 95 OUT leg with the border on, hnam5 (HNAM 5 only) FAILED, nosmall (SmallWorld
 cleared only) still running. Interiors started the per-world fix on the core with
-the passing field. A PASS makes a variant a candidate; the core is installed only
-after border.md's wider checks (a second long exit, a long map fast travel, a
-vanilla planet's border still showing).
+the passing field: the v6j core, v6i plus the border fix, no reconversion, with the
+markers, new game, questprobe_v2 and interiors b10 restaged on it and Bugs' cards
+K and L run on it. A PASS makes a variant a candidate; v6j is installed only after
+border.md's wider checks (a second long exit, a long map fast travel, a vanilla
+planet's border still showing).
 
 Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston
 friendly, 100 credits; on v6c, 19 Oct, only completion was verified, Preston

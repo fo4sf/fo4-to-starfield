@@ -49,11 +49,11 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
    the launcher paths and the Map LOD job. plan.ps1 does not read the v6e campaign file, so its Red Rocket hold stays
    as it is (only the owner releases it). That run settles Vault75, ParsonsState01 and every IN leg, and re-measures
    the three failures on the v6i core.
-2. **The three wrong-place exits** (Bugs): card L, after J, one in-game look per exit still wrong on v6i to tell timing
+2. **The three wrong-place exits** (Bugs): card L, after J, one in-game look per exit still wrong, on v6j, to tell timing
    from overlap, then the fix (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install
    on the owner's line.
-3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued, read-only on a save from before the
-   22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
+3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued on v6j, read-only on a save from before
+   the 22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
    quest logs). If K confirms it, the fix is a new start-game-enabled keeper quest, because only a new quest runs on an
    existing save whose timers are dead; it also enables him. That fix is #493 (keeper quest
    FO4SF_CodsworthKeeper, 0x814): CI green and Codex approved at e1f3811; the Codex desktop ran the Mission build and
@@ -64,11 +64,12 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 4. **The border fix** (Interiors): a BorderProbe PASS makes its variant a candidate, not the fix. The 22 Oct rerun:
    city (SmallWorld cleared, HNAM 5) PASSED the Vault 95 leg with the border on, hnam5 (HNAM 5 only) FAILED, nosmall
    (SmallWorld cleared only) was still running at 20:21 UTC; nosmall tells whether clearing SmallWorld alone is enough.
-   Interiors has started the per-world fix on the core with the passing field. Before that core is installed on the
-   owner's line, the wider checks in [terrain/border.md](terrain/border.md) have to pass on the PC: a second long coc
-   exit elsewhere in the Commonwealth, a long map fast travel, and a vanilla planet landing that still shows its
-   border. The core rebuild means a mission refold, and every stage pinned to the core (new game, focc probe, map
-   markers, interiors b10 through #494) is redone after it. If the wider checks fail, the fallback is an SFSE plugin
+   Interiors has started the per-world fix on the core with the passing field: the **v6j** core, v6i plus the border
+   fix, no reconversion. Before v6j is installed on the owner's line, the wider checks in
+   [terrain/border.md](terrain/border.md) have to pass on the PC: a second long coc exit elsewhere in the Commonwealth,
+   a long map fast travel, and a vanilla planet landing that still shows its border. The core rebuild means a mission
+   refold, and every stage pinned to the core is restaged on v6j after it (map markers, new game, questprobe_v2,
+   interiors b10 through #494, the focc probe), and Bugs' cards K and L run on v6j. If the wider checks fail, the fallback is an SFSE plugin
    that turns the border off only inside our world. There is nothing to recheck on foot: the wall north of Vault 111
    is withdrawn.
 5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the map extent, Bugs and Interiors for
@@ -94,7 +95,7 @@ against the v6e core (06C0DECD), not the installed v6i core (DC751664); its inst
 restaged against the installed core (or the border-fixed core, if one comes) before the owner's line "Install the new
 game." The same holds for the focc probe (#431, head 1db5919, 3,349 tests pass): CombinedCore restages it at that
 commit with `--core` on the installed FO4TerrainCore.esm into a new staging folder once Interiors names the core that
-ends up installed; its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
+ends up installed (v6j, the border-fixed core, is planned); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
 probe_install.py uninstall restores Plugins.txt afterwards. The quest probe is pinned to the port, which is unchanged
 (9AF962D2); a read-only pin check precedes "Install the quest probe plugin." The object test room and the merge probe
