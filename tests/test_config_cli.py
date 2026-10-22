@@ -66,6 +66,52 @@ class TestCLI(unittest.TestCase):
                 rc = main(["--config", str(cfg), "status"])
             self.assertEqual(rc, 0)
 
+    def test_status_reports_directory_existence(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for name in ("fo4a", "sf", "work"):
+                (root / name).mkdir()
+            cfg = root / "config.toml"
+            cfg.write_text(
+                "[fo4]\n"
+                f'data_dirs = ["{(root / "fo4a").as_posix()}", "{(root / "fo4b").as_posix()}"]\n'
+                "[starfield]\n"
+                f'data_dir = "{(root / "sf").as_posix()}"\n'
+                "[paths]\n"
+                f'work_dir = "{(root / "work").as_posix()}"\n'
+                f'staging_dir = "{(root / "staging").as_posix()}"\n'
+            )
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(["--config", str(cfg), "status"])
+            text = out.getvalue()
+        self.assertEqual(rc, 0)
+        lines = {line.strip() for line in text.splitlines()}
+        self.assertIn("Fallout 4 data dirs: 2 configured", lines)
+        self.assertTrue(any(l.startswith("[0]") and "fo4a" in l and l.endswith("(exists)") for l in lines), text)
+        self.assertTrue(any(l.startswith("[1]") and "fo4b" in l and l.endswith("(MISSING)") for l in lines), text)
+        self.assertTrue(any(l.startswith("Starfield data dir:") and l.endswith("(exists)") for l in lines), text)
+        self.assertTrue(any(l.startswith("work_dir:") and l.endswith("(exists)") for l in lines), text)
+        self.assertTrue(any(l.startswith("staging_dir:") and l.endswith("(MISSING or not created)") for l in lines), text)
+
+    def test_status_reports_unset_directories(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text("[fo4]\ndata_dirs = []\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(["--config", str(cfg), "status"])
+        self.assertEqual(rc, 0)
+        lines = {line.strip() for line in out.getvalue().splitlines()}
+        self.assertIn("Fallout 4 data dirs: 0 configured", lines)
+        self.assertIn("Starfield data dir: missing", lines)
+        self.assertIn("work_dir: missing", lines)
+        self.assertIn("staging_dir: missing", lines)
+
     def test_status_explicit_missing_manifest_is_nonzero(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "config.toml"
