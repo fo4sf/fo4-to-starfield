@@ -50,10 +50,14 @@ def check(key, value):
             return "file not found"
         return "" if os.path.basename(value).lower() in PROCDUMP_NAMES else "not procdump64.exe"
     if key == "crash_watch.folder":
-        if os.path.isdir(value):
-            return ""
-        parent = os.path.dirname(os.path.abspath(value))
-        return "" if os.path.isdir(parent) else "its parent folder does not exist"
+        # play makes the missing folders (os.makedirs), so any path under an existing folder will do (Codex, #481)
+        p = os.path.abspath(value)
+        while not os.path.exists(p):
+            up = os.path.dirname(p)
+            if up == p:
+                return "no part of this path exists"
+            p = up
+        return "" if os.path.isdir(p) else f"{p} is a file, not a folder"
     raise KeyError(key)
 
 
@@ -113,12 +117,16 @@ def detect(*, env=None, find=None, which=None):
     return out
 
 
-def rows(saved, found):
+def rows(saved, found, prefer=()):
     """One row per location for the window: the value to show and whether the player still has to confirm it.
-    status: "saved" (a usable saved value), "found" (detected, waiting for the player), "missing" or "problem"."""
+    status: "saved" (a usable saved value), "found" (detected, waiting for the player), "missing" or "problem".
+    prefer: keys whose found value was given on purpose (the command line): offered even over a good saved value."""
     out = []
     for key, label, kind, what in LOCATIONS:
         value, problem = saved.get(key) or "", check(key, saved.get(key) or "")
+        det = found.get(key, ("", ""))[0]
+        if key in prefer and det and det != value:      # an explicit argument beats the saved path (Codex, #481)
+            problem = "given on the command line"
         if value and not problem:
             out.append({"key": key, "label": label, "kind": kind, "what": what, "value": value, "status": "saved",
                         "note": "saved"})

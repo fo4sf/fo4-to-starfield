@@ -102,6 +102,16 @@ class GuiModelTests(unittest.TestCase):
         raw["route"] = "exe"
         self.assertIn("Save the changed settings", self.model.play_reason(raw, "found game folder", [], windows=True))
 
+    def test_save_settings_never_saves_unconfirmed_locations(self):
+        raw = dict(self.model.saved, **{"starfield": "found game", "crash_watch.dump": "full"})
+        argv = self.model.command("save", self.model.part(raw, "settings"))
+        self.assertIn("crash_watch.dump=full", argv)
+        self.assertFalse([a for a in argv if a.startswith("starfield=")])
+        argv = self.model.command("save", self.model.part(raw, "locations"))
+        self.assertIn("starfield=found game", argv)
+        self.assertFalse([a for a in argv if a.startswith("crash_watch.dump=")])
+        self.assertEqual(self.model.part(raw), raw)
+
     def test_play_and_detect_fall_back_to_the_saved_locations(self):
         self.path.write_text(json.dumps({"starfield": "saved game", "fo4_data": "Data A;Data B"}), encoding="utf-8")
         self.model.reload()
@@ -208,12 +218,15 @@ class PathsTests(unittest.TestCase):
         self.assertEqual(paths.check("crash_watch.procdump", str(self.tools / "procdump64.exe")), "")
         self.assertIn("not procdump", paths.check("crash_watch.procdump", str(self.game / "Starfield.exe")))
         self.assertEqual(paths.check("crash_watch.folder", str(self.root / "new dumps")), "")
-        self.assertIn("parent", paths.check("crash_watch.folder", str(self.root / "a" / "b")))
+        # play makes every missing folder, so a fresh %LOCALAPPDATA%\FO4SF\crashdumps is fine (Codex, #481)
+        self.assertEqual(paths.check("crash_watch.folder", str(self.root / "a" / "b")), "")
+        self.assertIn("is a file", paths.check("crash_watch.folder", str(self.game / "Starfield.exe" / "dumps")))
         self.assertEqual(paths.check("my_games", ""), "not set")
 
     def test_detect_finds_every_location_without_writing(self):
         before = sorted(p for p in self.root.rglob("*"))
         found = paths.detect(env=self.env, find=self.find, which=lambda _n: None)
+        self.assertEqual(paths.check("crash_watch.folder", found["crash_watch.folder"][0]), "")
         self.assertEqual(found["starfield"][0], os.path.normpath(self.game))
         self.assertEqual(found["fo4_data"][0], str(self.data))
         self.assertEqual(found["my_games"][0], os.path.normpath(self.docs))
@@ -239,6 +252,13 @@ class PathsTests(unittest.TestCase):
         self.assertIn("is this right?", rows["fo4_data"]["note"])
         # a saved value that no longer works is replaced by what was found, and still has to be confirmed
         self.assertEqual((rows["my_games"]["status"], rows["my_games"]["value"]), ("found", os.path.normpath(self.docs)))
+        # a path given on the command line is offered even over a good saved one (Codex, #481)
+        other = str(self.root / "Other Starfield")
+        rows = {r["key"]: r for r in paths.rows(saved, {"starfield": (other, "command line")}, prefer=["starfield"])}
+        self.assertEqual((rows["starfield"]["status"], rows["starfield"]["value"]), ("found", other))
+        rows = {r["key"]: r for r in paths.rows(saved, {"starfield": (str(self.game), "command line")},
+                                                prefer=["starfield"])}
+        self.assertEqual(rows["starfield"]["status"], "saved")
         rows = {r["key"]: r for r in paths.rows(saved, {})}
         self.assertEqual(rows["my_games"]["status"], "problem")
         self.assertEqual(rows["fo4_data"]["status"], "missing")

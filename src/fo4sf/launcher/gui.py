@@ -99,9 +99,20 @@ class SettingsModel:
             return "Choose the Starfield folder first (Locations tab)"
         return ""
 
-    def locations(self, found):
+    def part(self, raw, part="all"):
+        """raw with the other half put back to the saved values: "settings" keeps the saved locations, so Save
+        settings never saves a found path the player has not confirmed; "locations" keeps the saved settings (Codex,
+        #481)."""
+        if part == "all":
+            return dict(raw)
+        if part not in ("settings", "locations"):
+            raise ValueError(f"Unknown part {part!r}")
+        keep = [k for k in raw if (k in paths.KEYS) == (part == "settings")]
+        return dict(raw, **{k: self.saved[k] for k in keep if k in self.saved})
+
+    def locations(self, found, prefer=()):
         """Rows for the Locations tab: the saved value, or what was found and waits for the player's yes."""
-        return paths.rows(self.saved, found)
+        return paths.rows(self.saved, found, prefer)
 
 
 def run_command(argv, on_line, *, popen=subprocess.Popen):
@@ -244,7 +255,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 row=1, column=0, sticky="w")
             reload_button = ttk.Button(footer, text="Reload", command=self.reload_settings)
             reload_button.grid(row=0, column=1, rowspan=2, padx=(8, 0))
-            save = ttk.Button(footer, text="Save settings", command=lambda: self.start("save"))
+            save = ttk.Button(footer, text="Save settings", command=lambda: self.start("save", part="settings"))
             save.grid(row=0, column=2, rowspan=2, padx=(8, 0))
             self.play = ttk.Button(footer, text="▶  Play", style="Accent.TButton", command=lambda: self.start("play"))
             self.play.grid(row=0, column=3, rowspan=2, padx=(8, 0))
@@ -321,7 +332,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             item["note"].configure(text=f"{item['what']}  ·  {note}" if note else item["what"])
 
         def render_locations(self):
-            for row in model.locations(self.found):
+            for row in model.locations(self.found, prefer=given):
                 self.set_location(row["key"], row["value"])
                 self.show_mark(row["key"], row["status"], row["note"])
             self.refresh_play()
@@ -375,7 +386,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             if bad:
                 self.message.set("Not saved: " + "; ".join(f"{label}: {why}" for label, why in bad))
                 return
-            self.start("save")
+            self.start("save", part="locations")
 
         # --- Status, Settings, Log ---------------------------------------------------------------------------
         def build_status(self, tab):
@@ -440,10 +451,12 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             ttk.Button(row, text="Open dump folder", command=self.open_logs).pack(side="right")
 
         # --- state -------------------------------------------------------------------------------------------
-        def raw(self):
+        def raw(self, part="all"):
+            """The window's values. part="settings" keeps the saved locations (Save settings never saves a found path
+            the player has not confirmed); part="locations" keeps the saved settings (Codex, #481)."""
             out = {key: var.get() for key, var in self.vars.items()}
             out.update({key: self.location_value(key) for key in paths.KEYS})
-            return out
+            return model.part(out, part)
 
         def reload_settings(self):
             try:
@@ -474,11 +487,11 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             widget.see("end")
             widget.configure(state="disabled")
 
-        def start(self, action):
+        def start(self, action, part="all"):
             if self.busy:
                 return
             try:
-                argv = model.command(action, self.raw(), recipe=self.recipe.get(), overrides=overrides,
+                argv = model.command(action, self.raw(part), recipe=self.recipe.get(), overrides=overrides,
                                      starfield=self.location_value("starfield"),
                                      pids=None if self.process_error else self.pids)
             except ValueError as e:
