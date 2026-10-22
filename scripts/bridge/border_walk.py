@@ -25,6 +25,7 @@ Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
 import csv
+import html
 import json
 import math
 import os
@@ -263,7 +264,7 @@ def svg_map(results, offset, markers, extra, path):
     for m in markers:
         if x0 <= m[1] <= x1 and y0 <= m[2] <= y1:
             out.append(f'<circle cx="{X(m[1]):.1f}" cy="{Y(m[2]):.1f}" r="2" fill="#888"/>'
-                       f'<text x="{X(m[1]) + 3:.1f}" y="{Y(m[2]) - 3:.1f}" fill="#777">{m[0]}</text>')
+                       f'<text x="{X(m[1]) + 3:.1f}" y="{Y(m[2]) - 3:.1f}" fill="#777">{html.escape(m[0])}</text>')
     for r in results:
         a, b = r["arrival"], r["last"]
         if not (a and b):
@@ -283,7 +284,7 @@ def svg_map(results, offset, markers, extra, path):
                    f'{span} m</text>')
     for name, p in extra:
         out.append(f'<rect x="{X(p[0]) - 5:.1f}" y="{Y(p[1]) - 5:.1f}" width="10" height="10" fill="#8e44ad"/>'
-                   f'<text x="{X(p[0]) + 8:.1f}" y="{Y(p[1]) + 4:.1f}" fill="#8e44ad">{name}</text>')
+                   f'<text x="{X(p[0]) + 8:.1f}" y="{Y(p[1]) + 4:.1f}" fill="#8e44ad">{html.escape(name)}</text>')
     a = next((r["arrival"] for r in results if r["arrival"]), None)
     if a:
         out.append(f'<circle cx="{X(a[0]):.1f}" cy="{Y(a[1]):.1f}" r="6" fill="#1a5276"/>'

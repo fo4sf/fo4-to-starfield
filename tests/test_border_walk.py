@@ -100,7 +100,7 @@ class ReportTests(unittest.TestCase):
             svg, out = os.path.join(d, "b.svg"), os.path.join(d, "b.csv")
             with redirect_stdout(io.StringIO()) as s:
                 bw.main(["report", "--queue", queue, "--plan", plan, "--svg", svg, "--csv", out,
-                         "--extra", "owner wall:-2606.46,-907.91"])
+                         "--extra", "owner wall:-2606.46,-907.91", "--extra", "A&B <wall>:-2500,-900"])
             with open(out) as f:
                 rows = [r.split(",") for r in f.read().splitlines()]
             with open(svg) as f:
@@ -118,6 +118,9 @@ class ReportTests(unittest.TestCase):
         # Codex on #444: the popup leg's read precedes its walk; the border lies within that walk (2 s x 4.5 m/s + 2)
         self.assertEqual(float(row[-1]), 646.0 + 2.0 * 4.5 + bw.HOLD_SLACK_M)
         self.assertIn("646.0-657.0 m", svg)
+        import xml.dom.minidom
+        xml.dom.minidom.parseString(svg)                  # Codex on #444: labels are escaped, the SVG stays well formed
+        self.assertIn("A&amp;B &lt;wall&gt;", svg)
         self.assertIn("owner wall", svg)
         self.assertIn('stroke="#c0392b" stroke-width="3"', svg)                          # the red cross
 
