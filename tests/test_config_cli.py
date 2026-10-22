@@ -14,6 +14,15 @@ try:
 except ImportError:
     tomllib = None
 
+_real_access = os.access
+
+
+def _exec_ok(*tools):
+    """Treat these fake tools as executable: a temp dir may be on a noexec mount, where access(X_OK) always fails."""
+    names = {str(t) for t in tools}
+    return patch("fo4sf.__main__.os.access",
+                 side_effect=lambda p, m, *a, **k: True if str(p) in names else _real_access(p, m, *a, **k))
+
 
 @unittest.skipUnless(tomllib, "tomllib requires Python 3.11+")
 class TestConfig(unittest.TestCase):
@@ -174,7 +183,7 @@ class TestCLI(unittest.TestCase):
             tex.write_bytes(b"x")
             tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
-            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), _exec_ok(tex), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 rc = main(["--config", str(cfg), "validate"])
             text = out.getvalue()
@@ -202,7 +211,7 @@ class TestCLI(unittest.TestCase):
             tex.write_bytes(b"x")
             tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
-            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+            with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), _exec_ok(tex), \
                     patch("builtins.__import__", side_effect=fake_import), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 rc = main(["--config", str(cfg), "validate"])
@@ -247,12 +256,16 @@ class TestCLI(unittest.TestCase):
         self.assertIn("FAILED", text)
 
 
-    def _run_validate(self, cfg, tex):
+    def _run_validate(self, cfg, tex, *, exec_ok=True, which=True):
         import contextlib
         import io
         out, err = io.StringIO(), io.StringIO()
-        with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
-                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch("fo4sf.__main__.shutil.which", return_value=str(tex) if which else None))
+            if exec_ok:
+                stack.enter_context(_exec_ok(tex))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            stack.enter_context(contextlib.redirect_stderr(err))
             rc = main(["--config", str(cfg), "validate"])
         return rc, out.getvalue() + err.getvalue()
 
@@ -324,7 +337,7 @@ class TestCLI(unittest.TestCase):
             tex.write_bytes(b"x")
             tex.chmod(0o644)
             cfg = self._validate_cfg(root)
-            rc, text = self._run_validate(cfg, tex)
+            rc, text = self._run_validate(cfg, tex, exec_ok=False)
         self.assertEqual(rc, 1, text)
         self.assertIn("texconv: not an executable file at", text)
 
@@ -396,6 +409,96 @@ class TestCLI(unittest.TestCase):
                 locked.chmod(0o755)
         self.assertEqual(rc, 1, text)
         self.assertIn("locked is not writable)", text)
+
+    def test_validate_rejects_a_lone_blank_fo4_entry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)   # every other setting is valid
+            cfg.write_text(cfg.read_text().replace('data_dirs = ["', 'data_dirs = ["", "', 1))
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("(blank entry): NOT FOUND", text)
+        self.assertNotIn("Validation: OK", text)
+
+    def test_windows_executables_follow_pathext(self):
+        from fo4sf.__main__ import _is_executable_file
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "readme.txt").write_text("x")
+            (root / "tool.EXE").write_bytes(b"x")
+            with patch.dict(os.environ, {"PATHEXT": ".EXE;.BAT"}):
+                self.assertFalse(_is_executable_file(root / "readme.txt", windows=True))
+                self.assertTrue(_is_executable_file(root / "tool.EXE", windows=True))
+                self.assertFalse(_is_executable_file(root, windows=True))
+
+    def test_validate_rejects_a_read_only_existing_output_dir(self):
+        from fo4sf import __main__ as cli
+        real = cli._writable_dir
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            work = (root / "work").resolve()
+            with patch.object(cli, "_writable_dir", side_effect=lambda d: Path(d).resolve() != work and real(d)):
+                rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("exists but is not writable", text)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "needs POSIX permissions that apply to the current user")
+    def test_validate_rejects_a_read_only_existing_output_dir_on_disk(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            (root / "work").chmod(0o555)
+            try:
+                rc, text = self._run_validate(cfg, tex)
+            finally:
+                (root / "work").chmod(0o755)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("work_dir: ", text)
+        self.assertIn("exists but is not writable", text)
+
+    def test_validate_finds_texconv_in_xedit_edit_scripts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            xedit = root / "xedit"
+            (xedit / "Edit Scripts").mkdir(parents=True)
+            sfedit = xedit / "xSFEdit64.exe"
+            sfedit.write_bytes(b"x")
+            tex = xedit / "Edit Scripts" / "texconv.exe"
+            tex.write_bytes(b"x")
+            for f in (sfedit, tex):
+                f.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            cfg.write_text(cfg.read_text() + f'[tools]\nxsfedit = "{sfedit.as_posix()}"\n')
+            import contextlib
+            import io
+            out = io.StringIO()
+            with patch("fo4sf.__main__.shutil.which", return_value=None), _exec_ok(sfedit, tex), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                rc = main(["--config", str(cfg), "validate"])
+            text = out.getvalue()
+        self.assertEqual(rc, 0, text)
+        self.assertIn("texconv: found at", text)
+        self.assertIn("Edit Scripts", text)
+
+    def test_validate_without_any_texconv_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "unused.exe"
+            cfg = self._validate_cfg(root)
+            rc, text = self._run_validate(cfg, tex, which=False)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("texconv: not found in PATH or xEdit's Edit Scripts", text)
 
 if __name__ == "__main__":
     unittest.main()

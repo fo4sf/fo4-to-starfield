@@ -9,6 +9,7 @@ import argparse
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from .config import ConfigError, load_config
@@ -92,6 +93,37 @@ def _nearest_existing(p: Path) -> Path:
     return Path(p.anchor or ".")
 
 
+def _writable_dir(d: Path) -> bool:
+    """Whether a file can be created in d: a real probe, since os.access ignores W_OK for Windows directories."""
+    try:
+        with tempfile.TemporaryFile(dir=d):
+            return True
+    except OSError:
+        return False
+
+
+def _is_executable_file(path, *, windows: bool = os.name == "nt") -> bool:
+    """A regular file the OS will run: PATHEXT on Windows (os.access ignores X_OK there), the execute bit elsewhere."""
+    p = Path(path)
+    if not p.is_file():
+        return False
+    if windows:
+        exts = {e.strip().lower() for e in (os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD").split(";") if e.strip()}
+        return p.suffix.lower() in exts
+    return os.access(p, os.X_OK)
+
+
+def _texconv_near_xedit(xedit) -> str | None:
+    """docs/SETUP.md: texconv is the copy in xEdit's Edit Scripts folder, next to the configured xSFEdit."""
+    if not xedit:
+        return None
+    for name in ("texconv.exe", "Texconvx64.exe", "texconv"):
+        cand = Path(xedit).parent / "Edit Scripts" / name
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config, paths, and common tools for the conversion toolchain."""
     try:
@@ -142,8 +174,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
             ok = False
             continue
         p = Path(d)
-        if p.is_dir():
+        if p.is_dir() and _writable_dir(p):
             print(f"  {key}: {d}: exists")
+        elif p.is_dir():
+            print(f"  {key}: {d}: exists but is not writable")
+            ok = False
         elif p.exists():
             print(f"  {key}: {d}: not a directory")
             ok = False
@@ -152,23 +187,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
             if not parent.is_dir():
                 print(f"  {key}: {d}: cannot be created ({parent} is not a directory)")
                 ok = False
-            elif not os.access(parent, os.W_OK | os.X_OK):
+            elif not _writable_dir(parent):
                 print(f"  {key}: {d}: cannot be created ({parent} is not writable)")
                 ok = False
             else:
                 print(f"  {key}: {d}: NOT FOUND (will be created by tools)")
 
     print("  Tools:")
+    configured = set(cfg.get("tools", {}))
     tools = {
-        "texconv": shutil.which("texconv") or shutil.which("Texconvx64"),
+        "texconv": (shutil.which("texconv") or shutil.which("Texconvx64")
+                    or _texconv_near_xedit(cfg.get("tools", {}).get("xsfedit"))),
         "python": sys.executable,
     }
-    configured = set(cfg.get("tools", {}))
     if "tools" in cfg:
         for name, path in cfg["tools"].items():
             tools[name] = path
     for name, path in tools.items():
-        if path and Path(path).is_file() and os.access(path, os.X_OK):
+        if path and _is_executable_file(path):
             print(f"    {name}: found at {path}")
         elif path and Path(path).exists():
             print(f"    {name}: not an executable file at {path}")
@@ -180,7 +216,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
             print(f"    {name}: configured but blank")
             ok = False
         else:
-            print(f"    {name}: not found in PATH")
+            print(f"    {name}: not found in PATH" + (" or xEdit's Edit Scripts" if name == "texconv" else ""))
             if name == "texconv":
                 print("      (required for texture conversion)")
                 ok = False
