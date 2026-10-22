@@ -16,5 +16,6 @@ staging_dir = "D:/fo4sf-staging"  # Data/-layout output, copied to Starfield aft
 [tools]
 nifskope = "C:/Modding/tools/nifskope-fo76utils/NifSkope/NifSkope.exe"
 xsfedit = "C:/Modding/tools/xedit/xSFEdit64.exe"
+texconv = "C:/Modding/tools/xedit/Edit Scripts/texconv.exe"  # optional: validate also finds it next to xsfedit or on PATH
 creation_kit = "D:/SteamLibrary/steamapps/common/Starfield/CreationKit.exe"
 blender = "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"

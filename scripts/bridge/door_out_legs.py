@@ -4,8 +4,9 @@
 
 Each OUT leg starts with a coc into its interior, so none of them goes near Red Rocket (the v6 build crashed there on
 2026-10-19). Every kept entry is rebuilt with door_rounds.plan_door from the door record stage saved in rounds.json
-and must equal the staged plan entry and its expectation exactly (coc, travel, activation, ack, resolve), so a
-mismatched or edited stage is refused before anything is written. The distance is computed from the same numbers
+and must equal the staged plan entry and its expectation exactly (coc, travel, activation, ack, resolve; a
+--border-off stage's console lines too, door_rounds.border_off), so a mismatched or edited stage is refused before
+anything is written. The distance is computed from the same numbers
 plan_door uses (the Red Rocket arrival's spawn_local and the door's exterior arrival_local), never from a label.
 The new folder holds plan.json and rounds.json renumbered, so plan-terrain and door_rounds.py judge work on it.
 """
@@ -43,6 +44,8 @@ def select(plan, rounds, min_m):
     kept = []
     for k, r in enumerate(doors):
         _, ret, _, eret = dr.plan_door(k, r, spawn + [0.0], {}, 0.0, ci, pi)   # the OUT leg needs no spawn or zref
+        if rounds.get("border_off"):                      # a --border-off stage: its console lines are part of the leg
+            ret = dr.border_off(ret)
         want = dict(eret, test=2 * k + 1)
         if plan[2 * k + 1] != ret or tests[2 * k + 1] != want:
             sys.exit(f"test {2 * k + 1}: the staged OUT leg of door {k} ({r.get('cell_edid')}) does not match its "
@@ -66,7 +69,8 @@ def main(argv=None):
         rounds = json.load(f)
     kept = select(plan, rounds, min_m)                    # every check before anything is written
     os.makedirs(dst)                                      # a NEW folder only
-    dr.save_stage(dst, [p for p, _, _ in kept], dict(rounds, tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]))
+    dr.save_stage(dst, [p for p, _, _ in kept],
+                  dict(rounds, legs="out", tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]))
     for i, (_, e, d) in enumerate(kept):
         print(i, e["cell_edid"], f"{d:.1f}", "m")
     print(len(kept), "OUT tests kept of", len(rounds["doors"]))
