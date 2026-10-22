@@ -68,6 +68,8 @@ def tangent_signs(positions, uvs, normals, tangents, triangles):
 def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfmesh.SfMesh:
     if not math.isfinite(shape.scale) or shape.scale <= 0:
         raise nifmod.NifError(f"shape scale must be a finite positive number, got {shape.scale}")
+    if not shape.positions or not all(math.isfinite(c) for p in shape.positions for c in p):
+        raise nifmod.NifError("shape positions are empty or non-finite")
     pts = []
     r = shape.rotation
     for x, y, z in shape.positions:
