@@ -217,6 +217,12 @@ def offers(ws: WorldState, place: str, limit: int = OFFER_LIMIT,
 
 # --- outcomes ----------------------------------------------------------------------
 
+def _outcome(ws: WorldState, offer: Offer) -> bool:
+    """Whether this offer instance (id and offered hour) already has a job_done or job_failed event."""
+    return any(e["kind"] in ("job_done", "job_failed") and e.get("offer") == offer.id
+               and e.get("offered") == offer.offered_hour for e in ws.events)
+
+
 def valid(ws: WorldState, offer: Offer) -> str | None:
     """Why `offer` can no longer be completed, or None while it still can."""
     if offer.kind not in KINDS:
@@ -225,9 +231,8 @@ def valid(ws: WorldState, offer: Offer) -> str | None:
         return "giver or target no longer exists"
     if ws.hour >= offer.expires_hour:
         return f"offer expired at hour {offer.expires_hour}"
-    if any(e["kind"] in ("job_done", "job_failed") and e.get("offer") == offer.id
-           and e.get("offered") == offer.offered_hour for e in ws.events):
-        return "this offer was already handed in or given up"     # one outcome per offer (Codex review of #431)
+    if _outcome(ws, offer):                         # one outcome per offer (Codex review of #431)
+        return "this offer was already handed in or given up"
     pl, d = ws.places[offer.target], offer.detail
     if offer.kind == "defend":
         q = ws.squads.get(d.get("squad"))
@@ -300,7 +305,9 @@ def complete(ws: WorldState, offer: Offer) -> dict:
 
 def fail(ws: WorldState, offer: Offer) -> int:
     """The player gave the job up or let it lapse: FAIL_INFAMY[kind] infamy with the giver, logged. Allowed on an
-    expired offer. Returns the infamy applied."""
+    expired offer, once per offer: one already handed in or given up is a ValueError. Returns the infamy applied."""
+    if _outcome(ws, offer):                         # one outcome per offer, done or failed (Codex review of #431)
+        raise ValueError(f"cannot fail {offer.id}: this offer was already handed in or given up")
     infamy = FAIL_INFAMY.get(offer.kind, 0)
     if offer.giver in ws.reputation and infamy:
         reputation.add(ws, offer.giver, infamy=infamy)

@@ -263,8 +263,9 @@ def overrides(values: dict | None):
             old = getattr(mod, const)
             if not _same_kind(old, values[name]):
                 raise ValueError(f"override {name}: {values[name]!r} is not a {type(old).__name__} like {old!r}")
-            if const == "TICK_HOURS" and values[name] <= 0:   # sim.run would never reach its end (Codex, #431)
-                raise ValueError(f"override {name}: {values[name]!r} must be a positive number of hours")
+            # sim.run must reach its end and land on every midnight its daily rules wait for (Codex, #431)
+            if const == "TICK_HOURS" and (values[name] <= 0 or 24 % values[name]):
+                raise ValueError(f"override {name}: {values[name]!r} must be a positive whole divisor of 24 hours")
             saved.append((mod, const, old))
             setattr(mod, const, values[name])
         yield

@@ -429,14 +429,24 @@ class OutcomeTests(unittest.TestCase):
         lose(ws, "farm_b", "raiders")
         found = jobs.offers(ws, "farm_a", limit=50)
         defend, retake = by_kind(found, "defend")[0], by_kind(found, "retake")[0]
-        self.assertEqual(jobs.fail(ws, defend), jobs.FAIL_INFAMY["defend"])
-        self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
         self.assertEqual(jobs.fail(ws, retake), 0)
-        self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
-        self.assertEqual([e["job"] for e in ws.events if e["kind"] == "job_failed"], ["defend", "retake"])
+        self.assertEqual(ws.reputation["settlers"].infamy, 0)
         sim.run(ws, 24)                                               # failing an expired offer is allowed
         self.assertIsNotNone(jobs.valid(ws, defend))
-        jobs.fail(ws, defend)
+        self.assertEqual(jobs.fail(ws, defend), jobs.FAIL_INFAMY["defend"])
+        self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
+        self.assertEqual([e["job"] for e in ws.events if e["kind"] == "job_failed"], ["retake", "defend"])
+        with self.assertRaises(ValueError):                          # once per offer (Codex review of #431)
+            jobs.fail(ws, defend)
+        self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
+
+    def test_a_completed_offer_cannot_also_fail(self):
+        ws = quiet(world())
+        ws.settlements["farm_b"].stock["food"] = 1
+        o = by_kind(jobs.offers(ws, "market"), "resupply")[0]
+        jobs.complete(ws, o)
+        with self.assertRaises(ValueError):
+            jobs.fail(ws, o)
 
     def test_bad_offers_are_refused(self):
         ws = quiet(world())
