@@ -80,7 +80,11 @@ if (Test-Path $Stage) { SameStage $Stage; Write-Host "stage exists, reused (same
 else { & $py scripts\bridge\door_rounds.py stage --core $CoreBuild --core-plugin "$Starfield\Data\FO4TerrainCore.esm" `
           --port $PortStaging --core-index $CoreIndex --port-index $PortIndex --out $Stage; Ok 'scripts\bridge\door_rounds.py' }
 if ($RoundsOnly) { Write-Host 'doors_rounds only: no OUT stage or queue' }
-elseif (Test-Path $StageOut) { SameStage $StageOut; Write-Host "OUT stage exists, reused (same core build and indices): $StageOut" }
+elseif (Test-Path $StageOut) {
+  SameStage $StageOut                                            # door_out_legs.py records its threshold (Codex on #500)
+  $om = (Get-Content "$StageOut\rounds.json" -Raw | ConvertFrom-Json).out_min_m
+  Need ($null -ne $om -and [double]$om -eq [double]$OutMinM) "$StageOut kept exits at $om m, not -OutMinM ${OutMinM}: pass a new -Tag"
+  Write-Host "OUT stage exists, reused (same core build, indices and -OutMinM): $StageOut" }
 else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scripts\bridge\door_out_legs.py' }
 
 # ---------------------------------------------------------------- 3. queues: no --plugins, the installed set stays
