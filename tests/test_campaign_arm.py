@@ -1137,9 +1137,14 @@ class RunChainTests(Base):
             self.assertIsNone(REAL_KEPT(q))                                    # nothing launched, nothing found
             state(relaunches=1)
             self.assertIn("exited after its run", REAL_KEPT(q))                # launched, then gone
+        owned = mock.patch.object(tq.Controls, "owned_pid", return_value=4242)
+        owned.start()
+        self.addCleanup(owned.stop)
         with mock.patch.object(ca, "game_running", return_value=4242):
             self.assertIsNone(REAL_KEPT(q))
             ca.game_before(q)                                                  # inherited from the queue before
+        with mock.patch.object(ca, "game_running", return_value=5151):    # Codex on #391: another Starfield
+            self.assertIn("exited after its run", REAL_KEPT(q))
         state(relaunches=1)
         with mock.patch.object(ca, "game_running", return_value=None):
             self.assertIn("exited after its run", REAL_KEPT(q))

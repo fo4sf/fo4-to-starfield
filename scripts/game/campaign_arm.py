@@ -646,6 +646,16 @@ def game_running():
 GAME_SNAP = "chain_game.json"
 
 
+def owned_game():
+    """The running Starfield the runner launched (cycle.ps1's cycle_pid.txt), else None. Codex on #391: any other
+    Starfield (the owner's own session) is not the game a queue left running."""
+    pid = game_running()
+    try:
+        return pid if pid and pid == tq.Controls.owned_pid() else None
+    except OSError:
+        return None
+
+
 def launches(qdir):
     """The launches a queue's state.json counts: its first launch and relaunches, and its fresh launches."""
     st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
@@ -666,7 +676,7 @@ def game_before(qdir, prev=None):
     """Before a queue's run: why it may not start (the game the previous queue prev left running is gone: a fresh
     runner would launch another over the crash, Codex on #391), else None after recording whether a game is running for
     it to inherit and the launches its state counts so far."""
-    running = bool(game_running())
+    running = bool(owned_game())
     if prev and game_owed(prev) and not running:
         return "Starfield exited after the previous queue (counted as a crash: the campaign stops at the first)"
     tq.save_atomic(os.path.join(qdir, GAME_SNAP), {"game": running, "launches": launches(qdir)})
@@ -678,7 +688,7 @@ def game_kept_why(qdir):
     running for the next queue; a fresh runner does not know the game it should find (its live_pid starts empty), so a
     game that exited after a run would be launched again, or the chain end clean, not counted as a crash (Codex on
     #391)."""
-    if game_owed(qdir) and not game_running():
+    if game_owed(qdir) and not owned_game():
         return "Starfield exited after its run (counted as a crash: the campaign stops at the first)"
     return None
 
