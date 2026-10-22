@@ -221,11 +221,14 @@ def _count_by(events: list[dict], key: str, ws: WorldState, kind: str | None = N
 # --- many worlds -----------------------------------------------------------------
 
 def _same_kind(old, new) -> bool:
-    """Whether `new` may replace constant `old`: numbers for numbers (int for float is fine, bool is not), else
-    the same type, so a sweep fails before it runs rather than inside a tick with a TypeError."""
+    """Whether `new` may replace constant `old`: an int for an int, an int or a float for a float (bool never), else
+    the same type, so a sweep fails before it runs rather than inside a tick with a TypeError. An int constant feeds
+    counts and range() (REROLE_ON_SHORTAGE), so a fraction is refused (Codex review of #431)."""
     if isinstance(old, bool) or isinstance(new, bool):
         return type(old) is type(new)
-    if isinstance(old, (int, float)):
+    if isinstance(old, int):
+        return isinstance(new, int)
+    if isinstance(old, float):
         return isinstance(new, (int, float))
     return type(old) is type(new)
 

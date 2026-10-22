@@ -238,12 +238,13 @@ class OverrideTests(unittest.TestCase):
     def test_value_of_the_wrong_kind_is_refused_before_the_sweep(self):
         before = (sim.UPKEEP_PER_PLACE, sim.ATTACK_CHANCE_PER_AGGRESSION)
         for name, bad in (("sim.UPKEEP_PER_PLACE", "abc"), ("sim.UPKEEP_PER_PLACE", ""), ("sim.UPKEEP_PER_PLACE", True),
-                          ("sim.ATTACK_CHANCE_PER_AGGRESSION", None), ("sim.STAGE_POP", 3)):
+                          ("sim.ATTACK_CHANCE_PER_AGGRESSION", None), ("sim.STAGE_POP", 3),
+                          ("sim.REROLE_ON_SHORTAGE", 1.5), ("sim.UPKEEP_PER_PLACE", 0.5)):   # a fraction for an int
             with self.assertRaises(ValueError, msg=f"{name}={bad!r}"):
                 with balance.overrides({name: bad}):
                     pass
-        with balance.overrides({"sim.ATTACK_CHANCE_PER_AGGRESSION": 1, "sim.UPKEEP_PER_PLACE": 0.5}):   # numbers mix
-            self.assertEqual((sim.ATTACK_CHANCE_PER_AGGRESSION, sim.UPKEEP_PER_PLACE), (1, 0.5))
+        with balance.overrides({"sim.ATTACK_CHANCE_PER_AGGRESSION": 1, "sim.UPKEEP_PER_PLACE": 2}):   # int for a float
+            self.assertEqual((sim.ATTACK_CHANCE_PER_AGGRESSION, sim.UPKEEP_PER_PLACE), (1, 2))
         self.assertEqual((sim.UPKEEP_PER_PLACE, sim.ATTACK_CHANCE_PER_AGGRESSION), before)
 
     def test_nonpositive_tick_hours_is_refused(self):

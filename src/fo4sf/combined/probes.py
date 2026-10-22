@@ -813,6 +813,11 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE
         return v
+    done = [e for e in _by_kind(evs, "p5 done") if e.line > start.line]
+    if not done or (done[-1].num("ticks") or 0) < want:   # a truncated copy never settles P5 (Codex review of #431)
+        v.reasons.append(f"no `p5 done ticks={want}` after the ticks: the run did not finish or the log was cut")
+        return v
+    v.cite(done[-1])
     v.extra["baseline_ms"] = {"min": min(ms), "median": statistics.median(ms), "max": max(ms),
                               "per_place_median": statistics.median(ms) / 50, "ticks": len(ms),
                               "note": "record under docs/ai/optimization.md's before/after rule"}

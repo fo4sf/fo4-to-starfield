@@ -441,10 +441,15 @@ def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
     lines = [INIT, f"FOCC rt=1.0 p5 start ticks={ticks}"]
     for i in range(ticks):
         lines.append(f"FOCC rt={2 + i:.1f} p5 tick n={i + 1} places=50 ms={ms[i % len(ms)]:.6f} sum=123.456000")
+    lines.append(f"FOCC rt={2 + ticks:.1f} p5 done ticks={ticks}")
     return lines
 
 
 class P5Tests(unittest.TestCase):
+    def test_a_cut_log_without_done_is_inconclusive(self):
+        # Codex review of #431: ten good ticks without `p5 done` may be a truncated copy.
+        self.assertEqual(probes.check_p5(col(log=p5_log()[:-1])).verdict, INCONCLUSIVE)
+
     def test_repeated_ticks_do_not_count(self):
         log = p5_log()
         self.assertEqual(probes.check_p5(col(log=log[:3] + [log[2]] * 9)).verdict, INCONCLUSIVE)
