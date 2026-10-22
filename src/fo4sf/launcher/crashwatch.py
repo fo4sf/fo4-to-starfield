@@ -466,7 +466,10 @@ def _without_sfse(values, starfield, system):
     route=sfse when the listed runtime checks out, else what keeps it from working (Codex, #497)."""
     if values["route"] == "sfse" or not os.path.isfile(os.path.join(starfield, SFSE_LOADER)):
         return ""
-    problems = system.runtime_problems(starfield)
+    try:
+        problems = system.runtime_problems(starfield)
+    except OSError as e:                            # an unreadable file is no reason to stop a dry run
+        return f" (without SFSE; {SFSE_LOADER} is here but its runtime could not be read: {e.strerror or e})"
     if not problems:
         return f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
     return f" (without SFSE; {SFSE_LOADER} is here but route=sfse would be refused: {'; '.join(problems)})"
@@ -502,12 +505,14 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
             f"load order: {values['load_order']}",
-            f"start: {values['route']}" + _without_sfse(values, starfield, system),
+            f"start: {values['route']}",
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")
                                  if cw else "off")]
     if dry_run:
+        # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
+        plan[3] += _without_sfse(values, starfield, system)
         for p in plan:
             say(p)
         apply_load_order(values, starfield, system, say, dry_run=True)

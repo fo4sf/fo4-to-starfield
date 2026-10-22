@@ -87,6 +87,8 @@ class FakeSystem:
         return None if self.refuse_handle else pid
 
     def runtime_problems(self, starfield):
+        if isinstance(self.runtime, OSError):
+            raise self.runtime
         return list(self.runtime)
 
     def wait_exit(self, handle):
@@ -645,6 +647,11 @@ class CrashWatchTests(unittest.TestCase):
         line = next(p for p in r["plan"] if p.startswith("start:"))
         self.assertIn("route=sfse would be refused: sfse_1_16_244.dll missing", line)
         self.assertNotIn("is installed", line)
+        sys_.runtime = OSError(13, "Permission denied")                       # an unreadable pin: noted, not fatal
+        r = self.play(self.values(route="exe"), sys_, dry_run=True)
+        self.assertIn("could not be read: Permission denied", next(p for p in r["plan"] if p.startswith("start:")))
+        self.play(self.values(route="exe"), sys_)                               # a real start never reads the pins
+        self.assertIn(("start", "exe"), sys_.calls)
 
     def test_the_sfse_route_needs_the_listed_runtime(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
