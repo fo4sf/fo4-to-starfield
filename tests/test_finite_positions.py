@@ -22,7 +22,8 @@ class FinitePositionTests(unittest.TestCase):
 
         with self.assertRaises(nifmod.NifError) as ctx:
             convert_static.shape_to_mesh(FakeShape())
-        self.assertIn("non-finite", str(ctx.exception))
+        self.assertIn("non-finite value after transform", str(ctx.exception))
+        self.assertIn("nan", str(ctx.exception).lower())
 
     def test_empty_positions_raise(self):
         class FakeShape:

@@ -76,8 +76,11 @@ def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfm
         py = shape.scale * (r[3] * x + r[4] * y + r[5] * z) + shape.translation[1]
         pz = shape.scale * (r[6] * x + r[7] * y + r[8] * z) + shape.translation[2]
         pts.append((px * unit_scale, py * unit_scale, pz * unit_scale))
-    if not pts or not all(math.isfinite(c) for p in pts for c in p):
-        raise nifmod.NifError("shape positions are empty or non-finite after transform")
+    if not pts:
+        raise nifmod.NifError("shape positions are empty after transform")
+    bad = next((c for p in pts for c in p if not math.isfinite(c)), None)
+    if bad is not None:
+        raise nifmod.NifError(f"shape positions contain non-finite value after transform: {bad!r}")
     m = sfmesh.SfMesh(version=2)
     m.scale, m.positions = sfmesh.encode_positions(pts)
     m.triangles = [tuple(t) for t in shape.triangles]
