@@ -290,8 +290,16 @@ def apply_papyrus(values, say):
             with open(bak, "w", encoding="utf-8") as f:
                 f.write(old)
             say(f"papyrus logging: kept {bak}")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new)
+        # written beside it and swapped in whole: a failed write never leaves the live INI cut short (Codex, #449)
+        tmp = path + ".fo4sf-tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(new)
+            os.replace(tmp, path)
+        except OSError:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
     except OSError as e:
         raise ValueError(f"papyrus logging: cannot read or write {path} ({e.strerror or e}); Windows Controlled "
                          "Folder Access may block Python in Documents") from None

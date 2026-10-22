@@ -356,6 +356,22 @@ class CrashWatchTests(unittest.TestCase):
         self.assertGreaterEqual(r["seconds"], 700)             # not reported ended while it still ran
         self.assertTrue(any("following it by process id" in s for s in self.said))
 
+    def test_a_failed_ini_write_leaves_the_live_ini_whole(self):
+        mg = os.path.join(self.dir, "mgx")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        with open(ini, "w", encoding="utf-8") as f:
+            f.write("[Display]\nbFull Screen=1\n")
+        v = self.values(bridge="off", papyrus_logging="on", my_games=mg)
+        from unittest import mock
+        with mock.patch.object(crashwatch.os, "replace", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaises(ValueError):
+                crashwatch.apply_papyrus(v, self.said.append)
+        with open(ini, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "[Display]\nbFull Screen=1\n")
+        self.assertEqual(sorted(n for n in os.listdir(mg) if not n.startswith("StarfieldCustom.ini.bak-")),
+                         ["StarfieldCustom.ini"])                 # no temporary file left behind
+
     def test_logging_goes_on_before_the_bridge_comes_back(self):
         mg = os.path.join(self.dir, "mg")
         os.makedirs(os.path.join(mg, "StarfieldCustom.ini"))      # a folder where the INI should be: the write fails

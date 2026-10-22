@@ -143,9 +143,10 @@ attaches ProcDump to that process id with the old watcher's triggers (`-e 1 -f 8
 dump; `launcher.py settings` lists it as "Crash dump on every exit (off = log only)", and
 `--set crash_watch.dump_on_exit=off` gives log only). It holds its own handle on the game and writes the exit
 code and its name, and the dumps of that run, to `crashwatch.log`, so a silent exit leaves at least its code.
-ProcDump ends on its own with the game and is never killed. Untested on Windows: the tasklist, handle and ProcDump
-calls run only on the PC; the flow is tested with a stand-in (`tests/test_launcher_crashwatch.py`). Whether `-t`
-combines with `-e 1 -f` in one ProcDump run is not verified; the first PC run is the test.
+ProcDump ends on its own with the game and is never killed. The flow is tested with a stand-in
+(`tests/test_launcher_crashwatch.py`). On the owner's PC (2026-10-21, automated walk test) `watch` found the game by
+process id, armed ProcDump with `-e 1 -f 80000003 -t` together, caught a 0xC0000005 ACCESS_VIOLATION and wrote two
+145 MB mini dumps. Not yet run on Windows: `play`'s own game start (Steam or exe) and its bridge and Papyrus changes.
 
 `launcher.py watch` is the same watcher for a game it did not start, such as the test runner's own Steam launch: it
 waits for Starfield.exe (or `--pid N`), attaches after `settle_s` with the same ProcDump line, and logs the end;
