@@ -238,6 +238,26 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         self.assertEqual(report["collision"]["bodies"], 0)
         self.assertTrue(oracle.failed([report]))
 
+    def test_collision_target_that_is_not_a_scene_object_is_unreadable(self):
+        # The range check let a target on any block through: one whose bytes read as an identity transform placed the
+        # box like the root and reported clean. BSFurnitureMarkerNode ends in "Node" but is NiExtraData.
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        f = nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box))
+        av = struct.pack("<iIiI3f9ffiI", -1, 0, -1, 0xE, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0, -1, 0)
+        targets = {t: f.add_block(t, av) for t in ("BogusBlock", "BSFurnitureMarkerNode", "NiNode")}
+        targets["BSGeometry"] = 4
+        npco = f.blocks[2]                                 # build_static_nif: the root's collision object
+        for name, target in targets.items():
+            f.blocks[2] = struct.pack("<i", target) + npco[4:]
+            report = oracle.audit(nif.serialize(f), path=f"{name}-target.nif")
+            if name in ("NiNode", "BSGeometry"):           # identity scene objects, like the root: clean controls
+                self.assertEqual(report["flags"], [], msg=name)
+                continue
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertTrue(any("not a scene object" in e for e in report["errors"]), msg=name)
+            self.assertEqual(report["collision"]["bodies"], 0, msg=name)
+            self.assertTrue(oracle.failed([report]), msg=name)
+
     def test_truncated_bsgeometry_is_unreadable(self):
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
         data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
@@ -302,6 +322,31 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         self.assertIsNotNone(report["mesh"])
         self.assertTrue(oracle.failed([report]))
         json.dumps(report, allow_nan=False)
+
+    def test_malformed_node_child_table_is_unreadable(self):
+        # nif.node_children reads a child table it cannot use as childless (and drops refs past the block list), so the
+        # geometry and the collision node under the translated root both lost its transform alike: the bounds still
+        # matched and the report was clean.
+        hull = convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)))
+        f = nif.parse(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[hull]))
+        root = f.blocks[0]                                 # build_static_nif root: translation @20, child count @76
+        root = root[:20] + struct.pack("<3f", 5, 0, 0) + root[32:]
+        count, = struct.unpack_from("<I", root, 76)
+        f.blocks[0] = root
+        report = oracle.audit(nif.serialize(f), path="translated.nif")
+        self.assertEqual(report["flags"], [])                                 # control: both sides at x = 5
+        self.assertEqual((report["mesh"]["center"][0], report["collision"]["center"][0]), (5.0, 5.0))
+        past = range(len(f.blocks), len(f.blocks) + count)
+        cases = {"count past block": root[:76] + struct.pack("<I", count + 1) + root[80:],
+                 "refs past block list": root[:80] + struct.pack(f"<{count}i", *past),
+                 "cut before count": root[:76]}
+        for name, block in cases.items():
+            f.blocks[0] = block
+            report = oracle.audit(nif.serialize(f), path=f"{name}.nif")
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertTrue(any(e.startswith("node 0: ") for e in report["errors"]), msg=(name, report.get("errors")))
+            self.assertTrue(oracle.failed([report]), msg=name)
+            json.dumps(report, allow_nan=False)
 
     def test_cli_truncated_collision_headers_emit_json(self):
         script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"

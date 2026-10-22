@@ -2,7 +2,9 @@
 
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
 (missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
-decode, truncated collision object / physics system headers, and malformed manifest entries.
+decode, truncated collision object / physics system headers, a collision target that is not a
+node or BSGeometry, a node child table that does not fit its block or names a block past the
+end, and malformed manifest entries.
 Nonfinite or non-positive --scale / per-item scale is rejected before comparison, and a nonfinite
 point anywhere, or bounds whose centre / extent / diagonal overflow, make the model unreadable. JSON
 output never emits NaN/Infinity, and a structurally malformed NIF or manifest is an unreadable report,
@@ -96,6 +98,35 @@ def aabb_info(lo, hi):
             "extent": _round_xyz([hi[a] - lo[a] for a in range(3)])}
 
 
+def _is_node(t):
+    """NiNode-derived: a "...Node" type, as nif.world_transforms takes it; BSFurnitureMarkerNode is NiExtraData."""
+    return t.endswith("Node") and t != "BSFurnitureMarkerNode"
+
+
+def _child_table_errors(f):
+    """Nodes whose child table nif.node_children cannot read. It returns no children for a count past the block (or over
+    its 100000 cap) and drops refs past the block list, so geometry and collision below that node both lose its
+    transform and the bounds can still match."""
+    errors = []
+    for i, blk in enumerate(f.blocks):
+        if not _is_node(f.type_of(i)) or f.type_of(i) == "BSFaceGenNiNode":   # world_transforms skips its children
+            continue
+        try:
+            _, nextra = struct.unpack_from("<iI", blk, 0)
+            p = 8 + 4 * nextra + 8 + 52 + 4                # extra refs, controller, flags, transform, collision ref
+            count, = struct.unpack_from("<I", blk, p)
+        except struct.error:
+            errors.append(f"node {i}: truncated before its child table ({len(blk)} bytes)")
+            continue
+        if count > 100000 or p + 4 + 4 * count > len(blk):
+            errors.append(f"node {i}: declares {count} children in a {len(blk)}-byte block")
+            continue
+        bad = [c for c in struct.unpack_from(f"<{count}i", blk, p + 4) if not -1 <= c < len(f.blocks)]
+        if bad:
+            errors.append(f"node {i}: child refs {bad} past {len(f.blocks)} blocks")
+    return errors
+
+
 def _geometry_parents(f):
     parent = {}
     for i in range(len(f.blocks)):
@@ -151,8 +182,9 @@ def collision_bodies(f, scale=1.0):
     Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.blob_bodies
     (existing Starfield tagfile readback). fo4collision.decode is FO4 packfile-only and is not used.
     A bhkNPCollisionObject shorter than its 10-byte header (target i32, flags u16, data i32), a
-    bhkPhysicsSystem shorter than its u32 length field or than the blob length it declares, or a blob
-    that fails to decode is an error for that object only.
+    bhkPhysicsSystem shorter than its u32 length field or than the blob length it declares, a target
+    that is not a node or BSGeometry (any other block's bytes can still read as a transform), or a
+    blob that fails to decode is an error for that object only.
     """
     bodies = []
     errors = []
@@ -179,6 +211,9 @@ def collision_bodies(f, scale=1.0):
         blob = f.blocks[data][4:4 + n]
         if not (0 <= target < len(f.blocks)):
             errors.append(f"collision object {i}: invalid target {target}")
+            continue
+        if not (_is_node(f.type_of(target)) or f.type_of(target) == "BSGeometry"):
+            errors.append(f"collision object {i}: target {target} ({f.type_of(target)}) is not a scene object")
             continue
         t, rot, s = world(target)
         try:
@@ -265,6 +300,7 @@ def audit(data, scale=1.0, path=""):
         return {"path": path, "scale": scale, "flags": ["unreadable"], "error": str(err)}
     errors = []
     try:
+        errors.extend(_child_table_errors(f))          # both sides would drop that node's transform alike
         mesh = mesh_aabb(f, scale)
     except (ValueError, struct.error, IndexError, nif.NifError) as err:
         mesh = None
