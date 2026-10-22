@@ -3,8 +3,8 @@
 Each row: what the owner said, the snapshot (`scripts/game/snapshot.ps1`: screen, bridge position and cell, Papyrus
 tail; nothing typed into the game), what the build's own records say, and the next step. Rows 1 to 26 are from the
 16 and 17 Oct sessions on `terrain_core64f` / core64k + the pinned interior build `FO4Port.esm` (integ_1011 /
-integ_1018). Rows 27 on are from 22 Oct on v6i_plainshader (core DC751664, port 9AF962D2, mission 03C2A7A8) plus
-FO4SFMapMarkers.
+integ_1018). Rows 27 on are from 22 Oct on v6i_plainshader (core DC751664, port 9AF962D2, mission 03C2A7A8);
+FO4SFMapMarkers was installed at 11:50 UTC, after row 27, so it is part of the build from row 28 on.
 
 | # | When / where | Owner | Evidence | Cause | Next |
 |---|---|---|---|---|---|
