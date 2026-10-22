@@ -2057,3 +2057,12 @@ coc (run _f): STAYED with "Boundary reached" with the border on, 0.00 m off with
 off. The border is read as a limit on how far one teleport may move the player,
 not a fence at a position (supported hypothesis, border.md). The four places now
 say so, and no on-foot recheck is planned.
+
+## 2026-10-22: Correction: the border settling test is running, not waiting
+
+The phase 0 ledger entry above was written before 20:53 UTC and says the settling
+test (each variant's fields in the markers plugin, 3 runs each of control, city and
+nosmall on one save) is staged and waits on the owner's line. The owner gave the
+line in the Install thread at 20:53 UTC ("Go ahead and run the test"), so the test
+is running on the PC. The ROADMAP, README and playtest row 29 say so (#498); this
+entry records the change, and the entry above stands as written.
