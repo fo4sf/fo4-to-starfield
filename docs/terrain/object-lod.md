@@ -122,11 +122,23 @@ STAT `MNAM` distant models under FO4 `Data\Meshes\LOD\`) into Starfield's layout
 conversion the Red Rocket crash forced (#460). That is a later phase; Grok is scoping the path mapping
 (`fo4-lod-mesh-scoping.md`).
 
-The cheap test left on the placeholder route: `-MockWorldSpaceLOD:FO4TerrainCore.esm FO4Core_Commonwealth` with
-the backup protocol of step 1 above, its copy set extended with `Meshes\Terrain\<World>\Objects` (the path the
-oracle run showed, which the program's strings did not name), output to `D:\Modding\staging\lod_mock_cw\out`. The command takes worldspace names
-only (no trailing plugin argument, unlike the stats command), so the ESM named is the one that holds the world. If
-it writes placeholders for our world and the game draws them, the map gets buildings without any LOD mesh;
-installing those loose files waits for the owner's line. A failure on the full core is inconclusive by itself
-(custom-world support or the 648k references): then the tiny custom-world gate from the plan above decides,
-before the route is closed.
+4. **Mock run on our core (verified, 2026-10-22 19:35Z).** `-MockWorldSpaceLOD:FO4TerrainCore.esm
+   FO4Core_Commonwealth` (worldspace names only, no plugin fallback: the command has no trailing plugin argument,
+   unlike the stats command) exits 0 after 192 s and writes nothing: 732 loose files before, 0 new, 0 changed,
+   0 missing (listings in `D:\Modding\staging\lod_mock_cw`, log `lod_mock_cw.log`). `EditorDataFilesLoaded`
+   lists 000 Starfield.esm and 001 FO4TerrainCore.esm, so the plugin loaded; `EditorWarnings` says
+   `LODGENERATION: Failed to find worldspace: [FO4Core_Commonwealth]` (and an unrelated
+   `PARTICLE_ENGINE: Failed to find VFX LOD curve preset for ID: 1`). The WRLD's EDID is `FO4Core_Commonwealth`
+   (BorderProbe reads it; 02000803 at run time, local 000803). The backup copy set for this and every later run
+   includes `Meshes\Terrain\<World>\Objects`, where the oracle put its NIFs.
+
+Why the CK did not find our world is **unresolved**; the candidates, cheapest first, each one run of about three
+minutes with the backup protocol: (A) `-MockWorldSpaceLOD:FO4TerrainCore.esm LC172World`: if the vanilla world
+is found with our plugin named, the lookup is global and the fault is in our record or name, not the load; (B)
+a zeroed 20-byte `LODSettings\FO4Core_Commonwealth.LOD` placed first (a copy of the oracle's zeroed output,
+renamed, removed after the run): if the warning goes away, the LOD generator finds worldspaces through their
+`lodsettings` files, not the form table; (C) the form ID in place of the name (`01000803`, then `000803`), in
+case the lookup takes IDs. A pass on any of them revives the placeholder route (if the game draws the
+weak-reference placeholders for our world, the map gets buildings without any LOD mesh; installing those loose
+files waits for the owner's line); a fail on all three sends the question to the tiny custom-world gate from the
+plan above, which tells custom-world support from anything about the core, before the route is closed.
