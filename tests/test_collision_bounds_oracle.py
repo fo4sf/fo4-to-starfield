@@ -10,13 +10,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, os.path.join(_ROOT, "tests"))
 from fo4sf import fo4collision, nif, sfcollision, sfnif  # noqa: E402
 from test_collision import fake_template
-from test_sfbodies import cube, convex_blob, mesh_blob
+import test_sfbodies
+from test_sfbodies import BODY, TagWriter, _sec, _v, add_body, body_types, cube, convex_blob, mesh_blob
 
 spec = importlib.util.spec_from_file_location(
     "collision_bounds_oracle",
@@ -43,6 +45,30 @@ def truncate_block(data, block_type, size, nth=0):
     hits = [i for i in range(len(f.blocks)) if f.type_of(i) == block_type]
     f.blocks[hits[nth]] = f.blocks[hits[nth]][:size]
     return nif.serialize(f)
+
+
+def raw_tagfile(tst, tna, tbdy):
+    """TAG0 with hand-written type strings / names / bodies (TagWriter only writes well-formed types)."""
+    types = _sec(b"TST1", tst) + _sec(b"TNA1", tna) + _sec(b"FST1", b"") + _sec(b"TBDY", tbdy)
+    body = (_sec(b"SDKV", b"20190200") + _sec(b"DATA", bytes(16)) + _sec(b"TYPE", types, leaf=False)
+            + _sec(b"INDX", _sec(b"ITEM", bytes(12)) + _sec(b"PTCH", b""), leaf=False))
+    return _sec(b"TAG0", body, leaf=False)
+
+
+def _any_varint(x):
+    """Havok varint of any size (test_sfbodies._v stops at 14 bits): 0xF8 + 8 big-endian bytes."""
+    return _v(x) if x < 0x4000 else b"\xf8" + x.to_bytes(8, "big")
+
+
+def huge_offset_blob():
+    """A convex body whose convexRadius field sits at offset 2**63: struct offsets past ssize_t raise OverflowError."""
+    w = TagWriter()
+    body_types(w, "hknpConvexShape")
+    w.type("hull", 48, [("vertices", 0, "ptr"), ("faces", 16, "ptr"), ("indices", 32, "ptr")])
+    w.type("hknpConvexShape", 80, [("convexRadius", 1 << 63, "float3"), ("hull", 16, "hull")])
+    add_body(w, w.item("hknpConvexShape", bytes(80)))
+    with mock.patch.object(test_sfbodies, "_v", _any_varint):
+        return w.build()
 
 
 class CollisionBoundsOracleTests(unittest.TestCase):
@@ -295,6 +321,114 @@ class CollisionBoundsOracleTests(unittest.TestCase):
                 self.assertEqual(out["flagged"], 1, msg=name)
                 self.assertIn("unreadable", out["reports"][0]["flags"], msg=name)
                 self.assertTrue(out["reports"][0].get("errors"), msg=name)
+
+    def test_physics_system_shorter_than_its_declared_blob_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        report = oracle.audit(truncate_block(data, "bhkPhysicsSystem", 4 + 100), path="short-blob.nif")
+        self.assertIn("unreadable", report["flags"])
+        self.assertTrue(any("truncated physics system" in e and f"of {len(box)} blob bytes" in e
+                            for e in report["errors"]), msg=report["errors"])
+        self.assertEqual(report["collision"]["bodies"], 0)
+
+    def test_malformed_tagfiles_are_per_object_unreadable(self):
+        # Each child blob broke out of collision_bodies (KeyError, RecursionError, OverflowError) or never returned
+        # (a type parent cycle in size_of / all_fields); now each is one error and the good box beside it still decodes.
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        body = BODY.encode() + b"\0"
+        cases = {"no sections": _sec(b"TAG0", b"", leaf=False),
+                 "self-referential template": raw_tagfile(b"T\0tT\0", _v(2) + _v(0) + _v(1) + _v(1) + _v(1), b""),
+                 "size_of parent cycle": raw_tagfile(body, _v(2) + _v(0) + _v(0), _v(1) + _v(1) + _v(0)),
+                 "all_fields parent cycle": raw_tagfile(body, _v(2) + _v(0) + _v(0),
+                                                        _v(1) + _v(1) + _v(0x8) + _v(64) + _v(4)),
+                 "offset past ssize_t": huge_offset_blob()}
+        for name, blob in cases.items():
+            report = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[blob]), path=f"{name}.nif")
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertEqual(len(report["errors"]), 1, msg=(name, report["errors"]))
+            self.assertTrue(report["errors"][0].startswith("collision object "), msg=name)
+            self.assertEqual(report["collision"]["bodies"], 1, msg=name)
+            self.assertTrue(oracle.failed([report]), msg=name)
+            json.dumps(report, allow_nan=False)
+
+    def test_nonfinite_points_are_unreadable_wherever_they_sit(self):
+        # min / max skip a NaN that is not the first value, so a NaN second shape, a NaN later hull vertex and a NaN
+        # body position (abs(NaN) > 1e-6 is False, so it looked like identity) all used to pass clean.
+        nan = float("nan")
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        two = nif.serialize(sfnif.build_static_nif(
+            b"Prop", [shape((0, 0, 0.5, 0.4, 0.4, 0.5)), shape((nan, 0, 0.5, 0.4, 0.4, 0.5), b"Prop:1")],
+            collision_blob=box))
+        v, f = cube((-0.4, -0.4, 0), (0.4, 0.4, 1))
+        v[5] = (nan, v[5][1], v[5][2])
+        cases = {"second shape": two,
+                 "hull vertex": nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[convex_blob(v, f)]),
+                 "body position": nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[
+                     convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)), pos=(nan, 0, 0))])}
+        for name, data in cases.items():
+            report = oracle.audit(data, path=f"{name}.nif")
+            self.assertIn("unreadable", report["flags"], msg=name)
+            self.assertTrue(report.get("errors"), msg=name)
+            self.assertTrue(oracle.failed([report]), msg=name)
+            json.dumps(report, allow_nan=False)
+
+    def test_huge_finite_scale_never_overflows(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        far = sfcollision.box_blob(fake_template(), (5, 0, 0.5), (0.4, 0.4, 0.5))
+        offset = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), far), scale=1e300)
+        self.assertEqual(offset["flags"], ["offset"])                    # (5e299) ** 2 raised OverflowError
+        wide = sfcollision.box_blob(fake_template(), (0, 0, 0), (1, 1, 1))
+        report = oracle.audit(nif_bytes((0, 0, 0, 1, 1, 1), wide), scale=1e308)
+        self.assertIn("unreadable", report["flags"])                     # extent 2e308: aabb_info raised ValueError
+        self.assertIn("nonfinite mesh bounds", report["errors"])
+        left = sfcollision.box_blob(fake_template(), (-0.75, 0, 0), (0.25, 0.25, 0.25))
+        right = convex_blob(*cube((0.5, -0.25, -0.25), (1, 0.25, 0.25)))
+        report = oracle.audit(nif_bytes((0, 0, 0, 0.1, 0.1, 0.1), left, children=[right]), scale=1e308)
+        self.assertIn("unreadable", report["flags"])                     # each body fits; their union does not
+        self.assertEqual(report["errors"], ["collision: nonfinite combined bounds"])
+        self.assertEqual(report["collision"]["bodies"], 2)
+        self.assertIsNone(report["collision"]["min"])
+        for r in (offset, report):
+            json.dumps(r, allow_nan=False)
+
+    def test_zero_negative_and_overflowing_scale_is_rejected(self):
+        tiny = sfcollision.box_blob(fake_template(), (0, 0, 0.01), (0.02, 0.02, 0.01))
+        data = nif_bytes((0, 0, 1, 2, 2, 2), tiny)
+        for scale in (0, 0.0, -0.0, -1.0, 10 ** 400):       # 0 hid much_smaller; 10**400 raised OverflowError
+            report = oracle.audit(data, scale=scale, path="scale.nif")
+            self.assertEqual(report["flags"], ["unreadable"], msg=scale)
+            self.assertIsNone(report["scale"])
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "meshes" / "a.nif"
+            model.parent.mkdir(parents=True)
+            model.write_bytes(data)
+            reports = oracle.audit_manifest({"items": [{"model": "a.nif", "scale": 10 ** 400},
+                                                       {"model": "a.nif", "scale": 0}]}, Path(tmp))
+        self.assertEqual([r["flags"] for r in reports], [["unreadable"], ["unreadable"]])
+
+    def test_cli_malformed_manifest_json_and_huge_scale_emit_json(self):
+        script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
+        far = sfcollision.box_blob(fake_template(), (5, 0, 0.5), (0.4, 0.4, 0.5))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "meshes").mkdir()
+            (root / "meshes" / "far.nif").write_bytes(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), far))
+            manifests = {"digits": '{"items": [{"model": "far.nif", "scale": ' + "1" * 5000 + "}]}",
+                         "nesting": '{"items": ' + "[" * 100000 + "]" * 100000 + "}",
+                         "int scale": '{"items": [{"model": "far.nif", "scale": 1' + "0" * 400 + "}]}"}
+            runs = {"huge --scale": [str(root / "meshes" / "far.nif"), "--scale", "1e300"]}
+            for name, text in manifests.items():
+                (root / f"{name}.json").write_text(text, encoding="utf-8")
+                runs[name] = ["--manifest", str(root / f"{name}.json"), "--staging", str(root)]
+            for name, args in runs.items():
+                proc = subprocess.run([sys.executable, "-I", str(script), *args],
+                                      capture_output=True, text=True, cwd=tmp)
+                self.assertEqual(proc.returncode, 1, msg=name)
+                self.assertNotIn("Traceback", proc.stderr, msg=name)
+                out = json.loads(proc.stdout)
+                self.assertEqual(out["flagged"], 1, msg=name)
+                flag = "offset" if name == "huge --scale" else "unreadable"
+                self.assertIn(flag, out["reports"][0]["flags"], msg=name)
 
     def test_cli_codex_fail_open_controls(self):
         script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"

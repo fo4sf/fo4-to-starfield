@@ -3,8 +3,10 @@
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
 (missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
 decode, truncated collision object / physics system headers, and malformed manifest entries.
-Nonfinite --scale / per-item scale is rejected before comparison. JSON output never emits
-NaN/Infinity, and a structurally malformed NIF is an unreadable report, not a traceback.
+Nonfinite or non-positive --scale / per-item scale is rejected before comparison, and a nonfinite
+point anywhere, or bounds whose centre / extent / diagonal overflow, make the model unreadable. JSON
+output never emits NaN/Infinity, and a structurally malformed NIF or manifest is an unreadable report,
+not a traceback.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
@@ -38,6 +40,8 @@ def _place(v, t, rot, scale):
 
 
 def _aabb(points):
+    if not all(math.isfinite(x) for p in points for x in p):
+        return [math.nan] * 3, [math.nan] * 3          # min / max would skip a NaN that is not first
     lo = [min(p[a] for p in points) for a in range(3)]
     hi = [max(p[a] for p in points) for a in range(3)]
     return lo, hi
@@ -58,10 +62,12 @@ def parse_scale(value):
         raise ValueError(f"scale is not a finite number: {value!r}")
     try:
         scale = float(value)
-    except (TypeError, ValueError) as err:
+    except (TypeError, ValueError, OverflowError) as err:
         raise ValueError(f"scale is not a finite number: {value!r}") from err
     if not math.isfinite(scale):
         raise ValueError(f"scale is not finite: {value!r}")
+    if scale <= 0:                                     # REFR scale is positive; 0 hides both boxes below MIN_EXTENT
+        raise ValueError(f"scale is not positive: {value!r}")
     return scale
 
 
@@ -70,7 +76,12 @@ def _finite_xyz(v):
 
 
 def _finite_aabb(lo, hi):
-    return _finite_xyz(lo) and _finite_xyz(hi)
+    """Corners, centre, extent and diagonal all finite, so aabb_info and flag_bounds cannot overflow."""
+    if not (_finite_xyz(lo) and _finite_xyz(hi)):
+        return False
+    ext = [hi[a] - lo[a] for a in range(3)]
+    return (_finite_xyz(ext) and _finite_xyz([(lo[a] + hi[a]) / 2 for a in range(3)])
+            and math.isfinite(math.hypot(*ext)))
 
 
 def _round_xyz(v, n=4):
@@ -137,10 +148,11 @@ def _box_blob_aabb(blob):
 def collision_bodies(f, scale=1.0):
     """Per-body AABBs in NIF root metres.
 
-    Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.nif_bodies
+    Box templates use sfcollision.read_box. Other fo4-native tagfiles use sfbodies.blob_bodies
     (existing Starfield tagfile readback). fo4collision.decode is FO4 packfile-only and is not used.
-    A bhkNPCollisionObject shorter than its 10-byte header (target i32, flags u16, data i32) or a
-    bhkPhysicsSystem shorter than its u32 blob length is an error for that object only.
+    A bhkNPCollisionObject shorter than its 10-byte header (target i32, flags u16, data i32), a
+    bhkPhysicsSystem shorter than its u32 length field or than the blob length it declares, or a blob
+    that fails to decode is an error for that object only.
     """
     bodies = []
     errors = []
@@ -160,6 +172,10 @@ def collision_bodies(f, scale=1.0):
                           f"({len(f.blocks[data])} bytes)")
             continue
         n, = struct.unpack_from("<I", f.blocks[data], 0)
+        if 4 + n > len(f.blocks[data]):
+            errors.append(f"collision object {i}: truncated physics system {data} "
+                          f"({len(f.blocks[data]) - 4} of {n} blob bytes)")
+            continue
         blob = f.blocks[data][4:4 + n]
         if not (0 <= target < len(f.blocks)):
             errors.append(f"collision object {i}: invalid target {target}")
@@ -182,8 +198,9 @@ def collision_bodies(f, scale=1.0):
             pass
         try:
             decoded = sfbodies.blob_bodies(blob)
-        except (sfbodies.BodyError, ValueError, struct.error, IndexError) as err:
-            errors.append(f"collision object {i}: {err}")
+        except (sfbodies.BodyError, ValueError, struct.error, IndexError, KeyError, OverflowError,
+                RecursionError) as err:                # a tagfile missing a section, offsets >= 2**63, cyclic types
+            errors.append(f"collision object {i}: {type(err).__name__}: {err}")
             continue
         for body in decoded:
             pts = [_place(p, t, rot, s) for tri in body["triangles"] for p in tri]
@@ -230,8 +247,8 @@ def flag_bounds(mesh, collision):
         flags.append("much_smaller")
     m_c = [(m_lo[a] + m_hi[a]) / 2 for a in range(3)]
     c_c = [(c_lo[a] + c_hi[a]) / 2 for a in range(3)]
-    diag = math.sqrt(sum(x * x for x in m_ext))
-    dist = math.sqrt(sum((m_c[a] - c_c[a]) ** 2 for a in range(3)))
+    diag = math.hypot(*m_ext)
+    dist = math.dist(m_c, c_c)                         # inf (offset), not OverflowError, for huge scales
     if diag >= MIN_EXTENT and (dist > OFFSET_RATIO * diag or not _overlap(m_lo, m_hi, c_lo, c_hi)):
         flags.append("offset")
     return flags
@@ -258,6 +275,9 @@ def audit(data, scale=1.0, path=""):
         bodies, body_errors = [], [f"collision: {err}"]
     errors.extend(body_errors)
     coll = combined_aabb(bodies)
+    coll_ok = coll is not None and _finite_aabb(*coll)
+    if coll is not None and not coll_ok:
+        errors.append("collision: nonfinite combined bounds")
     flags = []
     if errors:
         flags.append("unreadable")
@@ -267,7 +287,7 @@ def audit(data, scale=1.0, path=""):
     report = {"path": path, "scale": scale, "flags": flags,
               "mesh": aabb_info(*mesh) if mesh else None,
               "collision": {"bodies": len(bodies), "per_body": bodies,
-                            **(aabb_info(*coll) if coll else {"min": None, "max": None})}}
+                            **(aabb_info(*coll) if coll_ok else {"min": None, "max": None})}}
     if errors:
         report["errors"] = errors
     return report
@@ -366,7 +386,7 @@ def main(argv=None):
             parser.error("--manifest requires --staging")
         try:
             manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError, UnicodeError) as err:
+        except (OSError, ValueError, RecursionError) as err:   # also bad UTF-8, > 4300-digit ints, deep nesting
             reports = [{"path": str(args.manifest), "scale": args.scale, "flags": ["unreadable"],
                         "error": str(err)}]
         else:
