@@ -1453,3 +1453,36 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
   with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
   peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.
+
+## 2026-10-20 Claude-cloud: doors_out2, the first door-exit campaign (job 6, #383)
+- **Run (Install session's report, 20 Oct 04:33Z):** queue `D:\Modding\testqueue_v6c_out\doors_out2`, pinned build
+  9af962d2 from wt_nightrun c0024fa, installed v6c set, 19 Oct 18:02 to 18:43 local; 8 OUT legs, no crash, no dump.
+  The judge at c0024fa gave PASS 0, FAIL 1, INCONCLUSIVE 7: all 7 were `WORLD` (player in FF00552F, marker in 02000803).
+- **verified (judge fault, fixed in #383 daff232):** a persistent reference reports our base WRLD while the player stands in
+  the overlay's runtime instance (JOURNAL 2026-10-16 "Step 0 probes" (a) and (e); docs/terrain/door-arrival-position.md
+  already warned that equal world ids are not the success check). daff232 accepted any runtime (FF) player world for
+  any plugin marker world; Codex held that (an FF prefix does not say which WRLD it instantiates), so from the next
+  commit the judge crosses worlds only for a pair the operator pins: `judge --world-instance FF00552F=02000803`.
+  Without a pin an OUT leg in another world stays INCONCLUSIVE WORLD, as at c0024fa.
+- **verified (re-judged on the PC at daff232, read-only, 20 Oct ~04:50Z; the c0024fa output kept as
+  door_rounds_judge.c0024fa.json):** PASS 5, FAIL 3, INCONCLUSIVE 0, NOT_RUN 0. The run saw only the one pair
+  FF00552F / 02000803, so the pinned rule should give the same verdicts (supported; not re-run).
+  PASS: 0000 ParsonsState01 (0.00 m xy, 0.01 m z), 0001 Vault114 (0.04, 0.10), 0002 Vault114 (0.28, 0.02),
+  0003 BostonPublicLibrary02 (0.00, 0.00), 0005 MuseumOfWitchcraft01 (0.00, 0.02).
+  FAIL: 0004 Vault95 STAYED (interior cell 06007D12); 0006 MuseumOfWitchcraft01 WRONG_PLACE (0.0 m xy, 16.4 m z);
+  0007 PrydwenHull01 WRONG_PLACE (0.0 m xy, 71.7 m z). The world check had hidden 0006 and 0007. An earlier version of
+  this entry and of #383's description guessed "7 PASS" before the re-judge: **wrong**, corrected here.
+- **What the code says about 0006 and 0007 (verified from source):** the expected position is the exterior marker's own
+  record position plus the build's merge, and the merge has no z (`vmad_patch.merge_offset` returns (dx, dy, 0.0)), so
+  the expected z is the marker's record z. The judge's tolerance is 3.0 m on z. The runner never scores the exterior
+  arrival: an OUT leg's only runner point is `inside_arrival`, the start inside after the coc, so its PASS says nothing
+  about where the door put the player, in z or otherwise. With 16.4 m and 71.7 m off, the tolerance is not the question;
+  the marker height or the landing is.
+- **supported hypothesis, unchecked:** the player arrived exactly over a marker that sits on a raised structure (the
+  Prydwen's hull on its mooring, an upper level at the museum) and ended at another height, most likely below it with
+  that structure missing or without collision in the converted exterior. **unresolved:** the sign of each z miss
+  (`got.pos` against `pos` in door_rounds_judge.json) and what stands under each marker in game.
+- **FAIL STAYED stands, 0004 Vault95 OUT:** after an activation the runner proved, the ack and the exterior marker's
+  resolve, the player was still in interior cell 06007D12. The runner's PASS is only its check of the leg's start
+  point (`inside_arrival` z -11.20 against -11.14). **unresolved:** why the exit door left the player inside (that
+  attempt's papyrus.log: a `refused` line, or no `MoveTo returned`).

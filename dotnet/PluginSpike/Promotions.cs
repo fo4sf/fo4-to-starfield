@@ -143,7 +143,7 @@ public sealed class Promotions : IDisposable
                     var form = it.GetProperty("form").GetString()!;               // "<plugin>:<6 hex>"
                     var colon = form.IndexOf(':');
                     if (colon < 1) throw new InvalidDataException($"promote.json {src}: item form '{form}' is not <plugin>:<hex>");
-                    var fk = new FormKey(ModKey.FromNameAndExtension(form[..colon]), Convert.ToUInt32(form[(colon + 1)..], 16));
+                    var fk = new FormKey(ModKey.FromNameAndExtension(form.AsSpan(0, colon)), Convert.ToUInt32(form.Substring(colon + 1), 16));
                     var count = it.GetProperty("count").GetInt32();
                     if (count < 1) throw new InvalidDataException($"promote.json {src}: count {count} for {form}");
                     cont.Items.Add(new ContainerEntry { Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = count } });
