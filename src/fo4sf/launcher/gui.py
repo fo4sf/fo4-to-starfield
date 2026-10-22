@@ -55,7 +55,8 @@ class SettingsModel:
             starfield = starfield or self.saved["starfield"]
             if not fo4_data or not starfield:
                 raise ValueError("Confirm the Fallout 4 Data and Starfield folders on the Locations tab first")
-            argv += ["detect", "--starfield", starfield]
+            # this window's settings file, never the default one: my_games falls back to it (Codex, #481)
+            argv += ["detect", "--settings", self.path, "--starfield", starfield]
             argv += [a for path in fo4_data for a in ("--fo4-data", path)]
             if self.saved["my_games"]:
                 argv += ["--my-games", self.saved["my_games"]]
@@ -97,6 +98,11 @@ class SettingsModel:
             return "Save the changed settings before playing"
         if not (starfield or values["starfield"]):
             return "Choose the Starfield folder first (Locations tab)"
+        # a saved location can stop working (the game moved): Play waits until it is fixed (Codex, #481)
+        for key in paths.needed(values):
+            problem = paths.check(key, starfield or values[key] if key == "starfield" else values[key])
+            if problem:
+                return f"{settings.LABELS[key]}: {problem} (Locations tab)"
         return ""
 
     def part(self, raw, part="all"):

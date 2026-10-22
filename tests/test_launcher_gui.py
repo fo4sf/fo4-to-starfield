@@ -22,6 +22,9 @@ class GuiModelTests(unittest.TestCase):
         self.path = self.folder / "settings.json"
         self.launcher = str(ROOT / "scripts" / "launcher.py")
         self.model = gui.SettingsModel(self.launcher, str(self.path))
+        self.game = str(self.folder / "game folder")          # Play checks the folder holds Starfield.exe
+        os.makedirs(self.game)
+        Path(self.game, "Starfield.exe").write_bytes(b"")
 
     def run_cli(self, argv):
         return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
@@ -113,41 +116,56 @@ class GuiModelTests(unittest.TestCase):
         self.assertEqual(self.model.part(raw), raw)
 
     def test_play_and_detect_fall_back_to_the_saved_locations(self):
-        self.path.write_text(json.dumps({"starfield": "saved game", "fo4_data": "Data A;Data B"}), encoding="utf-8")
+        self.path.write_text(json.dumps({"starfield": self.game, "fo4_data": "Data A;Data B"}), encoding="utf-8")
         self.model.reload()
         argv = self.model.command("play", self.model.saved, pids=[], windows=True)
-        self.assertEqual(argv[-2:], ["--starfield", "saved game"])
+        self.assertEqual(argv[-2:], ["--starfield", self.game])
         argv = self.model.command("detect")
-        self.assertEqual(argv[4:], ["detect", "--starfield", "saved game", "--fo4-data", "Data A", "--fo4-data", "Data B"])
+        self.assertEqual(argv[4:], ["detect", "--settings", str(self.path), "--starfield", self.game,
+                                    "--fo4-data", "Data A", "--fo4-data", "Data B"])
+
+    def test_play_waits_while_a_saved_location_no_longer_works(self):
+        self.path.write_text(json.dumps({"starfield": self.game}), encoding="utf-8")
+        self.model.reload()
+        self.assertEqual(self.model.play_reason(self.model.saved, "", [], windows=True), "")
+        os.remove(os.path.join(self.game, "Starfield.exe"))          # the game moved since it was confirmed
+        self.assertIn("no Starfield.exe", self.model.play_reason(self.model.saved, "", [], windows=True))
+        raw = dict(self.model.saved, **{"crash_watch.enabled": True, "crash_watch.folder": self.game,
+                                        "crash_watch.procdump": os.path.join(self.game, "gone", "procdump64.exe")})
+        self.path.write_text(json.dumps(dict(raw, starfield=self.game)), encoding="utf-8")
+        Path(self.game, "Starfield.exe").write_bytes(b"")
+        self.model.reload()
+        self.assertIn("ProcDump path: file not found", self.model.play_reason(self.model.saved, "", [], windows=True))
 
     def test_play_delegates_to_existing_cli_for_both_routes(self):
         for route in ("steam", "exe"):
             self.path.write_text(json.dumps({"route": route}), encoding="utf-8")
             self.model.reload()
-            argv = self.model.command("play", self.model.saved, starfield="game folder", pids=[], windows=True)
-            self.assertEqual(argv[4:], ["play", "--settings", str(self.path), "--starfield", "game folder"])
+            argv = self.model.command("play", self.model.saved, starfield=self.game, pids=[], windows=True)
+            self.assertEqual(argv[4:], ["play", "--settings", str(self.path), "--starfield", self.game])
             # Do NOT execute this command: the existing play handler owns routes, process checks and the watcher.
 
     def test_play_refuses_a_stale_view_of_the_saved_settings(self):
         raw = dict(self.model.saved)
         self.path.write_text(json.dumps({"route": "exe"}), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "changed outside"):
-            self.model.command("play", raw, starfield="game", pids=[], windows=True)
+            self.model.command("play", raw, starfield=self.game, pids=[], windows=True)
         self.model.reload()
         self.assertEqual(self.model.saved["route"], "exe")
-        self.assertIn("play", self.model.command("play", self.model.saved, starfield="game", pids=[], windows=True))
+        self.assertIn("play", self.model.command("play", self.model.saved, starfield=self.game, pids=[], windows=True))
 
     def test_settings_read_failure_is_a_visible_command_error(self):
         with mock.patch.object(settings, "load", side_effect=PermissionError("settings cannot be read")):
             with self.assertRaisesRegex(ValueError, "Cannot read saved settings"):
-                self.model.command("play", self.model.saved, starfield="game", pids=[], windows=True)
+                self.model.command("play", self.model.saved, starfield=self.game, pids=[], windows=True)
 
     def test_status_and_detect_argv_request_no_writes(self):
         argv = self.model.command("status", recipe="recipe file.json", overrides=["root=some folder"])
         self.assertEqual(argv[4:], ["status", "recipe file.json", "--set", "root=some folder"])
         self.assertNotIn("--json", argv)
         argv = self.model.command("detect", fo4_data=["Data A", "Data B"], starfield="game")
-        self.assertEqual(argv[4:], ["detect", "--starfield", "game", "--fo4-data", "Data A", "--fo4-data", "Data B"])
+        self.assertEqual(argv[4:], ["detect", "--settings", str(self.path), "--starfield", "game",
+                                    "--fo4-data", "Data A", "--fo4-data", "Data B"])
         self.assertNotIn("--report", argv)
         self.assertNotIn("--allow-unknown", argv)
         with self.assertRaises(ValueError):
