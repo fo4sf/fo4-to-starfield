@@ -256,7 +256,11 @@ is one start-game-enabled quest carrying `FO4SF_MapMarkers`: every 2 s, with the
 merged extent (x -4400..2000, y -5900..500), each marker that is not at its merged spot in the player's world is
 enabled and moved there (`MoveTo` onto the player with the difference as the offset, the form the door script and
 the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`. The plugin names the core's marker
-REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
+REFRs by FormID, so it is rebuilt with every core build. **Verified in game** (owner, 2026-10-22, core dc751664,
+plugin 46d4ca26, `fo4sf_map.0.log`): the quest started 55 s into the session, moved all four markers 15 s later
+(`before=` FLT_MAX is the expected other-world reading, not a failed read; `d=` matched the player's distance), and
+the four icons drew on the surface map after the owner left the area and came back. Why not at once is
+**unresolved** (the map may hold its marker list until the area reloads). Still unverified: the
 extent check cannot tell another world with the same coordinates apart (as the mission).
 
 Install: `scripts/game/map_markers_install.py install --dir <staged> --starfield <game>` (game closed). It keeps its
