@@ -23,6 +23,7 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
 
     Expected sections: fo4, starfield, paths, tools.
     Missing file raises ConfigError. Unknown keys are preserved.
+    Paths are resolved to absolute Path objects.
     """
     if tomllib is None:
         raise ConfigError("tomllib requires Python 3.11+")
@@ -50,6 +51,11 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         for key, val in list(data["tools"].items()):
             if isinstance(val, str):
                 data["tools"][key] = abs_path(val)
+
+    # Enforce presence of core sections early so callers get a clear error
+    for section in ("fo4", "starfield", "paths"):
+        if section not in data:
+            raise ConfigError(f"missing required section [{section}]")
 
     return data
 
