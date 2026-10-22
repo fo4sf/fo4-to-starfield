@@ -62,13 +62,14 @@ def main(argv=None):
     p.add_argument("--texconv", required=True)
     p.add_argument("--template", default=TEMPLATE)
     p.add_argument("--animate-arms", action="store_true")
-    # crash bisect switches (docs/spikes/red-rocket-crash-bisect.md): the default build crashes the game when it loads
+    # crash bisect switches (docs/spikes/red-rocket-crash-bisect.md)
     p.add_argument("--one-material", action="store_true",
                    help="every shape takes the first shape's material, so the model is one geometry set (the template's "
                         "own), with no copied geometry, shader or skin blocks")
-    p.add_argument("--plain-shader", action="store_true",
-                   help="shader properties as the static converter writes them (the .mat name only) instead of the "
-                        "template's block with its name swapped")
+    p.add_argument("--plain-shader", action=argparse.BooleanOptionalAction, default=True,
+                   help="shader properties as the static converter writes them (the .mat name only; the default, which "
+                        "walks clean in game). --no-plain-shader keeps the template's block with its name swapped, the "
+                        "build that crashed the game at Red Rocket")
     a = p.parse_args(argv)
     if os.path.exists(a.staging) and os.listdir(a.staging):
         raise SystemExit(f"{a.staging} is not empty: give a new staging folder (an earlier stage is never overwritten)")
