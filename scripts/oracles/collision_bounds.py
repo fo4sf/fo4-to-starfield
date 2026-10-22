@@ -400,7 +400,11 @@ def collision_bodies(f, scale=1.0):
         if not (_is_node(f.type_of(target)) or f.type_of(target) == "BSGeometry"):
             errors.append(f"collision object {i}: target {target} ({f.type_of(target)}) is not a scene object")
             continue
-        t, rot, s = world(target)
+        try:
+            t, rot, s = world(target)
+        except (struct.error, ValueError, IndexError, nif.NifError) as err:     # this object only; siblings still count
+            errors.append(f"collision object {i}: target {target} transform: {type(err).__name__}: {err}")
+            continue
         try:
             decoded = sfbodies.blob_bodies(blob)
         except (sfbodies.BodyError, ValueError, struct.error, IndexError, KeyError, OverflowError,

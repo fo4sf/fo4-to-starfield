@@ -521,15 +521,18 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             self.assertEqual(report["collision"]["per_body"][0]["shape"], "hknpBoxShape")
 
     def test_truncated_collision_target_node_is_unreadable(self):
-        # The child collision object's target NiNode is cut below its transform, so placing it
-        # raises inside collision_bodies; the audit boundary turns that into an unreadable report.
+        # The child collision object's target NiNode is cut below its transform. Placing it raised outside the
+        # per-object checks, so the valid root box was dropped too and the report said missing with 0 bodies.
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
         hull = convex_blob(*cube((-0.4, -0.4, 0), (0.4, 0.4, 1)))
         data = truncate_block(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[hull]),
                               "NiNode", 8, nth=1)
         report = oracle.audit(data, path="short-target.nif")
         self.assertIn("unreadable", report["flags"])
-        self.assertTrue(any(e.startswith("collision: ") for e in report["errors"]))
+        self.assertNotIn("missing", report["flags"])
+        self.assertEqual(report["collision"]["bodies"], 1)                    # the root box still counts
+        self.assertTrue(any(e.startswith("collision object 8: target 7 transform: ") for e in report["errors"]),
+                        msg=report["errors"])
         self.assertIsNotNone(report["mesh"])
         self.assertTrue(oracle.failed([report]))
         json.dumps(report, allow_nan=False)
