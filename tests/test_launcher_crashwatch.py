@@ -674,6 +674,34 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual((new, changed), ("[Papyrus]\nbEnableLogging=1\nbEnableTrace=1\nbLoadDebugInformation=1\n", True))
         self.assertFalse(crashwatch.set_papyrus(new, True)[1])
 
+    def test_papyrus_setting_keeps_the_ini_bytes(self):
+        # a BOM and CRLF endings, as Notepad saves it, and a byte that is not UTF-8: only the changed keys move
+        mg = os.path.join(self.dir, "mgb")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        raw = (b"\xef\xbb\xbf[General]\r\nsLanguage=en\r\nsName=caf\xe9\r\n[Papyrus]\r\nbEnableLogging=0\r\n"
+               b"  fOther = 2 \r\n[Display]\r\nx=1")                          # no ending on the last line
+        with open(ini, "wb") as f:
+            f.write(raw)
+        v = self.values(bridge="off", papyrus_logging="on", my_games=mg)
+        crashwatch.apply_papyrus(v, self.said.append)
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), b"\xef\xbb\xbf[General]\r\nsLanguage=en\r\nsName=caf\xe9\r\n[Papyrus]\r\n"
+                                       b"bEnableLogging=1\r\n  fOther = 2 \r\nbEnableTrace=1\r\n"
+                                       b"bLoadDebugInformation=1\r\n[Display]\r\nx=1")
+        bak = [n for n in os.listdir(mg) if ".bak-" in n]
+        with open(os.path.join(mg, bak[0]), "rb") as f:
+            self.assertEqual(f.read(), raw)                                  # the copy is the old file exactly
+        with open(ini, "rb") as f:
+            before = f.read()
+        crashwatch.apply_papyrus(v, self.said.append)                        # already on: not touched
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertIn("already on", self.said[-1])
+        new, _ = crashwatch.set_papyrus("[Display]\r\nx=1", False)          # a new section after a last line
+        self.assertEqual(new, "[Display]\r\nx=1\r\n[Papyrus]\r\nbEnableLogging=0\r\nbEnableTrace=0\r\n"
+                              "bLoadDebugInformation=0\r\n")
+
     def test_exit_names(self):
         self.assertEqual(crashwatch.exit_name(-1073741819), "0xC0000005 ACCESS_VIOLATION")    # signed as Windows gives
         self.assertIn("not a known crash code", crashwatch.exit_name(0x1234))

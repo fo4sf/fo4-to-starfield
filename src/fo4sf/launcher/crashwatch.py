@@ -23,6 +23,7 @@ With the watcher off, play still starts the game and prints its exit code (a han
 
 Everything Windows-specific goes through a `System` object, so the flow is tested on synthetic stand-ins.
 """
+import codecs
 import datetime
 import os
 import re
@@ -323,16 +324,23 @@ PAPYRUS = ("bEnableLogging", "bEnableTrace", "bLoadDebugInformation")
 
 
 def set_papyrus(text, on):
-    """StarfieldCustom.ini text with the three [Papyrus] keys set to 1 (on) or 0 (off); everything else kept.
-    Returns (new_text, changed)."""
+    """StarfieldCustom.ini text with the three [Papyrus] keys set to 1 (on) or 0 (off); everything else kept as it
+    was, line endings included (a CRLF file stays CRLF). Returns (new_text, changed)."""
     v = "1" if on else "0"
-    lines, out, in_sec, seen, found, changed = text.splitlines(), [], False, set(), False, False
+    nl = "\r\n" if "\r\n" in text else "\n"
+    lines = re.findall(r"[^\n]*\n|[^\n]+$", text)                # each with its own ending; split on \n only
+    out, in_sec, seen, found, changed = [], False, set(), False, False
+
+    def add(line):
+        if out and not out[-1].endswith("\n"):
+            out[-1] += nl                                          # the old last line had no ending
+        out.append(line + nl)
 
     def close():
         nonlocal changed
         for k in PAPYRUS:
             if k.lower() not in seen:
-                out.append(f"{k}={v}")
+                add(f"{k}={v}")
                 changed = True
     for line in lines:
         s = line.strip()
@@ -349,16 +357,18 @@ def set_papyrus(text, on):
             if hit:
                 seen.add(hit.lower())
                 if old != v:
-                    out.append(f"{hit}={v}")
+                    body = line.rstrip("\r\n")
+                    out.append(f"{hit}={v}" + line[len(body):])
                     changed = True
                     continue
         out.append(line)
     if in_sec:
         close()
     if not found:
-        out += ["[Papyrus]"] + [f"{k}={v}" for k in PAPYRUS]
+        for line in ["[Papyrus]"] + [f"{k}={v}" for k in PAPYRUS]:
+            add(line)
         changed = True
-    return "\n".join(out) + "\n", changed
+    return "".join(out), changed
 
 
 def apply_papyrus(values, say):
@@ -367,24 +377,26 @@ def apply_papyrus(values, say):
         return
     path = os.path.join(values["my_games"], "StarfieldCustom.ini")
     try:
-        old = ""
+        raw = b""
         if os.path.exists(path):
-            with open(path, encoding="utf-8-sig") as f:
-                old = f.read()
-        new, changed = set_papyrus(old, want == "on")
+            with open(path, "rb") as f:
+                raw = f.read()
+        # bytes in and out: a BOM, CRLF endings and any non-UTF-8 byte all come back as they were (phase audit)
+        bom = codecs.BOM_UTF8 if raw.startswith(codecs.BOM_UTF8) else b""
+        new, changed = set_papyrus(raw[len(bom):].decode("utf-8", "surrogateescape"), want == "on")
         if not changed:
             say(f"papyrus logging: already {want} in {path}")
             return
         if os.path.exists(path):
             bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            with open(bak, "w", encoding="utf-8") as f:
-                f.write(old)
+            with open(bak, "wb") as f:
+                f.write(raw)
             say(f"papyrus logging: kept {bak}")
         # written beside it and swapped in whole: a failed write never leaves the live INI cut short (Codex, #449)
         tmp = path + ".fo4sf-tmp"
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(new)
+            with open(tmp, "wb") as f:
+                f.write(bom + new.encode("utf-8", "surrogateescape"))
             os.replace(tmp, path)
         except OSError:
             if os.path.exists(tmp):
