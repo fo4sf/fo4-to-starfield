@@ -315,9 +315,9 @@ Add the other DLC `.esm` files to the first line when they are installed. What t
 ## Next after the current phase (owner, 2026-10-22)
 
 The owner set the order for after the current phase: "We will probably wait to use Starfield world generation for
-later use cause theirs a few pretty complex systems we need to get working like our own A life sims style System, p
-that allows going in between these areas without direct walking paths, and building the overall game system of our
-gamma". New items continue the design's numbering (CC-60 to CC-62 are in the framework file, PR #408). No code yet.
+later, because there are a few pretty complex systems we need to get working: our own A-Life sim style system, a
+system that allows going between these areas without direct walking paths, and building the overall game system of
+our GAMMA." New items continue the design's numbering (CC-60 to CC-62 are in the framework file, PR #408). No code yet.
 
 - **CC-63. Our own A-Life style simulation.** The persistent world sim prototyped here (L2 `sim.py`, L3 `present.py`)
   grows into the full system: factions, squads, caravans and settlements living off-screen and becoming real actors
