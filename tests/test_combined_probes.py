@@ -864,6 +864,11 @@ class P9Tests(unittest.TestCase):
         rest = [l for l in log if " p9 done " not in l]
         self.assertEqual(probes.check_p9(col(log=rest[:3] + done + rest[3:])).verdict, INCONCLUSIVE)
 
+    def test_sample_times_must_increase(self):
+        # Codex review of #431: all-zero or backward times skip the speed check
+        log = [re.sub(r" t=[0-9.]+ ", " t=0.000000 ", l) if " p9 sample " in l else l for l in p9_log()]
+        self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
+
     def test_every_sample_is_the_started_actor(self):
         # Codex review of #431: samples naming another actor never settle the walk
         self.assertEqual(probes.check_p9(col(log=[l.replace("actor=-16711680", "actor=-16711679")
@@ -1030,6 +1035,15 @@ class CollectAndCliTests(unittest.TestCase):
         self.assertEqual(probes.check_p5(single).verdict, PASS)
         with self.assertRaises(FileNotFoundError):
             probes.collect(os.path.join(self.dir, "nope"))
+
+    def test_all_counts_a_probe_that_stopped_before_citing(self):
+        # Codex review of #431: valid P2 plus a P4 cycle without its start must not summarize as PASS
+        c = col(session1=S1_P2, session2=S2_P2)
+        self.assertEqual(probes.check_all(c)["verdict"], PASS)
+        c = col(session1=S1_P2 + [p4_log()[2]], session2=S2_P2)
+        d = probes.check_all(c)
+        self.assertEqual(d["probes"]["p4"]["verdict"], INCONCLUSIVE)
+        self.assertEqual(d["verdict"], INCONCLUSIVE)
 
     def test_cli_exit_codes_and_json(self):
         self.write("focc_session1.log", "\n".join(S1_P2))

@@ -1187,8 +1187,10 @@ def check_p9(c: Collection) -> Verdict:
     # Continuity: a jump faster than a walk between two samples is a teleport, never a pass for pathing.
     for (t0, _, p0, _, _, e0), (t1, _, p1, _, _, e1) in zip(rows, rows[1:]):
         dt = t1 - t0
-        if dt <= 0:
-            continue
+        if dt <= 0:                             # repeated or backward time cannot show a walk (Codex review of #431)
+            v.cite(e0, e1)
+            v.reasons.append(f"p9 sample times are not strictly increasing ({t0} then {t1})")
+            return v
         step = sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5
         if step / dt > P["p9_jump_m_per_s"]:
             v.cite(e0, e1)
@@ -1322,6 +1324,21 @@ def check(probe: str, c: Collection) -> Verdict:
     return CHECKS[probe.lower()](c)
 
 
+def _attempted(p: str, c: Collection) -> bool:
+    """Whether the collection holds any input for probe `p`: one of its own log lines (kind `p<n> ...`, or P3's
+    p3cells `where` lines), the SFSE log for P1, the array-cap compile output for P5. Decided from the inputs, not
+    from what a checker cited, so a probe that stops before citing still counts (Codex review of #431)."""
+    if p == "p1" and c.sfse_log is not None:
+        return True
+    if p == "p5" and c.files.get("compile_p5_array129.txt") is not None:
+        return True
+    for evs in c.any_logs():
+        cells = any(e.kind == "init" and e.fields.get("variant", "").lower() == "p3cells" for e in evs)
+        if any(e.kind.split()[:1] == [p] or (p == "p3" and cells and e.kind == "where") for e in evs):
+            return True
+    return False
+
+
 def check_all(c: Collection) -> dict:
     """Every probe; the summary verdict is the worst among probes that saw any input (an untouched probe is listed as
     INCONCLUSIVE but does not drag `all` down on its own)."""
@@ -1329,7 +1346,7 @@ def check_all(c: Collection) -> dict:
     for p in PROBES:
         v = check(p, c)
         out[p] = v.to_dict()
-        if v.evidence:
+        if v.evidence or _attempted(p, c):
             touched.append(v.verdict)
     return {"probes": out, "verdict": _worst(*touched) if touched else INCONCLUSIVE,
             "note": "verdict is the worst of the probes with any evidence; the others had no input"}
