@@ -884,8 +884,13 @@ def door_anim_manifest(a, manifest, export_paths, log):
     step["load_doors"] = sum(1 for i in items if isinstance(i.get("load_door"), dict))
     step["animated"] = sum(1 for i in items if isinstance(i.get("load_door"), dict) and i["load_door"].get("anim"))
     if a.animated_pex:
-        step["pex"] = {"file": os.path.abspath(a.animated_pex), "bytes": os.path.getsize(a.animated_pex),
-                       "sha256": sha256(a.animated_pex)}
+        # a build-local snapshot: the archive packs these bytes, whatever happens to the source file meanwhile
+        snap = os.path.join(d, ANIMATED_PEX)
+        shutil.copyfile(a.animated_pex, snap)
+        a.animated_pex_snapshot = snap
+        step["pex"] = {"file": os.path.abspath(a.animated_pex), "snapshot": os.path.abspath(snap),
+                       "bytes": os.path.getsize(snap), "sha256": sha256(snap)}
+        a.animated_pex_sha256 = step["pex"]["sha256"]
     return cur, step
 
 
@@ -1033,15 +1038,20 @@ def pack(a, port, prev_port, prev_result, log):
     t = time.time()
     packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
     main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
-    pex = getattr(a, "animated_pex", "") if getattr(a, "animated_doors", False) else ""
+    pex = getattr(a, "animated_pex_snapshot", "") if getattr(a, "animated_doors", False) else ""
     scripts = os.path.join(a.work, "scripts")
     if pex:
-        # The PEX rides this build's Main archive; it is put into the work staging for Archive2 and taken out after, so
-        # a later build from the same staging without the switch packs no script.
+        # The PEX rides this build's Main archive: door_anim_manifest's snapshot, checked against the sha256 result.json
+        # records, is put into the work staging for Archive2 and taken out after, so a later build from the same
+        # staging without the switch packs no script.
         if os.path.exists(scripts):
             raise ValueError(f"{scripts} exists: the work staging must not hold scripts of its own")
         os.makedirs(scripts)
-        shutil.copyfile(pex, os.path.join(scripts, ANIMATED_PEX))
+        staged = os.path.join(scripts, ANIMATED_PEX)
+        shutil.copyfile(pex, staged)
+        if sha256(staged) != a.animated_pex_sha256:
+            shutil.rmtree(scripts, ignore_errors=True)
+            raise ValueError(f"{pex} changed since it was pinned (sha256 {a.animated_pex_sha256[:12]}): refusing to pack it")
         main_dirs.append("scripts")
     try:
         deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")

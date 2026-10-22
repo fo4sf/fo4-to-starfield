@@ -836,6 +836,8 @@ class BuildFlowTests(unittest.TestCase):
                 open(log, "a").close()
             elif "vmad_patch.py" in joined and cmd[2] == "port":
                 self.assertEqual(cmd[cmd.index("--animated-doors") + 1], os.path.join(out, "door_anim", "manifest_sounds.json"))
+                with open(pex, "wb") as f:                               # the source PEX is recompiled mid-build
+                    f.write(b"recompiled")
                 dst = cmd[cmd.index("--out") + 1]
                 os.makedirs(dst)
                 for n in ("FO4Port.esm", "formids.json"):
@@ -843,7 +845,10 @@ class BuildFlowTests(unittest.TestCase):
             return 0, 0.1
 
         def fake_archive(packer, path, folders, fmt, compression="Default"):
-            packed[os.path.basename(path)] = (list(folders), os.path.isfile(os.path.join(packer.staging, "scripts", ib.ANIMATED_PEX)))
+            staged = os.path.join(packer.staging, "scripts", ib.ANIMATED_PEX)
+            packed[os.path.basename(path)] = (list(folders), os.path.isfile(staged))
+            if os.path.isfile(staged):
+                packed["sha256"] = ib.sha256(staged)
             with open(path, "wb") as f:
                 f.write(b"BTDX")
 
@@ -868,7 +873,21 @@ class BuildFlowTests(unittest.TestCase):
         anim = res["steps"]["door_anim"]
         self.assertEqual([r["cmd"] for r in anim["runs"]], ["plan", "flags", "sounds"])
         self.assertEqual((anim["load_doors"], anim["animated"]), (1, 1))
-        self.assertEqual(anim["pex"]["sha256"], ib.sha256(pex))
+        self.assertEqual(anim["pex"]["sha256"], packed["sha256"])          # the bytes packed are the bytes recorded
+        self.assertNotEqual(anim["pex"]["sha256"], ib.sha256(pex))
+        # a snapshot changed after it was pinned is refused, never packed under the recorded hash
+        snap = os.path.join(out, "door_anim", ib.ANIMATED_PEX)
+        with open(snap, "wb") as f:
+            f.write(b"tampered")
+        a = argparse.Namespace(starfield=t, work=work, out=out, animated_doors=True, animated_pex_snapshot=snap,
+                               animated_pex_sha256=anim["pex"]["sha256"], pack_ratio=None)
+        ib.deploy_starfield.build_archive = fake_archive
+        try:
+            with self.assertRaisesRegex(ValueError, "changed since it was pinned"):
+                ib.pack(a, os.path.join(out, "port"), None, None, os.path.join(out, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real_pack
+        self.assertFalse(os.path.exists(os.path.join(work, "scripts")))
         flags = [c for c in calls if "load_door_anim.py" in " ".join(c) and c[2] == "flags"][0]
         self.assertEqual(flags[flags.index("--cells") + 1:flags.index("--out")], [os.path.join(out, "base_exports", "Old.json")])
         self.assertEqual(packed["FO4Port - Main.ba2"], (["scripts"], True))
