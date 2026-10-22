@@ -16,7 +16,8 @@ usage:
   python scripts/bridge/border_walk.py report --queue <queue> --plan <out> [--markers <fo4_locations_world.csv>]
          [--extra "label:x,y" ...] [--svg <file>] [--csv <file>]
       per ray: why the walk stopped (boundary, stuck, the goal, ...), the last position read before it (the game's
-      world frame and the core's local frame), its distance and bearing from the arrival, and the screenshot taken
+      world frame and the core's local frame), its distance and bearing from the arrival (for a popup: the read before
+      the popup leg's walk, and dist_max_m, how far that walk could have carried the player; the border lies between), and the screenshot taken
       with the popup, and the runner's verdict (results.jsonl). Writes a CSV and an SVG map: the arrival, each ray's walked line, a red cross where Boundary
       Reached stopped it and the runner judged FAIL BOUNDARY, FO4 locations (--markers) and any --extra world points (e.g. the owner's own reading).
 A ray that ends on stuck or off the route says only that the border is beyond its last read, never where it is.
@@ -42,6 +43,7 @@ CORRIDOR_M = 40.0                # ground file corridor; the walk's own detours 
 OFFROUTE_M = 35.0
 EDGE_MARGIN_M = 100.0            # rays stop this far inside the terrain (core64's ground may end 100 m inside)
 WALK_SPEED = 4.6
+HOLD_SLACK_M = 2.0               # the start and stop of a W hold, beyond hold x speed
 
 
 def load(p):
@@ -200,6 +202,18 @@ def ray_result(test, obs, row=None):
         dx, dy = last[0] - arrival[0], last[1] - arrival[1]
         r["dist_m"] = round(math.hypot(dx, dy), 1)
         r["bearing"] = round(math.degrees(math.atan2(dx, dy)) % 360.0, 1)
+    if popup is not None and last is not None:
+        # the popup leg's read is taken BEFORE its W hold and nothing is read after the popup (qstep.ps1 walk kind):
+        # the border lies between that read and as far as the hold could carry the player along its heading (Codex on
+        # #444); the far end is an estimate from the leg's measured speed
+        walk_m = float(popup.get("hold_ms") or 0) / 1000.0 * float(popup.get("speed") or WALK_SPEED) + HOLD_SLACK_M
+        h = popup.get("heading")
+        if isinstance(h, (int, float)) and math.isfinite(h):
+            hx, hy = heading_xy(h)
+            r["far"] = [last[0] + hx * walk_m, last[1] + hy * walk_m]
+        r["walk_m"] = round(walk_m, 1)
+        if arrival and r.get("far"):
+            r["dist_max_m"] = round(math.hypot(r["far"][0] - arrival[0], r["far"][1] - arrival[1]), 1)
     return r
 
 
@@ -258,10 +272,15 @@ def svg_map(results, offset, markers, extra, path):
         out.append(f'<line x1="{X(a[0]):.1f}" y1="{Y(a[1]):.1f}" x2="{X(b[0]):.1f}" y2="{Y(b[1]):.1f}" '
                    f'stroke="{col}" stroke-width="2"/>')
         if r["stop"] == "boundary":
-            out.append(f'<path d="M{X(b[0]) - 6:.1f},{Y(b[1]) - 6:.1f} l12,12 m0,-12 l-12,12" stroke="#c0392b" '
+            f = r.get("far") or b                       # the border lies on b..far (the popup leg's walk)
+            out.append(f'<line x1="{X(b[0]):.1f}" y1="{Y(b[1]):.1f}" x2="{X(f[0]):.1f}" y2="{Y(f[1]):.1f}" '
+                       f'stroke="#c0392b" stroke-width="7" stroke-opacity="0.45"/>')
+            out.append(f'<path d="M{X(f[0]) - 6:.1f},{Y(f[1]) - 6:.1f} l12,12 m0,-12 l-12,12" stroke="#c0392b" '
                        f'stroke-width="3"/>')
+        span = (f'{r.get("dist_m", "?")}-{r["dist_max_m"]}' if r["stop"] == "boundary" and r.get("dist_max_m")
+                else f'{r.get("dist_m", "?")}')
         out.append(f'<text x="{X(b[0]) + 8:.1f}" y="{Y(b[1]) + 4:.1f}" fill="{col}">{r["label"]} {r["stop"]} '
-                   f'{r.get("dist_m", "?")} m</text>')
+                   f'{span} m</text>')
     for name, p in extra:
         out.append(f'<rect x="{X(p[0]) - 5:.1f}" y="{Y(p[1]) - 5:.1f}" width="10" height="10" fill="#8e44ad"/>'
                    f'<text x="{X(p[0]) + 8:.1f}" y="{Y(p[1]) + 4:.1f}" fill="#8e44ad">{name}</text>')
@@ -269,8 +288,8 @@ def svg_map(results, offset, markers, extra, path):
     if a:
         out.append(f'<circle cx="{X(a[0]):.1f}" cy="{Y(a[1]):.1f}" r="6" fill="#1a5276"/>'
                    f'<text x="{X(a[0]) + 9:.1f}" y="{Y(a[1]) - 8:.1f}" fill="#1a5276">Red Rocket arrival</text>')
-    out.append(f'<text x="8" y="{H - 8:.0f}" fill="#333">game world frame (getpos metres), north up; red cross = '
-               f'Boundary Reached; teal = walk ended for another reason</text></svg>')
+    out.append(f'<text x="8" y="{H - 8:.0f}" fill="#333">game world frame (getpos metres), north up; red band = the walk of the popup leg, the '
+               f'border lies on it (cross: its estimated far end), judged FAIL BOUNDARY; teal = walk ended for another reason</text></svg>')
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
 
@@ -307,14 +326,14 @@ def cmd_report(a):
         loc = [round(r["last"][k] - offset[k], 1) for k in range(2)] if r["last"] and offset else None
         rows.append([r["label"], r["stop"], r["legs"], r.get("dist_m"), r.get("bearing"),
                      *(r["last"][:2] if r["last"] else ["", ""]), *(loc or ["", ""]), r["popup_text"],
-                     r["popup_shot"] or "", r["last_shot"] or "", r["verdict"]])
+                     r["popup_shot"] or "", r["last_shot"] or "", r["verdict"], r.get("dist_max_m", "")])
         print(f"{r['label']:14s} {r['stop']:10s} ({r['verdict']}) {r.get('dist_m', '?')} m on bearing {r.get('bearing', '?')}; "
               f"last read {r['last']}" + (f"; popup {r['popup_text']!r} ({r['popup_shot']})" if r["popup_leg"] is not None else ""))
     if a.csv:
         with open(a.csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["ray", "stop", "legs", "dist_m", "bearing", "world_x", "world_y", "local_x", "local_y",
-                        "popup", "popup_shot", "last_shot", "verdict"])
+                        "popup", "popup_shot", "last_shot", "verdict", "dist_max_m"])
             w.writerows(rows)
     if a.svg:
         svg_map(results, offset, markers, extra, a.svg)

@@ -72,7 +72,8 @@ class ImportTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     ARRIVAL = [-2189.0, -1554.0, 12.0]
     LEGS = [{"n": 1, "used": "-2189.0 -1540.0 12.0"}, {"n": 2, "used": "-2189.0 -1000.0 30.0"},
-            {"n": 3, "used": "-2189.0 -908.0 31.0", "popup": "BOUNDARY REACHED", "shot": "walk_003.png"},
+            {"n": 3, "used": "-2189.0 -908.0 31.0", "popup": "BOUNDARY REACHED", "shot": "walk_003.png",
+             "heading": 0.0, "hold_ms": 2000, "speed": 4.5},
             {"n": 4, "used": "-2189.0 -950.0 31.0"}]
 
     def report(self, verdict):
@@ -113,7 +114,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(float(row[3]), 646.0)             # distance from the arrival to the popup's read
         self.assertEqual(float(row[8]), round(-908.0 - (self.ARRIVAL[1] - SPAWN[1]), 1))   # local y
         self.assertIn("walk_003.png", row)
-        self.assertEqual(row[-1], "FAIL BOUNDARY")
+        self.assertEqual(row[-2], "FAIL BOUNDARY")
+        # Codex on #444: the popup leg's read precedes its walk; the border lies within that walk (2 s x 4.5 m/s + 2)
+        self.assertEqual(float(row[-1]), 646.0 + 2.0 * 4.5 + bw.HOLD_SLACK_M)
+        self.assertIn("646.0-657.0 m", svg)
         self.assertIn("owner wall", svg)
         self.assertIn('stroke="#c0392b" stroke-width="3"', svg)                          # the red cross
 
@@ -122,7 +126,7 @@ class ReportTests(unittest.TestCase):
         for verdict in (("INCONCLUSIVE", "INSTALL"), None):
             text, rows, svg = self.report(verdict)
             self.assertEqual(rows[1][1], "boundary_unconfirmed")
-            self.assertEqual(rows[1][-1], " ".join(verdict) if verdict else "UNJUDGED")
+            self.assertEqual(rows[1][-2], " ".join(verdict) if verdict else "UNJUDGED")
             self.assertNotIn('stroke-width="3"', svg)
 
 if __name__ == "__main__":
