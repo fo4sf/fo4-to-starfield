@@ -1891,3 +1891,90 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+### 2026-10-20 Codex: include ordered plugin masters in same-IDs verification
+
+Scoped identity/output-verification correction to394/774cb7f, coordinated on its PR. The old checker flattened
+repeated MAST subrecords and allowed SAME_IDS after master reorder or earlier-entry replacement. The reader now
+retains all raw MAST bytes in order; a changed table sets ids.masters_changed and refuses identity equivalence.
+This is a strict ordered-table comparison, not runtime load-order or semantic rebasing proof. Other metadata and
+content changes with the same masters retain explained SAME_IDS results. Sixteen focused methods pass after
+new cases fail on the original source. Sixteen separate controlled actual-CLI calls reproduce/fix five false
+PASS cases and retain three positive outcomes; all eight synthetic input pairs remain unchanged. Only reader
+header handling and comparison change; launcher driver, restore and other parent findings remain untouched.
+No private plugin, real installer, game/stage/input or main merge. Independent QA remains pending.
+
+### 2026-10-20 Codex: distinguish manifest metadata agreement from input content proof
+
+Continued the scoped427 identity proposal for394 finding6. The comparison now includes recorded BA2 versions;
+same-sized v1/v7/v8 header captures no longer pass as equal metadata. The existing list API remains, while the
+read-only CLI lists unhashed master/archive/game inputs and labels their content unverified. Exit0 still means
+no detected compared differences, not a content-proof gate; full matches are stated only for hashed declared
+files. Wired the existing optional hash_game_esm capability to --hash-game-esm alongside --hash-archives, leaving
+cheap default capture unchanged. Paths/timestamps remain informational across PCs. Seven new methods and the
+existing identity/manifest controls pass (28 total). Fourteen controlled actual-CLI replays retain positive
+hashed comparisons and qualify hidden same-sized content changes; ten synthetic input files remain unchanged.
+No new hashing/build job on private inputs, decoder, driver, restore or native action. Independent QA is pending.
+
+## 2026-10-20: Codex restore Plugins.txt namespace binding (offline)
+
+PR394 finding5: a snapshot could name a different file while its installer always
+used LOCALAPPDATA/Starfield/Plugins.txt. Two original-source backend replays
+(wrong filename and wrong parent) returned an empty differences list after an
+injected installer changed the canonical file. The correction validates and
+canonicalizes that address before reading snapshots, planning, verifying, writing
+or applying; mismatched snapshots refuse. Valid custom roots, Windows case aliases
+of the same namespace, missing files and no-op restores remain supported.
+
+Eight new synthetic methods and seven existing read-only restore methods pass.
+Six retained old/new backend calls reproduce both false successes, show refusal
+before the callback with all state unchanged, and preserve both valid no-ops.
+Install effects were injected in temporary profiles, not performed on a game.
+Initial test setup mistakes (imported TestCase discovery and missing LOCALAPPDATA
+isolation) and original failures are retained privately; corrected tests pin a
+temporary profile in every case. Other PR394 findings and independent QA remain
+open. No physical restore, deployment, game input or native acceptance.
+
+## 2026-10-20: Codex detect profile-INI coverage warning (offline)
+
+PR394 finding7: detect could print READY without checking My Games INIs or saying
+they were unchecked. It now warns when --my-games is omitted or the supplied
+folder is unavailable. Paths remain explicit, never guessed. READY and exit-code
+policy are unchanged: the warning is not proof of a clean profile. Supplied
+profile and game-folder sTestFile entries still refuse; loose files still warn.
+
+Five new methods plus thirteen existing detect/measure methods pass. Twelve
+old/new actual CLI calls cover omitted, missing, clean, blocked, game-blocked and
+loose-file profiles on identical synthetic inputs. Only coverage warnings change;
+refusals/readiness and all input bytes remain unchanged. The initial four new
+methods produced six pre-fix assertion failures, retained with their green runs.
+Legacy no-warning tests now explicitly supply an empty synthetic profile, keeping
+their original tool/source assertions. Only detect() changes among production
+functions; CLI dispatch is unchanged. Independent QA pending; no real profile,
+game action, staging, deployment or native acceptance.
+
+## 2026-10-22: Red Rocket crash: Codsworth's shader blocks (in game, Card I1)
+
+Game: Starfield 1.16.244.0 with FO4 1.10.163 data, v6i core (DC751664), mission
+03C2A7A8. The bisect is in docs/spikes/red-rocket-crash-bisect.md (v6c to v6i
+crashed; v6i without codsworth.nif walked clean). Card I1 rebuilt the model with
+`scripts/actors/convert_codsworth.py` and the PC's usual arguments plus
+`--plain-shader`; the report says plain_shader true, one_material false. The built
+NIF has 56 blocks, and all five BSLightingShaderProperty blocks are 12 bytes (the
+.mat name, 0 extras, -1 controller). The mission was restaged with that folder and
+folded into the core (50 Codsworth assets; verify ok), then installed.
+
+Result: the walk queue (tag plainshader, crash watcher and 1 s memory log on)
+passed both legs from a fresh start. Red Rocket to Sanctuary: 29 of 29 steps,
+253.9 of 254.33 m, end error 0.1 m, |dz| max 0.13. Sanctuary to Red Rocket: 253.9 m,
+end error 0.0 m, |dz| max 0.14. Each ran about 9 minutes past arrival. The run
+exited 0, and the typed-lines audit found nothing outside
+ClearConsole/getpos/setangle. The watcher saw a normal exit, plus one forced stop
+(0xFFFFFFFF) by the runner's Stop-Process, with no access violation. Working set
+peak 8.77 GB, commit peak 14.75 GB, minimum free 4.27 GB. The single-material test
+(I2) was not needed.
+
+Conclusion: the crash came from the mini bot template's 166-byte shader block,
+carried into our model with only the name swapped. `--plain-shader` is now the
+default; `--no-plain-shader` rebuilds the crashing model. Why the game misreads
+that block in our file is not shown. Why the model loaded in the mission-off run
+(Card D) is open. Nobody has yet checked how Codsworth looks in game.

@@ -1,5 +1,9 @@
 # Play and test the port: a guide for newcomers
 
+> **Withdrawn for now (owner, 19 Oct 2026).** The project is not offered for download or play, for legal reasons and so
+> nobody's hopes are raised early. This page is kept as a record of the procedure; please do not follow it until the
+> owner says the project is open again.
+
 You found the Fallout 4 to Starfield project and want to try it. This page takes you from download to walking around
 the converted Commonwealth in Starfield, and to sending a useful report when something is wrong.
 
@@ -246,6 +250,14 @@ project). The filter means it only catches that one exception, not crashes in ge
   a full disk) means there is no usable dump. Don't close the window before then; a half-written dump is useless.
 - **Stop watching** with **Ctrl+C** in ProcDump's window. That is ProcDump's graceful stop: it resumes the game if a
   capture is running. Don't kill ProcDump with Task Manager or `taskkill`, which can cut a dump off halfway.
+- **With the launcher** the watcher follows one game instead of running all day: turn it on with
+  `python scripts/launcher.py settings --set crash_watch.enabled=on --set crash_watch.folder="<dump folder>" --set
+  crash_watch.procdump="<path to procdump64.exe>"`, then start the game with
+  `python scripts/launcher.py play --starfield "<game folder>"`. It attaches once the game has stayed up 20 seconds,
+  writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
+  `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
+  For a game started some other way (the test runner), `python scripts/launcher.py watch --repeat` attaches the same
+  watcher to each game it sees.
 - **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
   give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
   what they need from it.
