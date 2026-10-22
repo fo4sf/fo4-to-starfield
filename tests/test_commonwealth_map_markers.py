@@ -52,6 +52,69 @@ class OverlayMarkers(unittest.TestCase):
             self.markers(markers=dup)
 
 
+class ExportedMarkers(unittest.TestCase):
+    """Fo4Land export-mapmarkers rows (dotnet/Fo4Land/MapMarkersExport.cs) into stage entries after the fixed four."""
+    DOC = {"plugin": "Fallout4.esm", "world": "Commonwealth", "markers": [
+        {"fid": "00072A48", "name": "Sanctuary Hills", "pos": [-80768.19, 88174.80, 0]},     # one of the fixed four
+        {"fid": "0001F2A9", "name": "Abernathy Farm", "pos": [-81000.0, 86000.0, 0]},
+        {"fid": "0001F2AA", "name": None, "pos": [0, 0, 0]},
+        {"fid": "0001F2AB", "name": "Far Away", "pos": [-300000.0, 0.0, 0]},              # beyond the overlay
+        {"fid": "0001F2AC", "name": "Lost", "pos": [float("nan"), 0.0, 0]},
+    ]}
+
+    def test_named_markers_load_without_the_fixed_four(self):
+        rows, left = map_markers.load_fo4_markers(self.DOC)
+        self.assertEqual([r[0] for r in rows], ["M01F2A9", "M01F2AB"])
+        self.assertEqual(sorted(e["reason"] for e in left),
+                         ["no finite position", "no name", "one of the core's fixed markers"])
+
+    def test_outside_the_overlay_is_left_out_not_fatal(self):
+        rows, _ = map_markers.load_fo4_markers(self.DOC)
+        entries, left = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 2.0)
+        self.assertEqual([(e["tag"], e["name"]) for e in entries], [("M01F2A9", "Abernathy Farm")])
+        self.assertEqual(entries[0]["src"], "01F2A9:Fallout4.esm")
+        self.assertAlmostEqual(entries[0]["pos"][0], -81000.0 / 70, places=3)
+        self.assertEqual(entries[0]["pos"][2], 2.0)
+        self.assertEqual([e["src"] for e in left], ["01F2AB:Fallout4.esm"])
+        self.assertIn("outside the overlay", left[0]["reason"])
+
+    def test_a_marker_on_a_fixed_one_is_left_out(self):
+        # FO4's own Red Rocket marker would draw a second icon next to the core's, which sits on the COC arrival
+        fixed = map_markers.overlay_markers(SPAWN, BOUNDS, lambda x, y: 0.0)
+        rr = ("M01F2B0", "Red Rocket Truck Stop", 0x1F2B0, (SPAWN[0] + 40) * 70, (SPAWN[1] - 30) * 70)
+        far = ("M01F2B1", "Abernathy Farm", 0x1F2B1, -40000.0, 20000.0)
+        # a differently named place on the same spot is its own location (the Museum of Freedom in Concord)
+        other = ("M01F2B2", "Red Rocket Garage", 0x1F2B2, (SPAWN[0] + 30) * 70, (SPAWN[1] - 20) * 70)
+        entries, left = map_markers.extra_markers([rr, far, other], BOUNDS, lambda x, y: 0.0, fixed=fixed)
+        self.assertEqual([e["tag"] for e in entries], ["M01F2B1", "M01F2B2"])
+        self.assertEqual(left, [{"src": "01F2B0:Fallout4.esm",
+                                 "reason": "Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket"}])
+
+    def test_another_world_is_refused(self):
+        with self.assertRaises(ValueError):
+            map_markers.load_fo4_markers(dict(self.DOC, world="FarHarbor"))
+
+    def test_the_check_takes_the_extra_markers(self):
+        rows, _ = map_markers.load_fo4_markers(self.DOC)
+        extra, _ = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 1.0)
+        check = CheckMapMarkers("test_written_chain_passes")
+        check.setUp()
+        check.ov["map_markers"] += extra
+        tags = [m["tag"] for m in check.ov["map_markers"]]
+        check.ids["map_marker_refs"]["W"] = {t: f"{0x900 + k:06X}" for k, t in enumerate(tags)}
+        self.assertEqual(mk.map_marker_problems(check.recs(), 1, check.ov, check.ids), [])
+
+
+class WriterSource(unittest.TestCase):
+    def test_writer_enables_the_markers(self):
+        # CI has no .NET: the writer's source must clear LC172's Initially Disabled bit and add no LCID (18 Oct: no
+        # icon showed with 0xC00 + LCID)
+        src = (root / "dotnet" / "TerrainOverlays" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("marker.MajorRecordFlagsRaw = (marker.MajorRecordFlagsRaw | 0x400) & ~0x800;", src)
+        self.assertNotIn("MasterInitiallyDisabledReferences.Add", src)
+        self.assertNotIn("MajorRecordFlagsRaw |= 0xC00", src)
+
+
 class CheckMapMarkers(unittest.TestCase):
     def setUp(self):
         self.ov = {"world": "W", "location": "WLocation", "spawn": SPAWN, "spawn_cell": [-10, 11],
@@ -60,10 +123,10 @@ class CheckMapMarkers(unittest.TestCase):
         self.ids = {"bases": {}, "refs": {}, "map_markers": {"W": "000900"},
                     "map_marker_refs": {"W": {t: f"{0x900 + k:06X}" for k, t in enumerate(tags)}}}
 
-    def recs(self, lcsr_tail=map_markers.LCSR_TAIL, drop_lcid=False, flags=0xC00, late_other=False):
+    def recs(self, lcsr_tail=map_markers.LCSR_TAIL, lcid=False, flags=0x400, late_other=False):
         recs = [{"sig": "WRLD", "fid": OWN | 0x803, "flags": 0, "fields": [(b"EDID", z("W"))]},
                 {"sig": "REFR", "fid": OWN | 0x810, "flags": 0, "fields": []}]
-        rows, lcid = [], []
+        rows, lcids = [], []
         for k, m in enumerate(self.ov["map_markers"]):
             fid = OWN | 0x900 + k
             recs.append({"sig": "REFR", "fid": fid, "flags": flags, "fields": [
@@ -71,10 +134,10 @@ class CheckMapMarkers(unittest.TestCase):
                 (b"DATA", struct.pack("<6f", *m["pos"], 0, 0, 0)), (b"XMRK", b"")]})
             rows.append(struct.pack("<5I", map_markers.MAPMARKER_REF_TYPE, fid, OWN | 0x803,
                                     struct.unpack("<I", struct.pack("<hh", m["cell"][1], m["cell"][0]))[0], lcsr_tail))
-            lcid.append(fid)
+            lcids.append(fid)
         fields = [(b"EDID", z("WLocation")), (b"LCSR", b"".join(rows))]
-        if not drop_lcid:
-            fields.append((b"LCID", struct.pack(f"<{len(lcid)}I", *lcid)))
+        if lcid:
+            fields.append((b"LCID", struct.pack(f"<{len(lcids)}I", *lcids)))
         recs.append({"sig": "LCTN", "fid": OWN | 0x802, "flags": 0, "fields": fields})
         if late_other:
             recs.append({"sig": "STAT", "fid": OWN | 0x950, "flags": 0, "fields": []})
@@ -87,8 +150,12 @@ class CheckMapMarkers(unittest.TestCase):
     def test_zero_tail_fails(self):
         self.assertTrue(mk.map_marker_problems(self.recs(lcsr_tail=0), 1, self.ov, self.ids))
 
-    def test_missing_lcid_fails(self):
-        self.assertTrue(any("LCID" in p for p in mk.map_marker_problems(self.recs(drop_lcid=True), 1, self.ov, self.ids)))
+    def test_markers_in_lcid_fail(self):
+        self.assertTrue(any("LCID" in p for p in mk.map_marker_problems(self.recs(lcid=True), 1, self.ov, self.ids)))
+
+    def test_initially_disabled_marker_fails(self):
+        # LC172's 0xC00 hid every icon in game (18 Oct)
+        self.assertTrue(any("enabled" in p for p in mk.map_marker_problems(self.recs(flags=0xC00), 1, self.ov, self.ids)))
 
     def test_not_persistent_fails(self):
         self.assertTrue(any("persistent" in p for p in mk.map_marker_problems(self.recs(flags=0), 1, self.ov, self.ids)))

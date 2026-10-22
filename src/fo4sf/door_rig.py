@@ -203,3 +203,25 @@ def open_motion(plan, unit_scale, clip_name='Open'):
                          'rotation_deg':round(math.degrees(2*math.acos(w)),2),
                          'axis':[round(x,4) for x in _qrotate(frame,axis)] if axis else None})
     return rows
+
+
+def slides(source, degrees=5.0, units=5.0):
+    """True when an FO4 door's Open moves its parts without turning any of them (a sliding door whose name says nothing:
+    Red Rocket's RedRPedDoor.nif, which the hinged template swung about the leaf's centre): every track turns less than
+    degrees and one travels more than units (source units, 70 a metre). False when the motion cannot be read."""
+    try:
+        rows = open_motion(plan(source, placed=True), 1.0)
+    except (nif.NifError, KeyError, ValueError, IndexError, struct.error):
+        return False
+    return bool(rows) and all(r['rotation_deg'] < degrees for r in rows) and \
+        any(math.sqrt(sum(x * x for x in r['travel_m'])) > units for r in rows)
+
+
+def flips(source, degrees=5.0, max_vertical=0.7):
+    """True when an FO4 door's Open turns a part about a horizontal axis (a trapdoor or hatch leaf: the axis's z component
+    is below max_vertical), which the vertical-hinge template cannot reproduce. False when the motion cannot be read."""
+    try:
+        rows = open_motion(plan(source, placed=True), 1.0)
+    except (nif.NifError, KeyError, ValueError, IndexError, struct.error):
+        return False
+    return any(r['rotation_deg'] > degrees and r['axis'] and abs(r['axis'][2]) < max_vertical for r in rows)
