@@ -222,6 +222,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.busy, self.closed, self.action = False, False, ""
             self.pids, self.process_error = None, ""
             self.found = dict(given)
+            self.dirty = set()                     # locations the player typed or browsed and has not saved yet
             self.widgets, self.vars, self.loc = [], {}, {}
             root.title("FO4SF Launcher")
             root.geometry("1020x760")
@@ -339,6 +340,8 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
 
         def render_locations(self):
             for row in model.locations(self.found, prefer=given):
+                if row["key"] in self.dirty:       # a finishing detection never overwrites the player's edit (Codex, #481)
+                    continue
                 self.set_location(row["key"], row["value"])
                 self.show_mark(row["key"], row["status"], row["note"])
             self.refresh_play()
@@ -352,6 +355,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             if item["quiet"]:
                 return
             given.pop(key, None)                       # the player's own choice now beats the command line (Codex, #481)
+            self.dirty.add(key)
             value = self.location_value(key)
             problem = paths.check(key, value) if value else "not set"
             if value == model.saved[key] and not problem:
@@ -466,6 +470,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             return model.part(out, part)
 
         def reload_settings(self):
+            self.dirty.clear()                         # Reload discards unsaved edits, locations included
             try:
                 model.reload()
                 for key, var in self.vars.items():
@@ -567,6 +572,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                     if kind == "done" and value == 0 and self.action == "save":
                         if self.part == "locations":   # confirmed: the command-line paths have had their say
                             given.clear()
+                            self.dirty.clear()
                         try:
                             model.reload()
                             for key, var in self.vars.items():
