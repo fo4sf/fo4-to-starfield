@@ -455,9 +455,10 @@ def main():
         if pending_retry is None:
             sys.exit("--retry-failures: failure-summary.json has no failed_nifs list; stage not changed")
         man_path = os.path.join(a.staging, "manifest.json")
-        if os.path.exists(man_path):
-            with open(man_path, encoding="utf-8") as f:
-                prior_manifest = json.load(f)
+        if not os.path.exists(man_path):   # a retry publishes the merged stage, so without it earlier successes would vanish
+            sys.exit(f"--retry-failures: missing {man_path}; stage not changed")
+        with open(man_path, encoding="utf-8") as f:
+            prior_manifest = json.load(f)
         pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
         pending_sources = retry_pending_sources(pending_retry)
         names = [n for n in names if source_identity(n) in pending_sources]
@@ -571,6 +572,8 @@ def main():
         print(f"  ragdoll poses: {json.dumps(pose_stats)}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
+    if pending_retry is not None:   # every count below describes the merged stage, not the retry subset
+        items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
     from collections import Counter, defaultdict
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
     examples = defaultdict(list)
@@ -626,22 +629,6 @@ def main():
         "examples": {r: examples[r] for r in reason_counts},
         "failed_nifs": [f["nif"] for f in failures],
     }
-    if pending_retry is not None:
-        items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
-        total = len(failures)
-        unique = len(Counter(f["reason"].split(":")[0].strip() for f in failures))
-        attempted = len(items) + total
-        success_pct = 100.0 * len(items) / attempted if attempted else 100.0
-        summary["attempted"] = attempted
-        summary["successes"] = len(items)
-        summary["success_percent"] = round(success_pct, 1)
-        summary["total_failures"] = total
-        summary["unique_reasons"] = unique
-        summary["failed_nifs"] = [f["nif"] for f in failures]
-        summary["top"] = [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
-                          for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common(10)]
-        summary["reasons"] = {r: c for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common()}
-
     tex_totals = None
     if textures.parse_texture_caps(a.max_texture):
         tex_totals = texture_totals(merge_texture_log(a.staging, conv.texture_log if conv else {}))

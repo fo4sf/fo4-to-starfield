@@ -99,6 +99,31 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertEqual([it["source"] for it in man["items"]], [A, B, C])
         self.assertEqual(json.loads((self.staging / "failure-summary.json").read_text())["failed_nifs"], [])
 
+    def test_retry_without_prior_manifest_refuses(self):
+        self._initial_abc()
+        (self.staging / "manifest.json").unlink()
+        summary_path = self.staging / "failure-summary.json"
+        before_summary = summary_path.read_bytes()
+        convert = Mock(side_effect=convert_ok)
+        with self.assertRaises(SystemExit) as caught:
+            run_main(self.staging, self.collision, [A, B, C], convert,
+                     extra=["--retry-failures", "--limit", "10"])
+        self.assertIn("manifest.json", str(caught.exception))
+        convert.assert_not_called()
+        self.assertEqual(summary_path.read_bytes(), before_summary)
+        self.assertFalse((self.staging / "manifest.json").exists())
+
+    def test_retry_summary_describes_the_merged_stage(self):
+        self._initial_abc()
+        run_main(self.staging, self.collision, [A, B, C], convert_ok,
+                 extra=["--retry-failures", "--limit", "1"])
+        summary = json.loads((self.staging / "failure-summary.json").read_text())
+        self.assertEqual(summary["successes"], 2)
+        self.assertEqual(summary["total_shapes"], 2)
+        self.assertEqual(summary["avg_shapes"], 1.0)
+        self.assertEqual(summary["failed_nifs"], [C])
+        self.assertEqual(summary["examples"], {"boom": [C]})   # B was resolved by this retry
+
     def test_legacy_summary_without_failed_nifs_refuses(self):
         self._initial_abc()
         summary_path = self.staging / "failure-summary.json"
