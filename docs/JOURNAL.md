@@ -2028,7 +2028,7 @@ cleared only) PASSED (Install's report, 20:46 UTC). Not proven: the markers plug
 loaded after the probe with a copy of the core's WRLD, so the live record may have
 been the control's, and a single pass against a single fail may be chance; the
 settling test (each variant's fields in the markers plugin, 3 runs each of control,
-city and nosmall on one save) is staged and waits on the owner's line. #495 lets
+city and nosmall on one save) is running since 20:53 UTC on the owner's line. #495 lets
 the core build take the city fields; that core, v6j (v6i plus the border fix, no
 reconversion), is held until the settling test answers, then the markers, new game,
 questprobe_v2 and interiors b10 are restaged on it and Bugs' cards J, K and L run
