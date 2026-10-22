@@ -203,8 +203,8 @@ EXP_OUT = {"ack": "door-ret-0", "pos": [-1669.444, -2063.926, 42.356], "cell": N
 CELL, WORLD, ACT = str(0x02000801), "-16707575", {"activate": {"selected": True}}
 
 
-def pos(x, y, z, cell=CELL, world="none", loaded="true"):
-    return f"FO4SF rt=9.0 pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
+def pos(x, y, z, cell=CELL, world="none", loaded="true", rt=9.0):
+    return f"FO4SF rt={rt} pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
 
 
 def res(plugin, local, index, cell=CELL, world="none"):
@@ -255,7 +255,13 @@ class JudgeTests(unittest.TestCase):
         exp = dict(EXP_OUT, origin={"pos": [-2185.26, -1561.49], "tol_m": 100.0})
         start = pos(-2180, -1555, 105, cell="-7", world=WORLD)
         self.assertEqual(verdict((start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
-        self.assertEqual(verdict((pos(1, 2, 3), start) + OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))   # began inside
+        # Codex on #444: the log is the whole session's, launch in Vault111Cryo first: the last exterior read counts
+        self.assertEqual(verdict((pos(1, 2, 3), start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        far = pos(-1000, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((far, start) + OUT_OK, exp)[0], "PASS")                       # an earlier test's exit
+        self.assertEqual(verdict((start, far) + OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))     # left Red Rocket since
+        self.assertEqual(verdict((start, pos(1, 2, 3, rt=2.0)) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # a relaunch since
         self.assertEqual(verdict((pos(-1000, -1555, 105, cell="-7", world=WORLD),) + OUT_OK, exp),
                          ("INCONCLUSIVE", "ORIGIN"))                                              # began elsewhere
         self.assertEqual(verdict(OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))                        # no reading at all

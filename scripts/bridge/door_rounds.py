@@ -456,12 +456,23 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
         return "INCONCLUSIVE", f"NO_ACK: no 'FO4SF ack {exp['ack']}' (console or bridge failed)", None
     origin = exp.get("origin")
     if origin is not None:                                # --legs out: began where its prelude left the player?
-        first = next((e for e in events[:at] if e.get("kind") == "pos" and e.get("pos") is not None
-                      and e.get("loaded") is True and finite(e["pos"])), None)
-        if first is None or not first.get("world") or not finite(origin.get("pos"), 2) or \
-                math.dist(first["pos"][:2], origin["pos"][:2]) > float(origin.get("tol_m", ORIGIN_TOL_M)):
-            where = "no loaded position before the ack" if first is None else \
-                f"cell {first.get('cell')} world {first.get('world')} at {first['pos'][:2]}"
+        # the attempt's bridge.log is the whole session's (launch in Vault111Cryo, earlier tests): the exterior the
+        # OUT leg's coc left is the LAST loaded exterior position before its ack (Codex on #444). The game rewrites
+        # the log on every launch (bridge_log), so a relaunch after the prelude leaves no prelude in it; rt going
+        # back (seconds since launch) marks a new session all the same
+        since, last_rt = 0, None
+        for i, e in enumerate(events[:at]):
+            rt = e.get("rt")
+            if isinstance(rt, (int, float)):
+                if last_rt is not None and rt < last_rt:
+                    since = i
+                last_rt = rt
+        began = next((e for e in reversed(events[since:at]) if e.get("kind") == "pos" and e.get("pos") is not None
+                      and e.get("loaded") is True and finite(e["pos"]) and e.get("world")), None)
+        if began is None or not began.get("world") or not finite(origin.get("pos"), 2) or \
+                math.dist(began["pos"][:2], origin["pos"][:2]) > float(origin.get("tol_m", ORIGIN_TOL_M)):
+            where = "no loaded exterior position before the ack" if began is None else \
+                f"cell {began.get('cell')} world {began.get('world')} at {began['pos'][:2]}"
             return "INCONCLUSIVE", (f"ORIGIN: the attempt did not start at its Red Rocket prelude ({where}; want an "
                                     f"exterior within {origin.get('tol_m')} m of {origin.get('pos')})"), None
     after = events[at + 1:]
