@@ -1115,10 +1115,11 @@ def main(argv=None):
         rc = on_campaign_python(camp, argv, log)
         return run_chain(camp, log) if rc is None else rc
     camp, digest = load_campaign(a.campaign)
-    if a.cmd == "script":
+    if a.cmd in ("script", "check"):
         why = checkout_here_why(camp)
         if why:
-            # Codex on #391: the chain's commands are written by this checkout's code and run by the campaign's
+            # Codex on #391: the chain's commands are written, and a campaign checked, by this checkout's code and
+            # run by the campaign's
             print(f"REFUSED campaign: {why}")
             return 1
         rc = on_campaign_python(camp, argv, print)

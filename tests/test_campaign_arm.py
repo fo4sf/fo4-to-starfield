@@ -1036,6 +1036,10 @@ class RunChainTests(Base):
             self.assertEqual(ca.main(["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")]), 1)
         self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
         self.assertFalse(os.path.exists(os.path.join(self.d, "c.ps1")))
+        with redirect_stdout(io.StringIO()) as buf, mock.patch.object(ca, "check") as ck:  # and a standalone check
+            self.assertEqual(ca.main(["check", "--campaign", cp_]), 1)
+        ck.assert_not_called()
+        self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
 
     def test_run_runs_again_on_the_campaigns_python(self):
         # Codex on #391: the arming checks import the judges; on another python they could refuse or pass otherwise
@@ -1065,6 +1069,12 @@ class RunChainTests(Base):
             self.assertEqual(ca.main(["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")]), 0)
         self.assertEqual(sp.call_args[0][0][-5:], ["script", "--campaign", cp_, "--out", os.path.join(self.d, "c.ps1")])
         self.assertFalse(os.path.exists(os.path.join(self.d, "c.ps1")))       # written by the re-run, not here
+        # and so is a standalone check
+        with redirect_stdout(io.StringIO()), mock.patch.object(ca.subprocess, "run", return_value=done) as sp, \
+                mock.patch.object(ca, "check") as ck:
+            self.assertEqual(ca.main(["check", "--campaign", cp_]), 0)
+        ck.assert_not_called()
+        self.assertEqual(sp.call_args[0][0][-3:], ["check", "--campaign", cp_])
 
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
         os.environ["FO4SF_PYTHON"] = "C:\\other\\python.exe"
