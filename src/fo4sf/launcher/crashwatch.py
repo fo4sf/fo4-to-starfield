@@ -36,6 +36,7 @@ from . import detect, settings as settings_mod
 STEAM_URL = "steam://rungameid/1716740"
 ATTACH_CHECK_S = 5.0               # how long ProcDump must stay up after attaching before the watcher counts as armed
 GAME_EXE = "Starfield.exe"
+SFSE_LOADER = "sfse_loader.exe"                         # starts Starfield.exe with SFSE; the watcher follows the game
 BRIDGE = "FO4SFBridge.esm"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLUGIN_TOGGLE = os.path.join(REPO, "scripts", "game", "plugin_toggle.py")
@@ -144,7 +145,8 @@ class System:
         if route == "steam":
             os.startfile(STEAM_URL)                         # noqa: the Windows shell opens Steam's URL
         else:
-            subprocess.Popen([os.path.join(starfield, GAME_EXE)], cwd=starfield)
+            exe = SFSE_LOADER if route == "sfse" else GAME_EXE
+            subprocess.Popen([os.path.join(starfield, exe)], cwd=starfield)
 
     def open_process(self, pid):
         """A handle that stays valid after the process ends, so its exit code can be read; None if refused."""
@@ -421,8 +423,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             free = system.free_gb(values["crash_watch.folder"])
             if free < needed_free_gb(values):
                 bad.append(f"crash watcher: {free:.1f} GB free for dumps, under {free_floor_text(values)}")
-    if values["route"] == "exe" and not os.path.isfile(os.path.join(starfield, GAME_EXE)):
-        bad.append(f"route=exe: {GAME_EXE} not found in {starfield}")
+    for route, exe in (("exe", GAME_EXE), ("sfse", SFSE_LOADER)):
+        if values["route"] == route and not os.path.isfile(os.path.join(starfield, exe)):
+            bad.append(f"route={route}: {exe} not found in {starfield}")
     if system.pids():
         bad.append("Starfield is already running: close it first (settings change only with the game closed, and "
                    "the watcher follows a game it started)")

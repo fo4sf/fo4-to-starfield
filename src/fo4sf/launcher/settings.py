@@ -45,9 +45,10 @@ SPEC = (
      "Papyrus logging, trace and debug information in StarfieldCustom.ini ([Papyrus] bEnableLogging, bEnableTrace, "
      "bLoadDebugInformation): memory and disk for every script. The bridge needs it on."),
     ("my_games", "", str, "Documents\\My Games\\Starfield (required when papyrus_logging is on or off)."),
-    ("route", "steam", ("steam", "exe"),
-     "how play starts the game: steam (steam://rungameid/1716740, as the test runner does) or exe (Starfield.exe "
-     "directly, as the owner does)."),
+    ("route", "sfse", ("sfse", "steam", "exe"),
+     "how play starts the game: sfse (sfse_loader.exe in the game folder, which starts Starfield.exe with SFSE "
+     "loaded; SFSE is required, NG-1), steam (steam://rungameid/1716740, as the test runner does) or exe "
+     "(Starfield.exe directly). steam and exe start the game without SFSE."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key

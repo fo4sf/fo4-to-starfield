@@ -136,7 +136,7 @@ changes it (one JSON per player, default `%LOCALAPPDATA%\FO4SF\launcher_settings
 written, and an unknown key is refused). Every default changes nothing: watcher off, bridge and Papyrus logging
 `unchanged`. `launcher.py play --starfield <game dir>` applies `bridge` (through plugin_toggle.py) and
 `papyrus_logging` (the three `[Papyrus]` keys in StarfieldCustom.ini, with a `.bak-<time>` copy) with the game closed,
-starts the game (`route`: Steam, as the runner does, or Starfield.exe, as the owner does), waits until a
+starts the game (`route`: Steam, as the runner does, Starfield.exe, as the owner does, or sfse_loader.exe, which loads SFSE), waits until a
 Starfield.exe has stayed up `crash_watch.settle_s` (a first process that ends within that time is skipped), then
 attaches ProcDump to that process id with the old watcher's triggers (`-e 1 -f 80000003`), `-mm` by default
 (`crash_watch.dump=full` for `-ma`), `-t` by default (`crash_watch.dump_on_exit`, the owner's choice on 2026-10-21, so a kill or a silent exit leaves a

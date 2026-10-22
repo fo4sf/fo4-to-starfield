@@ -126,6 +126,7 @@ class CrashWatchTests(unittest.TestCase):
         open(self.procdump, "wb").close()
         self.game = os.path.join(t.name, "Starfield")
         os.makedirs(self.game)
+        open(os.path.join(self.game, "sfse_loader.exe"), "wb").close()    # play starts the game through SFSE
         self.said = []
 
     def values(self, **kw):
@@ -574,11 +575,13 @@ class CrashWatchTests(unittest.TestCase):
         self.assertTrue(any("left running" in s for s in self.said))
 
     def test_refusals_start_nothing(self):
+        os.remove(os.path.join(self.game, "sfse_loader.exe"))
         cases = [
             (self.values(crash_watch__procdump=os.path.join(self.dir, "missing.exe")), {}, "not found"),
             (self.values(), {"free": 3.0}, "GB free for dumps"),
             (self.values(), {"running": [99]}, "already running"),
             (self.values(route="exe"), {}, "Starfield.exe not found"),
+            (self.values(route="sfse"), {}, "sfse_loader.exe not found"),
         ]
         for v, kw, text in cases:
             sys_ = FakeSystem([(5, 0, 100, 0)], **kw)
@@ -587,6 +590,20 @@ class CrashWatchTests(unittest.TestCase):
                     self.play(v, sys_)
                 self.assertIn(text, str(e.exception))
                 self.assertEqual(sys_.calls, [])
+
+    def test_the_sfse_route_starts_the_loader_and_follows_the_game(self):
+        # SFSE is required (NG-1): sfse_loader.exe starts Starfield.exe with SFSE; Steam and the exe start it without
+        self.assertEqual(settings.defaults()["route"], "sfse")
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        self.play(self.values(route="sfse"), sys_)
+        self.assertIn(("start", "sfse"), sys_.calls)
+        from unittest import mock
+        with mock.patch.object(crashwatch.subprocess, "Popen") as popen:
+            crashwatch.System().start_game("sfse", self.game)
+            crashwatch.System().start_game("exe", self.game)
+        self.assertEqual([c.args[0] for c in popen.call_args_list],
+                         [[os.path.join(self.game, "sfse_loader.exe")], [os.path.join(self.game, "Starfield.exe")]])
+        self.assertEqual(popen.call_args_list[0].kwargs["cwd"], self.game)
 
     def test_failed_wait_follows_the_process_id(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
@@ -601,7 +618,7 @@ class CrashWatchTests(unittest.TestCase):
         sys_.start_error = OSError(2, "No application is associated with the specified file")
         with self.assertRaises(ValueError) as e:
             self.play(self.values(), sys_)
-        self.assertIn("could not start the game by steam", str(e.exception))
+        self.assertIn("could not start the game by sfse", str(e.exception))
         self.assertEqual(sys_.spawned, [])                         # no ProcDump left waiting for a game
 
     def test_dry_run_changes_nothing(self):
