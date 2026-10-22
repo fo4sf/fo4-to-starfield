@@ -248,6 +248,16 @@ class CollisionBoundsOracleTests(unittest.TestCase):
         report = oracle.audit(nif_bytes((0, 0, 1, 2, 2, 2), tiny))
         self.assertIn("much_smaller", report["flags"])
 
+    def test_collision_short_on_any_mesh_axis_is_much_smaller(self):
+        # Only the longest axis was compared: a 10 x 10 x 1 m mesh on a centred 10 x 0.1 x 1 m box was clean.
+        thin = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (5, 0.05, 0.5))
+        report = oracle.audit(nif_bytes((0, 0, 0.5, 5, 5, 0.5), thin), path="thin.nif")
+        self.assertEqual(report["flags"], ["much_smaller"])
+        full = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (5, 5, 0.5))
+        self.assertEqual(oracle.audit(nif_bytes((0, 0, 0.5, 5, 5, 0.5), full))["flags"], [])
+        plane = sfcollision.box_blob(fake_template(), (0, 0, 0), (5, 5, 0.001))    # a 2 cm mesh axis is still ignored
+        self.assertEqual(oracle.audit(nif_bytes((0, 0, 0, 5, 5, 0.01), plane))["flags"], [])
+
     def test_offset_collision_is_flagged(self):
         far = sfcollision.box_blob(fake_template(), (8, 0, 0.5), (0.4, 0.4, 0.5))
         report = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), far))
@@ -606,6 +616,19 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             self.assertTrue(report.get("errors"), msg=name)
             self.assertTrue(oracle.failed([report]), msg=name)
             json.dumps(report, allow_nan=False)
+
+    def test_body_orientation_that_is_not_a_unit_quaternion_is_unreadable(self):
+        # (0, 0, 0, 0) and (0, 0, 0, 2) passed the identity test, so a body with no valid orientation matched the mesh.
+        hull = cube((-0.4, -0.4, 0), (0.4, 0.4, 1))
+        for quat in ((0, 0, 0, 0), (0, 0, 0, 2)):
+            report = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[convex_blob(*hull, quat=quat)]),
+                                  path="quat.nif")
+            self.assertIn("unreadable", report["flags"], msg=quat)
+            self.assertTrue(any("not a unit quaternion" in e for e in report["errors"]), msg=report["errors"])
+            self.assertTrue(oracle.failed([report]), msg=quat)
+            json.dumps(report, allow_nan=False)
+        clean = oracle.audit(nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), children=[convex_blob(*hull)]))
+        self.assertEqual(clean["flags"], [])
 
     def test_huge_finite_scale_never_overflows(self):
         box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))

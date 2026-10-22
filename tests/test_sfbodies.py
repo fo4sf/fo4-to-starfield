@@ -241,6 +241,13 @@ class SfBodiesTests(unittest.TestCase):
         with self.assertRaises(sfbodies.BodyError):
             sfbodies.blob_bodies(convex_blob(v, f, kind="hknpCapsuleThing"))
 
+    def test_body_orientation_must_be_a_unit_quaternion(self):
+        v, f = cube((0, 0, 0), (1, 1, 1))
+        for quat in ((0, 0, 0, 0), (0, 0, 0, 2), (0, 0, 0.5, 0.5)):
+            with self.assertRaises(sfbodies.BodyError, msg=quat):
+                sfbodies.blob_bodies(convex_blob(v, f, quat=quat))
+        self.assertEqual(len(sfbodies.blob_bodies(convex_blob(v, f, quat=(0, 0, 0.6, 0.8)))), 1)
+
     def test_nif_node_transform_places_each_body(self):
         v, f = cube((0, 0, 0), (1, 1, 1))
         blob = convex_blob(v, f)

@@ -12,9 +12,9 @@ not the block that names it), a transform composed for a box that is not a plain
 BSFadeNode / unskinned BSGeometry one with no controller, scale > 0 and a rotation, and
 malformed manifest entries.
 Nonfinite or non-positive --scale / per-item scale is rejected before comparison, and a nonfinite
-point anywhere, or bounds whose centre / extent / diagonal overflow, make the model unreadable. JSON
-output never emits NaN/Infinity, and a structurally malformed NIF or manifest is an unreadable report,
-not a traceback.
+point anywhere, a body orientation that is not a unit quaternion, or bounds whose centre / extent /
+diagonal overflow, make the model unreadable. JSON output never emits NaN/Infinity, and a structurally
+malformed NIF or manifest is an unreadable report, not a traceback.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from fo4sf import fo4collision, nif, sfcollision, sfbodies, sfnif  # noqa: E402
 
-# Collision extent / mesh extent on the mesh's longest axis below this is "much smaller".
+# Collision extent / mesh extent below this on any mesh axis of at least MIN_EXTENT is "much smaller".
 SMALLER_RATIO = 0.25
 # Ignore tiny axes (metres) so a zero-thickness hatch plane does not false-flag.
 MIN_EXTENT = 0.05
@@ -404,9 +404,8 @@ def flag_bounds(mesh, collision):
     m_ext = [m_hi[a] - m_lo[a] for a in range(3)]
     c_ext = [c_hi[a] - c_lo[a] for a in range(3)]
     flags = []
-    longest = max(range(3), key=lambda a: m_ext[a])
-    if m_ext[longest] >= MIN_EXTENT and c_ext[longest] < SMALLER_RATIO * m_ext[longest]:
-        flags.append("much_smaller")
+    if any(m_ext[a] >= MIN_EXTENT and c_ext[a] < SMALLER_RATIO * m_ext[a] for a in range(3)):
+        flags.append("much_smaller")                   # any axis: a 10 x 10 x 1 m mesh on a 10 x 0.1 x 1 m box
     m_c = [(m_lo[a] + m_hi[a]) / 2 for a in range(3)]
     c_c = [(c_lo[a] + c_hi[a]) / 2 for a in range(3)]
     diag = math.hypot(*m_ext)

@@ -247,6 +247,8 @@ def blob_bodies(blob: bytes) -> List[dict]:
             q = struct.unpack_from("<4f", r.b, at + f_rot.offset)
             if not all(math.isfinite(x) for x in pos + q):         # before the identity test: abs(NaN) > 1e-6 is False
                 raise BodyError(f"body {k} has a non-finite transform")
+            if abs(sum(x * x for x in q) - 1.0) > 1e-3:              # (0, 0, 0, 0) passed the identity test below
+                raise BodyError(f"body {k} orientation {q} is not a unit quaternion")
             if any(abs(x) > 1e-6 for x in q[:3]) or any(abs(x) > 1e-6 for x in pos):
                 tris = [tuple(tuple(a + c for a, c in zip(_quat_apply(q, v), pos)) for v in t) for t in tris]
             layer = struct.unpack_from("<I", r.b, at + f_filter.offset)[0] & 0x7F
