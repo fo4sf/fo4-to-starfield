@@ -282,3 +282,24 @@ active plugin's archive and #291 is a draft.
   declaration order (the bool before the floats) differs from the written order, which binds by name.
 - FO4SF_LoadDoor.pex must be packed into an active plugin's archive (loose scripts are not read on this install): the
   stage does not place it; the deploy step must.
+
+## Protecting the pinned interior source
+
+The proposed door-stage preservation repair preflights every selected REFR for an
+existing VMAD before modifying any door. Even an empty or matching load-door VMAD
+is refused: merging existing behavior needs its own reviewed policy. Marker-map
+collisions also refuse before creating output. A stage/report cannot be placed
+inside either pinned input directory.
+
+The plugin, formids.json, README.txt and door reports are generated independently;
+reserved names are matched case-insensitively. Old doors_check.json is not carried
+into a new stage. Each generated write replaces its destination through a new
+file, so a checker run on an old hard-linked report cannot truncate the source.
+Failed replacement preserves the old report and removes its temporary file.
+This protects individual writes; it does not make the entire directory build a
+transaction or authorize installation. Unchanged assets remain hard-linked.
+
+Offline: nine new synthetic regressions plus seven existing codec/plugin tests
+pass; successful plugin/map bytes match the parent writer exactly. No private
+stage was rewritten and no native door/save test was run. Independent QA remains
+required before integration.

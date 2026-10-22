@@ -3,6 +3,94 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: FO4 FLOR harvest -> Starfield FLOR (playtest row 14)
+
+- Question: what Starfield record harvests like FO4 flora, and how many placed plants the core would promote.
+- Method: raw walk of `Starfield.esm` 1.16.244 `FLOR` group (`fo4land.Plugin`); keyword / `PFIG` targets resolved to
+  EDID; `terrain_core64c_work_fix3/selected.json` type counts (read-only). `Fallout4.esm` is at the Steam
+  depot_377163 path (**verified** exists).
+- Starfield, **verified**: 300 `FLOR`. Harvest fields are still `PFIG` (ingredient) and `PFPC` (four seasonal
+  percentages). 169 carry `FloraTypeOrganic` 00222E03; 106 of those also `OutpostCanDomesticate` 002AC11D. Crop
+  templates `FloraMaizeCrop01` 000EC886 (and wheat) `PFIG` `OrgCommonNutrient_Seed` 00260DF2. `PNAM` `CC 4C 33 00` and
+  `JNAM` 360 match the ACTI marker colour / activation angle TerrainOverlays already writes.
+- Core placed flora, **verified**: 3,520 refs, 48 bases before exclusion; writer emits 3,518 / 47 (2 initially
+  disabled dropped, FloraInstituteGourdVine01 leaves). Crops: tato 320, mutfruit 328, gourd 251, corn 230, melon
+  199, tarberry 134, razorgrain 106.
+- Mutagen `Flora.Ingredient`, **verified** on 0.55.0-alpha.67: default seed and custom MISC both serialize to
+  `PFIG`; a STAT ingredient is refused. No byte patch.
+- FO4 `PFIG` per base: master **verified** present; a produce table is **unresolved** (FO4 targets are ALCH,
+  Starfield `PFIG` is MISC/LVLI). Shared field names make a native FLOR promotion **supported**. In-game harvest
+  on a converted FO4 mesh: **unresolved**.
+- Plan: [docs/terrain/flora.md](../terrain/flora.md). Promotion class built on `grok/flor-research` (make_cluster
+  `flora`, `cluster_flora`, TerrainOverlays Duplicate of FloraMaizeCrop01). Overlay not run in game.
+
+## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
+
+- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards, and
+  whether a greyscale-to-palette bake is the fix.
+- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only);
+  Claude's review against vanilla FO4 BA2s at depot_377163; Material-Editor `BaseMaterialFile` (byte 62) and
+  NifSkope `fo4_default.frag`.
+- Row 15 frames/plaque, **verified not palette materials** (Claude, vanilla BA2s):
+  `PaintingGeneric_CanvasSwap.BGSM` / `CanvasPainting01.BGSM` have empty greyscale and byte 62 = 0;
+  `BrassPlaque.nif` flags1 `0x80400281` (bit 0x10 clear), slot 4 a cubemap. Before/after this bake they are
+  byte-identical. The frames are a per-reference material swap (`PaintingGeneric*` / `PaintingAbstract*`);
+  nothing in this repo reads MODS/XMSP. That is the row 15 root cause and is outside this PR.
+- Converter gap, **verified** on other materials: 278 v2 BGSMs have the greyscale string **and** the flag.
+  5 have the string with the flag off (e.g. `ConcreteRoadHW01.BGSM` names a cubemap). Gating on the string
+  alone made that road a fallback. Bake is gated on byte 62 / NIF flags1 0x10.
+- Lookup, **supported hypothesis**: U = green channel, V = `clamp(round(scale * H - 0.5))` from
+  `fGrayscaleToPaletteScale` (BGSM last float) or the NIF lighting-shader scale (nif.xml after rimlight;
+  optional backlight when rim is FLT_MAX). Texture-set cache identity includes that scale. Vertex-colour V
+  is **unresolved**. A missing palette texture is a conversion error. GreyscaleToPalette_Alpha (bit 0x20)
+  is not baked. v2 `parse_bgsm` reads texture strings at byte 63 so a decoy `.dds` in the header cannot
+  steal the greyscale slot.
+- Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
+  after a scratch reconvert **unresolved** (Claude).
+
+## 2026-10-17 Grok: playtest rows 11/13/15 materials (core64c convert, work_fix3)
+
+- Question: why hanging vines at Red Rocket are black jagged strands (row 11), Sanctuary interior walls washed
+  white (row 13), and Museum of Freedom picture frames / brass plaque are grey-black boards (row 15).
+- Method: converted NIFs under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only), `vine.mat` /
+  house / frame / plaque `.mat` files, `texture_log.json`, `manifest.json` (0 fallbacks on these models), texconv
+  decode of the colour DDS, vanilla Starfield templates in `ContentResources.zip`
+  (`GrassTropicalPlant01`, `FloraBaseLeafyGreen01`, `ConduitKit01TwoSided` / `TwoSided1Layer`).
+- Row 11 vines, **verified**: `vinehanging06/07` and `vinecreepermed01` all use `materials\fo4core\landscape\plants\vine.mat`.
+  That file already has slot-2 `vine_opacity.dds` and `AlphaSettingsComponent {AlphaTestThreshold 0.361, HasOpacity true}`
+  (BGSM alpha test was converted). It still parents `PlasticPlainSmooth01` via the `MetalIronCast01` clone;
+  `Summary.Layer1.Textures` has no `Opacity` key. Vanilla foliage parents `TwoSided1Layer` /
+  `TranslucentTwoSided1Layer` / `VegetationTranslucent1Layer` and names Opacity in Summary. `two_sided` is parsed from
+  BGSM byte 48 and was never passed to `_convert_texture_set`. `vine_color.dds` luma mean 3.8 (85% of texels
+  alpha < 128, BC1-black in the cutout); opaque texels still only luma 26. Without a two-sided cutout shader the
+  metal material draws the whole card, which is black. Fix: clone `ConduitKit01TwoSided.mat` when an opacity map
+  exists, write Summary Opacity, force metalness 0 so the conduit metal map does not leak.
+  **Correction (review #288):** forcing metalness 0 only updated Summary plus an existing TextureReplacement
+  index 4. The real ConduitKit01TwoSided template has no such component (verified in ContentResources.zip), so
+  the conduit MRTextureFile/index 4 stayed. The writer now creates the enabled replacement and drops that file.
+  Opacity generation is gated on `alpha_test or decal`; `two_sided` alone is not a cutout.
+- Row 13 walls, **supported hypothesis**: `res01playerhouseinteriorrr.nif` wall shapes use
+  `metalpanelsresidential01rr` (colour luma 184) and `wallpanelmetalrubble02` (luma 164), 0 fallbacks. These are
+  bright beige maps, not missing colour (Starfield missing colour is flat white). Separate from the vine shader bug.
+- Row 15 frames / plaque, **supported hypothesis**: `pictureframe03` canvas
+  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59; plaque
+  texset colour luma 15 max 59. Converted as regular albedo, they are dark grey boards. `canvasswap` names a
+  greyscale-to-palette path the converter does not implement. Separate root cause from vines.
+- Power armor on that roof is out of this pass (skinned rest pose / furniture class).
+
+## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
+- Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
+  with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
+  XLKR `LinkCustom02` `0005D5E7` (Paradiso `000C7311`; debug ACTI `002CBE61` has the script name and no extra
+  properties). Writer implements that on the two Commonwealth pairs; no new FormIDs, no .pex.
+- Garage animation, **supported**: sequences are Opening/Closing, not Open/Close. **Not in this PR**: treating
+  `Opening` as an animated door in `pipeline.py` turns both FO4 garage meshes into passable statics because
+  `RedRGarageDoor.nif` is skinned and the rigger refuses it. Garage NIF rig is a later Claude build item.
+- Row 24, **verified**: object LOD is `lodsettings/*.lod` (861 of 864 are 20 bytes; 2 are 22, 1 is 16) +
+  `meshes/lod/generated/…_lod_0..3.nif`; core64k has none. `uExterior Cell Buffer=36` is not the product fix. Plan:
+  CK generate on a tiny overlay (Claude; **hypothesis** that CK is the generator); no build now. Docs:
+  [garage-button.md](../terrain/garage-button.md), [object-lod.md](../terrain/object-lod.md).
+
 ## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
 - Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
   overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
@@ -43,8 +131,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
   runs a scratch overlay.
 - FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
-- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
-  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+- GO, **implemented offline**: TerrainOverlays Duplicates LC172 MapMarker `003E5E12`, parks it at the COC in
+  `TopCell.Persistent`, fills `LCSR` MapMarkerRefType + `LCID`; FormIDs after doors/lights. Do not stamp a PCM landing
+  overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay. In-game icon / Frontier
+  hang: **unresolved** until Claude's scratch overlay.
   Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
 
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
@@ -1310,3 +1400,89 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-18 Claude-cloud: converted interiors get no natural (sky) light, only placed lights
+- Report (owner, 18 Oct 00:58Z): "where there is lights stuff looks really good, but ... the natural lighting doesn't
+  affect textures yet so it's really dark". His snapshot a minute earlier (`C:\Modding\snapshots\20261017-185720`,
+  owner button, interior cell 050049B4 = the Boston Public Library on the installed integ_1019_doors set) shows the hall
+  black except where the helmet lamp falls; the lamp-lit wall reads correctly (texture, normal, roughness fine).
+- **verified (code):** the interior writer (dotnet/PluginSpike/Program.cs, cell loop) gives every converted interior the
+  same light set-up, whatever FO4 had: lighting template KreetBase01LGTtemplate 06BCF8 (underground) unless
+  lighting.json says otherwise, image space 122393, and EnvironmentMap `Data\Textures\cubemaps\blackcube.dds`
+  (journal 2026-10-08, chosen to stop the pink wash from a bright default sky). FO4's own cell lighting (XCLL ambient,
+  directional and directional-ambient colours, fog, its lighting template) is never exported (Fo4Export wrote only refs),
+  so the window-lit FO4 interiors and the vaults get the same light set-up. (Correction, PC check 18 Oct: the installed
+  integ_1019 lighting.json sets ShipInteriorLT 006658 for every cell through `"*"`, so the library already had the
+  brighter template; only the black cubemap is in question.)
+- **supported hypothesis:** the black cubemap removes the image-based (sky) light a Starfield PBR surface gets, and the
+  underground template adds little ambient, so a surface away from a placed light is near black. Not a material bug:
+  the same materials look right under the lamp and under the exterior sun (playtest row 11 picture).
+- **unresolved:** the exterior at night. The overlay worldspace copies LC172World (Mars) and its cells set no lighting,
+  so night there is Mars's own night; no capture compares a converted object with vanilla ground at night yet.
+- **verified (PC, 18 Oct, SfInspect envmaps on Starfield.esm):** 302 vanilla interiors use blackcube.dds too (11,176
+  set none, 425 LGT_CubeMap_ShipEditor_001, 25 Cell_CaveCube); hall-type cube Cell_HiTechHallCube.dds is used once
+  (ssPirateShip01Interior). A black cubemap alone is therefore not proof of the cause; the in-game A/B decides. If the
+  hall cube leaves the library dark, the next suspects are the template's ambient and the image space.
+- Comparison build (PC, offline, not installed): integ_1019_liblight_doors, FO4Port.esm 5204188f, one record changed
+  against integ_1019_doors (CELL FO4Port_BostonPublicLibrary02 XEMP blackcube -> Cell_HiTechHallCube); a control
+  rebuild with nothing set is byte-identical to integ_1019.
+- Change (this branch): Fo4Export writes the FO4 cell's lighting block (cell XCLL + template, by reflection) into each
+  export; SfInspect `envmaps` lists the environment maps vanilla interiors use; ENV_MAP is a per-cell lighting.json key.
+  Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
+  only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
+  against the current build, then map FO4's ambient level to the template per cell.
+- **verified (in game, owner, 18 Oct 19:32Z):** with only the library's ENV_MAP changed to
+  `Data\Textures\Cubemaps\Cell_HiTechHallCube.dds` (FO4Port.esm 5204188f, template ShipInteriorLT 006658, image space
+  122393 unchanged) the owner reported "Lighting looks fine". The hall cube becomes PluginSpike's default ENV_MAP for
+  every converted interior; the other interiors (Vault 111 above all, on the darker template) are not yet seen with it.
+  Variants B (image space 005322) and C (B + DefaultLightingTemplate 0300E2) were built and not needed.
+
+## 2026-10-18 Claude-cloud: black patches on floors and walls (debris decals drawn opaque)
+- **Seen (owner, 18 Oct):** hard-edged black patches in debris and decal patches: library, Cambridge Polymer and Concord
+  road floors, Fort Hagen 01 walls.
+- **verified (converted files, integ_1011):** `bldfloorconcdebris02alpha.mat` was a cutout at AlphaTestThreshold 0.024.
+  Its opacity map never goes below 28, so nothing is cut. The texels with alpha 64-128 (half the map) have colour
+  luminance 1 of 255, so they are black.
+- **verified (PC probe, clean-master depot, main 2906601):** DebrisPileLargeConc01-06 shape `Decals:10` uses
+  BldFloorConcDebris02Alpha.BGSM, header bytes 32..51 = `00 06000000 07000000 06 01 01 01 00 00 01 00 01 ...`: no blend,
+  alpha test ref 6, alpha test on, decal (47) on, decal no fade (49) on. The shape has flags2 0x21 (vertex colours), no
+  NiAlphaProperty, and vertex alpha 0..48. Its other shapes (BldConcChunkies01, DirtRubbleBrick01) have ref 128 and no
+  alpha test, blend or decal flag.
+- **supported hypothesis:** FO4 draws decal-flagged alpha-tested materials as overlays, with opacity = texture alpha
+  times vertex alpha, so this one is at most 19 % opaque. The converter treated it as an opaque cutout.
+- **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
+  with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
+  peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.
+
+## 2026-10-20 Claude-cloud: doors_out2, the first door-exit campaign (job 6, #383)
+- **Run (Install session's report, 20 Oct 04:33Z):** queue `D:\Modding\testqueue_v6c_out\doors_out2`, pinned build
+  9af962d2 from wt_nightrun c0024fa, installed v6c set, 19 Oct 18:02 to 18:43 local; 8 OUT legs, no crash, no dump.
+  The judge at c0024fa gave PASS 0, FAIL 1, INCONCLUSIVE 7: all 7 were `WORLD` (player in FF00552F, marker in 02000803).
+- **verified (judge fault, fixed in #383 daff232):** a persistent reference reports our base WRLD while the player stands in
+  the overlay's runtime instance (JOURNAL 2026-10-16 "Step 0 probes" (a) and (e); docs/terrain/door-arrival-position.md
+  already warned that equal world ids are not the success check). daff232 accepted any runtime (FF) player world for
+  any plugin marker world; Codex held that (an FF prefix does not say which WRLD it instantiates), so from the next
+  commit the judge crosses worlds only for a pair the operator pins: `judge --world-instance FF00552F=02000803`.
+  Without a pin an OUT leg in another world stays INCONCLUSIVE WORLD, as at c0024fa.
+- **verified (re-judged on the PC at daff232, read-only, 20 Oct ~04:50Z; the c0024fa output kept as
+  door_rounds_judge.c0024fa.json):** PASS 5, FAIL 3, INCONCLUSIVE 0, NOT_RUN 0. The run saw only the one pair
+  FF00552F / 02000803, so the pinned rule should give the same verdicts (supported; not re-run).
+  PASS: 0000 ParsonsState01 (0.00 m xy, 0.01 m z), 0001 Vault114 (0.04, 0.10), 0002 Vault114 (0.28, 0.02),
+  0003 BostonPublicLibrary02 (0.00, 0.00), 0005 MuseumOfWitchcraft01 (0.00, 0.02).
+  FAIL: 0004 Vault95 STAYED (interior cell 06007D12); 0006 MuseumOfWitchcraft01 WRONG_PLACE (0.0 m xy, 16.4 m z);
+  0007 PrydwenHull01 WRONG_PLACE (0.0 m xy, 71.7 m z). The world check had hidden 0006 and 0007. An earlier version of
+  this entry and of #383's description guessed "7 PASS" before the re-judge: **wrong**, corrected here.
+- **What the code says about 0006 and 0007 (verified from source):** the expected position is the exterior marker's own
+  record position plus the build's merge, and the merge has no z (`vmad_patch.merge_offset` returns (dx, dy, 0.0)), so
+  the expected z is the marker's record z. The judge's tolerance is 3.0 m on z. The runner never scores the exterior
+  arrival: an OUT leg's only runner point is `inside_arrival`, the start inside after the coc, so its PASS says nothing
+  about where the door put the player, in z or otherwise. With 16.4 m and 71.7 m off, the tolerance is not the question;
+  the marker height or the landing is.
+- **supported hypothesis, unchecked:** the player arrived exactly over a marker that sits on a raised structure (the
+  Prydwen's hull on its mooring, an upper level at the museum) and ended at another height, most likely below it with
+  that structure missing or without collision in the converted exterior. **unresolved:** the sign of each z miss
+  (`got.pos` against `pos` in door_rounds_judge.json) and what stands under each marker in game.
+- **FAIL STAYED stands, 0004 Vault95 OUT:** after an activation the runner proved, the ack and the exterior marker's
+  resolve, the player was still in interior cell 06007D12. The runner's PASS is only its check of the leg's start
+  point (`inside_arrival` z -11.20 against -11.14). **unresolved:** why the exit door left the player inside (that
+  attempt's papyrus.log: a `refused` line, or no `MoveTo returned`).

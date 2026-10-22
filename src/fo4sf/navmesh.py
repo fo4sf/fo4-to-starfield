@@ -514,12 +514,14 @@ def _fan(poly, min_area):
 
 
 def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS_PER_METRE, cell_m=SF_CELL_M,
-            eps=1e-6, min_area=1e-6, portal_overlap=0.01):
+            eps=1e-6, min_area=1e-6, portal_overlap=0.01, portal_tol=0.5):
     """Fallout 4 exterior navmeshes [(FormID, Nvnm)] -> (pieces, report). Each Fallout 4 navmesh is cut at the
     Starfield cell lines (cell_m) into one piece per cell it touches; positions are metres (/ units_per_metre) at the
     same absolute place. Links: a clipped edge on a cell line links the two pieces of the same navmesh (exactly the
     same points on both sides); a Fallout 4 portal (type-0 edge link) between two converted navmeshes becomes a link
-    between their pieces in every cell where both sub-edges exist and overlap; everything else is dropped and counted.
+    between their pieces in every cell where both sub-edges exist and overlap, and across cells for a portal on or
+    straddling a cell line (the two sub-edges within portal_tol, as validate() checks); everything else is dropped and
+    counted.
     door_refs: {Fallout 4 door REFR FormID: "XXXXXX:Fallout4.esm"} of the doors that were converted (others dropped)."""
     door_refs = door_refs or {}
     rep = {"fo4_navmeshes": len(fo4), "fo4_triangles": 0, "fo4_vertices": 0, "pieces": 0, "triangles": 0,
@@ -677,17 +679,36 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
                 e2 = _orig_edge(n2, m2, t2, k2)
                 c1, c2 = on_edge.get(e1, {}), on_edge.get(e2, {})
                 cells = set(c1) | set(c2)
+
+                def free(c, cell=None):
+                    return [x for cl in ([cell] if cell is not None else sorted(c)) for x in c.get(cl, [])
+                            if pieces[x[0]].neighbours[x[1]][x[2]] == -1]
+                one_sided = []
                 for cell in sorted(cells):
-                    s1 = [x for x in c1.get(cell, []) if pieces[x[0]].neighbours[x[1]][x[2]] == -1]
-                    s2 = [x for x in c2.get(cell, []) if pieces[x[0]].neighbours[x[1]][x[2]] == -1]
+                    s1, s2 = free(c1, cell), free(c2, cell)
                     if not s1 or not s2:
-                        rep["dropped"]["fo4_portal_subedge_missing"] += 1
+                        one_sided.append(cell)
                         continue
                     a, b = s1[0], s2[0]
                     if _overlap(pieces, a, b) < portal_overlap:
                         rep["dropped"]["fo4_portal_no_overlap"] += 1
                         continue
                     link(a, b, "fo4_portal")
+                # #210: a portal on (or straddling) a cell line has its two sides' sub-edges in different cells: join
+                # each one-sided cell's sub-edge to the other side's free sub-edge it overlaps most, in any cell, within
+                # validate()'s portal_tol (the same-cell join above needs no distance check: one cell, one portal)
+                for cell in one_sided:
+                    s1, s2 = free(c1, cell), free(c2, cell)
+                    if not s1 and not s2:
+                        continue                              # its sub-edge was linked from a neighbouring cell
+                    a, other = (s1[0], free(c2)) if s1 else (s2[0], free(c1))
+                    other = [b for b in other if segment_gap(_seg(pieces[a[0]], a[1], a[2]),
+                                                             _seg(pieces[b[0]], b[1], b[2])) <= portal_tol]
+                    best = max(other, key=lambda b: _overlap(pieces, a, b), default=None)
+                    if best is None or _overlap(pieces, a, best) < portal_overlap:
+                        rep["dropped"]["fo4_portal_subedge_missing"] += 1
+                        continue
+                    link(a, best, "fo4_portal")
     # doors and waypoints
     by_src: Dict[Tuple[int, int], List[Tuple[tuple, int]]] = {}
     for pk, pc in pieces.items():

@@ -170,10 +170,143 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
     def test_middle_promotion_preserves_all_serialized_source_references(self):
         self.assert_preserved([1], 'middle')
 
+    def test_garage_button_writer_links_script_keyword_without_reallocating(self):
+        objects = copy.deepcopy(self.objects)
+        button, door = objects['refs'][:2]
+        objects['activators'] = [dict(ref, reference_index=i, edid=f'SyntheticActi{i}',
+                                     model='synthetic.nif', name=f'Part{i}')
+                                 for i, ref in enumerate((button, door))]
+        objects['refs'] = objects['refs'][2:]
+        before, baseline = self.run_writer(objects, 'garage-unwired')
+        self.assertEqual(before.returncode, 0, before.stdout + before.stderr)
+        objects['garage_buttons'] = [{'button': button['src'], 'door': door['src']}]
+        after, candidate = self.run_writer(objects, 'garage-wired')
+        self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
+        old_ids = json.loads((baseline / 'formids.json').read_text())
+        new_ids = json.loads((candidate / 'formids.json').read_text())
+        for section, values in old_ids.items():
+            self.assertEqual(new_ids[section], values, section)
+        old_records = records(baseline / 'Synthetic.esm')
+        new_records = records(candidate / 'Synthetic.esm')
+        button_id = int(new_ids['activators'][button['src']]['ref'], 16)
+        door_id = int(new_ids['activators'][door['src']]['ref'], 16)
+        self.assertEqual(set(new_records), set(old_records))
+        self.assertEqual([key for key in new_records if new_records[key] != old_records[key]], [button_id])
+        fields = list(subrecords(new_records[button_id][1]))
+        self.assertEqual(sum(sig == b'VMAD' for sig, _ in fields), 1)
+        self.assertEqual(sum(sig == b'XLKR' for sig, _ in fields), 1)
+        fields = dict(fields)
+        vmad = mk.vmad_patch.decode(fields[b'VMAD'])
+        self.assertEqual((vmad['version'], vmad['format']), (6, 2))
+        self.assertEqual(len(vmad['scripts']), 1)
+        script = vmad['scripts'][0]
+        self.assertEqual(script['name'], 'DefaultActivateLinkedRefOnActivate')
+        self.assertEqual(script['properties'], [{
+            'name': 'LinkedRefKeyword', 'type': 1, 'status': 1,
+            'value': {'unused': 0, 'alias': -1, 'form': 0x0005D5E7},
+        }])
+        # The synthetic plugin has one master: XLKR must name that keyword and
+        # the garage reference in Synthetic.esm, not its ACTI base or another slot.
+        self.assertEqual(struct.unpack('<II', fields[b'XLKR']), (0x0005D5E7, 0x01000000 | door_id))
+
     def test_first_and_last_promotions_preserve_all_slots(self):
         self.assert_preserved([0], 'first')
         self.assert_preserved([2], 'last')
         self.assert_preserved([2, 0], 'multiple-reversed')
+
+    def test_source_plugin_aliases_serialize_distinct_cont_bases_without_moving_refs(self):
+        from test_make_core64c import mk
+        before, baseline = self.run_writer(self.objects, 'plugin-keys-baseline')
+        self.assertEqual(before.returncode, 0, before.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        old_records = records(baseline / 'Synthetic.esm')
+        pairs = [('Some-DLC.esm', 'SomeDLC.esm'), ('SomeDLC.esm', 'SomeDLC.esp'), ('Some_DLC.esm', 'Some.DLC.esm')]
+        for index, plugins in enumerate(pairs):
+            with self.subTest(plugins=plugins):
+                obj = copy.deepcopy(self.objects)
+                cluster = {'containers': [{'src': r['src'], 'base': f'04B6E9:{plugin}', 'name': 'Box',
+                                          'items': [{'form': 'Starfield.esm:00000F', 'count': 1}]}
+                                         for r, plugin in zip(obj['refs'][:2], plugins)]}
+                obj['refs'], obj['containers'] = mk.cluster_containers(obj['bases'], obj['refs'], cluster)
+                proc, stage = self.run_writer(obj, f'plugin-keys-{index}')
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                new = json.loads((stage / 'formids.json').read_text())
+                new_records = records(stage / 'Synthetic.esm')
+                self.assertEqual(len({v['base'] for v in new['containers'].values()}), 2)
+                self.assertEqual(sum(r[0] == b'CONT' for r in new_records.values()), 2)
+                combined = dict(new['refs'], **{src: value['ref'] for src, value in new['containers'].items()})
+                self.assertEqual(combined, old['refs'])
+                for src, value in new['containers'].items():
+                    self.assertEqual(without_base(new_records[int(value['ref'], 16)]),
+                                     without_base(old_records[int(old['refs'][src], 16)]))
+                for src, identity in new['refs'].items():
+                    self.assertEqual(new_records[int(identity, 16)], old_records[int(identity, 16)])
+
+    def test_source_plugin_aliases_serialize_distinct_misc_without_moving_refs(self):
+        from test_make_core64c import mk
+        before, baseline = self.run_writer(self.objects, 'item-keys-baseline')
+        self.assertEqual(before.returncode, 0, before.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        old_records = records(baseline / 'Synthetic.esm')
+        pairs = [('A-B.esm', 'AB.esm'), ('AB.esm', 'AB.esp'), ('A_B.esm', 'A.B.esm')]
+        for index, plugins in enumerate(pairs):
+            with self.subTest(plugins=plugins):
+                obj = copy.deepcopy(self.objects)
+                cluster = {'items': [dict(src=r['src'], base=f'000123:{plugin}', name='Item', value=7, weight=0.25)
+                                     for r, plugin in zip(obj['refs'][:2], plugins)]}
+                obj['refs'], obj['items'] = mk.cluster_items(obj['bases'], obj['refs'], cluster)
+                proc, stage = self.run_writer(obj, f'item-keys-{index}')
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                new = json.loads((stage / 'formids.json').read_text())
+                new_records = records(stage / 'Synthetic.esm')
+                self.assertEqual(len({v['base'] for v in new['items'].values()}), 2)
+                self.assertEqual(sum(r[0] == b'MISC' for r in new_records.values()), 2)
+                combined = dict(new['refs'], **{src: value['ref'] for src, value in new['items'].items()})
+                self.assertEqual(combined, old['refs'])
+                for src, value in new['items'].items():
+                    ref_fields = dict(subrecords(new_records[int(value['ref'], 16)][1]))
+                    self.assertEqual(struct.unpack('<I', ref_fields[b'NAME'])[0] & 0xFFFFFF, int(value['base'], 16))
+                    base_fields = dict(subrecords(new_records[int(value['base'], 16)][1]))
+                    expected = next(item for item in obj['items'] if item['src'] == src)
+                    self.assertEqual(base_fields[b'EDID'], expected['edid'].encode('ascii') + b'\0')
+                    self.assertEqual(struct.unpack('<if', base_fields[b'DATA']), (7, 0.25))
+                    self.assertEqual(without_base(new_records[int(value['ref'], 16)]),
+                                     without_base(old_records[int(old['refs'][src], 16)]))
+                for src, identity in new['refs'].items():
+                    self.assertEqual(new_records[int(identity, 16)], old_records[int(identity, 16)])
+
+    def test_new_promoted_callers_keep_distinct_plugin_names_and_reference_slots(self):
+        from test_make_core64c import mk
+        proc, baseline = self.run_writer(self.objects, 'new-callers-baseline')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        old_records = records(baseline / 'Synthetic.esm')
+        for kind, signature in [('activators', b'ACTI'), ('terminals', b'TERM'), ('workshops', b'ACTI')]:
+            with self.subTest(kind=kind):
+                obj = copy.deepcopy(self.objects)
+                cluster = {kind: [dict(src=r['src'], base=f'000123:{plugin}', name='Synthetic',
+                                      body='Synthetic terminal body', radius=250.0)
+                                  for r, plugin in zip(obj['refs'][:2], ('A-B.esm', 'AB.esp'))]}
+                obj['refs'], obj[kind] = getattr(mk, 'cluster_' + kind)(obj['bases'], obj['refs'], cluster)
+                proc, stage = self.run_writer(obj, 'new-callers-' + kind)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                new = json.loads((stage / 'formids.json').read_text())
+                written = records(stage / 'Synthetic.esm')
+                self.assertEqual(len({v['base'] for v in new[kind].values()}), 2)
+                self.assertEqual(sum(r[0] == signature for r in written.values()), 2)
+                self.assertEqual(dict(new['refs'], **{s: v['ref'] for s, v in new[kind].items()}), old['refs'])
+                for src, value in new[kind].items():
+                    ref = written[int(value['ref'], 16)]
+                    self.assertEqual(without_base(ref), without_base(old_records[int(old['refs'][src], 16)]))
+                    fields = dict(subrecords(ref[1]))
+                    self.assertEqual(struct.unpack('<I', fields[b'NAME'])[0] & 0xFFFFFF, int(value['base'], 16))
+                    base_fields = dict(subrecords(written[int(value['base'], 16)][1]))
+                    declared = next(e for e in obj[kind] if e['src'] == src)
+                    self.assertEqual(base_fields[b'EDID'], declared['edid'].encode('ascii') + b'\0')
+                if kind == 'terminals':
+                    self.assertEqual(len({v['menu'] for v in new[kind].values()}), 2)
+                for src, identity in new['refs'].items():
+                    self.assertEqual(written[int(identity, 16)], old_records[int(old['refs'][src], 16)])
 
     def test_ambiguous_identity_inputs_do_not_replace_existing_plugin_or_map(self):
         good = self.promote([1])

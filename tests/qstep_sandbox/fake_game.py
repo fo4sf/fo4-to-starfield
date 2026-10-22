@@ -14,10 +14,13 @@ The defaults model what the runner saw in game (N0_base in QASmoke, 2026-10-11):
   - OCR quirks in what "screen" returns (ocr_quirks): l for I ("GetlsID", "GetlslD", "GetlnFaction"), "> >" for ">>",
     "Clear Console", "Get Disabled", "Get Po s"; about nine lines are visible.
 Other knobs: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base), self_fmt
-(paren | hex | none), plr_selects (false: plr names the last ref but never selects it), prid_fails (prid never selects),
+(paren | hex | none | zero: "(00000000)"), plr_misses (that many plr name nothing), plr_selects (false: plr names the
+last ref but never selects it), prid_fails (prid never selects),
 lose_selection (without a crosshair ref: every console open clears the selection), spawn_fails, accepts (the one walk
 command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}: after coc the player falls from
-arrival z + height at speed m/s until the arrival z), layout ("inline" | "column": labels first, then values; echo
+arrival z + height at speed m/s until the arrival z), coc_same_cell_stays (a coc into the cell the player is in
+leaves the player where they stand), coc_from_outside ([x, y, z]: a coc from another cell lands there, one typed inside
+the cell on the arrival: stairs_watcher2's miss, a supported hypothesis), layout ("inline" | "column": labels first, then values; echo
 arguments drift into the value column, a lone "y" is lost).
 "typed" keeps every command the console received; "clock" is the game time, which runs only while the console is
 closed.
@@ -312,7 +315,10 @@ def run(s, cmd):
         s["clock"] = {"game": game_time(s), "since": time.time()}
         s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
     elif low.startswith("coc "):
-        s["cell"], s["player"] = w[1], list(s["arrival"])
+        if s.get("coc_same_cell_stays") and s.get("cell") == w[1]:
+            return                                         # coc_same_cell_stays: a coc into the player's cell
+        outside = s.get("coc_from_outside") if s.get("cell") != w[1] else None
+        s["cell"], s["player"] = w[1], list(outside or s["arrival"])
         if s.get("fall"):
             s["falling"] = {"ground": s["arrival"][2], "top": s["arrival"][2] + s["fall"]["height"],
                             "speed": s["fall"]["speed"], "t": time.time()}
@@ -334,6 +340,9 @@ def run(s, cmd):
         if s.get("faction_lines", True):
             s["log"] += ["GetInFaction >> 0.00"] * 3
     elif low == "plr":
+        if s.get("plr_misses", 0) > 0:                    # the first plr(s) name nothing (the converted items, 2026-10-18)
+            s["plr_misses"] -= 1
+            return
         if s.get("last"):
             s["log"].append(f"PickLastRef: ({s['last']})")
             if s.get("plr_selects", True):
@@ -354,7 +363,9 @@ def run(s, cmd):
             s["log"].append(f"GetIsID >> {'1.00' if ok else '0.00'}")
     elif low == "getself":
         fmt = s.get("self_fmt", "paren")
-        if kind is not None and fmt != "none":
+        if kind is not None and fmt == "zero":           # GetSelf >> (00000000) (the vanilla items, 2026-10-18)
+            s["log"].append("GetSelf >> (00000000)")
+        elif kind is not None and fmt != "none":
             s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel'].lower()})")
     elif low.startswith('cgf "fo4sf_probe.pos" '):
         # SANDBOX bridge: FO4SF_Probe.Pos replies in the bridge log (the real game: FO4SF_Probe.psc), nothing on the

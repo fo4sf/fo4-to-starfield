@@ -82,3 +82,14 @@ def sample_sequence(sequence, binds, samples_per_second=30):
                        'in_playback_range': start <= event['time'] <= stop})
     return {'name': sequence['name'], 'duration': duration, 'timing': dict(timing),
             'events': events, 'tracks': tracks, 'space': 'source_local'}
+
+
+def reversed_clip(clip, name='Close'):
+    """The clip played backwards under another name: the same poses, elapsed time mirrored (duration - elapsed), so it
+    starts where the clip ends and ends at its first pose. Text events are dropped (their meaning is the forward one)."""
+    duration = clip['duration']
+    tracks = []
+    for track in clip['tracks']:
+        samples = [{**s, 'elapsed': duration - s['elapsed']} for s in reversed(track['samples'])]
+        tracks.append({**track, 'samples': samples})
+    return {**clip, 'name': name, 'events': [], 'tracks': tracks, 'reversed_from': clip['name']}
