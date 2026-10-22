@@ -736,6 +736,9 @@ class ItemPromotionTests(unittest.TestCase):
                   "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
         self.assertEqual(mk.core_params_view(staged), core)
         self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
+        # --world-border city's WRLD fields are stage's own too (docs/terrain/border.md)
+        self.assertEqual(mk.core_params_view(dict(staged, world_data=mk.WORLD_DATA["city"])), core)
+        self.assertEqual((mk.WORLD_DATA["template"], mk.WORLD_DATA["city"]), (None, {"small_world": False, "hnam": 5}))
 
 
 class ItemValidationReviewTests(unittest.TestCase):

@@ -54,5 +54,16 @@ build (FAIL STAYED with the popup). Each result is evidence about that variant a
   landing that still shows its border (the override touches only our WRLD, but that has to be seen in game).
 - FAIL STAYED with the popup counts against the variant at this exit; it does not rule the field out elsewhere.
 
+### Results (PC, 2026-10-22, border on, v6i_plainshader with each probe)
+- **city** (no SmallWorld, HNAM 5): Vault 95 OUT **PASS**, 0.00 m off in xy, 0.02 m in z; the Red Rocket spawn leg
+  passed too (queue `doors_v95_probe_city`).
+- **hnam5** (SmallWorld kept, HNAM 5): FAIL STAYED, still in the interior.
+- **nosmall** (no SmallWorld, HNAM 0): rerunning (its first queue spent its relaunch budget on an aborted launch).
+
+So clearing SmallWorld is needed; whether HNAM 5 also is waits on nosmall. city is the candidate, and the core build
+takes it with `make_core64c.py stage --world-border city` (TerrainOverlays params `world_data`; FO4SFMission's WRLD
+override is a copy of the core's, so it carries the fields when the mission is folded again). The wider checks above
+run on that rebuilt core.
+
 If no variant passes, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.

@@ -96,9 +96,9 @@ def core_params(core):
 
 
 def core_params_view(prm):
-    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
+    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, world_data, each overlay's
     map_markers (check compares the rest with core64's)."""
-    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh")}
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh", "world_data")}
     if "overlays" in out:
         out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
     return out
@@ -516,6 +516,10 @@ class CoreWorld(x2c.World):
 # ---------------------------------------------------------------------------------------------------------------- plan
 NEAR_M = 510.0              # core64 probes this close to the arrival (exact in the core64 run, 2026-10-11)
 AREA_M = 560.0              # local collision world: arrival +- this (every point and every teleport position)
+# --world-border: the WRLD fields TerrainOverlays changes on LC172World's copy (params "world_data", docs/terrain/border.md).
+# "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5): the BorderProbe city run's Vault 95 exit PASSed with the
+# border on (2026-10-22), where LC172World's own (template) FAILs STAYED with "BOUNDARY REACHED".
+WORLD_DATA = {"template": None, "city": {"small_world": False, "hnam": 5}}
 DROP_MARGIN = 40.0          # drop at least this far above the highest expected landing of the entry (as core64)
 TOP_CLEAR = 10.0            # and at least this far above every collision top within 1 m of a point
 REF_LABEL = x2c.REF_LABEL
@@ -2665,6 +2669,12 @@ def cmd_stage(a):
     params["overlays"] = [dict(ov, map_markers=markers)]
     print(f"map markers ({len(markers)}): " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers[:4])
           + (f", ... {len(markers) - 4} more" if len(markers) > 4 else ""))
+    world_data = WORLD_DATA[getattr(a, "world_border", "template")]
+    if world_data:
+        params["world_data"] = world_data
+        print(f"world border: {a.world_border} {world_data}")
+    else:
+        params.pop("world_data", None)
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -3357,6 +3367,9 @@ def main():
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
+            s.add_argument("--world-border", choices=sorted(WORLD_DATA), default="template",
+                           help="the world's border fields: template = LC172World's (SmallWorld, HNAM 0), city = "
+                                "NewAtlantis's (no SmallWorld, HNAM 5; docs/terrain/border.md)")
             s.add_argument("--fo4-map-markers", default="", help="a Fo4Land export-mapmarkers json (Commonwealth): "
                            "every named marker inside the overlay becomes a map marker after the fixed four "
                            "(docs/terrain/map-markers.md)")
