@@ -191,6 +191,17 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(dr.order(lines), {"FO4TerrainCore.esm": 2, "FO4TerrainCore_Mars.esm": 3, "FO4SFMission.esm": 4,
                                            "FO4Port.esm": 5, "FO4SFBridge.esm": 6})
 
+    def test_the_map_markers_plugin_follows_the_port(self):
+        # PC run 2026-10-22 (Vault 95 _e): Plugins.txt had the markers plugin before the re-deployed port; cycle.ps1
+        # loaded TerrainCore, Mars, Raider, Mission, Port, MapMarkers, Bridge: the port at 06, not 07
+        lines = ["*FO4TerrainCore.esm", "*FO4TerrainCore_Mars.esm", "*FO4Raider.esm", "*FO4SFMission.esm",
+                 "*FO4SFMapMarkers.esm", "*FO4Port.esm", "*FO4SFBridge.esm"]
+        idx = dr.order(lines)
+        self.assertEqual(idx["FO4Port.esm"], 6)
+        self.assertEqual(idx["FO4SFMapMarkers.esm"], 7)
+        self.assertEqual(idx["FO4SFBridge.esm"], 8)
+        self.assertNotIn("FO4SFMapMarkers.esm", dr.order([ln for ln in lines if "MapMarkers" not in ln]))
+
 
 def log(*lines):
     return [e for e in (dr.bridge_log.parse_event(s) for s in lines) if e is not None]

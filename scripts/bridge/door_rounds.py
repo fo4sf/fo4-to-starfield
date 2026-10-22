@@ -59,6 +59,7 @@ from fo4sf import fo4land  # noqa: E402
 CORE_PLUGIN = "FO4TerrainCore.esm"
 PORT_PLUGIN = "FO4Port.esm"
 BRIDGE_PLUGIN = "FO4SFBridge.esm"
+MARKERS_PLUGIN = "FO4SFMapMarkers.esm"       # cycle.ps1 orders it right after the port (PC run 2026-10-22: port at 06, not 07)
 SPAWN_COC = "FO4Core_RedRocketSpawn"
 COMPRESSED = 0x00040000
 CELL_GROUPS = (vmad_patch.GROUP_CELL_CHILDREN, vmad_patch.GROUP_PERSISTENT, vmad_patch.GROUP_TEMPORARY)
@@ -365,14 +366,17 @@ def stage_readme(info):
 
 
 # ------------------------------------------------------------------------------------------------------------- order
-def order(lines, first_index=2, port=PORT_PLUGIN, bridge=BRIDGE_PLUGIN):
+def order(lines, first_index=2, port=PORT_PLUGIN, bridge=BRIDGE_PLUGIN, markers=MARKERS_PLUGIN):
     """{plugin: index} of the active Plugins.txt lines after a runner launch: cycle.ps1 re-deploys the port at the end,
-    the bridge goes last. Implicit masters (exp_install.implicit) take no line. Assumes full-slot plugins."""
+    puts the map markers plugin right after it when it is active (map_markers_install.py order) and the bridge last.
+    Implicit masters (exp_install.implicit) take no line. Assumes full-slot plugins."""
     import exp_install
     names = [ln.strip()[1:].strip() for ln in lines if ln.strip().startswith("*")]
     names = [n for n in names if not exp_install.implicit(n)]
-    rest = [n for n in names if n.casefold() not in (port.casefold(), bridge.casefold())]
-    return {n: first_index + i for i, n in enumerate(rest + [port, bridge])}
+    active = {n.casefold() for n in names}
+    tail = [port] + [n for n in (markers,) if n.casefold() in active] + [bridge]
+    rest = [n for n in names if n.casefold() not in {t.casefold() for t in tail}]
+    return {n: first_index + i for i, n in enumerate(rest + tail)}
 
 
 def cmd_order(a):
