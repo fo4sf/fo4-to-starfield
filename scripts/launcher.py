@@ -310,6 +310,9 @@ def cmd_play(a):
     if not starfield:
         raise ValueError("no Starfield folder: confirm it in the window's Locations tab, run `launcher.py paths "
                          "--accept`, or pass --starfield")
+    if not a.starfield and paths.check("starfield", starfield):   # a saved folder the game has since left (Codex, #481)
+        raise ValueError(f"the saved Starfield folder {starfield}: {paths.check('starfield', starfield)}; confirm it "
+                         "again in the window's Locations tab or with `launcher.py paths --accept`")
     r = crashwatch.play(values, starfield, dry_run=a.dry_run)
     return 0 if r.get("dry_run") or r.get("started") else 1
 

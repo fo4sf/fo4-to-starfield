@@ -306,6 +306,15 @@ class LocationsCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no Starfield folder", result.stdout + result.stderr)
 
+    def test_plain_play_refuses_a_saved_starfield_folder_that_moved(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.json")
+            Path(path).write_text(json.dumps({"starfield": os.path.join(d, "moved")}), encoding="utf-8")
+            result = self.run_cli("play", "--dry-run", "--settings", path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("saved Starfield folder", result.stdout + result.stderr)
+        self.assertIn("folder not found", result.stdout + result.stderr)
+
     def test_detect_given_every_location_does_not_need_a_readable_settings_file(self):
         with tempfile.TemporaryDirectory() as d:
             bad = os.path.join(d, "s.json")
