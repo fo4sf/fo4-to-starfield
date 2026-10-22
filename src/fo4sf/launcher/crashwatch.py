@@ -95,6 +95,22 @@ def procdump_argv(values, pid):
     return argv
 
 
+INFINITE, WAIT_OBJECT_0 = 0xFFFFFFFF, 0
+
+
+def declare_kernel32(k):
+    """Give the kernel32 calls their real types. Without them ctypes reads OpenProcess's HANDLE as a C int, which
+    can cut a 64-bit handle short (Grok's review, #465)."""
+    from ctypes import POINTER, wintypes
+    k.OpenProcess.restype, k.OpenProcess.argtypes = wintypes.HANDLE, [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.GetExitCodeProcess.restype = wintypes.BOOL
+    k.GetExitCodeProcess.argtypes = [wintypes.HANDLE, POINTER(wintypes.DWORD)]
+    k.CloseHandle.restype, k.CloseHandle.argtypes = wintypes.BOOL, [wintypes.HANDLE]
+    return k
+
+
 class System:
     """The real Windows calls. Tests pass a stand-in with the same methods."""
 
@@ -127,16 +143,19 @@ class System:
         """A handle that stays valid after the process ends, so its exit code can be read; None if refused."""
         import ctypes
         SYNCHRONIZE, QUERY_LIMITED = 0x00100000, 0x1000
-        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE | QUERY_LIMITED, False, pid)
+        h = declare_kernel32(ctypes.windll.kernel32).OpenProcess(SYNCHRONIZE | QUERY_LIMITED, False, pid)
         return h or None
 
     def wait_exit(self, handle):
-        """Blocks until the process ends; returns its exit code."""
+        """Blocks until the process ends; returns its exit code, or None when the wait or the read failed."""
         import ctypes
-        k = ctypes.windll.kernel32
-        k.WaitForSingleObject(handle, 0xFFFFFFFF)
-        code = ctypes.c_ulong()
-        ok = k.GetExitCodeProcess(handle, ctypes.byref(code))
+        from ctypes import wintypes
+        k = declare_kernel32(ctypes.windll.kernel32)
+        waited = k.WaitForSingleObject(handle, INFINITE)
+        code = wintypes.DWORD()
+        # only a wait that returned WAIT_OBJECT_0 means the game ended: after a failed wait GetExitCodeProcess
+        # would give STILL_ACTIVE (259) for a game still running (Grok's review, #465)
+        ok = waited == WAIT_OBJECT_0 and k.GetExitCodeProcess(handle, ctypes.byref(code))
         k.CloseHandle(handle)
         return code.value if ok else None
 
