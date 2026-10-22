@@ -193,6 +193,36 @@ if (args[0] == "check" && args.Length >= 3)
     }
     foreach (var extra in overrides.Keys.Except(want.Select(m => m.FormKey)))
         problems.Add($"{extra} is overridden but is not a core map marker");
+    // the containers the overrides need, the WRLD and its persistent CELL, are copies of the core's records, and a
+    // plugin that loads after the core overrides them with whatever it holds: they must match the core this plugin
+    // is checked against, or a core rebuilt since the stage (a changed world flag, say) is undone by this plugin
+    foreach (var w in mod.Worldspaces)
+    {
+        var cw = core.Worldspaces.FirstOrDefault(x => x.FormKey == w.FormKey);
+        if (cw == null) { problems.Add($"{w.FormKey} worldspace is not the core's"); continue; }
+        var wmask = new Worldspace.TranslationMask(defaultOn: true)
+        {
+            TopCell = new Cell.TranslationMask(defaultOn: false, onOverall: false),
+            SubCells = new WorldspaceBlock.TranslationMask(defaultOn: false, onOverall: false),
+            SubCellsTimestamp = false, SubCellsUnknown = false,
+        };
+        Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]" +
+                          (cw.DeepCopy(wmask).Equals(w.DeepCopy(wmask)) ? ", as the core's" : ", NOT the core's"));
+        if (!cw.DeepCopy(wmask).Equals(w.DeepCopy(wmask)))
+            problems.Add($"{w.FormKey} worldspace record differs from the core's (a core rebuilt since the stage: stage again)");
+        if (w.SubCells.Count > 0) problems.Add($"{w.FormKey} worldspace carries {w.SubCells.Count} sub-cell block(s)");
+        if (w.TopCell == null) continue;
+        if (cw.TopCell == null) { problems.Add($"{w.FormKey} has a persistent cell the core lacks"); continue; }
+        var cmask = new Cell.TranslationMask(defaultOn: true)
+        {
+            Persistent = false, Temporary = false, NavigationMeshes = new NavigationMesh.TranslationMask(defaultOn: false, onOverall: false),
+            Timestamp = false, UnknownGroupData = false, PersistentTimestamp = false, PersistentUnknownGroupData = false,
+            TemporaryTimestamp = false, TemporaryUnknownGroupData = false,
+        };
+        if (!cw.TopCell.DeepCopy(cmask).Equals(w.TopCell.DeepCopy(cmask)))
+            problems.Add($"{w.TopCell.FormKey} persistent cell record differs from the core's (a core rebuilt since the stage: stage again)");
+        if (w.TopCell.Temporary.Count > 0) problems.Add($"{w.TopCell.FormKey} carries {w.TopCell.Temporary.Count} temporary reference(s)");
+    }
     var chunks = want.Chunk(PerQuest).ToList();
     var quests = mod.Quests.OrderBy(x => x.FormKey.ID).ToList();
     if (quests.Count != chunks.Count)

@@ -155,6 +155,27 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(check.returncode, 1, check.stdout)
         self.assertIn("override still uses the location's name", check.stdout)
 
+    def test_check_rejects_a_world_copy_that_no_longer_matches_the_core(self):
+        # the plugin carries the core's WRLD and persistent CELL as the overrides' containers; it loads after the
+        # core, so a copy taken before a core rebuild (a changed world flag) would undo the rebuild: check compares
+        # both records with the core's, so a stale stage fails before it is installed
+        out = self.root / "plugin-stale-world"
+        proc = self.tool_run("build", "--core", self.core, "--out", out)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        plugin = out / "FO4SFMapMarkers.esm"
+        fresh = self.tool_run("check", plugin, self.core)
+        self.assertEqual(fresh.returncode, 0, fresh.stdout)
+        self.assertIn("  worldspace 000803:Synthetic.esm SyntheticWorld: flags -, HNAM [], as the core's", fresh.stdout)
+        data = bytearray(plugin.read_bytes())
+        rec = data.index(b"WRLD", data.index(b"WRLD") + 4)            # the record, after the group label
+        at = data.index(b"EDID", rec) + 6                             # the synthetic world has no flags byte to
+        data[at] ^= 0x20                                              # flip: its EditorID changes case instead
+        plugin.write_bytes(bytes(data))
+        stale = self.tool_run("check", plugin, self.core)
+        self.assertEqual(stale.returncode, 1, stale.stdout)
+        self.assertIn("worldspace record differs from the core's (a core rebuilt since the stage: stage again)", stale.stdout)
+        self.assertIn("NOT the core's", stale.stdout)
+
     def test_many_markers_split_into_quests_of_100(self):
         params = copy.deepcopy(self.params)
         params["overlays"][0]["map_markers"] = [
