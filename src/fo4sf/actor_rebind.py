@@ -133,7 +133,8 @@ def rebind(template_nif: bytes, fo4_nif: bytes, bone_for: Callable[[Optional[str
     materials maps FO4 shape names to .mat paths; target names the template BSGeometry to replace (default: the first
     skinned one); other template geometries are detached so only the FO4 actor shows. plain_shader writes each shader
     property as the static converter does (the .mat name, no extra data, no controller) instead of the template's own
-    block with its name swapped (the Red Rocket crash bisect: the template block's later bytes are read as a link)."""
+    block with its name swapped. For the Red Rocket crash bisect; the hypothesis under test, not yet confirmed in game,
+    is that the loader reads the template block's later bytes as a link."""
     materials = materials or {}
     t = nifmod.parse(template_nif)
     geoms = [i for i in range(len(t.blocks)) if t.type_of(i) == "BSGeometry"]
