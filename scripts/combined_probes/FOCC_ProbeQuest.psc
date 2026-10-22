@@ -128,7 +128,7 @@ Function P2Set(float v)
         return
     endif
     P2Loc.SetKeywordData(Holder, v)
-    Trace("p2 set loc=" + P2Loc.GetFormID() + " local=2054 value=" + v + " readback=" + P2Loc.GetKeywordData(Holder))
+    Trace("p2 set loc=" + P2Loc.GetFormID() + " local=2054 value=" + v + " readback=" + P2Loc.GetKeywordData(Holder) + " holder=" + Id(Holder))
 EndFunction
 
 Function P2Read()
@@ -136,7 +136,7 @@ Function P2Read()
         Trace("p2 refused loc=" + Id(P2Loc) + " holder=" + Id(Holder))
         return
     endif
-    Trace("p2 read loc=" + P2Loc.GetFormID() + " local=2054 value=" + P2Loc.GetKeywordData(Holder))
+    Trace("p2 read loc=" + P2Loc.GetFormID() + " local=2054 value=" + P2Loc.GetKeywordData(Holder) + " holder=" + Id(Holder))
 EndFunction
 
 Function P2Link()
@@ -145,7 +145,7 @@ Function P2Link()
         return
     endif
     P2Loc.AddLinkedLocation(P3LocChained, Route)
-    Trace("p2 link a=" + P2Loc.GetFormID() + " b=" + P3LocChained.GetFormID() + " linked=" + P2Loc.IsLinkedLocation(P3LocChained, Route))
+    Trace("p2 link a=" + P2Loc.GetFormID() + " b=" + P3LocChained.GetFormID() + " linked=" + P2Loc.IsLinkedLocation(P3LocChained, Route) + " route=" + Id(Route))
 EndFunction
 
 Function P2LinkRead()
@@ -153,7 +153,7 @@ Function P2LinkRead()
         Trace("p2 refused loc=" + Id(P2Loc) + " target=" + Id(P3LocChained) + " route=" + Id(Route))
         return
     endif
-    Trace("p2 linkread a=" + P2Loc.GetFormID() + " b=" + P3LocChained.GetFormID() + " linked=" + P2Loc.IsLinkedLocation(P3LocChained, Route))
+    Trace("p2 linkread a=" + P2Loc.GetFormID() + " b=" + P3LocChained.GetFormID() + " linked=" + P2Loc.IsLinkedLocation(P3LocChained, Route) + " route=" + Id(Route))
 EndFunction
 
 ; ---------------------------------------------------------------- P3: unparented vs chained location, current location of a cell
@@ -165,7 +165,7 @@ Function P3Set(float a, float b)
     endif
     P3LocNoParent.SetKeywordData(Holder, a)
     P3LocChained.SetKeywordData(Holder, b)
-    Trace("p3 set a=" + P3LocNoParent.GetFormID() + " va=" + a + " ra=" + P3LocNoParent.GetKeywordData(Holder) + " b=" + P3LocChained.GetFormID() + " vb=" + b + " rb=" + P3LocChained.GetKeywordData(Holder))
+    Trace("p3 set a=" + P3LocNoParent.GetFormID() + " va=" + a + " ra=" + P3LocNoParent.GetKeywordData(Holder) + " b=" + P3LocChained.GetFormID() + " vb=" + b + " rb=" + P3LocChained.GetKeywordData(Holder) + " holder=" + Id(Holder))
 EndFunction
 
 Function P3Read()
@@ -173,7 +173,7 @@ Function P3Read()
         Trace("p3 refused a=" + Id(P3LocNoParent) + " b=" + Id(P3LocChained) + " holder=" + Id(Holder))
         return
     endif
-    Trace("p3 read a=" + P3LocNoParent.GetFormID() + " ra=" + P3LocNoParent.GetKeywordData(Holder) + " b=" + P3LocChained.GetFormID() + " rb=" + P3LocChained.GetKeywordData(Holder))
+    Trace("p3 read a=" + P3LocNoParent.GetFormID() + " ra=" + P3LocNoParent.GetKeywordData(Holder) + " b=" + P3LocChained.GetFormID() + " rb=" + P3LocChained.GetKeywordData(Holder) + " holder=" + Id(Holder))
 EndFunction
 
 Function Where()
@@ -222,7 +222,7 @@ Function P4Run(int cycles, float settle)
     p4Placed = 0
     p4Deleted = 0
     p4Spawned = new ObjectReference[3]
-    Trace("p4 start cycles=" + cycles + " settle=" + settle + " marker=" + P4Marker.GetFormID() + " pos=" + P4Marker.GetPositionX() + " " + P4Marker.GetPositionY() + " " + P4Marker.GetPositionZ() + " mode=placeatme")
+    Trace("p4 start cycles=" + cycles + " settle=" + settle + " marker=" + P4Marker.GetFormID() + " base=" + Id(P4Base) + " pos=" + P4Marker.GetPositionX() + " " + P4Marker.GetPositionY() + " " + P4Marker.GetPositionZ() + " mode=placeatme")
     StartTimer(0.1, TIMER_P4_PLACE)
 EndFunction
 
@@ -279,7 +279,7 @@ Function P5Tick(int ticks)
     endif
     p5Ticks = ticks
     p5TickCount = 0
-    Trace("p5 start ticks=" + ticks + " places=" + P5Globals.Length)
+    Trace("p5 start ticks=" + ticks + " places=" + P5Globals.Length + " first=" + Id(P5Globals[0]) + " last=" + Id(P5Globals[P5Globals.Length - 1]))
     StartTimer(0.1, TIMER_P5)
 EndFunction
 

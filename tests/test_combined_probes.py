@@ -22,10 +22,14 @@ RUNTIME_LOC = "50331649"       # a form id as Papyrus prints it (decimal); FF.. 
 P2_LOC, P3_NOPARENT, P3_CHAINED = (str(0x03000000 | n) for n in (2054, 2055, 2056))   # the probe LCTNs at load index 03
 
 
+HOLDER, ROUTE = 0x03000805, 0x03000809              # FOCC_Holder, FOCC_Route at load index 03
+PLAN_NPC = {"bases": {"npc": "Starfield.esm:2B211C"}}  # what make_combined_probe writes for P4's base
+
+
 def col(**logs):
     """Collection from lists of lines keyed by log name (session1=..., session2=..., log=focc.0.log)."""
     names = {"session1": "focc_session1.log", "session2": "focc_session2.log", "log": "focc.0.log"}
-    c = Collection()
+    c = Collection(plan=PLAN_NPC)
     for k, lines in logs.items():
         c.logs[names.get(k, k)] = list(lines)
     return c
@@ -116,6 +120,44 @@ def p1_collection(delete="focc_p1_b", sidecar_names=None, extra_sfse=(), saves_j
         names.pop(delete, None)
         c.saves = saves(**names)
     return c
+
+
+class RecordIdentityTests(unittest.TestCase):
+    """Codex review of #431: every script property a probe uses must log the probe's own record, or a stale or foreign
+    binding passes without exercising it (P2/P3 holder and route, P4 base, P5 globals)."""
+
+    def test_p2_holder_and_route(self):
+        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2)).verdict, PASS)
+        for i, old, new in ((1, f"holder={HOLDER}", "holder=1"), (2, f"route={ROUTE}", f"route={HOLDER}")):
+            s1 = list(S1_P2)
+            s1[i] = s1[i].replace(old, new)
+            self.assertEqual(probes.check_p2(col(session1=s1, session2=S2_P2)).verdict, INCONCLUSIVE, new)
+        for i, old in ((1, f" holder={HOLDER}"), (2, f" route={ROUTE}")):
+            s2 = list(S2_P2)
+            s2[i] = s2[i].replace(old, "")
+            self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=s2)).verdict, INCONCLUSIVE, old)
+
+    def test_p3_holder(self):
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3)).verdict, PASS)
+        s1 = [S1_P3[0], S1_P3[1].replace(f"holder={HOLDER}", f"holder={ROUTE}")]
+        self.assertEqual(probes.check_p3(col(session1=s1, session2=S2_P3)).verdict, INCONCLUSIVE)
+        s2 = [S2_P3[0], S2_P3[1].replace(f" holder={HOLDER}", "")]
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=s2)).verdict, INCONCLUSIVE)
+
+    def test_p4_base_must_be_the_plans_npc(self):
+        for log, plan in ((p4_log(), None), ([l.replace(f"base={0x2B211C}", "base=1") for l in p4_log()], PLAN_NPC)):
+            c = col(log=log)
+            c.plan = plan
+            c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+            v = probes.check_p4(c)
+            self.assertEqual(v.verdict, INCONCLUSIVE)
+            self.assertTrue(any("npc base" in r for r in v.reasons), v.reasons)
+
+    def test_p5_globals_must_be_the_probes(self):
+        for old, new in ((f"first={0x03000823}", f"first={0x03000824}"), (f"last={0x03000854}", ""),
+                         ("places=50", "places=49")):
+            log = [l.replace(old, new) for l in p5_log()]
+            self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, new)
 
 
 class P1Tests(unittest.TestCase):
@@ -216,10 +258,10 @@ class P1Tests(unittest.TestCase):
 
 # ----------------------------------------------------------------------------------------------- P2
 
-S1_P2 = [INIT, f"FOCC rt=5.0 p2 set loc={P2_LOC} local=2054 value=37.000000 readback=37.000000",
-         f"FOCC rt=5.1 p2 link a={P2_LOC} b={P3_CHAINED} linked=True"]
-S2_P2 = ["FOCC init variant=default", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=37.000000",
-         f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True"]
+S1_P2 = [INIT, f"FOCC rt=5.0 p2 set loc={P2_LOC} local=2054 value=37.000000 readback=37.000000 holder={HOLDER}",
+         f"FOCC rt=5.1 p2 link a={P2_LOC} b={P3_CHAINED} linked=True route={ROUTE}"]
+S2_P2 = ["FOCC init variant=default", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=37.000000 holder={HOLDER}",
+         f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True route={ROUTE}"]
 
 
 class P2Tests(unittest.TestCase):
@@ -243,21 +285,21 @@ class P2Tests(unittest.TestCase):
         self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2[1:])).verdict, INCONCLUSIVE)  # no init: no relaunch proven
 
     def test_fail_branches(self):
-        lost = [f"FOCC init", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=0.000000", f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True"]
+        lost = [f"FOCC init", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=0.000000 holder={HOLDER}", f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True route={ROUTE}"]
         v = probes.check_p2(col(session1=S1_P2, session2=lost))
         self.assertEqual(v.verdict, FAIL)
         self.assertTrue(any("did not persist" in r for r in v.reasons))
-        unlinked = S2_P2[:2] + [f"FOCC p2 linkread a={P2_LOC} b={P3_CHAINED} linked=False"]
+        unlinked = S2_P2[:2] + [f"FOCC p2 linkread a={P2_LOC} b={P3_CHAINED} linked=False route={ROUTE}"]
         self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=unlinked)).verdict, FAIL)
-        bad_set = [INIT, f"FOCC p2 set loc={P2_LOC} local=2054 value=37.000000 readback=0.000000"]
+        bad_set = [INIT, f"FOCC p2 set loc={P2_LOC} local=2054 value=37.000000 readback=0.000000 holder={HOLDER}"]
         self.assertEqual(probes.check_p2(col(session1=bad_set, session2=S2_P2)).verdict, FAIL)
-        nolink = S1_P2[:2] + [f"FOCC p2 link a={P2_LOC} b={P3_CHAINED} linked=False"]
+        nolink = S1_P2[:2] + [f"FOCC p2 link a={P2_LOC} b={P3_CHAINED} linked=False route={ROUTE}"]
         self.assertEqual(probes.check_p2(col(session1=nolink, session2=S2_P2)).verdict, FAIL)
 
     def test_inconclusive_branches(self):
         self.assertEqual(probes.check_p2(col(session1=[INIT, "FOCC p2 refused prop=P2Loc"], session2=S2_P2)).verdict,
                          INCONCLUSIVE)
-        no_rb = [INIT, f"FOCC p2 set loc={P2_LOC} local=2054 value=37.000000"]
+        no_rb = [INIT, f"FOCC p2 set loc={P2_LOC} local=2054 value=37.000000 holder={HOLDER}"]
         self.assertEqual(probes.check_p2(col(session1=no_rb, session2=S2_P2)).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=["FOCC init"])).verdict, INCONCLUSIVE)
         v = probes.check_p2(col(session1=S1_P2, session2=S2_P2[:2]))     # link set, no linkread
@@ -272,13 +314,13 @@ class P2Tests(unittest.TestCase):
 
     def test_other_locations_are_not_judged(self):
         # Codex review of #431: the literal local=2054 proves nothing; the logged form ids must be the probe LCTNs.
-        other = [INIT, f"FOCC p2 set loc={RUNTIME_LOC} local=2054 value=37.000000 readback=37.000000"] + S1_P2[2:]
+        other = [INIT, f"FOCC p2 set loc={RUNTIME_LOC} local=2054 value=37.000000 readback=37.000000 holder={HOLDER}"] + S1_P2[2:]
         self.assertEqual(probes.check_p2(col(session1=other, session2=S2_P2)).verdict, INCONCLUSIVE)
-        read_other = [S2_P2[0], f"FOCC p2 read loc={RUNTIME_LOC} local=2054 value=37.000000"] + S2_P2[2:]
+        read_other = [S2_P2[0], f"FOCC p2 read loc={RUNTIME_LOC} local=2054 value=37.000000 holder={HOLDER}"] + S2_P2[2:]
         self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=read_other)).verdict, INCONCLUSIVE)
-        link_other = S1_P2[:2] + [f"FOCC p2 link a={P2_LOC} b={P3_NOPARENT} linked=True"]
+        link_other = S1_P2[:2] + [f"FOCC p2 link a={P2_LOC} b={P3_NOPARENT} linked=True route={ROUTE}"]
         self.assertEqual(probes.check_p2(col(session1=link_other, session2=S2_P2)).verdict, INCONCLUSIVE)
-        linkread_other = S2_P2[:2] + [f"FOCC p2 linkread a={P3_CHAINED} b={P2_LOC} linked=True"]
+        linkread_other = S2_P2[:2] + [f"FOCC p2 linkread a={P3_CHAINED} b={P2_LOC} linked=True route={ROUTE}"]
         self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=linkread_other)).verdict, INCONCLUSIVE)
         # A light plugin's ids print negative (FE + 12-bit slot + 12-bit local) and still name the probe LCTNs.
         light = {k: str((0xFE001000 | n) - (1 << 32)) for k, n in ((P2_LOC, 2054), (P3_CHAINED, 2056))}
@@ -286,7 +328,7 @@ class P2Tests(unittest.TestCase):
                     for ss in (S1_P2, S2_P2))
         self.assertEqual(probes.check_p2(col(session1=fe1, session2=fe2)).verdict, PASS)
         slot = str(0xFE003806 - (1 << 32))      # light slot 003 never leaks into the local
-        self.assertEqual(probes._local(probes.parse_line(f"FOCC p2 set loc={slot}"), "loc"), 2054)
+        self.assertEqual(probes._local(probes.parse_line(f"FOCC p2 set loc={slot} holder={HOLDER}"), "loc"), 2054)
 
     def test_keyword_half_alone_is_inconclusive(self):
         v = probes.check_p2(col(session1=S1_P2[:2], session2=S2_P2[:2]))
@@ -296,8 +338,8 @@ class P2Tests(unittest.TestCase):
 
 # ----------------------------------------------------------------------------------------------- P3
 
-S1_P3 = [INIT, f"FOCC rt=6.0 p3 set a={P3_NOPARENT} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
-S2_P3 = ["FOCC init", f"FOCC rt=4.0 p3 read a={P3_NOPARENT} ra=5.000000 b={P3_CHAINED} rb=6.000000"]
+S1_P3 = [INIT, f"FOCC rt=6.0 p3 set a={P3_NOPARENT} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000 holder={HOLDER}"]
+S2_P3 = ["FOCC init", f"FOCC rt=4.0 p3 read a={P3_NOPARENT} ra=5.000000 b={P3_CHAINED} rb=6.000000 holder={HOLDER}"]
 CELLS = ["FOCC init variant=p3cells",
          f"FOCC rt=9.0 where cell=50333000 cellname=FO4Port_RedRocket01 loc={P3_NOPARENT} local=2055",
          f"FOCC rt=19.0 where cell=50333001 cellname=FO4Port_SuperDuperMart01 loc={P3_CHAINED} local=2056"]
@@ -317,24 +359,24 @@ class P3Tests(unittest.TestCase):
         self.assertEqual((v.verdict, v.extra["keyword_half"]), (PASS, PASS))
         self.assertEqual(v.extra["explored_state"]["status"], "unresolved")
         self.assertNotIn("cell_half", v.extra)
-        half = ["FOCC init", f"FOCC p3 read a={P3_NOPARENT} ra=0.000000 b={P3_CHAINED} rb=6.000000"]      # unparented one lost its datum
+        half = ["FOCC init", f"FOCC p3 read a={P3_NOPARENT} ra=0.000000 b={P3_CHAINED} rb=6.000000 holder={HOLDER}"]      # unparented one lost its datum
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=half)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(session1=S1_P3)).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, INCONCLUSIVE)
-        bad = [INIT, f"FOCC p3 set a={P3_NOPARENT} va=5.000000 ra=0.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
+        bad = [INIT, f"FOCC p3 set a={P3_NOPARENT} va=5.000000 ra=0.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000 holder={HOLDER}"]
         self.assertEqual(probes.check_p3(col(session1=bad, session2=S2_P3)).verdict, FAIL)
 
     def test_keyword_half_checks_both_locations(self):
         # Codex review of #431: swapped or foreign a/b ids never pass the keyword half.
-        swapped = [INIT, f"FOCC p3 set a={P3_CHAINED} va=5.000000 ra=5.000000 b={P3_NOPARENT} vb=6.000000 rb=6.000000"]
+        swapped = [INIT, f"FOCC p3 set a={P3_CHAINED} va=5.000000 ra=5.000000 b={P3_NOPARENT} vb=6.000000 rb=6.000000 holder={HOLDER}"]
         v = probes.check_p3(col(session1=swapped, session2=S2_P3))
         self.assertEqual((v.verdict, v.extra["keyword_half"]), (INCONCLUSIVE, INCONCLUSIVE))
         for read in ("FOCC p3 read ra=5.000000 rb=6.000000",                  # the old shape: no identities
                      "FOCC p3 read a=50331649 ra=5.000000 b=50331650 rb=6.000000",
-                     f"FOCC p3 read a={P3_CHAINED} ra=5.000000 b={P3_NOPARENT} rb=6.000000"):
+                     f"FOCC p3 read a={P3_CHAINED} ra=5.000000 b={P3_NOPARENT} rb=6.000000 holder={HOLDER}"):
             v = probes.check_p3(col(session1=S1_P3, session2=["FOCC init", read]))
             self.assertEqual((v.verdict, v.extra["keyword_half"]), (INCONCLUSIVE, INCONCLUSIVE), read)
-        foreign = [INIT, f"FOCC p3 set a={RUNTIME_LOC} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000"]
+        foreign = [INIT, f"FOCC p3 set a={RUNTIME_LOC} va=5.000000 ra=5.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000 holder={HOLDER}"]
         self.assertEqual(probes.check_p3(col(session1=foreign, session2=S2_P3)).verdict, INCONCLUSIVE)
 
     def test_cell_half(self):
@@ -364,7 +406,7 @@ class P3Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P4
 
 def p4_log(cycles=20, loaded=3, short_at=None, mode="placeatme"):
-    lines = [INIT, f"FOCC rt=0.5 p4 start cycles={cycles} settle=8.0 marker={0x0300080B} pos=0 0 0 mode=placeatme"]
+    lines = [INIT, f"FOCC rt=0.5 p4 start cycles={cycles} settle=8.0 marker={0x0300080B} base={0x2B211C} pos=0 0 0 mode=placeatme"]
     for n in range(1, cycles + 1):
         placed = 2 if short_at == n else 3
         lines.append(f"FOCC rt={n * 8.5:.1f} p4 cycle n={n} placed={placed} loaded={loaded} deleted=3 mode={mode}")
@@ -455,7 +497,7 @@ class P4Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P5
 
 def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
-    lines = [INIT, f"FOCC rt=1.0 p5 start ticks={ticks}"]
+    lines = [INIT, f"FOCC rt=1.0 p5 start ticks={ticks} places=50 first={0x03000823} last={0x03000854}"]
     for i in range(ticks):
         lines.append(f"FOCC rt={2 + i:.1f} p5 tick n={i + 1} places=50 ms={ms[i % len(ms)]:.6f} sum=123.456000")
     lines.append(f"FOCC rt={2 + ticks:.1f} p5 done ticks={ticks}")
@@ -966,7 +1008,7 @@ class CollectAndCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         code, out, _ = run(["p4", self.dir])
         self.assertEqual((code, json.loads(out)["verdict"]), (2, INCONCLUSIVE))
-        lost = self.write("sub/focc_session2.log", f"FOCC init\nFOCC p2 read loc={P2_LOC} local=2054 value=0.000000\n")
+        lost = self.write("sub/focc_session2.log", f"FOCC init\nFOCC p2 read loc={P2_LOC} local=2054 value=0.000000 holder={HOLDER}\n")
         shutil.copy(os.path.join(self.dir, "focc_session1.log"), os.path.dirname(lost))
         code, out, _ = run(["p2", os.path.dirname(lost)])
         self.assertEqual((code, json.loads(out)["verdict"]), (1, FAIL))

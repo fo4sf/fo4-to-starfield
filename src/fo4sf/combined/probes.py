@@ -70,7 +70,8 @@ PLACEHOLDERS = {
 # Plugin-local ids of the probe records (plan "records"); the scripts log the local id they resolved, we only compare.
 LOCAL = {"p2_loc": 2054, "p3_noparent": 2055, "p3_chained": 2056, "p10_quest": 2080,
          "p4_marker": 0x80B, "p8_parent0": 0x80C, "p8_child0": 0x80F, "p9_dest": 0x81B, "p10_event": 0x81F,
-         "holder": 0x805, "p6_list": 0x81C, "p7_list": 0x81D, "p7_rep": 0x81E}   # dotnet/CombinedProbe ids
+         "holder": 0x805, "p6_list": 0x81C, "p7_list": 0x81D, "p7_rep": 0x81E,
+         "route": 0x809, "p5_first": 0x823, "p5_last": 0x854}   # dotnet/CombinedProbe ids
 # what the cards ask for (docs/spikes/combined-core-probes.md P4 / P5): a shorter run is INCONCLUSIVE, not a PASS, so
 # a typo in `cgf "FOCC_Probe.P4Run" 3 8.0` is never recorded as the 20-cycle bloat answer
 P4_CYCLES = 20
@@ -515,6 +516,34 @@ def _local(e: Event, key: str):
     return n & 0xFFF if n >> 24 == 0xFE else n & 0xFFFFFF
 
 
+def _foreign(e: Event, ids: dict) -> list[str]:
+    """The form id fields of `e` that are missing or not the probe record's local id (`ids`: field -> local). A
+    stale or foreign property binding must never stand in for the probe's own record (Codex review of #431)."""
+    return [f for f, n in ids.items() if _local(e, f) != n]
+
+
+def _foreign_reason(what: str, e: Event, bad: list[str], ids: dict) -> str:
+    return (f"{what}: " + ", ".join(f"{f}={e.fields.get(f, 'missing')}" for f in bad) + " is not the probe's record "
+            "(locals " + ", ".join(f"{f} {hex(ids[f])}" for f in bad) + ")")
+
+
+def _is_plan_form(e: Event, field: str, want) -> bool | None:
+    """Whether the logged form id `field` is plan.json's `plugin:hexid`: a Starfield.esm form (load index 00) by its
+    whole id, another plugin's by its local id. None when either side is missing or unparsable."""
+    plugin, _, hexid = str(want or "").rpartition(":")
+    got = e.form(field)
+    try:
+        want_id = int(hexid, 16)
+    except ValueError:
+        return None
+    if not plugin or got is None:
+        return None
+    got_id = int(got, 16)
+    if plugin.lower() == "starfield.esm":
+        return got_id == want_id
+    return _local(e, field) == (want_id & (0xFFF if got_id >> 24 == 0xFE else 0xFFFFFF))
+
+
 def check_p2(c: Collection) -> Verdict:
     v = Verdict("p2", INCONCLUSIVE)
     v.extra["settles"] = "CC-02: location keyword data persists across save/load, linked locations (P2)"
@@ -540,6 +569,11 @@ def check_p2(c: Collection) -> Verdict:
     if _local(st, "loc") != LOCAL["p2_loc"]:
         v.reasons.append(f"p2 set loc {st.fields.get('loc')} is not the probe location (local {LOCAL['p2_loc']})")
         return v
+    for e, ids in ((st, {"holder": LOCAL["holder"]}),) + (((links[-1], {"route": LOCAL["route"]}),) if links else ()):
+        bad = _foreign(e, ids)
+        if bad:
+            v.reasons.append(_foreign_reason(e.kind, e, bad, ids))
+            return v
     if readback is None:
         v.reasons.append("p2 set has no readback")
         return v
@@ -570,6 +604,9 @@ def check_p2(c: Collection) -> Verdict:
     if _set_before(s2, "p2 set", rd, v):
         return v
     rv = rd.num("value")
+    if _foreign(rd, {"holder": LOCAL["holder"]}):
+        v.reasons.append(_foreign_reason("p2 read", rd, ["holder"], LOCAL))
+        return v
     if _local(rd, "loc") != LOCAL["p2_loc"] or rv is None:
         v.reasons.append(f"p2 read is not on the probe location (local {LOCAL['p2_loc']}) or lacks a value")
         return v
@@ -584,6 +621,9 @@ def check_p2(c: Collection) -> Verdict:
             return v
         v.cite(linkreads[-1])
         if _set_before(s2, "p2 link", linkreads[-1], v):   # relinked in the same launch (Codex review of #431)
+            return v
+        if _foreign(linkreads[-1], {"route": LOCAL["route"]}):
+            v.reasons.append(_foreign_reason("p2 linkread", linkreads[-1], ["route"], LOCAL))
             return v
         if (_local(linkreads[-1], "a"), _local(linkreads[-1], "b")) != want_link:
             v.reasons.append(f"p2 linkread a/b are not the probe locations (locals {want_link[0]} and "
@@ -627,6 +667,9 @@ def check_p3(c: Collection) -> Verdict:
             v.reasons.append(f"p3 set a/b are not the probe locations (locals {LOCAL['p3_noparent']} and "
                              f"{LOCAL['p3_chained']})")
             kw = INCONCLUSIVE
+        elif _foreign(st, {"holder": LOCAL["holder"]}):
+            v.reasons.append(_foreign_reason("p3 set", st, ["holder"], LOCAL))
+            kw = INCONCLUSIVE
         elif None in (va, ra, vb, rb):
             v.reasons.append("p3 set lacks va/ra/vb/rb")
             kw = INCONCLUSIVE
@@ -649,6 +692,9 @@ def check_p3(c: Collection) -> Verdict:
                 v.cite(init, rd)
                 a_ok, b_ok = _close(rd.num("ra"), va), _close(rd.num("rb"), vb)
                 if _set_before(s2, "p3 set", rd, v):
+                    kw = INCONCLUSIVE
+                elif _foreign(rd, {"holder": LOCAL["holder"]}):
+                    v.reasons.append(_foreign_reason("p3 read", rd, ["holder"], LOCAL))
                     kw = INCONCLUSIVE
                 elif (_local(rd, "a"), _local(rd, "b")) != (LOCAL["p3_noparent"], LOCAL["p3_chained"]):
                     # The relaunch read names its locations too (Codex review of #431).
@@ -724,6 +770,10 @@ def check_p4(c: Collection) -> Verdict:
     if _local(starts[-1], "marker") != LOCAL["p4_marker"]:   # the probe's own marker (Codex review of #431)
         v.reasons.append(f"p4 start marker {starts[-1].fields.get('marker')} is not FOCC_P4_SpawnMarker "
                          f"(local {LOCAL['p4_marker']})")
+        return v
+    if _is_plan_form(starts[-1], "base", _plan_bases(c.plan).get("npc")) is not True:
+        v.reasons.append(f"p4 start base {starts[-1].fields.get('base', 'missing')} is not plan.json's npc base "
+                         f"({_plan_bases(c.plan).get('npc')}): cannot tell the spawns are the probe's")
         return v
     done = _by_kind(evs, "p4 done")[:1]         # the run's own done closes it: later rows never count (Codex, #431)
     cycles = [e for e in _by_kind(evs, "p4 cycle") if not done or e.line < done[0].line]
@@ -806,6 +856,12 @@ def check_p5(c: Collection) -> Verdict:
     done = dones[0] if dones else None
     ticks = [e for e in _by_kind(evs, "p5 tick") if e.line > start.line and (done is None or e.line < done.line)]
     v.cite(start, *ticks)
+    ids = {"first": LOCAL["p5_first"], "last": LOCAL["p5_last"]}
+    bad = _foreign(start, ids)
+    if bad or (start.num("places") or 0) != 50:
+        v.reasons.append(_foreign_reason("p5 start", start, bad, ids) if bad else
+                         f"p5 start places={start.fields.get('places')}, want the probe's 50 globals")
+        return v
     want = int(start.num("ticks") or 0)
     if want < P5_TICKS:
         v.cite(*ticks)
@@ -874,19 +930,7 @@ def _base_match(e: Event, plan: dict | None, key_a: str, key_b: str):
         # The label is only the script's comparison with its own properties, so the logged runtime id must agree with
         # plan.json's base (Codex review of #431): a Starfield.esm base (load index 00) by its whole id, a base in
         # another plugin by its local id. No plan, no base mapping or a mismatch: cannot be told.
-        want = str(bases.get(key_a if bl.lower() == "a" else key_b) or "")
-        plugin, _, hexid = want.rpartition(":")
-        got = e.form("base")
-        try:
-            want_id, got_id = int(hexid, 16), int(got, 16) if got is not None else None
-        except ValueError:
-            return None
-        if not plugin or got_id is None:
-            return None
-        if plugin.lower() == "starfield.esm":
-            ok = got_id == want_id
-        else:
-            ok = _local(e, "base") == (want_id & (0xFFF if got_id >> 24 == 0xFE else 0xFFFFFF))
+        ok = _is_plan_form(e, "base", bases.get(key_a if bl.lower() == "a" else key_b))
         return bl.upper() if ok else None
     if bl.lower() == "other":
         return "other"
@@ -920,11 +964,9 @@ def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: 
         for e in mine:
             # the script's properties must be the probe's own records, or a stale or foreign binding passes without
             # exercising our LVLN / KYWD / GLOB (Codex review of #431)
-            bad = [f for f, want_local in ids.items() if _local(e, f) != want_local]
+            bad = _foreign(e, ids)
             if bad:
-                v.reasons.append(f"{key}={value}: " + ", ".join(f"{f}={e.fields.get(f, 'missing')}" for f in bad) +
-                                 " is not the probe's record (locals " +
-                                 ", ".join(f"{f} {hex(n)}" for f, n in ids.items()) + ")")
+                v.reasons.append(_foreign_reason(f"{key}={value}", e, bad, ids))
                 return INCONCLUSIVE
             rb = e.num(readback_key)
             if rb is not None and not _close(rb, value):

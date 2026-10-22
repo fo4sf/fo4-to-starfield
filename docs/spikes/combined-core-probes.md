@@ -144,6 +144,10 @@ P2, P3, P5, P10, P6, P7, P8, P4, P9, then P1 (P1 needs a toolchain decision and 
 mistaken dll cannot cost the other sessions). P2 and P3 can share two launches; P5, P10, P6, P7 can share one launch
 after P2's commands; P8, P4 and P9 each get their own saves.
 
+Every judged line names the probe records it used (`holder=`, `route=`, `list=`, `rep=`, P4's `base=`, P5's
+`first=`/`last=`, P8's `parent=`/`id=`, P9's dest `id=`, P10's `event=`/`id=`). A missing or foreign id (a stale or
+foreign property binding) makes the verdict INCONCLUSIVE, never PASS. P4's `base=` must equal plan.json's `npc`.
+
 ## P2: keyword data persists across save and load
 
 Settles: **CC-02** (the floor of option C': location keyword data as the holder datum) and linked-location route data
@@ -173,8 +177,8 @@ Quit; collect as `focc_session2.log`. Judge:
 $env:PYTHONPATH = "src"; python -m fo4sf.combined.probes p2 "D:\Modding\testqueue\focc_P2_$date"; $LASTEXITCODE
 ```
 
-Expect in session1: `FOCC rt=... p2 set loc=<id> local=2054 value=37.000000 readback=37.000000` and `p2 link a=<id>
-b=<id> linked=True`; in session2 a fresh `FOCC init` then `p2 read local=2054 value=37.000000` and `p2 linkread
+Expect in session1: `FOCC rt=... p2 set loc=<id> local=2054 value=37.000000 readback=37.000000 holder=<id>` and `p2 link a=<id>
+b=<id> linked=True route=<id>`; in session2 a fresh `FOCC init` then `p2 read local=2054 value=37.000000` and `p2 linkread
 linked=True`. PASS = those four, across two launches. FAIL = the read is 0 or another value after a confirmed set, or
 linkread False. INCONCLUSIVE = a file missing, no init in session2, `refused` (a property did not resolve), or no
 readback. Send back: both logs, the verdict JSON, the console's reply to `Hello` if it printed anything.
@@ -201,7 +205,7 @@ cgf "FOCC_Probe.P3Read"
 
 Copy the same two logs into `D:\Modding\testqueue\focc_P3_$date` as `focc_session1.log` / `focc_session2.log`; judge
 `probes p3`. Expect `p3 set a=<id> va=5.000000 ra=5.000000 b=<id> vb=6.000000 rb=6.000000` and, after relaunch,
-`p3 read a=<id> ra=5.000000 b=<id> rb=6.000000` (both ids must be the probe locations, locals 2055 and 2056). FAIL when one of the two reads 0 (the verdict says which: that alone decides whether
+`p3 read a=<id> ra=5.000000 b=<id> rb=6.000000 holder=<id>` (both ids must be the probe locations, locals 2055 and 2056). FAIL when one of the two reads 0 (the verdict says which: that alone decides whether
 unparented locations are usable).
 
 **Job focc-P3b (cell half). Game: CLOSED for the swap.** Run focc-uninstall, then stage the variant into a new folder
@@ -243,7 +247,7 @@ cgf "FOCC_Probe.P5Tick" 10
 
 Wait for ten `p5 tick` lines (`Get-Content -Wait "$logs\focc.0.log"` in a second window shows them), quit. Collect
 `focc.0.log` and the stage's `compile_p5_array129.txt` into `D:\Modding\testqueue\focc_P5_$date`; judge `probes p5`.
-Expect `p5 start ticks=10` then `p5 tick n=<1..10> places=50 ms=<float> sum=<float>`; the verdict reports min / median
+Expect `p5 start ticks=10 places=50 first=<id> last=<id>` then `p5 tick n=<1..10> places=50 ms=<float> sum=<float>`; the verdict reports min / median
 / max ms and ms per place as the baseline and `array_cap` 128 (compile refused `new float[129]`), `null` (it compiled)
 or `unknown` (file missing). FAIL only on fewer than 10 ticks after a start or a tick above the placeholder 1000 ms.
 Send back: the log, the compile file, the verdict; the lead copies the baseline into docs/ai/optimization.md.
