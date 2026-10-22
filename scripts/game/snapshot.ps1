@@ -80,7 +80,8 @@ if (Test-Path $pap) { Get-Content $pap -Tail 40 | Set-Content (Join-Path $Out 'p
 $rec = 'D:\SteamLibrary\steamapps\common\Starfield\Data\FO4SFExp.install.json'
 if (Test-Path $rec) { try { $r = Get-Content $rec -Raw | ConvertFrom-Json; $state.installed = [ordered]@{ exp_dir = $r.exp_dir; plugins = @($r.files.PSObject.Properties.Name | Where-Object { $_ -like '*.esm' }) } } catch { } }
 $pl = Join-Path $env:LOCALAPPDATA 'Starfield\Plugins.txt'
-if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') }) }
+# plain strings: Get-Content's lines carry PSPath, PSDrive and Provider, which ConvertTo-Json writes out (a 3 MB state.json)
+if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { "$_" }) }
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
 # no screenshot, no form: the link promises one on the clipboard (Codex's review of #350); the local failure stays recorded
 if ($Submit -and -not $shotOk) { $state.submit_skipped = 'no screenshot' }
