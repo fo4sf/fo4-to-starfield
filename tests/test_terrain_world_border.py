@@ -1,8 +1,8 @@
 """The world's border fields through the actual terrain writer (dotnet/TerrainOverlays) on the synthetic master of
 test_terrain_reference_identity, never a game: without params "world_data" the WRLD keeps the template's (LC172World:
 SmallWorld, HNAM 0); with make_core64c.py --world-border city's {"small_world": false, "hnam": 5} it carries
-NewAtlantis's (DATA without SmallWorld, HNAM 5), with which the BorderProbe city run's Vault 95 exit passed with the
-border on (docs/terrain/border.md)."""
+NewAtlantis's (DATA without SmallWorld, HNAM 5). Whether those fields stop the planet border in game is not yet proven
+(docs/terrain/border.md)."""
 import copy
 from pathlib import Path
 import sys

@@ -517,8 +517,9 @@ class CoreWorld(x2c.World):
 NEAR_M = 510.0              # core64 probes this close to the arrival (exact in the core64 run, 2026-10-11)
 AREA_M = 560.0              # local collision world: arrival +- this (every point and every teleport position)
 # --world-border: the WRLD fields TerrainOverlays changes on LC172World's copy (params "world_data", docs/terrain/border.md).
-# "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5): the BorderProbe city run's Vault 95 exit PASSed with the
-# border on (2026-10-22), where LC172World's own (template) FAILs STAYED with "BOUNDARY REACHED".
+# "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5). Whether they stop "BOUNDARY REACHED" is not yet proven:
+# the one city run that passed (2026-10-22) had the markers plugin's template WRLD as the last override; the repeat
+# test in border.md decides.
 WORLD_DATA = {"template": None, "city": {"small_world": False, "hnam": 5}}
 WORLD_SMALL_WORLD = 0x01                                  # WRLD DATA flag bit
 DROP_MARGIN = 40.0          # drop at least this far above the highest expected landing of the entry (as core64)

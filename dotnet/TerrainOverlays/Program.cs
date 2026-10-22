@@ -17,8 +17,8 @@
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell.
 //                          Optional params "world_data": {"small_world": false, "hnam": 5} changes LC172World's DATA
-//                          SmallWorld flag and its 1-byte HNAM (docs/terrain/border.md: NewAtlantis's values, with
-//                          which a long teleport no longer raises "BOUNDARY REACHED" in the BorderProbe city run)
+//                          SmallWorld flag and its 1-byte HNAM (docs/terrain/border.md: NewAtlantis's values; whether
+//                          they stop "BOUNDARY REACHED" is not yet proven, the repeat test there decides)
 // PNDT CNAM entries store latitude first, then longitude (radians; Earth overlays sit at their real cities). Mutagen
 // 0.55 names the first value Longitude and the second Latitude, so the params' latitude goes into .Longitude.
 //
