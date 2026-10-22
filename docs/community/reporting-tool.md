@@ -53,7 +53,7 @@ with your Windows user name; delete those lines.
 **Over full-screen Starfield** the box brings itself to the front, which minimizes the game until you press Save or
 Screenshot only; click the game on the taskbar to go back. If it still stays hidden (the taskbar button blinks), press
 Alt+Tab once, or switch Starfield to borderless/windowed. A box nobody answers closes by itself after 10 minutes and
-leaves `describe_later.txt` in the snapshot folder (and the folder's path in `C:\Modding\snapshots\describe_later.txt`):
+leaves `describe_later.txt` in the snapshot folder (and the folder's path in `Documents\FO4SF Reports\describe_later.txt`):
 type the description into a `description.txt` in that folder afterwards.
 
 Position and cell need Python (the scripts look for `FO4SF_PYTHON`, else skip that part); the screenshot and the box
