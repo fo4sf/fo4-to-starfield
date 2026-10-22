@@ -136,7 +136,8 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   `PlayAnimationAndWait`, events `OnOpen` / `OnClose` all exist, as the script assumes.
 - **A4, compile:** FO4SF_LoadDoor compiled (3,578 bytes); FO4SF_AnimatedLoadDoor failed on a local variable named
   `state`, a Papyrus keyword (lines 25-26). Renamed `openState`; a test now refuses a local of that name. Rerun at
-  28a63af: both compiled (**verified**), nothing installed.
+  28a63af: both compiled (**verified**), nothing installed. Latest rerun (compile4) at 44b87f5, after the lock check
+  and the door-flag copy: both compiled, nothing installed, output D:\Modding\scratch\loaddoor_anim_copy\compile4.
 
 - **A7, vanilla door sounds** (**verified**, doorsounds.tsv at 3f5a535, 310 DOORs with sounds): every one has an
   OpenSound, 303 a CloseSound; no sound uses a condition or an event mapping, so the WWise start / stop GUIDs are the
@@ -160,8 +161,39 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
 
 - **B, done 2026-10-19** (after A3 and A4 passed): `vmad_patch.py port --animated-doors <manifest>` writes
   FO4SF_AnimatedLoadDoor with `OpenSeconds` from `load_door.anim`; `check` reads which doors from doors.json and requires
-  it there. Both compiled PEX files (A4 rerun: FO4SF_LoadDoor 3,578 bytes sha256 35d8b66b..., FO4SF_AnimatedLoadDoor
-  1,985 bytes sha256 5662f5d9..., from 28a63af) must ride in the port's archive.
+  it there. Both compiled PEX files (compile4 at 44b87f5: FO4SF_LoadDoor 3,578 bytes sha256 8837022b...,
+  FO4SF_AnimatedLoadDoor 2,088 bytes sha256 e366ab65...; the 28a63af build is superseded) must ride in an active
+  plugin's archive (`stage_animated_doors.py`).
+- **Staging the port with animated doors (2026-10-22).** `interior_batch.py build --batch 0 --animated-doors`
+  rebuilds the installed port's 16 cells into a new folder with `convert_batch --rig-load-doors` (a new work staging,
+  since the rig switch changes the checkpoint signature), `load_door_anim.py plan`, `flags` (`--door-flags`, which
+  also answers A8: `door_anim\manifest_flags.json.flags.json`) and `sounds` (`--doorsounds`, A7's TSV), PluginSpike on
+  that manifest, `vmad_patch port --keep-markers --animated-doors`, compare against the installed port, and packs the
+  PEX into `FO4Port - Main.ba2` (only the child: FO4SF_LoadDoor.pex already rides the installed bridge's archive). The
+  installed core is not touched, so its exterior side stays an ACTI until C. The PEX is compiled from the same commit
+  first (`compile_animated_load_door.py`, a new folder): the script's `{...}` header is compiled into the PEX, so
+  compile4's file is not this commit's. Steps (PC, one job each; tool paths as the interiors batch builds use):
+
+```
+python scripts\door_bridge\compile_animated_load_door.py --compiler <PapyrusCompiler.exe> --content-resources <ContentResources.zip> ^
+  --out D:\Modding\scratch\loaddoor_anim_copy\compile5
+python scripts\terrain\interior_batch.py build --plan docs\terrain\data\interior-batches.json --batch 0 ^
+  --base D:\Modding\staging\integ_v6_specmask_doors_c --base-exports D:\Modding\staging\integ_v6_specmask ^
+  --core D:\Modding\staging\terrain_core64v6c_l125 --work D:\Modding\doors_anim_work --out D:\Modding\staging\doors_anim_b00 ^
+  (the interiors builds' --fo4-data ... --promote-arg options, unchanged) ^
+  --animated-doors --animated-pex D:\Modding\scratch\loaddoor_anim_copy\compile5\FO4SF_AnimatedLoadDoor.pex ^
+  --door-flags --doorsounds <A7 doorsounds.tsv>
+```
+
+  Pass: result.json `error` null, compare pass (changed DOOR / REFR records of the load doors listed, no id moved),
+  `steps.door_anim.animated` above 0, `vmad_patch check` exit 0. Installing it (FO4Port.esm and its two archives from
+  `doors_anim_b00\port` over the installed port's, the rollback the current swap script) waits for the owner's line in
+  the install thread.
+- **What runs before C** (the installed core, this port): G2 (FortHagen01 <-> 02, both sides in the port: the
+  `_XtelLoad` copy plays the open, then the trip) and G3 (leave through an animated interior door, come back through
+  the core's ACTI: the interior door is shut) can; G1 needs both sides animated, so it waits for C. Run them on a
+  dedicated test save (framework E24: moving XTEL references onto `_XtelLoad` copies may break saves until tested), and
+  read Plugins.txt before any console id, since the game reorders it about 25 s after start.
 - **C** (after the v6e test): the core writer places the exterior side as the same animated DOOR (FO4 name, rig,
   VMAD) behind a switch; compare-ids must show only the door ACTIs replaced.
 - **G** (in game, owner's window only): G1 the SDM pair with both sides animated: E, the leaf swings, then the trip,
