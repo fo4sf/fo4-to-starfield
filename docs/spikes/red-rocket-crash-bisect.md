@@ -1,7 +1,8 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **in progress**. v6e and v6h both crash at Red Rocket with the same fault, so every door rig near Red Rocket
-is cleared, and a run with the mission off crashes too. The lead is the counter door's flat leaf box (see "The 0.02 in the door boxes"); v6i tests it.
+Status: **in progress**. v6e, v6h and v6i all crash at Red Rocket with the same fault. Cleared so far: the movable
+props, every door rig near Red Rocket, the mission, memory, and (v6i) every 0.02 in the core's NIFs. Next: name the
+file the crashing loader reads (see "After v6i").
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -152,4 +153,21 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
   with more than one link its own copy. Copy it to a temporary name in the same folder, then move that copy over the
   original (a rename). Never copy onto the existing file: that writes through the link too. About 3.65 GB.
 
-v6c, v6e and v6h are tested in game (all crash at Red Rocket); v6i has not been built.
+## v6i result (2026-10-22)
+- v6i (the 0.05 leaf floor, `nif_float_scan.py` finds 0x3ca3d70a in 0 of its 11,768 collision NIFs) still crashes about 16
+  s after the move to Red Rocket (19:34:40 local). The dump is the same: Starfield.exe+0x2bf016b, rcx 0x3ca3d70a, r12
+  0x6666666666666600. Memory is flat (working set peak 9.88 GB, 3.52 GB free at the lowest). **Verified** (PC report).
+- So the door-leaf boxes are cleared too: the 0.02 the loader reads comes from somewhere else. The floor change (#455)
+  stays, as it is harmless. Only codsworth.nif's shader properties still hold the value among the NIFs, and Codsworth
+  is in the mission plugin, which the mission-off run left out, so he is unlikely (**inference**).
+- Places not yet scanned: the `.mesh` geometry files under geometries\, the plugins (FO4TerrainCore.esm, FO4Port.esm),
+  and a value the game computes at run time, which no file scan finds.
+
+## After v6i: name the file being read
+- `minidump_read.py --strings 80` lists the text in the faulting thread's stack and around what its registers point
+  at, paths first. A loader usually has the file name it is reading on its stack. This needs no build and no install.
+- `scripts/game/value_scan.py` finds the value in any file: plugins record by record (type, form id, editor id, field),
+  everything else as raw bytes. Run it over the plugins first (few hits expected), then over the `.mesh` files.
+  Geometry is full of floats, so a `.mesh` hit only matters when the mesh is placed near both crash sites.
+
+v6c, v6e, v6h and v6i are tested in game (all crash at Red Rocket).
