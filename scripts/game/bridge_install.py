@@ -152,6 +152,15 @@ def install(a):
         if not same:
             sys.exit(f"another {KIT} is installed ({rec_p}: {rec.get('dir')}); uninstall it first")
         exp_install.verify_archive(targets[ARCHIVE], archive_inputs(source))
+        try:
+            held = PLUGIN.casefold() in exp_install.held_off(data)
+        except (OSError, ValueError) as error:
+            sys.exit(f"bridge not installed: {error}")
+        if held:                                          # plugin_toggle.py holds it off: stays unticked
+            if plugin_line_present(exp_install.read_plugins(exp_install.plugins_txt())[0], PLUGIN) is not None:
+                sys.exit(f"bridge not installed: {PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt")
+            print(f"already installed; {PLUGIN} held off by plugin_toggle.py")
+            return
         lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
         if plugin_line_present(lines, PLUGIN) is None:    # e.g. a deploy rewrote Plugins.txt: activate again
             # Verified complete legacy receipts already own these files. Retain
@@ -164,6 +173,7 @@ def install(a):
         else:
             print("already installed")
         return
+    exp_install.refuse_while_held(data, "bridge not installed")
     clash = [rel for rel in targets if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
@@ -210,6 +220,8 @@ def uninstall(a, _recovery=None):
     if not os.path.exists(rec_p):
         print(f"{KIT} not installed")
         return
+    if _recovery is None:
+        exp_install.refuse_while_held(data, "bridge not uninstalled")
     rec = read_record(rec_p) if _recovery is None else _recovery
     validate_profile(rec)  # interrupted recovery must obey the same profile guard
     if not isinstance(rec.get("files"), dict) or set(rec["files"]) - {PLUGIN, ARCHIVE}:
@@ -254,16 +266,13 @@ def uninstall(a, _recovery=None):
     print("uninstalled")
 
 
-def order(a):
-    """The bridge's line moved to the END of Plugins.txt, right before launch (cycle.ps1 after exp_install order).
-    The bridge has no masters and nothing depends on its load index, but every planned test addresses the experiment's
-    records by load index (plugin_index 02 for the terrain, the cave slice's door 05000800): cave_core64c_1015 a1
-    (2026-10-15) had "*FO4SFBridge.esm" first, every experiment shifted one index up, prid 05000800 hit FO4Port's
-    record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
+def order_preflight(a):
+    """order's read-only checks, before it touches Plugins.txt: None when the kit is not installed, else
+    (data, rec_p, rec, Plugins.txt path, held off); ValueError when order would refuse (campaign_arm.py runs the same
+    checks before it arms a chain, Codex on #391)."""
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
-        print(f"{KIT} not installed: nothing to order")
-        return
+        return None
     rec = read_record(rec_p)
     if rec.get("complete") is not True or rec.get("cleanup_pending"):
         raise ValueError(f"incomplete {KIT} install: recover before ordering")
@@ -274,6 +283,27 @@ def order(a):
         if not os.path.isfile(target) or exp_install.digest(target) != expected:
             raise ValueError(f"installed {KIT} changed: {relative}")
     p = validate_profile(rec)
+    held = PLUGIN.casefold() in exp_install.held_off(data)
+    if held and plugin_line_present(exp_install.read_plugins(p)[0], PLUGIN) is not None:
+        raise ValueError(f"{PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt: "
+                         f"run plugin_toggle.py on, or untick it")
+    return data, rec_p, rec, p, held
+
+
+def order(a):
+    """The bridge's line moved to the END of Plugins.txt, right before launch (cycle.ps1 after exp_install order).
+    The bridge has no masters and nothing depends on its load index, but every planned test addresses the experiment's
+    records by load index (plugin_index 02 for the terrain, the cave slice's door 05000800): cave_core64c_1015 a1
+    (2026-10-15) had "*FO4SFBridge.esm" first, every experiment shifted one index up, prid 05000800 hit FO4Port's
+    record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
+    pre = order_preflight(a)
+    if pre is None:
+        print(f"{KIT} not installed: nothing to order")
+        return
+    data, rec_p, rec, p, held = pre
+    if held:
+        print(f"{PLUGIN} held off by plugin_toggle.py: left unticked")
+        return
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
     k = plugin_line_present(lines, PLUGIN)

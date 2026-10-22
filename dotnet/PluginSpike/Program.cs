@@ -14,6 +14,7 @@
 // removing assets never renumbers existing records (saves and cross-references keep working). Keys:
 //   STAT:<editor id>   MSTT:<editor id> (movable items)   DOOR:<editor id>   CELL:<cell name>
 //   REFR:<cell name>:<source FO4 FormKey>   (lights and COC markers use their source ref)
+//   LCTN:<editor id>   (one per FO4 location shared by its cells, one per cell without; Locations.cs)
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -239,10 +240,17 @@ string Setting(string cell, string key, string fallback) =>
     lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
     : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w
     : Environment.GetEnvironmentVariable(key) ?? fallback;
+string? FileSetting(string cell, string key) =>
+    lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
+    : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w : null;
 
 // Interior promotions (Promotions.cs): <output dir>/promote.json, when present, gives FO4 containers, inventory items,
 // activators and terminals a native base of their kind instead of the STAT / MSTT their model would get.
 using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
+
+// Starfield locations (Locations.cs): every converted cell gets an LCTN, shared with the other cells of its FO4 location,
+// carrying the FO4 encounter zone's leveling; <output dir>/locations.json supplies the FO4 data for exports without it.
+using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release);
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -257,6 +265,11 @@ foreach (var cdoc in cellDocs)
     var src4 = root.GetProperty("cell").GetString()!;
     var cellName = "FO4Port_" + src4;
     var cell = new Cell(Id("CELL:" + cellName), release) { EditorID = cellName, Flags = Cell.Flag.IsInteriorCell };
+    cell.Location.SetTo(locations.For(root, src4).FormKey);
+    // CELL flag bit 16 "Use Location as Name" (no Mutagen member in alpha.67; the raw bit round-trips): off unless the
+    // per-cell setting asks for it, since which name the "Enter ..." prompt shows is still to be seen in game (D2). Read
+    // from lighting.json only (the cell's entry, then "*"), never the environment: a stray variable must not flip every cell.
+    if (FileSetting(src4, "LOCATION_AS_NAME") == "1") cell.Flags |= (Cell.Flag)0x10000;
     var ltHex = Setting(src4, "LIGHTING_TEMPLATE", "06BCF8");   // KreetBase01LGTtemplate (underground); ShipInteriorLT 006658 is brighter
     cell.LightingTemplate.SetTo(new FormKey(sfEsm, Convert.ToUInt32(ltHex, 16)));
     // exposure + reflections like the vanilla underground interior DR017UndergroundInterior (25CAA7): without these the cell
@@ -327,7 +340,15 @@ foreach (var cdoc in cellDocs)
             obj.MajorRecordFlagsRaw |= 0x800;                                              // Initially Disabled, as in FO4
             disabled++;
         }
-        cell.Temporary.Add(obj);
+        // The coc arrival marker is persistent: a script, probe or new-game start must resolve it before the cell has
+        // loaded (FO4Port_Vault111Cryo had 0 persistent refs of 1,166, records report 21 Oct). Moving a ref between the
+        // groups keeps its FormID (keyed by REFR:<cell>:<source>).
+        if (obj.Base.FormKey == cocMarker)
+        {
+            cell.Persistent.Add(obj);
+            obj.MajorRecordFlagsRaw |= 0x400;                                              // Persistent, as TeleportLinks.MakePersistent
+        }
+        else cell.Temporary.Add(obj);
         placedBySource[src] = (obj, cell);
     }
     var cid = cell.FormKey.ID;
@@ -339,6 +360,13 @@ foreach (var cdoc in cellDocs)
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references ({placedPosed} with their own posed model) + {lights} lights ({disabled} initially disabled), skipped {skipped}");
     if (openDoors + lockedDoors > 0)
         Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
+}
+
+if (cellDocs.Count > 0)
+{
+    Console.WriteLine($"locations: {locations.Shared} shared FO4 locations, {locations.PerCell} per-cell, {locations.Leveled} with encounter-zone leveling; " +
+                      $"{locations.FromSidecar} cells from locations.json, {locations.WithoutData} without FO4 location data");
+    foreach (var w in locations.Warnings) Console.WriteLine($"  warning {w}");
 }
 
 if (promotions.Listed > 0)

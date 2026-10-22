@@ -99,6 +99,9 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+COC_TIMEOUT_S = 480           # coc.ps1 with its retries: the first coc, the same coc again, the hop and the target twice
+CYCLE_TIMEOUT_S = 1500        # cycle.ps1 per launch: its start waits, 240 s main menu, 300 s save loaded, the coc
+                              # (COC_TIMEOUT_S); was 900, then 1200 before coc.ps1's retries
 LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
@@ -224,6 +227,48 @@ def load(p, default=None):
         return default
     with open(p, encoding="utf-8-sig") as f:
         return json.load(f)
+
+
+# what deploy_starfield.py install writes into the staging root on the first launch: the archives it packs from the
+# pinned loose meshes/geometries/materials/textures (ARCHIVE, TEX_ARCHIVE), and the temporary folder it builds them in
+DEPLOY_ARCHIVES = ("FO4Port - Main.ba2", "FO4Port - Textures.ba2")
+DEPLOY_TEMP = ".fo4port-archive-"
+
+
+def staging_paths(staging, skip=()):
+    """{relative path: full path} of every staged file staging_fingerprint hashes. Left out: the probe points, the
+    folders in `skip`, and what the deploy generates in the staging root (DEPLOY_ARCHIVES, packed from files that are
+    pinned; Codex on #405: the first launch's deploy otherwise read as a changed build)."""
+    out = {}
+    skip = [os.path.normcase(os.path.abspath(x)) for x in skip]
+    top = os.path.normcase(os.path.abspath(staging))
+    for root, dirs, files in os.walk(staging):
+        at_top = os.path.normcase(os.path.abspath(root)) == top
+        dirs[:] = sorted(x for x in dirs if os.path.normcase(os.path.abspath(os.path.join(root, x))) not in skip
+                         and not (at_top and x.startswith(DEPLOY_TEMP)))
+        for n in sorted(files):
+            if n.startswith("probe_") and n.endswith(".txt"):
+                continue
+            if at_top and n in DEPLOY_ARCHIVES:
+                continue
+            p = os.path.join(root, n)
+            out[os.path.relpath(p, staging).replace(os.sep, "/")] = p
+    return out
+
+
+def stat_sig(p):
+    """A staged file's identity for the staging pin's cache: size, mtime, and the file id and change time (st_ino is the
+    NTFS file id on Windows, new after an atomic replace; st_ctime_ns is the change time on Linux, the creation time on
+    Windows), so a same-size replace with its old mtime restored is rehashed (Codex on #405)."""
+    st = os.stat(p)
+    return (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev, st.st_ctime_ns)
+
+
+def staging_fingerprint(staging, skip=()):
+    """{relative path: sha256} of every file in the staging: the plugin, archives, meshes, cell exports, routes. Left
+    out: the probe_<cell>_<n>.txt floor points plan writes there itself, and any folder in `skip` (an inventory
+    planned inside the staging). A rebuilt mesh or archive with the same FO4Port.esm is another build (Codex on #405)."""
+    return {k: sha256(p) for k, p in staging_paths(staging, skip).items()}
 
 
 def save_atomic(p, obj):
@@ -480,14 +525,18 @@ def plan_terrain(a):
     # plus the optional time-of-day / weather fields (sky_light.LIGHT_KEYS)
     own = load(os.path.join(a.exp_dir, "plan.json"))
     rounds = os.path.join(a.exp_dir, "rounds.json")
-    if os.path.exists(rounds):
-        # a door rounds stage: its judge reads rounds.json against these tests, so the plan.json must be the one staged
-        # with it (door_rounds.save_stage: rounds.json plan_sha256; Codex on #401)
-        want = (load(rounds, {}) or {}).get("plan_sha256")
+    presence = os.path.join(a.exp_dir, "presence.json")
+    for judged in (rounds, presence):
+        if not os.path.exists(judged):
+            continue
+        # a door rounds or presence stage: its judge reads the file against these tests by index, so the plan.json
+        # must be the one staged with it (door_rounds.save_stage: plan_sha256; Codex on #401, and on #391 for presence)
+        name = os.path.basename(judged)
+        want = (load(judged, {}) or {}).get("plan_sha256")
         if not want or not os.path.exists(os.path.join(a.exp_dir, "plan.json")) \
                 or sha256(os.path.join(a.exp_dir, "plan.json")) != want:
-            sys.exit(f"{a.exp_dir}: plan.json is not the one its rounds.json was staged with "
-                     f"({'no plan_sha256 in rounds.json' if not want else 'plan_sha256 differs'}): stage it again")
+            sys.exit(f"{a.exp_dir}: plan.json is not the one its {name} was staged with "
+                     f"({'no plan_sha256 in ' + name if not want else 'plan_sha256 differs'}): stage it again")
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
@@ -532,6 +581,8 @@ def plan_terrain(a):
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
     if os.path.exists(rounds):                            # a door rounds stage: what its judge must have read (regress)
         q["rounds_sha256"] = sha256(rounds)
+    if os.path.exists(presence):                          # what presence.py judge must read (campaign_arm, Codex on #391)
+        q["presence_sha256"] = sha256(presence)
     # installed by the runner right before it launches the game; needs: the runner features its tests use
     q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
@@ -2933,6 +2984,7 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.live_pid = None                              # the runner's own game while it should be running
         self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
@@ -2969,8 +3021,11 @@ class Runner:
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
-        except subprocess.TimeoutExpired:
-            code, out = 124, "timeout"
+        except subprocess.TimeoutExpired as e:
+            # what the script printed before the timeout stays (Codex on #439: a stalled cycle.ps1 left no trace);
+            # "timeout" stays the last line, which run.log shows
+            part = "".join(x.decode("utf-8", "replace") if isinstance(x, bytes) else x for x in (e.stdout, e.stderr) if x)
+            code, out = 124, (part.rstrip() + "\ntimeout").lstrip("\n")
         self.ctl.mark_sent()
         return code, out
 
@@ -2997,6 +3052,33 @@ class Runner:
         esm = os.path.join(self.q["staging"], "FO4Port.esm")
         return os.path.exists(esm) and sha256(esm) == self.q["plugin_sha256"]
 
+    def staging_mismatch(self):
+        """Why the staging no longer matches the full fingerprint the queue pinned (staging_files: every file's sha256,
+        written by inventory.py), else None. A queue without the pin is checked on FO4Port.esm alone (pinned_ok). A
+        changed archive, mesh, cell export or route with the same plugin is another build (Codex on #405).
+        Checked before every test (ensure_game), the live game reused or not. Every file is hashed only when the
+        staging's stat signature (stat_sig) differs from the last one that matched the pin, so a run on an unchanged
+        staging pays one stat walk per test. Known limit: an in-place write on Windows that keeps the size and restores
+        the mtime keeps the signature; inventory.py promote hashes every file in full."""
+        pin = self.q.get("staging_files")
+        if pin is None:
+            return None
+        try:
+            paths = staging_paths(self.q["staging"], self.q.get("staging_skip") or [])
+            sig = {k: stat_sig(p) for k, p in paths.items()}
+            if sig == getattr(self, "_staging_sig", None):
+                return None                               # nothing touched since the last full match
+            now_ = {k: sha256(p) for k, p in paths.items()}
+        except OSError as e:
+            return f"staging {self.q['staging']} unreadable: {e}"
+        if now_ != pin:
+            self._staging_sig = None
+            moved = sorted(k for k in set(pin) | set(now_) if pin.get(k) != now_.get(k))
+            return (f"the staging changed since the queue was planned ({len(moved)} file(s): "
+                    f"{', '.join(moved[:5])}{', ...' if len(moved) > 5 else ''})")
+        self._staging_sig = sig
+        return None
+
     def experiment_mismatch(self):
         """Why the staged experiment a walk queue pinned (experiment_identity) is no longer what the plan saw, else
         None: checked before a launch (the launch installs it), as pinned_ok checks FO4Port.esm."""
@@ -3018,9 +3100,17 @@ class Runner:
         if gp and gp != self.ctl.owned_pid():
             self.log("a Starfield the runner did not start is running (the owner's session): stopping")
             return "stop"
+        why = self.staging_mismatch()                     # every test, a live game too: steps read staged files
+        if why:
+            self.log(f"{why}: stopping")
+            return "stop"
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
+        if gp:
+            self.live_pid = gp                            # the runner's own game (a resumed run finds it running)
+        elif self.game_gone():
+            self.count_vanished("between tests")          # before launch_limit, so --crash-budget sees it
         if not gp:
             fresh = getattr(self, "fresh_launch", False)
             self.fresh_launch = False
@@ -3066,8 +3156,12 @@ class Runner:
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
-                                               "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
+                                               "-Shot", os.path.join(self.qdir, "cycle.png")], CYCLE_TIMEOUT_S, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            # the whole output goes to cycle.log: its main menu, load order and "save loaded" lines say where a launch
+            # that never became playable stopped (v6e doors_out, 2026-10-21: only the last line was kept)
+            with open(os.path.join(self.qdir, "cycle.log"), "a", encoding="utf-8") as f:
+                f.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} launch into {launch}: exit {code}\n{out.rstrip()}\n")
             if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
@@ -3089,12 +3183,16 @@ class Runner:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
             self.session, self.cell = False, launch
+            self.live_pid = self.ctl.game_pid()
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
-            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json], 180)
+            # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs);
+            # COC_TIMEOUT_S covers its retries when the first coc misses the marker (four more cocs and two more reads)
+            code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
+                                                                                       else []), COC_TIMEOUT_S)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
-            if code == 2:
+            if code == 2 and not self.game_gone():        # a game gone fails the input guard too: a crash, below
                 return "owner"
             if code != 0:
                 self.cell = None
@@ -3131,6 +3229,21 @@ class Runner:
             obs = load(os.path.join(sd, "obs.json"), {})
             self.log(f"companion {COMPANION_REF}: {obs.get('companion')} (exit {code})")
         self.session = True
+
+    def game_gone(self, pid=None):
+        """True when the game this run launched or found running has no process any more: it exited on its own, with or
+        without a dump (doors_rounds 2026-10-21: Starfield vanished as 0000_terrain_FO4Core_RedRocketSpawn began, no
+        WER event, no dump, and the run judged stale bridge lines instead of counting a crash)."""
+        pid = pid or self.live_pid
+        return bool(pid) and not self.ctl.game_pid()
+
+    def count_vanished(self, where):
+        """A game that exited on its own counts as a crash (state crashes, so --crash-budget sees it); the session
+        and cell are unknown after it."""
+        self.state["crashes"] += 1
+        self.session, self.cell, self.live_pid = False, None, None
+        self.log(f"the game exited {where} (no Starfield process): counted as a crash, {self.state['crashes']} this run")
+        self.checkpoint()
 
     def recover(self):
         """The console could not be opened (menu, overlay or popup over the HUD). Only when nobody touched the PC since
@@ -3442,6 +3555,7 @@ class Runner:
                 self.log("fresh test: closing the runner's game for a new launch")
                 self.ctl.close_game()
                 self.session, self.cell, self.game_used = False, None, False
+                self.live_pid = None                      # closed on purpose: not a crash
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
             if g and g.startswith(("the game did not start", "limit:")):   # no waiting fixes Steam or a full disk
@@ -3469,7 +3583,11 @@ class Runner:
             lt = None                                     # the sky reading, for tests that asked for a time of day
             crashed = False                               # the game exited during this test's step
             con = []                                      # console_pre / console_post replies (parsed OCR)
-            if g in ("nocell", "retry"):
+            if g in ("nocell", "retry") and self.game_gone():
+                self.count_vanished(f"while travelling to {t['cell']}")
+                crashed, code = True, None                # counted toward FAIL CRASH below, like a crash in the step
+                verdict, cls, detail = "INCONCLUSIVE", "CRASH", f"the game exited before {t['cell']} was reached"
+            elif g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
                 if g == "nocell" and not self.recover():
                     self.log("stopped: the game is not in a playable state (menu or overlay)")
@@ -3479,7 +3597,10 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the foreground was lost mid-step: not an attempt
+                # a game that exited on its own fails the step's input (exit 2) or its HUD check (exit 3) too: it is a
+                # crash, never "the owner took over" or "a menu" (doors_rounds 2026-10-21, see game_gone)
+                gone = self.game_gone(pid_before)
+                if code == 2 and not gone:                # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
                     who = foreground_thief(out_dir)
@@ -3506,14 +3627,13 @@ class Runner:
                     self.log("stopped: owner took over during a step")
                     self.checkpoint("stopped: owner took over during a step")
                     return 3
-                if code == 3 and not self.recover():      # a menu or overlay hides the HUD and Escape did not clear it
+                if code == 3 and not gone and not self.recover():   # a menu or overlay hides the HUD, Escape did not clear it
                     self.state["attempts"][t["id"]] = n - 1
                     self.log("stopped: the game is not in a playable state (menu or overlay)")
                     self.checkpoint("stopped: menu or overlay")
                     return 3
-                if pid_before and not self.ctl.game_pid():
-                    self.state["crashes"] += 1
-                    self.session, self.cell = False, None
+                if gone:
+                    self.count_vanished(f"during {t['id']}")
                     crashed = True                        # counted below, once the install is known to be the pinned one
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:

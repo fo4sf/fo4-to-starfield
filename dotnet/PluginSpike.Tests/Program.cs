@@ -517,6 +517,185 @@ Console.WriteLine("Animated load-door checks passed.");
 }
 Console.WriteLine("Interior promotion checks passed.");
 
+// Locations (Locations.cs, D1): PluginSpike end to end with schema-3 cell exports and a locations.json sidecar. Two cells
+// of one FO4 location share one LCTN carrying the first cell's encounter-zone leveling; a cell without a resolved FO4
+// location gets its own (leveled by its zone when it has one); an unshared FO4 location without a zone stays unleveled;
+// every LCTN hangs under the root FO4Port_InteriorsLocation (parent SSol_PMars_Surface); no keywords; CELL bit 16 only
+// with LOCATION_AS_NAME from lighting.json (a stray environment variable must not set it); an export without the keys
+// reads the sidecar, one with them beats it; a second build adding a cell of the shared location keeps every FormID.
+{
+    var locDir = Path.Combine(Path.GetTempPath(), "fo4sf-locations-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(locDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    var port = ModKey.FromNameAndExtension("FO4Port.esm");
+    try
+    {
+        var manifest = Path.Combine(locDir, "manifest.json");
+        File.WriteAllText(manifest, """{"items":[{"editor_id":"FO4Port_Wall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}""");
+        const string vault = """
+            {"formkey":"0001A0:Fallout4.esm","editor_id":"VaultLocation","name":"The Vault","parent":"0001A1:Fallout4.esm",
+             "parent_chain":[{"formkey":"0001A1:Fallout4.esm","editor_id":"CommonwealthLocation","name":"Commonwealth"}],
+             "keywords":[{"formkey":"0001B0:Fallout4.esm","editor_id":"LocTypeVault"}]}
+            """;
+        string Zone(string fk, int min, int max, int flags) =>
+            $$"""{"formkey":"{{fk}}","editor_id":"Zone","min_level":{{min}},"max_level":{{max}},"rank":0,"flags":{{flags}},"owner":null,"location":null}""";
+        string Export(string cell, string? keys) =>
+            $$"""{"schema_version":3,"cell":"{{cell}}","formkey":"{{cell}}-cell","refs":[{"formkey":"{{cell}}:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1}]""" +
+            (keys == null ? "}" : "," + keys + "}");
+        string Cell(string name, string? loc, string? zone, string cellName) =>
+            $$"""
+            "cell_data":{"flags":1,"name":"{{cellName}}"},"location":{{loc ?? "null"}},"encounter_zone":{{zone ?? "null"}}
+            """;
+        // VaultA / VaultB share the FO4 location; VaultB's zone differs (reported, VaultA's kept); Shack has none; Ruin's is
+        // unresolved; Den has a zone but no location (the zone levels its per-cell LCTN); Lone has an unshared location and
+        // no zone (its LCTN gets no Owner); Pinned carries no keys at all (a pinned base-cell export) and is served by the
+        // sidecar, whose entry for Shack must lose to Shack's own (empty) keys
+        const string hermit = """{"formkey":"0001A3:Fallout4.esm","editor_id":"HermitLocation","name":"Hermit's Hole","parent":null,"parent_chain":[],"keywords":[]}""";
+        var cellExports = new Dictionary<string, string>
+        {
+            ["VaultA"] = Export("VaultA", Cell("VaultA", vault, Zone("0001C0:Fallout4.esm", 3, 10, 5), "Vault A")),   // NeverResets | DisableCombatBoundary
+            ["VaultB"] = Export("VaultB", Cell("VaultB", vault, Zone("0001C1:Fallout4.esm", 20, 30, 2), "Vault B")),
+            ["Shack"] = Export("Shack", Cell("Shack", null, null, "Shack")),
+            ["Ruin"] = Export("Ruin", Cell("Ruin", """{"formkey":"0001A9:DLCMissing.esm","unresolved":true}""", null, "Ruin")),
+            ["Den"] = Export("Den", Cell("Den", null, Zone("0001C3:Fallout4.esm", 7, 12, 1), "Den")),
+            ["Lone"] = Export("Lone", Cell("Lone", hermit, null, "Lone")),
+            ["Pinned"] = Export("Pinned", null),
+        };
+        foreach (var (name, text) in cellExports) File.WriteAllText(Path.Combine(locDir, name + ".json"), text);
+        var pinnedLoc = """{"formkey":"0001A2:Fallout4.esm","editor_id":null,"name":"Pinned Place","parent":null,"parent_chain":[],"keywords":[]}""";
+        File.WriteAllText(Path.Combine(outDir, "locations.json"), "{\"schema_version\":1,\"cells\":{" +
+            "\"Pinned\":{" + Cell("Pinned", pinnedLoc, Zone("0001C2:Fallout4.esm", 200, 255, 31), "Pinned") + "}," +
+            "\"Shack\":{" + Cell("Shack", vault, null, "Shack") + "}}}");
+        File.WriteAllText(Path.Combine(outDir, "lighting.json"), """{"VaultB":{"LOCATION_AS_NAME":"1"}}""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("LOCATION_AS_NAME", "1");        // a stray variable (a one-cell PC test) must not flip every cell
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", locDir);
+        string[] Args(params string[] cells) => new[] { outDir, manifest }.Concat(cells.Select(c => Path.Combine(locDir, c + ".json"))).ToArray();
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { Args("VaultA", "VaultB", "Shack", "Ruin", "Den", "Lone", "Pinned") });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var lctns = written.Locations.ToDictionary(l => l.EditorID!);
+            var cells = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).ToDictionary(c => c.EditorID!);
+            Require(lctns.Count == 7 && cells.Count == 7, $"expected 7 LCTNs (root, shared, Shack, Ruin, Den, Hermit, Pinned) and 7 cells, got {lctns.Count}/{cells.Count}");
+            var root = lctns["FO4Port_InteriorsLocation"];
+            Require(root.ParentLocation.FormKey == new FormKey(sfKey, 0x01B736) && root.FormKey.ID == ids["LCTN:FO4Port_InteriorsLocation"],
+                    "root LCTN not parented to SSol_PMars_Surface or not keyed");
+            var shared = lctns["FO4Port_VaultLocation"];
+            Require(shared.FormKey.ID == ids["LCTN:FO4Port_VaultLocation"] && shared.Name!.String == "The Vault", "shared LCTN key or name wrong");
+            Require(cells["FO4Port_VaultA"].Location.FormKey == shared.FormKey && cells["FO4Port_VaultB"].Location.FormKey == shared.FormKey,
+                    "the two cells of one FO4 location do not share one LCTN");
+            Require(shared.Owner != null && shared.Owner.EncounterMinLevel == 3 && shared.Owner.EncounterMaxLevel == 10
+                    && shared.Owner.EncounterFlags == (LocationOwnerData.EncounterFlag.NeverResets | LocationOwnerData.EncounterFlag.DisableCombatBoundry),
+                    "encounter zone leveling not folded into the shared LCTN (or VaultB's zone replaced VaultA's)");
+            foreach (var l in lctns.Values)
+                Require(l.ParentLocation.FormKey == root.FormKey || l == root, $"{l.EditorID} not parented to the root");
+            Require(lctns.Values.All(l => l.Keywords == null || l.Keywords.Count == 0), "keywords written on an LCTN");
+            Require(cells.Values.All(c => !c.Location.IsNull), "a converted cell has no location");
+            // per-cell LCTNs: no FO4 location, an unresolved one, and the sidecar's nameless FO4 location (keyed by FormKey)
+            var shack = lctns["FO4Port_ShackLocation"];
+            Require(cells["FO4Port_Shack"].Location.FormKey == shack.FormKey && shack.Owner == null && shack.Name!.String == "Shack",
+                    "a cell without an FO4 location did not get its own unleveled LCTN named after the cell (or the sidecar beat the cell JSON)");
+            Require(cells["FO4Port_Ruin"].Location.FormKey == lctns["FO4Port_RuinLocation"].FormKey, "an unresolved FO4 location was not treated as absent");
+            // a zone without an FO4 location levels the per-cell LCTN (never the zone's own location)
+            var den = lctns["FO4Port_DenLocation"];
+            Require(cells["FO4Port_Den"].Location.FormKey == den.FormKey && den.Owner != null && den.Owner.EncounterMinLevel == 7
+                    && den.Owner.EncounterMaxLevel == 12 && den.Owner.EncounterFlags == LocationOwnerData.EncounterFlag.NeverResets,
+                    "a cell with a zone but no FO4 location did not get the zone's leveling on its per-cell LCTN");
+            // an FO4 location without a zone (shared by no other cell) carries no leveling at all
+            var hermitLoc = lctns["FO4Port_HermitLocation"];
+            Require(cells["FO4Port_Lone"].Location.FormKey == hermitLoc.FormKey && hermitLoc.Owner == null && hermitLoc.Name!.String == "Hermit's Hole",
+                    "an FO4 location without a zone was given Owner data (or lost its name)");
+            var pinned = lctns["FO4Port_LCTN_0001A2_Fallout4.esm"];
+            Require(cells["FO4Port_Pinned"].Location.FormKey == pinned.FormKey && pinned.Name!.String == "Pinned Place", "sidecar entry not used for an export without the keys");
+            Require(pinned.Owner != null && pinned.Owner.EncounterMinLevel == 127 && pinned.Owner.EncounterMaxLevel == 127
+                    && (int)pinned.Owner.EncounterFlags == 0xF, "levels above 127 not clamped or flag bits above 0xF carried");
+            // bit 16 "Use Location as Name": only VaultB asked for it; the raw bit must round-trip through Mutagen's write + read
+            Require(((int)cells["FO4Port_VaultB"].Flags! & 0x10000) != 0, "LOCATION_AS_NAME setting did not set CELL flag bit 16 (or it did not round-trip)");
+            Require(cells.Values.Where(c => c.EditorID != "FO4Port_VaultB").All(c => ((int)c.Flags! & 0x10000) == 0),
+                    "CELL flag bit 16 set without the setting (the LOCATION_AS_NAME environment variable must not count)");
+        }
+        var locLog = log.ToString();
+        Require(locLog.Contains("locations: 3 shared FO4 locations, 3 per-cell, 3 with encounter-zone leveling; 1 cells from locations.json, 0 without FO4 location data"),
+                "locations not reported:\n" + locLog);
+        Require(locLog.Contains("warning FO4Port_VaultLocation: VaultB has encounter zone 0001C1:Fallout4.esm (20-30, flags 2); kept VaultA's 0001C0:Fallout4.esm")
+                && locLog.Contains("clamped to 127"), "differing zone or clamped levels not reported:\n" + locLog);
+        Require(ids.Keys.Count(k => k.StartsWith("LCTN:")) == 7, "LCTN keys in formids.json not one per LCTN");
+        // second build: a third cell of the shared location; every earlier key keeps its id, the shared LCTN gains no twin
+        File.WriteAllText(Path.Combine(locDir, "VaultC.json"), Export("VaultC", Cell("VaultC", vault, null, "Vault C")));
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { Args("VaultA", "VaultB", "Shack", "Ruin", "Den", "Lone", "Pinned", "VaultC") });
+        Console.SetOut(stdout);
+        var rebuilt = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        Require(ids.All(kv => rebuilt.TryGetValue(kv.Key, out var v) && v == kv.Value), "a second build renumbered an existing key");
+        Require(rebuilt.Count == ids.Count + 2 && rebuilt.ContainsKey("CELL:FO4Port_VaultC"), "second build did not add exactly the new cell and its reference");
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var vaultC = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single(c => c.EditorID == "FO4Port_VaultC");
+            Require(written.Locations.Count == 7 && vaultC.Location.FormKey == new FormKey(port, ids["LCTN:FO4Port_VaultLocation"]),
+                    "the added cell did not join the shared LCTN at its old FormID");
+        }
+    }
+    finally { Console.SetOut(stdout); Environment.SetEnvironmentVariable("LOCATION_AS_NAME", null); Directory.Delete(locDir, true); }
+}
+Console.WriteLine("Location (LCTN) checks passed.");
+
+// The coc arrival marker (COCMarkerHeading) is written to the cell's persistent group, so scripts reach it before the cell
+// loads; the cell's other references stay temporary, and the marker keeps its FormID across a rebuild.
+{
+    var cocDir = Path.Combine(Path.GetTempPath(), "fo4sf-coc-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(cocDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        var manifest = Path.Combine(cocDir, "manifest.json");
+        File.WriteAllText(manifest, """{"items":[{"editor_id":"FO4Port_Wall","model":"fo4port\\w.nif","source":"meshes\\w.nif"}]}""");
+        File.WriteAllText(Path.Combine(cocDir, "Cryo.json"), """
+            {"schema_version":3,"cell":"Cryo","formkey":"Cryo-cell","refs":[
+             {"formkey":"000901:Fallout4.esm","base_editor_id":"W","type":"Static","model":"w.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
+             {"formkey":"000902:Fallout4.esm","base_editor_id":"COCMarkerHeading","type":"Static","model":"","pos":[100,0,0],"rot":[0,0,1],"scale":1}]}
+            """);
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", cocDir);
+        var cocArgs = new[] { outDir, manifest, Path.Combine(cocDir, "Cryo.json") };
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var cryo = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single(c => c.EditorID == "FO4Port_Cryo");
+            var persistent = cryo.Persistent.OfType<IPlacedObjectGetter>().ToList();
+            var temporary = cryo.Temporary.OfType<IPlacedObjectGetter>().ToList();
+            Require(persistent.Count == 1 && persistent[0].Base.FormKey == new FormKey(sfKey, 0x000032)
+                    && persistent[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000902:Fallout4.esm"], "the coc marker is not a persistent reference with its keyed FormID");
+            Require((persistent[0].MajorRecordFlagsRaw & 0x400) != 0, "the coc marker lacks the Persistent record flag (0x400)");
+            Require((temporary[0].MajorRecordFlagsRaw & 0x400) == 0, "a temporary reference carries the Persistent record flag");
+            Require(temporary.Count == 1 && temporary[0].FormKey.ID == ids["REFR:FO4Port_Cryo:000901:Fallout4.esm"], "a non-marker reference left the temporary group");
+        }
+        Console.SetOut(new StringWriter());
+        typeof(Locations).Assembly.EntryPoint!.Invoke(null, new object[] { cocArgs });
+        Console.SetOut(stdout);
+        var rebuilt = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        Require(ids.All(kv => rebuilt.TryGetValue(kv.Key, out var v) && v == kv.Value) && rebuilt.Count == ids.Count, "a rebuild renumbered the coc marker");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(cocDir, true); }
+}
+Console.WriteLine("Persistent coc marker checks passed.");
 // Door names (DoorNames.cs): PluginSpike end to end. Each FO4 name of a converted model gets a stable copy of its DOOR
 // base that keeps the animation graph, and that name's references move to it. No name, or a name that is not one line,
 // stays on the base as "Door". A grown export with the same map keeps every old reference on its old base and name.
