@@ -716,6 +716,11 @@ class P6P7Tests(unittest.TestCase):
         self.assertEqual(v.extra["p7b_vendor"]["status"], "deferred")
         self.assertEqual(probes.check_p7(pcol(p7_log(pairs=((3.0, "B"), (9.0, "B"))))).verdict, FAIL)
         self.assertEqual(probes.check_p7(pcol(p7_log(glob=0.0))).verdict, INCONCLUSIVE)     # GLOB readback differs
+        # Codex review of #431: a trial line without its read-back never settles the list
+        self.assertEqual(probes.check_p7(pcol([re.sub(r" glob=\S+", "", l) for l in p7_log()])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol([re.sub(r" readback=\S+", "", l) for l in p6_log()])).verdict,
+                         INCONCLUSIVE)
+        self.assertEqual(probes.check_p6(pcol([re.sub(r" loc=\S+", "", l) for l in p6_log()])).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p7(pcol(p7_log()[:4])).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p7(pcol([INIT])).verdict, INCONCLUSIVE)
 
@@ -867,6 +872,12 @@ class P9Tests(unittest.TestCase):
     def test_sample_times_must_increase(self):
         # Codex review of #431: all-zero or backward times skip the speed check
         log = [re.sub(r"rt=[0-9.]+ ", "rt=1.5 ", l) if " p9 sample " in l else l for l in p9_log()]
+        self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
+
+    def test_every_sample_carries_its_readings(self):
+        # Codex review of #431: a sample without loaded= would reset the stuck window
+        log = p9_log(stuck_from=100)
+        log = [l.replace(" loaded=True", "") if " p9 sample " in l and i % 10 == 0 else l for i, l in enumerate(log)]
         self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
 
     def test_the_deadline_is_real_time(self):

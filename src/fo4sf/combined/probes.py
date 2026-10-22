@@ -584,8 +584,8 @@ def check_p2(c: Collection) -> Verdict:
         if bad:
             v.reasons.append(_foreign_reason(e.kind, e, bad, ids))
             return v
-    if readback is None:
-        v.reasons.append("p2 set has no readback")
+    if value is None or readback is None:
+        v.reasons.append("p2 set lacks its value or readback")
         return v
     if not _close(value, readback):
         v.reasons.append(f"set value {value} and immediate readback {readback} differ: SetKeywordData did not take")
@@ -984,11 +984,14 @@ def _conditioned_list(v: Verdict, evs: list[Event], kind: str, key: str, cases: 
                 v.reasons.append(_foreign_reason(f"{key}={value}", e, bad, ids))
                 return INCONCLUSIVE
             rb = e.num(readback_key)
-            if rb is not None and not _close(rb, value):
+            if rb is None:                          # no read-back, no proof the condition saw the value (Codex, #431)
+                v.reasons.append(f"{key}={value}: a trial line carries no {readback_key}= read-back")
+                return INCONCLUSIVE
+            if not _close(rb, value):
                 v.reasons.append(f"{key}={value}: readback {rb} differs ({readback_key})")
                 return INCONCLUSIVE
-            if e.form("loc") is None and "loc" in e.fields:
-                v.reasons.append(f"{key}={value}: loc=none, the player had no current location")
+            if kind == "p6" and e.form("loc") is None:     # the datum lives on the player's location
+                v.reasons.append(f"{key}={value}: no loc= on the trial line, or loc=none")
                 return INCONCLUSIVE
         got = [_base_match(e, plan, pa, pb) for e in mine]
         if any(g is None for g in got):
@@ -1170,8 +1173,10 @@ def check_p9(c: Collection) -> Verdict:
         # (Codex review of #431)
         t = e.rt - starts[-1].rt
         d, p, cell, loaded = e.num("dist"), pos(e), e.form("cell"), e.flag("loaded")
-        if None in (t, d, p):
-            continue
+        if None in (d, p) or loaded not in (True, False):   # a gap would hide a stall (Codex review of #431)
+            v.cite(e)
+            v.reasons.append("a p9 sample lacks a parsable dist=, pos= or loaded= reading")
+            return v
         rows.append((t, d, p, cell, loaded, e))
     if len(rows) < 2:
         v.reasons.append("fewer than 2 parsable `p9 sample` lines")
