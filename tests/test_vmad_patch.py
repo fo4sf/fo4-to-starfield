@@ -252,6 +252,12 @@ class PluginTreeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "HEDR next"):
                 vp.next_local_id(path)
             self.assertEqual(vp.plugin_in(d), "FO4Port.esm")
+            for companion in ("FO4PortTextures2.esm", "FO4PortTextures12.esm"):     # a packed batch's companions
+                open(os.path.join(d, companion), "wb").close()
+            self.assertEqual(vp.plugin_in(d), "FO4Port.esm")
+            open(os.path.join(d, "FO4PortTextures1.esm"), "wb").close()            # not a companion name
+            with self.assertRaisesRegex(ValueError, "2 .esm files"):
+                vp.plugin_in(d)
 
     def test_set_vmad_and_add_persistent_ref(self):
         p = vp.Plugin(tiny_plugin())
