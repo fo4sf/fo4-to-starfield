@@ -36,10 +36,14 @@ and keeps 43 GB free on D:.
    - The walk queue's pre-launch re-installs exactly the installed v6e set, so it changes nothing. campaign_arm
      refuses any other experiment or plugin list.
    - Unresolved: the four plugin names here. Copy them from swap_v6e.ps1 before planning. A mismatch is refused, not run.
-6. Check: `campaign_arm.py check --campaign scripts\game\campaigns\v6e.json`. It should list the walk as held and the
-   rest as OK.
+6. Arm and check, from the campaign checkout `D:\Modding\wt_nightrun` with nothing uncommitted:
+   - `campaign_arm.py pin --campaign scripts\game\campaigns\v6e.json --out D:\Modding\testqueue_v6e\v6e.armed.json`
+     writes a copy pinned to the checkout's commit (a shipped manifest can not name its own commit, and the checkout
+     must stay clean, so the armed copy lives outside it);
+   - `campaign_arm.py check --campaign D:\Modding\testqueue_v6e\v6e.armed.json`. It should list the walk as held and
+     the rest as OK.
 7. Run, with the game closed:
    - stop the crashwatch loop first, never while ProcDump is attached to a live game. Its attach ended every
      short-lived start since Oct 18 with exit 0x54, Steam's "error 84" (supported, docs/ai/test-queue.md);
-   - run `campaign_arm.py run --campaign scripts\game\campaigns\v6e.json`, or one queue at a time with the caps;
+   - run `campaign_arm.py run --campaign D:\Modding\testqueue_v6e\v6e.armed.json`, or one queue at a time with the caps;
    - afterwards, restart crashwatch and put FO4Port back first in the owner's order.

@@ -418,6 +418,37 @@ class PlanTerrainHoldTests(Base):
         self.assertIn("uncommitted changes", REAL_REV({"checkout": co, "commit": head}))
         self.assertIn("not a git checkout", REAL_REV({"checkout": os.path.join(self.d, "none"), "commit": head}))
 
+    def test_pin_writes_a_copy_armed_on_the_checkouts_head(self):
+        # Codex on #397: the shipped manifest can not name the commit it is in; pin writes the armed copy
+        import subprocess
+        rev = mock.patch.object(ca, "checkout_rev_why", REAL_REV)
+        rev.start()
+        self.addCleanup(rev.stop)
+        co = os.path.join(self.d, "co")
+        os.makedirs(co)
+        git = lambda *a: subprocess.run(["git", "-C", co, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                        capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q")
+        with open(os.path.join(co, "testqueue.py"), "w") as f:
+            f.write("x = 1\n")
+        git("add", "-A")
+        git("commit", "-qm", "c")
+        src, out = os.path.join(self.d, "v6e.json"), os.path.join(self.d, "v6e.armed.json")
+        with open(src, "w") as f:
+            json.dump({"name": "v6e", "checkout": co, "queues": []}, f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ca.main(["pin", "--campaign", src, "--out", out]), 0)
+            self.assertEqual(ca.main(["pin", "--campaign", src, "--out", out]), 1)          # a new file only
+        armed = ca.read_campaign(out)
+        self.assertEqual(armed["commit"], git("rev-parse", "HEAD"))
+        self.assertIsNone(REAL_REV(armed))
+        with open(os.path.join(co, "testqueue.py"), "w") as f:
+            f.write("x = 2\n")
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(ca.main(["pin", "--campaign", src, "--out", out + "2"]), 1)
+        self.assertIn("uncommitted changes", buf.getvalue())
+        self.assertFalse(os.path.exists(out + "2"))
+
     def test_an_install_record_selecting_more_plugins_is_refused(self):
         # Codex on #391: cycle.ps1 orders every plugin the record selected, not only the campaign's
         exp = [PY, "scripts\\game\\exp_install.py", "install", "--exp-dir", self.exp, "--starfield", self.sf,
@@ -1412,3 +1443,4 @@ class ShippedCampaignTests(unittest.TestCase):
         self.assertEqual(c["holds"], {"red_rocket": ["FO4Core_RedRocketSpawn"]})
         self.assertEqual([q["name"] for q in c["queues"]][-1], "walk")              # the held queue last
         self.assertIn(c["launch"], ca.LAUNCHES)
+        self.assertNotIn("commit", c)                    # Codex on #397: `pin` writes the armed copy with it

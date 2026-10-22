@@ -34,6 +34,10 @@ usage:
       lifted only by the campaign's "released" list), then per queue the check again with its queue.json pinned,
       testqueue.py run with the caps, its judge and the gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
       FO4SF_LAUNCH for cycle.ps1. Every step runs in the campaign's checkout with its python. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
+  python scripts/game/campaign_arm.py pin --campaign <campaign.json> --out <NEW armed.json>
+      a copy of the campaign with "commit" set to its checkout's HEAD (refused when the checkout has uncommitted
+      changes, or when this is not that checkout's campaign_arm.py). A shipped manifest can not name the commit it is
+      in, and the checkout must stay clean, so the armed copy lives outside it; check, script and run take that copy.
   python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N [--judge-exit N]
       exit 0 only when the run ended with exit 0, the judge (when given) with exit 0, and the queue's state.json
       exists, says finished and counts no crash and no dead start.
@@ -798,6 +802,22 @@ def read_campaign(path):
     return load_campaign(path)[0]
 
 
+def pin(camp):
+    """(the campaign with "commit" set to its checkout's HEAD, None) or (None, why). Codex on #397: the shipped manifest
+    can not carry the sha of the commit it is in."""
+    try:
+        head = subprocess.run(["git", "-C", str(camp.get("checkout") or ""), "rev-parse", "HEAD"], capture_output=True,
+                              text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, f"the checkout {camp.get('checkout')} can not be read with git: {error}"
+    sha = head.stdout.strip()
+    if head.returncode or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return None, f"the checkout {camp.get('checkout')} is not a git checkout"
+    armed = dict(camp, commit=sha)
+    why = checkout_rev_why(armed)                     # clean, and still that commit
+    return (None, why) if why else (armed, None)
+
+
 def releases(s):
     return {x.strip() for x in (s or "").split(",") if x.strip()}
 
@@ -1104,6 +1124,9 @@ def main(argv=None):
                                                                    "after the run and before the judge)")
         if name == "script":
             s.add_argument("--out", required=True)
+    pn = sub.add_parser("pin")
+    pn.add_argument("--campaign", required=True)
+    pn.add_argument("--out", required=True, help="a NEW file outside the checkout's tracked files")
     b = sub.add_parser("before")
     b.add_argument("--queue", required=True)
     b.add_argument("--prev", default="", help="the queue that ran before this one: its game must still be running")
@@ -1113,6 +1136,20 @@ def main(argv=None):
     g.add_argument("--run-exit", type=int, required=True)
     g.add_argument("--judge-exit", type=int, default=None)
     a = ap.parse_args(argv)
+    if a.cmd == "pin":
+        camp = read_campaign(a.campaign)
+        why = checkout_here_why(camp)
+        armed, why = (None, why) if why else pin(camp)
+        if why:
+            print(f"REFUSED campaign: {why}")
+            return 1
+        if os.path.exists(a.out):
+            print(f"REFUSED campaign: {a.out} exists: pin writes a new file only")
+            return 1
+        with open(a.out, "x", encoding="utf-8") as f:
+            json.dump(armed, f, indent=1)
+        print(f"armed {a.out} on {armed['commit']}: check, script and run take this file")
+        return 0
     if a.cmd == "before":
         why = game_before(a.queue, a.prev or None)
         if why:
