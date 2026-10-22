@@ -171,11 +171,17 @@ def _log(path, line):
         f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {line}\n")
 
 
-def dumps_since(folder, t0):
+def dump_names(folder):
+    """The .dmp files in folder now."""
     if not folder or not os.path.isdir(folder):
-        return []
-    return sorted(n for n in os.listdir(folder)
-                  if n.lower().endswith(".dmp") and os.path.getmtime(os.path.join(folder, n)) >= t0 - 1)
+        return set()
+    return {n for n in os.listdir(folder) if n.lower().endswith(".dmp")}
+
+
+def dumps_since(folder, before):
+    """The dumps that appeared after the snapshot `before` (dump_names taken just before ProcDump attached): a dump
+    of an earlier game is never listed, whatever its file time says (seen on the PC, 2026-10-21)."""
+    return sorted(dump_names(folder) - set(before))
 
 
 def apply_bridge(values, starfield, system, say):
@@ -398,6 +404,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         # ProcDump's own output goes to a side file first: it writes UTF-16 when redirected, which would leave
         # crashwatch.log spaced out; fold_output appends it decoded once ProcDump has ended
         out_path = os.path.join(values["crash_watch.folder"], f"procdump_{pid}.out")
+        before = dump_names(values["crash_watch.folder"])
         try:
             proc = system.spawn(argv, out_path)
         except OSError as e:
@@ -437,7 +444,7 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
                 "left running: never kill it mid-dump")
             result["procdump_running"] = True
     if cw:
-        result["dumps"] = dumps_since(values["crash_watch.folder"], t0)
+        result["dumps"] = dumps_since(values["crash_watch.folder"], before)
         note = " (a crash code and no dump)" if code not in (None, 0) and not result["dumps"] else ""
         _log(log_path, f"ended: process {pid}, {result['exit']}, after {result['seconds']} s up, dumps: "
                        f"{', '.join(result['dumps']) or 'none'}{note}"

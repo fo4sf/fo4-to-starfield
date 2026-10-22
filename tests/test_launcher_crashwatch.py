@@ -280,6 +280,23 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIn("  procdump: plain line", self.log())
         crashwatch.fold_output(out, log)                          # no file: nothing happens
 
+    def test_an_earlier_games_dump_is_never_listed(self):
+        os.makedirs(self.dumps, exist_ok=True)
+        old = os.path.join(self.dumps, "Starfield.exe_261021_202458.dmp")
+        with open(old, "wb") as f:
+            f.write(b"MDMP")
+        os.utime(old, (5000.0, 5000.0))                          # a file time later than this game's start
+        sys_ = FakeSystem([(33840, 0, 722, 0)])
+        sys_.started_at = sys_.t
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(r[0]["dumps"], [])
+        self.assertIn("dumps: none", self.log())
+        sys_ = FakeSystem([(33841, 0, 300, 0xC0000005)])
+        sys_.started_at = sys_.t
+        sys_.dump_name = "Starfield.exe_261021_210000.dmp"
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertEqual(r[0]["dumps"], ["Starfield.exe_261021_210000.dmp"])
+
     def test_watch_counts_seconds_from_when_the_game_appeared(self):
         sys_ = FakeSystem([(31, 300, 900, 0)])
         sys_.started_at = sys_.t                                  # the watch begins 300 s before the game shows up
