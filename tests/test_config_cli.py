@@ -172,6 +172,7 @@ class TestCLI(unittest.TestCase):
             cfg = self._validate_cfg(root)
             tex = root / "texconv.exe"
             tex.write_bytes(b"x")
+            tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
             with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -198,6 +199,7 @@ class TestCLI(unittest.TestCase):
             cfg = self._validate_cfg(root)
             tex = root / "texconv.exe"
             tex.write_bytes(b"x")
+            tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
             with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
                     patch("builtins.__import__", side_effect=fake_import), \
@@ -215,6 +217,7 @@ class TestCLI(unittest.TestCase):
             cfg = self._validate_cfg(root, data_dirs=[])
             tex = root / "texconv.exe"
             tex.write_bytes(b"x")
+            tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
             with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -232,6 +235,7 @@ class TestCLI(unittest.TestCase):
             cfg = self._validate_cfg(root, work="file")
             tex = root / "texconv.exe"
             tex.write_bytes(b"x")
+            tex.chmod(0o755)
             out, err = io.StringIO(), io.StringIO()
             with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -241,6 +245,99 @@ class TestCLI(unittest.TestCase):
         self.assertIn("not a directory", text)
         self.assertIn("FAILED", text)
 
+
+    def _run_validate(self, cfg, tex):
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        with patch("fo4sf.__main__.shutil.which", return_value=str(tex)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = main(["--config", str(cfg), "validate"])
+        return rc, out.getvalue() + err.getvalue()
+
+    def test_blank_config_paths_stay_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[fo4]\ndata_dirs = [""]\n[starfield]\ndata_dir = " "\n'
+                           '[paths]\nwork_dir = ""\nstaging_dir = ""\n[tools]\ntexconv = ""\n')
+            loaded = load_config(cfg)
+        self.assertEqual(loaded["fo4"]["data_dirs"], [None])
+        self.assertIsNone(loaded["starfield"]["data_dir"])
+        self.assertIsNone(loaded["paths"]["work_dir"])
+        self.assertIsNone(loaded["paths"]["staging_dir"])
+        self.assertIsNone(loaded["tools"]["texconv"])
+
+    def test_validate_rejects_blank_directory_settings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = root / "config.toml"
+            cfg.write_text('[fo4]\ndata_dirs = [""]\n[starfield]\ndata_dir = ""\n'
+                           '[paths]\nwork_dir = ""\nstaging_dir = ""\n')
+            old = os.getcwd()
+            os.chdir(td)   # the cwd is a real directory, so a blank path must not resolve to it
+            try:
+                rc, text = self._run_validate(cfg, tex)
+            finally:
+                os.chdir(old)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("(blank entry): NOT FOUND", text)
+        self.assertIn("Starfield data dir: missing in config", text)
+        self.assertIn("work_dir: missing in config", text)
+        self.assertIn("staging_dir: missing in config", text)
+        self.assertNotIn("Validation: OK", text)
+
+    def test_status_shows_a_blank_fo4_dir_as_missing(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[fo4]\ndata_dirs = [""]\n')
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(["--config", str(cfg), "status"])
+        self.assertEqual(rc, 0)
+        self.assertIn("[0] (blank) (MISSING)", out.getvalue())
+
+    def test_validate_rejects_a_directory_as_a_tool(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            (root / "tooldir").mkdir()
+            cfg.write_text(cfg.read_text() + f'[tools]\nmesh = "{(root / "tooldir").as_posix()}"\n')
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("mesh: not an executable file at", text)
+        self.assertIn("FAILED", text)
+
+    @unittest.skipIf(os.name == "nt", "Windows has no execute bit")
+    def test_validate_rejects_a_non_executable_tool(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o644)
+            cfg = self._validate_cfg(root)
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("texconv: not an executable file at", text)
+
+    def test_validate_rejects_a_blank_tool(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            cfg.write_text(cfg.read_text() + '[tools]\ntexconv = ""\n')
+            rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("texconv: configured but blank", text)
 
 if __name__ == "__main__":
     unittest.main()

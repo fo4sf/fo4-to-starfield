@@ -6,6 +6,7 @@ python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -27,6 +28,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
     for i, d in enumerate(data_dirs):
+        if d is None:
+            print(f"    [{i}] (blank) (MISSING)")
+            continue
         exists = d.is_dir() if isinstance(d, Path) else Path(d).is_dir()
         print(f"    [{i}] {d} ({'exists' if exists else 'MISSING'})")
     sf = cfg.get("starfield", {})
@@ -96,6 +100,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print("    none configured")
         ok = False
     for d in data_dirs:
+        if d is None:
+            print("    (blank entry): NOT FOUND")
+            ok = False
+            continue
         p = Path(d)
         if p.is_dir():
             print(f"    {d}: exists")
@@ -137,14 +145,21 @@ def cmd_validate(args: argparse.Namespace) -> int:
         "texconv": shutil.which("texconv") or shutil.which("Texconvx64"),
         "python": sys.executable,
     }
+    configured = set(cfg.get("tools", {}))
     if "tools" in cfg:
         for name, path in cfg["tools"].items():
             tools[name] = path
     for name, path in tools.items():
-        if path and Path(path).exists():
+        if path and Path(path).is_file() and os.access(path, os.X_OK):
             print(f"    {name}: found at {path}")
+        elif path and Path(path).exists():
+            print(f"    {name}: not an executable file at {path}")
+            ok = False
         elif path:
             print(f"    {name}: configured but NOT FOUND at {path}")
+            ok = False
+        elif name in configured:
+            print(f"    {name}: configured but blank")
             ok = False
         else:
             print(f"    {name}: not found in PATH")

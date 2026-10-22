@@ -43,9 +43,10 @@ The package lives under `src/` (no install step). From the repo root set `PYTHON
 
 - `python -m fo4sf status` — print config summary and, if present, manifest coverage (counts by type/tier).
 - `python -m fo4sf validate` — check that configured data directories exist, `work_dir`/`staging_dir`
-  are directories (or not yet created), common tools are found, and required Python packages
-  (`numpy`, Pillow via `PIL`) are importable. Exits non-zero on problems. Zero Fallout 4 data dirs
-  is a failure. Useful before the first conversion.
+  are directories (or not yet created), common tools are executable files, and required Python
+  packages (`numpy`, Pillow via `PIL`) are importable. Exits non-zero on problems. Zero Fallout 4
+  data dirs is a failure, and a blank path counts as missing (never as the current directory).
+  Useful before the first conversion.
 
 Both are offline and require no game files.
 
