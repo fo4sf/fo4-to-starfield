@@ -57,6 +57,10 @@ class FakeSystem:
         self.toggle_out = "back on: FO4SFBridge.esm"
         self.toggle_code = 0
         self.active = {"fo4sfbridge.esm"}
+        self.orders = []                   # Plugins.txt orders handed out one per read; None once empty
+
+    def plugin_order(self):
+        return self.orders.pop(0) if self.orders else None
 
     def now(self):
         return self.t
@@ -205,6 +209,20 @@ class CrashWatchTests(unittest.TestCase):
         self.assertEqual(crashwatch.procdump_argv(v, 7),
                          [self.procdump, "-accepteula", "-ma", "-e", "-t", "-n", "2", "7", self.dumps])
         self.assertNotIn("-w", crashwatch.procdump_argv(v, 7))       # never attach at the instant of start
+
+    def test_a_load_order_the_game_changed_is_reported_and_logged(self):
+        sys_ = FakeSystem([(4242, 3, 600, 0)])
+        sys_.orders = [["FO4Port.esm", "FO4SFMission.esm", "Bridge.esm"],
+                       ["FO4SFMission.esm", "FO4Port.esm", "Bridge.esm", "New.esm"]]
+        r = self.play(self.values(), sys_)
+        self.assertEqual(r["load_order_changed"], "FO4Port.esm 1 -> 2, FO4SFMission.esm 2 -> 1, New.esm ticked")
+        with open(os.path.join(self.dumps, "crashwatch.log"), encoding="utf-8") as f:
+            self.assertIn("load order changed while the game ran: FO4Port.esm 1 -> 2", f.read())
+        for orders in ([["A.esm", "B.esm"], ["a.esm", "B.esm"]], [["A.esm"], None], []):
+            sys_ = FakeSystem([(4242, 3, 600, 0)])
+            sys_.orders = list(orders)
+            self.assertNotIn("load_order_changed", self.play(self.values(), sys_))
+        self.assertEqual(crashwatch.order_change(["A.esm", "B.esm"], ["A.esm"]), "B.esm unticked")
 
     def test_watcher_arms_after_settling_and_logs_the_crash(self):
         sys_ = FakeSystem([(4242, 3, 600, 0xC0000005)])

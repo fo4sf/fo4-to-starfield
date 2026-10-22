@@ -35,7 +35,9 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         data = tomllib.load(f)
 
     # Normalise known path fields to absolute Paths
-    def abs_path(p: str) -> Path:
+    def abs_path(p: str) -> Path | None:
+        if isinstance(p, str) and not p.strip():   # a blank setting stays missing; Path("") would resolve to the cwd
+            return None
         return Path(p).expanduser().resolve()
 
     if "fo4" in data and "data_dirs" in data["fo4"]:

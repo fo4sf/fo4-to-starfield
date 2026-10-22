@@ -121,11 +121,17 @@ class System:
         time.sleep(s)
 
     def pids(self, image=GAME_EXE):
-        """Process ids running `image` (tasklist, no extra package)."""
+        """Process ids running `image`; failed queries raise ValueError rather than mean an empty list."""
         if os.name != "nt":
             return []
-        r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
-                           capture_output=True, text=True)
+        try:
+            r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                               capture_output=True, text=True)
+        except OSError as e:
+            raise ValueError(f"Cannot check {image} processes: tasklist could not run ({e})") from None
+        if r.returncode != 0:
+            detail = " ".join((r.stderr or r.stdout or "no diagnostic").split())[:300]
+            raise ValueError(f"Cannot check {image} processes: tasklist exited {r.returncode}: {detail}")
         out = []
         for line in r.stdout.splitlines():
             parts = [p.strip('"') for p in line.split('","')]
@@ -170,14 +176,19 @@ class System:
     def free_gb(self, path):
         return detect.free_gb(path)
 
-    def plugins_active(self):
-        """Casefolded names ticked in the player's Plugins.txt, or None when it cannot be read."""
+    def plugin_order(self):
+        """The plugins ticked in the player's Plugins.txt, in file order, or None when it cannot be read."""
         local = os.environ.get("LOCALAPPDATA", "")
         try:
             with open(os.path.join(local, "Starfield", "Plugins.txt"), encoding="utf-8-sig", errors="replace") as f:
-                return {ln.strip()[1:].strip().casefold() for ln in f if ln.strip().startswith("*")}
+                return [ln.strip()[1:].strip() for ln in f if ln.strip().startswith("*")]
         except OSError:
             return None
+
+    def plugins_active(self):
+        """Casefolded names ticked in the player's Plugins.txt, or None when it cannot be read."""
+        order = self.plugin_order()
+        return None if order is None else {n.casefold() for n in order}
 
 
 def decode_mixed(data):
@@ -230,6 +241,24 @@ def dump_names(folder):
     if not folder or not os.path.isdir(folder):
         return set()
     return {n for n in os.listdir(folder) if n.lower().endswith(".dmp")}
+
+
+def order_change(before, after):
+    """"" when the ticked plugins kept their order, else which moved, came or went. A moved plugin gets another
+    load-order index, so its form ids change between sessions (seen on the PC, 2026-10-22: the game rewrote
+    Plugins.txt about 25 s after it started and FO4Port moved after FO4SFMission; Codsworth 06000811 became 05000811)."""
+    if before is None or after is None:
+        return ""
+    fold_b, fold_a = [n.casefold() for n in before], [n.casefold() for n in after]
+    if fold_b == fold_a:                            # the game may rewrite a name's case; that loads the same
+        return ""
+    parts = []
+    for i, n in enumerate(before):
+        if fold_b[i] in fold_a and fold_a.index(fold_b[i]) != i:
+            parts.append(f"{n} {i + 1} -> {fold_a.index(fold_b[i]) + 1}")
+    parts += [f"{n} unticked" for i, n in enumerate(before) if fold_b[i] not in fold_a]
+    parts += [f"{n} ticked" for i, n in enumerate(after) if fold_a[i] not in fold_b]
+    return ", ".join(parts) or "same plugins, other order"
 
 
 def dumps_since(folder, before):
@@ -414,6 +443,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         apply_bridge(values, starfield, system, say)
         apply_papyrus(values, say)
 
+    order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
     t0 = system.now()
     try:
         system.start_game(values["route"], starfield)
@@ -422,12 +452,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         if cw:
             _log(log_path, f"play: {why}")
         raise ValueError(why) from None
-    return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s)
+    return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, order_before=order)
 
 
-def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=()):
+def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=(), order_before=None):
     """Find a Starfield.exe that stays up settle_s, attach ProcDump when the watcher is on, wait for its end and log
-    it. only_pid follows that one process; seen are process ids already watched (never picked again)."""
+    it. only_pid follows that one process; seen are process ids already watched (never picked again); order_before is
+    the Plugins.txt order at the start, reported if the game changed it."""
     cw = values["crash_watch.enabled"]
     early = list(seen)             # processes that ended before they settled (a first launch can end within ~2 s)
     pid = handle = proc = None
@@ -503,6 +534,12 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
     result = {"started": True, "pid": pid, "early": [p for p in early if p not in seen], "exit_code": code, "exit": exit_name(code),
               "seconds": round(system.now() - up_since), "armed": armed}
     say(f"Starfield ended after {result['seconds']} s up: {result['exit']}")
+    moved = order_change(order_before, system.plugin_order() if order_before is not None else None)
+    if moved:
+        result["load_order_changed"] = moved
+        say(f"Plugins.txt load order changed while the game ran: {moved} (form ids of moved plugins change)")
+        if log_path:
+            _log(log_path, f"load order changed while the game ran: {moved}")
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
