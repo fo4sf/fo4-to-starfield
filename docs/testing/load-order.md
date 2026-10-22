@@ -33,7 +33,10 @@ verified beyond what each line says.
 
 - Console ids of our records (`prid`, `placeatme`) are not stable across sessions. Owner instructions should name the
   object, or Install reads the current Plugins.txt first and gives the index for that session.
-- Automated door and walk judges plan their read indexes from the order the stage predicted (`door_rounds.py`); a
-  changed index is reported as INCONCLUSIVE INDEX, not as a pass or a fail.
+- The door judge (`scripts/bridge/door_rounds.py`) plans its read indexes from the order the stage predicted and
+  reports a changed index as INCONCLUSIVE INDEX, not as a pass or a fail. The walk judge
+  (`scripts/game/walk_eval.py`) has no such gate: it judges positions, ground, crossings and screenshots without
+  comparing the planned index to the runtime one, so a walk run after an order change needs its indexes checked by
+  hand.
 - Open: one documented target order (runner and owner installs the same), and an enforcement step before launch that
   refuses a mismatch. #481's report is detection only.

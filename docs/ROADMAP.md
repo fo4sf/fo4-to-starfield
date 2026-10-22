@@ -29,7 +29,7 @@ FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, 
 | Codsworth renders | **in game: yes** (plain-shader model, owner's screenshot) | Bugs thread, 22 Oct |
 | Codsworth at his Sanctuary spot on the owner's existing save | **in game: not met.** He was not there until enabled by console (`prid 05000811`, then enable and moveto). The game rewrote Plugins.txt 25 s after the launcher started it and moved FO4Port after FO4SFMission, so his index changed from 06 to 05 between sessions | playtest row 27; [testing/load-order.md](testing/load-order.md) |
 | Map markers on the surface map | **in game: pass** (22 Oct 17:40 UTC). The mover quest started 55 s into the session and moved all four markers; the icons drew only after the owner came back to the area. The first-read delay is open | playtest row 28; docs/terrain/map-markers.md (#483) |
-| The boundary (Vault 95 exit, the wall north of Vault 111) | **in game: cause proven.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The owner's walking wall is at getpos (-2606, -908), about 490 m north of Vault 111. The 8-ray border walk from Red Rocket got stuck on converted objects 6 to 200 m out and did not reach the wall. **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city) is running one Vault 95 exit each on the PC with the border on, on the owner's own swap line (18:13 UTC) | docs/terrain/border.md (#485); #444 |
+| The boundary (Vault 95 exit, the wall north of Vault 111) | **in game: cause proven.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The owner's walking wall is at getpos (-2606, -908), about 490 m north of Vault 111. The 8-ray border walk from Red Rocket got stuck on converted objects 6 to 200 m out and did not reach the wall. **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city) is running one Vault 95 exit each on the PC with the border on, on the owner's own swap line (18:13 UTC) | #485 (its branch adds docs/terrain/border.md, the method and results); #444 |
 | Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. No door round has run on the installed v6i set | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger) |
 | The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; last PASS v6c, 19 Oct), Codsworth's greeting voice (heard, subtitle only, neither), the 3D map view, the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up | test sheet; journal 22 Oct (ledger) |
 | Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; the PC checkout update is queued | Launcher thread; #481 |
@@ -43,21 +43,30 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 
 ### What is left to close phase 0, with an owner
 
-1. **Door rounds on v6i** (Bugs, with Install): the doors plan still pins the v6e core (06C0DECD) and its build folder;
-   give it the v6i core pin and staging the way walk/plan.ps1 got them, release the campaign's Red Rocket hold (its
-   cause is fixed), then rerun doors_out (15) and doors_rounds (30) on v6i_plainshader with current main. That settles
-   Vault75, ParsonsState01 and every IN leg, and re-measures the three failures on the v6i core.
-2. **The three wrong-place exits** (Bugs): one in-game look per door to tell timing from overlap, then the fix
-   (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install on the owner's line.
-3. **Codsworth on existing saves** (Bugs): the mission script's Codsworth check does not reach a save where it never
-   armed; a diagnosis card on the owner's save first, then the fix in FO4SF_Min00Quest.psc (no console ids in any
-   owner instruction; ids move between sessions).
+1. **Door rounds on v6i** (Bugs, with Install): the doors plan on the plans branch still pins the v6e core (06C0DECD)
+   and its build folder. Bugs' card J is a local copy of doors/plan.ps1 with CorePin DC751664, the v6i CoreBuild and
+   `-Tag v6i`, so doors_out (15) and doors_rounds (30) land in new folders; it is queued for Install after BorderProbe,
+   the launcher paths and the Map LOD job. plan.ps1 does not read the v6e campaign file, so its Red Rocket hold stays
+   as it is (only the owner releases it). That run settles Vault75, ParsonsState01 and every IN leg, and re-measures
+   the three failures on the v6i core.
+2. **The three wrong-place exits** (Bugs): card L, after J, one in-game look per exit still wrong on v6i to tell timing
+   from overlap, then the fix (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install
+   on the owner's line.
+3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued, read-only on a save from before the
+   22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
+   quest logs). If K confirms it, the fix is a new start-game-enabled keeper quest, because only a new quest runs on an
+   existing save whose timers are dead; it also enables him. That touches dotnet/Mission and the .psc, so Bugs and NPC
+   fold it in one refold (no console ids in any owner instruction; ids move between sessions).
 4. **The border fix** (Interiors): the BorderProbe result picks the field; it goes into the core build, which means a
    core rebuild and a mission refold. Every stage pinned to the core (new game, focc probe, map markers, mission) is
    redone after it. If no variant passes, the fallback is an SFSE plugin that turns the border off only inside our
    world. The owner's wall north of Vault 111 is rechecked with the border on after the fix.
 5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the 3D view, Bugs and Interiors for
-   the doors and prompts): asked for at the owner's next session, recorded in playtest-issues.md.
+   the doors and prompts): written up as section A of the owner's test sheet for their next session (a fresh test
+   save, since the mission completed on the 19 Oct save; coc FO4Core_RedRocketSpawn; the Missions tab, Preston and
+   the credits; Codsworth's greeting; getpos plus a zoomed-out surface map screenshot; the Fort Hagen elevator, the
+   Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114 manhole, the Red Rocket side
+   door; cans and books). Results go to playtest-issues.md.
 6. **One load order** (Launcher, with Bridge): the runner's deploy puts FO4Port last, the owner's install had it first,
    and the game rewrote the file after start; #481 reports the change, nothing enforces an order yet
    ([testing/load-order.md](testing/load-order.md)).
@@ -67,7 +76,11 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
 against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it is
 restaged against the installed core (or the border-fixed core, if one comes) before the owner's line "Install the new
-game." The same holds for the focc probe (#431). The quest probe is pinned to the port, which is unchanged
+game." The same holds for the focc probe (#431, head 1db5919, 3,349 tests pass): CombinedCore restages it at that
+commit with `--core` on the installed FO4TerrainCore.esm into a new staging folder once Interiors names the core that
+ends up installed; its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
+owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
+probe_install.py uninstall restores Plugins.txt afterwards. The quest probe is pinned to the port, which is unchanged
 (9AF962D2); a read-only pin check precedes "Install the quest probe plugin." The object test room and the merge probe
 have no install route while the core set holds exp_install's one experiment slot. Interiors b10 (all 253 interiors,
 coc-only) is a port swap with no installer for its texture companions yet, and its Commonwealth doors need a core
