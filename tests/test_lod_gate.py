@@ -42,7 +42,7 @@ class LodGateTests(unittest.TestCase):
         return subprocess.run([cls.dotnet, str(cls.tool), *map(str, argv)], capture_output=True, text=True)
 
     def show(self, name):
-        proc = self.run_tool("show", self.out / name, self.sf, self.core)
+        proc = self.run_tool("show", name if isinstance(name, Path) else self.out / name, self.sf, self.core)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         return proc.stdout
 
@@ -61,14 +61,18 @@ class LodGateTests(unittest.TestCase):
         self.assertEqual(masters(self.out / "FO4SFLodGate1.esm"), ["Starfield.esm"])
         self.assertEqual((self.out / "FO4SFLodGate1.esm").read_bytes()[8:12], (1).to_bytes(4, "little"))   # Master
 
-    def test_gate_2_is_the_same_world_without_the_master_flag(self):
-        shown = self.show("FO4SFLodGate2.esm")                      # the .esm name kept: the flag is the only difference
-        self.assertIn("FO4SFLodGate2.esm: header flags 0, masters [Starfield.esm]", shown)
-        self.assertIn(f"FO4SF_LodGate2 000800:FO4SFLodGate2.esm: Flags SmallWorld, HNAM [0], location 3807BE:Starfield.esm, components [], "
-                      f"persistent cell 000801:FO4SFLodGate2.esm, 9 cell(s) at {CELLS}", shown)
+    def test_gate_2_is_gate_1_with_only_the_master_flag_cleared(self):
+        twin = self.out / "noflag" / "FO4SFLodGate1.esm"          # the same name, world and references: the flag alone differs
+        shown = self.show(twin)
+        self.assertIn("FO4SFLodGate1.esm: header flags 0, masters [Starfield.esm]", shown)
+        self.assertIn(f"FO4SF_LodGate1 000800:FO4SFLodGate1.esm: Flags SmallWorld, HNAM [0], location 3807BE:Starfield.esm, components [], "
+                      f"persistent cell 000801:FO4SFLodGate1.esm, 9 cell(s) at {CELLS}", shown)
         self.assertEqual(shown.count("    ref "), 3)
-        self.assertEqual((self.out / "FO4SFLodGate2.esm").read_bytes()[8:12], (0).to_bytes(4, "little"))
-        self.assertFalse((self.out / "FO4SFLodGate2.esp").exists())
+        one, two = (self.out / "FO4SFLodGate1.esm").read_bytes(), twin.read_bytes()
+        self.assertEqual(two[8:12], (0).to_bytes(4, "little"))
+        self.assertEqual(one[8:12], (1).to_bytes(4, "little"))
+        self.assertEqual(one[:8] + two[8:12] + one[12:], two)       # byte-identical but for the header flag word
+        self.assertFalse((self.out / "FO4SFLodGate2.esm").exists())
 
     def test_gate_3_copies_our_core_world_and_masters_the_core(self):
         shown = self.show("FO4SFLodGate3.esm")

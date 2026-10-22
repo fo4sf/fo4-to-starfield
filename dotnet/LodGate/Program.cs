@@ -5,8 +5,8 @@
 // origin plus a few references to the largest vanilla statics (so a bake has objects to write placeholders for):
 //   FO4SFLodGate1.esm  FO4SF_LodGate1  the WRLD record copied from vanilla LC172World (the writer's own template),
 //                                      master-flagged like the core; masters: Starfield.esm
-//   FO4SFLodGate2.esm  FO4SF_LodGate2  the same without the Master header flag (the .esm name kept, so the flag is
-//                                      the only difference between 1 and 2)
+//   noflag\FO4SFLodGate1.esm           gate 2: the very same plugin bytes with the Master header flag cleared (same
+//                                      file name, world and references, so the flag is the only difference)
 //   FO4SFLodGate3.esm  FO4SF_LodGate3  the WRLD record copied from our core's FO4Core_Commonwealth (its location
 //                                      and surface block links kept); masters: Starfield.esm, FO4TerrainCore.esm
 // The run card: CreationKit.exe -MockWorldSpaceLOD:FO4SFLodGate1.esm FO4SF_LodGate1 with the plugin in Data (the
@@ -14,11 +14,12 @@
 // plugin-added world known to bake, and each renames the template and replaces its cell tree): a bake of 1 and
 // not 3 narrows the cause to the fields the two WRLD records differ in; a bake of 3 too narrows it to the core's
 // scale or cell tree; no bake of 1 means the generator did not find this plugin world, 2 then says whether the
-// Master flag is among the reasons, and the route stays unproved until a known-good custom world (one the CK
+// Master flag alone changes that, and the route stays unproved until a known-good custom world (one the CK
 // itself made) is tried (docs/terrain/object-lod.md "What the runs showed", 6).
 //
 // usage: LodGate build <Starfield.esm> <FO4TerrainCore.esm> <out dir> [--statics N]     N largest statics, default 3
 //        LodGate show <plugin> <Starfield.esm> [<FO4TerrainCore.esm>]                  reads a gate plugin back
+//   build writes FO4SFLodGate1.esm, noflag\FO4SFLodGate1.esm and FO4SFLodGate3.esm into <out dir>
 //        LodGate fixture <dir>      synthetic Starfield.esm and FO4TerrainCore.esm for tests/test_lod_gate.py
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -91,16 +92,15 @@ if (args[0] == "build" && args.Length >= 4)
     Console.WriteLine($"statics ({big.Count} largest by object bounds): " +
                       string.Join(", ", big.Select(s => $"{s.FormKey} {s.EditorID} ({Extent(s)})")));
     Directory.CreateDirectory(outDir);
-    foreach (var (n, master, from, lo) in new (int, bool, IWorldspaceGetter, ModKey[])[]
+    foreach (var (n, from, lo) in new (int, IWorldspaceGetter, ModKey[])[]
              {
-                 (1, true, template, new[] { sf.ModKey }),
-                 (2, false, template, new[] { sf.ModKey }),
-                 (3, true, ours, new[] { sf.ModKey, core.ModKey }),
+                 (1, template, new[] { sf.ModKey }),
+                 (3, ours, new[] { sf.ModKey, core.ModKey }),
              })
     {
-        var modKey = ModKey.FromFileName($"FO4SFLodGate{n}.esm");           // the same extension for all: the flag alone varies
+        var modKey = ModKey.FromFileName($"FO4SFLodGate{n}.esm");
         var mod = new StarfieldMod(modKey, release);
-        if (master) mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;        // as every plugin of ours that loads
         uint next = 0x800;
         FormKey NewKey() => new(modKey, next++);
         // the WRLD record's own fields only: a copy that took the template's cell tree along would materialize the
@@ -142,6 +142,17 @@ if (args[0] == "build" && args.Length >= 4)
             .WithExtraIncludedMasters(lo).Write();
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {w.EditorID} {w.FormKey} from {from.EditorID} {from.FormKey}: " +
                           $"{Show(w)}, {Cells(w).Count()} cells, {big.Count} refs; masters [{string.Join(", ", lo.Select(k => k.FileName))}]");
+        if (n != 1) continue;
+        // gate 2: gate 1's twin with the Master header flag cleared and nothing else changed (same file name, world,
+        // references), in its own folder since it shares the name
+        mod.ModHeader.Flags &= ~StarfieldModHeader.HeaderFlag.Master;
+        var twinDir = Path.Combine(outDir, "noflag");
+        Directory.CreateDirectory(twinDir);
+        var twin = Path.Combine(twinDir, modKey.FileName);
+        mod.BeginWrite.ToPath(twin).WithLoadOrder(lo)
+            .WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray())
+            .WithExtraIncludedMasters(lo).Write();
+        Console.WriteLine($"wrote {twin} ({new FileInfo(twin).Length:N0} bytes): gate 2, the same plugin with the Master header flag cleared");
     }
     return 0;
 }
