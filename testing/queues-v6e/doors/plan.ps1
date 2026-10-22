@@ -48,8 +48,10 @@ function Pins($leg) {
   foreach ($f in @("$CoreBuild\FO4TerrainCore.esm", "$Starfield\Data\FO4TerrainCore.esm", "$PortStaging\FO4Port.esm") +
                  @('objects.json','formids.json','plan.json','overlays_params.json' | ForEach-Object { "$CoreBuild\$_" })) {
     $h[$f.ToLower()] = (Get-FileHash -Algorithm SHA256 $f).Hash }
-  # the planner's code too (Codex on #500): the git trees of scripts\bridge and src at the checkout's HEAD
-  $code = [ordered]@{ bridge = (git rev-parse HEAD:scripts/bridge); src = (git rev-parse HEAD:src) }
+  # the planner's code too (Codex on #500): the git trees of all of scripts and src at the checkout's HEAD (door_rounds
+  # imports scripts\terrain and src), plus any uncommitted change to them
+  $code = [ordered]@{ scripts = (git rev-parse HEAD:scripts); src = (git rev-parse HEAD:src)
+                      uncommitted = ((git status --porcelain -- scripts src) -join ';') }
   [ordered]@{ inputs = $h; planner = $code; core_index = $CoreIndex; port_index = $PortIndex; out_min_m = $(if ($leg -eq 'out') { $OutMinM } else { '' }) } |
     ConvertTo-Json -Depth 3
 }
