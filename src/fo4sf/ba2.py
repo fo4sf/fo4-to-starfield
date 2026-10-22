@@ -126,6 +126,24 @@ class Ba2:
             "textures": dx10,
         }
 
+    def size_estimates(self) -> dict:
+        """Rough estimates of packed (on-disk) and unpacked (decompressed) total sizes.
+
+        Useful for conversion planning: packed is what you download/store, unpacked is peak RAM/temp during extract.
+        Counts only the payload sizes recorded in the index; does not read file data.
+        """
+        packed = 0
+        unpacked = 0
+        for e in self.entries:
+            if e.kind == "GNRL":
+                packed += e.packed or e.unpacked
+                unpacked += e.unpacked
+            elif e.kind == "DX10" and e.chunks:
+                for _off, pk, up, _s, _e in e.chunks:
+                    packed += pk or up
+                    unpacked += up
+        return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
+
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
 
