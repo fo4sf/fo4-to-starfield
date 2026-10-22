@@ -221,6 +221,17 @@ class RelocateContractTests(unittest.TestCase):
         self.assertGreater(move.index('" player="'), move.index("RelocateRadius * RelocateRadius"))   # moves only
         self.assertGreater(move.index('" after="'), move.index("a.MoveTo("))
 
+    def test_trace_reopens_the_log_after_a_save_load(self):
+        """21 Oct crash runs: OnQuestInit's OpenUserLog does not survive a save load, so the timers ran with no log.
+        Trace opens the log itself, right before it writes (a no-op when it is already open)."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        trace = psc[psc.index("Function Trace("):]
+        trace = trace[:trace.index("EndFunction")]
+        lines = [ln.strip() for ln in trace.splitlines()[1:] if ln.strip() and not ln.strip().startswith(";")]
+        self.assertEqual(lines[0], "Debug.OpenUserLog(LogName)")
+        self.assertTrue(lines[1].startswith("Debug.TraceUser(LogName,"))
+
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()
