@@ -188,6 +188,54 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertIn("materials\\x.bgsm", man["materials_converted"])
         self.assertEqual((man["stats"]["materials_ok"], man["stats"]["materials_fallback"]), (1, 1))
 
+    def test_pose_only_retry_keeps_the_prior_base_when_it_would_now_fail(self):
+        b = "meshes\\fail1.nif"
+        extra = ["--cell-json", str(self._cell(["fail1.nif"])), "--limit", "10"]
+        plan = self._plan_for({"meshes/fail1.nif": "bbbb222222"})
+
+        def convert_initial(name, pose=None, out_suffix=""):
+            return {"ok": False, "reason": "pose-boom:" + name} if pose is not None else convert_ok(name, pose, out_suffix)
+        run_main(self.staging, self.collision, [b], convert_initial, extra=extra, plan=plan)
+        prior_base = json.loads((self.staging / "manifest.json").read_text())["items"][0]
+
+        def convert_retry(name, pose=None, out_suffix=""):   # the base would fail now; only the pose is pending
+            return convert_ok(name, pose, out_suffix) if pose is not None else {"ok": False, "reason": "base-boom"}
+        convert = run_main(self.staging, self.collision, [b], convert_retry, extra=["--retry-failures", *extra], plan=plan)
+        self.assertEqual([c for c in convert.call_args_list if c.kwargs.get("pose") is None], [])
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["failures"], [])
+        self.assertEqual(man["items"][0], prior_base)
+        self.assertEqual(man["items"][1]["pose"]["key"], "bbbb222222")
+        self.assertTrue(json.loads((self.staging / "build-state.json").read_text())["complete"])
+
+    def test_pose_only_retry_converts_the_base_when_the_stage_lost_it(self):
+        self.assertEqual(batch.retry_pending_sources(["meshes/x.nif|xrgd:k1"], {"meshes/x.nif"}), set())
+        self.assertEqual(batch.retry_pending_sources(["meshes/x.nif|xrgd:k1"], set()), {"meshes/x.nif"})
+        self.assertEqual(batch.retry_pending_sources(["meshes/x.nif"], {"meshes/x.nif"}), {"meshes/x.nif"})
+
+    def test_legacy_stage_does_not_recount_a_material_that_fails_and_recovers_again(self):
+        def first(name):   # A keeps a placeholder for X, so X's reason stays after a recovery
+            if name == A:
+                return dict(convert_ok(name), fallback_materials=1)
+            return {"ok": False, "reason": "boom:" + name}
+        run_main(self.staging, self.collision, [A, B, C], first, extra=["--limit", "10"],
+                 materials={"materials\\x.bgsm": None}, material_errors={"Materials\\X.bgsm": "OSError: texconv"})
+        path = self.staging / "manifest.json"
+        man = json.loads(path.read_text())
+        del man["materials_converted"]
+        man["stats"]["materials_ok"] = 10
+        path.write_text(json.dumps(man))
+        only_b = lambda name: convert_ok(name) if name != C else {"ok": False, "reason": "boom:" + name}
+        counts = []
+        for materials, errors in (({"materials\\x.bgsm": "x.mat"}, {}),                         # recovers X
+                                  ({"materials\\x.bgsm": None}, {"materials\\x.bgsm": "OSError: again"}),  # X fails
+                                  ({"materials\\x.bgsm": "x.mat"}, {})):                        # recovers X again
+            run_main(self.staging, self.collision, [A, B, C], only_b, extra=["--retry-failures", "--limit", "10"],
+                     materials=materials, material_errors=errors)
+            counts.append(json.loads(path.read_text())["stats"]["materials_ok"])
+        self.assertEqual(counts, [11, 10, 11])
+        self.assertEqual(json.loads(path.read_text())["materials_recovered"], ["materials\\x.bgsm"])
+
     def test_limited_retry_keeps_unattempted_failures(self):
         self._initial_abc()
         convert = Mock(side_effect=convert_ok)
@@ -415,6 +463,7 @@ class RetryFailuresTests(unittest.TestCase):
                            extra=["--retry-failures", *extra], plan=plan)
         posed = [call for call in convert.call_args_list if call.kwargs.get("pose") is not None]
         self.assertEqual({call.args[0] for call in posed}, {b, c})
+        self.assertEqual([call for call in convert.call_args_list if call.kwargs.get("pose") is None], [])
         man = json.loads((self.staging / "manifest.json").read_text())
         self.assertEqual(len(man["items"]), 4)
         self.assertEqual([it["source"] for it in man["items"]], [b, c, b, c])

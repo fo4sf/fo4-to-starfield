@@ -254,9 +254,10 @@ def retry_pending_idents(pending):
     return {ident for ident in (retry_nif_identity(n) for n in pending) if ident}
 
 
-def retry_pending_sources(pending):
-    """Base NIF sources a retry must convert, including parents of pose-only pending keys."""
-    return {ident[0] for ident in retry_pending_idents(pending)}
+def retry_pending_sources(pending, prior_bases=frozenset()):
+    """Base NIF sources a retry must convert: those with a base failure, and a pose-only key's parent only when the
+    prior stage has no base for it (otherwise the pose reuses that base, which reconverting could break)."""
+    return {ident[0] for ident in retry_pending_idents(pending) if not ident[1] or ident[0] not in prior_bases}
 
 
 def _failure_by_identity(rows):
@@ -345,12 +346,13 @@ _RECOVERED_NOTE = " (converted in a retry; models it did not reconvert may still
 
 def merge_material_evidence(prior, conv, retried_ids=frozenset()):
     """Material evidence for the stage. A retry keeps the prior run's, one entry per material however it is spelled;
-    a material converted now drops its old fallback reason unless a model the retry kept may still use the placeholder."""
+    a material converted now drops its old fallback reason unless a model the retry kept may still use the placeholder.
+    Returns (materials_converted or None, material_fallbacks, materials_ok, materials_fallback, materials_recovered or None)."""
     done = getattr(conv, "_materials", None) or {}
     ok = {k for k, v in done.items() if v is not None}
     errors = dict(conv.material_errors) if conv else {}
     if prior is None:
-        return sorted(ok), errors, len(ok), len(errors)
+        return sorted(ok), errors, len(ok), len(errors), None
     prior_errors = prior.get("material_fallbacks") or {}
     failed_now = {material_key(k) for k in errors}
     kept_placeholder = any(isinstance(it, dict) and it.get("fallback_materials") and item_identity(it) not in retried_ids
@@ -370,12 +372,16 @@ def merge_material_evidence(prior, conv, retried_ids=frozenset()):
     fallback_count = len(seen | failed_now)
     if isinstance(prior.get("materials_converted"), list):
         converted = (ok | set(prior["materials_converted"])) - failed_now
-        return sorted(converted), merged, len(converted), fallback_count
-    # a stage written before materials_converted: its count plus this retry's first recoveries; the set stays unknown,
-    # so None keeps later retries on this count instead of trusting a partial list
-    recovered = ok & {material_key(k) for k, v in prior_errors.items() if not str(v).endswith(_RECOVERED_NOTE)}
-    ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(recovered)
-    return None, merged, ok_count, fallback_count
+        return sorted(converted), merged, len(converted), fallback_count, None
+    # a stage written before materials_converted: the converted set stays unknown (None keeps later retries on the
+    # count instead of trusting a partial list). materials_recovered records which fallbacks the count already took
+    # in, so a material that fails and recovers again is not counted twice
+    counted = set(prior.get("materials_recovered") or [])
+    recovered = (ok & {material_key(k) for k in prior_errors}) - counted
+    lost = counted & failed_now
+    ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(recovered) - len(lost)
+    return None, merged, ok_count, fallback_count, sorted((counted | recovered) - lost)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -506,7 +512,9 @@ def main():
         with open(man_path, encoding="utf-8") as f:
             prior_manifest = json.load(f)
         pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
-        pending_sources = retry_pending_sources(pending_retry)
+        prior_bases = {source_identity(it["source"]) for it in (prior_manifest or {}).get("items") or []
+                       if isinstance(it, dict) and isinstance(it.get("source"), str) and it["source"] and not it.get("pose")}
+        pending_sources = retry_pending_sources(pending_retry, prior_bases)
         names = [n for n in names if source_identity(n) in pending_sources]
         print(f"  retry-failures: narrowed to {len(names)} previous failures")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
@@ -690,7 +698,7 @@ def main():
             write_json_atomic(state_path, {"complete": False, "status": "dependency_conflict", "errors": inconsistent})
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
-    materials_converted, material_fallbacks, ok_count, fallback_count = merge_material_evidence(
+    materials_converted, material_fallbacks, ok_count, fallback_count, materials_recovered = merge_material_evidence(
         prior_manifest if pending_retry is not None else None, conv, retried_ids)
     if pending_retry is not None:   # the retry's converter only saw the retried models' materials
         stats.update(materials_ok=ok_count, materials_fallback=fallback_count)
@@ -698,7 +706,8 @@ def main():
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": material_fallbacks,
-                **({"materials_converted": materials_converted} if materials_converted is not None else {}), "stats": stats,
+                **({"materials_converted": materials_converted} if materials_converted is not None else {}),
+                **({"materials_recovered": materials_recovered} if materials_recovered is not None else {}), "stats": stats,
                 "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
