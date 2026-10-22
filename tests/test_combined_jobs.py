@@ -277,6 +277,20 @@ class ResupplyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             jobs.complete(ws, o)
 
+    def test_a_completed_offer_cannot_be_handed_in_again(self):
+        # Codex review of #431: the settlement short again before expiry must not let the same offer pay twice
+        ws = quiet(world())
+        s = ws.settlements["farm_b"]
+        s.stock["food"] = 1
+        o = by_kind(jobs.offers(ws, "market"), "resupply")[0]
+        jobs.complete(ws, o)
+        s.stock["food"] = 1                                           # the player took the goods straight back
+        self.assertIn("already handed in", jobs.valid(ws, o))
+        with self.assertRaises(ValueError):
+            jobs.complete(ws, o)
+        ws.hour += 1                                                  # a new shortage later is a new offer
+        self.assertIsNone(jobs.valid(ws, by_kind(jobs.offers(ws, "market"), "resupply")[0]))
+
     def test_no_offer_for_an_empty_or_stocked_settlement(self):
         ws = quiet(world())
         self.assertEqual(by_kind(jobs.offers(ws, "market"), "resupply"), [])

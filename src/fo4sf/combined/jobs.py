@@ -225,6 +225,9 @@ def valid(ws: WorldState, offer: Offer) -> str | None:
         return "giver or target no longer exists"
     if ws.hour >= offer.expires_hour:
         return f"offer expired at hour {offer.expires_hour}"
+    if any(e["kind"] in ("job_done", "job_failed") and e.get("offer") == offer.id
+           and e.get("offered") == offer.offered_hour for e in ws.events):
+        return "this offer was already handed in or given up"     # one outcome per offer (Codex review of #431)
     pl, d = ws.places[offer.target], offer.detail
     if offer.kind == "defend":
         q = ws.squads.get(d.get("squad"))
@@ -289,7 +292,8 @@ def complete(ws: WorldState, offer: Offer) -> dict:
                    player=True)
     fame = reputation.tier_points(offer.reward_tier)
     sim.player_helped(ws, offer.giver, fame)
-    sim._event(ws, "job_done", offer.place, faction=offer.giver, job=offer.kind, target=offer.target, fame=fame)
+    sim._event(ws, "job_done", offer.place, faction=offer.giver, job=offer.kind, target=offer.target, fame=fame,
+               offer=offer.id, offered=offer.offered_hour)
     changed["fame"] = fame
     return changed
 
@@ -302,7 +306,7 @@ def fail(ws: WorldState, offer: Offer) -> int:
         reputation.add(ws, offer.giver, infamy=infamy)
     if offer.place in ws.places:
         sim._event(ws, "job_failed", offer.place, faction=offer.giver, job=offer.kind, target=offer.target,
-                   infamy=infamy)
+                   infamy=infamy, offer=offer.id, offered=offer.offered_hour)
     return infamy
 
 

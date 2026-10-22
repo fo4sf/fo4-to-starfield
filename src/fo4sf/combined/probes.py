@@ -423,6 +423,10 @@ def check_p1(c: Collection) -> Verdict:
         if name not in post_saves:
             v.reasons.append(f"pre_save {name!r} without post_save")
             failed = True
+        if not isinstance(d.get("counter"), int) or isinstance(d.get("counter"), bool):
+            v.reasons.append(f"pre_save {name!r} logs no integer counter: its sidecar and read-back cannot be tied to "
+                             "this save event")       # Codex review of #431
+            failed = True
         if d.get("written") is not True:        # an older sidecar may still sit under that name (Codex, #431)
             v.reasons.append(f"pre_save {name!r} reports written={d.get('written')!r}: this run's sidecar was not "
                              "written, so any file under its name is not this run's")
@@ -440,8 +444,8 @@ def check_p1(c: Collection) -> Verdict:
         if ws.get("probe") != "P1" or not isinstance(ws.get("counter"), int):
             v.reasons.append(f"sidecar {fn} world_state is not the P1 stub")
             failed = True
-        elif "counter" in d and ws.get("counter") != d["counter"]:
-            v.reasons.append(f"sidecar {fn} counter {ws.get('counter')} differs from pre_save counter {d['counter']}")
+        elif ws.get("counter") != d.get("counter"):
+            v.reasons.append(f"sidecar {fn} counter {ws.get('counter')} differs from pre_save counter {d.get('counter')}")
             failed = True
     for d in loads:
         name = d.get("save")
@@ -449,9 +453,9 @@ def check_p1(c: Collection) -> Verdict:
             if d.get("found") is not True or d.get("valid") is not True:
                 v.reasons.append(f"post_load {name!r} found={d.get('found')} valid={d.get('valid')} for a saved name")
                 failed = True
-            elif "counter" in pre[name] and d.get("counter") != pre[name]["counter"]:
+            elif d.get("counter") != pre[name].get("counter"):
                 v.reasons.append(f"post_load {name!r} counter {d.get('counter')} is not the last pre_save counter "
-                                 f"{pre[name]['counter']}")
+                                 f"{pre[name].get('counter')}")
                 failed = True
     if failed:
         v.verdict = FAIL

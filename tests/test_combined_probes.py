@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -192,6 +193,14 @@ class P1Tests(unittest.TestCase):
             v = probes.check_p1(c)
             self.assertEqual(v.verdict, FAIL, written)
             self.assertTrue(any("was not written" in r for r in v.reasons), v.reasons)
+
+    def test_a_pre_save_without_a_counter_fails(self):
+        # Codex review of #431: the counter ties each sidecar and read-back to its save event
+        c = p1_collection()
+        c.sfse_log = [re.sub(r'"counter": \d+, ', "", l) if '"pre_save"' in l else l for l in c.sfse_log]
+        v = probes.check_p1(c)
+        self.assertEqual(v.verdict, FAIL)
+        self.assertTrue(any("integer counter" in r for r in v.reasons), v.reasons)
 
     def test_a_load_before_the_save_completed_does_not_count(self):
         # Codex review of #431: pre_save, post_load, post_save only proves an immediate read, not a restore
