@@ -220,6 +220,11 @@ BORDER = '"bBorderRegionsEnabled:General"'
 BORDER_OFF = [f"GetINI {BORDER}", f"SetINI {BORDER} 0", f"GetINI {BORDER}"]
 
 
+def border_off(entry):
+    """The plan entry with the border switch typed first (--border-off); door_out_legs.py rebuilds entries the same way."""
+    return dict(entry, console_pre=list(BORDER_OFF) + entry.get("console_pre", []))
+
+
 def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     """(forward entry, return entry, forward expectation, return expectation) for door k."""
     ex, it = r["exterior"], r["interior"]
@@ -295,7 +300,7 @@ def stage(a):
         legs = [(f, ef), (b, eb)] if a.legs == "both" else [(b, eb)]
         for entry, exp in legs:
             if a.border_off:
-                entry["console_pre"] = list(BORDER_OFF) + entry.get("console_pre", [])
+                entry = border_off(entry)
             expect.append(dict(exp, test=len(plan)))
             plan.append(entry)
     os.makedirs(out)

@@ -399,6 +399,21 @@ class OutLegsTests(unittest.TestCase):
         with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
             self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
 
+    def test_a_border_off_stage_keeps_its_console_lines(self):
+        core, port, _ = build(os.path.join(self.d, "b"))
+        st = os.path.join(self.d, "st_border")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", st, "--border-off"])
+        plan, rounds = self.load(st, "plan.json"), self.load(st, "rounds.json")
+        kept, out = self.run_on(plan, rounds, 0, "border")      # Codex on #444: the filter rebuilt it without them
+        self.assertEqual(kept, [plan[1]])
+        self.assertEqual(kept[0]["console_pre"][:3], dr.BORDER_OFF)
+        self.assertEqual((out["legs"], out["border_off"]), ("out", True))
+        rounds["border_off"] = False                            # a stage that lies about its lines is refused
+        with self.assertRaises(SystemExit):
+            self.run_on(plan, rounds, 0, "border_lie")
+
     def test_the_distance_comes_from_the_geometry_not_the_label(self):
         # Codex's review of #383: 728.53 m from the spawn; labels are display only
         plan = json.loads(json.dumps(self.plan))
