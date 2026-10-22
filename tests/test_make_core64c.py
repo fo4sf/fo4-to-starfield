@@ -740,6 +740,20 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertEqual(mk.core_params_view(dict(staged, world_data=mk.WORLD_DATA["city"])), core)
         self.assertEqual((mk.WORLD_DATA["template"], mk.WORLD_DATA["city"]), (None, {"small_world": False, "hnam": 5}))
 
+    def test_check_expects_exactly_the_world_data_change(self):
+        # cmd_check compares core64's WRLD, as --world-border changes it, with core64c's
+        def wrld(edid, data, hnam):
+            return {"sig": "WRLD", "fid": 0x01000800, "flags": 0,
+                    "fields": [(b"EDID", edid + b"\0"), (b"DATA", data), (b"HNAM", hnam)]}
+        city = mk.WORLD_DATA["city"]
+        old, new = wrld(b"W", b"\x09", b"\x00"), wrld(b"W", b"\x08", b"\x05")
+        view = mk.without_marker_chain
+        self.assertEqual(view(mk.with_world_data(old, city, "W")), view(new))
+        self.assertIs(mk.with_world_data(old, None, "W"), old)                               # template: unchanged
+        self.assertIs(mk.with_world_data(old, city, "X"), old)                               # another world
+        self.assertNotEqual(view(mk.with_world_data(old, city, "W")), view(wrld(b"W", b"\x09", b"\x05")))
+        self.assertNotEqual(view(mk.with_world_data(old, city, "W")), view(wrld(b"W", b"\x08", b"\x00")))
+
 
 class ItemValidationReviewTests(unittest.TestCase):
     # the review of #235: input the writer refuses is refused at stage (value int32, weight float32, -0.0 == 0.0)

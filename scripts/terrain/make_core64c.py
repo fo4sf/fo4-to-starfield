@@ -520,6 +520,7 @@ AREA_M = 560.0              # local collision world: arrival +- this (every poin
 # "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5): the BorderProbe city run's Vault 95 exit PASSed with the
 # border on (2026-10-22), where LC172World's own (template) FAILs STAYED with "BOUNDARY REACHED".
 WORLD_DATA = {"template": None, "city": {"small_world": False, "hnam": 5}}
+WORLD_SMALL_WORLD = 0x01                                  # WRLD DATA flag bit
 DROP_MARGIN = 40.0          # drop at least this far above the highest expected landing of the entry (as core64)
 TOP_CLEAR = 10.0            # and at least this far above every collision top within 1 m of a point
 REF_LABEL = x2c.REF_LABEL
@@ -2350,6 +2351,21 @@ def without_marker_chain(rec):
     return rec["sig"], rec["flags"], fields
 
 
+def with_world_data(rec, world_data, world):
+    """core64's record as stage --world-border changes it (params "world_data", TerrainOverlays): the overlay world's
+    WRLD with SmallWorld cleared from DATA and HNAM set; every other record as it is."""
+    if not world_data or rec["sig"] != "WRLD" or overlay_records.edid(rec) != world:
+        return rec
+    fields = []
+    for s, v in rec["fields"]:
+        if s == b"DATA" and world_data.get("small_world") is False:
+            v = bytes([v[0] & ~WORLD_SMALL_WORLD]) + bytes(v[1:])
+        elif s == b"HNAM" and "hnam" in world_data:
+            v = bytes([world_data["hnam"]])
+        fields.append((s, v))
+    return {**rec, "fields": fields}
+
+
 def map_marker_problems(recs, own_index, ov, ids):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
@@ -3008,11 +3024,15 @@ def cmd_check(a):
     new = overlay_records.walk_plugin(os.path.join(out, prm["plugin"]))
     by = {r["fid"]: r for r in new["records"]}
     # core64's own map marker (if its writer made one) is not kept: core64c writes its markers after every object,
-    # and its Location's LCSR / LCID point at those (map_marker_problems)
+    # and its Location's LCSR / LCID point at those (map_marker_problems); with --world-border the world's WRLD must
+    # carry exactly the requested DATA / HNAM change (with_world_data)
     kept = [r for r in old["records"] if not is_map_marker_ref(r)]
-    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]]) == without_marker_chain(r))
+    wd = prm.get("world_data")
+    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]])
+               == without_marker_chain(with_world_data(r, wd, ov["world"])))
     need(same == len(kept), f"every core64 record unchanged ({same}/{len(kept)}; "
-                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced)")
+                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced"
+                            + (f"; {ov['world']} WRLD with world_data {wd}" if wd else "") + ")")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
     own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
