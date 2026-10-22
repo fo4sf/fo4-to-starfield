@@ -91,6 +91,24 @@ class NavmeshLossTests(unittest.TestCase):
         self.assertEqual(info.traversals, [])
         self.assertIsNone(info.outline)
 
+    def test_a_triangle_that_only_touches_a_cell_line_is_not_clipped(self):
+        """#209: eps widens the bbox across a cell line the triangle only touches, so the old counter
+        reported a clip. 7000 FO4 units is exactly the 100 m line; the triangle stays in one cell."""
+        verts = [(0.0, 0.0, 0.0), (7000.0, 0.0, 0.0), (0.0, 70.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xA, verts, tris)])
+        self.assertEqual(rep["clipped_triangles"], 0)
+        self.assertEqual(len(pieces), 1)
+        self.assertEqual(sum(len(p.tris) for p in pieces), 1)
+
+    def test_a_triangle_that_straddles_a_cell_line_is_clipped(self):
+        verts = [(6900.0, 0.0, 0.0), (7100.0, 0.0, 0.0), (7000.0, 70.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xA, verts, tris)])
+        self.assertEqual(rep["clipped_triangles"], 1)
+        self.assertEqual(len(pieces), 2)
+        self.assertEqual(sum(len(p.tris) for p in pieces), 2)
+
     def test_one_cell_cut_portal_is_retained(self):
         # in: {"cell_cuts": [{"edge": (0, 1)}], "portals": [{"to_cell": 0xABCD, "edge": (0, 1)}]}
         verts = [(-70.0, 0.0, 0.0), (70.0, 0.0, 0.0), (70.0, 70.0, 0.0), (-70.0, 70.0, 0.0)]
