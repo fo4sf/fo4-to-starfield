@@ -273,5 +273,7 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
 EndFunction
 
 Function Trace(string msg)
+    ; OnQuestInit's open does not survive a save load (the 21 Oct crash runs logged nothing); a no-op when already open
+    Debug.OpenUserLog(LogName)
     Debug.TraceUser(LogName, "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " " + msg)
 EndFunction
