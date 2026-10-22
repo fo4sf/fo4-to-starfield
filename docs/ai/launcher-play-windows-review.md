@@ -22,15 +22,17 @@ Verdicts: **match** = the code's assumption is what the cited page says. **misma
 | `os.replace` over `StarfieldCustom.ini` while it may be open | Write a sibling temp, `os.replace(tmp, path)`. `play` refuses if `Starfield.exe` is already running, so this swap happens with the game closed. `OSError` becomes a `ValueError` that names Controlled Folder Access. | [os.replace](https://docs.python.org/3/library/os.html#os.replace) on Windows replaces `dst` if it is a file. [Moving and replacing files](https://learn.microsoft.com/en-us/windows/win32/fileio/moving-and-replacing-files): a file must be closed before it can be moved; [MoveFileEx](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw) with `MOVEFILE_REPLACE_EXISTING` fails (return 0, `GetLastError`) when the destination cannot be replaced. An INI held open by another process is that case. CFA blocking Python in Documents is a separate Windows ACL/policy failure, which the `OSError` path already names. | match (game closed first; replace can still fail if another process holds the file) |
 | `subprocess.Popen` holding the `wb` handle for ProcDump's report | `with open(out_path, "wb") as log: return Popen(..., stdout=log, stderr=STDOUT)`. Comment: the child keeps its own copy. After `Popen` returns, the `with` closes the parent's file. Later `fold_output` reads the path when ProcDump has exited. | [subprocess](https://docs.python.org/3/library/subprocess.html) 3.7+: on Windows `close_fds` defaults to True even when redirecting; redirected standard handles are still passed to the child. [Handle inheritance](https://learn.microsoft.com/en-us/windows/win32/sysinfo/handle-inheritance): the child receives a duplicate; the parent can close its copy. Closing the parent `wb` after `Popen` leaves ProcDump as the remaining writer, so `fold_output` can open the file after ProcDump exits. | match |
 
+Both mismatches (the HANDLE restype and the unused WaitForSingleObject result) were fixed in #471, merged as `ccab047`.
+
 ## First `play` checks on the PC
 
 These are the first things to watch when `play` actually runs. They are not pass/fail claims.
 
-1. `play --dry-run` only prints the plan and exits 0. Nothing starts.
+1. `play --dry-run` prints the plan and exits 0 only after its preflight passes. A bad setting, a missing exe or ProcDump, low dump space, or a game already running each make it refuse with exit 2.
 2. With Starfield already running, `play` refuses before any INI or process start.
 3. `route=exe`: `Starfield.exe` is created from the install folder; `tasklist` sees that image before `start_timeout_s`.
 4. `route=steam`: the shell opens `steam://rungameid/1716740`; `Starfield.exe` appears in time, or play reports it did not stay up. Note the delay. Do not treat Steam's own error boxes as a Windows API result.
-5. If the log says `no handle on process`: `OpenProcess` was refused (integrity / access). The exit code will be unknown; confirm whether that print appears on a normal unelevated Python vs an elevated game.
+5. If the console says `no handle on process` (printed to the console, not written to `crashwatch.log`): `OpenProcess` was refused (integrity / access). The exit code will be unknown; confirm whether that print appears on a normal unelevated Python vs an elevated game.
 6. After a normal quit, play should unblock from `WaitForSingleObject` and print an exit code. 0 is documented here as "normal exit (also what a silent ExitProcess gives)" — a PC run is what tells those two apart, not this note.
 7. If the printed code is `0x00000103`, treat it as the STILL_ACTIVE collision until it is known whether the wait returned `WAIT_OBJECT_0`.
 8. Papyrus on/off: if Documents is blocked, the refusal names Controlled Folder Access and the game is not started. If an editor has `StarfieldCustom.ini` open, expect the same `OSError` path.
