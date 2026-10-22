@@ -66,7 +66,7 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
      (a work staging converted without it is reconverted: its checkpoint signature differs, so give a new --work), then
      scripts/door_bridge/load_door_anim.py plan (and flags over the exports with --door-flags, sounds with --doorsounds)
      writes --out/door_anim/manifest*.json, the manifest PluginSpike reads instead of <work>/manifest.json; step 5 adds
-     vmad_patch port --animated-doors with it; step 7 packs --animated-pex as Scripts\FO4SF_AnimatedLoadDoor.pex into
+     vmad_patch port --animated-doors with it; step 7 packs --animated-pex as Scripts\\FO4SF_AnimatedLoadDoor.pex into
      "FO4Port - Main.ba2" (it extends FO4SF_LoadDoor, which the installed bridge's archive carries). steps.door_anim
      records the counts and the PEX's sha256.
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
