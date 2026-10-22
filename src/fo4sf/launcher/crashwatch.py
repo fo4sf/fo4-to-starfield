@@ -415,7 +415,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         apply_papyrus(values, say)
 
     t0 = system.now()
-    system.start_game(values["route"], starfield)
+    try:
+        system.start_game(values["route"], starfield)
+    except OSError as e:                            # no steam:// handler, or the exe would not start (Codex, #465)
+        why = f"could not start the game by {values['route']} ({e.strerror or e})"
+        if cw:
+            _log(log_path, f"play: {why}")
+        raise ValueError(why) from None
     return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s)
 
 

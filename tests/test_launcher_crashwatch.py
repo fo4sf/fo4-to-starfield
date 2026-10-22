@@ -71,6 +71,8 @@ class FakeSystem:
         return [pid for pid, a, b, _c in self.script if a <= el < b]
 
     def start_game(self, route, starfield):
+        if getattr(self, "start_error", None):
+            raise self.start_error
         self.calls.append(("start", route))
         self.started_at = self.t
 
@@ -565,6 +567,14 @@ class CrashWatchTests(unittest.TestCase):
                     self.play(v, sys_)
                 self.assertIn(text, str(e.exception))
                 self.assertEqual(sys_.calls, [])
+
+    def test_start_failure_is_a_refusal(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.start_error = OSError(2, "No application is associated with the specified file")
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(), sys_)
+        self.assertIn("could not start the game by steam", str(e.exception))
+        self.assertEqual(sys_.spawned, [])                         # no ProcDump left waiting for a game
 
     def test_dry_run_changes_nothing(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
