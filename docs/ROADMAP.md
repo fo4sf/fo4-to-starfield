@@ -55,8 +55,10 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
 3. **Codsworth on existing saves** (Bugs, with NPC): diagnosis card K is queued, read-only on a save from before the
    22 Oct console fix. The likely cause is that his relocation timer never ran on that save (no timer in the mission
    quest logs). If K confirms it, the fix is a new start-game-enabled keeper quest, because only a new quest runs on an
-   existing save whose timers are dead; it also enables him. That touches dotnet/Mission and the .psc, so Bugs and NPC
-   fold it in one refold (no console ids in any owner instruction; ids move between sessions).
+   existing save whose timers are dead; it also enables him. That fix is up as draft #493 (keeper quest
+   FO4SF_CodsworthKeeper, 0x814; with CI and Codex); after that it needs the PC Mission build plus selftest, and it
+   rides the mission refold after BorderProbe, folded once with NPC (no console ids in any owner instruction; ids move
+   between sessions).
 4. **The border fix** (Interiors): the BorderProbe result picks the field; it goes into the core build, which means a
    core rebuild and a mission refold. Every stage pinned to the core (new game, focc probe, map markers, mission) is
    redone after it. If no variant passes, the fallback is an SFSE plugin that turns the border off only inside our
