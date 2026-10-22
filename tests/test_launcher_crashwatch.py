@@ -643,7 +643,7 @@ class CrashWatchTests(unittest.TestCase):
             self.assertIn("not listed as a good runtime", " ".join(crashwatch.System().runtime_problems(self.game)))
 
     def test_load_order_is_put_right_before_the_start(self):
-        # phase audit: one target order (docs/testing/load-order.md); play fixes or refuses a different one
+        # phase audit: one target order (scripts/game/load_order.py); play fixes or refuses a different one
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.load_order_result = (9, "load order differs from the target in 1 line(s) (fix puts it right)")
         self.play(self.values(), sys_)
@@ -782,6 +782,20 @@ class CrashWatchTests(unittest.TestCase):
         new, _ = crashwatch.set_papyrus("[Display]\r\nx=1", False)          # a new section after a last line
         self.assertEqual(new, "[Display]\r\nx=1\r\n[Papyrus]\r\nbEnableLogging=0\r\nbEnableTrace=0\r\n"
                               "bLoadDebugInformation=0\r\n")
+
+    def test_a_utf16_ini_is_refused_untouched(self):
+        mg = os.path.join(self.dir, "mg16")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        raw = "[Papyrus]\r\nbEnableLogging=0\r\n".encode("utf-16")         # with its BOM, as Notepad's "Unicode"
+        with open(ini, "wb") as f:
+            f.write(raw)
+        with self.assertRaises(ValueError) as e:
+            crashwatch.apply_papyrus(self.values(papyrus_logging="on", my_games=mg), self.said.append)
+        self.assertIn("UTF-16", str(e.exception))
+        with open(ini, "rb") as f:
+            self.assertEqual(f.read(), raw)
+        self.assertEqual(os.listdir(mg), ["StarfieldCustom.ini"])            # no copy, no temporary file
 
     def test_exit_names(self):
         self.assertEqual(crashwatch.exit_name(-1073741819), "0xC0000005 ACCESS_VIOLATION")    # signed as Windows gives

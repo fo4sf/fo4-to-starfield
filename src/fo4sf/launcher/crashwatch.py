@@ -40,7 +40,7 @@ SFSE_LOADER = "sfse_loader.exe"                         # starts Starfield.exe w
 BRIDGE = "FO4SFBridge.esm"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLUGIN_TOGGLE = os.path.join(REPO, "scripts", "game", "plugin_toggle.py")
-LOAD_ORDER = os.path.join(REPO, "scripts", "game", "load_order.py")   # the target order (docs/testing/load-order.md)
+LOAD_ORDER = os.path.join(REPO, "scripts", "game", "load_order.py")   # the target order (its module doc)
 
 # Windows NTSTATUS / exception codes a game exit is likely to carry (winnt.h / ntstatus.h names)
 EXIT_NAMES = {
@@ -397,6 +397,11 @@ def apply_papyrus(values, say):
             with open(path, "rb") as f:
                 raw = f.read()
         # bytes in and out: a BOM, CRLF endings and any non-UTF-8 byte all come back as they were (phase audit)
+        if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) or b"\0" in raw:
+            # UTF-16 (or anything with NUL bytes) is not edited: a UTF-8 section appended to it would break the file
+            # (Codex, #487)
+            raise ValueError(f"papyrus logging: {path} is UTF-16 or binary, not changed; save it as UTF-8 (or ANSI) "
+                             "first, or set papyrus_logging=unchanged")
         bom = codecs.BOM_UTF8 if raw.startswith(codecs.BOM_UTF8) else b""
         new, changed = set_papyrus(raw[len(bom):].decode("utf-8", "surrogateescape"), want == "on")
         if not changed:

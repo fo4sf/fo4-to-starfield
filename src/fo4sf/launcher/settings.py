@@ -45,7 +45,7 @@ SPEC = (
      "Papyrus logging, trace and debug information in StarfieldCustom.ini ([Papyrus] bEnableLogging, bEnableTrace, "
      "bLoadDebugInformation): memory and disk for every script. The bridge needs it on."),
     ("load_order", "fix", ("fix", "check", "off"),
-     "our plugins' order in Plugins.txt (docs/testing/load-order.md): fix puts them in the target order before the "
+     "our plugins' order in Plugins.txt (scripts/game/load_order.py): fix puts them in the target order before the "
      "game starts, keeping a copy of the old file; check refuses to start on a different order; off leaves it."),
     ("my_games", "", str, "Documents\\My Games\\Starfield (required when papyrus_logging is on or off)."),
     ("route", "sfse", ("sfse", "steam", "exe"),

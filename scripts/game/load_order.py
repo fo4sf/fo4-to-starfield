@@ -1,9 +1,9 @@
-"""One target load order for our plugins in Plugins.txt (docs/testing/load-order.md): check it, or put it right.
+"""One target load order for our plugins in Plugins.txt: check it, or put it right.
 
 usage: python load_order.py check|fix --starfield <game dir>
 
-The target keeps every line that is not ours where it is, in its own order, and puts our lines after them in five
-groups, each group in its current order:
+The target keeps every line that is not ours in its own order, and puts our lines after them in five groups, each
+group in its current order:
   1. the cores (FO4Terrain*.esm, FO4Actor*.esm),
   2. other FO4SF*.esm plugins (the experiments: FO4SFMission.esm and the like),
   3. FO4Port.esm,
@@ -13,12 +13,14 @@ That is the order the game itself wrote on the owner's PC on 2026-10-22, 25 s af
 TerrainCore_Mars, ActorRaider, Mission, Port, MapMarkers, Bridge), so a game that writes its own order again should
 find nothing to change; that the game keeps this order is inferred, not traced. A plugin whose master (one of ours)
 would load after it moves to just after that master. Inactive lines keep their place in their group and stay
-inactive: a plugin held off by plugin_toggle.py is never ticked here.
+inactive: a plugin held off by plugin_toggle.py is never ticked here. A plugin that is not ours but has one of ours
+among its masters (a patch for our plugins), directly or through another such patch, goes after ours, in its own
+order, so it still loads after its masters.
 
 check exits 0 when the order is the target, 9 when it is not (the changes are printed), 6 when it cannot be judged
 (an active plugin of ours missing from Data, an active plugin whose master is neither active nor loaded by the game,
 a master cycle, a duplicated line). fix writes the target with the same BOM and line ending, after copying the old
-file to Plugins.txt.bak-<time>, and refuses (6) as check does. Neither touches a line that is not ours.
+file to Plugins.txt.bak-<time>, and refuses (6) as check does. Lines that are not ours move only as described above.
 """
 import argparse
 import datetime
@@ -71,6 +73,16 @@ def target(lines, masters):
         seen.add(p.casefold())
         ours.append((g, len(ours), ln))
     ours = [ln for _g, _i, ln in sorted(ours)]
+    # a patch for our plugins (not ours, one of ours or of such a patch among its masters) loads after ours (Codex, #487)
+    after = {name(ln).casefold() for ln in ours}
+    for _ in range(len(other) + 1):
+        more = {name(ln).casefold() for ln in other
+                if name(ln) and any(m.casefold() in after for m in masters.get(name(ln).casefold(), []))} - after
+        if not more:
+            break
+        after |= more
+    patches = [ln for ln in other if name(ln) and name(ln).casefold() in after]
+    other = [ln for ln in other if not (name(ln) and name(ln).casefold() in after)]
     active = {name(ln).casefold() for ln in lines if ln.strip().startswith("*")}
     for ln in ours:
         p = name(ln)
@@ -95,7 +107,7 @@ def target(lines, masters):
         for m in ms:
             if p in at and m.casefold() in at and at[m.casefold()] > at[p]:
                 problems.append(f"{p} and its master {m} need each other first (a cycle)")
-    return other + ours, problems
+    return other + ours + patches, problems
 
 
 def changes(old, new):
@@ -106,21 +118,24 @@ def changes(old, new):
 
 
 def read_masters(data, lines):
-    """({plugin casefold: [master, ...]}, problems) for our plugins on a line; an inactive one may be absent."""
+    """({plugin casefold: [master, ...]}, problems) for the plugins on a line that are in Data. One of ours that is
+    active must be there and readable; another plugin's header is read when it is there, to find patches for ours."""
     out, problems = {}, []
     for ln in lines:
         p = name(ln)
-        if not p or ln.strip().startswith("#") or group(p) is None:
+        if not p or ln.strip().startswith("#"):
             continue
+        mine = group(p) is not None
         f = os.path.join(data, p)
         if not os.path.isfile(f):
-            if ln.strip().startswith("*"):
+            if mine and ln.strip().startswith("*"):
                 problems.append(f"{p} is active but not in {data}")
             continue
         try:
             out[p.casefold()] = exp_install.plugin_masters(f)
         except (OSError, ValueError) as e:
-            problems.append(f"{p}: {e}")
+            if mine or ln.strip().startswith("*"):
+                problems.append(f"{p}: {e}")
     return out, problems
 
 

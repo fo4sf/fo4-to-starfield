@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import load_order  # noqa: E402
 
-# the order the game wrote on the owner's PC, 2026-10-22, 25 s after a start (docs/testing/load-order.md)
+# the order the game wrote on the owner's PC, 2026-10-22, 25 s after a start (Install thread)
 GAME = ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4ActorRaider.esm", "FO4SFMission.esm", "FO4Port.esm",
         "FO4SFMapMarkers.esm", "FO4SFBridge.esm"]
 MASTERS = {"FO4TerrainCore_Mars.esm": ["FO4TerrainCore.esm"], "FO4SFMapMarkers.esm": ["FO4TerrainCore.esm"],
@@ -77,6 +77,18 @@ class LoadOrderTests(unittest.TestCase):
         self.assertEqual(self.run_("fix"), 0)
         lines = self.read().decode("utf-8-sig").split()
         self.assertLess(lines.index("*FO4Port.esm"), lines.index("*FO4SFMission.esm"))
+
+    def test_a_patch_for_our_plugins_still_loads_after_them(self):
+        # Codex on #487: a plugin that is not ours but masters one of ours, or such a patch, must stay after it
+        plugin(os.path.join(self.data, "PortPatch.esm"), ["FO4Port.esm"])
+        plugin(os.path.join(self.data, "PatchOfPatch.esp"), ["PortPatch.esm"])
+        plugin(os.path.join(self.data, "Other.esm"))
+        self.write(["*FO4Port.esm", "*PortPatch.esm", "*Other.esm", "*PatchOfPatch.esp"]
+                   + ["*" + p for p in GAME if p != "FO4Port.esm"])
+        self.assertEqual(self.run_("fix"), 0)
+        self.assertEqual(self.read().decode("utf-8-sig").split(),
+                         ["*Other.esm"] + ["*" + p for p in GAME] + ["*PortPatch.esm", "*PatchOfPatch.esp"])
+        self.assertEqual(self.run_("check"), 0)
 
     def test_what_cannot_be_judged_is_refused_and_left_alone(self):
         cases = [
