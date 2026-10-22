@@ -176,8 +176,9 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
 - `value_scan.py` on the plugins: 4 hits, all REFR position or rotation floats (coincidence, **inference**). Only the
   mission plugin names Codsworth; no sTestFile line loads it. Why the model loaded in the mission-off run is open.
 - The model's five BSLightingShaderProperty blocks are byte for byte the mini bot template's block (166 bytes, 0.02 at
-  +144), except the name. The 0.02 is vanilla data, so the loader is reading the block differently in our file, not
-  reading a bad value. **Verified** (PC dump of both files).
+  +144), except the name. **Verified** (PC dump of both files).
+- So the 0.02 is vanilla data. That the loader reads that block (or what surrounds it) differently in our file is a
+  **supported hypothesis**, not shown: the 0.02 may also come from somewhere else in the model. The switches below test it.
 - v6i with the mission restaged without `--codsworth-assets` (Codsworth on the vanilla robot body, no codsworth.nif in
   any archive): Red Rocket to Sanctuary and back both PASS, about 9 minutes each, no access violation, memory flat.
   **Verified.** So the model alone causes the crash.
