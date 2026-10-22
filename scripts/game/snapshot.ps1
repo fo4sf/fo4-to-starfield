@@ -61,8 +61,8 @@ $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -En
 # boxes sat waiting unseen (visible=False: look_hotkey started this script hidden, and a hidden start hides the first
 # window; a visible start instead put an empty console over the game). The start stays hidden and the box shows itself
 # (SW_SHOW, which a hidden start does not override, re-applied every half second while the window is invisible), then
-# takes the foreground (the hotkey hands it the right, AllowSetForegroundWindow; the Alt-key nudge and AttachThreadInput
-# when Windows still refuses), blinking on the taskbar if even that fails.
+# takes the foreground (the hotkey hands it the right, AllowSetForegroundWindow; AttachThreadInput when
+# Windows still refuses; no synthetic key ever), blinking on the taskbar if even that fails.
 # Unanswered after -AskTimeout seconds (default 600) it closes and leaves describe_later.txt in the folder and the folder in
 # <snapshots>\describe_later.txt: type the description into the folder's description.txt afterwards.
 if ($Ask) {
@@ -79,13 +79,12 @@ if ($Ask) {
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
 [DllImport("user32.dll")] public static extern bool BringWindowToTop(System.IntPtr h);
 [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);
-[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
 [DllImport("user32.dll")] public static extern bool FlashWindow(System.IntPtr h, bool invert);
 [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h);
 public static bool Front(System.IntPtr h) {
   ShowWindow(h, 5); ShowWindow(h, 9);                                        // SW_SHOW, SW_RESTORE
   if (SetForegroundWindow(h)) return true;
-  keybd_event(0x12, 0, 0, System.UIntPtr.Zero); keybd_event(0x12, 0, 2, System.UIntPtr.Zero);   // Alt: lifts the lock
+  // never a synthetic key (the Alt-key nudge): it would reach the game, and this tool sends nothing to it (Codex on #463)
   uint fg = GetWindowThreadProcessId(GetForegroundWindow(), System.IntPtr.Zero), me = GetCurrentThreadId();
   bool att = fg != 0 && fg != me && AttachThreadInput(me, fg, true);
   bool ok = SetForegroundWindow(h); BringWindowToTop(h);
