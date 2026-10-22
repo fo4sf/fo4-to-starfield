@@ -4,14 +4,16 @@ For the owner, by Claude (2026-10-16). Every line below is a console command (op
 the grave key `` ` ``; close it the same way). Copy a line, paste it into the console, Enter. Nothing here changes your
 saves on disk unless you save; the test save `fo4sf_test_2470f876` is the runner's and can be overwritten.
 
-**What is installed for you right now:** `terrain_core64k` = the whole playable Commonwealth exterior (64 x 64 cells,
+**What was installed on 16 Oct (history; section A names today's build):** `terrain_core64k` = the whole playable Commonwealth exterior (64 x 64 cells,
 648,358 placed objects) + its navmesh (12,104 NAVM) + 5,156 containers and 12,438 loose items as real Starfield containers and items, 2,246 activators, 140 terminals, 6,249 exterior lights, 29 workshops (build stations) and 269 crafting benches; interiors = `integ_1018` (vault door rigs, posed skeletons and scanners, the shooting-crash collision fix #274; the exterior carries the same fix) + the converted
 raider (`FO4ActorRaider.esm`), on top of the pinned interior build `FO4Port.esm` and the observation bridge
 `FO4SFBridge.esm`. Section 8 says what is known not to work yet. If Starfield shows a "load order changed" dialog at
 start, choose **Current**.
 
-**Form ids in this sheet** start with `03`, the load index of `FO4TerrainCore.esm` in your load order (FO4Port.esm is
-`02`). The runner's own sessions load it at `02`, so its logs show `02...` for the same objects.
+**Form ids in sections 1 to 8** are the 16 Oct load order: `03` was the load index of `FO4TerrainCore.esm` and `02`
+FO4Port.esm (the runner's own sessions loaded it at `02`, so its logs show `02...` for the same objects). They are
+not the v6i indexes, which moved on 22 Oct (section A), so read the current Plugins.txt before any `prid` from those
+sections, or use the cell and object names instead.
 
 ## A. Next session on v6i (22 Oct 2026): the checks that close phase 0
 
