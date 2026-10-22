@@ -8,9 +8,30 @@ Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-20) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-22) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## Latest progress — 2026-10-20
+## Latest progress — 2026-10-22
+
+**The Red Rocket crash is solved.** The cause was the shader blocks written into the converted Codsworth model; Codsworth's model now writes plain shader blocks by default (`--plain-shader`), found with the switches in #460 and fixed in #461. On the fixed build both Red Rocket walks passed, and the owner's play test ran with Codsworth rendering.
+
+| Work | State on 22 Oct | Where |
+|---|---|---|
+| **Red Rocket crash** | solved: the converted Codsworth model's shader blocks; plain shader blocks by default | #460, #461 (merged) |
+| **Red Rocket walks** | both pass on the fixed build | owner's PC, 22 Oct |
+| **Owner play test** | done, with Codsworth rendering | owner, 22 Oct |
+| **Crash watcher** | now starts and ends with the game, with launcher settings | #449 (merged) |
+| **Report hotkey** | the Ctrl+Alt+K description box opens visible and in front | #463 (merged) |
+| **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |
+| **Map markers** | the markers plugin is installed on the test PC for testing | #376, #399 |
+| **Vault 95 and the map boundary** | under investigation; an Interiors test is queued | Interiors thread |
+| **Buildings on the surface map** | verified: the vanilla object LOD archive's file paths and sizes; supported, not decoded: what the `.lod` fields mean; a Creation Kit command-line route found, not yet run | #467 (draft) |
+| **Launcher window** | a window over launcher.py (status, settings, play), with Codex | #456 |
+| **Grok's launcher tasks** | focused QA and diagnostic tasks | #458 |
+
+<details>
+<summary>Progress on 20 October</summary>
+
+### 2026-10-20
 
 **Priority from here on (owner, 19 Oct): the combined core comes first.** This is a GAMMA-style second way to play, built around settlements that grow, factions that act and a connected wasteland, starting on the Commonwealth. It has value without the open legal questions. The stories are still wanted, and the work already in flight continues. The owner's decisions for every phase are in [docs/research/framework/dependencies.md on #408](https://github.com/fo4sf/fo4-to-starfield/pull/408) and are not repeated here.
 
@@ -28,6 +49,8 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Test tooling** | night-chain arm check, preflight report, tiered queues, door trips per interior batch | #391, #397, #403, #405 |
 
 The v6e test runs on the installed build, and the mission result is from the game. Everything else in the table is offline or staged, and nothing new is installed until the v6e test is done.
+
+</details>
 
 <details>
 <summary>Progress on 19 October</summary>
@@ -136,7 +159,7 @@ More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [ad
 
 ## What remains
 
-The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). First the current v6e crash test finishes. The combined core comes first from here on; the approved single-game phases continue in the owner's order of 19 Oct: a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
+The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). The v6e crash testing is finished and the Red Rocket crash is solved (see the latest progress above). The combined core comes first from here on; the approved single-game phases continue in the owner's order of 19 Oct: a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
 
 ## Why conversion is difficult
 
