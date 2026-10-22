@@ -325,6 +325,36 @@ class RunnerTests(unittest.TestCase):
             f.write("x\nAssert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'.\n")
         self.assertEqual(tq.foreground_thief(d), "AMDAutoUpdate")
 
+    def test_coc_reads_the_arrival_from_the_bridge_when_the_queue_has_one(self):
+        # v6e stairs 2026-10-21: the HUD's O2 dial over the console's last lines made every OCR read of the arrival fail
+        for bridge, want in ((None, False), ({"dir": "b"}, True)):
+            with self.subTest(bridge=bridge):
+                self.setUp()
+                q = jload(os.path.join(self.d, "queue.json"))
+                if bridge:
+                    q["bridge"] = bridge
+                jdump(q, os.path.join(self.d, "queue.json"))
+                calls = []
+                r = self.runner(self.landing(0.1), max_tests=1)
+                r.cell = "Elsewhere"
+                r._ps = lambda script, args, timeout, steal=False: (calls.append((script, args)), (0, "at"))[1]
+                r.ensure_game("C")
+                cocs = [a for sc, a in calls if sc == "coc.ps1"]
+                self.assertEqual(len(cocs), 1)
+                self.assertEqual("-Bridge" in cocs[0], want)
+
+    def test_coc_ps1_takes_a_fresh_loaded_bridge_line_at_the_marker_before_the_console(self):
+        src = readf(os.path.join(ROOT, "scripts", "game", "coc.ps1"))
+        self.assertIn("[switch]$Bridge", src)
+        b = src.index("if ($Bridge) {")
+        self.assertLess(b, src.index("readpos.ps1"))                    # the bridge first, the OCR only after it
+        block = src[b:src.index("readpos.ps1")]
+        self.assertIn("'latest', '--max-age', '2'", block)               # a fresh line only
+        self.assertIn("$j.loaded -eq $true", block)
+        self.assertIn("if ($d -le 5)", block)                           # the same 5 m as the console read
+        cyc = readf(os.path.join(ROOT, "scripts", "game", "cycle.ps1"))
+        self.assertIn("if (Test-Path (Join-Path $sf 'Data\\FO4SFBridge.install.json')) { $cocArgs += '-Bridge' }", cyc)
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step
