@@ -21,12 +21,15 @@ RSP = 0x10000
 GIB = 1 << 30
 
 
-def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
+TEXT = b"meshes\\fo4port\\door.nif\0\0" + "FO4TerrainCore.esm".encode("utf-16-le") + b"\0\0" + b"plain words here\0"
+
+
+def build(memory_list=False, vm_flags=0x7, sys_flags=0x2, thread_list=False):
     """A minidump: Starfield.exe and ntdll.dll, an access violation reading 0x3ca3d70a at Starfield.exe+0x2bf016b,
     and four stack slots at rsp: a plain number, ntdll+0x1234, Starfield.exe+0x10, and 0."""
-    stack = struct.pack("<4Q", 42, DLL + 0x1234, BASE + 0x10, 0)
+    stack = struct.pack("<4Q", 42, DLL + 0x1234, BASE + 0x10, 0) + (TEXT if thread_list else b"")
     names = [("C:\\Games\\Starfield.exe", BASE, SIZE, (1 << 16 | 16, 244 << 16)), ("C:\\Windows\\ntdll.dll", DLL, DLL_SIZE, (0, 0))]
-    blob = bytearray(32 + 12 * 5)                # header, then up to 5 directory entries
+    blob = bytearray(32 + 12 * 6)                # header, then up to 6 directory entries
     entries = []
 
     def add(payload):
@@ -42,7 +45,7 @@ def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
     entries.append((md.MODULE_LIST, len(mods), add(mods)))
     ctx = bytearray(1232)
     regs = dict.fromkeys(md.REGS, 0)
-    regs.update(rcx=0x3CA3D70A, r12=0x6666666666666600, rsp=RSP, rip=BASE + 0x2BF016B)
+    regs.update(rcx=0x3CA3D70A, r12=0x6666666666666600, rsp=RSP, rip=BASE + 0x2BF016B, rdx=RSP + 32)
     struct.pack_into("<17Q", ctx, 0x78, *(regs[k] for k in md.REGS))
     ctx_rva = add(bytes(ctx))
     exc = struct.pack("<II", 7, 0) + struct.pack("<IIQQII", 0xC0000005, 0, 0, BASE + 0x2BF016B, 2, 0) \
@@ -58,6 +61,9 @@ def build(memory_list=False, vm_flags=0x7, sys_flags=0x2):
         add(mem)
         add(stack)
         entries.append((md.MEMORY64_LIST, len(mem), mem_at))
+    if thread_list:                                                # MINIDUMP_THREAD: id 7, its stack at rsp
+        threads = struct.pack("<I", 1) + struct.pack("<IIIIQQII", 7, 0, 0, 0, 0, RSP, len(stack), 0) + struct.pack("<II", 0, 0)
+        entries.append((md.THREAD_LIST, len(threads), add(threads)))
     vm = bytearray(96)                                             # MINIDUMP_PROCESS_VM_COUNTERS_2
     struct.pack_into("<HH", vm, 0, 2, vm_flags)
     struct.pack_into("<QQ", vm, 8, 13 * GIB, 12 * GIB)            # peak working set, working set
@@ -91,6 +97,17 @@ class MinidumpRead(unittest.TestCase):
                                                       "peak_commit": 15.0, "virtual": 100.0, "private": 13.0},
                                           "system": {"available": 0.5, "commit": 40.0, "commit_limit": 48.0,
                                                      "peak_commit": 44.0}})
+
+    def test_strings_from_the_faulting_thread_put_paths_first(self):
+        d = md.Dump(build(thread_list=True))
+        exc, regs = d.exception()
+        self.assertEqual(d.thread_stack(7), (RSP, 32 + len(TEXT)))
+        found = d.strings(exc["thread"], regs, 10)
+        texts = [(e["where"], e["text"]) for e in found]
+        self.assertEqual(texts[:2], [("stack+0x20", "meshes\\fo4port\\door.nif"), ("stack+0x39", "FO4TerrainCore.esm")])
+        self.assertIn(("stack+0x5f", "plain words here"), texts)
+        self.assertIn(("[rdx]+0x0", "meshes\\fo4port\\door.nif"), texts)          # rdx points at the path
+        self.assertEqual(md.Dump(build()).strings(7, regs, 10), [])                 # no thread list, no stack
 
     def test_memory_fields_follow_the_stream_flags(self):
         # Codex on #451: revision 2 puts PeakVirtualSize at 72; PrivateUsage (88) needs flag 0x4, and the system's
