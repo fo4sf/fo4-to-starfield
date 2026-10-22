@@ -55,6 +55,19 @@ class RayTests(unittest.TestCase):
             self.assertTrue(t["fresh"])
 
 
+class ImportTests(unittest.TestCase):
+    def test_plan_uses_the_terrain_walk_route(self):
+        # PC run 2026-10-22: scripts/game/walk_route.py shadowed the terrain one on sys.path
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("numpy not installed")
+        wr = bw.terrain_walk_route()
+        self.assertTrue(wr.__file__.replace("\\", "/").endswith("scripts/terrain/walk_route.py"))
+        for name in ("tg", "core_world", "ground_file", "sha256"):
+            self.assertTrue(hasattr(wr, name), name)
+
+
 class ReportTests(unittest.TestCase):
     def test_a_boundary_stop_reports_the_last_read_before_the_popup(self):
         arrival = [-2189.0, -1554.0, 12.0]

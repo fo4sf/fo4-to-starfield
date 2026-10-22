@@ -91,8 +91,19 @@ def walk_entry(label, spawn, deg, wps, length, ground, gsha):
                      f"border is on this line; PASS means no border within {length:.0f} m"}
 
 
+def terrain_walk_route():
+    """scripts/terrain/walk_route.py, loaded by path: scripts/game has a walk_route.py of its own, which wins on
+    sys.path (PC run 2026-10-22: "module 'walk_route' has no attribute 'tg'")."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("terrain_walk_route",
+                                                  os.path.join(REPO, "scripts", "terrain", "walk_route.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def cmd_plan(a):
-    import walk_route as wr
+    wr = terrain_walk_route()
     out = os.path.abspath(a.out)
     if os.path.exists(out):
         sys.exit(f"{out} exists: plan writes a new folder only")
