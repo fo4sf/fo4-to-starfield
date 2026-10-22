@@ -89,7 +89,10 @@ class Settings:
     @classmethod
     def from_dict(cls, d: dict | None) -> "Settings":
         """Build from a saved dict; missing keys take defaults (a version-1 save has no settings at all)."""
-        d = d or {}
+        if d is None:                                  # only a missing block defaults (Codex review of #431)
+            d = {}
+        elif not isinstance(d, dict):
+            raise ValueError(f"settings must be an object, not {type(d).__name__}")
         s = cls(survival=d.get("survival", DEFAULT_SURVIVAL),
                 raid_pressure=d.get("raid_pressure", DEFAULT_RAID_PRESSURE),
                 story_mode=d.get("story_mode", False),

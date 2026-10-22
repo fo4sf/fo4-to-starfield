@@ -175,6 +175,15 @@ class RaidPressureTests(unittest.TestCase):
                 self.assertTrue(0 <= f.strength <= sim.STRENGTH_CAP)
 
 
+class SettingsShapeTests(unittest.TestCase):
+    def test_only_a_missing_block_defaults(self):
+        # Codex review of #431: a present non-object is a broken save, not a version-1 one
+        self.assertEqual(Settings.from_dict(None).to_dict(), Settings().to_dict())
+        for bad in ([], "", 0, ["survival"]):
+            with self.assertRaises(ValueError):
+                Settings.from_dict(bad)
+
+
 class StoryModeTests(unittest.TestCase):
     """REGION_1's story_vault is locked to main_story_1 (placeholder names). With the shield widened to 12 route-hours
     it covers farm_a, farm_b and ruins, which the unshielded world attacks in every seed set."""

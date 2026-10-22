@@ -386,6 +386,9 @@ class P3Tests(unittest.TestCase):
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=half)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(session1=S1_P3)).verdict, INCONCLUSIVE)
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, INCONCLUSIVE)
+        for gone in (" ra=5.000000", " rb=6.000000"):        # Codex review of #431: a missing read-back is no FAIL
+            cut = [S2_P3[0], S2_P3[1].replace(gone, "")]
+            self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=cut)).verdict, INCONCLUSIVE)
         bad = [INIT, f"FOCC p3 set a={P3_NOPARENT} va=5.000000 ra=0.000000 b={P3_CHAINED} vb=6.000000 rb=6.000000 holder={HOLDER}"]
         self.assertEqual(probes.check_p3(col(session1=bad, session2=S2_P3)).verdict, FAIL)
 
@@ -443,6 +446,15 @@ class P4Tests(unittest.TestCase):
         c = col(log=[l for l in p4_log() if " p4 start " not in l])
         c.saves = saves(focc_p4_before=1, focc_p4_after=1)
         self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
+    def test_every_cycle_carries_its_counts(self):
+        # Codex review of #431: a cycle without loaded= (or placed=, deleted=) is not measured
+        for field in (" loaded=3", " placed=3", " deleted=3"):
+            log = p4_log()
+            log[3] = log[3].replace(field, "")
+            c = col(log=log)
+            c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+            self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE, field)
 
     def test_a_repeated_cycle_row_is_not_judged(self):
         log = p4_log()
@@ -534,6 +546,13 @@ def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
 
 
 class P5Tests(unittest.TestCase):
+    def test_every_tick_carries_its_readings(self):
+        # the P4 form of the Codex finding on #431
+        for field in (r" ms=\S+", " places=50"):
+            log = p5_log()
+            log[3] = re.sub(field, "", log[3]) if " p5 tick " in log[3] else log[3]
+            self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, field)
+
     def test_a_cut_log_without_done_is_inconclusive(self):
         # Codex review of #431: ten good ticks without `p5 done` may be a truncated copy.
         self.assertEqual(probes.check_p5(col(log=p5_log()[:-1])).verdict, INCONCLUSIVE)

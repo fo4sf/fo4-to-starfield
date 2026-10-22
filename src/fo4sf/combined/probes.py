@@ -716,6 +716,9 @@ def check_p3(c: Collection) -> Verdict:
                     v.reasons.append(f"p3 read a/b are missing or not the probe locations (locals "
                                      f"{LOCAL['p3_noparent']} and {LOCAL['p3_chained']})")
                     kw = INCONCLUSIVE
+                elif rd.num("ra") is None or rd.num("rb") is None:   # no reading contradicts nothing (Codex, #431)
+                    v.reasons.append("p3 read lacks ra or rb: the relaunch read-back is incomplete")
+                    kw = INCONCLUSIVE
                 elif a_ok and b_ok:
                     v.reasons.append("keyword data persisted on both the unparented and the chained location")
                     kw = PASS
@@ -816,8 +819,12 @@ def check_p4(c: Collection) -> Verdict:
     if numbers != list(range(1, want + 1)):        # P5's rule: one row per cycle, no extras (Codex review of #431)
         v.reasons.append(f"the cycle lines are not numbered 1..{want} once each: repeated or extra cycles")
         return v
-    short = [n for n, e in seen.items() if (e.num("placed") or 0) < 3 or (e.num("deleted") or 0) < 3]
-    unloaded = [n for n, e in seen.items() if (e.num("loaded") or 0) < 1]
+    blank = [n for n, e in seen.items() if None in (e.num("placed"), e.num("deleted"), e.num("loaded"))]
+    if blank:                                   # a missing count is no evidence either way (Codex review of #431)
+        v.reasons.append(f"cycles without placed=, deleted= or loaded=: {sorted(blank)}")
+        return v
+    short = [n for n, e in seen.items() if e.num("placed") < 3 or e.num("deleted") < 3]
+    unloaded = [n for n, e in seen.items() if e.num("loaded") < 1]
     if short:
         v.reasons.append(f"cycles with placed<3 or deleted<3: {sorted(short)}")
         v.verdict = FAIL
@@ -887,7 +894,12 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(f"the run asked for {want} ticks, the probe asks {P5_TICKS} (cgf \"FOCC_Probe.P5Tick\" "
                          f"{P5_TICKS}): too few for a baseline")
         return v
-    good = [e for e in ticks if e.num("ms") is not None and (e.num("places") or 0) == 50]
+    blank = [e for e in ticks if e.num("ms") is None or e.num("places") is None]
+    if blank:                                   # a tick without its readings settles nothing (Codex review of #431)
+        v.cite(*blank[:3])
+        v.reasons.append(f"{len(blank)} p5 tick line(s) lack ms= or places=")
+        return v
+    good = [e for e in ticks if e.num("places") == 50]
     ms = [e.num("ms") for e in good]
     if len(ms) >= want and sorted(e.num("n") for e in good) != [float(n) for n in range(1, want + 1)]:
         # exactly 1..want once each: an extra row would skew the recorded baseline (Codex review of #431)
