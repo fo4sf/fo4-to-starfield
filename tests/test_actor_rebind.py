@@ -104,7 +104,8 @@ class RebindTest(unittest.TestCase):
         self.assertEqual(sorted(res.report["groups"]), ["materials\\a.mat", "materials\\b.mat"])
 
     def test_plain_shader_writes_the_mat_name_only(self):
-        # the crash bisect: the template's shader block, name swapped, crashes the game's loader (red-rocket-crash-bisect)
+        # the crash bisect's hypothesis under test, not yet confirmed in game: the template's shader block, name swapped,
+        # is what the loader misreads (red-rocket-crash-bisect)
         src = skinned_nif()
         arms = bytearray(src.blocks[3])
         struct.pack_into("<i", arms, 0, src.string_index(b"Arms"))
