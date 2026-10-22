@@ -375,6 +375,7 @@ def _defence(ws: WorldState, place: str) -> int:
 
 
 def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
+    shielded = _story_shielded(ws)            # a story that became active after dispatch still shields (Codex, #431)
     for qid in sorted(ws.squads):
         q = ws.squads.get(qid)
         if q is None or q.eta > ws.hour:      # None: a garrison consumed by an attack this tick
@@ -401,6 +402,11 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
         if pl.holder == q.faction:
             f = ws.factions[q.faction]
             f.strength = min(STRENGTH_CAP, f.strength + q.size)
+            continue
+        if q.goal in shielded and not pl.story_lock:   # turned back: no roll, no garrison spent, fighters go home
+            f = ws.factions[q.faction]
+            f.strength = min(STRENGTH_CAP, f.strength + q.size)
+            _event(ws, "attack_called_off", q.goal, faction=q.faction, defender=pl.holder)
             continue
         defence = _defence(ws, q.goal)
         for g in _garrisons(ws, q.goal):      # a player garrison is spent on one attack

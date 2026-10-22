@@ -13,7 +13,7 @@ from fo4sf.combined.model import WorldState  # noqa: E402
 
 SEEDS = range(8)
 DAYS = 12
-KINDS_WRITTEN = ("place_taken", "attack_launched", "attack_failed", "caravan_raided", "caravan_arrived",
+KINDS_WRITTEN = ("place_taken", "attack_launched", "attack_failed", "attack_called_off", "caravan_raided", "caravan_arrived",
                  "caravan_lost", "stage_changed", "settler_left", "settler_arrived", "player_defended",
                  "player_traded", "roles_changed", "settlement_emptied", "settlement_resettled")
 
@@ -41,6 +41,7 @@ class TemplateTests(unittest.TestCase):
             "place_taken": ev("place_taken", faction="raiders", previous="settlers", retaken=False),
             "attack_launched": ev("attack_launched", faction="raiders", target="farm_a", size=3, retake=False),
             "attack_failed": ev("attack_failed", faction="raiders", defender="settlers"),
+            "attack_called_off": ev("attack_called_off", faction="raiders", defender="settlers"),
             "caravan_raided": ev("caravan_raided", faction="settlers", raider="raiders", origin="market",
                                  cargo={"food": 4}),
             "caravan_arrived": ev("caravan_arrived", faction="settlers", cargo={"food": 4}),

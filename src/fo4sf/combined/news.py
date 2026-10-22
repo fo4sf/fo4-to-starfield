@@ -28,6 +28,7 @@ TEMPLATES = {
     "place_claimed": "{faction} moved into {place}.",
     "attack_launched": "{faction} sent fighters from {place} toward {target}.",
     "attack_failed": "An attack by {faction} on {place} was beaten off.",
+    "attack_called_off": "{faction} called off an attack on {place}.",
     "caravan_raided": "A caravan from {origin} to {place} was raided by {raider}.",
     "caravan_arrived": "A caravan reached {place} carrying {cargo}.",
     "caravan_lost": "A caravan bound for {place} never arrived.",

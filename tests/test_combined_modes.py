@@ -209,6 +209,19 @@ class StoryModeTests(unittest.TestCase):
         self.assertEqual(protected & area, set(), protected)                   # on: never
         self.assertTrue(protected - area, protected)                           # but the rest of the world goes on
 
+    def test_an_attack_already_on_its_way_is_called_off(self):
+        # Codex review of #431: a story that starts after dispatch still shields the target on arrival
+        ws = world(1, story_mode=True)
+        holder = ws.places["market"].holder
+        attacker = next(f for f in sorted(ws.factions) if f != holder)
+        ws.squads["q_test"] = model.Squad(id="q_test", faction=attacker, size=50, at="raider_camp", goal="market",
+                                          kind="attack", eta=ws.hour + 1)
+        ws.settings.start_story("main_story_1")
+        sim.run(ws, 2)
+        self.assertEqual(ws.places["market"].holder, holder)
+        self.assertNotIn("q_test", ws.squads)
+        self.assertEqual([e["faction"] for e in ws.events if e["kind"] == "attack_called_off"], [attacker])
+
     def test_story_mode_without_an_active_story_changes_nothing(self):
         a, b = world(4), world(4, story_mode=True)
         sim.run(a, DAYS * 24)
