@@ -86,7 +86,8 @@ def walk_entry(label, spawn, deg, wps, length, ground, gsha):
             "goal_radius": 5.0, "max_leg_m": 15.0, "speed": WALK_SPEED, "z_tol": 0.6, "fell_m": 3.0,
             "offroute_m": OFFROUTE_M, "stuck_m": 0.6, "stuck_k": 3, "shot_every": 3, "time_of_day": 12,
             "fresh": True, "length_m": round(length, 2), "max_legs": min(400, int(math.ceil(length / 8.0)) + 40),
-            "expect": "FAIL BOUNDARY or PASS",
+            # no "expect": PASS and FAIL BOUNDARY are both answers here, and the queue report compares one exact
+            # string (Codex on #444)
             "basis": f"a straight walk on heading {deg:g} from the Red Rocket arrival: a BOUNDARY stop is where the "
                      f"border is on this line; PASS means no border within {length:.0f} m"}
 

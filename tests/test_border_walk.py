@@ -53,6 +53,7 @@ class RayTests(unittest.TestCase):
             self.assertEqual(t["travel"], f"coc {bw.SPAWN_COC}")
             self.assertEqual(t["offroute_m"], bw.OFFROUTE_M)
             self.assertTrue(t["fresh"])
+            self.assertNotIn("expect", t)                 # either outcome answers the question (Codex on #444)
 
 
 class ImportTests(unittest.TestCase):
