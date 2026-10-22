@@ -461,6 +461,20 @@ def apply_load_order(values, starfield, system, say, dry_run=False):
                             else "; put Plugins.txt right, or set load_order=off to start without this check"))
 
 
+def _without_sfse(values, starfield, system):
+    """The note on a start line whose route skips SFSE while an SFSE loader is in the game folder: the switch to
+    route=sfse when the listed runtime checks out, else what keeps it from working (Codex, #497)."""
+    if values["route"] == "sfse" or not os.path.isfile(os.path.join(starfield, SFSE_LOADER)):
+        return ""
+    try:
+        problems = system.runtime_problems(starfield)
+    except OSError as e:                            # an unreadable file is no reason to stop a dry run
+        return f" (without SFSE; {SFSE_LOADER} is here but its runtime could not be read: {e.strerror or e})"
+    if not problems:
+        return f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
+    return f" (without SFSE; {SFSE_LOADER} is here but route=sfse would be refused: {'; '.join(problems)})"
+
+
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):
     """Apply the settings, start the game and watch it to its end. Returns a result dict; raises ValueError on a
     refusal (nothing started)."""
@@ -497,6 +511,8 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                                     else "log only when the game exits without a crash")
                                  if cw else "off")]
     if dry_run:
+        # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
+        plan[3] += _without_sfse(values, starfield, system)
         for p in plan:
             say(p)
         apply_load_order(values, starfield, system, say, dry_run=True)
