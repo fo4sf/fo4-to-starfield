@@ -198,8 +198,17 @@ python scripts\terrain\interior_batch.py build --plan docs\terrain\data\interior
   the core's ACTI: the interior door is shut) can; G1 needs both sides animated, so it waits for C. Run them on a
   dedicated test save (framework E24: moving XTEL references onto `_XtelLoad` copies may break saves until tested), and
   read Plugins.txt before any console id, since the game reorders it about 25 s after start.
-- **C** (after the v6e test): the core writer places the exterior side as the same animated DOOR (FO4 name, rig,
-  VMAD) behind a switch; compare-ids must show only the door ACTIs replaced.
+- **C, written 2026-10-22 (offline, off by default):** `make_core64c.py stage --cluster ... --animated-doors
+  <doors_anim_b00\door_anim\manifest_*.json>` gives each scripted door whose FO4 model has `load_door.anim` in that
+  port manifest the rig (`animate_doors`: graph, skeleton, clips, bounds, sounds, FO4 flags, open seconds), the rigged
+  model (a path in FO4Port's archive, loaded with the port) and the position shifted by the rig's origin offset;
+  TerrainOverlays then writes the shared base as a DOOR with that rig instead of the ACTI, with the same new id, and
+  the REFR's VMAD as FO4SF_AnimatedLoadDoor with OpenSeconds; make_core64c's checks require the DOOR and the animated
+  VMAD for those doors. Gate on the rebuild: compare-ids identical (every id kept) and only the door bases and door
+  REFRs differ from the same build without the switch. Without the switch objects.json carries no `anim` and the
+  writer's output is byte for byte the doors build of tests/test_terrain_doors_writer.py (its pins pass unchanged);
+  the new test there checks the switched build differs in nothing else. It rides the core rebuild after BorderProbe
+  with Bugs' Card L fix.
 - **G** (in game, owner's window only): G1 the SDM pair with both sides animated: E, the leaf swings, then the trip,
   both ways; G2 the FortHagen01 <-> 02 XTEL pair with an animated base; G3 come back through a door you used: it is
   shut. Pass = a screenshot of the open leaf before each load screen, the bridge log's arrival line, and a Papyrus

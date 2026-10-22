@@ -1760,6 +1760,35 @@ class DoorPromotionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "listed as both an activator and a door"):
             mk.cluster_promote(self.BASES, self.placed(), cl)
 
+    def test_animate_doors_takes_the_rig_by_fo4_source(self):
+        # step C: a door whose FO4 model has load_door.anim in the port manifest gets the rig, the rigged model and the
+        # position shifted by the origin offset (turned with the door); a door without one is left exactly as it was
+        _keep, doors = mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry()]})
+        src = "Meshes\\Interiors\\Industrial\\Doors\\IndMetalDoorLoad01.nif"
+        anim = {"anim_graph": "g.agx", "skeleton": "s.rig", "animations": "clips", "origin_offset": [0.5, 0.0, 0.0],
+                "open_seconds": 1.1, "model": None, "bounds": [[0, 0, 0], [1, 1, 1]], "unused": 1}
+        manifest = {"items": [{"source": src.replace("\\", "/").lower(), "model": "fo4port\\indmetaldoorload01.nif",
+                               "load_door": {"anim": anim, "fo4_door_flags": 0x8B}}]}
+        source_of = {"000002:Fallout4.esm": src}
+        out, rows = mk.animate_doors(doors, manifest, source_of)
+        d = out[0]
+        self.assertEqual((d["model"], rows[0]["animated"]), ("fo4port\\indmetaldoorload01.nif", True))
+        self.assertEqual(d["anim"], {"anim_graph": "g.agx", "skeleton": "s.rig", "animations": "clips",
+                                     "bounds": [[0, 0, 0], [1, 1, 1]], "open_seconds": 1.1, "fo4_door_flags": 0x0A})
+        turn = 2.5812                                               # Bethesda's clockwise angle (exterior.ref_matrix)
+        self.assertAlmostEqual(d["pos"][0], -468.85 + 0.5 * math.cos(turn), places=4)
+        self.assertAlmostEqual(d["pos"][1], 636.71 - 0.5 * math.sin(turn), places=4)
+        self.assertEqual(d["cell"], list(mk.tg.sf_cell_of(d["pos"][0], d["pos"][1])))
+        self.assertEqual(doors[0]["model"], self.BASES[1]["model"])          # the input entries are not touched
+        same, rows = mk.animate_doors(doors, {"items": []}, source_of)
+        self.assertEqual((same, rows[0]["reason"]), (doors, "model not in the manifest"))
+        same, rows = mk.animate_doors(doors, {"items": [dict(manifest["items"][0], load_door={})]}, source_of)
+        self.assertEqual((same, rows[0]["reason"]), (doors, "no rig (load_door.anim)"))
+        for broken in ({"skeleton": None}, {"open_seconds": 31}, {"open_seconds": float("nan")}):
+            bad = {"items": [dict(manifest["items"][0], load_door={"anim": dict(anim, **broken)})]}
+            with self.assertRaises(ValueError):
+                mk.animate_doors(doors, bad, source_of)
+
     def test_cluster_doors_refusals(self):
         def bad(regex, **kw):
             with self.assertRaisesRegex(ValueError, regex):
