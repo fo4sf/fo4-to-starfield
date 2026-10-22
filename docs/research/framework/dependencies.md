@@ -444,6 +444,8 @@ had no row here were added at the end of the table.
 
 **Forward priority (owner decision, 2026-10-19 23:19Z and 23:24Z):** "Let's continue work towards my second idea, a S.T.A.L.K.E.R. GAMMA-style thing, because it has more value and can be made without the parts with legal implications" and "I still want to get the stories working. Let's continue where we're at, but focus forward on building these other things first instead of the other one for now.". So: the GAMMA-style combined core (settlements, factions, a connected wasteland) is the forward focus; story work continues where it stands but comes second for now. The approved phases (new game, doors, interiors, launcher) stay in order as shared foundations, with the core's design and PC-free groundwork beside them. The GAMMA-style combined core thread owns [combined-core.md](combined-core.md) and combined-core-notes/.
 
+**After this phase (owner direction, 2026-10-22 20:31Z; world-and-planet.md "What is settled"):** Starfield world generation is deferred. The systems that come first are our own A-Life-style simulation, travel between separate areas without direct walking paths, and the overall GAMMA-style game system (combined-core.md). Every converted location world keeps the city-style WRLD settings (WP-46), and very large places may be built as interiors (WP-47).
+
 What the answers change on the critical path (inference from the answers, not tested):
 - **LA-7 Require all DLC:** the launcher refuses a Fallout 4 install without every DLC. The owner's own FO4 data
   holds only DLCRobot and DLCworkshop01 (project notes), so a full DLC install is now a precondition for any

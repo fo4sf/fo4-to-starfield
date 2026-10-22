@@ -313,7 +313,9 @@ stays first, since every door function above is vanilla (§1) and needs no SFSE 
 
 ### D. Door families (counts from the interior backlog)
 13. ★ Which FNAM flags do the 373 exterior and the second-hop load-door bases carry (Automatic, Hidden, Minimal Use, No
-    To Text)? Copy them bit for bit. *PC read* (the `door_bases[..].record.Flags` export exists).
+    To Text)? Copy them bit for bit. *PC read* (the `door_bases[..].record.Flags` export exists). **Offline half built
+    (2026-10-20, branch 44b87f5):** same bits in both games (verified, Mutagen enums); `load_door_anim.py flags` copies
+    them, the writer sets them, off by default. Still open: the counts on the real exports (A8).
 14. Do double doors (~70 refs) all get their own two-leaf rig, and do trapdoors and hatches (~48) open correctly on a
     horizontal axis? *Offline* (convert with `--rig-load-doors`, count `own` vs failures), then *in game* on one
     MetalTrapdoor01.

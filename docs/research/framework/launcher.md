@@ -413,12 +413,17 @@ picks them up:
 3. `detect` refuses on `sTestFile` entries (done, 368da05), reads Starfield.ccc and ContentCatalog.txt, and reports MO2 or Vortex
    presence (T6, I3, I2).
 4. `detect` finds Steam, GOG and Game Pass installs from the registry and libraryfolders.vdf, and tells the store from
-   the exe (section 1).
-5. A known-good Starfield runtime table next to `known_sources.json` (T1).
-6. A MAST-list test that refuses `BlueprintShips-Starfield.esm` as a master (T7).
-7. Work-folder rules and a longest-path report in `detect` (A6).
+   the exe (section 1). Steam part done (22b6810): `launcher.py find`, with depot downloads in LA-4's fixed order; GOG
+   lookup still to write; Game Pass is refused (RE-12).
+5. A known-good Starfield runtime table next to `known_sources.json` (T1). Done (434e8ef, #394): `known_runtimes.json`
+   with each runtime's SFSE hashes; detect refuses unlisted runtimes, a missing or mismatched SFSE and Game Pass folders.
+6. A MAST-list test that refuses `BlueprintShips-Starfield.esm` as a master (T7). Done (c74c247): `launcher.py check-plugins`.
+7. Work-folder rules and a longest-path report in `detect` (A6). Rules done (c74c247); the longest-path report waits
+   for a measured build's longest relative path.
 9. BA2 v7 and v8 accepted by the reader; detect lists archive versions and duplicate names (done, 1825141).
-8. The determinism CI variations (B5) on the synthetic recipe.
+8. The determinism CI variations (B5) on the synthetic recipe. Done (791dc0a): `tests/test_determinism_variants.py`,
+   hash seeds, a German locale and numpy without AVX2/AVX512 give the same bytes; a second machine is untested.
+10. Support bundle (A11). Done (7108e37): `launcher.py bundle`, a local zip with the user name taken out, nothing sent.
 
 ## Not covered yet (next research wave)
 - GOG and Game Pass file layouts for both games (no samples).

@@ -165,7 +165,7 @@ Rules for the layers (defaults):
 | G4 | Engine fit: how each system maps to Starfield's engine, what needs SFSE, risks, smallest probes | combined-core-notes/engine-feasibility.md | done |
 | G5 | World-state schema (L1), game-neutral | combined-core-notes/prototype/ | first cut done |
 | G6 | Offline simulation prototype (L2) on synthetic data, deterministic, with tests, to tune rules on paper before any game work | combined-core-notes/prototype/ | first cut done, 9 tests |
-| G7 | Commonwealth seed tables: which FO4 locations, workshops and factions become L1 places and factions, generated from the player's FO4 data by a reader (written and tested on synthetic fixtures; run on the PC later) | combined-core-notes/ then a branch | after G5 |
+| G7 | Commonwealth seed tables: which FO4 locations, workshops and factions become L1 places and factions, generated from the player's FO4 data by a reader (written and tested on synthetic fixtures; run on the PC later) | combined-core-notes/prototype/seed_tables.py | reader done, 3 synthetic-plugin tests pass (12 in total with the simulation); field layouts from xEdit dev-4.1.6; settlement and faction classification left as regex guesses until the first real run's report; needs one read-only run on Fallout4.esm and the DLC (a folder read from this thread was refused by the session's guard, 23:32Z), so it waits for a PC job after v6e on the owner's word |
 | G8 | PC probe list for after v6e (off-screen actors, co-save, Story Manager events, outpost reuse) | this file, "Probes" | done (P1 to P10) |
 
 Nothing here is pushed to the repository yet (thread rule). When G5 to G7 are stable they go to a draft PR on the
@@ -322,3 +322,24 @@ From engine-feasibility.md; none run, none queued. Order: P1, P2, P3 decide CC-0
 - Story breakage: factions taking story places. CC-21's default prevents it.
 - Starfield updates breaking our SFSE plugin; the same risk the project already carries for SFSE (VM).
 - Expectations: the repo is private and there are no public promises (project rule); this file makes none.
+
+## First seed-reader run (PC, 2026-10-21 ~01:10Z, relayed by the coordinator from the Install thread)
+
+**Verified** (stdout and seed_report.json on the PC, D:\Modding\research\combined_seed\; draft 358,154 bytes and report
+25,799 bytes stay there): reader at a28ac81 (seed.py and __main__.py sha256 matched), exit 0, read Fallout4.esm (from the
+FO4 depot folder) plus DLCRobot.esm and DLCworkshop01.esm; DLCCoast, DLCworkshop02, DLCworkshop03 and DLCNukaWorld are
+not on the PC yet (owner's DLC installs), so rerun after they are. Counts: KYWD 3743, LCRT 720, FACT 710, LCTN 400 (397
+locations after overrides, 49 overrides, 0 deleted, 0 compressed, no problems, no unresolved references); 38 settlement
+candidates, 84 base candidates, 710 factions. Regions: CommonwealthLocation 346, InstituteLocation 11, 40 single-child
+roots (quest and virtual locations such as PersistAllLocation, VirtualLocation, MQ106 tracking sites). Top location
+keywords: LocTypeClearable 326, LocTypeDungeon 135, LocTypeInteriorCell 57, LocEncRaiders 39, LocTypeWorkshop 30,
+LocTypeWorkshopSettlement 30, LocSetRuinsUrban 29, LocTypeHouse 27, LocEncGhouls 27, LocTypeSettlement 24,
+LocEncSuperMutants 24 (70 kinds). Top ref types: MapMarkerRefType 206, Boss 179, LocationCenterMarker 166,
+LocationEdgeMarker 127, BossContainer 122, WorkshopRefType 31.
+
+What it settles (supported hypothesis until the draft is read row by row): the CLASSIFY guesses match real data:
+WorkshopRefType (31) and LocTypeWorkshop / LocTypeWorkshopSettlement (30 each) mark player workshops, LocTypeSettlement
+(24) marks settlements that are not necessarily workshops, and LocEnc* keywords (LocEncRaiders 39, LocEncSuperMutants
+24, LocEncGhouls 27) give the holder hint per location. Next offline step: a draft-to-pack generator (holders from
+LocEnc* keywords, quest and virtual roots dropped, routes from map-marker positions, which the reader does not read yet)
+and a rerun once the DLC are installed.

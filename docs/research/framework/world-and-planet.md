@@ -39,6 +39,12 @@ VP = findings/versions-performance.md, ST = findings/starfield-toolchain.md, WM 
 
 ## What is settled
 
+- **Owner direction, 2026-10-22 20:31Z** (quoted with typos fixed, meaning kept): "Keep that as a building note for other Fallout locations, unless for some reason making it an interior is better (for something like Cydonia, other places, or giant interiors; I don't know how others handle it, like the futuristic city a lot of people say is like Cyberpunk). We will probably wait to use Starfield world generation for later, because there are a few pretty complex systems we need to get working first, like our own A-Life-style system that allows going between these areas without direct walking paths, and building the overall game system of our GAMMA."
+  1. **Building note for every Fallout location world (supported hypothesis, pending the Interiors thread's repeat test):** a converted world needs the city-style WRLD settings, with the Small World flag off and `HNAM` 5, so Starfield leaves the planet border off its interior exits. Source: docs/terrain/border.md (HNAM is 5 on 379 vanilla worlds and 0 on 54; the BorderProbe variants nosmall, hnam5 and city test it). See WP-46.
+  2. **Very large places may be better as interiors.** Before choosing, check how Starfield builds its own big cities (the Neon-style city) and places like Cydonia, as a worldspace or as an interior. See WP-47.
+  3. **Starfield world generation (procedural planets) is deferred.** This also puts WP-16's "procedural Earth terrain now" (WO-6) on hold until the owner says otherwise (inference from the same message).
+  4. **The systems that come first after this phase:** our own A-Life-style simulation, travel between separate areas without direct walking paths, and the overall GAMMA-style game system (combined-core.md owns these).
+
 | Fact or decision | Label | Source |
 |---|---|---|
 | Owner: the Commonwealth, Far Harbor and Nuka-World on ONE Earth-like planet with real days, nights and weather; breadth before polish; SFSE and the Starfield CK MAY be required | owner decision | findings/BRIEF.md |
@@ -448,6 +454,19 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 - Options: CK headless run with converter-set layers and flags; own LOD writer.
 - Answer by: [Correction 2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled: **verified (Starfield CK, job 20)**]; then] run it on a 4-cell test worldspace, time it, check `.esm` acceptance and partial-cell failures on 64 cells; xEdit read of a vanilla overlay's layers offline; PC probe.
 - Blocks: World, Launcher. Status: narrowed (wave 2): ~~CK command and output paths verified~~ [Correction 2026-10-19: CK command ~~**unresolved (sources conflict)**~~: web guides say it exists, ~~the job 18 string dump of CreationKit.exe does not show it~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; the CK command is **verified (Starfield CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)]; `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport` and `-GenerateMeshLODStats` are **verified** LOD-related CK switches]; headless use, run time and `.esm` support open [ST W2-1].
+
+**WP-46. Do all converted Fallout location worlds use the city-style WRLD settings (Small World off, `HNAM` 5)?** (new 2026-10-22)
+- Why it matters: with other settings the planet border shows on a world's interior exits; the owner wants this kept as a building note for every future location world.
+- Evidence: docs/terrain/border.md (record counts **verified**; what HNAM means is a **supported hypothesis**); the Interiors thread's repeat test is pending.
+- Answer by: the Interiors thread's repeat test in game. Blocks: World, Multi-game, All interiors (exits).
+- Status: building note, owner direction 2026-10-22; confirm after the repeat test.
+
+**WP-47. Should very large places be built as interiors rather than worldspaces?** (new 2026-10-22)
+- Why it matters: the owner raised it for places like Cydonia, giant interiors and Starfield's Neon-style city.
+- Options: (a) worldspace with the WP-46 settings; (b) one or more large interior cells; (c) decide per place.
+- Answer by: offline read of how Starfield's own big cities and Cydonia are stored (WRLD or interior CELL), then a per-place rule. Who: offline research.
+- Blocks: World, Multi-game, combined core.
+- Status: open.
 
 ## Owner decisions in this area
 

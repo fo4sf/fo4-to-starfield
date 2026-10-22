@@ -5,6 +5,8 @@ framework thread; do not edit here from other threads, send changes through the 
 Status: revision 4, 19 Oct: 112 questions, NG-C5 and NG-L3 answered (section N: answers from Starfield's own scripts). All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
 sources and corrects some earlier claims (section M). No game touched; web sources only,
 plus our own repo. Several key pages were rate limited (HTTP 429); claims resting on them are marked unresolved.
+Revision 5, 21 Oct: K1, K2, K4, K9 and N4 answered from the PC records report (section O). Vault 111 has no persistent
+references; the start now centers on the cell, and the port will mark COC markers persistent.
 Raw agent notes: research/framework/newgame-notes/ (one file per area).
 
 Labels as in docs/ai/research-log.md: verified (file, offset, command or a primary source), supported hypothesis,
@@ -262,20 +264,20 @@ sets stage 5 and fails; with one, 7 seats the player and the button sets 9; the 
 on" (SKK); 55 starts Min00. MQ103 is "Jewel of the Commonwealth" (000229E5). Mods and Creation Club wait on MQ102 10
 and 15, and SKK's fallback has a stated blind spot for a start that skips MQ102 inside an interior, which is ours.
 - **NG-K1. The full MQ102 table (54 stages) and which stage completes it (wiki 65, B4 fragments to 200).** OFF/PC read
-  of Fallout4.esm. Unresolved conflict. n06 Q1.
+  of Fallout4.esm. Unresolved conflict. n06 Q1. *Status: answered from the records report, 2026-10-21 (section O).*
 - **NG-K2. MQ101 stages 710 to 1000 (cryo scene, Kellogg, 770 which spawns the pod corpses, 900 the move and second
-  RemoveAllItems).** OFF/PC. n06 Q2.
+  RemoveAllItems).** OFF/PC. n06 Q2. *Status: answered from the records report, 2026-10-21 (section O).*
 - **NG-K3. MQ102 stage 6 (Fallout London teleports into the vault with it).** OFF. n06 Q3.
 - **NG-K4. Where the Pip-Boy skeleton is: by the cog door (wiki) or in the overseer's office (our
   docs/newgame/vault111-start.md section 4).** Our doc may be wrong; an offline read of the converted cell settles it.
-  Unresolved. n06 Q4.
+  Unresolved. n06 Q4. *Status: answered from the records report, 2026-10-21 (section O).*
 - **NG-K5. Our own published stages: "out of the pod", "left the vault", "radios on", by name and number, as a
   contract for later phases (same as NG-B8).** *Status: decided by owner, 2026-10-19 (recommended kept): yes, fixed stages published as a contract (page NG-14).* OWNER. n06 Q8, Q17.
 - **NG-K6. The console seat and plug-in sequence, or just the door opening (with NG-D3)?** *Status: decided by owner, 2026-10-19 (talk-through): the console opens the cog door for now; the Pip-Boy plug-in comes later as one shared vault-door feature (page NG-12). Earlier owner note: "I want it to work how it does in game later but for testing keep it simple but we want that function other vault doors use it." (for now: the console opens it, as built).* OWNER. n06 Q15.
 - **NG-K7. SPECIAL on the elevator, as FO4 does, if SPECIAL is in scope (NG-C4)?** *Status: decided by owner, 2026-10-19 (talk-through): SPECIAL is set at a vault terminal for testing; the elevator version comes with the remade start later (page NG-5). Earlier owner note: "I'd say for now we will keep it at the vault for testing put it in what ever phase is handling the same stuff, but we will later try to remake the start."* OWNER. n06 Q6.
 - **NG-K8. Clear Starfield's starting inventory, and when (FO4 runs RemoveAllItems at 0 and 900)?** GAME. n06 Q7.
 - **NG-K9. What Codsworth, Dogmeat and the Concord and Minutemen start need faked from MQ102 to start in our world?**
-  OFF (conditions in the converted records), then GAME. n06 Q18, Q19, Q23.
+  OFF (conditions in the converted records), then GAME. n06 Q18, Q19, Q23. *Status: answered from the records report, 2026-10-21 (section O).*
 - **NG-K10. Pod corpses, the spouse pod and the Wedding Ring; going back down the elevator.** *Status: decided by owner, 2026-10-19: leave the Kellogg scene, spouse pod, pod corpses and ring out of phase 1 (page NG-7).* Later phase, OWNER for
   phase 1 scope. n06 Q12 to Q14.
 - **NG-K11. Which surface map markers are known at the exit?** With the map thread. n06 Q11.
@@ -376,7 +378,66 @@ New questions from it:
 - **NG-N2. Is "Artifact acquired" on stop harmful (the Starborn line, the Unity)?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* OWNER, later GAME.
 - **NG-N3. Undo the outfit swap and RemoveAllItems of MQ101 stage 0 (miner spacesuit), with NG-K8?** GAME.
 - **NG-N4. A Starfield.esm read for the stage-0 item conditions, MQ00's conditions, 002EEA4D and StartupQuest_DO.**
-  The next read-only PC job (Mutagen). OFF tooling, PC.
+  The next read-only PC job (Mutagen). OFF tooling, PC. *Status: answered from the records report, 2026-10-21 (section O).*
+
+## O. Answered from the records report (PC, 21 Oct, newgame-notes/09-records-2026-10-21.txt)
+Read on the PC from Fallout4.esm, Starfield.esm and the installed port FO4Port.esm (report lines 1 to 5). Positions
+are metres in the port's frame. Line numbers below are lines of the report.
+- **NG-K1 (MQ102 stage table, completing stage).** MQ102 01CC2A "Out of Time" has 54 stages: 0 to 10, 15, 20, 22, 25,
+  30, 32, 34, 36, 38, 40, 50, 55, 60, 61, 62, 65, 70, 75, 77, 78, 80, 85, 87, 88, 89, 90, 95, 100, 105, 110, 115, 120,
+  122, 123, 125, 127, 128, 130, 135, 140, 150, 200, 1000 (line 8). The only log entry flagged CompleteQuest is stage 65
+  (line 138; the report's own verdict at line 204). So the wiki's 65 is right, and the B4 fragments up to 200 run after
+  the quest is complete. Stage 1000 is RunOnStop (line 202). Journal text: 10 "made it out of Vault 111" (line 106), 20
+  back home with Codsworth (110), 30 search the neighborhood (116), 50 go to Concord (128), 55 reached Concord (130).
+  Log-entry conditions exist only at 80, 90, 110, 115 and 130 (lines 148 to 193). All 73 aliases have 0 conditions
+  (lines 9 to 81); PipboySkeleton is alias 28, a QuestObject (line 31), V111Skeleton alias 91 (line 72).
+- **NG-K2 (MQ101 stages 710 to 1000).** MQ101 01ED86 "War Never Changes" has 104 stages (line 207). From 710 to 1000
+  they are 710, 715, 720, 730, 740, 750, 752, 753, 755, 760, 770, 780, 805, 810, 900, 1000 (lines 208 to 239). Each has
+  one log entry with no text and no conditions; all but 715 and 740 carry a fragment. Stage 1000's log entry is flagged
+  CompleteQuest (line 239), so 1000 completes MQ101. A stage 5000 follows it (line 207) and is not described. The
+  report lists fragment names, not their code, so what 770 and 900 do (pod corpses, the move, RemoveAllItems in n06)
+  is not confirmed here.
+- **NG-K4 (Pip-Boy skeleton).** The port has one Vault 111 cell, FO4Port_Vault111Cryo 0011F3, with 1166 references;
+  exactly one has a base whose EditorID mentions PipBoy: REFR 001616, base FO4Port_NpcPipboyGroundTake01 (Static
+  000803) at (-54.456, -0.325, 0.631) m (lines 242, 243). The pod origin is (9.143, -4.114, -1.029) m (line 431), so
+  the Pip-Boy sits about 64 m from the pod along negative x (our arithmetic from those two lines). The report gives
+  coordinates and no room names, so it does not itself say "cog door" or "overseer's office"; the nearest terminal to
+  it is 0013A1 at (-50.897, 26.974, 0) m, the one farthest from the pod (line 438). The base is a static ground-take
+  Pip-Boy, not a skeleton actor. Which room that is needs the cell layout.
+- **NG-K9 (Codsworth, Dogmeat, Min00 conditions on MQ102).** 802 records scanned, 59 conditions reference MQ102
+  (line 348). Min00 1A001C: objective 120 targets need MQ102 stage 123 done (five entries) or stage 122 done (one
+  entry) (lines 246 to 257); objective 150's target needs GetStage(MQ102) >= 150 (line 259). The six objective-120
+  entries print identically; the report does not say whether they are six distinct targets. Codsworth dialogue checks
+  stage 22 not done (lines 272, 274, 288), 40 done (lines 276 to 290), 50 and 55 done or not (lines 261, 262, 292 to
+  322) and 60 (lines 264 to 270); the COMCodsworthPickUp scenes start only while 50 and 55 are both not done (lines
+  327 to 332); scene MQ102_CodsworthSearch01 completes its phases on 34 and 38 (lines 323 to 326); packages:
+  CodsworthPostWarWaitPackage needs 30 done (line 347), the hold-position packages key on 34 and 38 (lines 333 to
+  337), CodsworthStayOutsidePlayerHousePackage needs 200 not done (line 339). Dogmeat: MQ102DogmeatMuseumSitOnCouch
+  needs 85 done and 90 not done (lines 340 to 342); MQ102DogmeatForcegreetPlayerMuseum needs 57 done and 52 not done
+  (lines 343 to 345), yet 52 and 57 are not in MQ102's stage list (line 8); the report does not explain that. Many
+  condition lines print the stage number with a stray form name after it (for example "p2=50|COCMarkerHeading"); the
+  report does not say whether that is a decoding quirk. Minimum fake for our world, from these lines: Codsworth's
+  post-war behaviour wants 30 done; the Concord hand-off wants 50 and 55; Min00's objectives want 122, 123 and 150.
+- **NG-N4 (Starfield.esm: MQ101 stage 0, MQ00, 002EEA4D, StartupQuest).** MQ101 003448 "One Small Step" has only
+  stage 0 in the records (stage 9000 lives in the scripts, line 351). Stage 0 is RunOnStart with 12 log entries (line
+  352). Log 0 needs PlayerUnityTimesEntered >= 1 (the NG+ path, line 354). Logs 1 and 10 need Unity times 0,
+  GetStage(MQ101) == 0, the player not in Kreet, DebugLocation or New Atlantis, and MQ101Debug == 1 or == 10 (lines
+  355 to 361, 389 to 395). Log 2 is the normal start: MQ101Debug == 0 with the same three locations excluded (lines
+  362 to 367). Logs 3 to 9 need Unity times 0 and MQ101Debug == 6, 3, 4, 5, 7, 8, 9 in that order (lines 368 to 388);
+  log 11 has no conditions (line 396). No entry matches MQ101Debug == 2. MQ00 005790 is StartGameEnabled,
+  StartsEnabled, RunOnce, one stage (10) with one fragment, and no condition on the stage or on any of its 18 aliases
+  (lines 397 to 418); so nothing in the records stops MQ00 writing 10, and this report does not show how a main-menu
+  8 survives (section M). PEO_SustenanceAllowed 2EEA4D has 4 conditions: PEO_Sustenance_GV >= 1, then MQ101Debug != 0,
+  MQ101 stage 310 done, MQ402 running, the last three marked [OR] and the first not (lines 419 to 425). Read the
+  Creation Kit way (OR joins a condition to the next) that is GV >= 1 and any of the other three; read as one OR group
+  it is any of the four. The report does not settle which, but either way MQ101Debug != 0 or a set PEO_Sustenance_GV
+  is needed by a start that never reaches 310, which fits section M. StartupQuest: the only record whose EditorID
+  mentions StartupQuest is the DefaultObject StartupQuest_DO 00562D, which links to MQ101 (lines 426 to 428), so it
+  names MQ101 as the startup quest (what reads it is not in this report; NG-A1 stays a supported hypothesis).
+- **Anchor (persistent references in the start cell).** FO4Port_Vault111Cryo has 0 persistent references of 1166
+  (line 432). The COC marker 001338 at (1.532, -7.386, -0.738) m is temporary (line 431). All 5 terminals are
+  temporary, from 12.6 m to 67.6 m from the pod (lines 433 to 438). So nothing in the cell can be a persistent anchor
+  today (NG-M8); see the status line for the follow-up.
 
 ## Owner decisions, gathered (for the roadmap talk)
 A5 MQ101 end state; A10 hub or fixed start; A11 selector design; B4 ship; B8 published vault-exit stage; C3 creator
