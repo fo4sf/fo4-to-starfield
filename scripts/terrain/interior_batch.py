@@ -101,6 +101,7 @@ import deploy_starfield  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 MARKER = "result.json"
+CORE_PLUGIN = "FO4TerrainCore.esm"   # the --core build's plugin; pins.core_plugin (deploy_starfield.py install --batch)
 BATCH_DIR = re.compile(r"^interiors_b(\d{2})$")
 
 
@@ -769,6 +770,8 @@ def build(a):
             cells[c].update(placed[c])
 
     # 5. doors
+    core_plugin = os.path.join(a.core, CORE_PLUGIN)          # pinned before vmad_patch reads the core, checked in finish
+    a.core_pin = sha256(core_plugin) if os.path.isfile(core_plugin) else None
     port = os.path.join(a.out, "port")
     rc, s = run([sys.executable, os.path.join(HERE, "vmad_patch.py"), "port", "--port", raw, "--core", a.core, "--out", port,
                  "--keep-markers", os.path.join(a.base, "doors.json")], log, cwd=ROOT)
@@ -1076,6 +1079,12 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     port = os.path.join(a.out, "port")
     pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(os.path.join(a.base, PLUGIN)),
             "base_formids": sha256(os.path.join(a.base, "formids.json"))}
+    core_pin = getattr(a, "core_pin", None)                  # the core vmad_patch wired the door returns to
+    if core_pin:
+        core_plugin = os.path.join(a.core, CORE_PLUGIN)
+        if (sha256(core_plugin) if os.path.isfile(core_plugin) else None) != core_pin:
+            error = error or f"--core's {CORE_PLUGIN} changed while the batch was built (doors wired to {core_pin[:8]})"
+        pins["core_plugin"] = core_pin
     if os.path.isfile(os.path.join(port, PLUGIN)):
         pins["plugin"] = sha256(os.path.join(port, PLUGIN))
         pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))
