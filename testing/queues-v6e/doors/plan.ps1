@@ -39,14 +39,22 @@ if ($Tag) { $Stage += "_$Tag"; $StageOut += "_$Tag"; $QRounds += "_$Tag"; $QOut 
 function Need($ok, $why) { if (-not $ok) { throw "STOP: $why" } }
 function Ok($what) { if ($LASTEXITCODE -ne 0) { throw "STOP: $what exit $LASTEXITCODE" } }
 function Sha8($p) { (Get-FileHash -Algorithm SHA256 $p).Hash.Substring(0,8) }
-function Full($p) { [IO.Path]::GetFullPath($p).TrimEnd('\') }
-# a reused stage must come from this core build at this run's load indices (Codex on #500): else a stale plan meets
-# the live order and targets the wrong records
-function SameStage($dir) {
-  $r = Get-Content "$dir\rounds.json" -Raw | ConvertFrom-Json
-  Need ((Full $r.core) -ieq (Full $CoreBuild)) "$dir was staged from $($r.core), not -CoreBuild ${CoreBuild}: pass a new -Tag"
-  Need ($r.core_index -eq $CoreIndex -and $r.port_index -eq $PortIndex) `
-    "$dir was staged at core $($r.core_index) port $($r.port_index), this run's order is $CoreIndex $PortIndex`: pass a new -Tag"
+# A stage this script made carries pins.json: the sha256 of every input it was built from, the load indices and the
+# OUT threshold. A reused stage must carry the same pins as this run, else the plan stops (Codex on #500: a core
+# rebuilt in the same folder kept its old spawn and ids). A stage without pins.json is never reused: pass a new -Tag.
+function Pins($leg) {
+  $h = [ordered]@{}
+  foreach ($f in @("$CoreBuild\FO4TerrainCore.esm", "$Starfield\Data\FO4TerrainCore.esm", "$PortStaging\FO4Port.esm") +
+                 @('objects.json','formids.json','plan.json','overlays_params.json' | ForEach-Object { "$CoreBuild\$_" })) {
+    $h[$f.ToLower()] = (Get-FileHash -Algorithm SHA256 $f).Hash }
+  [ordered]@{ inputs = $h; core_index = $CoreIndex; port_index = $PortIndex; out_min_m = $(if ($leg -eq 'out') { $OutMinM } else { '' }) } |
+    ConvertTo-Json -Depth 3
+}
+function WritePins($dir, $leg) { Pins $leg | Set-Content -Encoding UTF8 "$dir\pins.json" }
+function SameStage($dir, $leg) {
+  Need (Test-Path "$dir\pins.json") "$dir has no pins.json (not made by this script, or before 2026-10-22): pass a new -Tag"
+  Need ((Get-Content "$dir\pins.json" -Raw).Trim() -eq (Pins $leg).Trim()) `
+    "$dir was staged from other inputs, load indices or -OutMinM than this run (compare its pins.json): pass a new -Tag"
 }
 
 # ---------------------------------------------------------------- 0. checks (read-only)
@@ -76,16 +84,14 @@ Need $m.Success 'door_rounds.py order did not give both indices (FO4TerrainCore.
 $CoreIndex = $m.Groups[1].Value; $PortIndex = $m.Groups[2].Value
 
 # ---------------------------------------------------------------- 2. stage every door against the INSTALLED plugins
-if (Test-Path $Stage) { SameStage $Stage; Write-Host "stage exists, reused (same core build and indices): $Stage" }
+if (Test-Path $Stage) { SameStage $Stage 'rounds'; Write-Host "stage exists, reused (same pins): $Stage" }
 else { & $py scripts\bridge\door_rounds.py stage --core $CoreBuild --core-plugin "$Starfield\Data\FO4TerrainCore.esm" `
-          --port $PortStaging --core-index $CoreIndex --port-index $PortIndex --out $Stage; Ok 'scripts\bridge\door_rounds.py' }
+          --port $PortStaging --core-index $CoreIndex --port-index $PortIndex --out $Stage; Ok 'scripts\bridge\door_rounds.py'
+       WritePins $Stage 'rounds' }
 if ($RoundsOnly) { Write-Host 'doors_rounds only: no OUT stage or queue' }
-elseif (Test-Path $StageOut) {
-  SameStage $StageOut                                            # door_out_legs.py records its threshold (Codex on #500)
-  $om = (Get-Content "$StageOut\rounds.json" -Raw | ConvertFrom-Json).out_min_m
-  Need ($null -ne $om -and [double]$om -eq [double]$OutMinM) "$StageOut kept exits at $om m, not -OutMinM ${OutMinM}: pass a new -Tag"
-  Write-Host "OUT stage exists, reused (same core build, indices and -OutMinM): $StageOut" }
-else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scripts\bridge\door_out_legs.py' }
+elseif (Test-Path $StageOut) { SameStage $StageOut 'out'; Write-Host "OUT stage exists, reused (same pins): $StageOut" }
+else { & $py scripts\bridge\door_out_legs.py $Stage $StageOut $OutMinM; Ok 'scripts\bridge\door_out_legs.py'
+       WritePins $StageOut 'out' }
 
 # ---------------------------------------------------------------- 3. queues: no --plugins, the installed set stays
 # (docs/terrain/door-rounds.md:37); --plugin-index = FO4Port's index in the runner's launch
