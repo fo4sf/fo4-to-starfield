@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -46,6 +46,13 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
+        sig["rig_load_doors"] = True
+    extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
+        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
+            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
+            key=lambda p: p.name.lower())]] for d in extra]
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -141,6 +148,53 @@ def cell_candidates(cell, wanted):
                   key=str.lower)
 
 
+def teleport_models(cell):
+    """The meshes FO4 places in this cell as a teleporting door ('meshes\\' + model of every Door reference with an XTEL):
+    load doors for the converter whatever their file name (pipeline.Converter load_door_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("type") == "Door"
+                   and r.get("teleport_destination")}, key=str.lower)
+
+
+def static_body_models(cell):
+    """The meshes a cell export marks "static_body" (make_core64c convert_list: placed outdoors as STAT only, never as an
+    item): they keep a static body though movable items get dynamic ones (pipeline.Converter static_body_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("static_body")},
+                  key=str.lower)
+
+
+def static_pattern_models(pattern, names):
+    """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
+    name per line, as a manifest prints them; case and slashes ignored)."""
+    if pattern.startswith("@"):
+        with open(pattern[1:], encoding="utf-8-sig") as f:
+            wanted = {line.strip().replace("/", "\\").lower() for line in f if line.strip()}
+        return {n for n in names if n.replace("/", "\\").lower() in wanted}
+    return {n for n in names if re.search(pattern, n, re.I)}
+
+
+def triangle_count(src_archives, name):
+    """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
+    try:
+        raw = src_archives.mesh(name)
+        parsed = nif.parse(raw)
+        shapes = nif.fo4_trishapes(parsed)
+        return sum(len(s.triangles) for s in shapes if s.triangles)
+    except Exception:  # noqa: BLE001
+        return 0  # let the real converter report the failure
+
+
+def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
+    """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
+    change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
+    of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
+    neither class keeps its plain key, so existing checkpoints stay valid. no_rig_models (--no-rig-pattern) tags the
+    same way."""
+    low = name.replace("/", "\\").lower()
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models), ("no_rig", no_rig_models))
+            if low in {m.replace("/", "\\").lower() for m in models}]
+    return "|".join([key] + tags)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -152,6 +206,181 @@ def write_json_atomic(path, value):
     finally:
         if os.path.exists(temporary):
             os.remove(temporary)
+
+
+def retry_failed_nifs(summary):
+    """Exact previous-failure identities, or None if the summary cannot drive a retry."""
+    names = summary.get("failed_nifs") if isinstance(summary, dict) else None
+    if not isinstance(names, list) or any(not isinstance(n, str) or not n for n in names):
+        return None
+    seen, ordered = set(), []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return ordered
+
+
+def item_identity(it):
+    """Base vs posed-variant identity. XRGD rows share source with the base and must stay distinct."""
+    src = it.get("source") if isinstance(it, dict) else None
+    if not isinstance(src, str) or not src:
+        return None
+    key = source_identity(src)
+    pose = it.get("pose") if isinstance(it.get("pose"), dict) else None
+    if pose:
+        kind = pose.get("kind")
+        pk = pose.get("key")
+        if isinstance(kind, str) and kind and pk not in (None, ""):
+            return (key, kind, str(pk))
+    return (key, "", "")
+
+
+def retry_nif_identity(nif):
+    """Canonical identity for a failed_nifs / failure nif string. Pose rows are source|kind:key."""
+    if not isinstance(nif, str) or not nif:
+        return None
+    if "|" in nif:
+        src, rest = nif.split("|", 1)
+        if ":" in rest:
+            kind, pk = rest.split(":", 1)
+            pk = pk.split("|", 1)[0]   # drop checkpoint_key's class tags (|load_door, |static_body, |no_rig)
+            if src and kind and pk != "":
+                return (source_identity(src), kind, str(pk))
+    return (source_identity(nif), "", "")
+
+
+def retry_pending_idents(pending):
+    return {ident for ident in (retry_nif_identity(n) for n in pending) if ident}
+
+
+def retry_pending_sources(pending, prior_bases=frozenset()):
+    """Base NIF sources a retry must convert: those with a base failure, and a pose-only key's parent only when the
+    prior stage has no base for it (otherwise the pose reuses that base, which reconverting could break)."""
+    return {ident[0] for ident in retry_pending_idents(pending) if not ident[1] or ident[0] not in prior_bases}
+
+
+def _failure_by_identity(rows):
+    out = {}
+    for f in rows:
+        if isinstance(f, dict) and f.get("nif"):
+            ident = retry_nif_identity(f["nif"])
+            if ident:
+                out[ident] = f
+    return out
+
+
+def extend_pending_from_manifest(pending, prior):
+    """Until summary and manifest agree, keep unresolved identities from both."""
+    extra = []
+    if isinstance(prior, dict):
+        for f in prior.get("failures") or []:
+            if isinstance(f, dict) and isinstance(f.get("nif"), str) and f["nif"]:
+                extra.append(f["nif"])
+    seen = set(pending)
+    out = list(pending)
+    for n in extra:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
+    """Keep prior successes; fold this retry in by base/pose identity; drop only proven successful retries."""
+    prior = prior if isinstance(prior, dict) else {}
+    items = [dict(it) for it in (prior.get("items") or []) if isinstance(it, dict) and item_identity(it)]
+    by_id = {item_identity(it): i for i, it in enumerate(items)}
+    next_index = max((it.get("form_index", -1) for it in items), default=-1) + 1
+    for it in new_items:
+        row = dict(it)
+        ident = item_identity(row)
+        if not ident:
+            continue
+        if ident in by_id:
+            old = items[by_id[ident]]
+            row["form_index"] = old.get("form_index", by_id[ident])
+            if old.get("editor_id"):
+                row["editor_id"] = old["editor_id"]
+            items[by_id[ident]] = row
+        else:
+            row["form_index"] = next_index
+            next_index += 1
+            by_id[ident] = len(items)
+            items.append(row)
+    succeeded = {item_identity(it) for it in new_items if item_identity(it)}
+    now_fail = _failure_by_identity(new_failures)
+    prior_fail = _failure_by_identity(prior.get("failures") or [])
+    failures = []
+    seen = set()
+    ordered = list(pending_nifs)
+    for f in new_failures:
+        if isinstance(f, dict) and f.get("nif"):
+            ordered.append(f["nif"])
+    for n in ordered:
+        ident = retry_nif_identity(n)
+        if not ident or ident in seen:
+            continue
+        seen.add(ident)
+        if ident in succeeded:
+            continue
+        if ident in now_fail:
+            failures.append(now_fail[ident])
+        elif ident in prior_fail:
+            failures.append(prior_fail[ident])
+        else:
+            failures.append({"nif": n, "reason": "unattempted retry"})
+    return items, failures
+
+
+def material_key(path):
+    """The converter's per-material key: decal:/fxdecal:/texset:/glass: keys as recorded, a .bgsm path from materials\\ on, lower case."""
+    if path.startswith(("decal:", "fxdecal:", "texset:", "glass:")):
+        return path
+    m = re.search(r"materials[\\/].*", path, re.I)
+    return (m.group(0) if m else path).replace("/", "\\").lower()
+
+
+_RECOVERED_NOTE = " (converted in a retry; models it did not reconvert may still use the placeholder)"
+
+
+def merge_material_evidence(prior, conv, retried_ids=frozenset()):
+    """Material evidence for the stage. A retry keeps the prior run's, one entry per material however it is spelled;
+    a material converted now drops its old fallback reason unless a model the retry kept may still use the placeholder.
+    Returns (materials_converted or None, material_fallbacks, materials_ok, materials_fallback, materials_recovered or None)."""
+    done = getattr(conv, "_materials", None) or {}
+    ok = {k for k, v in done.items() if v is not None}
+    errors = dict(conv.material_errors) if conv else {}
+    if prior is None:
+        return sorted(ok), errors, len(ok), len(errors), None
+    prior_errors = prior.get("material_fallbacks") or {}
+    failed_now = {material_key(k) for k in errors}
+    kept_placeholder = any(isinstance(it, dict) and it.get("fallback_materials") and item_identity(it) not in retried_ids
+                           for it in prior.get("items") or [])
+    merged, seen = {}, set()
+    for k, v in prior_errors.items():
+        mk = material_key(k)
+        if mk in failed_now or mk in seen:   # this run's reason replaces it, and a respelling is the same material
+            continue
+        if mk in ok:
+            if not kept_placeholder:
+                continue
+            v = v if str(v).endswith(_RECOVERED_NOTE) else f"{v}{_RECOVERED_NOTE}"
+        seen.add(mk)
+        merged[k] = v
+    merged.update(errors)
+    fallback_count = len(seen | failed_now)
+    if isinstance(prior.get("materials_converted"), list):
+        converted = (ok | set(prior["materials_converted"])) - failed_now
+        return sorted(converted), merged, len(converted), fallback_count, None
+    # a stage written before materials_converted: the converted set stays unknown (None keeps later retries on the
+    # count instead of trusting a partial list). materials_recovered records which fallbacks the count already took
+    # in, so a material that fails and recovers again is not counted twice
+    counted = set(prior.get("materials_recovered") or [])
+    recovered = (ok & {material_key(k) for k in prior_errors}) - counted
+    lost = counted & failed_now
+    ok_count = (prior.get("stats") or {}).get("materials_ok", 0) + len(recovered) - len(lost)
+    return None, merged, ok_count, fallback_count, sorted((counted | recovered) - lost)
 
 
 def main():
@@ -170,10 +399,31 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--extra-data", action="append", default=[],
+                    help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
+                         "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
+                         "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
+    ap.add_argument("--rig-load-doors", action="store_true",
+                    help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
+                         "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
+                         "default: load doors stay graph-less static doors")
+    ap.add_argument("--no-rig-pattern", default="",
+                    help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
+                         "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
+                         "script, so the first run after a code change reconverts everything; crash bisects: v6 Red "
+                         "Rocket, 2026-10-19)")
+    ap.add_argument("--static-pattern", default="",
+                    help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
+                         "are movable; only they reconvert on --resume once the checkpoints match this code (as --no-rig-pattern)")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
-    ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
+    ap.add_argument("--max-tris", type=int, default=0,
+                    help="skip meshes with more triangles than this (0, the default: skip none). Off by default: "
+                         "the option was inert until 5f2a065, and a skipped model drops its base record, so a build "
+                         "that turned it on would renumber or lose records an earlier build kept")
+    ap.add_argument("--retry-failures", action="store_true",
+                    help="only process NIFs that failed in the previous run (from failure-summary.json)")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
                     help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
@@ -206,11 +456,13 @@ def main():
         ap.error("--door-anim-dll: file not found")
     if a.door_anim_dll and not a.starfield_data:
         ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
+    if a.rig_load_doors and not a.starfield_data:
+        ap.error("--rig-load-doors needs --starfield-data (doors are rigged only with the vanilla donor body)")
 
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data)
+    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
@@ -231,8 +483,40 @@ def main():
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
         names = cell_candidates(cell, set(a.types.split(",")))
+        load_models = teleport_models(cell)
+        static_models = static_body_models(cell)
     else:
         names = src.mesh_names(a.pattern)
+        load_models = static_models = []
+    no_rig_models = [n for n in names if a.no_rig_pattern and re.search(a.no_rig_pattern, n, re.I)]
+    if a.static_pattern:
+        static_models = sorted(set(static_models) | static_pattern_models(a.static_pattern, names), key=str.lower)
+    pending_retry = None
+    prior_manifest = None
+    if a.retry_failures:
+        summary_path = os.path.join(a.staging, "failure-summary.json")
+        if not os.path.exists(summary_path):
+            sys.exit(f"--retry-failures: missing {summary_path}; stage not changed")
+        with open(summary_path, encoding="utf-8") as f:
+            prev_summary_raw = f.read()
+        try:
+            prev_summary = json.loads(prev_summary_raw)
+        except json.JSONDecodeError:
+            sys.exit("--retry-failures: failure-summary.json is not JSON; stage not changed")
+        pending_retry = retry_failed_nifs(prev_summary)
+        if pending_retry is None:
+            sys.exit("--retry-failures: failure-summary.json has no failed_nifs list; stage not changed")
+        man_path = os.path.join(a.staging, "manifest.json")
+        if not os.path.exists(man_path):   # a retry publishes the merged stage, so without it earlier successes would vanish
+            sys.exit(f"--retry-failures: missing {man_path}; stage not changed")
+        with open(man_path, encoding="utf-8") as f:
+            prior_manifest = json.load(f)
+        pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
+        prior_bases = {source_identity(it["source"]) for it in (prior_manifest or {}).get("items") or []
+                       if isinstance(it, dict) and isinstance(it.get("source"), str) and it["source"] and not it.get("pose")}
+        pending_sources = retry_pending_sources(pending_retry, prior_bases)
+        names = [n for n in names if source_identity(n) in pending_sources]
+        print(f"  retry-failures: narrowed to {len(names)} previous failures")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -247,7 +531,13 @@ def main():
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
         else:
-            r = cache.load(name) if cache else None
+            ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            # Apply --max-tris: skip heavy meshes before the expensive conversion
+            if a.max_tris and triangle_count(src, name) > a.max_tris:
+                skipped += 1
+                print(f"  skip {name}: > {a.max_tris} triangles")
+                continue
+            r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
             else:
@@ -258,11 +548,13 @@ def main():
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
-                                              mass_scale=a.mass_scale)
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
-                        cache.save(name, r)
+                        cache.save(ckey, r)
                     except (OSError, ValueError) as e:
                         print(f"  checkpoint unavailable for {name}: {e}")
             attempted_so_far += 1
@@ -290,11 +582,20 @@ def main():
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
-        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
+        plan_items = items
+        if pending_retry is not None:   # plan over the whole stage so pose stats still count prior models' references
+            plan_items = [it for it in (prior_manifest or {}).get("items") or []
+                          if isinstance(it, dict) and it.get("source") and not it.get("pose")] + items
+        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in plan_items}
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
+        pending_idents = retry_pending_idents(pending_retry) if pending_retry is not None else None
         for v in variants:
+            pose_ident = (source_identity(v.source), "xrgd", str(v.key))
+            base_ident = (source_identity(v.source), "", "")
+            if pending_idents is not None and pose_ident not in pending_idents and base_ident not in pending_idents:
+                continue
             base = by_source[source_identity(v.source).replace("/", "\\")]
-            key = f"{v.source}|xrgd:{v.key}"
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models, no_rig_models)
             r = cache.load(key) if cache else None
             if r is not None:
                 reused += 1
@@ -306,7 +607,9 @@ def main():
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
-                                              mass_scale=a.mass_scale)
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models, rig_load_doors=a.rig_load_doors)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
@@ -327,6 +630,9 @@ def main():
         print(f"  ragdoll poses: {json.dumps(pose_stats)}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
+    retried_ids = frozenset(item_identity(it) for it in items)
+    if pending_retry is not None:   # every count below describes the merged stage, not the retry subset
+        items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
     from collections import Counter, defaultdict
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
     examples = defaultdict(list)
@@ -380,9 +686,8 @@ def main():
                 for r, c in reason_counts.most_common(10)],
         "reasons": {r: c for r, c in reason_counts.most_common()},
         "examples": {r: examples[r] for r in reason_counts},
+        "failed_nifs": [f["nif"] for f in failures],
     }
-    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
-
     tex_totals = None
     if textures.parse_texture_caps(a.max_texture):
         tex_totals = texture_totals(merge_texture_log(a.staging, conv.texture_log if conv else {}))
@@ -393,15 +698,24 @@ def main():
             write_json_atomic(state_path, {"complete": False, "status": "dependency_conflict", "errors": inconsistent})
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
+    materials_converted, material_fallbacks, ok_count, fallback_count, materials_recovered = merge_material_evidence(
+        prior_manifest if pending_retry is not None else None, conv, retried_ids)
+    if pending_retry is not None:   # the retry's converter only saw the retried models' materials
+        stats.update(materials_ok=ok_count, materials_fallback=fallback_count)
     stats.update(assets=len(items), failed=len(failures), reused=reused)
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
-    manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
+    manifest = {"items": items, "failures": failures, "material_fallbacks": material_fallbacks,
+                **({"materials_converted": materials_converted} if materials_converted is not None else {}),
+                **({"materials_recovered": materials_recovered} if materials_recovered is not None else {}), "stats": stats,
                 "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)
-    write_json_atomic(state_path, {"complete": True, "status": "finished", "assets": len(items), "failed": len(failures)})
+    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
+    finished = not (pending_retry is not None and failures)
+    write_json_atomic(state_path, {"complete": finished, "status": "finished" if finished else "retry_pending",
+                                   "assets": len(items), "failed": len(failures)})
     print(json.dumps({"converted": len(items), **stats, "seconds": manifest["seconds"]}))
 
 

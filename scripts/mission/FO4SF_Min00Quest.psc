@@ -14,8 +14,36 @@ Actor[] Property Raiders Auto Const Mandatory
 MiscObject Property Credits Auto Const Mandatory
 {Starfield's credits: the reward that stands in for Fallout 4's caps.}
 
+Actor Property Codsworth Auto Const
+{Codsworth's placed actor (FO4SFMission.esm 0x811), set only on his keeper quest (FO4SF_CodsworthKeeper, 0x814); None
+ on FO4SF_Min00 and in a --no-codsworth build. Not part of the mission.}
+
+bool Property KeeperOnly = False Auto Const
+{True on FO4SF_CodsworthKeeper: this instance only keeps Codsworth (enabled, moved into the merged world) and never runs
+ the mission. A quest of its own because a new start-game-enabled quest starts on an existing save, where FO4SF_Min00
+ had already ended (stage 200 cancels timer 1, which started his timer) or ran OnQuestInit before his timer existed: the
+ owner's save, 22 Oct, had him unmoved and no mission log.}
+
+float Property MergeOffsetX = -1200.0 Auto Const
+float Property MergeOffsetY = -2700.0 Auto Const
+{The core world's merge offset (vmad_patch.MERGE_MEASURED, measured in game): the world the player walks in places the
+ core's records at their local position + this; z unchanged. Persistent references of the core's persistent cell stay
+ at their LOCAL position in the base world (probe (a), 16 Oct; in game 18 Oct: GetDistance to Preston stayed at float max
+ with the player standing on his merged spot), so the quest moves its actors over (Relocate).}
+
+float Property RelocateRadius = 800.0 Auto Const
+{Move an actor only when the player stands outdoors within this many units of that actor's merged spot (its position +
+ the merge offset). Coordinates alone cannot tell two exterior worlds apart; see docs/mission/when-freedom-calls.md.}
+
+float Property RelocateGap = 1500.0 Auto Const
+{...and Preston is farther than this from the player. Unmoved he reads float max (another world, 18 Oct 13:25) or about
+ 2,955 (the offset's length: same world at his local spot, 18 Oct 14:40); moved he is within RelocateRadius.}
+
 int Property RewardCount = 100 Auto Const
 {Fallout 4 gives 100 caps (DialogueConcordArea stage 40).}
+
+float Property CodsworthCheck = 5.0 Auto Const
+{Seconds between Codsworth's own relocation checks (KeepCodsworth).}
 
 float Property EngageRadius = 60.0 Auto Const
 {The fight starts when the player comes this close (m) to a living raider, as FO4's DN092 StartCombat on its ambush.}
@@ -25,24 +53,84 @@ float Property TalkRadius = 3.0 Auto Const
 
 string LogName = "fo4sf_mission"
 int ticks = 0
+int relocateFails = 0
+int codsworthFails = 0
+bool codsworthKept = False
+int applied = 0
 
 Event OnQuestInit()
+    if KeeperOnly
+        Trace("keeper init codsworth=" + Codsworth)
+        RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
+        KeepCodsworthLoad()
+        return
+    endif
     Debug.OpenUserLog(LogName)
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Preston, "OnActivate")
-    SetStage(10)
+    Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
+    AdvanceTo(10)
+    SetActive(True)                                      ; tracked, so the objectives show (in game 18 Oct: none seen)
     StartTimer(1.0, 1)
+    KeepCodsworthStart()
 EndEvent
 
+Function KeepCodsworthStart()
+{Starts Codsworth's own check once (review 20 Oct); also from the mission timer, for a save that ran OnQuestInit before
+ this check existed.}
+    if Codsworth != None && !codsworthKept
+        codsworthKept = True
+        StartTimer(CodsworthCheck, 2)
+    endif
+EndFunction
+
+Function KeepCodsworthLoad()
+{The keeper's start, at its init and on every save load: Codsworth enabled, a fresh budget of failed moves, his timer
+ (re)started. A load also restarts a check that spent its budget in an earlier session.}
+    if Codsworth == None
+        return
+    endif
+    if Codsworth.IsDisabled()
+        Codsworth.Enable()
+        Trace("codsworth was disabled: enabled")
+    endif
+    codsworthFails = 0
+    codsworthKept = True
+    StartTimer(CodsworthCheck, 2)
+EndFunction
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    if KeeperOnly
+        KeepCodsworthLoad()
+    endif
+EndEvent
+
+Function AdvanceTo(int n)
+{SetStage, then the stage's actions. In game 18 Oct the stages reached 40 but OnStageSet never ran (no "stage" line, no
+ objectives, no reward), so the actions do not rely on it; it still calls Apply, and Apply runs each stage once.}
+    SetStage(n)
+    Apply(n)
+EndFunction
+
 Event OnStageSet(int auiStageID, int auiItemID)
+    Apply(auiStageID)
+EndEvent
+
+Function Apply(int auiStageID)
+    if auiStageID <= applied
+        return
+    endif
+    applied = auiStageID
     Trace("stage " + auiStageID)
     if auiStageID == 10
         SetObjectiveDisplayed(10)
+        Debug.Notification("When Freedom Calls: find the Last Minutemen")
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
         Debug.Notification("When Freedom Calls: kill the raiders")
     elseif auiStageID == 30
+        Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
         Debug.Notification("When Freedom Calls: talk to Preston Garvey")
@@ -50,27 +138,33 @@ Event OnStageSet(int auiStageID, int auiItemID)
         SetObjectiveCompleted(86)
         Game.GetPlayer().AddItem(Credits, RewardCount)
         Trace("reward credits=" + RewardCount)
-        SetStage(200)
     elseif auiStageID == 200
         Debug.Notification("When Freedom Calls: complete")
         CancelTimer(1)
     endif
-EndEvent
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if akSender == Preston && akActionRef == Game.GetPlayer()
         Trace("preston activated at stage " + GetStage())
         if GetStage() == 30
-            SetStage(40)
+            AdvanceTo(40)
         endif
     endif
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != 1
+    if aiTimerID == 2
+        KeepCodsworth()
+        return
+    elseif aiTimerID != 1
         return
     endif
     Actor player = Game.GetPlayer()
+    KeepCodsworthStart()
+    if relocateFails < 10
+        Relocate(player)
+    endif
     int stage = GetStage()
     int dead = 0
     bool fighting = false
@@ -107,13 +201,22 @@ Event OnTimer(int aiTimerID)
         else
             stage = 40
         endif
-        SetStage(stage)
+        AdvanceTo(stage)
     endwhile
     ticks += 1
     if ticks % 5 == 0
         Trace("status stage=" + stage + " dead=" + dead + "/" + Raiders.Length + " nearest_raider=" + nearest + " preston=" + dp + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
     endif
-    if GetStage() < 200                                  ; stage 40 sets 200 (and cancels the timer) in OnStageSet
+    if Preston.GetCombatTarget() == player               ; he never fights the player (in game 18 Oct: "treats me like an enemy")
+        Preston.StopCombat()
+        Trace("preston was targeting the player: stopcombat")
+    endif
+    if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
+        AdvanceTo(200)
+        CompleteQuest()
+        Trace("complete stage=" + GetStage())
+    endif
+    if GetStage() < 200                                  ; stage 200 cancels the timer (Apply)
         StartTimer(1.0, 1)
     endif
 EndEvent
@@ -136,6 +239,77 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
     return s
 EndFunction
 
+Function Relocate(Actor player)
+{Moves Preston and the raiders (Codsworth: KeepCodsworth) from their unmerged local position to the same spot in the merged world the
+ player walks in: each actor's local position + the merge offset, z kept (MoveTo onto the player with the difference as
+ the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe). Decided per actor and by position, every
+ check: in game 18 Oct 14:40 the unmoved actors read a finite distance (same world, local spot), so "finite means
+ reachable" skipped the move. A moved actor's position + the offset is far from the player, so nobody is offset twice;
+ an actor a move missed is tried again (Codex 5564899342), up to 10 failed moves in all. Never from an interior.}
+    if player.IsInInterior()
+        return
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    if MoveOver(Preston, player, px, py, pz, "preston")
+        relocateFails += 1
+    endif
+    int i = 0
+    while i < Raiders.Length
+        if MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
+            relocateFails += 1
+        endif
+        i += 1
+    endwhile
+EndFunction
+
+Function KeepCodsworth()
+{Codsworth is not part of the quest, so he has his own check every CodsworthCheck seconds with its own budget of 10
+ failed moves. It keeps running after stage 200, which ends the mission's timer: the player may reach Sanctuary only
+ after the mission, and he went back to his unmerged spot once already (in game 18 Oct 15:17).}
+    if Codsworth == None
+        return                                            ; FO4SF_Min00 on a save that ran his timer before the keeper
+    endif
+    Actor player = Game.GetPlayer()
+    if codsworthFails < 10 && !player.IsInInterior()
+        if MoveOver(Codsworth, player, player.GetPositionX(), player.GetPositionY(), player.GetPositionZ(), "codsworth")
+            codsworthFails += 1
+        endif
+    endif
+    if codsworthFails < 10
+        StartTimer(CodsworthCheck, 2)
+    endif
+EndFunction
+
+bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
+{Moves one actor when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap.
+ Returns True for a failed move: one that leaves it farther than RelocateGap.}
+    float before = player.GetDistance(a)                  ; float max: another world; finite: this world (the world proof)
+    if before < RelocateGap
+        return False                                      ; already where the player is
+    endif
+    float x = a.GetPositionX() + MergeOffsetX
+    float y = a.GetPositionY() + MergeOffsetY
+    float z = a.GetPositionZ()
+    float dx = px - x
+    float dy = py - y
+    if dx * dx + dy * dy > RelocateRadius * RelocateRadius
+        return False                                      ; the player is not at its merged spot
+    endif
+    WorldSpace wa = a.GetWorldSpace()                     ; evidence for Codex's world-identity point (#353): which
+    WorldSpace wp = player.GetWorldSpace()                ; world each side is in before a move (only moves: Codex 4331303552)
+    Trace("world " + what + " player=" + wp + " actor=" + wa + " cell=" + a.GetParentCell())
+    a.MoveTo(player, x - px, y - py, z - pz, True, False)
+    float d = player.GetDistance(a)
+    bool failed = d >= RelocateGap
+    Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
+    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
+    return failed
+EndFunction
+
 Function Trace(string msg)
+    ; OnQuestInit's open does not survive a save load (the 21 Oct crash runs logged nothing); a no-op when already open
+    Debug.OpenUserLog(LogName)
     Debug.TraceUser(LogName, "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " " + msg)
 EndFunction

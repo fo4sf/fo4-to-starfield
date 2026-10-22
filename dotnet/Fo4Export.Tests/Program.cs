@@ -4,6 +4,8 @@ using Mutagen.Bethesda.Plugins;
 using Noggog;
 
 ActivationParentTests.Run();
+LocationExportTests.Run();
+CellMergeTests.Run();
 
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
@@ -86,4 +88,17 @@ Require(TeleportDependencies.Build(new[] { empty }, new[] { ((ICellGetter)destin
 destinationCell.Persistent.Remove(destinationDoor);
 destinationCell.Temporary.Add(destinationDoor);
 Require(TeleportDependencies.Build(new[] { r }, new[] { ((ICellGetter)destinationCell, (string?)null) }).Single().destination_cell!.worldspace == null, "temporary interior destination lost");
+// A DLC that overrides only the destination CELL (renamed, no children) keeps the master's door: the winning cell's
+// name is reported for both the destination and the transition, with the master door's base.
+var winningCell = new Cell(Key(0x805), Fallout4Release.Fallout4) { EditorID = "DestinationDlc" };
+var cellOnly = TeleportDependencies.Build(new[] { r }, new[] { ((ICellGetter)winningCell, (string?)null), ((ICellGetter)destinationCell, (string?)null) }).Single();
+Require(cellOnly.destination_cell!.editor_id == "DestinationDlc", "stale master cell name for an inherited destination door");
+Require(cellOnly.transition_cell!.editor_id == "DestinationDlc", "stale master cell name for the transition interior");
+Require(cellOnly.destination_base == Key(0x820).ToString(), "inherited destination door base lost");
+// An explicit override of the door itself in the winning cell wins over the master's copy.
+var overriddenDoor = new PlacedObject(Key(0x804), Fallout4Release.Fallout4);
+overriddenDoor.Base.SetTo(Key(0x821));
+winningCell.Temporary.Add(overriddenDoor);
+var childOverride = TeleportDependencies.Build(new[] { r }, new[] { ((ICellGetter)winningCell, (string?)null), ((ICellGetter)destinationCell, (string?)null) }).Single();
+Require(childOverride.destination_cell!.editor_id == "DestinationDlc" && childOverride.destination_base == Key(0x821).ToString(), "winning destination door override lost");
 Console.WriteLine("Teleport dependency location checks passed.");

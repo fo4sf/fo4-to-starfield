@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Codex October19: owner authorized the four #280 functions/tests. Draft #378 wires their optional APIs to reviewed #281 reservations; retained-gap/reorder/new-source and receipt-pin controls pass offline. Stage CLI/publication recovery is still unwired; native testing remains Claude-owned. See [caller contract](terrain/port-marker-callers.md).
+Codex October19: owner authorized BOTH #280 scopes. Reviewed #378 supplies reservation APIs; the subsequent isolated stage extension now runs core stage/check and port patch/check under one lease, with pinned requests, immutable generations, read-only verification and explicit fresh-folder retry. Eight new synthetic integration/fault/abrupt-exit tests plus159 related tests and guard pass; independent QA/full-size pairing remain pending. Terrain survey environment is adapted in the tiny actual-ESM test, not full private check_stage acceptance. Claude keeps game/deploy/merge. See [paired protocol](terrain/paired-stage.md).
 
 Codex checkpoint, October17 Mountain / UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.

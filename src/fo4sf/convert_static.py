@@ -66,6 +66,8 @@ def tangent_signs(positions, uvs, normals, tangents, triangles):
 
 
 def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfmesh.SfMesh:
+    if not math.isfinite(shape.scale) or shape.scale <= 0:
+        raise nifmod.NifError(f"shape scale must be a finite positive number, got {shape.scale}")
     pts = []
     r = shape.rotation
     for x, y, z in shape.positions:
@@ -74,6 +76,8 @@ def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfm
         py = shape.scale * (r[3] * x + r[4] * y + r[5] * z) + shape.translation[1]
         pz = shape.scale * (r[6] * x + r[7] * y + r[8] * z) + shape.translation[2]
         pts.append((px * unit_scale, py * unit_scale, pz * unit_scale))
+    if not pts or not all(math.isfinite(c) for p in pts for c in p):
+        raise nifmod.NifError("shape positions are empty or non-finite after transform")
     m = sfmesh.SfMesh(version=2)
     m.scale, m.positions = sfmesh.encode_positions(pts)
     m.triangles = [tuple(t) for t in shape.triangles]
@@ -429,7 +433,7 @@ def convert_door(fo4_nif: bytes, out_name: str, material_paths: list, unit_scale
         lo = [min(p[a] for p in moving_pts) for a in range(3)]
         hi = [max(p[a] for p in moving_pts) for a in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[a] + hi[a]) / 2 for a in range(3)),
-                                    tuple(max(0.02, (hi[a] - lo[a]) / 2) for a in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[a] - lo[a]) / 2) for a in range(3)))
         if leaf_physics_donor is not None:      # a static body pins its node: make it keyframed like vanilla door leaves
             blob = sfcollision.keyframed(blob, leaf_physics_donor)
     out = sfnif.build_door_nif(out_name.rsplit("/", 1)[-1].encode(), static_shapes, moving_shapes, template,
@@ -459,6 +463,91 @@ def _apply(transform, point):
     """(t, R row-major, s) applied to a point: s * R * p + t."""
     t, r, s = transform
     return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
+
+
+BIND_TOLERANCE = 1e-4      # skin_to_bone entries that still count as one bind (float rounding)
+
+
+def _same_bind(a, b):
+    """Two (t, R, s) skin_to_bone transforms equal within BIND_TOLERANCE (relative for translation)."""
+    (ta, ra, sa), (tb, rb, sb) = a, b
+    scale = max(1.0, *(abs(x) for x in tuple(ta) + tuple(tb)))
+    return (all(abs(x - y) <= BIND_TOLERANCE * scale for x, y in zip(ta, tb))
+            and all(abs(x - y) <= BIND_TOLERANCE for x, y in zip(ra, rb)) and abs(sa - sb) <= BIND_TOLERANCE)
+
+
+RIGID_SKIN_TOLERANCE = 1e-3   # weight a rigid vertex may put on other bones: half-float rounding, not a blend
+# (Codex on #354: 0.995 / 0.005 across two bones was accepted and drifted 5 cm from real skinning at 10 m of travel)
+
+
+def rigid_skinned_parts(src, shape, bones):
+    """A skinned door shape whose every drawn vertex follows one bone fully, cut into one piece per bone and re-expressed
+    in that bone's space so the rig carries each piece as an ordinary attachment: [(bone index, shape), ...] or None.
+    Weight 1 on one bone makes skinning bone_world * skin_to_bone, so bone-local positions are skin_to_bone(stored) and a
+    piece moves exactly as FO4 draws it, at any pose (RedRPedDoor.nif, PC check 2026-10-18: Door:0 is wholly on b_Door,
+    Door:7 has 363 vertices on b_Door and 118 on b_Handle, none blended). A vertex putting more than
+    RIGID_SKIN_TOLERANCE of its weight on other bones (a blend), two slots of one bone with different skin_to_bone (the
+    weighted result is then not either bind; Codex on #354), a triangle across two bones or a bone outside the rig
+    give None."""
+    from . import fo4skin
+    try:
+        skin = fo4skin.read_skin(src, shape.block)
+    except (nifmod.NifError, ValueError, struct.error):
+        return None
+    if skin is None or len(skin.weights) != len(shape.positions):
+        return None
+    slot_of = {}
+    for v in {i for t in shape.triangles for i in t}:
+        per_bone = {}                              # weights summed per bone node (two slots may name one bone)
+        for w, k in zip(skin.weights[v], skin.indices[v]):
+            if w:
+                if not 0 <= k < len(skin.bones):
+                    return None
+                entry = per_bone.setdefault(skin.bones[k], [0.0, k])
+                if k != entry[1] and not _same_bind(skin.skin_to_bone[k], skin.skin_to_bone[entry[1]]):
+                    return None                    # one bone, two different inverse binds: one bind cannot stand in
+                entry[0] += w
+        total = sum(w for w, _ in per_bone.values())
+        if total <= 0:
+            return None
+        bone = max(per_bone, key=lambda b: per_bone[b][0])
+        if total - per_bone[bone][0] > RIGID_SKIN_TOLERANCE * total:     # a real blend, however small: refuse
+            return None
+        slot_of[v] = per_bone[bone][1]
+    by_slot = {}
+    for t in shape.triangles:
+        slots = {slot_of[i] for i in t}
+        if len(slots) != 1:
+            return None
+        by_slot.setdefault(slots.pop(), []).append(t)
+    index = {b.get("node"): i for i, b in enumerate(bones) if b.get("node") is not None}
+    if any(skin.bones[k] not in index for k in by_slot):
+        return None
+    parts = []
+    for slot in sorted(by_slot):
+        tris = by_slot[slot]
+        keep = sorted({i for t in tris for i in t})
+        remap = {v: n for n, v in enumerate(keep)}
+        xf = skin.skin_to_bone[slot]
+        r = xf[1]
+
+        def turn(vecs):
+            out = []
+            for v in vecs:
+                d = tuple(r[3 * a] * v[0] + r[3 * a + 1] * v[1] + r[3 * a + 2] * v[2] for a in range(3))
+                ln = math.sqrt(sum(x * x for x in d)) or 1.0
+                out.append(tuple(x / ln for x in d))
+            return out
+
+        def pick(values):
+            return [values[v] for v in keep] if values else values
+        parts.append((index[skin.bones[slot]], replace(
+            shape, positions=[fo4skin.apply(xf, shape.positions[v]) for v in keep], uvs=pick(shape.uvs),
+            normals=turn(pick(shape.normals)) if shape.normals else shape.normals,
+            tangents=turn(pick(shape.tangents)) if shape.tangents else shape.tangents, colors=pick(shape.colors),
+            triangles=[tuple(remap[i] for i in t) for t in tris],
+            translation=(0.0, 0.0, 0.0), rotation=(1, 0, 0, 0, 1, 0, 0, 0, 1), scale=1.0, skinned=False)))
+    return parts
 
 
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
@@ -500,11 +589,31 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     if len(material_paths) != len(shapes):
         raise ValueError("one material entry per shape required")
     kept = {s.block: (s, m) for s, m in zip(shapes, material_paths) if m is not None}
-    dropped_skinned = sorted((s.name or f"Shape{b}".encode()).decode("latin-1") for b, (s, _) in kept.items() if s.skinned)
+    shape_name = lambda b, s: (s.name or f"Shape{b}".encode()).decode("latin-1")    # noqa: E731
+    rebound = {}                         # piece key -> rig bone it rides rigidly (rigid_skinned_parts); one piece per bone
+    for b, (s, m) in list(kept.items()):
+        if s.skinned and (parts := rigid_skinned_parts(src, s, plan["bones"])) is not None:
+            del kept[b]
+            for k, (bone, piece) in enumerate(parts):
+                key = b if len(parts) == 1 else f"{b}.{k}"
+                kept[key] = (piece, m)
+                rebound[key] = bone
+    dropped_skinned = sorted(shape_name(b, s) for b, (s, _) in kept.items() if s.skinned)
     if dropped_skinned and not drop_skinned:
-        raise nifmod.NifError("skinned door shapes cannot be rigged")
+        raise nifmod.NifError("skinned door shapes cannot be rigged (blended or off-rig weights)")
     kept = {b: v for b, v in kept.items() if not v[0].skinned}
-    plan["attachments"] = [a for a in plan["attachments"] if a["shape"] in kept]
+    ident = {"translation_source_units": [0.0, 0.0, 0.0], "rotation_row_major": [1, 0, 0, 0, 1, 0, 0, 0, 1], "scale": 1.0}
+    pieces = {}                                    # source shape block -> its piece keys
+    for key in rebound:
+        pieces.setdefault(int(str(key).split(".")[0]), []).append(key)
+    attachments = []
+    for a in plan["attachments"]:
+        if a["shape"] in pieces:
+            attachments += [{**a, "shape": key, "bone": rebound[key], "local_transform": dict(ident)}
+                            for key in pieces[a["shape"]]]
+        elif a["shape"] in kept:
+            attachments.append(a)
+    plan["attachments"] = attachments
     if not plan["attachments"]:
         raise nifmod.NifError("door has no rendered geometry")
     files, sf_shapes, local_pts = {}, {}, {}
@@ -546,7 +655,7 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
         lo = [min(p[k] for p in pts) for k in range(3)]
         hi = [max(p[k] for p in pts) for k in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[k] + hi[k]) / 2 for k in range(3)),
-                                    tuple(max(0.02, (hi[k] - lo[k]) / 2) for k in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[k] - lo[k]) / 2) for k in range(3)))
         collision[bones[i]["node"]] = sfcollision.keyframed(blob, leaf_physics_donor)
     if not collision:
         raise nifmod.NifError("door has no moving geometry")
@@ -571,6 +680,9 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
         door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
     if dropped_skinned:
         door["dropped_skinned_shapes"] = dropped_skinned
+    if rebound:
+        door["rebound_skinned_shapes"] = sorted({shape_name(b, kept[b][0]) for b in rebound})
+        door["rebound_skinned_pieces"] = len(rebound)
     if aliases:
         door["sequence_aliases"] = dict(aliases)
     return files, door

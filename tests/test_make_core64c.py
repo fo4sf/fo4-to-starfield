@@ -94,6 +94,24 @@ class SelectTests(unittest.TestCase):
             # one model, two references (case differs): one convert_batch entry
             self.assertEqual(len(mk.convert_list(kept)), 1)
 
+    def test_a_model_placed_as_a_teleporting_door_is_converted_as_a_load_door(self):
+        door = {"formkey": "000009:Fallout4.esm", "type": "Door", "model": "SetDressing\\Elevator\\Lift01.nif",
+                "teleport_destination": {"door": "00000A:Fallout4.esm"}}
+        plain = dict(door, formkey="00000B:Fallout4.esm", teleport_destination=None)
+        self.assertTrue(mk.slim(door)["teleports"])
+        self.assertNotIn("teleports", mk.slim(plain))
+        for refs in ([plain, door], [door, plain]):
+            self.assertEqual(mk.convert_list([mk.slim(r) for r in refs])[0]["teleport_destination"], True)
+        self.assertNotIn("teleport_destination", mk.convert_list([mk.slim(plain)])[0])
+
+    def test_models_placed_only_as_statics_keep_a_static_body(self):
+        cone = {"formkey": "000011:Fallout4.esm", "type": "MovableStatic", "model": "Props\\TrafficCone01.nif"}
+        can = {"formkey": "000012:Fallout4.esm", "type": "MiscItem", "model": "Props\\TinCan01.nif"}
+        both = [dict(can, formkey="000013:Fallout4.esm", type="Static"), can]
+        out = {e["model"]: e for e in mk.convert_list([mk.slim(r) for r in [cone, can] + both])}
+        self.assertTrue(out["Props\\TrafficCone01.nif"]["static_body"])
+        self.assertNotIn("static_body", out["Props\\TinCan01.nif"])               # an item anywhere: dynamic
+
     def test_a_reference_in_two_bands_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
@@ -718,12 +736,30 @@ class ItemPromotionTests(unittest.TestCase):
                   "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
         self.assertEqual(mk.core_params_view(staged), core)
         self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
+        # --world-border city's WRLD fields are stage's own too (docs/terrain/border.md)
+        self.assertEqual(mk.core_params_view(dict(staged, world_data=mk.WORLD_DATA["city"])), core)
+        self.assertEqual((mk.WORLD_DATA["template"], mk.WORLD_DATA["city"]), (None, {"small_world": False, "hnam": 5}))
+
+    def test_check_expects_exactly_the_world_data_change(self):
+        # cmd_check compares core64's WRLD, as --world-border changes it, with core64c's
+        def wrld(edid, data, hnam):
+            return {"sig": "WRLD", "fid": 0x01000800, "flags": 0,
+                    "fields": [(b"EDID", edid + b"\0"), (b"DATA", data), (b"HNAM", hnam)]}
+        city = mk.WORLD_DATA["city"]
+        old, new = wrld(b"W", b"\x09", b"\x00"), wrld(b"W", b"\x08", b"\x05")
+        view = mk.without_marker_chain
+        self.assertEqual(view(mk.with_world_data(old, city, "W")), view(new))
+        self.assertIs(mk.with_world_data(old, None, "W"), old)                               # template: unchanged
+        self.assertIs(mk.with_world_data(old, city, "X"), old)                               # another world
+        self.assertNotEqual(view(mk.with_world_data(old, city, "W")), view(wrld(b"W", b"\x09", b"\x05")))
+        self.assertNotEqual(view(mk.with_world_data(old, city, "W")), view(wrld(b"W", b"\x08", b"\x00")))
 
 
 class PersistentDoorMergeCompatibilityTests(unittest.TestCase):
     def test_core_comparison_keeps_world_settings_but_excludes_stage_identity_controls(self):
         core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
-        staged = dict(copy.deepcopy(core), objects="objects.json", persistent_ids=True)
+        staged = dict(copy.deepcopy(core), objects="objects.json", persistent_ids=True,
+                      world_data=mk.WORLD_DATA["city"])
         staged["overlays"][0]["map_markers"] = [{"tag": "RedRocket"}]
         original = copy.deepcopy(staged)
         self.assertEqual(mk.core_params_view(staged), mk.core_params_view(core))
@@ -1821,6 +1857,34 @@ class DoorPromotionTests(unittest.TestCase):
                 self.assertEqual(promoted["activators"][0]["reference_index"], 3)
                 self.assertEqual(promoted["doors"][0]["destination"]["id"], 0xDEFF)
                 mk.door_arrivals_inside(promoted["doors"], {"cell_min": -32, "cell_max": 31})
+    def test_animate_doors_takes_the_rig_by_fo4_source(self):
+        # step C: a door whose FO4 model has load_door.anim in the port manifest gets the rig, the rigged model and the
+        # position shifted by the origin offset (turned with the door); a door without one is left exactly as it was
+        _keep, doors = mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry()]})
+        src = "Meshes\\Interiors\\Industrial\\Doors\\IndMetalDoorLoad01.nif"
+        anim = {"anim_graph": "g.agx", "skeleton": "s.rig", "animations": "clips", "origin_offset": [0.5, 0.0, 0.0],
+                "open_seconds": 1.1, "model": None, "bounds": [[0, 0, 0], [1, 1, 1]], "unused": 1}
+        manifest = {"items": [{"source": src.replace("\\", "/").lower(), "model": "fo4port\\indmetaldoorload01.nif",
+                               "load_door": {"anim": anim, "fo4_door_flags": 0x8B}}]}
+        source_of = {"000002:Fallout4.esm": src}
+        out, rows = mk.animate_doors(doors, manifest, source_of)
+        d = out[0]
+        self.assertEqual((d["model"], rows[0]["animated"]), ("fo4port\\indmetaldoorload01.nif", True))
+        self.assertEqual(d["anim"], {"anim_graph": "g.agx", "skeleton": "s.rig", "animations": "clips",
+                                     "bounds": [[0, 0, 0], [1, 1, 1]], "open_seconds": 1.1, "fo4_door_flags": 0x0A})
+        turn = 2.5812                                               # Bethesda's clockwise angle (exterior.ref_matrix)
+        self.assertAlmostEqual(d["pos"][0], -468.85 + 0.5 * math.cos(turn), places=4)
+        self.assertAlmostEqual(d["pos"][1], 636.71 - 0.5 * math.sin(turn), places=4)
+        self.assertEqual(d["cell"], list(mk.tg.sf_cell_of(d["pos"][0], d["pos"][1])))
+        self.assertEqual(doors[0]["model"], self.BASES[1]["model"])          # the input entries are not touched
+        same, rows = mk.animate_doors(doors, {"items": []}, source_of)
+        self.assertEqual((same, rows[0]["reason"]), (doors, "model not in the manifest"))
+        same, rows = mk.animate_doors(doors, {"items": [dict(manifest["items"][0], load_door={})]}, source_of)
+        self.assertEqual((same, rows[0]["reason"]), (doors, "no rig (load_door.anim)"))
+        for broken in ({"skeleton": None}, {"open_seconds": 31}, {"open_seconds": float("nan")}):
+            bad = {"items": [dict(manifest["items"][0], load_door={"anim": dict(anim, **broken)})]}
+            with self.assertRaises(ValueError):
+                mk.animate_doors(doors, bad, source_of)
 
     def test_cluster_doors_refusals(self):
         def bad(regex, **kw):

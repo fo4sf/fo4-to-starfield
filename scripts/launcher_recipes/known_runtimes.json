@@ -1,0 +1,19 @@
+{
+ "note": "Starfield.exe builds listed as good, each with the SFSE files measured with it. Add entries only with launcher.py runtimes-add from a real install manifest.",
+ "runtimes": [
+  {
+   "exe_sha256": "7e9adb1414a8e1b325e5e1f097b9b17b78deb7eebeda37a333351a43a60f9d28",
+   "exe_size": 102476200,
+   "exe_version": "1.16.244.0",
+   "label": "Steam, Starfield.exe 1.16.244.0, SFSE 0.2.21",
+   "sfse": {
+    "dlls": {
+     "sfse_1_16_244.dll": "28c5bda41d9959c885efcb6e889de69e92767c80a1a66842d711d215f722f82b"
+    },
+    "loader_sha256": "16916c2ec47e31774e3d550609a1844fcb368b03060c03511891564b7f5f7526"
+   },
+   "source": "measured on the owner's PC 2026-10-22 (Starfield.exe from detect; SFSE 0.2.21 from Nexus mod 106, archive sha256 6f196112b0f283c154e8899df4cadf71e40507ddce9e3954b50f6abb766c91ec, both binaries signed CN=Ian Patterson)"
+  }
+ ],
+ "schema": 1
+}

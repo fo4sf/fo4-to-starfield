@@ -32,6 +32,59 @@ class TerrainStableDoorTests(unittest.TestCase):
         obj['doors'][1]['edid'] += '_second'
         return obj
 
+    def mixed_pair(self):
+        obj = self.pair()
+        obj['doors'][0]['anim'] = {
+            'anim_graph': 'AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx',
+            'skeleton': 'Meshes\\a\\door.rig', 'animations': 'Meshes\\a\\door',
+            'bounds': [[-1.0, -0.1, 0.0], [1.0, 0.1, 2.5]],
+            'open_seconds': 1.25, 'fo4_door_flags': 0x0A,
+        }
+        return obj
+
+    def test_mixed_animated_and_plain_doors_keep_ids_across_reorder_and_growth(self):
+        obj = self.mixed_pair()
+        first, stage = self.build(obj, 'mixed-door-growth')
+        raw_before = fixture.records(stage / 'Synthetic.esm')
+        for d in obj['doors']:
+            base = int(first['doors'][d['src']]['base'], 16)
+            self.assertEqual(raw_before[base][0], b'DOOR' if 'anim' in d else b'ACTI')
+        changed = copy.deepcopy(obj)
+        changed['doors'].reverse()
+        new_door = copy.deepcopy(changed['doors'][0])
+        new_door.update(src='000004:Synthetic.esm', edid='AddedPlainDoor', reference_index=3)
+        new_door['destination']['id'] = 0xDF10
+        changed['doors'].insert(0, new_door)
+        after, _ = self.build(changed, 'mixed-door-growth')
+        for src, ids in first['doors'].items():
+            self.assertEqual(after['doors'][src], ids)
+        raw_after = fixture.records(stage / 'Synthetic.esm')
+        for ids in first['doors'].values():
+            for kind in ('base', 'ref', 'arrival'):
+                key = int(ids[kind], 16)
+                self.assertEqual(raw_after[key], raw_before[key])
+        self.assert_persistent_marker_layout(stage, changed, after)
+        reservations = json.loads((stage / 'terrain-stable-ids.json').read_bytes())['reservations']
+        removed, _ = self.build(obj, 'mixed-door-growth')
+        self.assertEqual(removed, first)
+        self.assertEqual(json.loads((stage / 'terrain-stable-ids.json').read_bytes())['reservations'], reservations)
+        restored, _ = self.build(changed, 'mixed-door-growth')
+        self.assertEqual(restored, after)
+
+    def test_mixed_door_bootstrap_preserves_plugin_and_map_bytes(self):
+        obj = self.mixed_pair()
+        self.params['persistent_ids'] = False
+        first, stage = self.build(obj, 'mixed-door-bootstrap')
+        original = {n: (stage / n).read_bytes() for n in ('Synthetic.esm', 'formids.json')}
+        self.params['persistent_ids'] = True
+        second, _ = self.build(obj, 'mixed-door-bootstrap', bootstrap=True)
+        self.assertEqual(second, first)
+        self.assertEqual({n: (stage / n).read_bytes() for n in original}, original)
+        obj['doors'].reverse()
+        third, _ = self.build(obj, 'mixed-door-bootstrap')
+        self.assertEqual(third, first)
+        self.assert_persistent_marker_layout(stage, obj, third)
+
     def test_legacy_reorder_demonstrates_why_migration_is_explicit(self):
         self.params['persistent_ids'] = False
         obj = self.pair()
