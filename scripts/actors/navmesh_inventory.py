@@ -4,8 +4,8 @@ usage: python scripts/actors/navmesh_inventory.py --fo4-stats <json> --sf-stats 
 
 Reads two JSON maps of cell_id -> {"triangles": N, "area": F, "vertices": N} (or similar) and reports
 cells that lost coverage (zero or significantly reduced triangles/area in SF) and why (missing, reduced, etc.).
-"vertices" is optional per record; vertex totals and retention are reported only when every validly
-measured cell on both sides carries a count, so both totals cover the same cells as the triangle totals.
+"vertices" is optional per record; vertex totals and retention are reported only when every cell on
+both sides is validly measured and carries a count, so both totals cover the same cells as the triangle totals.
 
 No game data; synthetic-fixture friendly. Deterministic.
 """
@@ -60,8 +60,8 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
     """Return inventory of losses. Keys are cell identifiers (str).
 
     Vertex totals and vertex_retention_percent are reported only when each side has at least one
-    validly measured cell and all of them carry "vertices"; otherwise the totals are 0 and the
-    percent is omitted.
+    cell, every cell on both sides is validly measured and all of them carry "vertices"; otherwise
+    the totals are 0 and the percent is omitted.
     """
     if not _ratio(area_tol) or not _ratio(tri_tol):
         raise ValueError("area_tol and tri_tol must be finite ratios in (0, 1]")
@@ -117,9 +117,10 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
     sf_measured = [m for c in sf if (m := _measure(sf[c]))]
     fo4_tris = sum(m[0] for m in fo4_measured)
     sf_tris = sum(m[0] for m in sf_measured)
-    # A partial vertex field would sum different cells on each side; require it on every measured cell.
+    # A partial vertex field, or a cell unreadable on one side only, would sum different cells on
+    # each side; require a count on every cell and no unknown cell.
     verts_comparable = (
-        bool(fo4_measured) and bool(sf_measured)
+        bool(fo4_measured) and bool(sf_measured) and not unknown
         and all(m[2] is not None for m in fo4_measured + sf_measured)
     )
     if verts_comparable:

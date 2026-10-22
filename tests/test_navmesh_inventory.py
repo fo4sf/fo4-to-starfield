@@ -248,3 +248,15 @@ class NavmeshInventoryTests(unittest.TestCase):
         self.assertEqual(report["total_sf_vertices"], 21)
         self.assertEqual(report["vertex_retention_percent"], 70.0)
         self.assertIn("verts 30 -> 21", report["summary"])
+
+    def test_cell_unreadable_on_one_side_blocks_comparison(self):
+        # An unknown cell would keep its vertices on the readable side only (50% or 200% here).
+        good = {"triangles": 10, "area": 5.0, "vertices": 20}
+        for bad in ({"triangles": 10, "area": 5.0, "vertices": -1}, {"triangles": "x", "area": 5.0}, None):
+            with self.subTest(bad=bad):
+                report = inv.inventory({"a": good, "b": good}, {"a": good, "b": bad})
+                self.assertEqual([u["cell"] for u in report["unknown"]], ["b"])
+                self._assert_no_vertex_retention(report)
+                report = inv.inventory({"a": good, "b": bad}, {"a": good, "b": good})
+                self.assertEqual([u["cell"] for u in report["unknown"]], ["b"])
+                self._assert_no_vertex_retention(report)
