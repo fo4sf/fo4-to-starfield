@@ -266,6 +266,15 @@ class ScriptContractTests(unittest.TestCase):
         for name, v in (("MinX", -half + dx), ("MaxX", half + dx), ("MinY", -half + dy), ("MaxY", half + dy)):
             self.assertIn(f"{name} = {v}", self.text)
 
+    def test_a_marker_at_the_old_height_is_moved_again(self):
+        # a save from before a lifted build holds the markers at the old z (Codex on #483): the reposition test
+        # reads the height too, with a tolerance below the default lift, so the first pass moves them once more
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertIn("ez * ez > ZTolerance * ZTolerance", place)
+        tol = float(re.search(r"float Property ZTolerance = ([0-9.]+) Auto Const", self.text).group(1))
+        self.assertLess(tol, Z_LIFT)
+        self.assertGreater(tol, 0.01)                                     # a landed move is within 0.01 m (22 Oct log)
+
     def test_moves_only_outdoors_capped_and_logged(self):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         self.assertLess(place.index("IsInInterior"), place.index("MoveTo"))
