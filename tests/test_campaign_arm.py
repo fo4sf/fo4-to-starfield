@@ -93,7 +93,7 @@ class Base(unittest.TestCase):
         os.makedirs(q)
         digest = tq.sha256(os.path.join(self.staging, "FO4Port.esm"))
         body = dict({"staging": self.staging, "plugin_sha256": digest, "build_id": digest[:8], "experiment": self.stage,
-                     "tests": [dict(t, id=f"{i:04d}_t") for i, t in enumerate(tests)]}, **extra)
+                     "plugin_index": "02", "tests": [dict(t, id=f"{i:04d}_t") for i, t in enumerate(tests)]}, **extra)
         routes = {os.path.basename(t["routes_file"]): tq.sha256(t["routes_file"]) for t in body["tests"]
                   if t.get("routes_file") and os.path.isfile(t["routes_file"])}   # plan pins the routes it read
         if routes:
@@ -1040,6 +1040,37 @@ class RunChainTests(Base):
             self.assertEqual(ca.main(["check", "--campaign", cp_]), 1)
         ck.assert_not_called()
         self.assertIn("run campaign_arm.py from the campaign checkout", buf.getvalue())
+
+    def test_a_queue_needs_a_full_plugins_load_index(self):
+        # Codex on #391: the runner prepends it to every planned FormID
+        for n, bad in enumerate((None, "", "2", "0x02", "FE", "ff", 2)):
+            with self.subTest(plugin_index=bad):
+                q = self.queue(f"pi{n}", [{"coc": "FO4Port_X"}], plugin_index=bad)
+                if bad is None:
+                    with open(os.path.join(q, "queue.json")) as f:
+                        body = json.load(f)
+                    del body["plugin_index"]
+                    with open(os.path.join(q, "queue.json"), "w") as f:
+                        json.dump(body, f)
+                _, why, _ = ca.check_queue({"name": "a", "queue": q}, self.camp([("a", q)]), ca.releases(None))
+                self.assertTrue(any("plugin_index" in w for w in why), why)
+        q = self.queue("pi05", [{"coc": "FO4Port_X"}], plugin_index="05")
+        _, why, _ = ca.check_queue({"name": "a", "queue": q}, self.camp([("a", q)]), ca.releases(None))
+        self.assertFalse(any("plugin_index" in w for w in why), why)
+
+    def test_the_gate_stops_on_a_form_missing_at_the_planned_index(self):
+        # Codex on #391: a wrong index plans FormIDs of another plugin; the game finding no form is the proof
+        q = self.queue("nb", [{"coc": "FO4Port_X"}])
+        with open(os.path.join(q, "state.json"), "w") as f:
+            json.dump({"status": "finished"}, f)
+        self.assertTrue(ca.gate(q, 0)[0])
+        with open(os.path.join(q, "results.jsonl"), "w") as f:
+            f.write(json.dumps({"id": "0000_t", "verdict": "PASS", "class": ""}) + "\n{torn\n")
+            f.write(json.dumps({"id": "0001_t", "verdict": "INCONCLUSIVE", "class": "NOBASE"}) + "\n")
+        ok, why = ca.gate(q, 0)
+        self.assertFalse(ok)
+        self.assertIn("0001_t", why)
+        self.assertIn("planned plugin index", why)
 
     def test_run_runs_again_on_the_campaigns_python(self):
         # Codex on #391: the arming checks import the judges; on another python they could refuse or pass otherwise

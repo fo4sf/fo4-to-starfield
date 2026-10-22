@@ -409,6 +409,10 @@ def check_queue(entry, camp, release):
     q = tq.load(os.path.join(qdir, "queue.json"))
     if not isinstance(q, dict) or not q.get("tests"):
         return None, [f"no planned queue at {qdir}"], notes
+    pi = q.get("plugin_index")
+    if not (isinstance(pi, str) and re.fullmatch(r"[0-9A-Fa-f]{2}", pi) and pi.upper() not in ("FE", "FF")):
+        # Codex on #391: the runner prepends it to every planned FormID; the gate stops on a NOBASE row when it is wrong
+        why.append(f"plugin_index {pi!r} is not a full plugin's load index (two hex digits, 00 to FD): plan it again")
     if not rooted(q.get("staging")):
         # Codex on #391: the check reads the staging where it runs, the runner in the checkout: one path, two folders
         why.append(f"pins the staging {q.get('staging')!r}, not a full path")
@@ -917,6 +921,23 @@ def chain(camp, path, release, digest=None):
     return "\r\n".join(lines) + "\r\n"
 
 
+def nobase_ids(qdir):
+    """The ids of results.jsonl rows that are INCONCLUSIVE NOBASE: the game had no form at the planned index."""
+    ids = []
+    try:
+        with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("class") == "NOBASE" and r.get("id") not in ids:
+                    ids.append(r.get("id"))
+    except OSError:
+        pass
+    return ids
+
+
 def gate(qdir, rc, judge_rc=None):
     """(ok, why) for one run: ok only for exit 0, a judge (when one ran) that exited 0, and a state.json that
     says finished with no crash and no dead start. A missing or unfinished state is no proof the queue ran.
@@ -936,6 +957,12 @@ def gate(qdir, rc, judge_rc=None):
         return False, f"the queue is {st.get('status')!r}, not finished"
     if st.get("crashes") or st.get("start_deaths"):
         return False, f"{st.get('crashes', 0)} crash(es), {st.get('start_deaths', 0)} dead start(s)"
+    nobase = nobase_ids(qdir)
+    if nobase:
+        # Codex on #391: the planned index is not bound to the launch's load order before the run (the implicit
+        # plugins and light flags are unresolved, preflight load_order); a placeatme that finds no form is the proof
+        return False, (f"{len(nobase)} test(s) found no form at the planned plugin index ({', '.join(nobase[:3])}): "
+                       "the queue was planned for another load index; plan it again with the runner's")
     return True, "ran clean: finished (the verdicts are in the judge's report)"
 
 
