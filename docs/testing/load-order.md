@@ -6,9 +6,13 @@ verified beyond what each line says.
 
 ## Who writes Plugins.txt
 
-- `scripts/deploy_starfield.py install` activates the port by appending its `*FO4Port.esm` line, and `uninstall`
-  removes exactly the lines it added (`plugins_added` in the manifest). The runner's `scripts/game/cycle.ps1:49-50`
-  runs uninstall then install before every cycle, so in runner sessions FO4Port lands after every other line.
+- `scripts/deploy_starfield.py install` activates the port and records in its manifest only the line it owns
+  (`plan_plugin_activation`): with no FO4Port line in the file it appends `*FO4Port.esm` and owns it; with an inactive
+  `FO4Port.esm` line it activates that line in place and restores it on uninstall; with an active `*FO4Port.esm`
+  already there it owns nothing and leaves the line where it is. `uninstall` removes exactly the owned lines. The
+  runner's `scripts/game/cycle.ps1:49-50` runs uninstall then install before every cycle, so FO4Port lands after
+  every other line only where the manifest owns the appended line (the usual runner case); a FO4Port line the owner
+  put in by hand keeps its position through the cycle.
 - `scripts/game/exp_install.py install` appends the experiment's plugins; `order` moves each experiment plugin right
   after its active masters before launch (module doc, `order_lines`). It refuses missing or disabled masters.
 - `scripts/game/map_markers_install.py order` moves `*FO4SFMapMarkers.esm` to the end; cycle.ps1 runs it before the

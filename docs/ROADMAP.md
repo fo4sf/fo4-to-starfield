@@ -67,7 +67,8 @@ safely). Stairs on v6e: 18 PASS, 0 FAIL, 2 NOCELL.
    the credits; Codsworth's greeting; getpos plus a zoomed-out surface map screenshot; the Fort Hagen elevator, the
    Vault 95 elevator, the Museum of Witchcraft and Fort Hagen hatches, the Vault 114 manhole, the Red Rocket side
    door; cans and books). Results go to playtest-issues.md.
-6. **One load order** (Launcher, with Bridge): the runner's deploy puts FO4Port last, the owner's install had it first,
+6. **One load order** (Launcher, with Bridge): the runner's deploy appends FO4Port last when it owns the line (a
+   hand-placed line keeps its position), the owner's install had it first,
    and the game rewrote the file after start; #481 reports the change, nothing enforces an order yet
    ([testing/load-order.md](testing/load-order.md)).
 
