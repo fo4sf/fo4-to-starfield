@@ -87,6 +87,8 @@ class SnapshotTests(unittest.TestCase):
         # the owner's play test, 2026-10-22: boxes behind full-screen Starfield waited unseen; one that times out says so
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "snap")
+            os.makedirs(out)
+            open(os.path.join(out, "description.txt"), "w").write("the previous capture's text")   # Codex on #463
             r = self.run_snapshot(out, "<timeout>")                   # stands in for the box closing at -AskTimeout
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))

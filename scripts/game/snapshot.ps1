@@ -36,6 +36,8 @@ $shot = Join-Path $Out 'screen.png'
 # never a stale picture: a reused folder's screen.png goes first, and the capture must exit 0 and leave a new file
 # (Codex's review of #175); without one, screen is null and the tool exits 3
 Remove-Item -LiteralPath $shot -Force -ErrorAction SilentlyContinue
+# nor a stale description: a reused folder's description.txt / describe_later.txt belong to the previous capture (Codex on #463)
+foreach ($n in 'description.txt', 'describe_later.txt') { Remove-Item -LiteralPath (Join-Path $Out $n) -Force -ErrorAction SilentlyContinue }
 $shotScript = $(if ($env:FO4SF_SHOT_SCRIPT) { $env:FO4SF_SHOT_SCRIPT } else { Join-Path $here 'shot.ps1' })   # the test's stub
 powershell -NoProfile -ExecutionPolicy Bypass -File $shotScript -Out $shot | Out-Null
 $shotCode = $LASTEXITCODE
