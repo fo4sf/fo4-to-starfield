@@ -615,6 +615,31 @@ class CrashWatchTests(unittest.TestCase):
                          [[os.path.join(self.game, "sfse_loader.exe")], [os.path.join(self.game, "Starfield.exe")]])
         self.assertEqual(popen.call_args_list[0].kwargs["cwd"], self.game)
 
+    def test_a_saved_folder_list_names_each_folder_once(self):
+        # PC, 2026-10-22: the fo4_data saved before #487 listed every depot twice, once under a lower-case Steam path
+        from unittest import mock
+        from fo4sf.launcher import paths
+        a, b = os.path.join(self.dir, "Steam", "d1", "Data"), os.path.join(self.dir, "Steam", "d2", "Data")
+        for d in (a, b):
+            os.makedirs(d)
+        path = os.path.join(self.dir, "saved.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"fo4_data": ";".join([a.lower(), b.lower(), a, b + os.sep])}, f)
+        with mock.patch("os.path.normcase", str.lower):                 # Windows' rule, on any test machine
+            v = settings.load(path)
+            self.assertEqual(v["fo4_data"], ";".join([a.lower(), b.lower()]))
+            self.assertEqual(paths.split_dirs(a + ";" + a.upper()), [a])
+
+    def test_a_saved_route_without_sfse_says_so(self):
+        # PC, 2026-10-22: the owner's saved route=exe outlived the new sfse default; the plan must say SFSE is skipped
+        open(os.path.join(self.game, "Starfield.exe"), "wb").close()
+        r = self.play(self.values(route="exe"), FakeSystem([(5, 0, 100, 0)]), dry_run=True)
+        line = next(p for p in r["plan"] if p.startswith("start:"))
+        self.assertIn("without SFSE", line)
+        self.assertIn("--set route=sfse", line)
+        r = self.play(self.values(), FakeSystem([(5, 0, 100, 0)]), dry_run=True)
+        self.assertEqual(next(p for p in r["plan"] if p.startswith("start:")), "start: sfse")
+
     def test_the_sfse_route_needs_the_listed_runtime(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])
         sys_.runtime = ["sfse_1_16_244.dll missing (the SFSE build listed for this runtime has it)"]

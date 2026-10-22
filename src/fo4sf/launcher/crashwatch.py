@@ -491,7 +491,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
             f"load order: {values['load_order']}",
-            f"start: {values['route']}",
+            f"start: {values['route']}" + (
+                f" (without SFSE, which is installed and required: --set route=sfse starts through {SFSE_LOADER})"
+                if values["route"] != "sfse" and os.path.isfile(os.path.join(starfield, SFSE_LOADER)) else ""),
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")

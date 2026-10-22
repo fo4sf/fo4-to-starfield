@@ -102,6 +102,19 @@ def save(path, values):
     files.save_json(path, {k: v for k, v in sorted(values.items()) if v != d[k]})
 
 
+def one_each(value):
+    """A ;-separated folder list with each folder once: Windows paths ignore case, and a list saved before #487 named
+    every Fallout 4 depot twice (once under a lower-case Steam path; PC, 2026-10-22)."""
+    seen, out = set(), []
+    for p in str(value or "").replace("\n", ";").split(";"):
+        p = p.strip()
+        k = os.path.normcase(os.path.normpath(p)) if p else ""
+        if p and k not in seen:
+            seen.add(k)
+            out.append(p)
+    return ";".join(out)
+
+
 def coerce(key, value):
     if key not in KEYS:
         raise ValueError(f"unknown setting {key!r}; known: {', '.join(KEYS)}")
@@ -128,7 +141,7 @@ def coerce(key, value):
             raise ValueError(f"{key}: must not be negative")
         return v
     if t is str:
-        return str(value)
+        return one_each(value) if key == "fo4_data" else str(value)
     s = str(value).strip().lower()
     if s not in t:
         raise ValueError(f"{key}: {value!r} is not one of {', '.join(t)}")
