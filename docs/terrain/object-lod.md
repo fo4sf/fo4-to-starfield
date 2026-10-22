@@ -80,7 +80,8 @@ So the spike needs no clicking if these work. Its plan:
    `Data`, and a name listing cannot tell a new file from one it overwrote (a file left by an interrupted run, or
    another loose-file mod's), so before the run copy every loose file under the output paths above
    (`LODSettings`, `Meshes\LOD\Generated`, `Materials\LOD\Generated`, `Textures\LOD\Generated`, `distantlod`)
-   to the staging folder and record a sha256 listing of all of `Data`'s loose files; after the run, move every
+   to the staging folder (and `Meshes\Terrain\<World>\Objects`, where the oracle run put its NIFs; see below) and
+   record a sha256 listing of all of `Data`'s loose files; after the run, move every
    new file to staging, restore every changed file from the copy, and check the listing matches again. Only then
    is `Data` as it was. This install reads no loose files, so nothing reaches the game meanwhile.
 2. The tiny custom-world gate from the plan above, with the same backup: the same command on a plugin of ours
@@ -122,7 +123,8 @@ conversion the Red Rocket crash forced (#460). That is a later phase; Grok is sc
 (`fo4-lod-mesh-scoping.md`).
 
 The cheap test left on the placeholder route: `-MockWorldSpaceLOD:FO4TerrainCore.esm FO4Core_Commonwealth` with
-the same backup protocol, output to `D:\Modding\staging\lod_mock_cw\out`. The command takes worldspace names
+the backup protocol of step 1 above, its copy set extended with `Meshes\Terrain\<World>\Objects` (the path the
+oracle run showed, which the program's strings did not name), output to `D:\Modding\staging\lod_mock_cw\out`. The command takes worldspace names
 only (no trailing plugin argument, unlike the stats command), so the ESM named is the one that holds the world. If
 it writes placeholders for our world and the game draws them, the map gets buildings without any LOD mesh;
 installing those loose files waits for the owner's line. A failure on the full core is inconclusive by itself
