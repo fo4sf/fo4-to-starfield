@@ -312,6 +312,30 @@ Add the other DLC `.esm` files to the first line when they are installed. What t
 (now with `markers_found` and `markers_missing`), `seedpack_report.json`, the one-line `seed-pack` summary and the
 `simulate` summary; the drafts and packs themselves stay on the PC.
 
+## Next after the current phase (owner, 2026-10-22)
+
+The owner set the order for after the current phase: "We will probably wait to use Starfield world generation for
+later use cause theirs a few pretty complex systems we need to get working like our own A life sims style System, p
+that allows going in between these areas without direct walking paths, and building the overall game system of our
+gamma". New items continue the design's numbering (CC-60 to CC-62 are in the framework file, PR #408). No code yet.
+
+- **CC-63. Our own A-Life style simulation.** The persistent world sim prototyped here (L2 `sim.py`, L3 `present.py`)
+  grows into the full system: factions, squads, caravans and settlements living off-screen and becoming real actors
+  near the player. Open: where its state lives in the save (probes P1 to P3, CC-02); the tick in game (P5); how far
+  out actors are real (the design's L2/L3 split); how many squads a cell can carry (P4).
+- **CC-64. Travel between areas without walking paths.** The converted worlds (L0) will be separate worldspaces or
+  interiors, not one continuous map, so the core needs a travel layer between them: the player moves area to area,
+  and the sim moves squads, caravans and news along the same links. Open: how the player travels (map, vertibird or
+  ship (CC-61), a scripted transition (NG-9), doors); how much time passes and what can happen on the way; how
+  off-screen movement between worldspaces is shown (P9 tests one caravan within one worldspace only).
+  Building note (owner): a large place may be better built as an interior than as an exterior; check how Starfield
+  and its mods build their big city spaces (the owner named Cydonia and the city people compare to Cyberpunk) before
+  choosing, place by place.
+- **CC-65. The overall GAMMA-style game system.** Tie the pillars (settlements, factions, connected wasteland,
+  survival, stories) into one way to play: start options, difficulty and mode presets (`modes.py`), progression and
+  what the player works toward. Open: what a run's goal is, and which systems are on by default.
+- **CC-62 deferred.** Starfield world generation stays later, after CC-63 to CC-65 work.
+
 ## Not implemented (and not claimed)
 
 No game runtime, no Papyrus or SFSE plugin outside the probe kit (docs/spikes/combined-core-probes.md, not run yet), no plugin records written (the adapter is a plan), nothing installed or
