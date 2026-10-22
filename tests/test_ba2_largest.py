@@ -101,14 +101,17 @@ class SizeEstimateTests(unittest.TestCase):
             a = Ba2(path)
             self.assertEqual(a.total_unpacked_estimate(), 200)
             est = a.size_estimates()
+            self.assertEqual(est["unpacked_bytes"], 200)
+            self.assertEqual(est["entries"], 2)
             self.assertEqual(est["total_unpacked"], 200)
             self.assertEqual(est["general_unpacked"], 200)
             self.assertEqual(est["texture_unpacked"], 0)
             self.assertEqual(est["entry_count"], 2)
             self.assertEqual(est["average_unpacked"], 100)
-            self.assertGreater(est["total_packed"], 0)
-            self.assertEqual(a.summary()["total_unpacked"], est["total_unpacked"])
-            self.assertEqual(a.summary()["total_packed"], est["total_packed"])
+            self.assertGreater(est["packed_bytes"], 0)
+            self.assertEqual(est["total_packed"], est["packed_bytes"])
+            self.assertEqual(a.summary()["total_unpacked"], est["unpacked_bytes"])
+            self.assertEqual(a.summary()["total_packed"], est["packed_bytes"])
 
 
 if __name__ == "__main__":

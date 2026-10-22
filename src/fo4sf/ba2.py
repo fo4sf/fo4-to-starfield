@@ -171,10 +171,14 @@ class Ba2:
         }
 
     def size_estimates(self) -> dict:
-        """Return rough size estimates useful for conversion planning.
+        """Rough estimates of packed (on-disk) and unpacked (decompressed) total sizes.
 
-        Keys: total_unpacked, total_packed, general_unpacked, texture_unpacked,
-        entry_count, average_unpacked.
+        Useful for conversion planning: packed is what you download/store, unpacked is peak RAM/temp during extract.
+        Counts only the payload sizes recorded in the index; does not read file data.
+
+        Keys from #348 (on main): packed_bytes, unpacked_bytes, entries.
+        Extra split keys: general_unpacked, texture_unpacked, average_unpacked,
+        plus aliases total_packed / total_unpacked / entry_count.
         """
         total_unpacked = 0
         total_packed = 0
@@ -191,6 +195,9 @@ class Ba2:
                 texture_unpacked += u
         n = len(self.entries)
         return {
+            "packed_bytes": total_packed,
+            "unpacked_bytes": total_unpacked,
+            "entries": n,
             "total_unpacked": total_unpacked,
             "total_packed": total_packed,
             "general_unpacked": general_unpacked,
@@ -205,7 +212,7 @@ class Ba2:
         For GNRL uses the unpacked field; for DX10 sums the unpacked chunk sizes
         (DDS header is not included in the estimate).
         """
-        return self.size_estimates()["total_unpacked"]
+        return self.size_estimates()["unpacked_bytes"]
 
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
