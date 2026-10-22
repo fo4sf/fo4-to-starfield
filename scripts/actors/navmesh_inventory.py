@@ -4,6 +4,8 @@ usage: python scripts/actors/navmesh_inventory.py --fo4-stats <json> --sf-stats 
 
 Reads two JSON maps of cell_id -> {"triangles": N, "area": F, "vertices": N} (or similar) and reports
 cells that lost coverage (zero or significantly reduced triangles/area in SF) and why (missing, reduced, etc.).
+"vertices" is optional per record; vertex totals and retention are reported only when every cell on
+both sides is validly measured and carries a count, so both totals cover the same cells as the triangle totals.
 
 No game data; synthetic-fixture friendly. Deterministic.
 """
@@ -48,11 +50,19 @@ def _measure(record):
     area = record["area"]
     if not _integral_count(triangles) or not _finite_nonneg(area):
         return None
-    return int(triangles), float(area)
+    verts = record.get("vertices")
+    if verts is not None and not _integral_count(verts):
+        return None
+    return int(triangles), float(area), (int(verts) if verts is not None else None)
 
 
 def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) -> dict:
-    """Return inventory of losses. Keys are cell identifiers (str)."""
+    """Return inventory of losses. Keys are cell identifiers (str).
+
+    Vertex totals and vertex_retention_percent are reported only when each side has at least one
+    cell, every cell on both sides is validly measured and all of them carry "vertices"; otherwise
+    the totals are 0 and the percent is omitted.
+    """
     if not _ratio(area_tol) or not _ratio(tri_tol):
         raise ValueError("area_tol and tri_tol must be finite ratios in (0, 1]")
     if not isinstance(fo4, dict) or not isinstance(sf, dict):
@@ -75,21 +85,21 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             unknown.append({"cell": cell, "reason": "invalid sf measurement"})
             continue
         if in_fo4 and not in_sf:
-            fo4_tri, _fo4_area = fo4_m
+            fo4_tri, _fo4_area, _fo4_verts = fo4_m
             if fo4_tri > 0:
                 lost.append({"cell": cell, "fo4_triangles": fo4_tri, "reason": "missing in SF"})
             else:
                 unchanged.append(cell)
             continue
         if in_sf and not in_fo4:
-            sf_tri, _sf_area = sf_m
+            sf_tri, _sf_area, _sf_verts = sf_m
             if sf_tri > 0:
                 gained.append({"cell": cell, "sf_triangles": sf_tri, "reason": "new in SF"})
             else:
                 unchanged.append(cell)
             continue
-        fo4_tri, fo4_area = fo4_m
-        sf_tri, sf_area = sf_m
+        fo4_tri, fo4_area, fo4_verts = fo4_m
+        sf_tri, sf_area, sf_verts = sf_m
         if fo4_tri > 0 and sf_tri == 0:
             lost.append({"cell": cell, "fo4_triangles": fo4_tri, "reason": "missing in SF"})
         elif fo4_tri > 0 and (sf_tri < fo4_tri * tri_tol or sf_area < fo4_area * area_tol):
@@ -103,8 +113,26 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             gained.append({"cell": cell, "sf_triangles": sf_tri, "reason": "new in SF"})
         else:
             unchanged.append(cell)
-    fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
-    sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
+    fo4_measured = [m for c in fo4 if (m := _measure(fo4[c]))]
+    sf_measured = [m for c in sf if (m := _measure(sf[c]))]
+    fo4_tris = sum(m[0] for m in fo4_measured)
+    sf_tris = sum(m[0] for m in sf_measured)
+    # A partial vertex field, or a cell unreadable on one side only, would sum different cells on
+    # each side; require a count on every cell and no unknown cell.
+    verts_comparable = (
+        bool(fo4_measured) and bool(sf_measured) and not unknown
+        and all(m[2] is not None for m in fo4_measured + sf_measured)
+    )
+    if verts_comparable:
+        fo4_verts = sum(m[2] for m in fo4_measured)
+        sf_verts = sum(m[2] for m in sf_measured)
+        vert_pct = round(100.0 * sf_verts / fo4_verts, 1) if fo4_verts else 100.0
+        vert_summary = f"; verts {fo4_verts} -> {sf_verts}"
+    else:
+        fo4_verts = 0
+        sf_verts = 0
+        vert_pct = None
+        vert_summary = ""
     lost_tris = sum(item["fo4_triangles"] for item in lost)
     # Area-flagged cells can have more SF triangles than FO4; a loss count must not go negative.
     reduced_tris = sum(
@@ -113,12 +141,14 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         if "fo4_triangles" in item
     )
     retention_pct = round(100.0 * sf_tris / fo4_tris, 1) if fo4_tris else 100.0
-    return {
+    report = {
         "total_fo4_cells": len(fo4),
         "total_sf_cells": len(sf),
         "total_fo4_triangles": fo4_tris,
         "total_sf_triangles": sf_tris,
         "triangle_retention_percent": retention_pct,
+        "total_fo4_vertices": fo4_verts,
+        "total_sf_vertices": sf_verts,
         "lost_triangles": lost_tris,
         "reduced_triangles_approx": reduced_tris,
         "lost_coverage": lost,
@@ -131,8 +161,12 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "summary": (
             f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced ({reduced_tris} tris approx), {len(gained)} gained, "
             f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris} ({retention_pct}% retained)"
+            + vert_summary
         ),
     }
+    if vert_pct is not None:
+        report["vertex_retention_percent"] = vert_pct
+    return report
 
 
 def _same_file(left: Path, right: Path) -> bool:
