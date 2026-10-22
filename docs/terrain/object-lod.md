@@ -37,10 +37,11 @@ CK is the **hypothesized** generator of object LOD (plan step 1 is the spike). T
 Read with `src/fo4sf/ba2.py` from the owner's `Starfield - LODMeshesPatch.ba2` (20,405 entries; `LODMeshes.ba2`
 has 20,400). Owner's ask: buildings on the 3D surface map, which needs this object LOD.
 
-- **`.lod` is three i32 values (verified bytes; their meaning is a supported hypothesis):** the minimum cell x, the
-  minimum cell y, and a size in cells, then 8 zero bytes. `lc172world` and `landingoverlay01` are `-2, -2, 8`;
-  `cydoniacity` is `-6, -6, 16`; `newatlantis` is `-35, -59, 136`. Ours would name the Commonwealth overlay's
-  own cell range.
+- **The common 20-byte `.lod` (861 of 864 files) is three i32 values (verified bytes; their meaning is a
+  supported hypothesis):** the minimum cell x, the minimum cell y, and a size in cells, then 8 zero bytes.
+  `lc172world` and `landingoverlay01` are `-2, -2, 8`; `cydoniacity` is `-6, -6, 16`; `newatlantis` is
+  `-35, -59, 136`. The one 16-byte and two 22-byte files were not read, so their layout is **unresolved**; a writer
+  of ours follows the 20-byte form only. Ours would name the Commonwealth overlay's own cell range.
 - **Two kinds of LOD mesh.** 12,627 are per object (`meshes/lod/generated/<mesh path>_lod_<0-3>.nif`, keyed by the
   full mesh's name, so they serve any world that places that mesh). 6,913 are per world, under
   `meshes/lod/generated/composite/<world>/` for 242 worlds (for example `packin` 844, `newatlantis` 662,
@@ -76,9 +77,17 @@ strings; their behaviour is **unresolved** until a run):
 So the spike needs no clicking if these work. Its plan:
 1. A vanilla oracle first: `CreationKit.exe -MockWorldSpaceLOD:Starfield.esm LC172World`, then compare its output
    with the shipped `lodsettings/lc172world.lod` and the LC172 meshes. The CK writes loose files into the game's
-   `Data`, so list `Data` before and after, move every new file into a staging folder, and leave `Data` as it was.
-   This install reads no loose files, so nothing reaches the game meanwhile.
-2. Then the same command on our core (`FO4TerrainCore.esm`, world `FO4Core_Commonwealth`). It has 648k
-   references, so it is timed, run at Idle, and needs disk room.
-3. If it works, the generated files go into a ba2 beside the core, with their own installer, as for the map
+   `Data`, and a name listing cannot tell a new file from one it overwrote (a file left by an interrupted run, or
+   another loose-file mod's), so before the run copy every loose file under the output paths above
+   (`LODSettings`, `Meshes\LOD\Generated`, `Materials\LOD\Generated`, `Textures\LOD\Generated`, `distantlod`)
+   to the staging folder and record a sha256 listing of all of `Data`'s loose files; after the run, move every
+   new file to staging, restore every changed file from the copy, and check the listing matches again. Only then
+   is `Data` as it was. This install reads no loose files, so nothing reaches the game meanwhile.
+2. The tiny custom-world gate from the plan above, with the same backup: the same command on a plugin of ours
+   with one new worldspace of a few cells and a handful of large converted STATs (an experiment core cut to a few
+   cells, as the `make_exp2*` plugins are). A vanilla world proves nothing about a new plugin's world, and a
+   failure on the full core would not tell custom-world support from scale.
+3. Only on a pass there, the same command on our core (`FO4TerrainCore.esm`, world `FO4Core_Commonwealth`). It
+   has 648k references, so it is timed, run at Idle, and needs disk room.
+4. If it works, the generated files go into a ba2 beside the core, with their own installer, as for the map
    markers.
