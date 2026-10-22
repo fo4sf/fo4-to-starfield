@@ -8,7 +8,7 @@
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
            [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "workshops", "flora",
-           "benches", "lights", "doors">] [--navmesh <navmesh.json>]
+           "benches", "lights", "doors">] [--navmesh <navmesh.json>] [--fo4-map-markers <Fo4Land export-mapmarkers json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -2680,13 +2680,25 @@ def cmd_stage(a):
     # Commonwealth map markers (docs/terrain/map-markers.md): Red Rocket on the COC arrival, Sanctuary, Vault 111 and
     # Concord on the BTD ground at their FO4 marker; TerrainOverlays writes one MapMarker REFR + LCSR row for each
     terrain = Terrain(os.path.join(out, *ov["btd_file"].split("/")))
+    ground = lambda x, y: float(terrain.bilinear([x], [y])[0])  # noqa: E731
+    bounds = (ov["bounds_min_m"], ov["bounds_max_m"])
     try:
-        markers = map_markers.overlay_markers(ov["spawn"], (ov["bounds_min_m"], ov["bounds_max_m"]),
-                                              lambda x, y: float(terrain.bilinear([x], [y])[0]))
+        markers = map_markers.overlay_markers(ov["spawn"], bounds, ground)
+        if getattr(a, "fo4_map_markers", ""):
+            # every other named Commonwealth marker inside the overlay, after the four (their FormIDs stay)
+            rows, left = map_markers.load_fo4_markers(load(a.fo4_map_markers))
+            extra, outside = map_markers.extra_markers(rows, bounds, ground, fixed=markers)
+            markers += extra
+            if len({m["tag"] for m in markers}) != len(markers):
+                raise ValueError("map marker tags repeat")
+            save(os.path.join(out, "map_markers_left_out.json"), {"left_out": left + outside}, indent=1)
+            print(f"map markers: {len(extra)} from {a.fo4_map_markers}, {len(left) + len(outside)} left out "
+                  "(map_markers_left_out.json)")
     except ValueError as e:
         sys.exit(f"map markers: {e}")
     params["overlays"] = [dict(ov, map_markers=markers)]
-    print("map markers: " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers))
+    print(f"map markers ({len(markers)}): " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers[:4])
+          + (f", ... {len(markers) - 4} more" if len(markers) > 4 else ""))
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -3428,6 +3440,9 @@ def main():
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
+            s.add_argument("--fo4-map-markers", default="", help="a Fo4Land export-mapmarkers json (Commonwealth): "
+                           "every named marker inside the overlay becomes a map marker after the fixed four "
+                           "(docs/terrain/map-markers.md)")
             s.add_argument("--views", action="store_true",
                            help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:

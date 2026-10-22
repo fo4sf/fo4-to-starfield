@@ -66,6 +66,8 @@ def tangent_signs(positions, uvs, normals, tangents, triangles):
 
 
 def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfmesh.SfMesh:
+    if not math.isfinite(shape.scale) or shape.scale <= 0:
+        raise nifmod.NifError(f"shape scale must be a finite positive number, got {shape.scale}")
     pts = []
     r = shape.rotation
     for x, y, z in shape.positions:
@@ -74,6 +76,8 @@ def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfm
         py = shape.scale * (r[3] * x + r[4] * y + r[5] * z) + shape.translation[1]
         pz = shape.scale * (r[6] * x + r[7] * y + r[8] * z) + shape.translation[2]
         pts.append((px * unit_scale, py * unit_scale, pz * unit_scale))
+    if not pts or not all(math.isfinite(c) for p in pts for c in p):
+        raise nifmod.NifError("shape positions are empty or non-finite after transform")
     m = sfmesh.SfMesh(version=2)
     m.scale, m.positions = sfmesh.encode_positions(pts)
     m.triangles = [tuple(t) for t in shape.triangles]
@@ -429,7 +433,7 @@ def convert_door(fo4_nif: bytes, out_name: str, material_paths: list, unit_scale
         lo = [min(p[a] for p in moving_pts) for a in range(3)]
         hi = [max(p[a] for p in moving_pts) for a in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[a] + hi[a]) / 2 for a in range(3)),
-                                    tuple(max(0.02, (hi[a] - lo[a]) / 2) for a in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[a] - lo[a]) / 2) for a in range(3)))
         if leaf_physics_donor is not None:      # a static body pins its node: make it keyframed like vanilla door leaves
             blob = sfcollision.keyframed(blob, leaf_physics_donor)
     out = sfnif.build_door_nif(out_name.rsplit("/", 1)[-1].encode(), static_shapes, moving_shapes, template,
@@ -651,7 +655,7 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
         lo = [min(p[k] for p in pts) for k in range(3)]
         hi = [max(p[k] for p in pts) for k in range(3)]
         blob = sfcollision.box_blob(collision_template, tuple((lo[k] + hi[k]) / 2 for k in range(3)),
-                                    tuple(max(0.02, (hi[k] - lo[k]) / 2) for k in range(3)))
+                                    tuple(max(sfcollision.MIN_LEAF_HALF, (hi[k] - lo[k]) / 2) for k in range(3)))
         collision[bones[i]["node"]] = sfcollision.keyframed(blob, leaf_physics_donor)
     if not collision:
         raise nifmod.NifError("door has no moving geometry")

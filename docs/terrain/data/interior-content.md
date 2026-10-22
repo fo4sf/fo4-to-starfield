@@ -1,0 +1,13 @@
+# Interior content census (PC run, 21 Oct 2026)
+
+`scripts/terrain/interior_content.py` at fa8f256, read-only, on Fallout4.esm (depot folder) + DLCRobot.esm + DLCworkshop01.esm, cells from docs/terrain/data/interior-census.json. Full JSON (1,061,257 bytes) stays on the PC: D:\Modding\research\interior_content\interior-content.json.
+
+1225 cells, 568660 placed references, cells from docs\terrain\data\interior-census.json.
+
+**C1 Enable state:** initially disabled (0x800) 1803 refs; with an enable parent (XESP) 11818 (656 opposite state); disabled without a parent 1667. Cells with either: 182 of 1225. Parents outside their cell: 33 (0 not placed in the plugins read). Deepest chain 3; parent cycles 0; chains cut after 4 hops outside 0 (0 parents unresolved). Most: InstituteConcourse 2151, MassFusion01 1761, DunwichBorers01 1252, CambridgePD01 1052, MQ203KelloggsBrain 703, InstituteBioScience 597, DLC01Lair01 507, ArcjetSystems02 395, TheCastleAttackersHoldingCell 342, TheBigDig01 263.
+
+**C3 Loot:** placed containers 8154; leveled-item refs 0; distinct leaf records through the LVLIs 2166 (0 in no plugin read). Leaf types: ALCH 190, AMMO 21, ARMO 358, BOOK 283, CMPO 2, KEYM 16, MISC 1011, NOTE 156, WEAP 129. Direct container entries: ALCH 247, AMMO 3, ARMO 367, BOOK 285, KEYM 20, LVLI 23460, MISC 1022, NOTE 162, WEAP 132.
+
+**C7 Terminals:** 512 placed in 154 cells, 357 TERM bases, deepest menu 3, cycles 19. Placed depth 0: 393, 1: 95, 2: 20, 3: 4. Base depth 0: 252, 1: 92, 2: 12, 3: 1.
+
+**C9 Traps** (classification by editor id is a hypothesis): 1710 trap refs in 154 cells; gas 121, hazard 135, mine 44, oil 574, trap 584, tripwire 252. Top bases: TrapExplOilPool01 (ACTI) 574, TrapExplGas01 120, TrapGunBase (STAT) 67, TrapTripWire_Laser_Wall_Base (STAT) 66, TrapCanChimes01 64, TrapTripWire_Handmade 51, DN070_TrapTripWire_Laser_Wall 49, DLC01Lair_LaserTripwire 40, TrapElectricArcTarget (STAT) 36, TrapElectricalArc 34, RadiationHazardLight256 (HAZD) 33, TrapCymbalMonkey 33, TrapIEDCigarCarton 33, RadiationHazardStrong256 (HAZD) 32, TrapGunRifleGrip 30, TrapTripWire_Laser_Wall 26, TrapWeakPlank03 23, BottlecapMine (WEAP) 21, TrapTripWire_Laser 20, TrapDummyShotgun01 (MISC) 19, TrapGunPistolGrip 18, TrapTrigPlate01 18, TrapBreakableWalkwayTrigger 15, TrapGrenadeBouquetFrag1Short 15, TrapTrigTension 15, TrapWeakPlank01 15, TrapDummySMG01 (MISC) 13, RadiationHazardLight512 (HAZD) 11, TrapGrenadeBouquetFrag3Medium 11, TrapGrenadeBouquetFrag3Short 11. Most traps: DLC01Lair01 110, JamaicaPlain01 107, WarehouseTraps 100, WarehouseGunTraps 80, MahkraFishpacking01 51, BostonAirportRuins01 48, CorvegaAssemblyPlant01 48, DunwichBorers01 45, NHMFreightDepot01 34, LongneckLukowskis01 32.

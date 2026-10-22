@@ -7,6 +7,15 @@ comes after the current testing, and it is the brief Codex and Grok work from. S
 Two independent reviews of this document (17 Oct) are folded in; their corrections are the reason several claims
 below are narrower than the first draft.
 
+## Update, 20 October 2026
+
+On 19 October the owner set the combined core as the first priority from here on: a GAMMA-style second way to play
+around settlements that grow, factions that act and a connected wasteland, built on the Commonwealth first, because
+it has value without the open legal questions. The stories are still wanted, and the work in flight continues (the
+v6e test, the mission, the Vault 111 start and the approved phases in their order). The owner's decisions for each
+phase, and the critical path, are in docs/research/framework/dependencies.md on draft PR #408; they are not repeated
+here. The project is not offered for download or play for now.
+
 ## Update, 19 October 2026
 
 Phase A and the start of Phase B overlap: the B4 mission ("When Freedom Calls", cut down) has run to completion in
