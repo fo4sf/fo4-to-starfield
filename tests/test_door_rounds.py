@@ -116,9 +116,11 @@ class StageTests(unittest.TestCase):
         rounds, plan = stage(core, port, os.path.join(d, "out"), "--legs", "out", "--border-off")
         with open(os.path.join(core, "plan.json")) as f:
             spawn = json.load(f)[0]
-        self.assertEqual(len(plan), 2)                          # Red Rocket first (Codex on #444), then the OUT leg
-        self.assertEqual(plan[0], spawn)
-        self.assertEqual(plan[0]["coc"], dr.SPAWN_COC)
+        self.assertEqual(len(plan), 2)                          # a Red Rocket prelude (Codex on #444), then the OUT leg
+        self.assertEqual((plan[0]["coc"], plan[0]["spawn_local"], plan[0]["points"]),
+                         (dr.SPAWN_COC, spawn["spawn_local"], spawn["points"][:1]))   # arrival only, no sweep
+        self.assertEqual(plan[0]["beyond"], {"x": spawn["points"][0]["x"], "y": spawn["points"][0]["y"]})
+        self.assertNotIn("activate", plan[0])
         self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
         self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
                                                   'SetINI "bBorderRegionsEnabled:General" 0',
@@ -126,7 +128,11 @@ class StageTests(unittest.TestCase):
         self.assertEqual(plan[1]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
         self.assertEqual({k: v for k, v in plan[1].items() if k not in ("console_pre", "console_post")},
                          {k: v for k, v in both_plan[1].items() if k != "console_post"})
-        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=1)])   # the arrival is judged by nobody
+        origin = rounds["tests"][0].pop("origin")               # the prelude is judged by nobody; the OUT leg checks it
+        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=1)])
+        self.assertEqual(origin["tol_m"], dr.ORIGIN_TOL_M)
+        for got, want in zip(origin["pos"], vp.merged([spawn["points"][0]["x"], spawn["points"][0]["y"]], rounds["merge"])):
+            self.assertAlmostEqual(got, want, places=3)
         self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
         self.assertNotIn("console_pre", both_plan[0])
         with open(os.path.join(d, "out", "README.txt")) as f:   # a relaunch would land in Vault111Cryo, not Red Rocket
@@ -243,6 +249,17 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict(IN_OK[:2] + (pos(5.6, 17.0, -3.6, loaded="false"),), EXP_IN), ("INCONCLUSIVE", "UNSETTLED"))
         self.assertEqual(verdict(IN_OK, dict(EXP_IN, pos=[float("nan"), 17.291, -3.654])), ("INCONCLUSIVE", "BAD_PLAN"))
         self.assertEqual(dr.judge_test(log(*IN_OK), ACT, EXP_IN, tol=float("nan"))[1].split(":")[0], "BAD_PLAN")
+
+    def test_an_out_leg_alone_must_start_at_its_red_rocket_prelude(self):
+        # Codex on #444: a crash between the prelude and the OUT leg relaunches into Vault111Cryo
+        exp = dict(EXP_OUT, origin={"pos": [-2185.26, -1561.49], "tol_m": 100.0})
+        start = pos(-2180, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        self.assertEqual(verdict((pos(1, 2, 3), start) + OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))   # began inside
+        self.assertEqual(verdict((pos(-1000, -1555, 105, cell="-7", world=WORLD),) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # began elsewhere
+        self.assertEqual(verdict(OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))                        # no reading at all
+        self.assertEqual(verdict(OUT_OK, EXP_OUT)[0], "PASS")                                     # two-leg stages: no gate
 
     def test_contradictory_targets_are_inconclusive(self):
         other = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0xFF011009 - (1 << 32))),

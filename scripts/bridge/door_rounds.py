@@ -16,7 +16,9 @@ usage:
       door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door that fails a
       check is listed as skipped, with why, and never planned. Writes plan.json (two terrain tests per door),
       rounds.json (what each test must read) and README.txt. Refuses an existing --out. Nothing is linked or copied.
-      --legs out plans, per door, the core's Red Rocket arrival (unjudged) and then the OUT leg's coc into the interior
+      --legs out plans, per door, a Red Rocket arrival (unjudged; coc and the ground reference only) and then the OUT
+      leg's coc into the interior; the judge holds the OUT leg INCONCLUSIVE ORIGIN unless its attempt began in an
+      exterior within ORIGIN_TOL_M of that arrival (a crash between the two relaunches into Vault111Cryo)
       (the owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary
       Reached; with both legs the IN leg hops to the door first and the OUT jump is short). Plan it without --fresh:
       the launch cell is an interior (Vault111Cryo), so a relaunch would lose the Red Rocket arrival. --border-off adds console_pre
@@ -70,6 +72,7 @@ INTERIOR_DROP_M = 1.5            # the interior drop: just above the marker (the
 DOOR_BASES = ("DOOR", "ACTI")
 VMAD_TOL_M = 0.01               # a door's VMAD return position against its marker's merged position
 TOL_M = 3.0                      # judge_door_trip.py's 3 m
+ORIGIN_TOL_M = 100.0             # --legs out: the OUT attempt must start this close to its Red Rocket prelude's end
 
 
 def load(p):
@@ -228,6 +231,16 @@ def border_off(entry):
                 console_post=entry.get("console_post", []) + [f"GetINI {BORDER}"])
 
 
+def prelude(k, r, spawn_local, zref, drop_z):
+    """--legs out: the Red Rocket arrival alone (the core plan's first entry is a whole terrain sweep that ends far
+    away): coc, settle, the ground reference, no other point, no move after it. Judged by nobody; its OUT leg checks
+    it started there (judge_test's ORIGIN)."""
+    return {"coc": SPAWN_COC, "travel": "", "spawn_local": list(spawn_local), "settle_ms": SETTLE_MS,
+            "z_ref": "zref_ground", "teleport_console": True, "drop_z": round(drop_z, 4), "points": [dict(zref)],
+            "beyond": {"x": zref["x"], "y": zref["y"]},
+            "label": f"door round {k} OUT prelude ({r['cell_edid']}): arrive at Red Rocket, then the OUT leg's coc"}
+
+
 def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     """(forward entry, return entry, forward expectation, return expectation) for door k."""
     ex, it = r["exterior"], r["interior"]
@@ -302,7 +315,9 @@ def stage(a):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
         # --legs out: each OUT leg follows a fresh arrival at Red Rocket in the same session (the core plan's own first
         # entry, judged by nobody), so its coc leaves the engine's last exterior position there, as the owner's was
-        legs = [(f, ef), (b, eb)] if a.legs == "both" else [(dict(first), None), (b, eb)]
+        origin = {"pos": [round(v, 4) for v in vmad_patch.merged([zref["x"], zref["y"]], merge[:2])], "tol_m": ORIGIN_TOL_M}
+        legs = ([(f, ef), (b, eb)] if a.legs == "both" else
+                [(prelude(k, r, spawn_local, zref, float(first.get("drop_z", 175.0))), None), (b, dict(eb, origin=origin))])
         for entry, exp in legs:
             if exp is None:
                 plan.append(entry)
@@ -439,6 +454,16 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
     at = next((i for i, e in enumerate(events) if e.get("kind") == "ack" and e.get("tag") == exp["ack"]), None)
     if at is None:
         return "INCONCLUSIVE", f"NO_ACK: no 'FO4SF ack {exp['ack']}' (console or bridge failed)", None
+    origin = exp.get("origin")
+    if origin is not None:                                # --legs out: began where its prelude left the player?
+        first = next((e for e in events[:at] if e.get("kind") == "pos" and e.get("pos") is not None
+                      and e.get("loaded") is True and finite(e["pos"])), None)
+        if first is None or not first.get("world") or not finite(origin.get("pos"), 2) or \
+                math.dist(first["pos"][:2], origin["pos"][:2]) > float(origin.get("tol_m", ORIGIN_TOL_M)):
+            where = "no loaded position before the ack" if first is None else \
+                f"cell {first.get('cell')} world {first.get('world')} at {first['pos'][:2]}"
+            return "INCONCLUSIVE", (f"ORIGIN: the attempt did not start at its Red Rocket prelude ({where}; want an "
+                                    f"exterior within {origin.get('tol_m')} m of {origin.get('pos')})"), None
     after = events[at + 1:]
     want = exp["resolve"]
     hits = [e for e in after if e.get("kind") == "resolve" and e.get("id") == want["id"]
