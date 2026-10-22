@@ -96,9 +96,9 @@ def core_params(core):
 
 
 def core_params_view(prm):
-    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
+    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, world_data, each overlay's
     map_markers (check compares the rest with core64's)."""
-    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh")}
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh", "world_data")}
     if "overlays" in out:
         out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
     return out
@@ -516,6 +516,12 @@ class CoreWorld(x2c.World):
 # ---------------------------------------------------------------------------------------------------------------- plan
 NEAR_M = 510.0              # core64 probes this close to the arrival (exact in the core64 run, 2026-10-11)
 AREA_M = 560.0              # local collision world: arrival +- this (every point and every teleport position)
+# --world-border: the WRLD fields TerrainOverlays changes on LC172World's copy (params "world_data", docs/terrain/border.md).
+# "city" is NewAtlantis's values (SmallWorld cleared, HNAM 5). Whether they stop "BOUNDARY REACHED" is not yet proven:
+# the one city run that passed (2026-10-22) had the markers plugin's template WRLD as the last override; the repeat
+# test in border.md decides.
+WORLD_DATA = {"template": None, "city": {"small_world": False, "hnam": 5}}
+WORLD_SMALL_WORLD = 0x01                                  # WRLD DATA flag bit
 DROP_MARGIN = 40.0          # drop at least this far above the highest expected landing of the entry (as core64)
 TOP_CLEAR = 10.0            # and at least this far above every collision top within 1 m of a point
 REF_LABEL = x2c.REF_LABEL
@@ -2346,6 +2352,21 @@ def without_marker_chain(rec):
     return rec["sig"], rec["flags"], fields
 
 
+def with_world_data(rec, world_data, world):
+    """core64's record as stage --world-border changes it (params "world_data", TerrainOverlays): the overlay world's
+    WRLD with SmallWorld cleared from DATA and HNAM set; every other record as it is."""
+    if not world_data or rec["sig"] != "WRLD" or overlay_records.edid(rec) != world:
+        return rec
+    fields = []
+    for s, v in rec["fields"]:
+        if s == b"DATA" and world_data.get("small_world") is False:
+            v = bytes([v[0] & ~WORLD_SMALL_WORLD]) + bytes(v[1:])
+        elif s == b"HNAM" and "hnam" in world_data:
+            v = bytes([world_data["hnam"]])
+        fields.append((s, v))
+    return {**rec, "fields": fields}
+
+
 def map_marker_problems(recs, own_index, ov, ids):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
@@ -2665,6 +2686,12 @@ def cmd_stage(a):
     params["overlays"] = [dict(ov, map_markers=markers)]
     print(f"map markers ({len(markers)}): " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers[:4])
           + (f", ... {len(markers) - 4} more" if len(markers) > 4 else ""))
+    world_data = WORLD_DATA[getattr(a, "world_border", "template")]
+    if world_data:
+        params["world_data"] = world_data
+        print(f"world border: {a.world_border} {world_data}")
+    else:
+        params.pop("world_data", None)
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -2998,11 +3025,15 @@ def cmd_check(a):
     new = overlay_records.walk_plugin(os.path.join(out, prm["plugin"]))
     by = {r["fid"]: r for r in new["records"]}
     # core64's own map marker (if its writer made one) is not kept: core64c writes its markers after every object,
-    # and its Location's LCSR / LCID point at those (map_marker_problems)
+    # and its Location's LCSR / LCID point at those (map_marker_problems); with --world-border the world's WRLD must
+    # carry exactly the requested DATA / HNAM change (with_world_data)
     kept = [r for r in old["records"] if not is_map_marker_ref(r)]
-    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]]) == without_marker_chain(r))
+    wd = prm.get("world_data")
+    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]])
+               == without_marker_chain(with_world_data(r, wd, ov["world"])))
     need(same == len(kept), f"every core64 record unchanged ({same}/{len(kept)}; "
-                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced)")
+                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced"
+                            + (f"; {ov['world']} WRLD with world_data {wd}" if wd else "") + ")")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
     own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
@@ -3357,6 +3388,9 @@ def main():
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
+            s.add_argument("--world-border", choices=sorted(WORLD_DATA), default="template",
+                           help="the world's border fields: template = LC172World's (SmallWorld, HNAM 0), city = "
+                                "NewAtlantis's (no SmallWorld, HNAM 5; docs/terrain/border.md)")
             s.add_argument("--fo4-map-markers", default="", help="a Fo4Land export-mapmarkers json (Commonwealth): "
                            "every named marker inside the overlay becomes a map marker after the fixed four "
                            "(docs/terrain/map-markers.md)")
