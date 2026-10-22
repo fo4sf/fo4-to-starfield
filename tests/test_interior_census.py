@@ -1225,6 +1225,42 @@ class BuildFlowTests(unittest.TestCase):
         self.assertEqual(why["first"]["retyped"], ["DOOR:FO4Port_VaultDoor -> STAT:FO4Port_vaultdoor"])
 
 
+class CorePinTests(unittest.TestCase):
+    """finish pins the core vmad_patch wired the doors to (taken before the door step) and fails a batch whose core
+    changed after that."""
+
+    def run_finish(self, change):
+        with tempfile.TemporaryDirectory() as t:
+            base, core, out = (os.path.join(t, n) for n in ("base", "core", "out"))
+            for d in (base, core, out):
+                os.makedirs(d)
+            for n in (ib.PLUGIN, "formids.json"):
+                with open(os.path.join(base, n), "w") as f:
+                    f.write(n)
+            plan = os.path.join(t, "plan.json")
+            with open(plan, "w") as f:
+                f.write("{}")
+            core_plugin = os.path.join(core, ib.CORE_PLUGIN)
+            with open(core_plugin, "wb") as f:
+                f.write(b"TES4 wired")
+            a = argparse.Namespace(batch=1, plan=plan, base=base, core=core, out=out, work=t,
+                                   core_pin=ib.sha256(core_plugin))
+            if change:
+                with open(core_plugin, "wb") as f:
+                    f.write(b"TES4 rebuilt")
+            rc = ib.finish(a, {}, {}, {}, 0.0, None)
+            return rc, ib.load(os.path.join(out, ib.MARKER)), a.core_pin
+
+    def test_the_core_read_before_the_doors_is_pinned(self):
+        rc, result, pin = self.run_finish(change=False)
+        self.assertEqual((rc, result["pins"]["core_plugin"], result["error"]), (0, pin, None))
+
+    def test_a_core_changed_during_the_build_fails_the_batch(self):
+        rc, result, pin = self.run_finish(change=True)
+        self.assertEqual((rc, result["pins"]["core_plugin"]), (1, pin))
+        self.assertIn("changed while the batch was built", result["error"])
+
+
 class PackAndSourcesTests(unittest.TestCase):
     """The textures split over companion plugins (X3) and the game-file pins (X8), with Archive2 faked: a fake packer
     writes "BTDX" plus every packed file's bytes, so an archive's size is its part's loose size plus 4."""
