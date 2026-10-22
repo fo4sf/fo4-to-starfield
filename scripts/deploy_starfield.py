@@ -5,15 +5,24 @@ install  : packs <staging>/{meshes,geometries,materials} into "FO4Port - Main.ba
            in %LOCALAPPDATA%\\Starfield\\Plugins.txt. Starfield loads a plugin's "<name> - Main.ba2" automatically, so no
            ini change is needed. It refuses to overwrite existing files; everything it adds is recorded in
            Data/FO4Port.deploy.json.
-uninstall: removes exactly what the manifest lists, including the Plugins.txt line.
+install --batch: installs an interior batch's built port as it is (scripts/terrain/interior_batch.py build): every
+           file of <stage>/result.json's install set from <stage>/port (FO4Port.esm, its archives and each texture
+           companion FO4PortTexturesN.esm with "FO4PortTexturesN - Textures.ba2"), each checked against the sha256 the
+           build pinned, nothing packed. Plugins.txt gets FO4Port.esm and then the companions, in number order, right
+           after it. It refuses when the copies would leave less than --min-free-gb free on the game's drive, and
+           when Data's FO4TerrainCore.esm is not the core the batch's door returns were wired to (--other-core).
+uninstall: removes exactly what the manifest lists, including the Plugins.txt lines.
 
 usage: python deploy_starfield.py install|uninstall --staging <dir> --starfield <game dir> [--dry-run]
+       python deploy_starfield.py install --batch <interior batch stage> --starfield <game dir> [--min-free-gb 40] [--other-core]
+                                    [--dry-run]
 """
 import argparse
 import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +34,10 @@ TEX_ARCHIVE = "FO4Port - Textures.ba2"
 MANIFEST = "FO4Port.deploy.json"
 MAIN_DIRS = ("meshes", "geometries", "materials")
 DEPLOYED_FILES = frozenset((PLUGIN, ARCHIVE, TEX_ARCHIVE))
+# an interior batch's texture companions (interior_batch.py COMPANION_PLUGIN / COMPANION_ARCHIVE): N = 2, 3, ...
+COMPANION_RX = re.compile(r"^FO4PortTextures([2-9]|[1-9]\d+)(\.esm| - Textures\.ba2)$")
+BATCH_RESULT = "result.json"
+CORE_PLUGIN = "FO4TerrainCore.esm"   # the core whose exterior doors a batch's door returns were wired to (vmad_patch.py)
 _UNSET = object()
 
 
@@ -48,8 +61,34 @@ def plugin_name(line):
     return value[1:] if value.startswith("*") else value
 
 
-def plan_plugin_activation(lines):
-    """Return the activated list plus the exact plugin lines this install owns."""
+def deployable(rel):
+    """A file name this deployment may own in Data: the port's three, or a texture companion's plugin or archive."""
+    return rel in DEPLOYED_FILES or COMPANION_RX.match(rel) is not None
+
+
+def is_companion_plugin(name):
+    m = COMPANION_RX.match(name)
+    return m is not None and m.group(2) == ".esm"
+
+
+def plan_plugin_activation(lines, companions=()):
+    """Return the activated list plus the exact plugin lines this install owns. Companions (texture companion plugins,
+    in load order) are added as active lines right after FO4Port.esm's; a list that already names one is refused, since
+    that line is not this install's to own."""
+    updated, added, replaced = plan_port_activation(lines)
+    if not companions:
+        return updated, added, replaced
+    stale = [plugin_name(ln) for ln in updated if plugin_name(ln).casefold() in {c.casefold() for c in companions}]
+    if stale:
+        raise ValueError(f"Plugins.txt already lists {', '.join(stale)}; remove those lines (an earlier hand install?) "
+                         "and install again")
+    at = next(i for i, ln in enumerate(updated) if plugin_name(ln).casefold() == PLUGIN.casefold())
+    lines_added = [f"*{c}" for c in companions]
+    return updated[:at + 1] + lines_added + updated[at + 1:], added + lines_added, replaced
+
+
+def plan_port_activation(lines):
+    """FO4Port.esm's own line: already active, activated in place, or appended."""
     for line in lines:
         if line.strip().startswith("*") and plugin_name(line).casefold() == PLUGIN.casefold():
             return list(lines), [], []
@@ -120,9 +159,11 @@ def restore_plugins(state):
 def validate_plugin_cleanup(manifest):
     added = manifest.get("plugins_added", [])
     replaced = manifest.get("plugins_replaced", [])
-    if (not isinstance(added, list) or len(added) > 1 or
-            any(not isinstance(line, str) or line.casefold() != f"*{PLUGIN}".casefold()
-                for line in added)):
+    if (not isinstance(added, list) or
+            any(not isinstance(line, str) or not line.startswith("*") or
+                (line.casefold() != f"*{PLUGIN}".casefold() and not is_companion_plugin(line[1:]))
+                for line in added) or
+            len({line.casefold() for line in added}) != len(added)):
         sys.exit("unexpected plugin cleanup entry in manifest; refusing cleanup")
     if not isinstance(replaced, list) or len(replaced) > 1:
         sys.exit("unexpected plugin restoration entry in manifest; refusing cleanup")
@@ -216,6 +257,8 @@ def copy_new_artifact(src, dst, expected_sha256=None):
 
 
 def install(a):
+    if getattr(a, "batch", ""):
+        return install_batch(a)
     build_state = os.path.join(a.staging, "build-state.json")
     if os.path.exists(build_state):
         with open(build_state, encoding="utf-8") as f:
@@ -253,9 +296,14 @@ def install(a):
         expected_head = b"TES4" if index == 0 else b"BTDX"
         if os.path.getsize(b) < 16 or head != expected_head:
             sys.exit(f"build output looks invalid, nothing installed: {b}")
-    # 2) record intent first, then copy; any failure rolls back what was copied
-    identities = {os.path.basename(dst): artifact_identity(src) for src, dst in zip(built, targets)}
-    state = {"files": [], "published_files": [], "plugins_txt": pt, "plugins_added": pl_add,
+    publish(data, man_path, built, targets, {os.path.basename(dst): artifact_identity(src) for src, dst in zip(built, targets)})
+
+
+def publish(data, man_path, built, targets, identities, companions=()):
+    """Record intent first, then copy built[i] to targets[i]; any failure rolls back what was copied. identities:
+    {target name: artifact_identity} each copy must match. companions: plugins activated right after FO4Port.esm."""
+    pt = plugins_txt_path()
+    state = {"files": [], "published_files": [], "plugins_txt": pt, "plugins_added": [],
              "plugins_replaced": [], "complete": False, "artifacts": identities}
     plugins_existed = os.path.exists(pt)
     plugins_original = None
@@ -265,7 +313,10 @@ def install(a):
     # Archive builds can be long; merge activation into the current list,
     # not the preflight snapshot from before the build.
     pl = plugins_original.decode("utf-8-sig").splitlines() if plugins_original is not None else []
-    activated, pl_add, pl_replaced = plan_plugin_activation(pl)
+    try:
+        activated, pl_add, pl_replaced = plan_plugin_activation(pl, companions)
+    except ValueError as error:
+        sys.exit(f"nothing installed: {error}")
     state["plugins_added"] = pl_add
     state["plugins_replaced"] = pl_replaced
     state["plugins_original"] = base64.b64encode(plugins_original).decode("ascii") if plugins_existed else None
@@ -328,6 +379,100 @@ def install(a):
     print("installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir>")
 
 
+def read_head(path, n=4):
+    with open(path, "rb") as f:
+        return f.read(n)
+
+
+def batch_install_set(stage):
+    """[(source, target name, sha256)] in install order plus the companion plugins in load order, from an interior
+    batch's result.json (interior_batch.py finish). Exits when the batch failed, the set is malformed, a file is
+    missing or unpinned, or a file is not what its name says."""
+    path = os.path.join(stage, BATCH_RESULT)
+    try:
+        with open(path, encoding="utf-8") as f:
+            result = json.load(f)
+        files = result["install"]["files"]
+        order = result["install"]["plugins_txt"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        sys.exit(f"not an interior batch stage ({path}: {error})")
+    if result.get("pass") is not True:
+        sys.exit(f"batch {result.get('batch')} did not pass ({result.get('error')}); nothing installed")
+    if (not isinstance(files, list) or not all(isinstance(n, str) and deployable(n) for n in files)
+            or len(set(files)) != len(files) or PLUGIN not in files or ARCHIVE not in files):
+        sys.exit(f"{path}: install.files is not a port's set: {files!r}")
+    companions = [n for n in files if is_companion_plugin(n)]
+    archives = {n for n in files if COMPANION_RX.match(n) and not is_companion_plugin(n)}
+    if order != [PLUGIN] + companions or archives != {n[:-4] + " - Textures.ba2" for n in companions}:
+        sys.exit(f"{path}: install.plugins_txt {order!r} does not match the files' companions")
+    pins = dict(((result.get("steps") or {}).get("pack") or {}).get("sha256") or {})
+    pins[PLUGIN] = (result.get("pins") or {}).get("plugin")
+    port = os.path.join(stage, "port")
+    out = []
+    for name in files:
+        src = os.path.join(port, name)
+        if not os.path.isfile(src):
+            sys.exit(f"missing from the stage: {src}")
+        if not isinstance(pins.get(name), str):
+            sys.exit(f"{path}: no sha256 pinned for {name}")
+        want = b"TES4" if name.endswith(".esm") else b"BTDX"
+        if os.path.getsize(src) < 16 or read_head(src) != want:
+            sys.exit(f"not a {'plugin' if want == b'TES4' else 'BA2 archive'}: {src}")
+        out.append((src, name, pins[name].lower()))
+    return out, companions, result
+
+
+def core_check(result, data):
+    """None when the core the batch's doors were wired against (result.json "core", vmad_patch.py port --core) is the
+    one in Data, else why not: a return door made against another core build may name an arrival marker that core lacks."""
+    built = os.path.join(str(result.get("core") or ""), CORE_PLUGIN)
+    live = os.path.join(data, CORE_PLUGIN)
+    if not os.path.isfile(live):
+        return None                                            # no core installed: nothing to land on either way
+    if not os.path.isfile(built):
+        return f"the batch's core {built} is not there to compare with Data\\{CORE_PLUGIN}"
+    a, b = artifact_identity(built)["sha256"], artifact_identity(live)["sha256"]
+    return None if a == b else (f"the batch's doors were wired against {built} ({a[:8]}), Data\\{CORE_PLUGIN} is {b[:8]}: "
+                                "restage the batch against the installed core, or pass --other-core to install it anyway")
+
+
+def install_batch(a):
+    data = os.path.join(a.starfield, "Data")
+    man_path = os.path.join(data, MANIFEST)
+    if os.path.exists(man_path):
+        sys.exit("already installed (manifest exists); uninstall first")
+    items, companions, result = batch_install_set(a.batch)
+    problem = core_check(result, data)
+    if problem and not a.other_core:
+        sys.exit(f"nothing installed: {problem}")
+    if problem:
+        print(f"--other-core: {problem}")
+    targets = [os.path.join(data, name) for _, name, _ in items]
+    clash = [t for t in targets if os.path.exists(t)]
+    if clash:
+        sys.exit("refusing to overwrite existing files:\n  " + "\n  ".join(clash))
+    need = sum(os.path.getsize(src) for src, _, _ in items)
+    free = shutil.disk_usage(data).free
+    if free - need < a.min_free_gb * 1024 ** 3:
+        sys.exit(f"nothing installed: {need / 1024 ** 3:.1f} GB to copy would leave {(free - need) / 1024 ** 3:.1f} GB "
+                 f"free on the game's drive, under --min-free-gb {a.min_free_gb}")
+    try:
+        plan_plugin_activation(read_lines(plugins_txt_path()), companions)
+    except ValueError as error:
+        sys.exit(f"nothing installed: {error}")
+    print(f"install batch {a.batch}: {[name for _, name, _ in items]} -> {data} ({need / 1024 ** 3:.2f} GB)\n"
+          f"Plugins.txt ({plugins_txt_path()}): *{PLUGIN} then {['*' + c for c in companions]}")
+    if a.dry_run:
+        return
+    identities = {}
+    for src, name, want in items:
+        identities[name] = artifact_identity(src)
+        if identities[name]["sha256"] != want:
+            sys.exit(f"nothing installed: {src} is not the file the build pinned "
+                     f"(sha256 {identities[name]['sha256'][:12]}..., pinned {want[:12]}...)")
+    publish(data, man_path, [src for src, _, _ in items], targets, identities, companions)
+
+
 def uninstall(a):
     data = os.path.join(a.starfield, "Data")
     man_path = os.path.join(data, MANIFEST)
@@ -349,7 +494,7 @@ def uninstall(a):
     published = m.get("published_files", [])
     published = {item for item in published if isinstance(item, str)} if isinstance(published, list) else set()
     for rel in m["files"]:
-        if not isinstance(rel, str) or rel not in DEPLOYED_FILES:
+        if not isinstance(rel, str) or not deployable(rel):
             remaining.append(rel)
             errors.append(f"unexpected deployment path; preserved: {rel!r}")
             continue
@@ -418,7 +563,13 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["install", "uninstall"])
     ap.add_argument("--staging", default="")
+    ap.add_argument("--batch", default="", help="an interior batch stage: install its built port as it is")
+    ap.add_argument("--other-core", action="store_true",
+                    help="--batch: install even though the installed core is not the one the batch's doors were wired to")
+    ap.add_argument("--min-free-gb", type=float, default=40.0, help="--batch: free space the game's drive keeps")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    if args.batch and (args.staging or args.action != "install"):
+        ap.error("--batch is for install alone, without --staging")
     (install if args.action == "install" else uninstall)(args)

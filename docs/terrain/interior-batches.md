@@ -126,9 +126,14 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
     call unchanged (`Archive2 textures -root=<tree>`), then the tree is removed.
   - **Pins.** `steps.pack.bytes` and `steps.pack.sha256` cover every archive and every companion plugin.
   - **Install set.** result.json `install.files` lists every file of `port\` to install and `install.plugins_txt` the
-    Plugins.txt order: `FO4Port.esm`, then the companions in number order (README.txt repeats both). deploy_starfield.py
-    still copies only FO4Port.esm and its two archives; a batch with companions is installed by hand until the
-    installer learns the list (**open**).
+    Plugins.txt order: `FO4Port.esm`, then the companions in number order (README.txt repeats both).
+    `deploy_starfield.py install --batch <stage> --starfield <game>` installs that set as built (2026-10-22): each file
+    from `port\` checked against its pinned sha256 (`pins.plugin`, `steps.pack.sha256`), nothing repacked, the
+    companions activated right after FO4Port.esm, everything in `FO4Port.deploy.json` so `uninstall` takes it all back
+    out. It refuses a failed batch, a Plugins.txt that already names a companion, copies that would leave under
+    `--min-free-gb` (default 40) free, and a `Data\FO4TerrainCore.esm` that is not the batch's `core` (its door returns
+    were wired to that core's arrival markers; `--other-core` overrides). Swap: `uninstall` the installed port, then
+    `install --batch`; rollback: `uninstall`, then `install --staging <the old port staging>`.
 - **result.json**: per cell converted / checked / failed with the reason, PluginSpike's placed / lights / skipped, the
   failed models, the pins (commit, sha256 of the plan, the installed port's plugin and map, the new plugin), the
   `sources` (below), the install set, times, sizes and free space. A stage is deleted in two steps.
