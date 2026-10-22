@@ -1064,6 +1064,8 @@ class BuildFlowTests(unittest.TestCase):
             f.write(b"TES4 fallout 4")
         with open(os.path.join(t, "Fallout4 - Meshes.ba2"), "wb") as f:
             f.write(b"BTDX")
+        with open(os.path.join(t, "FO4TerrainCore.esm"), "wb") as f:     # --core's plugin, pinned for the installer
+            f.write(b"TES4 core")
 
         def build(n, out, prev=None, extra=(), pack=False):
             argv = ["build", "--plan", plan, "--batch", str(n), "--base", base, "--base-exports", base,
@@ -1092,6 +1094,7 @@ class BuildFlowTests(unittest.TestCase):
         # the base exports the batch rebuilt its base cells from are pinned; a --prev pinned to other ones is refused
         self.assertEqual(r1["pins"]["base_exports"], {c: ib.sha256(os.path.join(base, c + ".json")) for c in ib.base_cells(base)})
         self.assertTrue(r1["pins"]["base_exports"])
+        self.assertEqual(r1["pins"]["core_plugin"], ib.sha256(os.path.join(t, "FO4TerrainCore.esm")))
         first = os.path.join(base, ib.base_cells(base)[0] + ".json")
         with open(first, "rb") as f:
             kept = f.read()
@@ -1326,6 +1329,42 @@ class BuildFlowTests(unittest.TestCase):
         why = ib.removed_causes(old, new, ["STAT 01000800", "DOOR 01000801", "FURN 01000802"], recs)
         self.assertEqual(why["counts"], {"gone": 1, "renamed_case": 1, "retyped": 1})
         self.assertEqual(why["first"]["retyped"], ["DOOR:FO4Port_VaultDoor -> STAT:FO4Port_vaultdoor"])
+
+
+class CorePinTests(unittest.TestCase):
+    """finish pins the core vmad_patch wired the doors to (taken before the door step) and fails a batch whose core
+    changed after that."""
+
+    def run_finish(self, change):
+        with tempfile.TemporaryDirectory() as t:
+            base, core, out = (os.path.join(t, n) for n in ("base", "core", "out"))
+            for d in (base, core, out):
+                os.makedirs(d)
+            for n in (ib.PLUGIN, "formids.json"):
+                with open(os.path.join(base, n), "w") as f:
+                    f.write(n)
+            plan = os.path.join(t, "plan.json")
+            with open(plan, "w") as f:
+                f.write("{}")
+            core_plugin = os.path.join(core, ib.CORE_PLUGIN)
+            with open(core_plugin, "wb") as f:
+                f.write(b"TES4 wired")
+            a = argparse.Namespace(batch=1, plan=plan, base=base, core=core, out=out, work=t,
+                                   core_pin=ib.sha256(core_plugin))
+            if change:
+                with open(core_plugin, "wb") as f:
+                    f.write(b"TES4 rebuilt")
+            rc = ib.finish(a, {}, {}, {}, 0.0, None)
+            return rc, ib.load(os.path.join(out, ib.MARKER)), a.core_pin
+
+    def test_the_core_read_before_the_doors_is_pinned(self):
+        rc, result, pin = self.run_finish(change=False)
+        self.assertEqual((rc, result["pins"]["core_plugin"], result["error"]), (0, pin, None))
+
+    def test_a_core_changed_during_the_build_fails_the_batch(self):
+        rc, result, pin = self.run_finish(change=True)
+        self.assertEqual((rc, result["pins"]["core_plugin"]), (1, pin))
+        self.assertIn("changed while the batch was built", result["error"])
 
 
 class PackAndSourcesTests(unittest.TestCase):
