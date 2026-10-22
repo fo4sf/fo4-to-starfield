@@ -529,7 +529,11 @@ def main():
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
-        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
+        plan_items = items
+        if pending_retry is not None:   # plan over the whole stage so pose stats still count prior models' references
+            plan_items = [it for it in (prior_manifest or {}).get("items") or []
+                          if isinstance(it, dict) and it.get("source") and not it.get("pose")] + items
+        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in plan_items}
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
         pending_idents = retry_pending_idents(pending_retry) if pending_retry is not None else None
         for v in variants:

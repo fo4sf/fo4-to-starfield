@@ -213,9 +213,11 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertEqual(prior["items"][1]["pose"]["key"], "aaaa111111")
         self.assertEqual([f["nif"] for f in prior["failures"]], [b])
         prior_ids = [(it["form_index"], it["editor_id"], it.get("pose", {}).get("key")) for it in prior["items"]]
-        run_main(self.staging, self.collision, [a, b], convert_ok,
-                 extra=["--retry-failures", *extra], plan=plan)
+        retried = run_main(self.staging, self.collision, [a, b], convert_ok,
+                           extra=["--retry-failures", *extra], plan=plan)
+        self.assertEqual([c.args[0] for c in retried.call_args_list], [b, b])   # a and its pose are not redone
         man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(man["poses"]["posed_refs"], 2)   # a's posed reference still counts after the retry
         self.assertEqual(len(man["items"]), 4)
         self.assertEqual([it["source"] for it in man["items"]], [a, a, b, b])
         self.assertNotIn("pose", man["items"][0])
