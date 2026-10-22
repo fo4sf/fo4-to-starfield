@@ -396,12 +396,18 @@ def check_p1(c: Collection) -> Verdict:
     for n, d, s in evs:
         if d.get("event") == "pre_save" and isinstance(d.get("save"), str):
             pre[d["save"]], pre_line[d["save"]] = d, n
-    post_saves = {d["save"] for n, d, s in evs if d.get("event") == "post_save" and isinstance(d.get("save"), str)
-                  and d["save"] in pre_line and n > pre_line[d["save"]]}
-    # The log is appended across launches: a load only counts for a saved name when it follows that name's last
-    # pre_save, so an older attempt's read-back never stands in for this one's (Codex review of #431).
+    post_line = {}
+    for n, d, s in evs:
+        name = d.get("save")
+        if (d.get("event") == "post_save" and isinstance(name, str) and name in pre_line and n > pre_line[name]
+                and name not in post_line):
+            post_line[name] = n
+    post_saves = set(post_line)
+    # The log is appended across launches: a load only counts for a saved name when it follows that name's completed
+    # save (its last pre_save and the post_save after it), so neither an older attempt's read-back nor a read between
+    # PreSave and the save's completion stands in for this one's (Codex review of #431).
     loads = [d for n, d, s in evs if d.get("event") == "post_load"
-             and (d.get("save") not in pre_line or n > pre_line[d.get("save")])]
+             and (d.get("save") not in pre_line or n > post_line.get(d.get("save"), float("inf")))]
     if not loads:
         v.reasons.append("no post_load line: the plugin never saw a load (check the SFSE loader output)")
         return v
@@ -1140,6 +1146,16 @@ def check_p9(c: Collection) -> Verdict:
         return v
     if _local(dest[-1], "id") != LOCAL["p9_dest"]:  # the probe's own destination (Codex review of #431)
         v.reasons.append(f"p9 dest id {dest[-1].fields.get('id')} is not FOCC_P9_Dest (local {LOCAL['p9_dest']})")
+        return v
+    actor = starts[-1].form("actor")
+    if actor is None:
+        v.reasons.append("p9 start names no actor")
+        return v
+    others = [e for e in samples if e.form("actor") != actor]
+    if others:                                  # every sample is the started actor's (Codex review of #431)
+        v.cite(*others[:3])
+        v.reasons.append(f"{len(others)} p9 sample line(s) name another actor than the start's "
+                         f"{starts[-1].fields.get('actor')}")
         return v
     rows = []
     for e in samples:

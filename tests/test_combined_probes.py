@@ -193,6 +193,14 @@ class P1Tests(unittest.TestCase):
             self.assertEqual(v.verdict, FAIL, written)
             self.assertTrue(any("was not written" in r for r in v.reasons), v.reasons)
 
+    def test_a_load_before_the_save_completed_does_not_count(self):
+        # Codex review of #431: pre_save, post_load, post_save only proves an immediate read, not a restore
+        c = p1_collection(loads=False)
+        load = json.dumps({"event": "post_load", "save": "focc_p1_a", "found": True, "valid": True, "counter": 1})
+        i = next(k for k, l in enumerate(c.sfse_log) if '"post_save"' in l and "focc_p1_a" in l)
+        c.sfse_log.insert(i, load)
+        self.assertEqual(probes.check_p1(c).verdict, INCONCLUSIVE)
+
     def test_post_load_not_found_fails(self):
         c = p1_collection(loads=False, extra_sfse=[json.dumps({"event": "post_load", "save": "focc_p1_a",
                                                                 "found": False, "valid": False})])
@@ -846,6 +854,15 @@ class P9Tests(unittest.TestCase):
         done = [l for l in log if " p9 done " in l]
         rest = [l for l in log if " p9 done " not in l]
         self.assertEqual(probes.check_p9(col(log=rest[:3] + done + rest[3:])).verdict, INCONCLUSIVE)
+
+    def test_every_sample_is_the_started_actor(self):
+        # Codex review of #431: samples naming another actor never settle the walk
+        self.assertEqual(probes.check_p9(col(log=[l.replace("actor=-16711680", "actor=-16711679")
+                                                 if " p9 sample " in l else l for l in p9_log()])).verdict, INCONCLUSIVE)
+        log = p9_log()
+        k = next(i for i, l in enumerate(log) if " p9 sample " in l)
+        log[k + 5] = log[k + 5].replace("actor=-16711680", "actor=-16711679")
+        self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
 
     def test_another_destination_is_not_judged(self):
         # Codex review of #431: the logged destination must be FOCC_P9_Dest.
