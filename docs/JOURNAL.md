@@ -2022,14 +2022,18 @@ withdrawn (correction entry below): there is no wall on foot. The 8-ray border w
 walk has met the border. Owner's decision, 22 Oct: B, a fix for our world only.
 BorderProbe (#485, merged) ran on the owner's swap line of 18:13 UTC: none of the
 three variants ran (NOT RUN, the owner was active at the PC). The rerun with the
-idle wait (reported 20:21 UTC): city (SmallWorld cleared, HNAM 5) PASSED the Vault
-95 OUT leg with the border on, hnam5 (HNAM 5 only) FAILED, nosmall (SmallWorld
-cleared only) still running. Interiors started the per-world fix on the core with
-the passing field: the v6j core, v6i plus the border fix, no reconversion, with the
-markers, new game, questprobe_v2 and interiors b10 restaged on it and Bugs' cards
-K and L run on it. A PASS makes a variant a candidate; v6j is installed only after
-border.md's wider checks (a second long exit, a long map fast travel, a vanilla
-planet's border still showing).
+idle wait: city (SmallWorld cleared, HNAM 5) PASSED the Vault 95 OUT leg with the
+border on (0.00 m off in xy), hnam5 (HNAM 5 only) FAILED STAYED, nosmall (SmallWorld
+cleared only) PASSED (Install's report, 20:46 UTC). Not proven: the markers plugin
+loaded after the probe with a copy of the core's WRLD, so the live record may have
+been the control's, and a single pass against a single fail may be chance; the
+settling test (each variant's fields in the markers plugin, 3 runs each of control,
+city and nosmall on one save) is staged and waits on the owner's line. #495 lets
+the core build take the city fields; that core, v6j (v6i plus the border fix, no
+reconversion), is held until the settling test answers, then the markers, new game,
+questprobe_v2 and interiors b10 are restaged on it and Bugs' cards J, K and L run
+on it. v6j is installed only after border.md's wider checks (a second long exit, a
+long map fast travel, a vanilla planet's border still showing).
 
 Not recorded on v6 (the owner's hand checks): the mission (Missions tab, Preston
 friendly, 100 credits; on v6c, 19 Oct, only completion was verified, Preston
