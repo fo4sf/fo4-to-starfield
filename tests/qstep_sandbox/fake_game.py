@@ -19,7 +19,8 @@ last ref but never selects it), prid_fails (prid never selects),
 lose_selection (without a crosshair ref: every console open clears the selection), spawn_fails, accepts (the one walk
 command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}: after coc the player falls from
 arrival z + height at speed m/s until the arrival z), coc_same_cell_stays (a coc into the cell the player is in
-leaves the player where they stand: the v6e stairs retest's miss, a supported hypothesis), layout ("inline" | "column": labels first, then values; echo
+leaves the player where they stand), coc_from_outside ([x, y, z]: a coc from another cell lands there, one typed inside
+the cell on the arrival: stairs_watcher2's miss, a supported hypothesis), layout ("inline" | "column": labels first, then values; echo
 arguments drift into the value column, a lone "y" is lost).
 "typed" keeps every command the console received; "clock" is the game time, which runs only while the console is
 closed.
@@ -316,7 +317,8 @@ def run(s, cmd):
     elif low.startswith("coc "):
         if s.get("coc_same_cell_stays") and s.get("cell") == w[1]:
             return                                         # coc_same_cell_stays: a coc into the player's cell
-        s["cell"], s["player"] = w[1], list(s["arrival"])
+        outside = s.get("coc_from_outside") if s.get("cell") != w[1] else None
+        s["cell"], s["player"] = w[1], list(outside or s["arrival"])
         if s.get("fall"):
             s["falling"] = {"ground": s["arrival"][2], "top": s["arrival"][2] + s["fall"]["height"],
                             "speed": s["fall"]["speed"], "t": time.time()}

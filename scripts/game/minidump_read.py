@@ -1,18 +1,21 @@
 """Read the crash out of Windows minidumps, with no debugger (docs/spikes/red-rocket-crash-bisect.md).
 
-    python scripts/game/minidump_read.py <dump.dmp> [<dump.dmp> ...] [--scan 1024] [--json <out.json>]
+    python scripts/game/minidump_read.py <dump.dmp> [<dump.dmp> ...] [--scan 1024] [--strings 80] [--json <out.json>]
 
 For each dump: the exception (code, flags, the faulting address as module+offset, and for an access violation whether it
 read or wrote and at which address), the faulting thread's registers, the loaded module's file version, the process's
 and the system's memory when the dump was written (from the dump's own memory streams, when present), and a stack
 scan: the qwords from rsp upward that point into a loaded module, nearest first. A stack scan is not an unwound stack:
 stale return addresses and function pointers show up too, so read it as candidates. Two dumps with the same
-module+offset and the same top of scan are very likely the same crash. Standard library only; read-only, except --json,
+module+offset and the same top of scan are very likely the same crash. --strings N lists up to N text strings (ASCII
+and UTF-16) in the faulting thread's captured stack and in the memory its registers point at, file paths first: a
+loader's stack often holds the name of the file it is reading. Standard library only; read-only, except --json,
 which writes a new file.
 """
 import argparse
 import json
 import mmap
+import re
 import struct
 import sys
 
@@ -24,6 +27,9 @@ CODES = {0xC0000005: "ACCESS_VIOLATION", 0xC0000409: "STACK_BUFFER_OVERRUN", 0xC
          0xE06D7363: "C++ exception"}
 ACCESS = {0: "read", 1: "write", 8: "execute (DEP)"}
 # x64 CONTEXT: general registers from Rax at 0x78, eight bytes apart, then Rip at 0xF8
+ASCII = re.compile(rb"[\x20-\x7e]{6,}")
+UTF16 = re.compile(rb"(?:[\x20-\x7e]\x00){6,}")
+PATHLIKE = re.compile(r"[\\/]|\.(nif|mesh|mat|bgsm|bgem|dds|esm|esp|esl|ba2|hkx|rig|af|agx|psc|pex)\b", re.I)
 REGS = ("rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip")
 
@@ -148,6 +154,50 @@ class Dump:
                 part[k] = round(v, 2)
         return out
 
+    def thread_stack(self, thread_id):
+        """(start, size) of a thread's captured stack, from the thread list."""
+        if THREAD_LIST not in self.streams:
+            return None
+        at, _ = self.streams[THREAD_LIST]
+        n, = struct.unpack_from("<I", self.data, at)
+        for i in range(n):
+            o = at + 4 + 48 * i
+            tid, = struct.unpack_from("<I", self.data, o)
+            if tid == thread_id:
+                start, size = struct.unpack_from("<QI", self.data, o + 24)
+                return start, size
+        return None
+
+    def span(self, addr, length):
+        """The captured bytes from addr, up to length (shorter where the capture ends)."""
+        for start, size, off in self.ranges:
+            if start <= addr < start + size:
+                n = min(length, start + size - addr)
+                return bytes(self.data[off + addr - start:off + addr - start + n])
+        return b""
+
+    def strings(self, thread_id, regs, limit):
+        """[{where, text}] of text in the thread's stack and around what its registers point at; path-like text first."""
+        regions = []
+        stack = self.thread_stack(thread_id)
+        if stack:
+            regions.append(("stack", stack[0], self.span(stack[0], stack[1])))
+        for name, value in regs.items():
+            if name not in ("rsp", "rip"):
+                raw = self.span(value, 512)
+                if raw:
+                    regions.append((f"[{name}]", value, raw))
+        found, seen = [], set()
+        for label, base, raw in regions:
+            for rx, codec in ((ASCII, "ascii"), (UTF16, "utf-16-le")):
+                for m in rx.finditer(raw):
+                    text = m.group().decode(codec)
+                    if (label, text) not in seen:
+                        seen.add((label, text))
+                        found.append({"where": f"{label}+0x{m.start():x}", "addr": f"0x{base + m.start():x}", "text": text})
+        found.sort(key=lambda e: not PATHLIKE.search(e["text"]))
+        return found[:limit]
+
     def stack_scan(self, rsp, count):
         """[(slot offset from rsp, value, module+offset)] for qwords on the stack that point into a module."""
         out = []
@@ -162,20 +212,21 @@ class Dump:
         return out
 
 
-def summary(path, scan):
+def summary(path, scan, strings=0):
     # memory-mapped, not read: a full (-ma) dump can be many GB, and only a few small structures are touched
     with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-        return _summary(path, Dump(data), scan)
+        return _summary(path, Dump(data), scan, strings)
 
 
-def _summary(path, d, scan):
+def _summary(path, d, scan, strings=0):
     exc, regs = d.exception()
     fault_module = next((m for m in d.modules if exc["at"] and exc["at"].startswith(m["name"] + "+")), None)
     stack = d.stack_scan(regs["rsp"], scan) if "rsp" in regs else []
     return {"dump": path, "exception": exc, "module_version": fault_module and fault_module["version"],
             "registers": {k: f"0x{v:x}" for k, v in regs.items()},
             "stack_scan": [{"rsp+": f"0x{o:x}", "value": f"0x{v:x}", "at": w} for o, v, w in stack],
-            "memory_gib": d.memory(), "modules": len(d.modules), "memory_ranges": len(d.ranges)}
+            "memory_gib": d.memory(), "modules": len(d.modules), "memory_ranges": len(d.ranges),
+            "strings": d.strings(exc["thread"], regs, strings) if strings else []}
 
 
 def main(argv=None):
@@ -183,12 +234,13 @@ def main(argv=None):
     ap.add_argument("dumps", nargs="+")
     ap.add_argument("--scan", type=int, default=1024, help="stack qwords to scan from rsp")
     ap.add_argument("--top", type=int, default=24, help="stack scan entries to print per dump")
+    ap.add_argument("--strings", type=int, default=0, help="text strings to list from the faulting thread's memory")
     ap.add_argument("--json", default="")
     a = ap.parse_args(argv)
     found = []
     for p in a.dumps:
         try:
-            s = summary(p, a.scan)
+            s = summary(p, a.scan, a.strings)
         except (OSError, ValueError, struct.error) as e:
             print(f"{p}: {e}")
             continue
@@ -206,6 +258,8 @@ def main(argv=None):
                 print(f"  {part} memory: not in the dump")
         for row in s["stack_scan"][:a.top]:
             print(f"  rsp+{row['rsp+']:<7} {row['value']}  {row['at']}")
+        for row in s["strings"]:
+            print(f"  text {row['where']:<14} {row['text'][:160]}")
         print(f"  {len(s['stack_scan'])} module pointer(s) in {a.scan} stack slots; {s['modules']} modules, "
               f"{s['memory_ranges']} memory ranges")
     if a.json:

@@ -242,11 +242,23 @@ class RunnerLeaseTests(unittest.TestCase):
 
     def test_cycle_ps1_launches_once_and_exits_10_when_the_game_does_not_stay_up(self):
         src = read(os.path.join(GAME, "cycle.ps1"))
-        self.assertEqual(src.count("Start-Process 'steam://rungameid/1716740'"), 1)
+        self.assertEqual(src.count("$launch = 'steam://rungameid/1716740'"), 1)
+        self.assertEqual(src.count("Start-Process $launch"), 1)
         self.assertNotIn("for ($try", src)                                     # retries are the runner's, after its checks
         self.assertIn("Get-Process -Id $q.Id", src)                            # alive 20 s later, not just seen once
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
+
+    def test_cycle_ps1_starts_starfield_exe_only_on_the_opt_in(self):
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        start = src.index("$launch = 'steam://rungameid/1716740'")
+        block = src[start:src.index("$q = $null", start)]
+        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'exe') {", block)             # opt-in only; steam:// otherwise
+        self.assertIn("$launch = Join-Path $sf 'Starfield.exe'", block)
+        self.assertLess(block.index("Test-Path -LiteralPath $launch"), block.index("Start-Process -FilePath $launch"))
+        self.assertIn("exit 10", block)                                       # a missing exe is a dead start
+        self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
+        self.assertIn("after $launch (screen: $Shot)", src)
 
     def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
         # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD
@@ -259,6 +271,8 @@ class RunnerLeaseTests(unittest.TestCase):
         cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
         escapes = 2 * (2 + 15 + 10)                                           # the Escapes after a missed save load
         self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + cell + 120)   # never cut a slow launch short
+        # with -CellJson the launch ends with coc.ps1 and its retries (Codex on #452): its whole budget fits too
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + tq.COC_TIMEOUT_S + 120)
 
     def test_cycle_ps1_sends_no_blind_e_after_the_save_loads(self):
         # v6e retry 4, 2026-10-21: the E after Continue opened Vasco's dialogue on the owner's save and hid the HUD

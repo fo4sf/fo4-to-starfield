@@ -250,6 +250,21 @@ project). The filter means it only catches that one exception, not crashes in ge
   a full disk) means there is no usable dump. Don't close the window before then; a half-written dump is useless.
 - **Stop watching** with **Ctrl+C** in ProcDump's window. That is ProcDump's graceful stop: it resumes the game if a
   capture is running. Don't kill ProcDump with Task Manager or `taskkill`, which can cut a dump off halfway.
+- **With the launcher** the watcher follows one game instead of running all day: turn it on with
+  `python scripts/launcher.py settings --set crash_watch.enabled=on --set crash_watch.folder="<dump folder>" --set
+  crash_watch.procdump="<path to procdump64.exe>"`, then start the game with
+  `python scripts/launcher.py play --starfield "<game folder>"` (or plain `play` once the game folder is saved with
+  `launcher.py paths --accept` or the window's Locations tab). It attaches once the game has stayed up 20 seconds,
+  writes small dumps by default (`--set crash_watch.dump=full` for full ones), and logs every exit code to
+  `crashwatch.log` in the dump folder, so a crash without a dump still leaves its code.
+  The launcher writes Plugins.txt only before the game starts (bridge=on or off; with bridge=unchanged it writes
+  nothing). On the owner's first launcher run (2026-10-22) Plugins.txt was rewritten about 25 s after the game
+  started, with FO4Port moved after FO4SFMission and every line still ticked. Nothing in the launcher runs then (it
+  only waits on the game and ProcDump), so the game itself reordered it (inferred, not traced). A moved plugin gets
+  another load-order index, so its form ids change between sessions (Codsworth 06000811 became 05000811). play
+  compares the order at the start and after the game exits and reports any change on screen and in `crashwatch.log`.
+  For a game started some other way (the test runner), `python scripts/launcher.py watch --repeat` attaches the same
+  watcher to each game it sees.
 - **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
   give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
   what they need from it.

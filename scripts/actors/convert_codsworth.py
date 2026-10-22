@@ -62,6 +62,14 @@ def main(argv=None):
     p.add_argument("--texconv", required=True)
     p.add_argument("--template", default=TEMPLATE)
     p.add_argument("--animate-arms", action="store_true")
+    # crash bisect switches (docs/spikes/red-rocket-crash-bisect.md)
+    p.add_argument("--one-material", action="store_true",
+                   help="every shape takes the first shape's material, so the model is one geometry set (the template's "
+                        "own), with no copied geometry, shader or skin blocks")
+    p.add_argument("--plain-shader", action=argparse.BooleanOptionalAction, default=True,
+                   help="shader properties as the static converter writes them (the .mat name only; the default, which "
+                        "walks clean in game). --no-plain-shader keeps the template's block with its name swapped, the "
+                        "build that crashed the game at Red Rocket")
     a = p.parse_args(argv)
     if os.path.exists(a.staging) and os.listdir(a.staging):
         raise SystemExit(f"{a.staging} is not empty: give a new staging folder (an earlier stage is never overwritten)")
@@ -90,8 +98,12 @@ def build(a, staging):
         mat = conv._shape_material(fo4, s)
         if mat:
             materials[s.name.decode("latin-1")] = mat
+    default = conv.neutral
+    if a.one_material and materials:                                        # shapes without one fall back to it too
+        default = materials[next(iter(materials))]
+        materials = {k: default for k in materials}
     res = actor_rebind.rebind(read_starfield(a.sf_data, a.template), raw, bone_map(a.animate_arms), materials=materials,
-                              default_material=conv.neutral)
+                              default_material=default, plain_shader=a.plain_shader)
     files = {f"meshes/{OUT_NAME}.nif": res.nif}
     files.update({f"geometries/{d}/{f}.mesh": data for (d, f), data in res.meshes.items()})
     for rel, data in files.items():
@@ -99,7 +111,9 @@ def build(a, staging):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as f:
             f.write(data)
-    report = {"source": SOURCE, "template": a.template, "animate_arms": a.animate_arms, "materials": materials,
+    report = {"source": SOURCE, "template": a.template, "animate_arms": a.animate_arms,
+              "one_material": a.one_material, "plain_shader": a.plain_shader,
+              "materials": materials,
               "files": sorted(files), **res.report}
     with open(os.path.join(staging, "codsworth_report.json"), "w") as f:
         json.dump(report, f, indent=1)
