@@ -274,6 +274,17 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIn("  procdump: Dump 1 initiated\n", text)
         self.assertNotIn("\x00", text)
         self.assertFalse(os.path.exists(out))
+        with open(out, "wb") as f:                                # the PC's mix: an 8-bit banner, then UTF-16LE
+            f.write(b"\r\nProcDump v11.0 - Sysinternals process dump utility\r\nCopyright (C) 2009-2022\r\n"
+                    + "[20:55:49]The process has exited.\r\n[20:55:49]Dump count not reached.\r\n".encode("utf-16-le"))
+        crashwatch.fold_output(out, log)
+        text = self.log()
+        self.assertIn("  procdump: Copyright (C) 2009-2022\n", text)
+        self.assertIn("  procdump: [20:55:49]Dump count not reached.\n", text)
+        with open(out, "wb") as f:
+            f.write(b"odd\n" + "Exception: 406D1388\n".encode("utf-16-le"))   # UTF-16 at an odd offset
+        crashwatch.fold_output(out, log)
+        self.assertIn("  procdump: Exception: 406D1388\n", self.log())
         with open(out, "wb") as f:
             f.write(b"plain line\n")
         crashwatch.fold_output(out, log)

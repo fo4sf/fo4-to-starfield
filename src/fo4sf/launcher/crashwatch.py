@@ -142,6 +142,25 @@ class System:
             return None
 
 
+def decode_mixed(data):
+    """ProcDump's redirected output mixes 8-bit text (its banner) with UTF-16LE (the rest), at any byte offset: read
+    each character as one byte, or as two when the second is a zero (seen on the PC, 2026-10-22)."""
+    out, i, n = [], 0, len(data)
+    if data.startswith(b"\xff\xfe"):
+        i = 2
+    while i < n:
+        b = data[i]
+        if i + 1 < n and data[i + 1] == 0 and b != 0:
+            out.append(chr(b))                    # a UTF-16LE unit; ProcDump's text is Latin-1 range
+            i += 2
+        elif b == 0:
+            i += 1
+        else:
+            out.append(bytes([b]).decode("cp1252", errors="replace"))
+            i += 1
+    return "".join(out)
+
+
 def fold_output(out_path, log_path):
     """Append a finished child's output file to crashwatch.log, decoded (ProcDump writes UTF-16 when its output is
     redirected), then remove the side file. Nothing happens when there is no file."""
@@ -150,11 +169,7 @@ def fold_output(out_path, log_path):
             data = f.read()
     except (OSError, TypeError):
         return
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in data[:200]:
-        text = data.decode("utf-16-le" if not data.startswith(b"\xfe\xff") else "utf-16", errors="replace")
-    else:
-        text = data.decode("utf-8", errors="replace")
-    text = text.lstrip("\ufeff")
+    text = decode_mixed(data)
     with open(log_path, "a", encoding="utf-8") as f:
         for line in text.splitlines():
             if line.strip():

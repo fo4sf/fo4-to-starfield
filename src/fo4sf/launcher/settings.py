@@ -26,9 +26,9 @@ SPEC = (
     ("crash_watch.catch_assertion", True, bool,
      "also dump on the engine's assertion stop (first-chance 0x80000003), the flags the old crashwatch.cmd used."),
     ("crash_watch.dump_on_exit", True, bool,
-     "also dump when the game ends without an exception (ProcDump -t), for silent exits; it writes one dump on every "
-     "exit, a normal quit included (a mini dump is small; with dump=full it is the whole game every time). On by "
-     "the owner's choice, 2026-10-21."),
+     "also dump when the game is terminated without an exception (ProcDump -t): a kill or a silent exit. A normal "
+     "quit writes none (ProcDump says \"Dump count not reached\", seen on the PC 2026-10-21); every kill does (a mini "
+     "dump is small; with dump=full it is the whole game). On by the owner's choice, 2026-10-21."),
     ("crash_watch.folder", "", str, "where dumps and crashwatch.log go (required when the watcher is on)."),
     ("crash_watch.procdump", "", str, "path to procdump64.exe (required when the watcher is on)."),
     ("crash_watch.min_free_gb", 25.0, float, "the watcher is not armed when the dump folder's drive has less free."),
