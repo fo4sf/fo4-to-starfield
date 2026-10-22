@@ -438,12 +438,9 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         argv = procdump_argv(values, pid)
         # ProcDump's own output goes to a side file first: it writes UTF-16 when redirected, which would leave
         # crashwatch.log spaced out; fold_output appends it decoded once ProcDump has ended
-        out_path = os.path.join(values["crash_watch.folder"], f"procdump_{pid}.out")
+        # one name per run: a report a timed-out ProcDump left behind on a reused process id stays as it is (Codex, #449)
+        out_path = os.path.join(values["crash_watch.folder"], f"procdump_{pid}_{int(system.now())}.out")
         before = dump_names(values["crash_watch.folder"])
-        try:                        # a report left by an earlier ProcDump on a reused process id is not this run's
-            os.remove(out_path)
-        except FileNotFoundError:
-            pass
         try:
             proc = system.spawn(argv, out_path)
         except OSError as e:
@@ -454,10 +451,15 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
             # arguments or could not attach (its own message is in crashwatch.log)
             system.sleep(ATTACH_CHECK_S)
             rc = proc.poll()
-            why = f"ProcDump exited at once (code {rc})" if rc is not None and pid in system.pids() else ""
-            armed = not why
+            why = ""
             if rc is not None:
                 pd_text = fold_output(out_path, log_path)
+                if pid in system.pids():
+                    why = f"ProcDump exited at once (code {rc})"
+                elif not (dumps_since(values["crash_watch.folder"], before) or re.search(r"Dump \d+ complete", pd_text)):
+                    # the game ended inside the check too: only a dump shows ProcDump had attached (Codex, #449)
+                    why = f"ProcDump ended with the game inside the attach check and wrote no dump (code {rc})"
+            armed = not why
         if armed:
             _log(log_path, f"armed: process {pid}: " + " ".join(argv[1:-2]))
             say(f"crash watcher armed on process {pid} ({values['crash_watch.dump']} dumps)")
@@ -548,5 +550,11 @@ def watch(values, system=None, say=print, pid=None, repeat=False, start_timeout_
         r = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=pid, seen=seen)
         results.append(r)
         seen += r.get("early", []) + ([r["pid"]] if r.get("started") else [])
+        if repeat and r.get("procdump_running"):    # never attach again while the last dump may still grow (Codex, #449)
+            why = f"ProcDump on process {r['pid']} is still running; not watching the next game"
+            _log(log_path, f"watch stopped: {why}")
+            say(f"crash watcher stopped: {why}")
+            results.append({"started": False, "stopped": why})
+            return results
         if not (repeat and r.get("started") and pid is None):
             return results

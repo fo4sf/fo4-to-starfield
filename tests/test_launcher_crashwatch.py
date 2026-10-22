@@ -344,6 +344,26 @@ class CrashWatchTests(unittest.TestCase):
         r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
         self.assertTrue(r[0]["dumps_unconfirmed"])
         self.assertNotIn("11:00:02", self.log())
+        # and that report is the only record the earlier dump finished: it is kept, not deleted
+        self.assertTrue(os.path.exists(os.path.join(self.dumps, "procdump_42.out")))
+
+    def test_procdump_that_quits_with_the_game_and_no_dump_is_not_called_armed(self):
+        # the game ended inside the attach check and ProcDump wrote nothing: there is no sign it ever attached
+        sys_ = FakeSystem([(44, 0, 20 + crashwatch.ATTACH_CHECK_S - 1, 0)])   # settle_s is 20
+        sys_.started_at = sys_.t
+        sys_.procdump_quits = 5
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append)
+        self.assertFalse(r[0]["armed"])
+        self.assertIn("NOT armed on process 44: ProcDump ended with the game inside the attach check", self.log())
+
+    def test_watch_repeat_stops_while_procdump_is_still_writing(self):
+        sys_ = FakeSystem([(45, 0, 100, 0xC0000005), (46, 200, 400, 0)])
+        sys_.started_at = sys_.t
+        sys_.procdump_hangs = True
+        r = crashwatch.watch(self.values(), system=sys_, say=self.said.append, repeat=True)
+        self.assertEqual(len(sys_.spawned), 1)
+        self.assertIn("still running; not watching the next game", r[-1]["stopped"])
+        self.assertIn("watch stopped: ProcDump on process 45 is still running", self.log())
 
     def test_a_report_read_at_the_attach_check_still_confirms_the_dump(self):
         # the game crashed inside the attach check: ProcDump wrote its dump and quit before the watcher looked
