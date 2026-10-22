@@ -2028,7 +2028,7 @@ cleared only) PASSED (Install's report, 20:46 UTC). Not proven: the markers plug
 loaded after the probe with a copy of the core's WRLD, so the live record may have
 been the control's, and a single pass against a single fail may be chance; the
 settling test (each variant's fields in the markers plugin, 3 runs each of control,
-city and nosmall on one save) is running since 20:53 UTC on the owner's line. #495 lets
+city and nosmall on one save) is staged and waits on the owner's line. #495 lets
 the core build take the city fields; that core, v6j (v6i plus the border fix, no
 reconversion), is held until the settling test answers, then the markers, new game,
 questprobe_v2 and interiors b10 are restaged on it and Bugs' cards J, K and L run
@@ -2057,3 +2057,12 @@ coc (run _f): STAYED with "Boundary reached" with the border on, 0.00 m off with
 off. The border is read as a limit on how far one teleport may move the player,
 not a fence at a position (supported hypothesis, border.md). The four places now
 say so, and no on-foot recheck is planned.
+
+## 2026-10-22: Correction: the border settling test is running, not waiting
+
+The phase 0 ledger entry above was written before 20:53 UTC and says the settling
+test (each variant's fields in the markers plugin, 3 runs each of control, city and
+nosmall on one save) is staged and waits on the owner's line. The owner gave the
+line in the Install thread at 20:53 UTC ("Go ahead and run the test"), so the test
+is running on the PC. The ROADMAP, README and playtest row 29 say so (#498); this
+entry records the change, and the entry above stands as written.
