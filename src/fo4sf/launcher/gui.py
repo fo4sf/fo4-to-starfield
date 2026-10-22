@@ -505,6 +505,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             try:
                 argv = model.command(action, self.raw(part), recipe=self.recipe.get(), overrides=overrides,
                                      starfield=self.location_value("starfield"),
+                                     fo4_data=paths.split_dirs(self.location_value("fo4_data")),
                                      pids=None if self.process_error else self.pids)
             except ValueError as e:
                 self.message.set(str(e))

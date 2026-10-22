@@ -365,6 +365,14 @@ def run(root):
     w.detect_locations()                        # Detect again
     pump(root, 1.0)
     out["after_redetect"] = w.location_value("starfield")
+    data = w.loc["fo4_data"]["entry"]          # the player browses to other Data folders, then checks the install
+    data.delete("1.0", "end")
+    data.insert("1.0", "Data A\nData B")
+    ran = []
+    gui.run_command = lambda argv, on_line, **_kw: ran.append(argv) or 0
+    w.start("detect")
+    pump(root, 0.5)
+    out["detect_argv"] = ran[0][4:] if ran else w.message.get()
     out["errors"] = errors
     print(json.dumps(out))
     root.destroy()
@@ -392,6 +400,10 @@ class GuiWindowTests(unittest.TestCase):
         self.assertEqual(out["errors"], [])
         self.assertTrue(out["after_detect"].endswith("MyGame"), out)
         self.assertTrue(out["after_redetect"].endswith("MyGame"), out)
+        # Check installation uses the folders on screen, not the saved ones (Codex, #481)
+        argv = out["detect_argv"]
+        self.assertEqual(argv[argv.index("--fo4-data"):], ["--fo4-data", "Data A", "--fo4-data", "Data B"], out)
+        self.assertTrue(argv[argv.index("--starfield") + 1].endswith("MyGame"), out)
 
 
 class GuiEntryTests(unittest.TestCase):
