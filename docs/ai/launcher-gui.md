@@ -1,6 +1,6 @@
 # Launcher window — Codex, issue #456
 
-This first window is a front end to the existing launcher, with Status, Settings and Command log tabs.
+This window is a front end to the existing launcher, with Locations, Status, Settings and Log tabs.
 It ships no assets and adds no build, install, game-start or crash-watcher implementation.
 
 ```text
@@ -8,7 +8,26 @@ python scripts/launcher.py gui --settings <settings.json>
 python scripts/launcher.py gui --settings <settings.json> --recipe <recipe.json> --fo4-data <Data> --starfield <game>
 ```
 
-The recipe and game folders can also be entered in the window. Repeated `--fo4-data` arguments become one folder
+## Locations (owner, 2026-10-22: "detect anything it needs file location wise and ask the user if it's right")
+
+The Locations tab lists every path the launcher needs (`paths.LOCATIONS`): the Starfield game folder, the Fallout 4
+Data folders, My Games\Starfield, procdump64.exe and the dump folder. On opening, `paths.detect()` looks for each one
+on a worker thread (Steam libraries and GOG through `locate`, the Documents folder, PATH and Program Files for
+ProcDump; the dump folder is a suggestion under %LOCALAPPDATA%\FO4SF). A saved value that still checks out shows as
+saved; a found value shows "found (...): is this right?" and is not saved until the player presses Confirm
+locations (the same `settings --set` save). `--starfield` and `--fo4-data` on the command line count as found. Values
+that fail `paths.check` (no Starfield.exe, no Fallout4.esm, not procdump64.exe) are refused with the reason. Play
+stays disabled until the locations it needs (`paths.needed`) are confirmed. The window opens on this tab when one of
+them is not.
+
+The same lists are in the command line: `launcher.py paths` prints each location and whether it is saved, found or
+missing, and `--accept` saves the found ones. `play` and `detect` take `--starfield` and `--fo4-data` from the saved
+locations when they are not given.
+
+The look is a dark terminal palette (GitHub-dark colours) with a monospace font (Cascadia Mono, Consolas, then
+others), status marks (✓ saved, ? confirm, ✗ problem) and an accent Play button.
+
+The recipe can also be entered in the window. Repeated `--fo4-data` arguments become one folder
 per line. `--set name=value` supplies recipe variables for Build status. Paths are passed as individual subprocess
 arguments, with no shell. Status and installation checks request no report file and run on a worker thread.
 The window shows their output, including refusals and nonzero exit codes.
