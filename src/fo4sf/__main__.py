@@ -1,6 +1,7 @@
 """Minimal CLI for fo4-to-starfield.
 
 python -m fo4sf status   # print config summary and optional manifest coverage (requires config.toml)
+python -m fo4sf version  # print package version
 """
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import __version__
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
@@ -43,6 +45,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_version(args: argparse.Namespace) -> int:
+    print(f"fo4sf {__version__}")
+    return 0
+
+
 def _print_manifest(manifest_path: Path) -> int:
     try:
         items = load_manifest(manifest_path)
@@ -70,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     p_status = sub.add_parser("status", help="show configuration summary and manifest coverage")
     p_status.add_argument("--manifest", help="explicit path to manifest.json")
     p_status.set_defaults(func=cmd_status)
+
+    p_version = sub.add_parser("version", help="print package version")
+    p_version.set_defaults(func=cmd_version)
 
     args = parser.parse_args(argv)
     return args.func(args)
