@@ -19,16 +19,18 @@ usage:
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
-  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json]
+  python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json] [--world-instance FF......=02......]
       PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
-      cell (in) or the world it resolves in (out), within TOL_M of the marker (its record position; out: + the
+      cell (in) or the world it resolves in, or a runtime world tied to it (out: --world-instance, or on its own when the
+      player's cell is one of the core's and the stage found one worldspace in the core), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -74,6 +76,16 @@ def save(p, obj):
         json.dump(obj, f, indent=1)
 
 
+def save_stage(out, plan, info, name="rounds.json"):
+    """A stage's plan.json, then its rounds.json (presence.py: presence.json) carrying plan_sha256, the sha256 of that
+    plan.json: one digest (queue.json rounds_sha256 or presence_sha256, the judge's rounds_sha256) then covers both
+    files, and plan-terrain refuses a plan.json edited after staging (Codex on #401 and #391)."""
+    save(os.path.join(out, "plan.json"), plan)
+    with open(os.path.join(out, "plan.json"), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    save(os.path.join(out, name), dict(info, plan_sha256=digest))
+
+
 # ------------------------------------------------------------------------------------------------------------ plugins
 def finite(v, n=3):
     """True for a list of n finite numbers."""
@@ -115,6 +127,10 @@ class Installed:
                 "base_full": base, "pos": out["pos"], "rot": out["rot"],
                 "cell": cell & 0xFFFFFF if cell is not None else None,
                 "vmad": next((d for s, d in fs if s == b"VMAD"), None)}
+
+    def worlds(self):
+        """The local ids (6 hex) of this plugin's own WRLD records, sorted."""
+        return sorted(f"{local:06X}" for local, r in self.recs.items() if r[0] == "WRLD")
 
     def edid(self, local):
         r = self.recs.get(local)
@@ -237,20 +253,19 @@ def pick(doors, only):
     return [d for d in doors if d["cell_edid"].casefold() in want or d["src"].casefold() in want]
 
 
-def stage(a):
-    core_dir, out = os.path.abspath(a.core), os.path.abspath(a.out)
-    if os.path.exists(out):
-        sys.exit(f"{out} exists: the stage writes a new folder only")
-    core_plugin, entries = vmad_patch.core_doors(core_dir)
-    if core_plugin.casefold() != CORE_PLUGIN.casefold():
-        sys.exit(f"{core_dir}: formids.json plugin is {core_plugin}, not {CORE_PLUGIN}")
+def collect(core_dir, core_plugin, port_dir):
+    """Every door of the core build checked against the installed plugins: (rounds, skipped, merge, core, port, first
+    plan entry). A skipped door names its interior cell's editor id when the port has its arrival marker (door_batch
+    reports coverage per cell from it). Exits when the build is not a core build with the Red Rocket arrival first."""
+    core_plugin_name, entries = vmad_patch.core_doors(core_dir)
+    if core_plugin_name.casefold() != CORE_PLUGIN.casefold():
+        sys.exit(f"{core_dir}: formids.json plugin is {core_plugin_name}, not {CORE_PLUGIN}")
     merge = vmad_patch.merge_offset(core_dir)
-    core = Installed(os.path.abspath(a.core_plugin or os.path.join(core_dir, CORE_PLUGIN)))
-    port = Installed(os.path.join(os.path.abspath(a.port), PORT_PLUGIN))
+    core = Installed(os.path.abspath(core_plugin or os.path.join(core_dir, CORE_PLUGIN)))
+    port = Installed(os.path.join(os.path.abspath(port_dir), PORT_PLUGIN))
     first = load(os.path.join(core_dir, "plan.json"))[0]
     if first.get("coc") != SPAWN_COC or first["points"][0]["label"] != "zref_ground":
         sys.exit(f"{core_dir}: plan.json's first entry is not the {SPAWN_COC} arrival with zref_ground first")
-    spawn_local, zref = first["spawn_local"], {k: first["points"][0][k] for k in ("label", "x", "y", "expect")}
     rounds, skipped = [], []
     for e in entries:
         if str(e["destination"].get("plugin", "")).casefold() != PORT_PLUGIN.casefold():
@@ -259,22 +274,52 @@ def stage(a):
         try:
             rounds.append(door_round(e, core, port, merge))
         except (ValueError, KeyError) as err:
-            skipped.append({"src": e["src"], "why": str(err)})
-    rounds = pick(rounds, a.only)[:a.limit or None]
-    if not rounds:
-        sys.exit("no door passed the checks: " + "; ".join(f"{s['src']}: {s['why']}" for s in skipped))
-    ci, pi = int(a.core_index, 16), int(a.port_index, 16)
+            skipped.append({"src": e["src"], "why": str(err), "cell_edid": marker_cell(port, e)})
+    return rounds, skipped, merge, core, port, first
+
+
+def marker_cell(port, e):
+    """The editor id of the port cell that holds a door entry's interior arrival marker. When the marker is missing,
+    the editor id of the entry's planned destination cell (Codex on #397), or None."""
+    dest = e.get("destination") or {}
+    try:
+        r = port.ref(int(dest["id"]))
+    except (KeyError, TypeError, ValueError):
+        r = None
+    if r and r.get("cell") is not None:
+        return port.edid(r["cell"])
+    try:
+        return port.edid(int(str(dest["cell"]), 16))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def plan_rounds(rounds, first, ci, pi):
+    """(plan, expectations): two tests per door, numbered in order."""
+    spawn_local, zref = first["spawn_local"], {k: first["points"][0][k] for k in ("label", "x", "y", "expect")}
     plan, expect = [], []
     for k, r in enumerate(rounds):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
         plan += [f, b]
         expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
+    return plan, expect
+
+
+def stage(a):
+    core_dir, out = os.path.abspath(a.core), os.path.abspath(a.out)
+    if os.path.exists(out):
+        sys.exit(f"{out} exists: the stage writes a new folder only")
+    rounds, skipped, merge, core, port, first = collect(core_dir, a.core_plugin, a.port)
+    rounds = pick(rounds, a.only)[:a.limit or None]
+    if not rounds:
+        sys.exit("no door passed the checks: " + "; ".join(f"{s['src']}: {s['why']}" for s in skipped))
+    ci, pi = int(a.core_index, 16), int(a.port_index, 16)
+    plan, expect = plan_rounds(rounds, first, ci, pi)
     os.makedirs(out)
-    save(os.path.join(out, "plan.json"), plan)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
-            "tests": expect}
-    save(os.path.join(out, "rounds.json"), info)
+            "tests": expect, "core_worlds": core.worlds()}
+    save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")
@@ -328,11 +373,58 @@ def latest_attempt(qdir, test_id):
     return os.path.join(d, tries[-1][1]) if tries else None
 
 
-def judge_test(events, obs, exp, tol=TOL_M):
+def world_pairs(specs):
+    """{runtime world: base world} from --world-instance RUNTIME=BASE (8 hex each): the operator's pin, for one
+    session, of the runtime instance the player stood in to the plugin WRLD the markers resolve in. A persistent
+    reference reports the base WRLD while the player stands in a created instance (index FF): docs/JOURNAL.md
+    2026-10-16 "Step 0 probes" (a) and (e). Nothing in an attempt's logs ties the two ids together, so the judge
+    never crosses them on its own (Codex on #383: an FF prefix does not say which WRLD it instantiates)."""
+    out = {}
+    for spec in specs or []:
+        m = re.fullmatch(r"([0-9A-Fa-f]{8})=([0-9A-Fa-f]{8})", spec.strip())
+        if not m:
+            raise ValueError(f"--world-instance {spec!r}: want RUNTIME=BASE, 8 hex digits each")
+        rt, base = m.group(1).upper(), m.group(2).upper()
+        if not rt.startswith("FF") or base.startswith("FF"):
+            raise ValueError(f"--world-instance {spec}: the first id must be a created (FF) world, the second a plugin's")
+        if out.get(rt, base) != base:
+            raise ValueError(f"--world-instance pins {rt} to both {out[rt]} and {base}")
+        out[rt] = base
+    return out
+
+
+def core_world(info):
+    """{"index", "world"}: the core's one worldspace at its load index, from the stage's core_worlds; None when the
+    stage recorded none (a stage from before the field) or more than one (a cell id would not say which)."""
+    worlds = info.get("core_worlds")
+    idx = str(info.get("core_index", ""))
+    if not isinstance(worlds, list) or len(worlds) != 1 or not re.fullmatch(r"[0-9A-F]{2}", idx) or \
+            not re.fullmatch(r"[0-9A-F]{6}", str(worlds[0])):
+        return None
+    return {"index": idx, "world": idx + worlds[0]}
+
+
+def cell_tie(last, target, core):
+    """Why the runtime world of `last` instantiates the marker's world, or None. Starfield reports a player in our
+    overlay's runtime instance (an FF world) inside the core's own CELL ids (docs/JOURNAL.md 2026-10-16 "Step 0
+    probes" (e): cell 0x02000DAF of the runtime world): a cell belongs to exactly one WRLD, so a core cell under the
+    player ties the instance to the core's worldspace when the core has only one, without the operator's pin and
+    without the position under test (Codex on #383 held that an FF prefix alone says nothing)."""
+    if not core or target.get("world") != core["world"] or not str(last.get("world") or "").startswith("FF"):
+        return None
+    cell = str(last.get("cell") or "")
+    if len(cell) != 8 or cell[:2] != core["index"]:
+        return None
+    return f"the player's cell {cell} is the core's, whose only worldspace is {core['world']}"
+
+
+def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
     """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
     proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
     resolved after it at the planned index, a loaded player position after it, in the marker's cell (in) or world (out)
-    and within tol. Missing or contradictory evidence is INCONCLUSIVE, never a PASS (Codex's review of #358)."""
+    and within tol. Out: a runtime world counts as the marker's when --world-instance pins the pair (instances) or the
+    player's cell ties it (cell_tie, with core = core_world(rounds)). Missing or contradictory evidence is INCONCLUSIVE,
+    never a PASS (Codex's review of #358)."""
     if not finite(exp.get("pos")) or not (isinstance(tol, (int, float)) and math.isfinite(tol) and tol > 0):
         return "INCONCLUSIVE", f"BAD_PLAN: expected position {exp.get('pos')} or tolerance {tol} is not finite", None
     act = (obs or {}).get("activate")
@@ -381,18 +473,35 @@ def judge_test(events, obs, exp, tol=TOL_M):
             return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
         if not last.get("world"):
             return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
+        tie = None
         if last["world"] != target["world"]:
-            return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
-                                    f"{target['world']} ({dxy:.1f} m off)"), last
+            pin = (instances or {}).get(last["world"])
+            if pin == target["world"]:
+                tie = "by --world-instance"
+            elif pin is None and cell_tie(last, target, core):
+                tie = f"because {cell_tie(last, target, core)}"   # the operator's pin, when given, decides
+            else:
+                return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']} (cell {last.get('cell')}), "
+                                        f"the marker resolves in {target['world']} ({dxy:.1f} m off)"
+                                        + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
         return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
-    return "PASS", f"{dxy:.2f} m off in xy, {dz:.2f} m in z", last
+    return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
+                    + (f" (world {last['world']} taken as {target['world']} {tie})" if not exp["cell"]
+                       and last.get("world") != target.get("world") else "")), last
 
 
 def judge(a):
+    try:
+        pairs = world_pairs(getattr(a, "world_instance", None))
+    except ValueError as e:
+        sys.exit(str(e))
     qdir = os.path.abspath(a.queue)
     q = load(os.path.join(qdir, "queue.json"))
-    info = load(a.rounds or os.path.join(q["experiment"], "rounds.json"))
+    rounds_p = a.rounds or os.path.join(q["experiment"], "rounds.json")
+    info = load(rounds_p)
+    with open(rounds_p, "rb") as f:                       # the file this judge read: regress checks it against the plan
+        rounds_sha = hashlib.sha256(f.read()).hexdigest()
     tests, rows = q["tests"], []
     for exp in info["tests"]:
         t = tests[exp["test"]] if exp["test"] < len(tests) else None
@@ -404,10 +513,13 @@ def judge(a):
             rows.append(dict(exp, id=t["id"], verdict="NOT_RUN", why="no attempt folder"))
             continue
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
-        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"])
+        verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
+                                       pairs or None, core_world(info))
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
-    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "results": rows})
+    save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
+                                                          "world_instances": pairs, "core_world": core_world(info),
+                                                          "results": rows})
     for r in rows:
         print(f"{r['test']:04d} {r['leg']:3s} {r['cell_edid']:32s} {r['verdict']:12s} {r['why']}")
     n = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN")}
@@ -433,6 +545,10 @@ def main(argv=None):
     j = sub.add_parser("judge")
     j.add_argument("--queue", required=True)
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")
+    j.add_argument("--world-instance", action="append", default=[], metavar="RUNTIME=BASE",
+                   help="pin a created world (FF...) to the plugin WRLD it instantiates, for this queue's session "
+                        "(repeatable; e.g. FF00552F=02000803); without it an OUT leg in another world passes only when "
+                        "the player's cell is the core's and the stage found one core worldspace, else INCONCLUSIVE")
     a = ap.parse_args(argv)
     {"order": cmd_order, "stage": stage, "judge": judge}[a.cmd](a)
     return 0

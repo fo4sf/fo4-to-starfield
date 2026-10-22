@@ -128,10 +128,13 @@ def _merge(shapes):
 def rebind(template_nif: bytes, fo4_nif: bytes, bone_for: Callable[[Optional[str]], str],
            materials: Optional[Dict[str, str]] = None, target: Optional[str] = None,
            unit_scale: float = convert_static.UNIT_SCALE, default_material: str = convert_static.PLACEHOLDER_MATERIAL,
-           skip_shapes=()) -> RebindResult:
+           skip_shapes=(), plain_shader: bool = True) -> RebindResult:
     """See the module docstring. bone_for(fo4 bone name or None) returns a bone name of the template's skin instance;
     materials maps FO4 shape names to .mat paths; target names the template BSGeometry to replace (default: the first
-    skinned one); other template geometries are detached so only the FO4 actor shows."""
+    skinned one); other template geometries are detached so only the FO4 actor shows. plain_shader (the default) writes
+    each shader property as the static converter does (the .mat name, no extra data, no controller); False keeps the
+    template's own block with its name swapped, which crashed the game when Codsworth's model loaded (Red Rocket crash
+    bisect: the plain blocks walk clean in game, 2026-10-22)."""
     materials = materials or {}
     t = nifmod.parse(template_nif)
     geoms = [i for i in range(len(t.blocks)) if t.type_of(i) == "BSGeometry"]
@@ -202,9 +205,12 @@ def rebind(template_nif: bytes, fo4_nif: bytes, bone_for: Callable[[Optional[str
         for e in g.extra_refs:                                               # MaterialID follows the new .mat
             if t.type_of(e) == "NiIntegerExtraData" and _name(t, e) == "MaterialID":
                 t.blocks[e] = t.blocks[e][:4] + struct.pack("<I", sfnif.material_id(mat))
-        shader = bytearray(t.blocks[si])
-        struct.pack_into("<i", shader, 0, t.string_index(mat.encode("latin-1")))
-        t.blocks[si] = bytes(shader)
+        if plain_shader:
+            t.blocks[si] = struct.pack("<iIi", t.string_index(mat.encode("latin-1")), 0, -1)
+        else:
+            shader = bytearray(t.blocks[si])
+            struct.pack_into("<i", shader, 0, t.string_index(mat.encode("latin-1")))
+            t.blocks[si] = bytes(shader)
         t.blocks[bi] = write_instance(root, di, bones, tail)
         t.blocks[di] = _bone_data_with_spheres(bone_data0, {s: v for s, v in spheres.items() if v})
         t.blocks[gi] = sfnif.build_bsgeometry(g)

@@ -5,7 +5,7 @@ import zlib
 
 def general_archive(entries, compressed=False, version=2):
     entries = list(entries.items()) if isinstance(entries, dict) else list(entries)
-    extra = {1: b"", 2: bytes(8), 3: bytes(12)}[version]
+    extra = {1: b"", 7: b"", 8: b"", 2: bytes(8), 3: bytes(12)}[version]
     offset = 24 + len(extra) + 36 * len(entries)
     records, payloads, names = [], [], []
     for name, data in entries:
