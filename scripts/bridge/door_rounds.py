@@ -279,12 +279,19 @@ def collect(core_dir, core_plugin, port_dir):
 
 
 def marker_cell(port, e):
-    """The editor id of the port cell that holds a door entry's interior arrival marker, or None."""
+    """The editor id of the port cell that holds a door entry's interior arrival marker. When the marker is missing,
+    the editor id of the entry's planned destination cell (Codex on #397), or None."""
+    dest = e.get("destination") or {}
     try:
-        r = port.ref(int(e["destination"]["id"]))
+        r = port.ref(int(dest["id"]))
+    except (KeyError, TypeError, ValueError):
+        r = None
+    if r and r.get("cell") is not None:
+        return port.edid(r["cell"])
+    try:
+        return port.edid(int(str(dest["cell"]), 16))
     except (KeyError, TypeError, ValueError):
         return None
-    return port.edid(r["cell"]) if r and r.get("cell") is not None else None
 
 
 def plan_rounds(rounds, first, ci, pi):
