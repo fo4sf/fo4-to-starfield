@@ -390,7 +390,8 @@ cgf "FOCC_Probe.P9Track" <actor id as signed decimal> 600
 (`hex2dec FFxxxxxx` gives the negative decimal `cgf` wants.) Follow with `tcl` if the actor gets far (AI processing
 distance may drop the path; the tracker's `loaded=` shows it). Quit after `p9 done`. Collect `focc.0.log` into
 `D:\Modding\testqueue\focc_P9_$date`; judge `probes p9`. Expect `p9 sample t=<s> actor=<id> pos=x y z cell=<id>
-loaded=<bool> dist=<m>` every 2 s with dist from >= 400 to < 10 within 600 s through >= 4 distinct cell ids. FAIL =
+loaded=<bool> dist=<m>` every 2 s with dist from >= 400 to < 10 within 600 s through >= 4 distinct cell ids, timed by each line's `rt=` from the start's (real seconds; late timers do not
+stretch the deadline). FAIL =
 stuck (dist within 2 m for 120 s while loaded) or never leaving the first cell. Send back: the log, the verdict, the dx
 dy used and the actor id.
 

@@ -829,7 +829,7 @@ class P8Tests(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- P9
 
 def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=None, jump_at=None, unload=False,
-           done=True):
+           done=True, slow=1.0):
     lines = [INIT, f"FOCC rt=1.0 p9 dest id={0x0300081B} pos=450.000000 0.000000 0.000000",
              f"FOCC rt=1.5 p9 start actor=-16711680 seconds={seconds} dist={start:.6f}"]
     x = 0.0
@@ -842,12 +842,12 @@ def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=
         dist = start - x
         cell = 50333000 + int(x // cells_every_m)
         loaded = "False" if unload else "True"
-        lines.append(f"FOCC rt={t + 2:.1f} p9 sample t={t:.6f} actor=-16711680 pos={x:.6f} 0.000000 0.000000 cell={cell} loaded={loaded} dist={dist:.6f}")
+        lines.append(f"FOCC rt={t * slow + 1.5:.1f} p9 sample t={t:.6f} actor=-16711680 pos={x:.6f} 0.000000 0.000000 cell={cell} loaded={loaded} dist={dist:.6f}")
         if dist < 10.0:
             break
         t += 2
     if done:
-        lines.append(f"FOCC rt={t + 3:.1f} p9 done t={t:.6f} dist={start - x:.6f}")
+        lines.append(f"FOCC rt={t * slow + 2.0:.1f} p9 done t={t:.6f} dist={start - x:.6f}")
     return lines
 
 
@@ -866,8 +866,15 @@ class P9Tests(unittest.TestCase):
 
     def test_sample_times_must_increase(self):
         # Codex review of #431: all-zero or backward times skip the speed check
-        log = [re.sub(r" t=[0-9.]+ ", " t=0.000000 ", l) if " p9 sample " in l else l for l in p9_log()]
+        log = [re.sub(r"rt=[0-9.]+ ", "rt=1.5 ", l) if " p9 sample " in l else l for l in p9_log()]
         self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
+
+    def test_the_deadline_is_real_time(self):
+        # Codex review of #431: late timers keep the nominal t under 600 s while the walk really took longer
+        v = probes.check_p9(col(log=p9_log(slow=3.0)))
+        self.assertNotEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual(probes.check_p9(col(log=[re.sub(r"^FOCC rt=[0-9.]+ ", "FOCC ", l) if " p9 sample " in l
+                                                  else l for l in p9_log()])).verdict, INCONCLUSIVE)
 
     def test_every_sample_is_the_started_actor(self):
         # Codex review of #431: samples naming another actor never settle the walk

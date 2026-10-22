@@ -1161,9 +1161,15 @@ def check_p9(c: Collection) -> Verdict:
         v.reasons.append(f"{len(others)} p9 sample line(s) name another actor than the start's "
                          f"{starts[-1].fields.get('actor')}")
         return v
+    if starts[-1].rt is None or any(e.rt is None for e in samples):
+        v.reasons.append("a p9 start or sample line carries no rt=: the walk's real time is unknown")
+        return v
     rows = []
     for e in samples:
-        t, d, p, cell, loaded = e.num("t"), e.num("dist"), pos(e), e.form("cell"), e.flag("loaded")
+        # real seconds since the start, not the script's nominal t: late timers must not shorten the walk
+        # (Codex review of #431)
+        t = e.rt - starts[-1].rt
+        d, p, cell, loaded = e.num("dist"), pos(e), e.form("cell"), e.flag("loaded")
         if None in (t, d, p):
             continue
         rows.append((t, d, p, cell, loaded, e))
@@ -1189,7 +1195,7 @@ def check_p9(c: Collection) -> Verdict:
         dt = t1 - t0
         if dt <= 0:                             # repeated or backward time cannot show a walk (Codex review of #431)
             v.cite(e0, e1)
-            v.reasons.append(f"p9 sample times are not strictly increasing ({t0} then {t1})")
+            v.reasons.append(f"p9 sample real times are not strictly increasing ({t0} then {t1} s after the start)")
             return v
         step = sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5
         if step / dt > P["p9_jump_m_per_s"]:

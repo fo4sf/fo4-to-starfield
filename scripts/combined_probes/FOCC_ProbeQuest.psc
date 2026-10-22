@@ -86,6 +86,7 @@ int p5Ticks = 0
 ; P9
 ObjectReference p9Actor = None
 float p9Elapsed = 0.0
+float p9StartRT = 0.0
 float p9Seconds = 0.0
 
 int TIMER_P4_PLACE = 4
@@ -445,12 +446,14 @@ Function P9Track(int actorId, float seconds)
     p9Actor = a
     p9Seconds = seconds
     p9Elapsed = 0.0
+    p9StartRT = Utility.GetCurrentRealTime()
     Trace("p9 start actor=" + a.GetFormID() + " seconds=" + seconds + " dist=" + a.GetDistance(P9Dest))
     P9Sample()
 EndFunction
 
 Function P9Sample()
     ObjectReference a = p9Actor
+    p9Elapsed = Utility.GetCurrentRealTime() - p9StartRT   ; real seconds: a late timer must not stretch the deadline
     float dist = a.GetDistance(P9Dest)
     Trace("p9 sample t=" + p9Elapsed + " actor=" + a.GetFormID() + " pos=" + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " cell=" + Id(a.GetParentCell()) + " loaded=" + a.Is3DLoaded() + " dist=" + dist)
     if dist < 10.0 || p9Elapsed >= p9Seconds
@@ -458,7 +461,6 @@ Function P9Sample()
         p9Actor = None
         return
     endif
-    p9Elapsed += P9_SAMPLE
     StartTimer(P9_SAMPLE, TIMER_P9)
 EndFunction
 

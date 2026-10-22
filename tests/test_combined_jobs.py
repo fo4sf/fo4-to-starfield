@@ -440,6 +440,29 @@ class OutcomeTests(unittest.TestCase):
             jobs.fail(ws, defend)
         self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
 
+    def test_a_failed_job_is_not_offered_or_failed_again(self):
+        # Codex review of #431: a rebuilt offer with a new offered hour is still the same job
+        ws = quiet(world())
+        attack(ws)
+        defend = by_kind(jobs.offers(ws, "farm_a"), "defend")[0]
+        jobs.fail(ws, defend)
+        self.assertEqual(by_kind(jobs.offers(ws, "farm_a"), "defend"), [])
+        again = jobs.Offer(**{**defend.to_dict(), "offered_hour": defend.offered_hour + 1})
+        self.assertIsNotNone(jobs.valid(ws, again))
+        with self.assertRaises(ValueError):
+            jobs.fail(ws, again)
+        self.assertEqual(ws.reputation["settlers"].infamy, jobs.FAIL_INFAMY["defend"])
+
+    def test_a_given_up_resupply_waits_out_its_window(self):
+        ws = quiet(world())
+        ws.settlements["farm_b"].stock["food"] = 1
+        o = by_kind(jobs.offers(ws, "market"), "resupply")[0]
+        jobs.fail(ws, o)
+        self.assertEqual(by_kind(jobs.offers(ws, "market"), "resupply"), [])
+        ws.hour = o.expires_hour
+        ws.settlements["farm_b"].stock["food"] = 1
+        self.assertEqual(len(by_kind(jobs.offers(ws, "market"), "resupply")), 1)
+
     def test_a_completed_offer_cannot_also_fail(self):
         ws = quiet(world())
         ws.settlements["farm_b"].stock["food"] = 1

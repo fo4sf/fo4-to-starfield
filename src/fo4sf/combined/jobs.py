@@ -211,16 +211,28 @@ def offers(ws: WorldState, place: str, limit: int = OFFER_LIMIT,
     found: list[Offer] = []
     for kind in KINDS:
         found.extend(_BUILDERS[kind](ws, giver, place, names))
+    found = [o for o in found if not _outcome(ws, o)]   # a handed-in or given-up job is not offered again
     found.sort(key=lambda o: (o.expires_hour, o.kind, o.id))
     return found[:limit]
 
 
 # --- outcomes ----------------------------------------------------------------------
 
+# Kinds whose id names one attack, caravan or loss, so an outcome retires the id for good. Resupply and clear ids
+# repeat: a done job settled its need, so a later offer is new work; a given-up one holds until its window ends.
+_ONE_TIME = ("defend", "escort", "retake")
+
+
 def _outcome(ws: WorldState, offer: Offer) -> bool:
-    """Whether this offer instance (id and offered hour) already has a job_done or job_failed event."""
-    return any(e["kind"] in ("job_done", "job_failed") and e.get("offer") == offer.id
-               and e.get("offered") == offer.offered_hour for e in ws.events)
+    """Whether this job already has a job_done or job_failed event: any earlier outcome for a one-time id, or for a
+    repeating id the same offer instance, or a give-up still inside its window (Codex review of #431)."""
+    for e in ws.events:
+        if e["kind"] not in ("job_done", "job_failed") or e.get("offer") != offer.id:
+            continue
+        if offer.kind in _ONE_TIME or e.get("offered") == offer.offered_hour or \
+                (e["kind"] == "job_failed" and ws.hour < e.get("until", -1)):
+            return True
+    return False
 
 
 def valid(ws: WorldState, offer: Offer) -> str | None:
@@ -298,7 +310,8 @@ def complete(ws: WorldState, offer: Offer) -> dict:
     fame = reputation.tier_points(offer.reward_tier)
     sim.player_helped(ws, offer.giver, fame)
     sim._event(ws, "job_done", offer.place, faction=offer.giver, job=offer.kind, target=offer.target, fame=fame,
-               offer=offer.id, offered=offer.offered_hour)
+               offer=offer.id, offered=offer.offered_hour,
+               until=offer.expires_hour)
     changed["fame"] = fame
     return changed
 
@@ -313,7 +326,8 @@ def fail(ws: WorldState, offer: Offer) -> int:
         reputation.add(ws, offer.giver, infamy=infamy)
     if offer.place in ws.places:
         sim._event(ws, "job_failed", offer.place, faction=offer.giver, job=offer.kind, target=offer.target,
-                   infamy=infamy, offer=offer.id, offered=offer.offered_hour)
+                   infamy=infamy, offer=offer.id, offered=offer.offered_hour,
+               until=offer.expires_hour)
     return infamy
 
 

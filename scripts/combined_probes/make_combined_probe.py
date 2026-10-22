@@ -22,7 +22,6 @@ The plugin names the core's location and world by FormID, so it is rebuilt with 
 plugin built against another core). Nothing of the game enters the repo: the stage is a NEW folder under the staging root.
 """
 import argparse
-import datetime
 import hashlib
 import json
 import os
@@ -174,12 +173,12 @@ def stage(a):
             "ids": {"quest": 0x804, "p2_loc": 0x806, "p3_no_parent": 0x807, "p3_chained": 0x808, "p10_quest": 0x820},
             "inputs": inputs, "outputs": outputs, "array129": array129,
             "sendstoryevent_compiles": True,                     # FOCC_Probe.psc (which calls it) compiled, or the stage stopped
-            "offline_check": "offline_check.txt", "staged": datetime.date.today().isoformat()}
+            "offline_check": "offline_check.txt"}   # no date: same inputs, same bytes (CONTRIBUTING.md)
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     scripts = ", ".join(f"Data\\Scripts\\{n}.pex" for n in PACKED)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write(f"""Combined core engine probes P2 to P10 (Claude-cloud, {datetime.date.today().isoformat()}). docs/spikes/combined-core-probes.md.
+        f.write(f"""Combined core engine probes P2 to P10 (Claude-cloud). docs/spikes/combined-core-probes.md.
 {PLUGIN} (build {plugin_sha[:8]}, variant {variant}{', skip ' + a.skip if a.skip else ''}): the records listed in dotnet/CombinedProbe/Program.cs,
   built against {os.path.abspath(a.core)} (its {a.location} and {a.world} by FormID: rebuild with every core build).
 {scripts}: compiled from the .psc files here. compile_p5_array129.txt: the array-cap compile (never packed).
