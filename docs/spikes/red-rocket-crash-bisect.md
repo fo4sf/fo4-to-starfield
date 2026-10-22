@@ -1,8 +1,8 @@
 # Red Rocket crash bisect (v6, 2026-10-19)
 
-Status: **in progress**. v6e, v6h and v6i all crash at Red Rocket with the same fault. Cleared so far: the movable
-props, every door rig near Red Rocket, the mission, memory, and (v6i) every 0.02 in the core's NIFs. Next: name the
-file the crashing loader reads (see "After v6i").
+Status: **cause found, fix in test**. The crash is Codsworth's converted model (meshes\fo4port\actors\codsworth\
+codsworth.nif): every crashing thread was loading it, and v6i without it walks Red Rocket and back with no crash. Next:
+find which part of the model the loader misreads (see "Codsworth's model").
 
 ## The crash
 - v6c crashes near Red Rocket and at the museum, seconds after the fight ends or the mission completes. All three dumps
@@ -169,5 +169,22 @@ v6h with one change: flat door leaves get a 0.05 half-extent, not 0.02 (this PR'
 - `scripts/game/value_scan.py` finds the value in any file: plugins record by record (type, form id, editor id, field),
   everything else as raw bytes. Run it over the plugins first (few hits expected), then over the `.mesh` files.
   Geometry is full of floats, so a `.mesh` hit only matters when the mesh is placed near both crash sites.
+
+## Codsworth's model (2026-10-22)
+- `minidump_read.py --strings` on the v6i dumps (and Card D's): the crashing thread holds
+  `meshes\fo4port\actors\codsworth\codsworth.nif` on its stack and at [rsi] and [r14]. **Verified.**
+- `value_scan.py` on the plugins: 4 hits, all REFR position or rotation floats (coincidence, **inference**). Only the
+  mission plugin names Codsworth; no sTestFile line loads it. Why the model loaded in the mission-off run is open.
+- The model's five BSLightingShaderProperty blocks are byte for byte the mini bot template's block (166 bytes, 0.02 at
+  +144), except the name. The 0.02 is vanilla data, so the loader is reading the block differently in our file, not
+  reading a bad value. **Verified** (PC dump of both files).
+- v6i with the mission restaged without `--codsworth-assets` (Codsworth on the vanilla robot body, no codsworth.nif in
+  any archive): Red Rocket to Sanctuary and back both PASS, about 9 minutes each, no access violation, memory flat.
+  **Verified.** So the model alone causes the crash.
+- Two switches on `convert_codsworth.py` split what is left. `--plain-shader` writes the shader blocks as the static
+  converter does (the .mat name only, 12 bytes, as vanilla props have). `--one-material` puts every shape on one
+  material, so the model keeps only the template's own geometry set, with no copied blocks. Test `--plain-shader`
+  first: if it walks clean, it is the fix and Codsworth keeps his materials. If it still crashes, `--one-material`
+  tests the copied geometry, shader and skin blocks.
 
 v6c, v6e, v6h and v6i are tested in game (all crash at Red Rocket).

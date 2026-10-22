@@ -1,5 +1,6 @@
 """Template rebind: a synthetic FO4 skinned shape onto a synthetic Starfield skinned template."""
 from pathlib import Path
+import json
 import struct
 import sys
 import unittest
@@ -102,6 +103,20 @@ class RebindTest(unittest.TestCase):
         self.assertEqual(len(res.meshes), 1)                                     # identical geometry, same hashed file
         self.assertEqual(sorted(res.report["groups"]), ["materials\\a.mat", "materials\\b.mat"])
 
+    def test_plain_shader_writes_the_mat_name_only(self):
+        # the crash bisect: the template's shader block, name swapped, crashes the game's loader (red-rocket-crash-bisect)
+        src = skinned_nif()
+        arms = bytearray(src.blocks[3])
+        struct.pack_into("<i", arms, 0, src.string_index(b"Arms"))
+        k = src.add_block("BSTriShape", bytes(arms))
+        actor_rebind._set_children(src, 0, actor_rebind._raw_children(src, 0) + [k])
+        res = actor_rebind.rebind(template(), nif.serialize(src), lambda b: BONES.get(b, "C_Chassis"),
+                                  materials={"Body": "materials\\a.mat", "Arms": "materials\\b.mat"}, plain_shader=True)
+        n = nif.parse(res.nif)
+        for block, mat in ((4, b"materials\\a.mat"), (10, b"materials\\b.mat")):
+            self.assertEqual(n.type_of(block), "BSLightingShaderProperty")
+            self.assertEqual(n.blocks[block], struct.pack("<iIi", n.strings.index(mat), 0, -1))
+
     def test_template_geometry_under_a_bone_is_detached(self):
         res = actor_rebind.rebind(template(decal_under_bone=True), nif.serialize(skinned_nif()),
                                   lambda b: BONES.get(b, "C_Chassis"))
@@ -185,6 +200,18 @@ class CodsworthPublishTest(unittest.TestCase):
         self.assertEqual((stage / "materials/body.mat").read_text(), "new")
         self.assertTrue((stage / "codsworth_report.json").exists())
         self.assertEqual(list(self.root.glob("stage.partial*")), [])
+
+    def test_bisect_switches_reach_the_rebind_and_the_report(self):
+        stage = self.root / "stage"
+        from unittest import mock
+        real = self.cc.actor_rebind.rebind
+        with mock.patch.object(self.cc.actor_rebind, "rebind", side_effect=real) as rebind:
+            self.assertEqual(self.cc.main(self.args + ["--staging", str(stage), "--one-material", "--plain-shader"]), 0)
+        kw = rebind.call_args.kwargs
+        self.assertTrue(kw["plain_shader"])
+        self.assertEqual(len(set(kw["materials"].values()) | {kw["default_material"]}), 1)   # one material, one group
+        report = json.loads((stage / "codsworth_report.json").read_text())
+        self.assertEqual((report["one_material"], report["plain_shader"]), (True, True))
 
     def test_existing_stage_is_refused_untouched(self):
         stage = self.root / "stage"
