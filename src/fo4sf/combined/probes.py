@@ -1303,9 +1303,12 @@ def check_p10(c: Collection) -> Verdict:
         e = after[0]
         # IsRunning counts only when read after that OnQuestInit; an earlier read says nothing (Codex review of #431).
         running = state[-1].flag("running") if state and state[-1].line > e.line else None
-        if s.rt is not None and e.rt is not None and e.rt - s.rt > PLACEHOLDERS["p10_start_window_s"]:
+        if s.rt is None or e.rt is None:        # no times, no proof the send started it (Codex review of #431)
+            v.reasons.append("the p10 sent or quest started line carries no rt=: the start window cannot be checked")
+            return v
+        if not 0 <= e.rt - s.rt <= PLACEHOLDERS["p10_start_window_s"]:
             v.reasons.append(f"the quest started {e.rt - s.rt:.1f} s after the send, outside the placeholder "
-                             f"{PLACEHOLDERS['p10_start_window_s']} s window")
+                             f"0 to {PLACEHOLDERS['p10_start_window_s']} s window")
             return v
         if running is False:
             v.reasons.append("OnQuestInit fired but IsRunning read False afterwards")

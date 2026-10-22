@@ -987,6 +987,12 @@ class P10Tests(unittest.TestCase):
         v = probes.check_p10(col(log=late))
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("window" in r for r in v.reasons))
+        # Codex review of #431: no times, or a start before the send, never settle P10
+        no_rt = [INIT, P10[1], f"FOCC p10 quest started id={P10_QUEST} local=2080", *P10[3:]]
+        self.assertEqual(probes.check_p10(col(log=no_rt)).verdict, INCONCLUSIVE)
+        early = [INIT, P10[1], f"FOCC rt=9.0 p10 quest started id={P10_QUEST} local=2080", *P10[3:]]
+        self.assertEqual(probes.check_p10(col(log=early)).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p10(col(log=P10)).verdict, PASS)
         wrong_quest = [INIT, P10[1], "FOCC rt=10.5 p10 quest started id=1 local=2048", P10[3]]
         self.assertEqual(probes.check_p10(col(log=wrong_quest)).verdict, INCONCLUSIVE)   # another quest's start line does not count
         # Codex review of #431: the literal local=2080 never stands in for the logged id.

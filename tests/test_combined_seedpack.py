@@ -395,6 +395,14 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(seedpack.generate(self.draft), (self.pack, self.report))
         self.assertEqual(seedpack.DEFAULT_RULES["k_nearest"], 3)                 # generate copies, never mutates
 
+    def test_a_marker_without_a_world_still_writes(self):
+        # Codex review of #431: a None world key beside string ones broke sort_keys in dumps
+        draft = copy.deepcopy(self.draft)
+        next(p for p in draft["places"] if p.get("marker"))["marker"]["world"] = None
+        _, report = seedpack.generate(draft)
+        self.assertIn("None", report["worlds"])
+        seedpack.dumps(report)
+
     def test_rules_can_be_changed(self):
         rules = copy.deepcopy(seedpack.DEFAULT_RULES)
         rules["k_nearest"], rules["median_route_hours"], rules["strength_base"] = 1, 30, 100

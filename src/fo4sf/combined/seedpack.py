@@ -321,8 +321,8 @@ def generate(draft: dict, rules: dict | None = None) -> tuple[dict, dict]:
         "routes": len(routes), "route_hours": dict(sorted(Counter(r["hours"] for r in routes).items())),
         "route_scale": route_scale,
         "isolated": isolated, "unlinked": dict(sorted(unlinked.items())),
-        "worlds": dict(sorted(Counter(p["marker"]["world"] for p in kept if p.get("marker")).items(),
-                              key=lambda kv: (kv[0] is None, kv[0] or ""))),
+        "worlds": {str(w): n for w, n in sorted(Counter(p["marker"]["world"] for p in kept if p.get("marker")).items(),
+                                                key=lambda kv: (kv[0] is None, kv[0] or ""))},   # str like route_scale
         "validation_problems": problems,
         "rules": rules,
     }
