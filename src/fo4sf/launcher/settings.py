@@ -2,8 +2,10 @@
 (owner, 2026-10-21: "let the launcher be where I can toggle it off and on, and more settings of that sort that cause
 RAM use"). One JSON file per player, written only by `launcher.py settings --set` and read by `launcher.py play`.
 
-Every setting starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus logging left
-as they are), so a fresh install plays exactly as before until the player turns something on. Once the watcher is on,
+Every setting but two starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus
+logging left as they are). The two: load_order=fix puts our plugins in the target order before each start (so their
+load-order indexes, and the form ids console commands use, can change once; load_order=off leaves Plugins.txt
+alone), and route=sfse starts the game through SFSE. Once the watcher is on,
 it also saves a dump at every exit unless crash_watch.dump_on_exit is turned off.
 """
 import json
@@ -44,10 +46,14 @@ SPEC = (
     ("papyrus_logging", "unchanged", TRISTATE,
      "Papyrus logging, trace and debug information in StarfieldCustom.ini ([Papyrus] bEnableLogging, bEnableTrace, "
      "bLoadDebugInformation): memory and disk for every script. The bridge needs it on."),
+    ("load_order", "fix", ("fix", "check", "off"),
+     "our plugins' order in Plugins.txt (scripts/game/load_order.py): fix puts them in the target order before the "
+     "game starts, keeping a copy of the old file; check refuses to start on a different order; off leaves it."),
     ("my_games", "", str, "Documents\\My Games\\Starfield (required when papyrus_logging is on or off)."),
-    ("route", "steam", ("steam", "exe"),
-     "how play starts the game: steam (steam://rungameid/1716740, as the test runner does) or exe (Starfield.exe "
-     "directly, as the owner does)."),
+    ("route", "sfse", ("sfse", "steam", "exe"),
+     "how play starts the game: sfse (sfse_loader.exe in the game folder, which starts Starfield.exe with SFSE "
+     "loaded; SFSE is required, NG-1), steam (steam://rungameid/1716740, as the test runner does) or exe "
+     "(Starfield.exe directly). steam and exe start the game without SFSE."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
@@ -64,6 +70,7 @@ LABELS = {
     "crash_watch.settle_s": "Seconds before the watcher attaches",
     "bridge": "Test bridge plugin",
     "papyrus_logging": "Papyrus script logging",
+    "load_order": "Load order of our plugins",
     "my_games": "My Games folder",
     "route": "How the game starts",
 }
