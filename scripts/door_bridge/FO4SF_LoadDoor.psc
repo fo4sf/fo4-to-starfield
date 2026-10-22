@@ -9,7 +9,7 @@ bool Property UseDestinationPosition = False Auto
 float Property DestinationX Auto
 float Property DestinationY Auto
 float Property DestinationZ Auto
-; A missed trip (the player still outside the destination's world or interior cell, with the engine's
+; A missed trip (the player still in this door's cell, with the engine's
 ; "BOUNDARY REACHED"; docs/terrain/border.md) is retried with the same MoveTo this many times, each after
 ; RetryWaitSeconds. 0 turns retries off.
 int Property MoveRetries = 1 Auto
@@ -53,6 +53,9 @@ Event OnActivate(ObjectReference akActionRef)
             TracePosition("after_retry", akActionRef)
         endif
     endwhile
+    if retries > 0 && !Arrived(akActionRef, destination)
+        Debug.Trace("FO4SF_LoadDoor retry gave up after " + retries)
+    endif
     if UseDestinationPosition
         ; Experimental: the writer must supply this runtime instance's measured
         ; merged arrival, never a guessed or globally reused merge offset.
@@ -66,14 +69,12 @@ Event OnActivate(ObjectReference akActionRef)
     Moving = False
 EndEvent
 
-; In the destination's world, or for an interior destination in its cell. Not a judged arrival: the doors_out
-; judge still decides where the player ended up.
+; The trip left this door's cell. Compared by cell, not world: on an exterior trip the player's GetWorldSpace() may
+; be the runtime instance (FF...) while the marker's is the core's WRLD (door-rounds.md, --world-instance). A door whose
+; destination is in its own cell counts as arrived. Not a judged arrival: the doors_out judge still decides.
 bool Function Arrived(ObjectReference target, ObjectReference destination)
-    WorldSpace world = destination.GetWorldSpace()
-    if target.GetWorldSpace() != world
-        return False
-    endif
-    return world != None || target.GetParentCell() == destination.GetParentCell()
+    Cell here = GetParentCell()
+    return destination.GetParentCell() == here || target.GetParentCell() != here
 EndFunction
 
 Function TracePosition(string phase, ObjectReference target)

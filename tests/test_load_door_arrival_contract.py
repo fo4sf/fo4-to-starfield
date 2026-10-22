@@ -74,8 +74,11 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertEqual(indices, sorted(indices))
         self.assertEqual(self.activate.count(".MoveTo("), 2)
         arrived = self.code.split("bool Function Arrived(", 1)[1].split("EndFunction", 1)[0]
-        self.assertIn("destination.GetWorldSpace()", arrived)
-        self.assertIn("target.GetParentCell() == destination.GetParentCell()", arrived)
+        # by this door's cell, never by world (the player's may be the runtime instance)
+        self.assertNotIn("GetWorldSpace", arrived)
+        self.assertIn("Cell here = GetParentCell()", arrived)
+        self.assertIn("return destination.GetParentCell() == here || target.GetParentCell() != here", arrived)
+        self.assertIn('"FO4SF_LoadDoor retry gave up after "', self.activate.split("endwhile", 1)[1])
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
         trace = self.code.split("Function TracePosition(", 1)[1]
