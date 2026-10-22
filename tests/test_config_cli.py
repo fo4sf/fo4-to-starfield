@@ -181,6 +181,7 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(rc, 0, text + err.getvalue())
         self.assertIn("Pillow: available", text)
         self.assertIn("numpy: available", text)
+        self.assertIn(f"Python version: {sys.version_info.major}.{sys.version_info.minor}", text)
         self.assertIn("Validation: OK", text)
 
     def test_validate_imports_pillow_as_pil_not_distro_name(self):
@@ -338,6 +339,19 @@ class TestCLI(unittest.TestCase):
             rc, text = self._run_validate(cfg, tex)
         self.assertEqual(rc, 1, text)
         self.assertIn("texconv: configured but blank", text)
+
+    def test_validate_rejects_an_unsupported_python(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tex = root / "texconv.exe"
+            tex.write_bytes(b"x")
+            tex.chmod(0o755)
+            cfg = self._validate_cfg(root)
+            with patch("fo4sf.__main__.MIN_PYTHON", (99, 0)):
+                rc, text = self._run_validate(cfg, tex)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("(needs 99.0 or newer)", text)
+        self.assertIn("FAILED", text)
 
 if __name__ == "__main__":
     unittest.main()

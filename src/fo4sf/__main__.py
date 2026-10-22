@@ -14,6 +14,8 @@ from pathlib import Path
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
+MIN_PYTHON = (3, 12)
+
 
 def cmd_status(args: argparse.Namespace) -> int:
     try:
@@ -166,6 +168,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
             if name == "texconv":
                 print("      (required for texture conversion)")
                 ok = False
+
+    version = ".".join(str(n) for n in sys.version_info[:3])
+    if sys.version_info >= MIN_PYTHON:   # docs/SETUP.md requires 3.12+
+        print(f"  Python version: {version}")
+    else:
+        print(f"  Python version: {version} (needs {'.'.join(map(str, MIN_PYTHON))} or newer)")
+        ok = False
 
     print("  Python packages:")
     for display, module in (("numpy", "numpy"), ("Pillow", "PIL")):
