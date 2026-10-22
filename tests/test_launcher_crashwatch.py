@@ -1,5 +1,6 @@
 """Launcher settings and the crash watcher that follows one game (src/fo4sf/launcher/settings.py, crashwatch.py), on a
 stand-in for Windows: no game, no ProcDump, no Steam."""
+import datetime
 import importlib.util
 import json
 import os
@@ -788,6 +789,23 @@ class CrashWatchTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(new, "[General]\rsLanguage=en\r[Papyrus]\rbEnableLogging=1\rbEnableTrace=1\r"
                               "bLoadDebugInformation=1\r")
+
+    def test_two_changes_in_one_second_keep_both_copies(self):
+        # Codex on #487: a second-resolution backup name opened "wb" replaced the first copy, the only original
+        mg = os.path.join(self.dir, "mgsame")
+        os.makedirs(mg)
+        ini = os.path.join(mg, "StarfieldCustom.ini")
+        with open(ini, "wb") as f:
+            f.write(b"[Papyrus]\nbEnableLogging=0\n")
+        from unittest import mock
+        fixed = datetime.datetime(2026, 10, 22, 19, 40, 0)
+        with mock.patch.object(crashwatch.datetime, "datetime", mock.Mock(now=mock.Mock(return_value=fixed))):
+            crashwatch.apply_papyrus(self.values(papyrus_logging="on", my_games=mg), self.said.append)
+            crashwatch.apply_papyrus(self.values(papyrus_logging="off", my_games=mg), self.said.append)
+        baks = sorted(n for n in os.listdir(mg) if ".bak-" in n)
+        self.assertEqual(baks, ["StarfieldCustom.ini.bak-20261022-194000", "StarfieldCustom.ini.bak-20261022-194000-2"])
+        with open(os.path.join(mg, baks[0]), "rb") as f:
+            self.assertEqual(f.read(), b"[Papyrus]\nbEnableLogging=0\n")       # the original survives
 
     def test_a_utf16_ini_is_refused_untouched(self):
         mg = os.path.join(self.dir, "mg16")

@@ -25,7 +25,6 @@ file to Plugins.txt.bak-<time>, and refuses (6) as check does. Lines that are no
 import argparse
 import datetime
 import os
-import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # isolated Python omits the script's directory
@@ -130,6 +129,21 @@ def read_masters(data, lines):
     return out, problems
 
 
+def keep_copy(path, raw):
+    """Write raw to path.bak-<time>, never over an earlier copy (two changes in one second get -2, -3, ...); the
+    copy's path. (Codex, #487)"""
+    stem = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 1000):
+        bak = stem if n == 1 else f"{stem}-{n}"
+        try:
+            with open(bak, "xb") as f:
+                f.write(raw)
+            return bak
+        except FileExistsError:
+            continue
+    raise OSError(f"no free backup name beside {path}")
+
+
 def run(cmd, starfield, plugins_txt=None, say=print):
     local = os.environ.get("LOCALAPPDATA", "")
     if not plugins_txt and not os.path.isabs(local):
@@ -160,8 +174,7 @@ def run(cmd, starfield, plugins_txt=None, say=print):
     if cmd == "check":
         say(f"load order differs from the target in {len(moved)} line(s) (fix puts it right)")
         return 9
-    bak = p_txt + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copyfile(p_txt, bak)
+    bak = keep_copy(p_txt, original)
     exp_install.write_plugins(p_txt, new, bom, nl, expected_current=original)
     say(f"load order fixed: {len(moved)} line(s) moved; the old file is {bak}")
     return 0

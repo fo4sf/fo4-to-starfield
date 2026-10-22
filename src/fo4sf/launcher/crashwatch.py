@@ -387,6 +387,21 @@ def set_papyrus(text, on):
     return "".join(out), changed
 
 
+def keep_copy(path, raw):
+    """Write raw to path.bak-<time>, never over an earlier copy (two changes in one second get -2, -3, ...); the
+    copy's path. (Codex, #487)"""
+    stem = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 1000):
+        bak = stem if n == 1 else f"{stem}-{n}"
+        try:
+            with open(bak, "xb") as f:
+                f.write(raw)
+            return bak
+        except FileExistsError:
+            continue
+    raise OSError(f"no free backup name beside {path}")
+
+
 def apply_papyrus(values, say):
     want = values["papyrus_logging"]
     if want == "unchanged":
@@ -409,9 +424,7 @@ def apply_papyrus(values, say):
             say(f"papyrus logging: already {want} in {path}")
             return
         if os.path.exists(path):
-            bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            with open(bak, "wb") as f:
-                f.write(raw)
+            bak = keep_copy(path, raw)
             say(f"papyrus logging: kept {bak}")
         # written beside it and swapped in whole: a failed write never leaves the live INI cut short (Codex, #449)
         tmp = path + ".fo4sf-tmp"

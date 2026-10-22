@@ -71,6 +71,22 @@ class LoadOrderTests(unittest.TestCase):
             self.assertEqual(f.read(), old)
         self.assertEqual(self.run_("check"), 0)
 
+    def test_a_second_fix_in_the_same_second_keeps_the_first_copy(self):
+        from unittest import mock
+        import datetime
+        fixed = datetime.datetime(2026, 10, 22, 19, 40, 0)
+        with mock.patch.object(load_order.datetime, "datetime", mock.Mock(now=mock.Mock(return_value=fixed))):
+            self.write(["*FO4Port.esm"] + ["*" + p for p in GAME if p != "FO4Port.esm"])
+            first = self.read()
+            self.assertEqual(self.run_("fix"), 0)
+            self.write(["*FO4SFBridge.esm"] + ["*" + p for p in GAME if p != "FO4SFBridge.esm"])
+            self.assertEqual(self.run_("fix"), 0)
+        folder = os.path.dirname(self.txt)
+        baks = sorted(n for n in os.listdir(folder) if ".bak-" in n)
+        self.assertEqual(len(baks), 2)
+        with open(os.path.join(folder, baks[0]), "rb") as f:
+            self.assertEqual(f.read(), first)
+
     def test_a_plugin_loads_after_its_master_whatever_its_group(self):
         plugin(os.path.join(self.data, "FO4SFMission.esm"), ["FO4Port.esm"])
         self.write(["*" + p for p in GAME])
