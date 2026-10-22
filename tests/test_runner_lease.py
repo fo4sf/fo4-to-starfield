@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import subprocess
 import re
 import shutil
 import sys
@@ -180,6 +181,29 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
         self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
 
+    def test_the_whole_cycle_output_is_kept_in_cycle_log(self):
+        # v6e doors_out, 2026-10-21: run.log kept only cycle.ps1's last line, so where the launch stopped was lost
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None
+        out = "main menu after 12 s\nsave loaded: not seen within 120 s, going on\nlease refused: not launching"
+        r._ps = lambda script, args, timeout, steal=False: (9, out) if script == "cycle.ps1" else (0, "")
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True):
+            r.run()
+        with open(os.path.join(self.d, "cycle.log"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(": exit 9\n" + out, text)
+
+    def test_a_timed_out_script_keeps_what_it_printed(self):
+        # Codex on #439: a cycle.ps1 past its budget kept only "timeout", none of its launch lines
+        r = self.runner()
+        err = subprocess.TimeoutExpired(["cycle.ps1"], 900, output=b"main menu after 12 s\n", stderr=None)
+        with mock.patch.object(tq.subprocess, "run", side_effect=err):
+            code, out = tq.Runner._ps(r, "cycle.ps1", [], 900)
+        self.assertEqual((code, out), (124, "main menu after 12 s\ntimeout"))
+        with mock.patch.object(tq.subprocess, "run", side_effect=subprocess.TimeoutExpired(["x"], 1)):
+            self.assertEqual(tq.Runner._ps(r, "cycle.ps1", [], 1), (124, "timeout"))
+
     def _launch(self, codes, blocked=lambda launches: None):
         c.Controller(self.leader).claim("Claude", "window", 3600)
         r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
@@ -235,6 +259,33 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertIn("exit 10", block)                                       # a missing exe is a dead start
         self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
         self.assertIn("after $launch (screen: $Shot)", src)
+
+    def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
+        # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        menu = int(re.search(r"Wait-Screen 'main menu' (\d+)", src).group(1))
+        save = int(re.search(r"Wait-Screen 'save loaded' (\d+)", src).group(1))
+        self.assertGreaterEqual(menu, 240)
+        self.assertGreaterEqual(save, 300)
+        start = 12 + 150 + 20 + 10                                             # close an old game, see it start, alive, settle
+        cell = int(re.search(r"Wait-Screen 'cell loaded' (\d+)", src).group(1))
+        escapes = 2 * (2 + 15 + 10)                                           # the Escapes after a missed save load
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + cell + 120)   # never cut a slow launch short
+        # with -CellJson the launch ends with coc.ps1 and its retries (Codex on #452): its whole budget fits too
+        self.assertGreater(tq.CYCLE_TIMEOUT_S, start + menu + save + escapes + tq.COC_TIMEOUT_S + 120)
+
+    def test_cycle_ps1_sends_no_blind_e_after_the_save_loads(self):
+        # v6e retry 4, 2026-10-21: the E after Continue opened Vasco's dialogue on the owner's save and hid the HUD
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        load = src.index("loadorder.ps1')")
+        wait = src.index("Wait-Screen 'save loaded'")
+        between = src[load:wait]
+        self.assertNotIn("Send 'hold:e", between)
+        self.assertIn("Clear-AchievementsPopup", between)                   # E only when the popup's text is read
+        after = src[wait:src.index("function Prompt-Visible")]
+        self.assertIn("key:esc", after)                                     # a missed load gets Escapes, each checked
+        self.assertRegex(after, r"while \(\$n -lt 2\)")      # an even count: never left in the pause menu
+        self.assertIn("Wait-Screen \"save loaded after", after)
 
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}

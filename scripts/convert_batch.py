@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -48,6 +48,11 @@ def checkpoint_signature(a):
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
     if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
         sig["rig_load_doors"] = True
+    extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
+        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
+            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
+            key=lambda p: p.name.lower())]] for d in extra]
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -167,6 +172,17 @@ def static_pattern_models(pattern, names):
     return {n for n in names if re.search(pattern, n, re.I)}
 
 
+def triangle_count(src_archives, name):
+    """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
+    try:
+        raw = src_archives.mesh(name)
+        parsed = nif.parse(raw)
+        shapes = nif.fo4_trishapes(parsed)
+        return sum(len(s.triangles) for s in shapes if s.triangles)
+    except Exception:  # noqa: BLE001
+        return 0  # let the real converter report the failure
+
+
 def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
@@ -208,6 +224,10 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--extra-data", action="append", default=[],
+                    help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
+                         "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
+                         "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
     ap.add_argument("--rig-load-doors", action="store_true",
                     help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
                          "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
@@ -223,7 +243,10 @@ def main():
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
-    ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
+    ap.add_argument("--max-tris", type=int, default=0,
+                    help="skip meshes with more triangles than this (0, the default: skip none). Off by default: "
+                         "the option was inert until 5f2a065, and a skipped model drops its base record, so a build "
+                         "that turned it on would renumber or lose records an earlier build kept")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
                     help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
@@ -262,7 +285,7 @@ def main():
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data)
+    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
@@ -306,6 +329,11 @@ def main():
             skipped += 1
         else:
             ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            # Apply --max-tris: skip heavy meshes before the expensive conversion
+            if a.max_tris and triangle_count(src, name) > a.max_tris:
+                skipped += 1
+                print(f"  skip {name}: > {a.max_tris} triangles")
+                continue
             r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1

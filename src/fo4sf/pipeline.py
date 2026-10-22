@@ -10,7 +10,6 @@ back to a placeholder material (tier T1) instead of failing the asset. Needs num
 import hashlib
 import os
 import re
-import shutil
 import struct
 import tempfile
 from typing import Dict, List, Optional
@@ -108,14 +107,25 @@ def _palette_scale_ident(scale: float) -> str:
 
 
 class Fo4Archives:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, extra_dirs=()):
+        """Fallout4 - *.ba2 from data_dir, then (extra_dirs, e.g. a DLC's own Data folder) every DLC*.ba2 there. Lookups
+        try the base game's archives first, so a model the base game holds converts byte-identically with or without
+        the DLC archives (a DLC replacing a base-game file is not followed; supported: none seen in DLCRobot or
+        DLCworkshop01's own cells)."""
         self.meshes, self.materials, self.textures = [], [], []
+        self._add(data_dir, lambda low: low.startswith("fallout4 - "))
+        for d in extra_dirs:
+            self._add(d, lambda low: low.startswith("dlc"))
+
+    def _add(self, data_dir, wanted):
         for fn in sorted(os.listdir(data_dir)):
             low = fn.lower()
-            if not (low.endswith(".ba2") and low.startswith("fallout4 - ")):
+            if not (low.endswith(".ba2") and wanted(low)):
                 continue
-            if "meshes" in low:
+            if "meshes" in low or low.endswith(" - main.ba2"):
                 self.meshes.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
+                if low.endswith(" - main.ba2"):       # DLC "Main" archives hold meshes and materials together
+                    self.materials.append(self.meshes[-1])
             elif "materials" in low:
                 self.materials.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
             elif "textures" in low:
@@ -145,6 +155,21 @@ class Fo4Archives:
         for a in self.meshes:
             out += [n for n in a.names if n.lower().endswith(".nif") and rx.search(n.replace("\\", "/"))]
         return sorted(set(out), key=str.lower)
+
+
+def write_staged(path: str, data: bytes):
+    """Write a staging file as a new file that replaces the old one, never in place. A staged core hard-links its Data
+    tree to the conversion work folder, so an in-place write (open "wb", shutil.copy2) changes every staged build that
+    shares the file (found 2026-10-21: a --resume rewrote meshes inside the v6c and v6e rollback stagings)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def _plane_pair(dds: bytes, tmp: str, texconv_exe: str):
@@ -245,28 +270,26 @@ class Converter:
             textures.texconv(self.texconv, os.path.join(tmp, "r_in.dds"), tmp, "BC4_UNORM")
             for kind, fn in (("color", "c_in.dds"), ("normal", "n_in.dds"), ("rough", "r_in.dds")):
                 dst = os.path.join(self.staging, *f"{tex_rel}_{kind}.dds".split("/"))
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(os.path.join(tmp, fn), dst)
+                with open(os.path.join(tmp, fn), "rb") as f:
+                    write_staged(dst, f.read())
                 out[kind] = cm.game_path(f"{tex_rel}_{kind}.dds")
         mat = cm.build_mat(self.template_mat, "FO4Port_Neutral", out["color"], out["normal"], out["rough"])
         mat_rel = f"materials/{self.prefix}/{stem}.mat"
         p = os.path.join(self.staging, *mat_rel.split("/"))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w", encoding="utf-8", newline="\n").write(cm.dump_mat(mat))
+        write_staged(p, cm.dump_mat(mat).encode("utf-8"))
         return mat_rel.replace("/", "\\")
 
     def _publish_texture(self, src_path: str, dst: str, kind: str):
         """Copy a converted texture into the staging folder; with a cap for its kind, without the top mip levels that
         exceed it (the full size is logged either way while caps are on)."""
         cap = self.texture_caps.get(kind, 0)
-        if not self.texture_caps:
-            shutil.copy2(src_path, dst)
-            return
         with open(src_path, "rb") as f:
             data = f.read()
+        if not self.texture_caps:
+            write_staged(dst, data)
+            return
         out, info = textures.cap_dds(data, cap)
-        with open(dst, "wb") as f:
-            f.write(out)
+        write_staged(dst, out)
         rel = os.path.relpath(dst, self.staging).replace("\\", "/").lower()
         self.texture_log[rel] = {"kind": kind, "cap": cap, **info}
 
@@ -468,8 +491,7 @@ class Converter:
                                out["rough"], opacity=out.get("opacity"), alpha_threshold=alpha_ref / 255.0)
         mat_rel = f"materials/{self.prefix}/{stem}.mat"
         p = os.path.join(self.staging, *mat_rel.split("/"))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w", encoding="utf-8", newline="\n").write(cm.dump_mat(mat))
+        write_staged(p, cm.dump_mat(mat).encode("utf-8"))
         return mat_rel.replace("/", "\\")
 
     def glass_material(self, base: str, normal: str) -> Optional[str]:
@@ -521,8 +543,7 @@ class Converter:
                                      opacity_value=0.15)
         mat_rel = f"materials/{self.prefix}/{stem}.mat"
         p = os.path.join(self.staging, *mat_rel.split("/"))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w", encoding="utf-8", newline="\n").write(cm.dump_mat(mat))
+        write_staged(p, cm.dump_mat(mat).encode("utf-8"))
         return mat_rel.replace("/", "\\")
 
     def _is_blended(self, bgsm_path: str) -> bool:
@@ -754,8 +775,7 @@ class Converter:
                     coll_report["source"] = "passable-door"   # deliberately none (see above), not a failed conversion
             for relp, data in files.items():
                 p = os.path.join(self.staging, *relp.split("/"))
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-                open(p, "wb").write(data)
+                write_staged(p, data)
             res.update(ok=True, out_name=out_name, shapes=len(shapes), materials=mats, collision=mode if use_box else None, collision_report=coll_report,
                        skipped_effect_shapes=sum(1 for m in mats if m is None),
                        fallback_materials=sum(1 for m in mats if m == self.neutral))

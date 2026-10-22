@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "note": "Starfield.exe builds listed as good, each with the SFSE files measured with it. Add entries only with launcher.py runtimes-add from a real install manifest.",
+  "runtimes": []
+}
