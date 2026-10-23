@@ -2191,3 +2191,13 @@ and the owner looked from inside, where the hatch is the port's reference
 0100C7A6. The cause is open. Bugs' read-only PC check of that reference (record
 type, teleport data, script, ladder collision) runs after card J4. The entry
 above stands as written.
+
+## 2026-10-23: correction: the quest probe's target was a far load door
+
+The section A entry above put the probe's marker down to a fallback target in a
+library with no load door. Install's log extract (#518) shows otherwise: the
+target was a load door 72 m from the start (070049ED), under the stairs, which the
+owner reached only with tcl, because the load-door choice had no floor or reach
+limit. #518 merged at 16:42 UTC with that limit; it is not compiled or rerun on
+the PC yet. playtest-issues.md row 35 carries it. The entries above stand as
+written.

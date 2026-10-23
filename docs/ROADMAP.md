@@ -107,9 +107,10 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   compiled). Its result answers the engine questions in docs/questprobe/engine-questions.md (stage fragments,
   OnStageSet, alias markers, our quest-type tab, a Story Manager branch) for the later people-and-story work; it gates
   neither phase 0 nor the new game. The owner ran it in section A (23 Oct, A7): "the probe worked, just placed it in
-  the wrong place away from the door". The port's library cell has no load door (PC, 19 Oct), so the probe's target
-  falls back to the farthest door, then the farthest object, on the marker's floor 8 to 60 m away (engine-questions.md);
-  NewGame reads its log (`make_questprobe.py log`) for E1 to E5 and the target it chose (row 35).
+  the wrong place away from the door". Install's log extract: the alias filled and the target was a load door 72 m
+  from the start (070049ED), under the stairs, which the owner reached only with tcl; the load-door choice had no floor
+  or reach limit. #518 (merged 16:42 UTC 23 Oct) holds load doors to the same floor and 8 to 60 m reach as the other
+  fallbacks; it is not compiled or rerun on the PC yet (engine-questions.md; row 35).
 - **The new game, phase 1** (NewGame): newgame_v6 was pinned to the v6e core; newgame_v7 passed its restage against the
   installed v6i core on the PC (23 Oct, NewGame's report: 4 scripts compiled, plan pinned to port 9AF962D2 and core
   DC751664; not installed). The owner's line "Install the new game." opens phase 1; it is ready to type.
