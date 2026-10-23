@@ -113,6 +113,11 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   placed doors whose base EditorID contains `Elev`, every REFR property, XTEL, linked references with each target's
   base, the references linking to them and the enable parent: whether an elevator is a load door alone or a door plus
   linked buttons, markers or activators (what step C must copy if FO4's elevators come across).
+  **Read 2026-10-23** (D:\Modding\scratch\loaddoor_anim\elevator_refs.txt): every elevator door is
+  LoadElevator_InvisibleDoor (21F2A7) with an XTEL to its partner, a LoadElevatorComponent link to a
+  LoadElevator_FloorMarker and usually an ElvGen_Panel01 link (quest target); lobby doors also carry the reverse
+  LoadElevatorLobbyDoor link. So a Starfield elevator is an invisible load door plus linked marker and panel, not an
+  animated door.
 - **A6 manifest report.** `load_door_anim.py report` on the installed port's manifest: how many load doors would get
   a rig today (twins only, since the pinned build was converted without `--rig-load-doors`).
 
@@ -193,6 +198,16 @@ python scripts\terrain\interior_batch.py build --plan docs\terrain\data\interior
   `steps.door_anim.animated` above 0, `vmad_patch check` exit 0. Installing it (FO4Port.esm and its two archives from
   `doors_anim_b00\port` over the installed port's, the rollback the current swap script) waits for the owner's line in
   the install thread.
+- **Built 2026-10-23 at f48d340 (PC, build only, nothing installed; log D:\Modding\staging\dooranim_1ab.log).**
+  compile5 (D:\Modding\scratch\loaddoor_anim_copy\compile5): FO4SF_AnimatedLoadDoor.pex 2,108 bytes sha256
+  454de6aa..., FO4SF_LoadDoor.pex 3,578 bytes sha256 fe76ed00... (the 20 extra bytes over compile4 are the corrected
+  header). doors_anim_b00 against the v6i core staging terrain_core64v6i_l125_mission_wfc11_plainshader (core pin
+  DC751664, base port 9AF962D2): exit 0, pass, formids ca3e46f4, FO4Port.esm 4,261,852 bytes sha256 07756819...;
+  compare pass, records 55,049 to 55,071 (CELL 16, DOOR 16, REFR 33); 18 load doors, 16 animated; doors check exit 0.
+  `--door-flags` wrote flags on 0 of 54 doors (53: the base was not in the cell exports, which predate 2026-10-18; 1:
+  no placed FO4 door with that model), so every animated door keeps flags 0, as the installed port has. Flags do not
+  gate the open or the trip; copying them needs a re-export of those cells (later, phase 2). Install line: "Install
+  the animated doors port." (rollback swap_v6i_plainshader.ps1).
 - **What runs before C** (the installed core, this port): G2 (FortHagen01 <-> 02, both sides in the port: the
   `_XtelLoad` copy plays the open, then the trip) and G3 (leave through an animated interior door, come back through
   the core's ACTI: the interior door is shut) can; G1 needs both sides animated, so it waits for C. Run them on a
@@ -207,8 +222,11 @@ python scripts\terrain\interior_batch.py build --plan docs\terrain\data\interior
   VMAD for those doors. Gate on the rebuild: compare-ids identical (every id kept) and only the door bases and door
   REFRs differ from the same build without the switch. Without the switch objects.json carries no `anim` and the
   writer's output is byte for byte the doors build of tests/test_terrain_doors_writer.py (its pins pass unchanged);
-  the new test there checks the switched build differs in nothing else. It rides the core rebuild after BorderProbe
-  with Bugs' Card L fix.
+  the new test there checks the switched build differs in nothing else. Replanned 2026-10-23: v6i is the phase's
+  final core (no v6j), and v6i was staged from wt_v6, not main, so C is two stagings from main into new folders: C0
+  with v6i's stage arguments and no switch, C1 the same plus `--animated-doors` on doors_anim_b00's
+  manifest_sounds.json. Gate: C1 against C0 compare-ids identical and only door bases and door REFRs differ; C0
+  against v6i is listed to show main's drift. About 10 GB each on D:, so they wait for disk space.
 - **G** (in game, owner's window only): G1 the SDM pair with both sides animated: E, the leaf swings, then the trip,
   both ways; G2 the FortHagen01 <-> 02 XTEL pair with an animated base; G3 come back through a door you used: it is
   shut. Pass = a screenshot of the open leaf before each load screen, the bridge log's arrival line, and a Papyrus
