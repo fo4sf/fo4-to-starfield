@@ -82,5 +82,27 @@ failure; the popup still points at the border mechanism. Those stay open until c
 The next steps are the failure rate (10 control runs, with the FO4SF_LoadDoor trace) and the door's retry of a missed
 MoveTo (docs/terrain/scripted-doors.md).
 
+### Rate and retry runs (PC, 2026-10-22/23, control WRLD, queues `doors_v95_rate_r01..r10`, `doors_v95_retry_r01..r10`)
+- Rate (bridge_t4, no retry): 7 PASS, 3 FAIL (r01, r02, r10). Retry (bridge_t5, `MoveRetries` 1): 6 PASS, 4 FAIL
+  (r01, r04, r08, r10). No run traced `retry 1 of 1`, `after_retry` or `gave up`: the retry never fired.
+- **verified** (FO4SF_LoadDoor trace, all 10 retry runs): the script's view is the same in every run, PASS or FAIL.
+  The MoveTo lands in the exterior (cell 02001133, world the runtime instance `MarsPlanetWorld…` FF…) at the marker's
+  unmerged position (-714.6, -1284.1, 61.3); `after_position` still reads that spot right after the SetPosition to
+  the merged (-1914.6, -3984.1, 61.2). That 1200 / 2700 difference is the overlay offset, as expected
+  (docs/terrain/scripted-doors.md, "unmerged position"). So no check inside the script right after the move can tell
+  a failing trip from a passing one, which is why the retry never fired.
+- **verified** (bridge feed and screenshots, all 7 FAILs): after the door the bridge feed stops (the newest line is
+  76 to 78 s old at every read), and the screenshot shows the BOUNDARY REACHED popup over the Vault 95 interior.
+  In the PASSes the next feed line is at the merged spot. The popup pauses the game and Papyrus with it, so the
+  judge falls back to the last read before the door (inside, cell 06007D12) and calls it STAYED. "STAYED" in these
+  runs means "the popup came up during the exit", not a measured bounce back inside.
+- **unresolved**: which step raises the popup, the MoveTo's landing at the unmerged spot (2.9 km from the merged
+  one) or the single SetPosition jump back. Both are jumps far past the "at most 2 cells per axis" teleport rule
+  (docs/terrain/core64c.md). The diagnostic bridge waits `SettleSeconds` after the MoveTo and traces
+  `phase=settled` before the SetPosition: with the game paused by the popup, a log that stops before `settled`
+  blames the MoveTo, one that stops after it blames the SetPosition.
+- The runs start from a coc at Red Rocket, 2.3 km from the Vault 95 door; a player who walked in through that door
+  would not make that jump. The unmerged landing is a 2.9 km jump in both cases.
+
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.

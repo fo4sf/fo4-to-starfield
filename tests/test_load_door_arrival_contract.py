@@ -24,7 +24,8 @@ class ArrivalContractTests(unittest.TestCase):
         guarded = re.search(r"if UseDestinationPosition\s+(.*?)\s+endif", self.activate, re.S)
         self.assertIsNotNone(guarded)
         self.assertIn("akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)", guarded[1])
-        self.assertEqual(self.code.count(".SetPosition("), 1)
+        self.assertEqual(self.activate.count(".SetPosition("), 1)
+        self.assertEqual(self.code.count(".SetPosition("), 2)
         # In particular there is no coordinate-truthiness condition rejecting 0.
         self.assertNotRegex(guarded[1], r"\bif\b")
 
@@ -44,12 +45,15 @@ class ArrivalContractTests(unittest.TestCase):
         steps = [
             "Moving = True",
             'TracePosition("marker", destination)',
+            "PlaceDestination(destination)",
             'TracePosition("before_move", akActionRef)',
             "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)",
             'TracePosition("after_move", akActionRef)',
             "while retries < MoveRetries && !Arrived(akActionRef, destination, origin)",
             'TracePosition("after_retry", akActionRef)',
             "if UseDestinationPosition",
+            "Utility.Wait(SettleSeconds)",
+            'TracePosition("settled", akActionRef)',
             "akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)",
             'TracePosition("after_position", akActionRef)',
             "Moving = False",
@@ -81,6 +85,26 @@ class ArrivalContractTests(unittest.TestCase):
         before = self.activate.split(".MoveTo(", 1)[0]
         self.assertIn("Cell origin = akActionRef.GetParentCell()", before)
         self.assertIn('"FO4SF_LoadDoor retry gave up after "', self.activate.split("endwhile", 1)[1])
+
+    def test_the_position_step_waits_and_traces_after_the_move(self):
+        self.assertIn("float Property SettleSeconds = 1.0 Auto", self.code)
+        guarded = re.search(r"if UseDestinationPosition\s+(.*?)\s+endif", self.activate, re.S)[1]
+        before_position = guarded.split("akActionRef.SetPosition(", 1)[0]
+        self.assertEqual(before_position.count("Utility.Wait(SettleSeconds)"), 1)
+        self.assertEqual(before_position.count('TracePosition("settled", akActionRef)'), 1)
+
+    def test_the_marker_is_put_at_the_requested_spot_before_the_move(self):
+        place = self.code.split("Function PlaceDestination(", 1)[1].split("EndFunction", 1)[0]
+        steps = ["if !UseDestinationPosition", "return",
+                 "destination.SetPosition(DestinationX, DestinationY, DestinationZ)",
+                 'TracePosition("marker_placed", destination)']
+        indices = [place.index(step) for step in steps]
+        self.assertEqual(indices, sorted(indices))
+        # only the destination moves here, and only when it is not already there
+        self.assertNotIn("akActionRef", place)
+        self.assertIn("if dx * dx + dy * dy + dz * dz > 0.0001", place)
+        self.assertLess(self.activate.index("PlaceDestination(destination)"), self.activate.index(".MoveTo("))
+        self.assertLess(self.activate.index("Moving = True"), self.activate.index("PlaceDestination(destination)"))
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
         trace = self.code.split("Function TracePosition(", 1)[1]

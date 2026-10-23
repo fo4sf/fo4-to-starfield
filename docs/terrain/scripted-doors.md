@@ -23,7 +23,7 @@ the player is put with `SetPosition` after the MoveTo, see "Return trip" below) 
 the script applies the three floats only when it is true; zero is a valid coordinate, so the bool, not the values,
 is the switch). No plugin masters the other.
 
-**Retry on a missed trip (2026-10-22, not yet run in game).** The Vault 95 exit fails intermittently: the player stays
+**Retry on a missed trip (2026-10-22; run in game 2026-10-22/23, it never fired).** The Vault 95 exit fails intermittently: the player stays
 in the interior and the engine shows "BOUNDARY REACHED" (2 of 9 runs in the settling test, plus earlier control and
 hnam5 failures; whether the world's border fields change the rate is open, docs/terrain/border.md). After the MoveTo the script checks whether the player has left the cell they activated it from (by cell,
 not world: on an exterior trip the player's world can read as the runtime instance while the marker's reads as the
@@ -32,6 +32,22 @@ the same MoveTo, at most `MoveRetries` times (default 1; 0 turns it off). Both p
 VMADs need no change. Each retry traces `FO4SF_LoadDoor retry N of M` and `phase=after_retry`, and a miss after the last one `FO4SF_LoadDoor retry gave up after N`. A door PASS in the
 doors_out judge's results can therefore come from the second MoveTo; the trace tells which. The check is not a judged
 arrival either: it only sees that the player left their starting cell, and the judge still reads where they ended up.
+In the 10 retry runs it never fired (docs/terrain/border.md, "Rate and retry runs"): the MoveTo always lands in the
+exterior, and the popup comes up afterwards and pauses the game, so the script cannot see the failure.
+
+**Settle before the position step (2026-10-23, not yet run in game).** With `UseDestinationPosition`, the script now
+waits `SettleSeconds` (default 1.0; an Auto property, so existing VMADs need no change) after the MoveTo and traces
+`phase=settled` before the SetPosition. It is a diagnostic first: the popup pauses Papyrus, so where the trace stops
+tells which step raised it.
+
+**One long jump instead of two (2026-10-23, not yet run in game).** Before the MoveTo, with `UseDestinationPosition`,
+the script puts the destination marker itself at `DestinationX / Y / Z` (`destination.SetPosition`, traced as
+`phase=marker_placed`) unless it is already within 0.01 of it. The MoveTo onto a persistent overlay marker lands at the
+marker's own coordinates in the player's world, so it should now land at the merged spot, and the SetPosition after it
+becomes a move of about 0. An interior marker's written position is the requested one, so the forward trip does not
+move it. The moved marker stays moved in the save, so later trips skip the move. What to read in the next runs:
+`marker_placed` at the requested position, `after_move` at the requested position instead of 1.2 / 2.7 km off, and
+the failure rate. Plugins and VMADs do not change; only FO4SF_LoadDoor.pex does.
 
 Per door, this build writes:
 
