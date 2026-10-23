@@ -356,6 +356,16 @@ class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.out, "console_open", "hud_check.png")))
         self.assertNotIn("coc QASmoke", self.typed)                  # stopped before the travel
 
+    def test_a_later_refusal_without_a_picture_names_none(self):
+        # Codex on #502: the first console session's picture must not stand in for a later refusal that took none
+        self.run_step(test=self.terrain(), code=3,
+                      env={"FAKE_CONSOLE_REFUSE": "3", "FAKE_CONSOLE_REFUSE_AFTER": "1", "FAKE_CONSOLE_NOSHOT": "1"})
+        with open(os.path.join(self.out, "obs.json"), encoding="utf-8-sig") as f:
+            obs = json.load(f)
+        self.assertEqual(obs["stopped"], "console not opened safely (3)")
+        self.assertNotIn("console_open_shot", obs)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "console_open", "hud_check.png")))
+
     def test_border_commands_before_the_travel_and_a_read_after_the_arrival(self):
         t = self.terrain(console_pre=BORDER, console_post=['GetINI "bBorderRegionsEnabled:General"'], time_of_day=12)
         v, obs, _ = self.run_step(test=t)
