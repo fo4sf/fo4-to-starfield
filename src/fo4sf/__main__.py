@@ -26,6 +26,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
     print("fo4-to-starfield status")
+    pyver = ".".join(str(n) for n in sys.version_info[:3])
+    print(f"  python: {pyver}")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
