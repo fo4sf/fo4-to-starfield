@@ -43,13 +43,16 @@ function Console-Open {
   # the attempt's own folder, so the HUD check's last screenshot (hud_check.png) stays with a refusal (J2, 2026-10-22:
   # two code 3s left no picture, %TEMP%\fo4sf_ocr is overwritten by every later test)
   $w = Join-Path $Out 'console_open'
-  Remove-Item -LiteralPath (Join-Path $w 'hud_check.png') -ErrorAction SilentlyContinue   # only this call's picture names a refusal
+  $shot = Join-Path $w 'hud_check.png'
+  Remove-Item -LiteralPath $shot -ErrorAction SilentlyContinue   # only this call's picture names a refusal
+  $stale = Test-Path -LiteralPath $shot   # an earlier picture that could not be removed (locked, read-only) is never named
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') -Work $w | Out-Null
   $c = $LASTEXITCODE
   if ($c -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
   if ($c -ne 0) {
     $obs['stopped'] = "console not opened safely ($c)"
-    if (Test-Path (Join-Path $w 'hud_check.png')) { $obs['console_open_shot'] = 'console_open\hud_check.png' }
+    if ($stale) { $obs['console_open_shot_stale'] = 'an earlier hud_check.png could not be removed; none named' }
+    elseif (Test-Path -LiteralPath $shot) { $obs['console_open_shot'] = 'console_open\hud_check.png' }
     Save-Obs; exit 3
   }
 }

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -32,7 +33,7 @@ MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arriv
 
 class SandboxStep:
     """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
-    def run_step(self, plan=None, world=None, test=None, code=0, env=None):
+    def run_step(self, plan=None, world=None, test=None, code=0, env=None, before=None):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
@@ -47,6 +48,8 @@ class SandboxStep:
             json.dump(t, f)
         saves = os.path.join(d, "saves")
         os.makedirs(saves)
+        if before:                                            # files a step finds already in its out folder
+            before(out)
         env = dict(os.environ, FAKE_STATE=state, FO4SF_PYTHON=sys.executable, FO4SF_NO_FOCUS_STEAL="1", LEGACY="1",
                    FO4SF_SAVES_DIR=saves, **(env or {}))
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
@@ -365,6 +368,24 @@ class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual(obs["stopped"], "console not opened safely (3)")
         self.assertNotIn("console_open_shot", obs)
         self.assertFalse(os.path.exists(os.path.join(self.out, "console_open", "hud_check.png")))
+
+    def test_an_earlier_picture_that_cannot_be_removed_is_never_named(self):
+        # Codex on #502: a locked or read-only earlier hud_check.png survives the removal; qstep must not name it
+        def stale(out):
+            os.makedirs(os.path.join(out, "console_open"))
+            p = os.path.join(out, "console_open", "hud_check.png")
+            with open(p, "w") as f:
+                f.write("earlier session")
+            os.chmod(p, stat.S_IREAD)                         # read-only: Remove-Item without -Force refuses it
+        self.run_step(test=self.terrain(), code=3, before=stale,
+                      env={"FAKE_CONSOLE_REFUSE": "3", "FAKE_CONSOLE_NOSHOT": "1"})
+        with open(os.path.join(self.out, "obs.json"), encoding="utf-8-sig") as f:
+            obs = json.load(f)
+        self.assertEqual(obs["stopped"], "console not opened safely (3)")
+        self.assertNotIn("console_open_shot", obs)
+        self.assertIn("could not be removed", obs["console_open_shot_stale"])
+        with open(os.path.join(self.out, "console_open", "hud_check.png")) as f:
+            self.assertEqual(f.read(), "earlier session")       # the case is real: the earlier picture survived
 
     def test_border_commands_before_the_travel_and_a_read_after_the_arrival(self):
         t = self.terrain(console_pre=BORDER, console_post=['GetINI "bBorderRegionsEnabled:General"'], time_of_day=12)
