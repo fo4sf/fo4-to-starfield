@@ -2155,3 +2155,19 @@ defect, with a return to unmerged coordinates as the hypothesis for card K1.
 playtest-issues.md rows 32 and 33 carry the answers and row 38 the Vault 95 one.
 Which save the owner used and their choices on gates 2 and 3 are still to come.
 The entries above stand as written.
+
+## 2026-10-23: Phase 0: the owner's calls on gates 2 and 3
+
+At 16:57 UTC the owner chose. Gate 2, the Vault 95 exit: C, phase 0 holds until
+the SFSE per-world toggle of the border is written and tested; the 13 of 20 and
+the owner's own report (the door lands right, then the popup) stand as the
+measured state. Gate 3: D, Codsworth goes on the defect list and the keeper fix
+is installed next to check it; F, the Fort Hagen exit goes on the defect list for
+the next phase. Neither holds the phase, so gate 3 is ticked. The owner played on
+the test save the sheet named, so Codsworth's absence is not only the old-save
+case. The Fort Hagen exit the owner looked for was the roof hatch inside the
+building (the sheet's (d), FO4 door 0C38BF), not the roof elevator Bugs first
+read; the door audit lists both sides of that hatch, so why it could not be found
+is open. Phase 0 now waits on gate 1 (card J4) and gate 2 (the SFSE toggle). The
+map walls are still being discussed with the owner. The entries above stand as
+written.
