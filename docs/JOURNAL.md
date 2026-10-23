@@ -2066,3 +2066,21 @@ nosmall on one save) is staged and waits on the owner's line. The owner gave the
 line in the Install thread at 20:53 UTC ("Go ahead and run the test"), so the test
 is running on the PC. The ROADMAP, README and playtest row 29 say so (#498); this
 entry records the change, and the entry above stands as written.
+
+## 2026-10-23: Phase 0: the border fields are shelved, v6i is the closing build
+
+The ledger entry of 22 Oct above planned v6j (v6i plus a border field) if the
+settling test proved a field. It did not: with each variant as the last WRLD
+override, 3 runs each on one save, the unchanged world passed 3 of 3 and nosmall
+and city each failed once (7 of 9; docs/terrain/border.md, Results, merged with
+#499). So neither field is a reliable fix, the failure is intermittent, the
+fields are shelved (no core is built with #495's flag), there is no v6j, no stage
+is restaged for a core change (the new game and the combined-core probe still
+restage against v6i), and the installed v6i (core DC751664) is the build the phase
+closes on. What follows on the PC: the failure rate over 10 Vault 95 exits (the owner's
+line 23:37 UTC 22 Oct), then 10 with FO4SF_LoadDoor's retry of a missed trip
+(#499, bridge_t5; the owner's line 00:00 UTC 23 Oct), and the automated door
+rounds moved from "on v6j" to the installed build (card J2, running since 22:39
+UTC 22 Oct). The ROADMAP's 22 Oct section carries the exit checklist with its
+gates and the items that move to the next phase; the entries above stand as
+written.
