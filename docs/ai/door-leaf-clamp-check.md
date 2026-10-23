@@ -35,3 +35,17 @@ builds a synthetic 0.029 m-deep leaf and asserts the decoded box `half[0] == 0.0
 `scripts/game/value_scan.py` / `nif_float_scan.py` remain the zero-hit gate on converted output.
 
 Status: **verified** (owner-PC BA2 read, 2026-10-22). Offline; no game assets committed.
+
+## Hinge axis and swing (offline, from convert_door)
+
+`nif.door_hinge` returns the world pivot of the node animated by the "Open" sequence.
+`sfnif.build_door_nif` places the moving leaf under the template hinge (`DOOR_TEMPLATE["hinge_pos"]`).
+The swing axis is vertical (Z in NIF space) for all standard hinged doors; the clamp only thickens the thin
+half-extent and does not alter the pivot, rotation, or the other two half-extents.
+
+For the three meshes above:
+- Hinge axis remains Z (vertical) before and after the 0.05 floor.
+- Pivot offset applied to the REFR is unchanged.
+- Only the thin-axis half-extent of the leaf box changes (or stays if already >= 0.05).
+
+This is offline reasoning from the converter code and the measured raw extents. No in-game verification.
