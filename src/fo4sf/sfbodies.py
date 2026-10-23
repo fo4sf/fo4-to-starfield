@@ -3,20 +3,29 @@
 Used to know where a placed object's solid surfaces are (terrain experiment 2c: the top of a floor a dropped player
 lands on). The NIF side follows sfnif.build_static_nif: every bhkNPCollisionObject (target node i32, flags u16,
 bhkPhysicsSystem block i32) holds one Havok tagfile; the target node's world transform (nif.world_transforms, metres)
-places it. Inside each tagfile, the physics system's body cinfos point at the shape:
+places it. Inside each tagfile, the root item (1) is the hknpPhysicsSystemData; the bodies are the ones its bodyCinfos
+lists (as the engine builds them; any other body cinfo item is an error), and each body cinfo points at its shape:
 
   hknpCompressedMeshShape  meshcollision's Starfield section layout (@48 codec offset, @60 scale, @72 firstPacked,
                            @76 firstShared, @80 firstPrimitive, @88 numPacked u8, @89 numPrimitives u8); a primitive
                            slot is used only when all four indices are inside the section's packed + shared vertices
                            (the section's shared count = next section's firstShared - its own, as in FO4's arrays)
   hknpConvexShape / hknpSphereShape / hknpBoxShape   the hull: float3 vertices, faces (u16 first index, u8 count,
-                           u8 angle) into u8 indices; convexRadius pushes every face out along its normal (a sphere is
-                           its centre vertex + radius, returned as an octahedron)
+                           u8 angle) into u8 indices; convexRadius (>= 0) pushes every face out along its normal, and a
+                           vertex no face uses is an octahedron of that radius (Havok's shape is the hull of every
+                           vertex); a sphere is its centre vertex + radius, returned as an octahedron. A body's own
+                           hknpBoxShape in a blob sfcollision.check_template accepts is the vanilla box template:
+                           sfcollision.read_box
   hknpCompoundShape        instances.elements: per instance a rotation quaternion, translation, scale and child shape
                            (meshcollision._emit_dynamic_compound's layout; movable items)
 
 Body position / orientation (quaternion x, y, z, w) are applied (our converter writes identity).
 Everything is metres in the NIF's root space.
+
+The triangles are surfaces, not bounds: a turned convex radius is a ball, and its pushed faces or octahedron points
+reach less far than the ball does on a turned axis. Each body's "pieces" are the exact bounds instead: [(points,
+radius)], the shape being the hull of the points grown by the radius, so its AABB under any turn and uniform scale is the
+points' AABB grown by radius x scale on every axis.
 """
 import math
 import struct
@@ -29,17 +38,12 @@ Vec = Tuple[float, float, float]
 Tri = Tuple[Vec, Vec, Vec]
 
 SECTION_SIZE = 96
+PSD = "hknpPhysicsSystemData"
+BODY = "hknpPhysicsSystemData::bodyCinfoWithAttachment"
 
 
 class BodyError(ValueError):
     pass
-
-
-def _type_index(tf: hktagfile.Tagfile, name: str):
-    for t in tf.types:
-        if tf.type_name(t.index) == name:
-            return t.index
-    return None
 
 
 def _field(tf: hktagfile.Tagfile, type_idx: int, name: str) -> hktagfile.Field:
@@ -60,10 +64,6 @@ class _Reader:
                 if 0 < idx < len(self.tf.items):
                     self.ptr[self.D + o] = self.tf.items[idx]
 
-    def items_of(self, name):
-        ti = _type_index(self.tf, name)
-        return [] if ti is None else [it for it in self.tf.items[1:] if it.type == ti]
-
     def target(self, at):
         """(absolute offset, count, item) of the item a pointer / array / relarray field at `at` points to."""
         it = self.ptr.get(at)
@@ -81,8 +81,10 @@ def _quat_apply(q, v):
 def _cms_triangles(r: _Reader, cms_at: int, cms_type: int) -> List[Tri]:
     tf, b, D = r.tf, r.b, r.D
     data_at, _, data_item = r.target(cms_at + _field(tf, cms_type, "data").offset)
-    if not data_at:
+    if not data_at or data_item is None:
         raise BodyError("compressed mesh without data")
+    if tf.type_name(data_item.type) != "hknpCompressedMeshShapeData":
+        raise BodyError(f"compressed mesh data is a {tf.type_name(data_item.type)}")
     f_tree = _field(tf, data_item.type, "meshTree")                 # hknpCompressedMeshShapeData.meshTree
     t_tree = f_tree.type
     tree = data_at + f_tree.offset
@@ -128,35 +130,46 @@ def _cms_triangles(r: _Reader, cms_at: int, cms_type: int) -> List[Tri]:
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
             if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:     # unused slot or degenerate point
                 continue
+            if i1 == i3:                               # a special primitive (i2 is its type); the converter writes none
+                raise BodyError(f"section {s} primitive {k} {(i0, i1, i2, i3)} is a special primitive")
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
     return tris
 
 
-def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> List[Tri]:
+def _hull_core(r: _Reader, shape_at: int, shape_type: int, kind: str):
+    """(hull vertices, convexRadius) of a convex / sphere / box shape; a sphere's hull is its centre."""
     tf, b = r.tf, r.b
     hull = _field(tf, shape_type, "hull")
     radius, = struct.unpack_from("<f", b, shape_at + _field(tf, shape_type, "convexRadius").offset)
+    if not 0 <= radius < math.inf:                      # Havok grows the core by it; a negative one inverted the hull
+        raise BodyError(f"{kind} convexRadius {radius} is negative or not finite")
     va, nv, vit = r.target(shape_at + hull.offset + _field(tf, hull.type, "vertices").offset)
     if not nv:
         raise BodyError(f"{kind} without hull vertices")
     stride = tf.size_of(vit.type) or 12
     verts = [struct.unpack_from("<3f", b, va + stride * k) for k in range(nv)]
+    return (verts[:1] if kind == "hknpSphereShape" else verts), radius
+
+
+def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> List[Tri]:
+    tf, b = r.tf, r.b
+    hull = _field(tf, shape_type, "hull")
+    verts, radius = _hull_core(r, shape_at, shape_type, kind)
+    nv = len(verts)
     if kind == "hknpSphereShape":
-        c, rr = verts[0], radius
-        o = [(c[0] + rr, c[1], c[2]), (c[0] - rr, c[1], c[2]), (c[0], c[1] + rr, c[2]), (c[0], c[1] - rr, c[2]),
-             (c[0], c[1], c[2] + rr), (c[0], c[1], c[2] - rr)]
-        return [(o[a], o[bb], o[z]) for a in (0, 1) for bb in (2, 3) for z in (4, 5)]
+        return _ball_triangles(verts[0], radius)
     fa, nf, _ = r.target(shape_at + hull.offset + _field(tf, hull.type, "faces").offset)
     ia, ni, _ = r.target(shape_at + hull.offset + _field(tf, hull.type, "indices").offset)
     centre = tuple(sum(v[a] for v in verts) / nv for a in range(3))
-    tris = []
+    tris, used = [], set()
     for k in range(nf):
         first, cnt = struct.unpack_from("<HB", b, fa + 4 * k)
         if cnt < 3 or first + cnt > ni:
             raise BodyError(f"hull face {k} indexes outside the index array")
         idx = list(b[ia + first:ia + first + cnt])
+        used.update(idx)
         if max(idx) >= nv:
             raise BodyError(f"hull face {k} uses vertex {max(idx)} of {nv}")
         poly = [verts[i] for i in idx]
@@ -170,7 +183,16 @@ def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> Li
                 n = [-x for x in n]
             poly = [tuple(p[a] + radius * n[a] for a in range(3)) for p in poly]
         tris += [(poly[0], poly[j], poly[j + 1]) for j in range(1, cnt - 1)]
+    for i in sorted(set(range(nv)) - used):            # on no face, still in the hull Havok's support mapping walks
+        tris += _ball_triangles(verts[i], radius)
     return tris
+
+
+def _ball_triangles(c, radius) -> List[Tri]:
+    """A ball of the convex radius as the octahedron of its six axis points: exact bounds unturned, and a turn never
+    takes a point outside the ball (a cube's corners would widen the bounds by up to sqrt(3) x radius)."""
+    o = [tuple(c[a] + (s * radius if a == axis else 0.0) for a in range(3)) for axis in range(3) for s in (1, -1)]
+    return [(o[a], o[bb], o[z]) for a in (0, 1) for bb in (2, 3) for z in (4, 5)]
 
 
 def _compound_triangles(r: _Reader, cs_at: int, cs_type: int, depth: int = 0) -> List[Tri]:
@@ -197,23 +219,63 @@ def _compound_triangles(r: _Reader, cs_at: int, cs_type: int, depth: int = 0) ->
         sc = struct.unpack_from("<3f", b, e + f_sc.offset)
         if not all(math.isfinite(x) for x in q + t + sc) or abs(sum(x * x for x in q) - 1.0) > 1e-3:
             raise BodyError(f"compound instance {k} has a bad transform")
-        for tri in _shape_triangles(r, c_at, c_item, len(b), depth + 1):
+        for tri in _shape_triangles(r, c_at, c_item, False, depth + 1):
             tris.append(tuple(tuple(a + c for a, c in zip(_quat_apply(q, tuple(v[i] * sc[i] for i in range(3))), t))
                               for v in tri))
     return tris
 
 
-def _shape_triangles(r: _Reader, s_at: int, s_item, blob_len: int, depth: int = 0) -> List[Tri]:
+def _shape_triangles(r: _Reader, s_at: int, s_item, template: bool, depth: int = 0) -> List[Tri]:
+    """template: a body's own shape in a blob sfcollision.check_template accepts (never a compound child)."""
     kind = r.tf.type_name(s_item.type)
     if kind == "hknpCompressedMeshShape":
         return _cms_triangles(r, s_at, s_item.type)
-    if kind == "hknpBoxShape" and blob_len == sfcollision.BLOB_SIZE:
+    if kind == "hknpBoxShape" and template:
         return box_triangles(*sfcollision.read_box(r.b))       # the vanilla box template (sfcollision.box_blob)
     if kind in ("hknpConvexShape", "hknpConvexPolytopeShape", "hknpSphereShape", "hknpBoxShape"):
         return _hull_triangles(r, s_at, s_item.type, kind)
     if kind == "hknpCompoundShape":
         return _compound_triangles(r, s_at, s_item.type, depth)
     raise BodyError(f"unsupported shape {kind}")
+
+
+def _shape_pieces(r: _Reader, s_at: int, s_item, template: bool, depth: int = 0, tris=None):
+    """[(points, radius)] whose hulls grown by their radius are the shape (module docstring), in the shape's space.
+    tris: the shape's triangles when already read (a compressed mesh is not decoded twice)."""
+    tf, b = r.tf, r.b
+    kind = tf.type_name(s_item.type)
+    if kind in ("hknpConvexShape", "hknpConvexPolytopeShape", "hknpSphereShape") or (kind == "hknpBoxShape"
+                                                                                    and not template):
+        return [_hull_core(r, s_at, s_item.type, kind)]
+    if kind != "hknpCompoundShape":                    # a compressed mesh or the box template: its triangles are exact
+        tris = _shape_triangles(r, s_at, s_item, template, depth) if tris is None else tris
+        return [([p for tri in tris for p in tri], 0.0)]
+    if depth > 4:
+        raise BodyError("compound shapes nested too deep")
+    f_inst = _field(tf, s_item.type, "instances")
+    at, n, item = r.target(s_at + f_inst.offset + _field(tf, f_inst.type, "elements").offset)
+    if not n:
+        raise BodyError("compound without instances")
+    size = tf.size_of(item.type)
+    f_rot, f_tr = _field(tf, item.type, "rotation"), _field(tf, item.type, "translation")
+    f_sc, f_shape = _field(tf, item.type, "scale"), _field(tf, item.type, "shape")
+    pieces = []
+    for k in range(n):
+        e = at + size * k
+        c_at, _, c_item = r.target(e + f_shape.offset)
+        if c_item is None:
+            continue
+        q = struct.unpack_from("<4f", b, e + f_rot.offset)
+        t = struct.unpack_from("<3f", b, e + f_tr.offset)
+        sc = struct.unpack_from("<3f", b, e + f_sc.offset)
+        if not all(math.isfinite(x) for x in q + t + sc) or abs(sum(x * x for x in q) - 1.0) > 1e-3:
+            raise BodyError(f"compound instance {k} has a bad transform")
+        for pts, radius in _shape_pieces(r, c_at, c_item, False, depth + 1):
+            if radius and any(abs(abs(x) - 1.0) > 1e-6 for x in sc):
+                raise BodyError(f"compound instance {k} scales a shape with a convex radius by {sc}")
+            pieces.append(([tuple(a + c for a, c in zip(_quat_apply(q, tuple(v[i] * sc[i] for i in range(3))), t))
+                            for v in pts], radius))
+    return pieces
 
 
 def box_triangles(centre, half) -> List[Tri]:
@@ -224,33 +286,53 @@ def box_triangles(centre, half) -> List[Tri]:
 
 
 def blob_bodies(blob: bytes) -> List[dict]:
-    """[{"shape": class, "layer": collision layer, "triangles": [...]}] for every body of one Starfield tagfile physics
-    system, in the space of the NIF node that owns it. Unsupported shapes raise BodyError."""
+    """[{"shape": class, "layer": collision layer, "triangles": [...], "pieces": [(points, radius)]}] for every body of
+    one Starfield tagfile physics
+    system, in the space of the NIF node that owns it: the bodies the root hknpPhysicsSystemData (item 1) lists in its
+    bodyCinfos, in order (a body id indexes that array). Unsupported shapes, a system that is not the one root item or
+    lists no body, and a body cinfo item it does not list raise BodyError."""
     r = _Reader(blob)
     tf = r.tf
-    t_body = _type_index(tf, "hknpPhysicsSystemData::bodyCinfoWithAttachment")
-    if t_body is None:
-        raise BodyError("no body cinfo type")
+    systems = [k for k, it in enumerate(tf.items) if k and tf.type_name(it.type) == PSD]
+    if systems != [1]:
+        raise BodyError(f"physics system items {systems}, not the root item 1")
+    psd = tf.items[1]
+    base, n, listed = r.target(r.D + psd.offset + _field(tf, psd.type, "bodyCinfos").offset)
+    if listed is None or not n or tf.type_name(listed.type) != BODY:
+        raise BodyError("physics system lists no body cinfos")
+    stray = [k for k, it in enumerate(tf.items) if k and tf.type_name(it.type) == BODY and it is not listed]
+    if stray:                                          # the engine never builds them (a same-named type hid the listed one)
+        raise BodyError(f"body cinfo items {stray} are not the system's bodyCinfos")
+    t_body = listed.type
     size = tf.size_of(t_body)
     f_shape, f_pos = _field(tf, t_body, "shape"), _field(tf, t_body, "position")
     f_rot, f_filter = _field(tf, t_body, "orientation"), _field(tf, t_body, "collisionFilterInfo")
+    try:
+        sfcollision.check_template(blob)
+        template = True
+    except sfcollision.CollisionError:
+        template = False
     out = []
-    for it in r.items_of("hknpPhysicsSystemData::bodyCinfoWithAttachment"):
-        for k in range(it.count):
-            at = r.D + it.offset + size * k
-            s_at, _, s_item = r.target(at + f_shape.offset)
-            if s_item is None:
-                raise BodyError(f"body {k} has no shape")
-            kind = tf.type_name(s_item.type)
-            tris = _shape_triangles(r, s_at, s_item, len(blob))
-            pos = struct.unpack_from("<3f", r.b, at + f_pos.offset)
-            q = struct.unpack_from("<4f", r.b, at + f_rot.offset)
-            if any(abs(x) > 1e-6 for x in q[:3]) or any(abs(x) > 1e-6 for x in pos):
-                if not all(math.isfinite(x) for x in pos + q):
-                    raise BodyError(f"body {k} has a non-finite transform")
-                tris = [tuple(tuple(a + c for a, c in zip(_quat_apply(q, v), pos)) for v in t) for t in tris]
-            layer = struct.unpack_from("<I", r.b, at + f_filter.offset)[0] & 0x7F
-            out.append({"shape": kind, "layer": layer, "triangles": tris})
+    for k in range(n):
+        at = base + size * k
+        s_at, _, s_item = r.target(at + f_shape.offset)
+        if s_item is None:
+            raise BodyError(f"body {k} has no shape")
+        kind = tf.type_name(s_item.type)
+        tris = _shape_triangles(r, s_at, s_item, template)
+        pieces = _shape_pieces(r, s_at, s_item, template, tris=tris)
+        pos = struct.unpack_from("<3f", r.b, at + f_pos.offset)
+        q = struct.unpack_from("<4f", r.b, at + f_rot.offset)
+        if not all(math.isfinite(x) for x in pos + q):             # before the identity test: abs(NaN) > 1e-6 is False
+            raise BodyError(f"body {k} has a non-finite transform")
+        if abs(sum(x * x for x in q) - 1.0) > 1e-3:                  # (0, 0, 0, 0) passed the identity test below
+            raise BodyError(f"body {k} orientation {q} is not a unit quaternion")
+        if any(abs(x) > 1e-6 for x in q[:3]) or any(abs(x) > 1e-6 for x in pos):
+            tris = [tuple(tuple(a + c for a, c in zip(_quat_apply(q, v), pos)) for v in t) for t in tris]
+            pieces = [([tuple(a + c for a, c in zip(_quat_apply(q, v), pos)) for v in pts], radius)
+                      for pts, radius in pieces]
+        layer = struct.unpack_from("<I", r.b, at + f_filter.offset)[0] & 0x7F
+        out.append({"shape": kind, "layer": layer, "triangles": tris, "pieces": pieces})
     return out
 
 
@@ -273,6 +355,7 @@ def nif_bodies(nif_bytes: bytes) -> List[dict]:
             return tuple(t[a] + s * (rot[3 * a] * v[0] + rot[3 * a + 1] * v[1] + rot[3 * a + 2] * v[2]) for a in range(3))
         for body in blob_bodies(f.blocks[data][4:4 + n]):
             body["triangles"] = [tuple(place(v) for v in tri) for tri in body["triangles"]]
+            body["pieces"] = [([place(v) for v in pts], radius * s) for pts, radius in body["pieces"]]
             body["node"] = target
             out.append(body)
     return out

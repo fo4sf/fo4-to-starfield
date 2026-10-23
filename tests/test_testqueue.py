@@ -883,6 +883,10 @@ class PlanJsonTests(unittest.TestCase):
         self.assertEqual(t[0]["drop_z"], 140.0)
         self.assertEqual(t[0]["beyond"], {"x": -500.0, "y": 300.0})
         self.assertNotIn("rounds_sha256", jload(os.path.join(out, "queue.json")))
+        jdump([dict(plan[0], beyond=None)], os.path.join(d, "plan.json"))   # a judged door leg: no teleport after it
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q0")])
+        self.assertIsNone(jload(os.path.join(d, "q0", "queue.json"))["tests"][0]["beyond"])
+        jdump(plan, os.path.join(d, "plan.json"))
         rounds = json.dumps({"tests": [], "plan_sha256": hashlib.sha256(readb(os.path.join(d, "plan.json"))).hexdigest()})
         writef(os.path.join(d, "rounds.json"), rounds.encode())      # a door rounds stage: its digest is recorded
         out2 = os.path.join(d, "q2")

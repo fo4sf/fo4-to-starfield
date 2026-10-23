@@ -29,6 +29,7 @@ class LauncherCliTests(unittest.TestCase):
         os.makedirs(self.local)
         self.starfield = os.path.join(self.dir, "Starfield")
         os.makedirs(self.starfield)
+        open(os.path.join(self.starfield, "sfse_loader.exe"), "wb").close()   # play starts the game through SFSE
         self.dumps = os.path.join(self.dir, "dumps")
         os.makedirs(self.dumps)
         self.procdump = os.path.join(self.dir, "procdump64.exe")
@@ -136,6 +137,11 @@ class LauncherCliTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
 
     def test_play_dry_run_prints_plan_and_exits_0_when_settings_are_valid(self):
+        # the default route starts through SFSE and needs a listed runtime: this stand-in folder has none (Codex, #487)
+        r = self.run_cli("play", "--starfield", self.starfield, "--settings", self.settings, "--dry-run")
+        self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+        self.assertIn("route=sfse:", r.stdout)
+        self.assertEqual(self.run_settings("--set", "route=steam").returncode, 0)
         r = self.run_cli("play", "--starfield", self.starfield, "--settings", self.settings, "--dry-run")
         self.assert_no_traceback(r)
         self.assertFalse(os.path.isfile(os.path.join(self.starfield, "Starfield.exe")))

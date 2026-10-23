@@ -548,6 +548,28 @@ decided the import path); keeping the order as a parameter (two orders in the co
   copy for restore (untested at this size / too much disk); a Mutagen check in C# (needs a load order, GPL-3).
   Listed for the owner's talk in launcher-backbone.md.
 
+## 2026-10-20: the combined core starts as a game-neutral, deterministic model in its own package (Claude-cloud)
+- Decision: `src/fo4sf/combined/` holds the GAMMA-style combined core's L1 world-state model, L5 packs that only add,
+  the L2 off-screen simulation seeded from (seed, hour), and a read-only Fallout 4 reader that drafts the first pack
+  (docs/combined-core.md). It is separate from `src/fo4sf/core/` (the leader core) and has no engine code yet.
+- Why: the owner put the combined core's systems ahead of the single-game mode's extras (2026-10-19 23:24Z, CC-01 A,
+  first on the Commonwealth). Getting the state shape, pack rules and save replay right before any Papyrus or SFSE work
+  avoids a rebuild when the other worlds arrive; determinism lets a player's save be replayed offline in tests.
+- Alternatives: Papyrus-first prototype on the PC (rejected: the PC is busy with the v6e test and Papyrus cannot be
+  unit-tested on CI); reusing Sim Settlements 2 or Workshop Framework code (rejected: their permissions forbid
+  conversion; design question CC-04); one shared `core` package (rejected: build orchestration and game runtime would
+  drift into each other).
+
+## 2026-10-20: the combined core's game-facing state is a small view the save keeps, the rest a sidecar (Claude-cloud)
+- Decision: M2 adds `adapter.py` (a record plan and a minimal-writes view: one FOCC_ keyword datum per place for its
+  holder, one global per faction for its reputation tier, globals for play settings) and `sidecar.py` (a checksummed
+  per-save file the SFSE plugin would mirror). One keyword per place is our choice; engine-feasibility.md sketches a
+  single FOCC_Holder keyword with a datum per location, and probe P2 decides between them.
+- Why: SFSE has no co-save today, so the bulk state needs its own file per save, while conditions, dialogue and leveled
+  lists must read holders and reputation without SFSE (design CC-02, option C').
+- Alternatives: everything in Papyrus (save bloat, the Warzones lesson); everything in the sidecar (a broken SFSE after a
+  patch would leave the game blind to territory instead of frozen).
+
 ## 2026-10-19: the Fallout 4 new game is its own plugin, resolving the port and core at run time (Claude-cloud)
 - Decision: FO4SFNewGame.esm (master Starfield.esm only) holds the start quest; it finds Vault 111 and the core's exit
   anchor with Game.GetFormFromFile on stable plugin-local ids, and stops MQ00 and MQ101 from Papyrus instead of editing

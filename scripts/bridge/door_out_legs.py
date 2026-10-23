@@ -70,7 +70,7 @@ def main(argv=None):
     kept = select(plan, rounds, min_m)                    # every check before anything is written
     os.makedirs(dst)                                      # a NEW folder only
     dr.save_stage(dst, [p for p, _, _ in kept],
-                  dict(rounds, legs="out", tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]))
+                  dict(rounds, legs="out", out_min_m=min_m, tests=[dict(e, test=i) for i, (_, e, _) in enumerate(kept)]))
     for i, (_, e, d) in enumerate(kept):
         print(i, e["cell_edid"], f"{d:.1f}", "m")
     print(len(kept), "OUT tests kept of", len(rounds["doors"]))

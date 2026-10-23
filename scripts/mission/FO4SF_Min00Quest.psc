@@ -15,8 +15,14 @@ MiscObject Property Credits Auto Const Mandatory
 {Starfield's credits: the reward that stands in for Fallout 4's caps.}
 
 Actor Property Codsworth Auto Const
-{Codsworth's placed actor (FO4SFMission.esm 0x811), None in a --no-codsworth build. Not part of the quest; moved with
- the others (Relocate).}
+{Codsworth's placed actor (FO4SFMission.esm 0x811), set only on his keeper quest (FO4SF_CodsworthKeeper, 0x814); None
+ on FO4SF_Min00 and in a --no-codsworth build. Not part of the mission.}
+
+bool Property KeeperOnly = False Auto Const
+{True on FO4SF_CodsworthKeeper: this instance only keeps Codsworth (enabled, moved into the merged world) and never runs
+ the mission. A quest of its own because a new start-game-enabled quest starts on an existing save, where FO4SF_Min00
+ had already ended (stage 200 cancels timer 1, which started his timer) or ran OnQuestInit before his timer existed: the
+ owner's save, 22 Oct, had him unmoved and no mission log.}
 
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
@@ -53,6 +59,12 @@ bool codsworthKept = False
 int applied = 0
 
 Event OnQuestInit()
+    if KeeperOnly
+        Trace("keeper init codsworth=" + Codsworth)
+        RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
+        KeepCodsworthLoad()
+        return
+    endif
     Debug.OpenUserLog(LogName)
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Preston, "OnActivate")
@@ -71,6 +83,27 @@ Function KeepCodsworthStart()
         StartTimer(CodsworthCheck, 2)
     endif
 EndFunction
+
+Function KeepCodsworthLoad()
+{The keeper's start, at its init and on every save load: Codsworth enabled, a fresh budget of failed moves, his timer
+ (re)started. A load also restarts a check that spent its budget in an earlier session.}
+    if Codsworth == None
+        return
+    endif
+    if Codsworth.IsDisabled()
+        Codsworth.Enable()
+        Trace("codsworth was disabled: enabled")
+    endif
+    codsworthFails = 0
+    codsworthKept = True
+    StartTimer(CodsworthCheck, 2)
+EndFunction
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    if KeeperOnly
+        KeepCodsworthLoad()
+    endif
+EndEvent
 
 Function AdvanceTo(int n)
 {SetStage, then the stage's actions. In game 18 Oct the stages reached 40 but OnStageSet never ran (no "stage" line, no
@@ -235,6 +268,9 @@ Function KeepCodsworth()
 {Codsworth is not part of the quest, so he has his own check every CodsworthCheck seconds with its own budget of 10
  failed moves. It keeps running after stage 200, which ends the mission's timer: the player may reach Sanctuary only
  after the mission, and he went back to his unmerged spot once already (in game 18 Oct 15:17).}
+    if Codsworth == None
+        return                                            ; FO4SF_Min00 on a save that ran his timer before the keeper
+    endif
     Actor player = Game.GetPlayer()
     if codsworthFails < 10 && !player.IsInInterior()
         if MoveOver(Codsworth, player, player.GetPositionX(), player.GetPositionY(), player.GetPositionZ(), "codsworth")
