@@ -350,3 +350,8 @@ offset entirely, but it is a different design from our overlay and is a decision
 for three ideas rather than writing our own: zero a door's transition cell when that cell is not built, keep each
 cell's FO4 lighting template, and texture land per quadrant from `VTXT` / `ATXT`. None of them touches markers,
 locations or the merge probe; they belong to the doors, lighting and terrain work.
+
+## Border signal (2026-10-23)
+`FO4SF_MapMarkers` also writes `border=off` / `border=on` lines to fo4sf_map.0.log for the SFSE plugin FO4SFBorder
+(docs/terrain/border.md, "Per-world switch"). `BorderSignal = False` turns the lines off. They are written before the
+marker pass, also indoors' last state is kept, and they change nothing in the game by themselves.

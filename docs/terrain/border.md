@@ -122,3 +122,21 @@ MoveTo (docs/terrain/scripted-doors.md).
 
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
+
+## Per-world switch (SFSE plugin FO4SFBorder, built 2026-10-23, not yet run in game)
+The owner chose this route on 2026-10-23: the popup comes after a correct landing, and the map stays open land with
+no walls ("L because the full vison"), so the border must be off in our world and on everywhere else.
+
+- **The world test** is in Papyrus, because SFSE's plugin API (PluginAPI.h at commit 48535cc) has no Papyrus or
+  console bridge. `FO4SF_MapMarkers` writes `border=off` to its user log (fo4sf_map.0.log) when the player stands in
+  one of the core's own cells (the cell's load index is the core's: the runtime instance keeps the core's cell ids,
+  door-rounds.md), or outdoors in the world they were in while in one (the generated land past our cells). Any other
+  exterior writes `border=on`. Indoors keeps the last state. A line is written only on a change, and again at the
+  first check of every new game session.
+- **The switch** is `sfse/FO4SFBorder` (README there). It finds the setting `bBorderRegionsEnabled:General` by its
+  name in Starfield.exe's memory, tails that log, and writes the setting's value byte on the main thread (SFSE Task
+  interface). "on" restores the value it found. Kill switch: `Mode=0` in FO4SFBorder.ini (the default) writes nothing.
+- **Unverified until the PC probe:** which byte is the value. Card A runs `Mode=1` (watch only): the owner types
+  `SetINI "bBorderRegionsEnabled:General" 0` and then `1` (the command run _f used), and the plugin's log shows the
+  byte that changed. Card B sets that offset and `Mode=2`, then the Vault 95 exit and a walk at the west edge.
+- The plugin refuses to write unless exactly one candidate setting is found and its byte reads 0 or 1.
