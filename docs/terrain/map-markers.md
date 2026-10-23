@@ -354,4 +354,4 @@ locations or the merge probe; they belong to the doors, lighting and terrain wor
 ## Border signal (2026-10-23)
 `FO4SF_MapMarkers` also writes `border=off` / `border=on` lines to fo4sf_map.0.log for the SFSE plugin FO4SFBorder
 (docs/terrain/border.md, "Per-world switch"). `BorderSignal = False` turns the lines off. They are written before the
-marker pass, also indoors' last state is kept, and they change nothing in the game by themselves.
+marker pass; indoors the last state is kept. The lines change nothing in the game by themselves.
