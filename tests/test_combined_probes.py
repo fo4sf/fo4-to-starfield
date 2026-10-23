@@ -911,6 +911,13 @@ class P9Tests(unittest.TestCase):
                if " p9 sample " in l else l for l in p9_log()]
         self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE)
 
+    def test_the_start_reading_must_match_the_first_sample(self):
+        # Codex review of #431: the start's own dist= is the walk's start
+        for start in ("dist=1.000000", ""):
+            log = [re.sub(r" dist=\S+", f" {start}" if start else "", l) if " p9 start " in l else l
+                   for l in p9_log()]
+            self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE, start)
+
     def test_the_deadline_is_real_time(self):
         # Codex review of #431: late timers keep the nominal t under 600 s while the walk really took longer
         v = probes.check_p9(col(log=p9_log(slow=3.0)))

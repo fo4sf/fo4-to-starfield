@@ -1206,7 +1206,12 @@ def check_p9(c: Collection) -> Verdict:
     if not done:
         v.reasons.append("no `p9 done` line: the tracker did not finish")
         return v
-    start = rows[0][1]
+    start = starts[-1].num("dist")              # P9Track logs it just before its first sample (Codex review of #431)
+    if start is None or abs(start - rows[0][1]) > P["p9_stuck_m"]:
+        v.cite(starts[-1], rows[0][5])
+        v.reasons.append(f"p9 start dist={starts[-1].fields.get('dist')} is missing or disagrees with the first "
+                         f"sample's {rows[0][1]} m")
+        return v
     v.extra["start_dist_m"] = start
     if start < P["p9_start_m"]:
         v.reasons.append(f"start dist {start} m < {P['p9_start_m']} (the card asked for 450)")

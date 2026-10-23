@@ -271,6 +271,9 @@ def valid(ws: WorldState, offer: Offer) -> str | None:
     elif offer.kind == "retake":
         if pl.holder == offer.giver:
             return "the giver holds the place again"
+        loss = _last_loss(ws, offer.giver, offer.target)    # the offer names one loss (Codex review of #431)
+        if loss is None or f"retake:{offer.giver}:{offer.target}:{loss[0]}:{loss[1]}" != offer.id:
+            return "the place was lost again since: that is a new job"
         if pl.story_lock or offer.target in _homes(ws):
             return "the place cannot change hands"
         if pl.holder is not None and not sim._hostile(ws, offer.giver, pl.holder):

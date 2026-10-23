@@ -358,6 +358,17 @@ class ClearTests(unittest.TestCase):
         self.assertNotEqual(again[0].id, first.id)
         self.assertIsNone(jobs.valid(ws, again[0]))
 
+    def test_an_old_retake_does_not_settle_a_newer_loss(self):
+        # Codex review of #431: an offer kept from an earlier loss is moot once the place is lost again
+        ws = quiet(world())
+        lose(ws, "farm_a", "raiders", hour=ws.hour)
+        old = by_kind(jobs.offers(ws, "market"), "retake")[0]
+        ws.places["farm_a"].holder = "settlers"
+        lose(ws, "farm_a", "raiders", hour=ws.hour)
+        self.assertIn("lost again", jobs.valid(ws, old))
+        new = by_kind(jobs.offers(ws, "market"), "retake")[0]
+        self.assertIsNone(jobs.valid(ws, new))
+
     def test_cleared_place_counts_as_lost_and_can_be_asked_back(self):
         ws = quiet(world())
         ws.places["ruins"].holder = "raiders"
