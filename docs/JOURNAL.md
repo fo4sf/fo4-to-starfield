@@ -2120,3 +2120,19 @@ trip from a passing one, which is why the retry never fired. Which step raises t
 popup is open; #512's door change (the destination marker moved to the merged spot
 before the MoveTo, plus a settle step) is the next PC card. The counts stand: 7 of
 10 and 6 of 10. The entry above stands as written.
+
+## 2026-10-23: Phase 0: the owner's section A results (gate 3)
+
+The owner played section A of the test sheet on v6i with the bridge door-script
+set t4 and the quest probe installed, and reported at 15:46 UTC: the mission
+worked, the map markers worked, every A5 door but one at Fort Hagen worked;
+Codsworth did not spawn (which save is not stated; the keeper fix #493 is not
+installed); cans and books can be moved inside but not outside; the quest probe
+ran, its marker away from the door (the port's library has no load door, so the
+probe falls back to another door or object); the borders are "wrong for sure",
+with the owner's getpos and map screenshot for Map's overlay and city
+screenshots to come; New Atlantis is very laggy. Gate 3's pass rule (A2 to A5
+as expected) is met by A2 and A4, not by A3 and A5, so those two are defect rows
+and the owner's call. Rows 31 to 37 of playtest-issues.md carry each report.
+Gate 1 still waits on card J4; gate 2 (13 of 20) is the owner's call. The
+entries above stand as written.
