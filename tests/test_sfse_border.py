@@ -61,6 +61,20 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(ini, r"(?m)^Mode=0$")
         self.assertIn("kStructureIndependence_1_14_70_Layout", self.cpp)
 
+    def test_game_memory_is_read_only_through_read_process_memory(self):
+        # the worker has no SEH (mingw): a page freed or reprotected after VirtualQuery must fail a read, not crash
+        # the game (Grok on #522). Regions carry no live pointer, and no code dereferences the value byte.
+        self.assertIn("ReadProcessMemory(GetCurrentProcess()", self.cpp)
+        self.assertIn("base + at), nullptr, len, writable", self.cpp)
+        for deref in ("*addr_", "*value", "reinterpret_cast<const std::uint8_t*>(ptr"):
+            self.assertNotIn(deref, self.cpp)
+        run = self.cpp[self.cpp.index("void Run() override"):self.cpp.index("void Destroy()")]
+        self.assertLess(run.index("before > 1"), run.index("WriteProcessMemory"))   # checked again at write time
+
+    def test_an_unfinished_line_is_carried_to_the_next_read(self):
+        self.assertIn("fo4sfborder::complete_lines(t.carry, buf)", self.cpp)
+        self.assertIn("std::string carry;", self.cpp)
+
     def test_no_sfse_header_or_binary_in_the_repo(self):
         tracked = subprocess.run(["git", "ls-files", "sfse/FO4SFBorder"], cwd=ROOT, capture_output=True,
                                  text=True, check=True).stdout.split()

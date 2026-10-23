@@ -105,7 +105,16 @@ std::wstring module_dir() {
     return cut == std::wstring::npos ? L"" : p.substr(0, cut);
 }
 
-// Committed, readable, non-guard memory of Starfield.exe's image (VirtualQuery over SizeOfImage).
+// Every read of game memory goes through ReadProcessMemory on this process: a page freed or reprotected after
+// VirtualQuery makes it fail (ERROR_PARTIAL_COPY) instead of raising an access violation on the worker, which has no
+// SEH (mingw has no __try; Grok on #522).
+bool safe_read(std::uintptr_t addr, void* out, std::size_t n) {
+    SIZE_T got = 0;
+    return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(addr), out, n, &got) && got == n;
+}
+
+// Committed, readable, non-guard memory of Starfield.exe's image (VirtualQuery over SizeOfImage), as address ranges;
+// `data` is filled per region by copy_region, never pointed at the live image.
 std::vector<fo4sfborder::Region> image_regions() {
     std::vector<fo4sfborder::Region> out;
     auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
@@ -124,7 +133,7 @@ std::vector<fo4sfborder::Region> image_regions() {
             (p == PAGE_READONLY || p == PAGE_READWRITE || p == PAGE_WRITECOPY || p == PAGE_EXECUTE_READ ||
              p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY);
         const bool writable = p == PAGE_READWRITE || p == PAGE_WRITECOPY || p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY;
-        if (readable) out.push_back({reinterpret_cast<std::uintptr_t>(base + at), base + at, len, writable});
+        if (readable) out.push_back({reinterpret_cast<std::uintptr_t>(base + at), nullptr, len, writable});
         at += len;
     }
     return out;
@@ -135,9 +144,37 @@ struct Found {
     std::vector<std::vector<std::uint8_t>> watched;   // the kWatchBytes before each pointer, last seen
 };
 
+// A copy of one region; a region that cannot be read whole is dropped (data stays null, size 0).
+fo4sfborder::Region copy_region(const fo4sfborder::Region& r, std::vector<std::uint8_t>& buf) {
+    buf.resize(r.size);
+    if (!safe_read(r.base, buf.data(), r.size)) return {r.base, nullptr, 0, r.writable};
+    return {r.base, buf.data(), r.size, r.writable};
+}
+
+// The name strings, then the pointers to them, one region copy at a time (the whole image is never held twice).
+std::vector<fo4sfborder::Candidate> find_candidates(const std::vector<fo4sfborder::Region>& regions, std::size_t& strings_out) {
+    std::vector<std::uint8_t> buf;
+    std::vector<std::uintptr_t> strings;
+    for (const auto& r : regions) {
+        auto s = fo4sfborder::find_strings({copy_region(r, buf)}, fo4sfborder::kSettingName);
+        strings.insert(strings.end(), s.begin(), s.end());
+    }
+    strings_out = strings.size();
+    std::vector<fo4sfborder::Candidate> out;
+    if (strings.empty()) return out;
+    for (const auto& r : regions) {
+        if (!r.writable) continue;
+        auto c = fo4sfborder::find_pointers({copy_region(r, buf)}, strings);
+        out.insert(out.end(), c.begin(), c.end());
+    }
+    return out;
+}
+
+// The kWatchBytes before a pointer; empty when they cannot be read.
 std::vector<std::uint8_t> bytes_before(std::uintptr_t ptr) {
-    auto* p = reinterpret_cast<const std::uint8_t*>(ptr - kWatchBytes);
-    return std::vector<std::uint8_t>(p, p + kWatchBytes);
+    std::vector<std::uint8_t> b(kWatchBytes);
+    if (!safe_read(ptr - kWatchBytes, b.data(), b.size())) b.clear();
+    return b;
 }
 
 std::string bytes_hex(const std::vector<std::uint8_t>& b) {
@@ -150,7 +187,8 @@ std::string bytes_hex(const std::vector<std::uint8_t>& b) {
 Found scan(const char* when) {
     Found f;
     auto regions = image_regions();
-    f.candidates = fo4sfborder::find_setting_candidates(regions);
+    std::size_t strings = 0;
+    f.candidates = find_candidates(regions, strings);
     std::string list;
     for (const auto& c : f.candidates) {
         f.watched.push_back(bytes_before(c.pointer_addr));
@@ -159,7 +197,7 @@ Found scan(const char* when) {
                 "\", \"before\": \"" + bytes_hex(f.watched.back()) + "\"}";
     }
     log_line("\"event\": \"scan\", \"when\": " + json_string(when) + ", \"regions\": " + std::to_string(regions.size()) +
-             ", \"strings\": " + std::to_string(fo4sfborder::find_strings(regions, fo4sfborder::kSettingName).size()) +
+             ", \"strings\": " + std::to_string(strings) +
              ", \"candidates\": [" + list + "]");
     return f;
 }
@@ -168,10 +206,18 @@ class WriteTask final : public SFSETaskInterface::ITaskDelegate {
 public:
     WriteTask(std::uint8_t* addr, std::uint8_t value, int signal) : addr_(addr), value_(value), signal_(signal) {}
     void Run() override {
-        const std::uint8_t before = *addr_;
-        *addr_ = value_;
-        log_line("\"event\": \"write\", \"addr\": \"" + hex(reinterpret_cast<std::uintptr_t>(addr_)) + "\", \"before\": " +
-                 std::to_string(before) + ", \"after\": " + std::to_string(*addr_) + ", \"signal\": " +
+        const auto at = reinterpret_cast<std::uintptr_t>(addr_);
+        std::uint8_t before = 0xFF, after = 0xFF;
+        // the byte is checked again here, on the main thread: it must still read 0 or 1 (Grok on #522)
+        if (!safe_read(at, &before, 1) || before > 1) {
+            log_line("\"event\": \"refuse\", \"why\": \"byte at write time is " + std::to_string(before) + ", not 0 or 1\", \"addr\": \"" + hex(at) + "\"");
+            return;
+        }
+        SIZE_T put = 0;
+        const bool ok = WriteProcessMemory(GetCurrentProcess(), addr_, &value_, 1, &put) && put == 1;
+        safe_read(at, &after, 1);
+        log_line("\"event\": \"write\", \"ok\": " + std::string(ok ? "true" : "false") + ", \"addr\": \"" + hex(at) +
+                 "\", \"before\": " + std::to_string(before) + ", \"after\": " + std::to_string(after) + ", \"signal\": " +
                  json_string(signal_ == 0 ? "border=off" : "border=on"));
     }
     void Destroy() override { delete this; }
@@ -188,6 +234,7 @@ struct Tail {
     DWORD vol = 0, idx_hi = 0, idx_lo = 0;
     long long offset = -1;     // -1: not yet seen
     bool known = false;
+    std::string carry;         // an unfinished last line, kept for the next poll (Grok on #522)
 };
 
 bool read_new(Tail& t, std::string& text, bool baseline) {
@@ -199,7 +246,10 @@ bool read_new(Tail& t, std::string& text, bool baseline) {
     bool ok = GetFileInformationByHandle(h, &info) && GetFileSizeEx(h, &size);
     if (ok) {
         const bool same = t.known && info.dwVolumeSerialNumber == t.vol && info.nFileIndexHigh == t.idx_hi && info.nFileIndexLow == t.idx_lo;
-        if (!same || size.QuadPart < t.offset) t.offset = (baseline && !t.known) ? size.QuadPart : 0;
+        if (!same || size.QuadPart < t.offset) {
+            t.offset = (baseline && !t.known) ? size.QuadPart : 0;
+            t.carry.clear();
+        }
         t.vol = info.dwVolumeSerialNumber; t.idx_hi = info.nFileIndexHigh; t.idx_lo = info.nFileIndexLow; t.known = true;
         if (size.QuadPart > t.offset) {
             const long long want = std::min<long long>(size.QuadPart - t.offset, 1 << 20);
@@ -208,9 +258,15 @@ bool read_new(Tail& t, std::string& text, bool baseline) {
             DWORD got = 0;
             if (SetFilePointerEx(h, pos, nullptr, FILE_BEGIN) && ReadFile(h, buf.data(), static_cast<DWORD>(want), &got, nullptr)) {
                 buf.resize(got);
-                text = buf;
+                if (want < size.QuadPart - t.offset) t.carry.clear();   // skipped the middle: the carry is not before buf
+                text = fo4sfborder::complete_lines(t.carry, buf);
                 t.offset = size.QuadPart;
             }
+        } else if (!t.carry.empty()) {
+            // nothing new for a whole poll: the unfinished line was the whole line (a log that writes its newline
+            // only before the next line would otherwise hold the newest signal back)
+            text = t.carry;
+            t.carry.clear();
         }
     }
     CloseHandle(h);
@@ -237,7 +293,7 @@ DWORD WINAPI worker(LPVOID) {
                     log_line("\"event\": \"refuse\", \"why\": \"" + std::to_string(f.candidates.size()) + " candidates, want exactly 1\"");
                 } else {
                     value = reinterpret_cast<std::uint8_t*>(f.candidates[0].pointer_addr + g_value_offset);
-                    original = *value;
+                    if (!safe_read(f.candidates[0].pointer_addr + g_value_offset, &original, 1)) original = 0xFF;
                     if (original > 1) {
                         refused = true;
                         log_line("\"event\": \"refuse\", \"why\": \"byte at value_offset " + std::to_string(g_value_offset) +
@@ -252,6 +308,12 @@ DWORD WINAPI worker(LPVOID) {
         }
         for (std::size_t i = 0; i < f.candidates.size(); ++i) {   // probe and switch: log every change before a pointer
             auto now = bytes_before(f.candidates[i].pointer_addr);
+            if (now.empty() || f.watched[i].empty()) {
+                if (now.size() != f.watched[i].size())
+                    log_line("\"event\": \"unreadable\", \"candidate\": " + std::to_string(i) + ", \"readable\": " + (now.empty() ? "false" : "true"));
+                f.watched[i] = now;
+                continue;
+            }
             if (now != f.watched[i]) {
                 std::string diff;
                 for (int k = 0; k < kWatchBytes; ++k) {

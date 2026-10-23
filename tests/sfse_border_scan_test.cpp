@@ -36,6 +36,17 @@ int main() {
     assert(parse_signal("x border=off y") == 0);
     assert(parse_signal("border=off\nborder=on\n") == 1);
     assert(parse_signal("border=on\nborder=off\n") == 0);
+    // a token split across two reads is seen whole once its line ends (Grok on #522)
+    std::string carry;
+    assert(complete_lines(carry, "FO4SF_MAP rt=1 border=of").empty() && carry == "FO4SF_MAP rt=1 border=of");
+    std::string lines = complete_lines(carry, "f cell=[Cell]\nFO4SF_MAP rt=2 mov");
+    assert(lines == "FO4SF_MAP rt=1 border=off cell=[Cell]\n" && parse_signal(lines) == 0 && carry == "FO4SF_MAP rt=2 mov");
+    assert(complete_lines(carry, "ed 1\r\n") == "FO4SF_MAP rt=2 moved 1\r\n" && carry.empty());
+
+    // a region that could not be copied (data null, size 0) is skipped
+    std::vector<Region> none = {{rbase, nullptr, 0, true}};
+    assert(find_strings(none, kSettingName).empty() && find_pointers(none, strings).empty());
+
     std::puts("sfse_border_scan_test: all passed");
     return 0;
 }

@@ -78,4 +78,17 @@ inline int parse_signal(const std::string& text) {
     return off > on ? 0 : 1;
 }
 
+// The complete lines of `carry` + `chunk` (up to and including the last newline); what follows the last newline is
+// kept in `carry` for the next read, so a token split across two reads is still seen whole.
+inline std::string complete_lines(std::string& carry, const std::string& chunk) {
+    std::string all = carry + chunk;
+    const std::size_t nl = all.rfind('\n');
+    if (nl == std::string::npos) {
+        carry = all;
+        return std::string();
+    }
+    carry = all.substr(nl + 1);
+    return all.substr(0, nl + 1);
+}
+
 }  // namespace fo4sfborder
