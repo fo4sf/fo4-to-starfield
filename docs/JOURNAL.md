@@ -2103,3 +2103,20 @@ are void; #504 (merged, main 981c0216) fixes the judge and card J4 reruns both
 queues under v6ic after the owner's session. The quest probe (questprobe_v2) is
 installed on the owner's 00:14 UTC word; newgame_v7 is built and staged against
 v6i, not installed. The entries above stand as written.
+
+## 2026-10-23: correction: the Vault 95 fails were the popup, not a bounce back
+
+The entry above on the Vault 95 rate said the retry never fired because the
+engine's bounce back into the cell came after the script's check, and that every
+fail STAYED in the interior cell. That reading was wrong (Grok's review of #505,
+against border.md "Rate and retry runs" in #512, draft, on the same 20 runs): in
+all 7 fails the BOUNDARY REACHED popup came up during the exit and paused the
+game; the bridge feed went stale (its newest line 76 to 78 s old) and the judge
+fell back to the last read before the door, inside cell 06007D12, so STAYED there
+means the popup came up, not a measured bounce back inside. The script's trace
+was the same in every PASS and FAIL (the MoveTo lands in the exterior at the
+marker's unmerged position), so no check right after the move can tell a failing
+trip from a passing one, which is why the retry never fired. Which step raises the
+popup is open; #512's door change (the destination marker moved to the merged spot
+before the MoveTo, plus a settle step) is the next PC card. The counts stand: 7 of
+10 and 6 of 10. The entry above stands as written.

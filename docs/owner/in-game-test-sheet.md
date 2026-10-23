@@ -15,10 +15,11 @@ FO4Port.esm (the runner's own sessions loaded it at `02`, so its logs show `02..
 not the v6i indexes, which moved on 22 Oct (section A), so read the current Plugins.txt before any `prid` from those
 sections, or use the cell and object names instead.
 
-## A. Next session (22 Oct 2026): the checks that close phase 0
+## A. Next session (23 Oct 2026): the checks that close phase 0
 
-Added 22 Oct. The installed build is now v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8) plus
-the map markers plugin; sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
+Added 22 Oct, updated 23 Oct. Installed: v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8), the map
+markers plugin, the bridge door-script set t4 (no retry) and the quest probe plugin (A7). Not installed: the new game
+(newgame_v7, staged) and the Codsworth keeper fix for older saves (#493); sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
 section A is on the owner's live test sheet (https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b), with copy buttons
 and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth rendering, the four map markers. Console ids
 moved on 22 Oct (Codsworth went from 06000811 to 05000811 because Plugins.txt was rewritten 25 s after start; the
@@ -26,8 +27,8 @@ game is the inferred writer, not a traced one), so this section uses cell names 
 
 **Which build closes the phase:** v6i, the installed build. The first route for the border fix, the world's own
 settings, did not hold up on the PC (22 Oct: the Vault 95 exit failed now and then with every setting, the unchanged
-one included), so no core rebuild comes and this session's results close phase 0. The PC's Vault 95 runs are done (7 of 10 and 6 of 10 exits landed, 23 Oct); the door rounds rerun after this
-session; the owner is told when the game is free.
+one included), so no core rebuild comes and this session's results close phase 0. The PC's Vault 95 runs are done (7 of 10 and 6 of 10 exits landed, 23 Oct); the automated door rounds rerun after
+this session.
 
 **Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
 starts fresh; the 19 Oct save already completed it and cannot replay it.
@@ -51,8 +52,9 @@ Report: `Mission: tab YES/NO | raiders fought YES/NO | Preston shot me YES/NO | 
 
 Then walk to Sanctuary. Expected: a small hovering robot named Codsworth near his house, with his own Fallout 4 look
 (size and textures). Stand near him: his greeting is heard, subtitle only, or neither.
-Report: `Codsworth: at his house YES/NO | look OK/OFF (what) | greeting HEARD/SUBTITLE/NEITHER`. If he is not there on
-this save either, say so; that is the fix Bugs is working on.
+Report: `Codsworth: at his house YES/NO | look OK/OFF (what) | greeting HEARD/SUBTITLE/NEITHER`. If he is not there, say
+so. The keeper fix for older saves (#493) is merged but not installed this session, so this check is about the test
+save only.
 
 ### A4. Map extent (Map thread's ask)
 
@@ -70,7 +72,9 @@ For each: the prompt text (or "none"), and where you end up.
 
 - (a) Outside Fort Hagen (near -2470, -2772): walk up to the elevator entrance. Is there a prompt, what does it say,
   does it take you inside?
-- (b) Outside Vault 95 (near -1916, -3985): the same at its elevator entrance.
+- (b) Outside Vault 95 (near -1916, -3985): the same at its elevator entrance. Coming back out by its door, the
+  BOUNDARY REACHED popup may show (the PC's exits landed 13 times in 20, gate 2); if it does, say so and where you end
+  up. `coc FO4Core_RedRocketSpawn` leaves without that door.
 - (c) Inside the Museum of Witchcraft (`coc FO4Port_MuseumOfWitchcraft01`): climb to the roof hatch. Prompt? Does it
   put you on the roof?
 - (d) Inside Fort Hagen (`coc FO4Port_FortHagen01`): the roof hatch, the same.
@@ -87,9 +91,21 @@ No wall to check north of Vault 111: that report was a misreading and is withdra
 without the popup, 22 Oct). The owner's choice stands (B, a fix for our world only, not the global INI); its first
 route, the world's own settings, did not hold up on the PC (22 Oct): the Vault 95 exit fails now and then with any
 setting, so the PC measured it instead of the owner (23 Oct): ten plain exits landed 7 of 10, and ten with the door's own
-retry landed 6 of 10, the retry never firing (the game bounces the player back after the script has checked). Whether
-that rate holds the phase or goes on the defect list is the owner's call (gate 2 of the exit checklist); nothing for
-the owner to do at that door.
+retry landed 6 of 10. In every failed exit the BOUNDARY REACHED popup came up during the exit and paused the game;
+the retry never fired because the door's script sees the same thing in a passing and a failing exit (border.md, #512,
+draft). Which step raises the popup is open; a door-script change that aims the move straight at the merged spot is
+next on the PC (#512, not yet run). Whether that rate holds the phase or goes on the defect list is the owner's call
+(gate 2 of the exit checklist).
+
+### A7. Quest probe (optional, last; not a phase check)
+
+It shows how Starfield runs our quests, for later work ([questprobe/engine-questions.md](../questprobe/engine-questions.md),
+"The run"). After A2 to A6: `coc FO4Port_BostonPublicLibrary02`, wait about 15 s for the notification "Quest probe
+done: check the compass marker and the Missions tab", take a Ctrl+Alt+L screenshot with the compass in view (is there
+a quest marker?), open the Missions tab and take a screenshot (which heading is the probe's mission under?), then walk
+to the marked spot (its objective should complete). The PC reads the probe's log afterwards
+(`make_questprobe.py log`).
+Report: `Probe: notification YES/NO | compass marker YES/NO | Missions heading: ... | objective completed YES/NO`.
 
 ## 1. Get there
 
