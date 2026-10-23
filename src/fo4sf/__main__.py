@@ -38,13 +38,19 @@ def _git_rev() -> str | None:
 
 
 def _env_summary() -> list[str]:
-    """Short environment lines for status: Python, platform, git (if available)."""
+    """Short environment lines for status: Python, platform, git (if available), oracles count."""
     lines = []
     lines.append(f"  python: {sys.version.split()[0]} ({sys.executable})")
     lines.append(f"  platform: {platform.system()} {platform.release()}")
     rev = _git_rev()
     if rev:
         lines.append(f"  git: {rev}")
+    root = _repo_root()
+    if root:
+        oracle_dir = root / "scripts" / "oracles"
+        if oracle_dir.is_dir():
+            count = len(list(oracle_dir.glob("*.py")))
+            lines.append(f"  oracles: {count} offline diagnostics in scripts/oracles")
     return lines
 
 
