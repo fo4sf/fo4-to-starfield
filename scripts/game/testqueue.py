@@ -554,8 +554,9 @@ def plan_terrain(a):
                                                        "z_ref", "hop_m", "hop_wait_ms", "activate",
                                                        "teleport_console") if w.get(k)},
                                   "drop_z": float(w.get("drop_z", 80.0)),
-                                  "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
-                                                                                       "y": w["points"][0]["y"]}},
+                                  # "beyond": null (door_rounds.py's judged legs): no diagnostic teleport after the test
+                                  "points": w["points"], "beyond": w["beyond"] if "beyond" in w else
+                                  {"x": w["points"][0]["x"] + 500.0, "y": w["points"][0]["y"]}},
                                  w, cli))
     exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
     worlds = [] if own else [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),

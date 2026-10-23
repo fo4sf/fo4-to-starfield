@@ -121,6 +121,8 @@ class StageTests(unittest.TestCase):
                          (dr.SPAWN_COC, spawn["spawn_local"], spawn["points"][:1]))   # arrival only, no sweep
         self.assertEqual(plan[0]["beyond"], {"x": spawn["points"][0]["x"], "y": spawn["points"][0]["y"]})
         self.assertNotIn("activate", plan[0])
+        self.assertIsNone(plan[1]["beyond"])                   # J2: a teleport after the trip hid where the door put him
+        self.assertTrue(all(t["beyond"] is None for t in both_plan))
         self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
         self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
                                                   'SetINI "bBorderRegionsEnabled:General" 0',
@@ -395,6 +397,26 @@ class JudgeTests(unittest.TestCase):
         with open(os.path.join(d, "door_rounds_judge.json")) as f:
             row = json.load(f)["results"][0]
         self.assertEqual((row["verdict"], row["why"].split(":")[0]), ("INCONCLUSIVE", "CONFLICT"))
+
+    def test_a_queue_with_a_teleport_after_the_trip_is_never_judged_by_it(self):
+        # J2 (2026-10-23): the runner's beyond teleport came after the door, so the last position was the teleport's
+        d = tempfile.mkdtemp()
+        q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn", "beyond": {"x": 1.0, "y": 2.0}}]}
+        with open(os.path.join(d, "queue.json"), "w") as f:
+            json.dump(q, f)
+        with open(os.path.join(d, "rounds.json"), "w") as f:
+            json.dump({"tol_m": 3.0, "tests": [dict(EXP_IN, test=0, leg="in", cell_edid="X")]}, f)
+        a = os.path.join(d, "tests", q["tests"][0]["id"], "a1")
+        os.makedirs(a)
+        with open(os.path.join(a, "bridge.log"), "w") as f:
+            f.write("\n".join(IN_OK) + "\n")
+        with open(os.path.join(a, "obs.json"), "w") as f:
+            json.dump(ACT, f)
+        with redirect_stdout(io.StringIO()):
+            rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
+        self.assertEqual(rows[0]["verdict"], "INCONCLUSIVE")
+        self.assertTrue(rows[0]["why"].startswith("BEYOND"), rows[0]["why"])
+        self.assertIn("(as read: PASS", rows[0]["why"])
 
     def test_judge_reads_the_latest_attempt_of_each_test(self):
         d = tempfile.mkdtemp()
