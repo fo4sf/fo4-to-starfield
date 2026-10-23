@@ -509,7 +509,12 @@ def activate_block(a):
     expect = a.get("expect") or []
     if not isinstance(expect, list) or not all(isinstance(x, str) and x for x in expect):
         sys.exit("activate.expect must be a list of non-empty strings")
-    return {"ref": str(a["ref"]).upper(), "base": str(a["base"]).upper(), "expect": list(expect)}
+    out = {"ref": str(a["ref"]).upper(), "base": str(a["base"]).upper(), "expect": list(expect)}
+    if "close" in a:                       # false: no menu to close after it (a load door; qstep.ps1 holds no Tab)
+        if not isinstance(a["close"], bool):
+            sys.exit(f"activate.close must be true or false: {a['close']!r}")
+        out["close"] = a["close"]
+    return out
 
 
 def plan_terrain(a):

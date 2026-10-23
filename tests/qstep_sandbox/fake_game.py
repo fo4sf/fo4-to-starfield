@@ -534,6 +534,8 @@ def main():
         seq = os.environ.get("FAKE_SEQ", "") if sys.argv[2] == "-" else sys.argv[2]   # '-': input.ps1's $Seq
         for step in seq.split("|"):
             k, _, v = step.partition(":")
+            if k in ("hold", "holdg"):                 # every held key, in order (the activate step's Tab)
+                s.setdefault("held", []).append(v.partition(",")[0])
             if k == "type":
                 typed += v
             elif k == "key" and v == "enter":

@@ -92,6 +92,21 @@ class ActivateStepTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 testqueue.plan_terrain(args)
 
+    def test_close_false_is_carried_and_checked(self):
+        """J4 (2026-10-23): a held Tab after a load door's activation opened the data menu or the starmap, and the
+        next console open refused (code 3) in 4 of 30 legs; a block may say close = false, and nothing else."""
+        self.assertEqual(testqueue.activate_block(dict(TEST["activate"], close=False))["close"], False)
+        self.assertNotIn("close", testqueue.activate_block(TEST["activate"]))     # absent: the menu is closed as before
+        with self.assertRaises(SystemExit):
+            testqueue.activate_block(dict(TEST["activate"], close="no"))
+
+    def test_the_tab_close_runs_only_for_a_menu_that_is_up(self):
+        src = qstep_source().replace("\r\n", "\n")
+        self.assertIn("$close = $t.activate.close -ne $false", src)
+        at = src.index("if ($close -and -not (Hud-Shown 'activate_menu.png')) {")
+        self.assertLess(at, src.index("Send 'hold:tab,1200|wait:1500'"))        # every held Tab sits inside that guard
+        self.assertEqual(src.count("hold:tab"), 2)
+
     def test_no_capture_and_no_block(self):
         self.assertEqual(testqueue.activate_summary(TEST, {"activate": {"ref": "020A2AA5", "shot": None}}),
                          "[activate 020A2AA5: no capture]")
