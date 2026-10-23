@@ -121,6 +121,8 @@ class StageTests(unittest.TestCase):
                          (dr.SPAWN_COC, spawn["spawn_local"], spawn["points"][:1]))   # arrival only, no sweep
         self.assertEqual(plan[0]["beyond"], {"x": spawn["points"][0]["x"], "y": spawn["points"][0]["y"]})
         self.assertNotIn("activate", plan[0])
+        self.assertIsNone(plan[1]["beyond"])                   # J2: a teleport after the trip hid where the door put him
+        self.assertTrue(all(t["beyond"] is None for t in both_plan))
         self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
         self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
                                                   'SetINI "bBorderRegionsEnabled:General" 0',
@@ -255,6 +257,15 @@ class JudgeTests(unittest.TestCase):
                          ("FAIL", "WRONG_PLACE"))
         self.assertEqual(verdict(OUT_OK[:2] + (pos(5, 17, -3),), EXP_OUT), ("FAIL", "STAYED"))
 
+    def test_a_wrong_place_names_the_distance_from_the_resolved_marker_too(self):
+        # J2 (2026-10-23): every IN leg was far off its record position in the right cell; the marker's own runtime
+        # position tells a record-frame question from a wrong trip, beside the verdict, never instead of it
+        far = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace("pos=1 2 3", "pos=-930 -1690 -270"), pos(-932, -1691, -272))
+        v, why, _ = dr.judge_test(log(*far), ACT, EXP_IN)
+        self.assertEqual(v, "FAIL")
+        self.assertTrue(why.startswith("WRONG_PLACE"), why)
+        self.assertIn("2.2 m in xy, 2.0 m in z from the marker's runtime position [-930.0, -1690.0, -270.0]", why)
+
     def test_missing_proof_is_never_a_pass(self):
         self.assertEqual(verdict(IN_OK, EXP_IN, {"activate": {"selected": False}}), ("INCONCLUSIVE", "NOT_ACTIVATED"))
         for obs in ({}, {"activate": {}}, None):                         # Codex #358: absence is not success
@@ -387,6 +398,26 @@ class JudgeTests(unittest.TestCase):
             row = json.load(f)["results"][0]
         self.assertEqual((row["verdict"], row["why"].split(":")[0]), ("INCONCLUSIVE", "CONFLICT"))
 
+    def test_a_queue_with_a_teleport_after_the_trip_is_never_judged_by_it(self):
+        # J2 (2026-10-23): the runner's beyond teleport came after the door, so the last position was the teleport's
+        d = tempfile.mkdtemp()
+        q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn", "beyond": {"x": 1.0, "y": 2.0}}]}
+        with open(os.path.join(d, "queue.json"), "w") as f:
+            json.dump(q, f)
+        with open(os.path.join(d, "rounds.json"), "w") as f:
+            json.dump({"tol_m": 3.0, "tests": [dict(EXP_IN, test=0, leg="in", cell_edid="X")]}, f)
+        a = os.path.join(d, "tests", q["tests"][0]["id"], "a1")
+        os.makedirs(a)
+        with open(os.path.join(a, "bridge.log"), "w") as f:
+            f.write("\n".join(IN_OK) + "\n")
+        with open(os.path.join(a, "obs.json"), "w") as f:
+            json.dump(ACT, f)
+        with redirect_stdout(io.StringIO()):
+            rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
+        self.assertEqual(rows[0]["verdict"], "INCONCLUSIVE")
+        self.assertTrue(rows[0]["why"].startswith("BEYOND"), rows[0]["why"])
+        self.assertIn("(as read: PASS", rows[0]["why"])
+
     def test_judge_reads_the_latest_attempt_of_each_test(self):
         d = tempfile.mkdtemp()
         q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn"},
@@ -444,6 +475,7 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        self.assertEqual(rounds["out_min_m"], 0.0)              # Codex on #500: a reused OUT stage is checked by it
         with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])

@@ -15,7 +15,10 @@
 //                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
-//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
+//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell.
+//                          Optional params "world_data": {"small_world": false, "hnam": 5} changes LC172World's DATA
+//                          SmallWorld flag and its 1-byte HNAM (docs/terrain/border.md: NewAtlantis's values; whether
+//                          they stop "BOUNDARY REACHED" is not yet proven, the repeat test there decides)
 // PNDT CNAM entries store latitude first, then longitude (radians; Earth overlays sit at their real cities). Mutagen
 // 0.55 names the first value Longitude and the second Latitude, so the params' latitude goes into .Longitude.
 //
@@ -130,6 +133,13 @@ foreach (var o in overlays)
     w.TopCell = null;
     w.OffsetData = null;
     w.CellSizeData = null;
+    if (prm.TryGetProperty("world_data", out var wd) && wd.ValueKind == JsonValueKind.Object)
+    {
+        if (wd.TryGetProperty("small_world", out var sw) && sw.ValueKind == JsonValueKind.False)
+            w.Flags = (w.Flags ?? 0) & ~Worldspace.Flag.SmallWorld;
+        if (wd.TryGetProperty("hnam", out var wh))
+            w.HNAM = new MemorySlice<byte>(new byte[] { checked((byte)wh.GetInt32()) });
+    }
     w.Location.SetTo(loc.FormKey);
     w.Components.OfType<WorldSpaceOverlayComponent>().First().SurfaceBlock.SetTo(block.FormKey);
     // object bounds are raw metres; Mutagen shows them divided by 4096
@@ -192,7 +202,7 @@ string[] lightSources = Array.Empty<string>();                 // exterior light
 JsonElement? lightsJson = null, lightBasesJson = null;
 // scripted load doors: the REFRs are placed with the objects (reserved slots); their ACTI bases and arrival markers
 // are allocated after the lights
-var doorEntries = new List<(string Src, PlacedObject Obj, string Edid, string Model, string Name, int[] ArrivalCell, float[] ArrivalPos, float[] ArrivalRot)>();
+var doorEntries = new List<(string Src, PlacedObject Obj, string Edid, string Model, string Name, int[] ArrivalCell, float[] ArrivalPos, float[] ArrivalRot, JsonElement? Anim)>();
 var doorIds = new Dictionary<string, object>();
 var doorRefIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // door source -> its REFR id: a navmesh door triangle may name it
 if (Has(prm, "objects"))
@@ -787,17 +797,28 @@ if (Has(prm, "objects"))
             if (!cellAt.ContainsKey((acell[0], acell[1])))
                 throw new InvalidDataException($"door {src}: arrival marker in cell ({acell[0]}, {acell[1]}) outside {world}'s cells");
             var obj = PlacePromoted(c, FormKey.Null, "door");                   // the ACTI base is linked after the lights
+            // step C (make_core64c.py stage --animated-doors, docs/spikes/load-door-animations.md): "anim" makes the base a
+            // rigged DOOR and the script FO4SF_AnimatedLoadDoor (FO4SF_LoadDoor's properties plus OpenSeconds); without
+            // it nothing here changes
+            JsonElement? anim = c.TryGetProperty("anim", out var an) && an.ValueKind == JsonValueKind.Object ? an : null;
             var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
-            var script = new ScriptEntry { Name = "FO4SF_LoadDoor", Flags = ScriptEntry.Flag.Local };
+            var script = new ScriptEntry { Name = anim is null ? "FO4SF_LoadDoor" : "FO4SF_AnimatedLoadDoor", Flags = ScriptEntry.Flag.Local };
             script.Properties.Add(new ScriptStringProperty { Name = "DestinationPlugin", Flags = ScriptProperty.Flag.Edited, Data = plugin });
             script.Properties.Add(new ScriptIntProperty { Name = "DestinationId", Flags = ScriptProperty.Flag.Edited, Data = destId });
             string[] axes = { "DestinationX", "DestinationY", "DestinationZ" };
             for (int k = 0; k < 3; k++)
                 script.Properties.Add(new ScriptFloatProperty { Name = axes[k], Flags = ScriptProperty.Flag.Edited, Data = destPos[k] });
             script.Properties.Add(new ScriptBoolProperty { Name = "UseDestinationPosition", Flags = ScriptProperty.Flag.Edited, Data = true });
+            if (anim is JsonElement aj)
+            {
+                var seconds = aj.GetProperty("open_seconds").GetSingle();
+                if (!float.IsFinite(seconds) || seconds < 0 || seconds > 30)
+                    throw new InvalidDataException($"door {src}: open seconds {seconds} outside 0..30");
+                script.Properties.Add(new ScriptFloatProperty { Name = "OpenSeconds", Flags = ScriptProperty.Flag.Edited, Data = seconds });
+            }
             vmad.Scripts.Add(script);
             obj.VirtualMachineAdapter = vmad;
-            doorEntries.Add((src, obj, edid, model, name, acell, A("pos"), A("rot")));
+            doorEntries.Add((src, obj, edid, model, name, acell, A("pos"), A("rot"), anim?.Clone()));
             doorRefIds[src] = obj.FormKey.ID.ToString("X6");
         }
     }
@@ -1065,19 +1086,49 @@ if (doorEntries.Count > 0)
     // the vanilla majority), and the door REFRs placed above take that ACTI as base.
     var persistentCell = worlds.First(x => x.World.EditorID == objWorld).World.TopCell!;
     var markerKeys = doorEntries.Select(_ => NewKey()).ToList();
-    var doorActi = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
+    var doorActi = new Dictionary<string, IStarfieldMajorRecordGetter>(StringComparer.OrdinalIgnoreCase);
     for (int i = 0; i < doorEntries.Count; i++)
     {
         var d = doorEntries[i];
         if (!doorActi.TryGetValue(d.Edid, out var acti))
         {
-            acti = new StarfieldActivator(NewKey(), release)
+            if (d.Anim is JsonElement aj)
             {
-                EditorID = d.Edid, Model = new Model { File = d.Model }, Name = d.Name,
-                MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
-                Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
-            };
-            mod.Activators.Add(acti);
+                // step C: the same DOOR the port writes for an animated load door (PluginSpike): rig graph, skeleton,
+                // clips, bounds, the vanilla sounds and FO4's flags when the manifest has them; the same new id as the ACTI
+                var door = new Door(NewKey(), release)
+                {
+                    EditorID = d.Edid, Model = new Model { File = d.Model }, Name = d.Name,
+                    SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+                    Flags = aj.TryGetProperty("fo4_door_flags", out var ff) ? (Door.Flag)(ff.GetInt32() & 0x7E) : 0,
+                };
+                if (aj.TryGetProperty("bounds", out var bj))
+                    door.ObjectBounds = new ObjectBounds
+                    {
+                        First = new P3Float(bj[0][0].GetSingle(), bj[0][1].GetSingle(), bj[0][2].GetSingle()),
+                        Second = new P3Float(bj[1][0].GetSingle(), bj[1][1].GetSingle(), bj[1][2].GetSingle()),
+                    };
+                door.Components.Add(new AnimationGraphComponent
+                {
+                    ANAM = aj.GetProperty("anim_graph").GetString(), BNAM = aj.GetProperty("skeleton").GetString(),
+                    CNAM = aj.GetProperty("animations").GetString(),
+                });
+                door.OpenSound = DoorSound(aj, "open_sound");
+                door.CloseSound = DoorSound(aj, "close_sound");
+                mod.Doors.Add(door);
+                acti = door;
+            }
+            else
+            {
+                var a = new StarfieldActivator(NewKey(), release)
+                {
+                    EditorID = d.Edid, Model = new Model { File = d.Model }, Name = d.Name,
+                    MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                    Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
+                };
+                mod.Activators.Add(a);
+                acti = a;
+            }
             doorActi[d.Edid] = acti;
             nDoorActi++;
         }
@@ -1094,9 +1145,19 @@ if (doorEntries.Count > 0)
         {
             ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = d.Obj.FormKey.ID.ToString("X6"), ["arrival"] = marker.FormKey.ID.ToString("X6"),
         };
-        Console.WriteLine($"  door {d.Src} -> REFR {d.Obj.FormKey} on ACTI {acti.FormKey} {acti.EditorID} ('{d.Name}'), arrival marker {marker.FormKey} " +
+        Console.WriteLine($"  door {d.Src} -> REFR {d.Obj.FormKey} on {(d.Anim is null ? "ACTI" : "animated DOOR")} {acti.FormKey} {acti.EditorID} ('{d.Name}'), arrival marker {marker.FormKey} " +
                           $"persistent in {persistentCell.FormKey} (over cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]})) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
+}
+// load_door_anim.py sounds on a door's "anim" (as PluginSpike's VanillaSound): WWise start / stop, optional condition
+// and event mapping of Starfield.esm; null without one
+static SoundReference? DoorSound(JsonElement rig, string name)
+{
+    if (!rig.TryGetProperty(name, out var s) || s.ValueKind != JsonValueKind.Object) return null;
+    var r = new SoundReference { Start = Guid.Parse(s.GetProperty("start").GetString()!), Stop = Guid.Parse(s.GetProperty("stop").GetString()!) };
+    if (s.TryGetProperty("condition", out var c) && c.GetString() is string ck) r.Condition.SetTo(FormKey.Factory(ck));
+    if (s.TryGetProperty("mapping", out var m) && m.GetString() is string mk) r.EventMapping.SetTo(FormKey.Factory(mk));
+    return r;
 }
 // Map markers (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12 so empty XMRK /
 // FNAM 0x1B / TNAM 0x17 stay vanilla; one per entry of the overlay's "map_markers" (make_core64c stage: Red Rocket at

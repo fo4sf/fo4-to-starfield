@@ -22,10 +22,10 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Crash watcher** | now starts and ends with the game, with launcher settings | #449 (merged) |
 | **Report hotkey** | the Ctrl+Alt+K description box opens visible and in front | #463 (merged) |
 | **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |
-| **Map markers** | the markers plugin is installed on the test PC for testing | #376, #399 |
-| **Vault 95 and the map boundary** | under investigation; an Interiors test is queued | Interiors thread |
-| **Buildings on the surface map** | verified: the vanilla object LOD archive's file paths and sizes; supported, not decoded: what the `.lod` fields mean; a Creation Kit command-line route found, not yet run | #467 (draft) |
-| **Launcher window** | a window over launcher.py (status, settings, play), with Codex | #456 |
+| **Map markers** | verified in game (22 Oct): the four markers draw on the surface map after a revisit of the area; the label and Concord-height fix (#483) is installed since 22 Oct 19:32 UTC and waits for its in-game check (own names on the map, Concord arrival above ground) | #376, #399, #483 (merged, installed) |
+| **Vault 95 and the map boundary** | cause proven in game for the Vault 95 exit: Starfield's border region (the exit passes with it off); the earlier report of a wall on foot north of Vault 111 was a misreading and is withdrawn (the owner walked past that spot without the popup, 22 Oct); the owner chose a fix for our world only; the BorderProbe rerun on the PC (22 Oct): city (SmallWorld cleared, HNAM 5) and nosmall passed the Vault 95 exit with the border on, hnam5 failed; the 3-run settling test with each variant as the last WRLD override (22 Oct) came back control 3 of 3, nosmall 2 of 3, city 2 of 3, so neither field is a reliable fix and the failure is intermittent; the fields are shelved (no core is built with #495's flag, no v6j, v6i stays the build); next on the PC: the failure rate over 10 exits, then 10 more with the door's own retry of a missed trip (#499), and an SFSE per-world toggle as the fallback (docs/terrain/border.md) | #444, #485, #495, #499 (merged) |
+| **Buildings on the surface map** | verified: the vanilla object LOD archive's file paths and sizes; supported, not decoded: what the `.lod` fields mean; the Creation Kit mock LOD route was run on the PC (22 Oct): it found neither our world nor three tiny test worlds, so the route is unproved, not closed, and buildings on the surface map wait on converting Fallout 4's own LOD meshes (Grok's scoping, #490) | #467, #501 (merged); #490 (draft) |
+| **Launcher window** | merged, and the owner's first run started the game from the desktop shortcut; the locations tab, the load-order report and the load-order fix before play followed | #476, #481, #487 (merged) |
 | **Grok's launcher tasks** | focused QA and diagnostic tasks | #458 |
 
 <details>
