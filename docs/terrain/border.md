@@ -58,19 +58,29 @@ build (FAIL STAYED with the popup). Each result is evidence about that variant a
 - **city** (no SmallWorld, HNAM 5): Vault 95 OUT **PASS**, 0.00 m off in xy, 0.02 m in z; the Red Rocket spawn leg
   passed too (queue `doors_v95_probe_city`).
 - **hnam5** (SmallWorld kept, HNAM 5): FAIL STAYED, still in the interior.
-- **nosmall** (no SmallWorld, HNAM 0): rerunning (its first queue spent its relaunch budget on an aborted launch).
+- **nosmall** (no SmallWorld, HNAM 0): PASS on its rerun (`doors_v95_probe_nosmall2`).
 
-**Not yet proven.** FO4SFMapMarkers.esm was installed in both runs, carries a copy of the core's WRLD (SmallWorld,
-HNAM 0) and loaded after the probe, so by record order the live WRLD was the control's in both runs (BorderProbe show,
-Install, 2026-10-22). Moves of 3 or more cells also fail about 11 times in 28 without any border change (above), so
-one pass against one fail may be chance. The settling test: the markers plugin carries each variant's WRLD fields (so
-the variant is the last override whatever the order), and each of control, city and nosmall runs 3 times on the same
-save. If city passes 3 of 3 and control fails 3 of 3, the fix is real.
+**Repeat test: neither field change reliably fixes the exit in these runs.** In the first runs FO4SFMapMarkers.esm,
+with a copy of the core's WRLD (SmallWorld, HNAM 0), loaded after the probe, so the live WRLD was the control's in all
+of them. The settling test (2026-10-22, queues `doors_v95_settle_*`) put each variant in the markers plugin's WRLD
+copy, as the last override (BorderProbe show before and after the first run), no probe plugin, the same save, 3 runs
+each:
 
-The core build can take city with `make_core64c.py stage --world-border city` (TerrainOverlays params `world_data`;
-`check` expects exactly that WRLD change; FO4SFMission's WRLD override is a copy of the core's, so it carries the
-fields when the mission is folded again). Any plugin that copies our WRLD (the markers plugin) must be restaged
-against that core. The wider checks above run on the rebuilt core.
+| set | WRLD (last override) | runs |
+|---|---|---|
+| control | SmallWorld, HNAM 0 | PASS, PASS, PASS |
+| nosmall | flags 0, HNAM 0 | PASS, PASS, FAIL |
+| city | flags 0, HNAM 5 | FAIL, PASS, PASS |
 
-If no variant passes, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
+Every PASS lands at the same spot (0.00 m off in xy, 0.02 m in z). Every FAIL is "STAYED": the player is still in the
+interior, near its door, and the screenshot shows the BOUNDARY REACHED popup. The earlier control failure (`_f`,
+without the markers plugin) and the hnam5 failure stay on record. What this shows: city and nosmall are not reliable
+fixes. What it does not show: whether the fields change the failure rate (3 runs per set cannot tell), whether the
+fourth combination (SmallWorld kept, HNAM 5) helps (it was never the last override), or what causes the intermittent
+failure; the popup still points at the border mechanism. Those stay open until controlled repeats.
+`make_core64c.py stage --world-border` stays in the code with `template` as the default; no core is built with it.
+The next steps are the failure rate (10 control runs, with the FO4SF_LoadDoor trace) and the door's retry of a missed
+MoveTo (docs/terrain/scripted-doors.md).
+
+If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
