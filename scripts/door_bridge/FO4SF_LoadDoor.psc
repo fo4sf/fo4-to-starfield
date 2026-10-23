@@ -14,6 +14,9 @@ float Property DestinationZ Auto
 ; RetryWaitSeconds. 0 turns retries off.
 int Property MoveRetries = 1 Auto
 float Property RetryWaitSeconds = 0.5 Auto
+; With UseDestinationPosition, the wait between the MoveTo and the SetPosition. The BOUNDARY REACHED popup pauses
+; Papyrus, so whether the trace stops before or after phase=settled tells which step raised it (docs/terrain/border.md).
+float Property SettleSeconds = 1.0 Auto
 bool Moving = False
 
 Event OnLoad()
@@ -64,6 +67,8 @@ Event OnActivate(ObjectReference akActionRef)
         string requestedPosition = "FO4SF_LoadDoor requested_position=" + DestinationX + " " + DestinationY + " " + DestinationZ
         Debug.Trace(requestedPosition)
         Debug.TraceUser("fo4sf", requestedPosition)
+        Utility.Wait(SettleSeconds)
+        TracePosition("settled", akActionRef)
         akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)
         TracePosition("after_position", akActionRef)
     endif

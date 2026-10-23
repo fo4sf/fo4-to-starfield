@@ -50,6 +50,8 @@ class ArrivalContractTests(unittest.TestCase):
             "while retries < MoveRetries && !Arrived(akActionRef, destination, origin)",
             'TracePosition("after_retry", akActionRef)',
             "if UseDestinationPosition",
+            "Utility.Wait(SettleSeconds)",
+            'TracePosition("settled", akActionRef)',
             "akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)",
             'TracePosition("after_position", akActionRef)',
             "Moving = False",
@@ -81,6 +83,13 @@ class ArrivalContractTests(unittest.TestCase):
         before = self.activate.split(".MoveTo(", 1)[0]
         self.assertIn("Cell origin = akActionRef.GetParentCell()", before)
         self.assertIn('"FO4SF_LoadDoor retry gave up after "', self.activate.split("endwhile", 1)[1])
+
+    def test_the_position_step_waits_and_traces_after_the_move(self):
+        self.assertIn("float Property SettleSeconds = 1.0 Auto", self.code)
+        guarded = re.search(r"if UseDestinationPosition\s+(.*?)\s+endif", self.activate, re.S)[1]
+        before_position = guarded.split("akActionRef.SetPosition(", 1)[0]
+        self.assertEqual(before_position.count("Utility.Wait(SettleSeconds)"), 1)
+        self.assertEqual(before_position.count('TracePosition("settled", akActionRef)'), 1)
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
         trace = self.code.split("Function TracePosition(", 1)[1]

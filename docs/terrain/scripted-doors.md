@@ -32,6 +32,13 @@ the same MoveTo, at most `MoveRetries` times (default 1; 0 turns it off). Both p
 VMADs need no change. Each retry traces `FO4SF_LoadDoor retry N of M` and `phase=after_retry`, and a miss after the last one `FO4SF_LoadDoor retry gave up after N`. A door PASS in the
 doors_out judge's results can therefore come from the second MoveTo; the trace tells which. The check is not a judged
 arrival either: it only sees that the player left their starting cell, and the judge still reads where they ended up.
+In the 10 retry runs it never fired (docs/terrain/border.md, "Rate and retry runs"): the MoveTo always lands in the
+exterior, and the popup comes up afterwards and pauses the game, so the script cannot see the failure.
+
+**Settle before the position step (2026-10-23, not yet run in game).** With `UseDestinationPosition`, the script now
+waits `SettleSeconds` (default 1.0; an Auto property, so existing VMADs need no change) after the MoveTo and traces
+`phase=settled` before the SetPosition. It is a diagnostic first: the popup pauses Papyrus, so where the trace stops
+tells which step raised it.
 
 Per door, this build writes:
 
