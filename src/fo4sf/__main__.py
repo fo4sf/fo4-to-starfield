@@ -2,6 +2,7 @@
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
+python -m fo4sf list-oracles  # list available offline oracle scripts
 """
 from __future__ import annotations
 
@@ -270,6 +271,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_list_oracles(args: argparse.Namespace) -> int:
+    """List available offline oracle scripts in scripts/oracles/."""
+    repo = _repo_root()
+    if repo is None:
+        print("not running from a repository checkout", file=sys.stderr)
+        return 1
+    oracles_dir = repo / "scripts" / "oracles"
+    if not oracles_dir.is_dir():
+        print("scripts/oracles/ not found", file=sys.stderr)
+        return 1
+    py_files = sorted(p.stem for p in oracles_dir.glob("*.py") if p.is_file() and not p.name.startswith("_"))
+    print(f"fo4-to-starfield oracles ({len(py_files)} found in scripts/oracles/)")
+    for name in py_files:
+        print(f"  {name}")
+    print("\nRun with: python scripts/oracles/<name>.py   (see each script's docstring / --help)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +300,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_oracles = sub.add_parser("list-oracles", help="list available offline oracle scripts")
+    p_oracles.set_defaults(func=cmd_list_oracles)
 
     args = parser.parse_args(argv)
     return args.func(args)
