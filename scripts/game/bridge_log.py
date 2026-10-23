@@ -86,10 +86,16 @@ PLAYER = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF player pos=(?P<x>-?\d+(?:\.\d+)?)
                     r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?\s*$")
 
 
+# FO4SF_LoadDoor's own trace (scripts/door_bridge/FO4SF_LoadDoor.psc: "requested ...", "phase=marker ..."): only that the
+# door's trip began, and its phase; door_rounds.py judges positions after it (Interiors, #512)
+LOADDOOR = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF_LoadDoor\b(?:.*?\bphase=(?P<phase>[A-Za-z_]+))?", re.I)
+
+
 def parse_event(s):
     """Any bridge line as {"kind": ...}: "pos" (the timer's line, parse_line's fields), "ack" {tag} (FO4SF_Probe.Ack or
     cgf Debug.TraceUser), "ref" {id (hex), pos, ang, cell, disabled, loaded, or none True} (FO4SF_Probe.Pos),
-    "player" {pos, ang} (FO4SF_Probe.Player), "init"; None for anything else."""
+    "player" {pos, ang} (FO4SF_Probe.Player), "init", "loaddoor" {phase (lower case, None for a line without one)};
+    None for anything else."""
     d = parse_line(s)
     if d is not None:
         return dict(d, kind="pos")
@@ -120,6 +126,9 @@ def parse_event(s):
         return out
     if re.match(r"^(?:\[[^\]]*\]\s*)?FO4SF init\b", s):
         return {"kind": "init"}
+    m = LOADDOOR.match(s)
+    if m:
+        return {"kind": "loaddoor", "phase": (m.group("phase") or "").lower() or None}
     return parse_probe(s)
 
 
