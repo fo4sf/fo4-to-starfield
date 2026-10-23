@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -14,6 +15,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "bridge"))
 import door_rounds as dr  # noqa: E402
 import vmad_patch as vp  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+import console_plan  # noqa: E402
 
 OWN = 0x01000000
 MERGE = (-1200.0, -2700.0, 0.0)
@@ -106,6 +109,39 @@ class StageTests(unittest.TestCase):
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(rounds["core_worlds"], [])           # the synthetic core has no WRLD record
 
+    def test_out_legs_alone_and_the_border_switch(self):
+        d = tempfile.mkdtemp()
+        core, port, _back = build(d)
+        both, both_plan = stage(core, port, os.path.join(d, "both"))
+        rounds, plan = stage(core, port, os.path.join(d, "out"), "--legs", "out", "--border-off")
+        with open(os.path.join(core, "plan.json")) as f:
+            spawn = json.load(f)[0]
+        self.assertEqual(len(plan), 2)                          # a Red Rocket prelude (Codex on #444), then the OUT leg
+        self.assertEqual((plan[0]["coc"], plan[0]["spawn_local"], plan[0]["points"]),
+                         (dr.SPAWN_COC, spawn["spawn_local"], spawn["points"][:1]))   # arrival only, no sweep
+        self.assertEqual(plan[0]["beyond"], {"x": spawn["points"][0]["x"], "y": spawn["points"][0]["y"]})
+        self.assertNotIn("activate", plan[0])
+        self.assertIsNone(plan[1]["beyond"])                   # J2: a teleport after the trip hid where the door put him
+        self.assertTrue(all(t["beyond"] is None for t in both_plan))
+        self.assertEqual(plan[1]["coc"], "FO4Port_SuperDuperMart01")
+        self.assertEqual(plan[1]["console_pre"], ['GetINI "bBorderRegionsEnabled:General"',
+                                                  'SetINI "bBorderRegionsEnabled:General" 0',
+                                                  'GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual(plan[1]["console_post"], both_plan[1]["console_post"] + ['GetINI "bBorderRegionsEnabled:General"'])
+        self.assertEqual({k: v for k, v in plan[1].items() if k not in ("console_pre", "console_post")},
+                         {k: v for k, v in both_plan[1].items() if k != "console_post"})
+        origin = rounds["tests"][0].pop("origin")               # the prelude is judged by nobody; the OUT leg checks it
+        self.assertEqual(rounds["tests"], [dict(both["tests"][1], test=1)])
+        self.assertEqual(origin["tol_m"], dr.ORIGIN_TOL_M)
+        for got, want in zip(origin["pos"], vp.merged([spawn["points"][0]["x"], spawn["points"][0]["y"]], rounds["merge"])):
+            self.assertAlmostEqual(got, want, places=3)
+        self.assertEqual((rounds["legs"], rounds["border_off"], both["legs"], both["border_off"]), ("out", True, "both", False))
+        self.assertNotIn("console_pre", both_plan[0])
+        with open(os.path.join(d, "out", "README.txt")) as f:   # a relaunch would land in Vault111Cryo, not Red Rocket
+            self.assertIn("no --fresh", f.read())
+        for line in plan[1]["console_pre"] + plan[1]["console_post"]:   # the runner types only whitelisted lines
+            self.assertTrue(re.fullmatch(console_plan.PATTERN, line), line)
+
     def test_the_stage_records_the_cores_worldspaces(self):
         d = tempfile.mkdtemp()
         core, port, _ = build(d)
@@ -166,6 +202,17 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(dr.order(lines), {"FO4TerrainCore.esm": 2, "FO4TerrainCore_Mars.esm": 3, "FO4SFMission.esm": 4,
                                            "FO4Port.esm": 5, "FO4SFBridge.esm": 6})
 
+    def test_the_map_markers_plugin_follows_the_port(self):
+        # PC run 2026-10-22 (Vault 95 _e): Plugins.txt had the markers plugin before the re-deployed port; cycle.ps1
+        # loaded TerrainCore, Mars, Raider, Mission, Port, MapMarkers, Bridge: the port at 06, not 07
+        lines = ["*FO4TerrainCore.esm", "*FO4TerrainCore_Mars.esm", "*FO4Raider.esm", "*FO4SFMission.esm",
+                 "*FO4SFMapMarkers.esm", "*FO4Port.esm", "*FO4SFBridge.esm"]
+        idx = dr.order(lines)
+        self.assertEqual(idx["FO4Port.esm"], 6)
+        self.assertEqual(idx["FO4SFMapMarkers.esm"], 7)
+        self.assertEqual(idx["FO4SFBridge.esm"], 8)
+        self.assertNotIn("FO4SFMapMarkers.esm", dr.order([ln for ln in lines if "MapMarkers" not in ln]))
+
 
 def log(*lines):
     return [e for e in (dr.bridge_log.parse_event(s) for s in lines) if e is not None]
@@ -178,8 +225,8 @@ EXP_OUT = {"ack": "door-ret-0", "pos": [-1669.444, -2063.926, 42.356], "cell": N
 CELL, WORLD, ACT = str(0x02000801), "-16707575", {"activate": {"selected": True}}
 
 
-def pos(x, y, z, cell=CELL, world="none", loaded="true"):
-    return f"FO4SF rt=9.0 pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
+def pos(x, y, z, cell=CELL, world="none", loaded="true", rt=9.0):
+    return f"FO4SF rt={rt} pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
 
 
 def res(plugin, local, index, cell=CELL, world="none"):
@@ -210,6 +257,15 @@ class JudgeTests(unittest.TestCase):
                          ("FAIL", "WRONG_PLACE"))
         self.assertEqual(verdict(OUT_OK[:2] + (pos(5, 17, -3),), EXP_OUT), ("FAIL", "STAYED"))
 
+    def test_a_wrong_place_names_the_distance_from_the_resolved_marker_too(self):
+        # J2 (2026-10-23): every IN leg was far off its record position in the right cell; the marker's own runtime
+        # position tells a record-frame question from a wrong trip, beside the verdict, never instead of it
+        far = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace("pos=1 2 3", "pos=-930 -1690 -270"), pos(-932, -1691, -272))
+        v, why, _ = dr.judge_test(log(*far), ACT, EXP_IN)
+        self.assertEqual(v, "FAIL")
+        self.assertTrue(why.startswith("WRONG_PLACE"), why)
+        self.assertIn("2.2 m in xy, 2.0 m in z from the marker's runtime position [-930.0, -1690.0, -270.0]", why)
+
     def test_missing_proof_is_never_a_pass(self):
         self.assertEqual(verdict(IN_OK, EXP_IN, {"activate": {"selected": False}}), ("INCONCLUSIVE", "NOT_ACTIVATED"))
         for obs in ({}, {"activate": {}}, None):                         # Codex #358: absence is not success
@@ -224,6 +280,23 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict(IN_OK[:2] + (pos(5.6, 17.0, -3.6, loaded="false"),), EXP_IN), ("INCONCLUSIVE", "UNSETTLED"))
         self.assertEqual(verdict(IN_OK, dict(EXP_IN, pos=[float("nan"), 17.291, -3.654])), ("INCONCLUSIVE", "BAD_PLAN"))
         self.assertEqual(dr.judge_test(log(*IN_OK), ACT, EXP_IN, tol=float("nan"))[1].split(":")[0], "BAD_PLAN")
+
+    def test_an_out_leg_alone_must_start_at_its_red_rocket_prelude(self):
+        # Codex on #444: a crash between the prelude and the OUT leg relaunches into Vault111Cryo
+        exp = dict(EXP_OUT, origin={"pos": [-2185.26, -1561.49], "tol_m": 100.0})
+        start = pos(-2180, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        # Codex on #444: the log is the whole session's, launch in Vault111Cryo first: the last exterior read counts
+        self.assertEqual(verdict((pos(1, 2, 3), start, pos(5, 17, -3)) + OUT_OK, exp)[0], "PASS")
+        far = pos(-1000, -1555, 105, cell="-7", world=WORLD)
+        self.assertEqual(verdict((far, start) + OUT_OK, exp)[0], "PASS")                       # an earlier test's exit
+        self.assertEqual(verdict((start, far) + OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))     # left Red Rocket since
+        self.assertEqual(verdict((start, pos(1, 2, 3, rt=2.0)) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # a relaunch since
+        self.assertEqual(verdict((pos(-1000, -1555, 105, cell="-7", world=WORLD),) + OUT_OK, exp),
+                         ("INCONCLUSIVE", "ORIGIN"))                                              # began elsewhere
+        self.assertEqual(verdict(OUT_OK, exp), ("INCONCLUSIVE", "ORIGIN"))                        # no reading at all
+        self.assertEqual(verdict(OUT_OK, EXP_OUT)[0], "PASS")                                     # two-leg stages: no gate
 
     def test_contradictory_targets_are_inconclusive(self):
         other = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0xFF011009 - (1 << 32))),
@@ -325,6 +398,26 @@ class JudgeTests(unittest.TestCase):
             row = json.load(f)["results"][0]
         self.assertEqual((row["verdict"], row["why"].split(":")[0]), ("INCONCLUSIVE", "CONFLICT"))
 
+    def test_a_queue_with_a_teleport_after_the_trip_is_never_judged_by_it(self):
+        # J2 (2026-10-23): the runner's beyond teleport came after the door, so the last position was the teleport's
+        d = tempfile.mkdtemp()
+        q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn", "beyond": {"x": 1.0, "y": 2.0}}]}
+        with open(os.path.join(d, "queue.json"), "w") as f:
+            json.dump(q, f)
+        with open(os.path.join(d, "rounds.json"), "w") as f:
+            json.dump({"tol_m": 3.0, "tests": [dict(EXP_IN, test=0, leg="in", cell_edid="X")]}, f)
+        a = os.path.join(d, "tests", q["tests"][0]["id"], "a1")
+        os.makedirs(a)
+        with open(os.path.join(a, "bridge.log"), "w") as f:
+            f.write("\n".join(IN_OK) + "\n")
+        with open(os.path.join(a, "obs.json"), "w") as f:
+            json.dump(ACT, f)
+        with redirect_stdout(io.StringIO()):
+            rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
+        self.assertEqual(rows[0]["verdict"], "INCONCLUSIVE")
+        self.assertTrue(rows[0]["why"].startswith("BEYOND"), rows[0]["why"])
+        self.assertIn("(as read: PASS", rows[0]["why"])
+
     def test_judge_reads_the_latest_attempt_of_each_test(self):
         d = tempfile.mkdtemp()
         q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn"},
@@ -382,11 +475,27 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        self.assertEqual(rounds["out_min_m"], 0.0)              # Codex on #500: a reused OUT stage is checked by it
         with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
         with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
             self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
+
+    def test_a_border_off_stage_keeps_its_console_lines(self):
+        core, port, _ = build(os.path.join(self.d, "b"))
+        st = os.path.join(self.d, "st_border")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", st, "--border-off"])
+        plan, rounds = self.load(st, "plan.json"), self.load(st, "rounds.json")
+        kept, out = self.run_on(plan, rounds, 0, "border")      # Codex on #444: the filter rebuilt it without them
+        self.assertEqual(kept, [plan[1]])
+        self.assertEqual(kept[0]["console_pre"][:3], dr.BORDER_OFF)
+        self.assertEqual((out["legs"], out["border_off"]), ("out", True))
+        rounds["border_off"] = False                            # a stage that lies about its lines is refused
+        with self.assertRaises(SystemExit):
+            self.run_on(plan, rounds, 0, "border_lie")
 
     def test_the_distance_comes_from_the_geometry_not_the_label(self):
         # Codex's review of #383: 728.53 m from the spawn; labels are display only

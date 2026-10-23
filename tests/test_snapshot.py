@@ -29,6 +29,20 @@ class SnapshotTests(unittest.TestCase):
             self.assertIn("exit 2", state["screen_error"])
             self.assertFalse(os.path.exists(os.path.join(out, "screen.png")), "the stale picture must be gone")
 
+    def test_plugins_txt_is_written_as_plain_strings(self):
+        # Install, 22 Oct: Get-Content's lines carried PSPath, PSDrive and Provider into a 3 MB state.json
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            os.makedirs(os.path.join(d, "Starfield"))
+            open(os.path.join(d, "Starfield", "Plugins.txt"), "w").write("# comment\n*FO4TerrainCore.esm\nFO4Port.esm\n")
+            stub = os.path.join(d, "shot_fails.ps1")
+            open(stub, "w").write("param([string]$Out)\nexit 2\n")
+            env = dict(os.environ, FO4SF_SHOT_SCRIPT=stub, LOCALAPPDATA=d)
+            subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out, "-MaxAge", "1"],
+                           capture_output=True, text=True, timeout=120, env=env)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["plugins_txt"], ["*FO4TerrainCore.esm", "FO4Port.esm"])
+
     def test_the_look_button_press_takes_a_snapshot(self):
         # look_hotkey.ps1 -TestFire runs the press handler once (no hotkey registered): a snapshot appears
         hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")

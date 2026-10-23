@@ -209,6 +209,30 @@ class RelocateContractTests(unittest.TestCase):
         self.assertRegex(psc, r"if aiTimerID == 2\s+KeepCodsworth\(\)")
         self.assertEqual(psc.count("KeepCodsworthStart()"), 3)          # defined, from OnQuestInit, from timer 1
 
+    def test_the_keeper_restarts_codsworth_on_an_existing_save(self):
+        """22 Oct, the owner's save: Codsworth unmoved and no mission log, since stage 200 cancels timer 1 and nothing
+        else started his timer. His keeper (a start-game-enabled quest of its own, KeeperOnly) starts on such a save,
+        enables him, and restarts his timer with a fresh budget at its init and on every save load; it never runs the
+        mission."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        self.assertRegex(psc, r"(?m)^bool Property KeeperOnly = False Auto Const$")
+        self.assertNotIn("KeeperOnly", make_mission.mandatory_properties(psc))
+        init = psc[psc.index("Event OnQuestInit()"):psc.index("EndEvent", psc.index("Event OnQuestInit()"))]
+        keeper = init[:init.index("endif")]
+        self.assertIn("if KeeperOnly", keeper)
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', keeper)
+        self.assertIn("KeepCodsworthLoad()", keeper)
+        self.assertIn("return", keeper)
+        self.assertLess(init.index("return"), init.index("AdvanceTo(10)"))     # the keeper never starts the mission
+        load = psc[psc.index("Function KeepCodsworthLoad()"):psc.index("EndFunction", psc.index("Function KeepCodsworthLoad()"))]
+        self.assertRegex(load, r"if Codsworth.IsDisabled\(\)\s+Codsworth.Enable\(\)")
+        self.assertIn("codsworthFails = 0", load)
+        self.assertIn("StartTimer(CodsworthCheck, 2)", load)
+        self.assertRegex(psc, r"Event Actor.OnPlayerLoadGame\(Actor akSender\)\s+if KeeperOnly\s+KeepCodsworthLoad\(\)")
+        keep = psc[psc.index("Function KeepCodsworth()"):psc.index("bool Function MoveOver")]
+        self.assertLess(keep.index("if Codsworth == None"), keep.index("MoveOver(Codsworth"))   # the mission's old timer 2
+
     def test_moves_trace_the_worlds(self):
         """Codex's world-identity point (#353): every move logs the player's and the actor's world before it and the
         actor's world after it, so the anchor gate can be designed from evidence."""
