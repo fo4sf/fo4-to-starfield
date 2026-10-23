@@ -96,7 +96,7 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   batch it builds on, was removed by the 21 Oct cleanup. In its place a read-only check of b10's door wiring against
   the v6i core is queued on the PC (card 1b). A pass installs b10 as built (with the installer's `--other-core`,
   since it stays wired to v6c) on the owner's line; on a fail Interiors adds a redoors mode first. Detail in the Phase 1 paragraph below.
-- **The combined-core probe, after phase 0** (CombinedCore): #431 in Codex rounds; the restage goes against v6i; the
+- **The combined-core probe, after phase 0** (CombinedCore): #431 in review (Grok this week, see merges); the restage goes against v6i; the
   owner's line "Turn off FO4SFMission and install the combined-core probe for one test session."
 - **Codsworth on the old saves, right after phase 0** (Bugs, with NPC and Interiors): #493 (the keeper quest) is
   merged but in no installed plugin; without a core rebuild it needs its own FO4SFMission build against the v6i core
@@ -117,7 +117,10 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   checks with Map before changing the target).
 - **Merges, housekeeping**: #408 (framework, merged 00:17 UTC 23 Oct, main 597ea5f6), #500 (doors plan, 00:28 UTC,
   main b78bb893), #501 (LOD doc, 00:45 UTC, main 7625deaa) and #502 (Bugs: the HUD screenshot is kept when a test step
-  cannot open the console, 00:58 UTC, main 564dfa64) are on main; #431 (combined core) is still in Codex rounds.
+  cannot open the console, 00:58 UTC, main 564dfa64) are on main. #431 (combined core) waits on a review pass: Codex
+  (the bot and the desktop app, one account) ran out of usage on 23 Oct until 29 Oct, so on the owner's word (23 Oct,
+  01:25 UTC, option A) Grok reviews this week, #431 first and then this ledger's PR (#503); a Grok "no major issues"
+  is the review pass, and nothing merges without one.
 
 **The owner's install lines.** Typed in the Install thread, one at a time, only when a thread asks. None of them is
 a phase 0 gate.
@@ -197,7 +200,7 @@ a phase 0 gate.
 The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
 against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it is
 restaged against the installed v6i core (no core rebuild is planned, item 4) before the owner's line "Install the new
-game." The same holds for the focc probe (#431, in Codex rounds; 3,349 tests passed at 1db5919): CombinedCore restages
+game." The same holds for the focc probe (#431, in review with Grok this week; 3,349 tests passed at 1db5919): CombinedCore restages
 it from the head that merges, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
 that ends up installed is v6i (Interiors shelved the border fields on 22 Oct, no v6j); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
