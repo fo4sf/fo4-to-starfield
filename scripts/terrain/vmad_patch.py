@@ -45,6 +45,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import sys
@@ -525,9 +526,14 @@ def xmarker_ref(fid, pos, rot, version=0x0240):
 
 
 # --------------------------------------------------------------------------------------------------------- folders
+# a packed interior batch's texture companions (FO4PortTextures2.esm ..., deploy_starfield.py COMPANION_RX): empty
+# plugins that only load their archive, never the port
+TEXTURE_COMPANION = re.compile(r"^FO4PortTextures([2-9]|[1-9]\d+)\.esm$", re.I)
+
+
 def plugin_in(folder):
-    """The one .esm of a staging folder."""
-    esms = sorted(n for n in os.listdir(folder) if n.lower().endswith(".esm"))
+    """The one .esm of a staging folder (texture companions aside)."""
+    esms = sorted(n for n in os.listdir(folder) if n.lower().endswith(".esm") and not TEXTURE_COMPANION.match(n))
     if len(esms) != 1:
         raise ValueError(f"{folder}: {len(esms)} .esm files ({esms})")
     return esms[0]

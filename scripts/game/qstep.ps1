@@ -40,10 +40,21 @@ function Send($seq) {
   if ($LASTEXITCODE -ne 0) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
 }
 function Console-Open {
-  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') | Out-Null
+  # the attempt's own folder, so the HUD check's last screenshot (hud_check.png) stays with a refusal (J2, 2026-10-22:
+  # two code 3s left no picture, %TEMP%\fo4sf_ocr is overwritten by every later test)
+  $w = Join-Path $Out 'console_open'
+  $shot = Join-Path $w 'hud_check.png'
+  Remove-Item -LiteralPath $shot -ErrorAction SilentlyContinue   # only this call's picture names a refusal
+  $stale = Test-Path -LiteralPath $shot   # an earlier picture that could not be removed (locked, read-only) is never named
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') -Work $w | Out-Null
   $c = $LASTEXITCODE
   if ($c -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
-  if ($c -ne 0) { $obs['stopped'] = "console not opened safely ($c)"; Save-Obs; exit 3 }
+  if ($c -ne 0) {
+    $obs['stopped'] = "console not opened safely ($c)"
+    if ($stale) { $obs['console_open_shot_stale'] = 'an earlier hud_check.png could not be removed; none named' }
+    elseif (Test-Path -LiteralPath $shot) { $obs['console_open_shot'] = 'console_open\hud_check.png' }
+    Save-Obs; exit 3
+  }
 }
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
@@ -870,11 +881,16 @@ switch ($kind) {
       }
       Save-Obs
     }
-    # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
-    Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
-    Start-Sleep -Milliseconds 4500
-    $obs['beyond_read'] = Read-Pos
-    $obs['beyond_shot'] = Shot 'beyond.png'
+    # Unscored plan diagnostic: use the same merged frame/drop height as the judged points. A door leg plans none
+    # (beyond null): the bridge's last position must be the trip's, not this teleport's (J2, 2026-10-23)
+    if ($t.beyond) {
+      Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
+      Start-Sleep -Milliseconds 4500
+      $obs['beyond_read'] = Read-Pos
+      $obs['beyond_shot'] = Shot 'beyond.png'
+    } else {
+      Start-Sleep -Milliseconds 4500                  # the bridge's timer logs the settled arrival
+    }
   }
   'npc_nav' {
     # NPC navigation (PR #61 docs/actors/npc-navigation.md 3.4, docs/ai/test-queue.md): travel, spawn a vanilla actor at

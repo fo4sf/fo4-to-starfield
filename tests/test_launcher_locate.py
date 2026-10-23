@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -65,12 +66,33 @@ class LocateTests(unittest.TestCase):
         self.assertIsNone(r["starfield"])
         self.assertIn("Starfield not found in any Steam library", r["notes"])
 
+    def test_a_game_still_downloading_is_not_an_install_yet(self):
+        os.makedirs(os.path.join(self.steam, "steamapps", "common", "Fallout 4", "Data"))
+        acf = os.path.join(self.steam, "steamapps", "appmanifest_377160.acf")
+        for flags, found in (("1042", False), ("4", True), ("1028", True)):   # downloading; installed; updating
+            write(acf, manifest("377160", "Fallout 4").replace('"name"', f'"StateFlags"\t\t"{flags}"\n\t"name"'))
+            with self.subTest(flags=flags):
+                self.assertEqual(locate.find_app(self.steam, "377160") is not None, found)
+        r = locate.locate(self.steam, gog="")
+        self.assertEqual(r["fallout4"], os.path.join(self.steam, "steamapps", "common", "Fallout 4"))
+        # once installed, its Data comes after the depot downloads: detect uses the later copy of any archive
+        self.assertEqual(locate.fo4_data_folders(r)[-1], os.path.join(r["fallout4"], "Data"))
+
     def test_old_libraryfolders_layout(self):
         old = os.path.join(self.steam, "steamapps", "libraryfolders.vdf")
         write(old, '"LibraryFolders"\n{\n\t"TimeNextStatsReport"\t"1"\n\t"1"\t"' + self.lib2.replace("\\", "\\\\")
               + '"\n}\n')
         os.remove(os.path.join(self.steam, "config", "libraryfolders.vdf"))
         self.assertEqual(locate.libraries(self.steam), [os.path.normpath(self.steam), os.path.normpath(self.lib2)])
+
+    def test_a_library_listed_in_other_case_is_one_library(self):
+        # the owner's libraryfolders.vdf lists Steam's own folder in lower case: on Windows that is the same folder,
+        # and listing it twice listed every Fallout 4 depot twice (PC, 2026-10-22)
+        write(os.path.join(self.steam, "config", "libraryfolders.vdf"),
+              '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"' + self.steam.lower().replace("\\", "\\\\")
+              + '"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"' + self.lib2.replace("\\", "\\\\") + '"\n\t}\n}\n')
+        with mock.patch("os.path.normcase", str.lower):                 # Windows' rule, on any test machine
+            self.assertEqual(locate.libraries(self.steam), [os.path.normpath(self.steam), os.path.normpath(self.lib2)])
 
     def test_gog_fallout4_when_steam_has_none(self):
         gog = os.path.join(os.path.dirname(self.steam), "GOG Games", "Fallout 4 GOTY")

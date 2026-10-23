@@ -126,8 +126,16 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
     refusals, warnings = [], []
     table = sources if isinstance(sources, dict) else load_sources(sources)
     out = {"fo4": None, "game": None, "disk": None}
+    # one folder named twice (in another case, or with a trailing separator, as a lower-case Steam library path in
+    # libraryfolders.vdf gives on Windows) is read once: otherwise every archive in it is "found 2 times" (PC, 2026-10-22)
+    seen, folders = set(), []
+    for d in fo4_data:
+        key = os.path.normcase(os.path.normpath(d))
+        if key not in seen:
+            seen.add(key)
+            folders.append(d)
     try:
-        fo4 = mf.fo4_inputs(fo4_data)
+        fo4 = mf.fo4_inputs(folders)
     except FileNotFoundError as e:
         refusals.append(f"Fallout 4: {e}")
         fo4 = None

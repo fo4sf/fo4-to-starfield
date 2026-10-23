@@ -787,6 +787,112 @@ class BuildFlowTests(unittest.TestCase):
         finally:
             ib.run = real
 
+    def test_animated_doors_rig_plan_patch_and_pack_the_script(self):
+        # Batch 0 with --animated-doors: the converter rigs load doors, load_door_anim writes the manifest PluginSpike and
+        # vmad_patch read, and the PEX rides the Main archive (and leaves the work staging again)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t = tmp.name
+        base = os.path.join(t, "base")
+        os.makedirs(base)
+        tool = BatchToolTests()
+        with open(os.path.join(base, "FO4Port.esm"), "wb") as f:
+            f.write(tool.plugin())
+        ids = {"STAT:FO4Port_a": 0x800, "CELL:FO4Port_Old": 0x801, "REFR:FO4Port_Old:1:Fallout4.esm": 0x802}
+        ib.save(os.path.join(base, "formids.json"), ids)
+        ib.save(os.path.join(base, "doors.json"), {"doors": [{"src": "1:Fallout4.esm", "marker": "000803"}]})
+        ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "refs": [{"model": "a.nif"}]})
+        plan = os.path.join(t, "plan.json")
+        ib.save(plan, {"batches": [{"cells": [{"editor_id": "New"}]}]})
+        work, out = os.path.join(t, "work"), os.path.join(t, "staging", "doors_anim_b00")
+        pex = os.path.join(t, "compile", "FO4SF_AnimatedLoadDoor.pex")
+        os.makedirs(os.path.dirname(pex))
+        with open(pex, "wb") as f:
+            f.write(b"\xfa\x57\xc0\xde pex")
+        sounds = os.path.join(t, "doorsounds.tsv")
+        open(sounds, "w").close()
+        calls, packed = [], {}
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            calls.append(cmd)
+            joined = " ".join(cmd)
+            if "convert_batch.py" in joined:
+                self.assertEqual(cmd.count("--rig-load-doors"), 1)
+                ib.save(os.path.join(work, "manifest.json"), {"items": [{"load_door": {"model": "d.nif"}}], "failures": []})
+            elif "load_door_anim.py" in joined:
+                src = ib.load(cmd[cmd.index("--manifest") + 1])
+                if cmd[2] == "plan":
+                    src["items"][0]["load_door"]["anim"] = {"open_seconds": 1.0}
+                ib.save(cmd[cmd.index("--out") + 1], src)
+            elif "port_promote.py" in joined:
+                ib.save(cmd[cmd.index("--out") + 1], {})
+            elif "locations" in cmd and cmd[0] == "dotnet":
+                ib.save(cmd[4], {"schema_version": 1, "cells": {c: {"cell_data": {"flags": 1, "name": None}, "location": None,
+                                                                     "encounter_zone": None} for c in cmd[5:]}})
+            elif cmd[0] == "dotnet":                                     # PluginSpike reads the planned manifest
+                self.assertEqual(cmd[3], os.path.join(out, "door_anim", "manifest_sounds.json"))
+                with open(os.path.join(cmd[2], "FO4Port.esm"), "wb") as f:
+                    f.write(tool.plugin())
+                open(log, "a").close()
+            elif "vmad_patch.py" in joined and cmd[2] == "port":
+                self.assertEqual(cmd[cmd.index("--animated-doors") + 1], os.path.join(out, "door_anim", "manifest_sounds.json"))
+                with open(pex, "wb") as f:                               # the source PEX is recompiled mid-build
+                    f.write(b"recompiled")
+                dst = cmd[cmd.index("--out") + 1]
+                os.makedirs(dst)
+                for n in ("FO4Port.esm", "formids.json"):
+                    shutil.copyfile(os.path.join(cmd[cmd.index("--port") + 1], n), os.path.join(dst, n))
+            return 0, 0.1
+
+        def fake_archive(packer, path, folders, fmt, compression="Default"):
+            staged = os.path.join(packer.staging, "scripts", ib.ANIMATED_PEX)
+            packed[os.path.basename(path)] = (list(folders), os.path.isfile(staged))
+            if os.path.isfile(staged):
+                packed["sha256"] = ib.sha256(staged)
+            with open(path, "wb") as f:
+                f.write(b"BTDX")
+
+        argv = ["build", "--plan", plan, "--batch", "0", "--base", base, "--base-exports", base, "--core", os.path.join(t, "core"),
+                "--work", work, "--out", out, "--fo4-data", t, "--starfield", t, "--content-resources", "c.zip",
+                "--texconv", "tex.exe", "--collision-template", "t.nif", "--fo4export", "Fo4Export.dll",
+                "--pluginspike", "PluginSpike.dll", "--jobs", "1", "--min-free-gb", "0"]
+        with self.assertRaisesRegex(SystemExit, "need --animated-doors"):
+            ib.main(argv + ["--door-flags"])
+        with self.assertRaisesRegex(SystemExit, "needs --animated-pex"):
+            ib.main(argv + ["--animated-doors"])
+        with self.assertRaisesRegex(SystemExit, "is not an existing"):                  # a typo is refused before any step
+            ib.main(argv + ["--animated-doors", "--no-pack", "--animated-pex", pex + ".typo"])
+        real, real_pack = ib.run, ib.deploy_starfield.build_archive
+        ib.run, ib.deploy_starfield.build_archive = fake_run, fake_archive
+        try:
+            rc = ib.main(argv + ["--animated-doors", "--animated-pex", pex, "--door-flags", "--doorsounds", sounds])
+        finally:
+            ib.run, ib.deploy_starfield.build_archive = real, real_pack
+        res = ib.load(os.path.join(out, "result.json"))
+        self.assertEqual(rc, 0, res)
+        anim = res["steps"]["door_anim"]
+        self.assertEqual([r["cmd"] for r in anim["runs"]], ["plan", "flags", "sounds"])
+        self.assertEqual((anim["load_doors"], anim["animated"]), (1, 1))
+        self.assertEqual(anim["pex"]["sha256"], packed["sha256"])          # the bytes packed are the bytes recorded
+        self.assertNotEqual(anim["pex"]["sha256"], ib.sha256(pex))
+        # a snapshot changed after it was pinned is refused, never packed under the recorded hash
+        snap = os.path.join(out, "door_anim", ib.ANIMATED_PEX)
+        with open(snap, "wb") as f:
+            f.write(b"tampered")
+        a = argparse.Namespace(starfield=t, work=work, out=out, animated_doors=True, animated_pex_snapshot=snap,
+                               animated_pex_sha256=anim["pex"]["sha256"], pack_ratio=None)
+        ib.deploy_starfield.build_archive = fake_archive
+        try:
+            with self.assertRaisesRegex(ValueError, "changed since it was pinned"):
+                ib.pack(a, os.path.join(out, "port"), None, None, os.path.join(out, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real_pack
+        self.assertFalse(os.path.exists(os.path.join(work, "scripts")))
+        flags = [c for c in calls if "load_door_anim.py" in " ".join(c) and c[2] == "flags"][0]
+        self.assertEqual(flags[flags.index("--cells") + 1:flags.index("--out")], [os.path.join(out, "base_exports", "Old.json")])
+        self.assertEqual(packed["FO4Port - Main.ba2"], (["scripts"], True))
+        self.assertFalse(os.path.exists(os.path.join(work, "scripts")))       # taken out of the work staging again
+
     def _build_flow(self, bad_export_ok=False, locations_fail=False, stale_cache=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -958,6 +1064,8 @@ class BuildFlowTests(unittest.TestCase):
             f.write(b"TES4 fallout 4")
         with open(os.path.join(t, "Fallout4 - Meshes.ba2"), "wb") as f:
             f.write(b"BTDX")
+        with open(os.path.join(t, "FO4TerrainCore.esm"), "wb") as f:     # --core's plugin, pinned for the installer
+            f.write(b"TES4 core")
 
         def build(n, out, prev=None, extra=(), pack=False):
             argv = ["build", "--plan", plan, "--batch", str(n), "--base", base, "--base-exports", base,
@@ -986,6 +1094,7 @@ class BuildFlowTests(unittest.TestCase):
         # the base exports the batch rebuilt its base cells from are pinned; a --prev pinned to other ones is refused
         self.assertEqual(r1["pins"]["base_exports"], {c: ib.sha256(os.path.join(base, c + ".json")) for c in ib.base_cells(base)})
         self.assertTrue(r1["pins"]["base_exports"])
+        self.assertEqual(r1["pins"]["core_plugin"], ib.sha256(os.path.join(t, "FO4TerrainCore.esm")))
         first = os.path.join(base, ib.base_cells(base)[0] + ".json")
         with open(first, "rb") as f:
             kept = f.read()
@@ -1220,6 +1329,42 @@ class BuildFlowTests(unittest.TestCase):
         why = ib.removed_causes(old, new, ["STAT 01000800", "DOOR 01000801", "FURN 01000802"], recs)
         self.assertEqual(why["counts"], {"gone": 1, "renamed_case": 1, "retyped": 1})
         self.assertEqual(why["first"]["retyped"], ["DOOR:FO4Port_VaultDoor -> STAT:FO4Port_vaultdoor"])
+
+
+class CorePinTests(unittest.TestCase):
+    """finish pins the core vmad_patch wired the doors to (taken before the door step) and fails a batch whose core
+    changed after that."""
+
+    def run_finish(self, change):
+        with tempfile.TemporaryDirectory() as t:
+            base, core, out = (os.path.join(t, n) for n in ("base", "core", "out"))
+            for d in (base, core, out):
+                os.makedirs(d)
+            for n in (ib.PLUGIN, "formids.json"):
+                with open(os.path.join(base, n), "w") as f:
+                    f.write(n)
+            plan = os.path.join(t, "plan.json")
+            with open(plan, "w") as f:
+                f.write("{}")
+            core_plugin = os.path.join(core, ib.CORE_PLUGIN)
+            with open(core_plugin, "wb") as f:
+                f.write(b"TES4 wired")
+            a = argparse.Namespace(batch=1, plan=plan, base=base, core=core, out=out, work=t,
+                                   core_pin=ib.sha256(core_plugin))
+            if change:
+                with open(core_plugin, "wb") as f:
+                    f.write(b"TES4 rebuilt")
+            rc = ib.finish(a, {}, {}, {}, 0.0, None)
+            return rc, ib.load(os.path.join(out, ib.MARKER)), a.core_pin
+
+    def test_the_core_read_before_the_doors_is_pinned(self):
+        rc, result, pin = self.run_finish(change=False)
+        self.assertEqual((rc, result["pins"]["core_plugin"], result["error"]), (0, pin, None))
+
+    def test_a_core_changed_during_the_build_fails_the_batch(self):
+        rc, result, pin = self.run_finish(change=True)
+        self.assertEqual((rc, result["pins"]["core_plugin"]), (1, pin))
+        self.assertIn("changed while the batch was built", result["error"])
 
 
 class PackAndSourcesTests(unittest.TestCase):

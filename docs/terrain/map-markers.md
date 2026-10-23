@@ -256,7 +256,11 @@ is one start-game-enabled quest carrying `FO4SF_MapMarkers`: every 2 s, with the
 merged extent (x -4400..2000, y -5900..500), each marker that is not at its merged spot in the player's world is
 enabled and moved there (`MoveTo` onto the player with the difference as the offset, the form the door script and
 the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`. The plugin names the core's marker
-REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
+REFRs by FormID, so it is rebuilt with every core build. **Verified in game** (owner, 2026-10-22, core dc751664,
+plugin 46d4ca26, `fo4sf_map.0.log`): the quest started 55 s into the session, moved all four markers 15 s later
+(`before=` FLT_MAX is the expected other-world reading, not a failed read; `d=` matched the player's distance), and
+the four icons drew on the surface map after the owner left the area and came back. Why not at once is
+**unresolved** (the map may hold its marker list until the area reloads). Still unverified: the
 extent check cannot tell another world with the same coordinates apart (as the mission).
 
 Install: `scripts/game/map_markers_install.py install --dir <staged> --starfield <game>` (game closed). It keeps its
@@ -269,6 +273,37 @@ cycle.ps1 runs `active` (read-only) and stops with exit 8 if the save's load ord
 runs it before the bridge's, so the experiment's and FO4Port's load indexes stay as they were. Before a core swap,
 `uninstall` it (its only master leaves Plugins.txt for the length of the swap, and exp_install refuses missing
 masters), then install it again after; and keep it out of runner runs on a commit older than this installer.
+
+### Overrides (Claude-cloud, 2026-10-22): the marker's own name, a lifted arrival
+
+The owner's play test (core dc751664, plugin 46d4ca26; Install's Ctrl+Alt+K captures) found two defects once the
+markers drew. (1) Every icon read "COMMONWEALTH 00 (FO4 TERRAIN)", the cell's location, not the marker's name:
+the core copies LC172's marker flags `FNAM 0x1B`, which include UseLocationName (`0x8`). (2) Fast travel to
+Concord put the player half in the ground: the marker sits at the terrain height `make_core64c` sampled (86.93 m),
+and the arrival there has ground above it; the Red Rocket arrival, 1.9 m above its marker's landing, dropped
+without harm. FO4's own marker heights are no reference (its Sanctuary marker floats 6.9 m up).
+
+Fix, in `FO4SFMapMarkers.esm` rather than a core rebuild: `dotnet/MapMarkers build` adds an override of every core
+marker REFR (the same FormKeys, so Starfield.esm joins the core as a master): flags without UseLocationName and
+with Visible, enabled, the position lifted `--z-lift` metres (default 2.5, the smallest round figure above the
+proven 1.9 m drop with a margin for Concord; **unresolved** until the owner's next test), name and base as the
+core wrote them. The quest's `LocalZ` holds the lifted height, so the mover places the marker where the override
+says; a save made before a lifted build keeps the markers at the old height (moved references outlive their
+records), so the script also re-moves a marker whose height is off by more than `ZTolerance` (0.05 m), and the
+build takes `--z-lift` in steps of 0.1 m only, so every change between builds reaches a saved game while a landed
+move (within 0.01 m) stays. The move budget (`MaxMoves`) is saved state too, so the script starts it over when a
+build changes the markers' count or height: a save whose budget the first placement spent still takes a later
+lift. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
+uses the location name, is Initially Disabled, is at another height, or overrides anything that is not a core
+marker (the override's parents arrive as copies of the worldspace and its persistent cell; the build prunes
+them to the markers). Those two copies are overrides too, and this plugin loads after the core, so `check` also
+fails when either differs from the core's record: a core rebuilt after the stage (a changed world flag, as the
+border fix of 2026-10-22 makes) needs a new stage, or the plugin would put the old record back. For the border
+settling test (Interiors, 2026-10-22) `--world nosmall|city` takes that WRLD copy from `dotnet/BorderProbe`'s
+variant instead (nosmall: SmallWorld cleared; city: SmallWorld cleared and `HNAM` 5; `control`, the default, the
+core's record), with the marker overrides unchanged, so the variant is the last `WRLD` override whatever the load
+order; `check` wants the same `--world` and fails the copy under any other. The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values
+draw which icons needs a survey of the vanilla markers on the PC.
 
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
