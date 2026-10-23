@@ -79,6 +79,7 @@ class ModelTests(unittest.TestCase):
         bad.append({**d, "places": {**d["places"], place: {**d["places"][place], "holder": "ghost"}}})   # Codex, #431
         bad.append({**d, "factions": {**d["factions"], faction: {**d["factions"][faction], "home": "nowhere"}}})
         bad.append({**d, "reputation": {**d["reputation"], "ghost": {"fame": 0, "infamy": 0}}})
+        bad.append({**d, "reputation": {k: v for k, v in d["reputation"].items() if k != faction}})   # Grok, #431
         settlement = sorted(d["settlements"])[0]
         bad.append({**d, "settlements": {**d["settlements"], settlement: {**d["settlements"][settlement],
                                                                           "place": "nowhere"}}})

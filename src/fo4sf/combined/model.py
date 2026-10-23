@@ -201,6 +201,8 @@ def _check_state(ws: "WorldState") -> None:
     layers = [ws.reputation, *ws.regional_reputation.values()]
     if any(k not in ws.factions for layer in layers for k in layer):
         raise ValueError("world state reputation must name known factions")
+    if any(k not in ws.reputation for k in ws.factions):    # adapter.game_view reads one per faction (Grok, #431)
+        raise ValueError("world state reputation needs a row for every faction")
     for n, r in enumerate(ws.routes):
         _check_record(f"routes[{n}]", r)
         if r.a not in ws.places or r.b not in ws.places or r.hours <= 0:
