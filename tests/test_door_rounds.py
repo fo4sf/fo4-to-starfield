@@ -255,6 +255,15 @@ class JudgeTests(unittest.TestCase):
                          ("FAIL", "WRONG_PLACE"))
         self.assertEqual(verdict(OUT_OK[:2] + (pos(5, 17, -3),), EXP_OUT), ("FAIL", "STAYED"))
 
+    def test_a_wrong_place_names_the_distance_from_the_resolved_marker_too(self):
+        # J2 (2026-10-23): every IN leg was far off its record position in the right cell; the marker's own runtime
+        # position tells a record-frame question from a wrong trip, beside the verdict, never instead of it
+        far = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace("pos=1 2 3", "pos=-930 -1690 -270"), pos(-932, -1691, -272))
+        v, why, _ = dr.judge_test(log(*far), ACT, EXP_IN)
+        self.assertEqual(v, "FAIL")
+        self.assertTrue(why.startswith("WRONG_PLACE"), why)
+        self.assertIn("2.2 m in xy, 2.0 m in z from the marker's runtime position [-930.0, -1690.0, -270.0]", why)
+
     def test_missing_proof_is_never_a_pass(self):
         self.assertEqual(verdict(IN_OK, EXP_IN, {"activate": {"selected": False}}), ("INCONCLUSIVE", "NOT_ACTIVATED"))
         for obs in ({}, {"activate": {}}, None):                         # Codex #358: absence is not success

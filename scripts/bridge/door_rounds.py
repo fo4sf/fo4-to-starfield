@@ -564,10 +564,21 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
                                         f"the marker resolves in {target['world']} ({dxy:.1f} m off)"
                                         + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
-        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
+        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m){runtime(last, target)}", last
     return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
                     + (f" (world {last['world']} taken as {target['world']} {tie})" if not exp["cell"]
                        and last.get("world") != target.get("world") else "")), last
+
+
+def runtime(last, target):
+    """The player against the marker's own runtime position (its resolve line), a readout beside the verdict, never the
+    expectation: a player on the resolved marker but off its record position points at the record's frame, a player off
+    both at the trip (J2, 2026-10-23: every IN leg 1450 to 4250 m off its record position, in the right interior cell)."""
+    p = target.get("pos")
+    if not finite(p):
+        return ""
+    return (f"; {math.dist(last['pos'][:2], p[:2]):.1f} m in xy, {abs(last['pos'][2] - p[2]):.1f} m in z from the "
+            f"marker's runtime position {[round(v, 3) for v in p]}")
 
 
 def judge(a):
