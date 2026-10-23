@@ -32,6 +32,9 @@ out/
 sfse/FOCCSidecar/PluginAPI.h
 sfse/FOCCSidecar/PluginAPI.LICENSE.txt
 sfse/FOCCSidecar/PluginAPI.pin.json
+sfse/FO4SFBorder/PluginAPI.h
+sfse/FO4SFBorder/PluginAPI.LICENSE.txt
+sfse/FO4SFBorder/PluginAPI.pin.json
 *.dll
 *.obj
 *.pdb
