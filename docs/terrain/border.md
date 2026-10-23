@@ -105,19 +105,20 @@ MoveTo (docs/terrain/scripted-doors.md).
   would not make that jump. The unmerged landing is a 2.9 km jump in both cases.
 
 ### The owner's play (PC, 2026-10-23, v6i_plainshader, bridge t4, before #512)
-- **verified** (bridge feed, fo4sf.0.log, read by Install): both Vault 95 exits that session ended at the marker's
-  UNMERGED spot. `after_move` read (-714.6, -1284.1, 61.3) in cell Surface 02001133 with `requested_position`
-  (-1914.6, -3984.1, 61.2), and the feed then stayed at (-713.8, -1283.1, 61.2) and (-714.6, -1284.1, 61.3): the
-  player's SetPosition never took effect. This is a third outcome, beside the runs' PASS (the SetPosition lands a few
-  seconds later) and FAIL (the popup pauses the game). Every other door that session landed on its requested position.
-- The owner's account (Oct 23, 16:30 UTC): "each time I left the entrance, it would teleport me away because I was
-  hitting a boundary and it wouldn't let me run around like it did previously". The player stood 2.9 km from the
-  merged entrance, in a spot the engine treats as outside the area it lets them walk in.
-- The setpos hops typed in the same session all landed where they were typed (feed, 09:18 to 09:26 local), so the
-  console's frame and the bridge's agree.
-- The door change of #512 (`PlaceDestination`: the marker moves to the merged spot before the MoveTo) removes the
-  dependence on that SetPosition. The bridge_t6 runs check the landing (`marker_placed`, `after_move` at the
-  requested position) and, after it, that the player can move about near the entrance without the popup.
+- The owner's account (Oct 23, 16:30 and 16:31 UTC), the ground truth: the Vault 95 door puts them outside, at the
+  right place. They then hit BOUNDARY REACHED; pressing Tab (cancel) does not let them move, and the game teleports
+  them back to where they were. "It is sending me to the right place."
+- **verified** (bridge feed, fo4sf.0.log, read by Install): on both exits `after_move` and the following feed lines read
+  the marker's written coordinates (-714.6, -1284.1, 61.3), cell Surface 02001133, with `requested_position`
+  (-1914.6, -3984.1, 61.2); the feed did not read the requested position. Every other door that session read its
+  requested position. The setpos hops typed in the same session all landed where they were typed.
+- **unresolved**: how the right place on screen and the written coordinates in the feed fit together. In the runs, a
+  PASS read the requested position and stood on the ground there. The owner's account rules out "the door lands in
+  the wrong place" as the explanation.
+- What it means: the popup can come up after a correct landing, while the player tries to move, not only during the
+  trip. The bridge_t6 runs (#512's `PlaceDestination`) check the landing and the popup at landing (beyond.png); the
+  owner's walk around the entrance after them checks moving. If the popup still comes up there, the per-world border
+  toggle below is the route.
 
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
