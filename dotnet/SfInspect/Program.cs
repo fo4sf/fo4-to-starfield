@@ -483,7 +483,8 @@ switch (args[1])
     case "landing":   // read-only: landing <WRLD EditorID substr> [n]: how a vanilla world lets a ship land (the owner's temporary
                       // landing spot, Map thread 2026-10-23; docs/terrain/map-markers.md): in up to n worlds (default 4), every placed
                       // object whose base EditorID names a ship landing, a map marker, a heading marker or a landing zone, with every
-                      // REFR property, its linked references (keyword -> target and its base) and the references that link to it,
+                      // REFR property, its scripts with their properties, its linked references (keyword -> target and its base) and
+                      // the references that link to it,
                       // then the world's Location: keywords, parent, and every LCSR row (ref type -> ref, world, grid)
         {
             var sub = args[2]; var max = args.Length > 3 ? int.Parse(args[3]) : 4;
@@ -517,6 +518,17 @@ switch (args[1])
                         if (s.Length == 0 || s == "[]" || s == "Null") continue;
                         Console.WriteLine($"   {p.Name} = {(s.Length > 240 ? s.Substring(0, 240) + "..." : s)}");
                     }
+                    foreach (var sc in r.VirtualMachineAdapter?.Scripts ?? Enumerable.Empty<IScriptEntryGetter>())
+                        Console.WriteLine($"   script {sc.Name}: " + string.Join("; ", sc.Properties.Select(sp => sp switch
+                        {
+                            IScriptObjectPropertyGetter o => $"{sp.Name} = {o.Object.FormKey} {Edid(cache, o.Object.FormKey)}",
+                            IScriptObjectListPropertyGetter ol => $"{sp.Name} = [{string.Join(", ", ol.Objects.Select(o => $"{o.Object.FormKey} {Edid(cache, o.Object.FormKey)}"))}]",
+                            IScriptFloatPropertyGetter f => $"{sp.Name} = {f.Data}",
+                            IScriptIntPropertyGetter n => $"{sp.Name} = {n.Data}",
+                            IScriptBoolPropertyGetter b => $"{sp.Name} = {b.Data}",
+                            IScriptStringPropertyGetter t => $"{sp.Name} = \"{t.Data}\"",
+                            _ => $"{sp.Name} ({sp.GetType().Name.Replace("BinaryOverlay", "")})",
+                        })));
                     if (r.MapMarker is { } mm)
                         Console.WriteLine($"   map marker: flags {mm.Flags} (0x{(int)mm.Flags:X}) name \"{mm.Name}\" type {mm.Type}");
                     foreach (var l in r.LinkedReferences)
