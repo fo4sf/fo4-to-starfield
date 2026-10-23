@@ -24,9 +24,10 @@ and tick boxes. Verified on v6i so far: both Red Rocket walks, Codsworth renderi
 moved on 22 Oct (Codsworth went from 06000811 to 05000811 because Plugins.txt was rewritten 25 s after start; the
 game is the inferred writer, not a traced one), so this section uses cell names and object names only. Results go to [playtest-issues.md](playtest-issues.md).
 
-**Which build closes the phase:** v6j (v6i plus the border fix) is being built. If it is installed when the owner
-plays, this session's results close phase 0. On v6i they are a preview: failures get fixed before the rebuild, and
-A2 to A5 are run again on v6j.
+**Which build closes the phase:** v6i, the installed build. The first route for the border fix, the world's own
+settings, did not hold up on the PC (22 Oct: the Vault 95 exit failed now and then with every setting, the unchanged
+one included), so no core rebuild comes and this session's results close phase 0. The PC's door rounds and Vault 95 runs use the game and finish
+first; the owner is told when it is free.
 
 **Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
 starts fresh; the 19 Oct save already completed it and cannot replay it.
@@ -83,8 +84,10 @@ Report per door: `(a) prompt "..." / none | ended up: ...`.
 
 Any time: cans and books still pick up; press Ctrl+Alt+K once and the describe box opens in front (fixed on 22 Oct).
 No wall to check north of Vault 111: that report was a misreading and is withdrawn (the owner walked past the spot
-without the popup, 22 Oct). The border fix the owner picked (B, our world only) is being tested on the PC at the
-Vault 95 exit.
+without the popup, 22 Oct). The owner's choice stands (B, a fix for our world only, not the global INI); its first
+route, the world's own settings, did not hold up on the PC (22 Oct): the Vault 95 exit fails now and then with any
+setting, so the door's own retry is what the PC tests there next, not the owner: ten plain exits for the rate
+first, then the same ten with the retry (compiled into bridge_t5, not yet run in game).
 
 ## 1. Get there
 
