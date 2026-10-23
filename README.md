@@ -18,7 +18,7 @@ Converters read **your own copies of both games** and generate local outputs. No
 |---|---|---|
 | **Red Rocket crash** | solved: the converted Codsworth model's shader blocks; plain shader blocks by default | #460, #461 (merged) |
 | **Red Rocket walks** | both pass on the fixed build | owner's PC, 22 Oct |
-| **Owner play test** | section A done on v6i: the mission, the map markers and every door but one at Fort Hagen worked; Codsworth did not spawn; outdoor cans and books cannot be moved; the borders are "wrong for sure" (the owner) | owner, 23 Oct |
+| **Owner play test** | section A done on v6i: the mission, the map markers and every door worked except Fort Hagen's second exit, which the owner could not find; Codsworth did not spawn; outdoor cans and books cannot be moved; the borders are "wrong for sure" (the owner) | owner, 23 Oct |
 | **Crash watcher** | now starts and ends with the game, with launcher settings | #449 (merged) |
 | **Report hotkey** | the Ctrl+Alt+K description box opens visible and in front | #463 (merged) |
 | **Night-chain arm check** | merged, with the optional direct exe launch | #391 (merged) |

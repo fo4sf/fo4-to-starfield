@@ -17,7 +17,7 @@ sections, or use the cell and object names instead.
 
 ## A. Next session (23 Oct 2026): the checks that close phase 0
 
-**Done 23 Oct** (the owner's session; results in playtest-issues.md rows 31 to 37 and under gate 3 of the ROADMAP
+**Done 23 Oct** (the owner's session; results in playtest-issues.md rows 31 to 38 and under gate 3 of the ROADMAP
 exit checklist).
 
 Added 22 Oct, updated 23 Oct. Installed: v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8), the map

@@ -2136,3 +2136,22 @@ as expected) is met by A2 and A4, not by A3 and A5, so those two are defect rows
 and the owner's call. Rows 31 to 37 of playtest-issues.md carry each report.
 Gate 1 still waits on card J4; gate 2 (13 of 20) is the owner's call. The
 entries above stand as written.
+
+## 2026-10-23: the owner's answers on Fort Hagen, Vault 95 and Codsworth
+
+At 16:30 UTC the owner answered the open questions from section A. Fort Hagen:
+"the normal floor entrance works, but I couldn't even find the second exit".
+Bugs reads the second exit as the roof elevator (FO4 door 16852C): on v6i its
+exterior is about 0.18 m deep, and the outer elevator door 16852D has no door row
+in Install's door audit. Bugs carries it to the next phase's core rebuild; v6i
+stays as is. The sheet's (d) had asked for the roof hatch inside instead, which
+the owner did not name. Vault 95: the door lands the owner in the right place
+outside; then BOUNDARY REACHED comes up, Tab does not let them move, and it
+"teleports me back to where I was". The owner asked that the door not be
+described as sending them to the wrong place: it sends them to the right place.
+Codsworth: the mission's log from the session shows four moves to his spot,
+none failed, with him about 3 km away before each later move; Bugs treats it as a
+defect, with a return to unmerged coordinates as the hypothesis for card K1.
+playtest-issues.md rows 32 and 33 carry the answers and row 38 the Vault 95 one.
+Which save the owner used and their choices on gates 2 and 3 are still to come.
+The entries above stand as written.
