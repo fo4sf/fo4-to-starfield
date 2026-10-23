@@ -2120,3 +2120,84 @@ trip from a passing one, which is why the retry never fired. Which step raises t
 popup is open; #512's door change (the destination marker moved to the merged spot
 before the MoveTo, plus a settle step) is the next PC card. The counts stand: 7 of
 10 and 6 of 10. The entry above stands as written.
+
+## 2026-10-23: Phase 0: the owner's section A results (gate 3)
+
+The owner played section A of the test sheet on v6i with the bridge door-script
+set t4 and the quest probe installed, and reported at 15:46 UTC: the mission
+worked, the map markers worked, every A5 door but one at Fort Hagen worked;
+Codsworth did not spawn (which save is not stated; the keeper fix #493 is not
+installed); cans and books can be moved inside but not outside; the quest probe
+ran, its marker away from the door (the port's library has no load door, so the
+probe falls back to another door or object); the borders are "wrong for sure",
+with the owner's getpos and map screenshot for Map's overlay and city
+screenshots to come; New Atlantis is very laggy. Gate 3's pass rule (A2 to A5
+as expected) is met by A2 and A4, not by A3 and A5, so those two are defect rows
+and the owner's call. Rows 31 to 37 of playtest-issues.md carry each report.
+Gate 1 still waits on card J4; gate 2 (13 of 20) is the owner's call. The
+entries above stand as written.
+
+## 2026-10-23: the owner's answers on Fort Hagen, Vault 95 and Codsworth
+
+At 16:30 UTC the owner answered the open questions from section A. Fort Hagen:
+"the normal floor entrance works, but I couldn't even find the second exit".
+Bugs reads the second exit as the roof elevator (FO4 door 16852C): on v6i its
+exterior is about 0.18 m deep, and the outer elevator door 16852D has no door row
+in Install's door audit. Bugs carries it to the next phase's core rebuild; v6i
+stays as is. The sheet's (d) had asked for the roof hatch inside instead, which
+the owner did not name. Vault 95: the door lands the owner in the right place
+outside; then BOUNDARY REACHED comes up, Tab does not let them move, and it
+"teleports me back to where I was". The owner asked that the door not be
+described as sending them to the wrong place: it sends them to the right place.
+Codsworth: the mission's log from the session shows four moves to his spot,
+none failed, with him about 3 km away before each later move; Bugs treats it as a
+defect, with a return to unmerged coordinates as the hypothesis for card K1.
+playtest-issues.md rows 32 and 33 carry the answers and row 38 the Vault 95 one.
+Which save the owner used and their choices on gates 2 and 3 are still to come.
+The entries above stand as written.
+
+## 2026-10-23: Phase 0: the owner's calls on gates 2 and 3
+
+At 16:57 UTC the owner chose. Gate 2, the Vault 95 exit: C, phase 0 holds until
+the SFSE per-world toggle of the border is written and tested; the 13 of 20 and
+the owner's own report (the door lands right, then the popup) stand as the
+measured state. Gate 3: D, Codsworth goes on the defect list and the keeper fix
+is installed next to check it; F, the Fort Hagen exit goes on the defect list for
+the next phase. Neither holds the phase, so gate 3 is ticked. The owner played on
+the test save the sheet named, so Codsworth's absence is not only the old-save
+case. The Fort Hagen exit the owner looked for was the roof hatch inside the
+building (the sheet's (d), FO4 door 0C38BF), not the roof elevator Bugs first
+read; the door audit lists both sides of that hatch, so why it could not be found
+is open. Phase 0 now waits on gate 1 (card J4) and gate 2 (the SFSE toggle). The
+map walls are still being discussed with the owner. The entries above stand as
+written.
+
+## 2026-10-23: the map stays open; Bugs' reading of the Fort Hagen hatch
+
+At 16:58 UTC the owner chose L for the map: the land stays open with no walls,
+"because the full vision". The SFSE per-world border toggle (Interiors, gate 2) is
+the only border fix. Bugs read the door audit for the roof hatch the owner could
+not find: the core writes it as a static roofhatch01.nif only 0.83 m tall, so
+there is no door to activate, and the fix is to convert it as a door in the next
+core rebuild, with the outside roof elevator riding the same fix. That cause is
+inferred, not checked in game; the ground entrance is written as a static door
+too and works, so row 33 keeps both. The entries above stand as written.
+
+## 2026-10-23: correction: the Fort Hagen hatch's cause is open
+
+Bugs withdrew the reading in the entry above (the hatch written as a static model
+with no door to activate): the ground entrance is written the same way and works,
+and the owner looked from inside, where the hatch is the port's reference
+0100C7A6. The cause is open. Bugs' read-only PC check of that reference (record
+type, teleport data, script, ladder collision) runs after card J4. The entry
+above stands as written.
+
+## 2026-10-23: correction: the quest probe's target was a far load door
+
+The section A entry above put the probe's marker down to a fallback target in a
+library with no load door. Install's log extract (#518) shows otherwise: the
+target was a load door 72 m from the start (070049ED), under the stairs, which the
+owner reached only with tcl, because the load-door choice had no floor or reach
+limit. #518 merged at 16:42 UTC with that limit; it is not compiled or rerun on
+the PC yet. playtest-issues.md row 35 carries it. The entries above stand as
+written.
