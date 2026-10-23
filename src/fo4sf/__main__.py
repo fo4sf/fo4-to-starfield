@@ -291,6 +291,29 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_texture_info(args: argparse.Namespace) -> int:
+    """Report supported Fallout 4 → Starfield texture conversions (offline, no game files needed)."""
+    print("fo4-to-starfield texture conversion support")
+    print()
+    print("Input (Fallout 4):")
+    print("  _d  DXT5 / BC1 colour, sRGB")
+    print("  _n  BC5 (fourCC \"BC5U\" / ATI2) RG tangent-space normal")
+    print("  _s  BC5 (fourCC \"BC5U\"): R = specular strength, G = smoothness (gloss)")
+    print()
+    print("Output (Starfield):")
+    print("  _color   BC1_SRGB (BC7_SRGB with alpha)")
+    print("  _normal  BC5_SNORM")
+    print("  _rough   BC4_UNORM (1.0 = fully rough)")
+    print()
+    print("Requirements:")
+    print("  - numpy (for decoding)")
+    print("  - Microsoft texconv.exe (ships with xEdit in Edit Scripts/)")
+    print("  - Optional: Pillow for some intermediate steps")
+    print()
+    print("See src/fo4sf/textures.py for implementation details and docs/spikes/S3-materials.md for measurements.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -302,6 +325,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_tex = sub.add_parser("texture-info", help="report supported texture conversion formats (offline)")
+    p_tex.set_defaults(func=cmd_texture_info)
 
     args = parser.parse_args(argv)
     return args.func(args)
