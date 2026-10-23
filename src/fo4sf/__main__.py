@@ -270,8 +270,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+VERSION = "0.1.0-dev"  # identification for reports; not a release version
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
     sub = parser.add_subparsers(dest="command", required=True)
 
