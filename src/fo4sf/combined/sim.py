@@ -404,7 +404,10 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
             f = ws.factions[q.faction]
             f.strength = min(STRENGTH_CAP, f.strength + q.size)
             continue
-        if q.goal in shielded and not pl.story_lock:   # turned back: no roll, no garrison spent, fighters go home
+        # turned back, no roll and no garrison spent: the story shields the target now, or its new holder is no
+        # enemy of the attacker, an attack _faction_tick would never launch (Codex review of #431)
+        if (q.goal in shielded and not pl.story_lock) or (pl.holder is not None
+                                                          and not _hostile(ws, q.faction, pl.holder)):
             f = ws.factions[q.faction]
             f.strength = min(STRENGTH_CAP, f.strength + q.size)
             _event(ws, "attack_called_off", q.goal, faction=q.faction, defender=pl.holder)

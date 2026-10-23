@@ -231,6 +231,18 @@ class StoryModeTests(unittest.TestCase):
         self.assertNotIn("q_test", ws.squads)
         self.assertEqual([e["faction"] for e in ws.events if e["kind"] == "attack_called_off"], [attacker])
 
+    def test_an_attack_on_a_place_a_friend_took_meanwhile_is_called_off(self):
+        # Codex review of #431: arrival rechecks hostility against the current holder
+        ws = world(1)
+        holder = ws.places["market"].holder
+        attacker = next(f for f in sorted(ws.factions) if f != holder)
+        ws.factions[attacker].relations[holder] = 10                  # friends now
+        ws.squads["q_test"] = model.Squad(id="q_test", faction=attacker, size=50, at="raider_camp", goal="market",
+                                          kind="attack", eta=ws.hour + 1)
+        sim.run(ws, 2)
+        self.assertEqual(ws.places["market"].holder, holder)
+        self.assertIn(attacker, [e["faction"] for e in ws.events if e["kind"] == "attack_called_off"])
+
     def test_story_mode_without_an_active_story_changes_nothing(self):
         a, b = world(4), world(4, story_mode=True)
         sim.run(a, DAYS * 24)

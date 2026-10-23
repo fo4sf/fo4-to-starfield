@@ -826,11 +826,10 @@ def check_p4(c: Collection) -> Verdict:
     if blank:                                   # a missing count is no evidence either way (Codex review of #431)
         v.reasons.append(f"cycles without placed=, deleted= or loaded=: {sorted(blank)}")
         return v
-    odd = [n for n, e in seen.items() if e.num("placed") > 3 or e.num("deleted") > 3
-           or not 0 <= e.num("loaded") <= 3 or not all(float(e.num(k)).is_integer() for k in ("placed", "deleted", "loaded"))]
+    odd = [n for n, e in seen.items() if not all(0 <= e.num(k) <= 3 for k in ("placed", "deleted", "loaded")) or not all(float(e.num(k)).is_integer() for k in ("placed", "deleted", "loaded"))]
     if odd:                                     # the script places exactly three: more is malformed (Codex, #431)
-        v.reasons.append(f"cycles with counts the script cannot log (placed/deleted above 3, loaded outside "
-                         f"0..3, or fractional): {sorted(odd)}")
+        v.reasons.append(f"cycles with counts the script cannot log (placed, deleted or loaded outside 0..3, or "
+                         f"fractional): {sorted(odd)}")
         return v
     short = [n for n, e in seen.items() if e.num("placed") < 3 or e.num("deleted") < 3]
     unloaded = [n for n, e in seen.items() if e.num("loaded") < 1]

@@ -449,7 +449,7 @@ class P4Tests(unittest.TestCase):
 
     def test_counts_the_script_cannot_log_are_not_judged(self):
         # Codex review of #431: four placed in a three-actor cycle is malformed
-        for bad in ("placed=4", "deleted=4", "loaded=4", "loaded=-1", "loaded=1.5"):
+        for bad in ("placed=4", "deleted=4", "loaded=4", "loaded=-1", "loaded=1.5", "placed=-1", "deleted=-1"):
             log = p4_log()
             log[3] = re.sub(r"placed=3" if "placed" in bad else r"deleted=3" if "deleted" in bad else r"loaded=3",
                             bad, log[3])

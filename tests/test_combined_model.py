@@ -59,7 +59,9 @@ class ModelTests(unittest.TestCase):
                       json.dumps({**d, "schema": SCHEMA_VERSION, "events": [None]}),
                       json.dumps({**d, "schema": SCHEMA_VERSION, "events": [{"hour": 0}]}),
                       json.dumps({**d, "schema": SCHEMA_VERSION,
-                                  "events": [{"hour": "bad", "kind": "x", "place": "p"}]})):   # Codex review of #431: misshapen
+                                  "events": [{"hour": "bad", "kind": "x", "place": "p"}]}),
+                      json.dumps({**d, "schema": SCHEMA_VERSION, "hour": "bad"}),
+                      json.dumps({**d, "schema": SCHEMA_VERSION, "next_id": True})):   # Codex review of #431: misshapen
             with self.assertRaises(ValueError):
                 WorldState.from_json(other)
 

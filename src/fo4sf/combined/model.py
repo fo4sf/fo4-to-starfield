@@ -129,6 +129,9 @@ class WorldState:
 
     @classmethod
     def _from_dict(cls, d: dict) -> "WorldState":
+        for k in ("seed", "hour", "next_id"):           # (Codex review of #431)
+            if not isinstance(d.get(k), int) or isinstance(d.get(k), bool):
+                raise ValueError(f"world state {k} must be an integer, not {d.get(k)!r}")
         ws = cls(seed=d["seed"], hour=d["hour"], next_id=d["next_id"])
         ws.places = {k: Place(**v) for k, v in d["places"].items()}
         ws.settlements = {k: Settlement(**v) for k, v in d["settlements"].items()}
