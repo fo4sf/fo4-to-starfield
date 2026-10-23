@@ -326,11 +326,27 @@ class ResupplyTests(unittest.TestCase):
 
 
 class ClearTests(unittest.TestCase):
+    def test_a_clear_names_one_occupation_and_holder(self):
+        # Codex review of #431: a new occupation in the same hour is new work; another holder is another job
+        ws = quiet(world())
+        ws.places["ruins"].holder = "raiders"
+        first = by_kind(jobs.offers(ws, "market"), "clear")[0]
+        jobs.complete(ws, first)
+        ws.places["ruins"].holder = "raiders"                         # the raiders move back in the same hour
+        ws.events.append({"hour": ws.hour, "kind": "place_taken", "place": "ruins", "region": "R1",
+                          "faction": "raiders", "previous": None, "retaken": True})
+        again = by_kind(jobs.offers(ws, "market"), "clear")
+        self.assertEqual(len(again), 1)
+        self.assertNotEqual(again[0].id, first.id)
+        self.assertIsNone(jobs.valid(ws, again[0]))
+        named = jobs.Offer(**{**again[0].to_dict(), "detail": {**again[0].detail, "holder": "ghouls"}})
+        self.assertIn("someone else", jobs.valid(ws, named))   # the offer named another holder
+
     def test_hostile_neighbour_offer_and_empty_holder_on_complete(self):
         ws = quiet(world())
         ws.places["ruins"].holder = "raiders"                         # next to farm_b (settlers)
         found = by_kind(jobs.offers(ws, "market"), "clear")
-        self.assertEqual([o.id for o in found], ["clear:settlers:ruins"])   # raider_camp is a home: never
+        self.assertEqual([o.id for o in found], ["clear:settlers:ruins:-1"])   # raider_camp is a home: never
         o = found[0]
         self.assertEqual(o.detail, {"holder": "raiders", "near": "farm_b"})
         self.assertEqual(o.expires_hour, ws.hour + jobs.CLEAR_OFFER_HOURS)

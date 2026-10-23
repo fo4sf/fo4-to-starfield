@@ -899,12 +899,18 @@ def check_p5(c: Collection) -> Verdict:
         v.cite(*blank[:3])
         v.reasons.append(f"{len(blank)} p5 tick line(s) lack ms= or places=")
         return v
-    good = [e for e in ticks if e.num("places") == 50]
-    ms = [e.num("ms") for e in good]
-    if len(ms) >= want and sorted(e.num("n") for e in good) != [float(n) for n in range(1, want + 1)]:
-        # exactly 1..want once each: an extra row would skew the recorded baseline (Codex review of #431)
+    if len(ticks) >= want and sorted(e.num("n") for e in ticks) != [float(n) for n in range(1, want + 1)]:
+        # every tick row, not only the good ones, is exactly 1..want once each: an extra or interleaved row would
+        # hide in the recorded baseline (Codex review of #431)
         v.reasons.append(f"the tick lines are not numbered 1..{want} once each: repeated, extra or missing ticks")
-        return v                                # P5's own form of the P8 duplicate-row finding (Codex, #431)
+        return v
+    short = [e for e in ticks if e.num("places") != 50]
+    if short:
+        v.cite(*short[:3])
+        v.reasons.append(f"{len(short)} tick line(s) read fewer or more than the probe's 50 globals")
+        v.verdict = FAIL
+        return v
+    ms = [e.num("ms") for e in ticks]
     if len(ms) < want:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE

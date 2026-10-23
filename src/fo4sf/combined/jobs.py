@@ -194,12 +194,23 @@ def _clear_targets(ws: WorldState, giver: str) -> dict[str, str]:
     return out
 
 
+def _occupation(ws: WorldState, target: str) -> int:
+    """Index in the append-only event log of the holder change that gave `target` its current holder, -1 when it has
+    held it since the pack loaded. Names one occupation, so two in one hour are two clear jobs (Codex review of #431)."""
+    found = [i for i, e in enumerate(ws.events) if e["kind"] in sim.HOLDER_CHANGE_KINDS and e["place"] == target]
+    return found[-1] if found else -1
+
+
+def _clear_id(ws: WorldState, giver: str, target: str) -> str:
+    return f"clear:{giver}:{target}:{_occupation(ws, target)}"
+
+
 def _clear(ws, giver, place, names) -> list[Offer]:
     out = []
     for target, near in sorted(_clear_targets(ws, giver).items()):
         holder = ws.places[target].holder
         text = _text("clear", names, giver=giver, target=target, holder=holder, near=near)
-        out.append(Offer(f"clear:{giver}:{target}", "clear", giver, place, target, CLEAR_TIER, ws.hour,
+        out.append(Offer(_clear_id(ws, giver, target), "clear", giver, place, target, CLEAR_TIER, ws.hour,
                          ws.hour + CLEAR_OFFER_HOURS, text, {"holder": holder, "near": near}))
     return out
 
@@ -286,6 +297,8 @@ def valid(ws: WorldState, offer: Offer) -> str | None:
     elif offer.kind == "clear":
         if offer.target not in _clear_targets(ws, offer.giver):
             return "the place is no longer a hostile neighbour of the giver"
+        if pl.holder != d.get("holder") or offer.id != _clear_id(ws, offer.giver, offer.target):
+            return "someone else holds the place now: that is a new job"   # (Codex review of #431)
     return None
 
 

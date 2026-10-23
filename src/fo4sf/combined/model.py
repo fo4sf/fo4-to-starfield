@@ -137,13 +137,17 @@ class WorldState:
         ws.routes = [Route(**r) for r in d["routes"]]
         ws.reputation = {k: Reputation(**v) for k, v in d["reputation"].items()}
         ws.events = d["events"]
-        if not isinstance(ws.events, list) or any(not isinstance(e, dict) or not {"hour", "kind", "place"} <= set(e)
-                                                  for e in ws.events):   # (Codex review of #431)
-            raise ValueError("world state events must be objects with hour, kind and place")
+        if not isinstance(ws.events, list) or not all(_event_ok(e) for e in ws.events):   # (Codex review of #431)
+            raise ValueError("world state events must be objects with an integer hour and string kind and place")
         ws.regional_reputation = {region: {k: Reputation(**v) for k, v in layer.items()}
                                   for region, layer in d.get("regional_reputation", {}).items()}
         ws.settings = Settings.from_dict(d.get("settings"))
         return ws
+
+
+def _event_ok(e) -> bool:
+    return (isinstance(e, dict) and isinstance(e.get("hour"), int) and not isinstance(e.get("hour"), bool)
+            and isinstance(e.get("kind"), str) and isinstance(e.get("place"), str))
 
 
 def load_pack(ws: WorldState, pack: dict) -> None:

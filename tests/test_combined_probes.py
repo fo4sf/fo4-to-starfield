@@ -546,6 +546,14 @@ def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
 
 
 class P5Tests(unittest.TestCase):
+    def test_an_extra_tick_row_is_never_hidden(self):
+        # Codex review of #431: an out-of-shape row is judged, not filtered away
+        log = p5_log()
+        extra = log[:-1] + ["FOCC rt=11.5 p5 tick n=999 places=49 ms=999999.000000 sum=1.000000", log[-1]]
+        self.assertNotEqual(probes.check_p5(col(log=extra)).verdict, PASS)
+        short = [l.replace("n=3 places=50", "n=3 places=49") for l in log]
+        self.assertEqual(probes.check_p5(col(log=short)).verdict, FAIL)
+
     def test_every_tick_carries_its_readings(self):
         # the P4 form of the Codex finding on #431
         for field in (r" ms=\S+", " places=50"):
