@@ -151,6 +151,6 @@ no walls ("L because the full vison"), so the border must be off in our world an
 - **Check for card B (Planet research T1):** on foot from Red Rocket, due west and then south (not through the Vault
   95 door), `player.getpos x` and `player.getpos y` at each popup, once with the switch off (Mode=0) and once on.
   The off run says where the fence is; the on run says whether the switch removes it.
-- **unresolved** (Planet research, inferred, not measured by us): even with the border off, the planet's physics edge is reported at about 6-7 km from the landing centre, and our
-  terrain's SW corner is about 7.4 km from merged (0,0) (Planet research, inferred). Re-centring the core is a
-  core change for the next phase, not part of this switch.
+- **unresolved** (Planet research, inferred, not measured by us): even with the border off, the planet's physics
+  edge is reported at about 6-7 km from the landing centre, and our terrain's SW corner is about 7.4 km from merged
+  (0,0). Re-centring the core is a core change for the next phase, not part of this switch.
