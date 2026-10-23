@@ -2171,3 +2171,14 @@ read; the door audit lists both sides of that hatch, so why it could not be foun
 is open. Phase 0 now waits on gate 1 (card J4) and gate 2 (the SFSE toggle). The
 map walls are still being discussed with the owner. The entries above stand as
 written.
+
+## 2026-10-23: the map stays open; Bugs' reading of the Fort Hagen hatch
+
+At 16:58 UTC the owner chose L for the map: the land stays open with no walls,
+"because the full vision". The SFSE per-world border toggle (Interiors, gate 2) is
+the only border fix. Bugs read the door audit for the roof hatch the owner could
+not find: the core writes it as a static roofhatch01.nif only 0.83 m tall, so
+there is no door to activate, and the fix is to convert it as a door in the next
+core rebuild, with the outside roof elevator riding the same fix. That cause is
+inferred, not checked in game; the ground entrance is written as a static door
+too and works, so row 33 keeps both. The entries above stand as written.

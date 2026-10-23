@@ -79,15 +79,17 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   place outside; then BOUNDARY REACHED comes up, Tab does not let them move, and "it teleports me back to where I was"
   (the owner). **The owner's call (23 Oct 16:57 UTC): C, phase 0 holds until the SFSE per-world toggle of
   `bBorderRegionsEnabled` is written and tested** (border.md: the INI switch is proven only globally; the per-world
-  SFSE code is unwritten). Gate 2 ticks once that toggle is built and tested on the Vault 95 exit; no bar is set for
-  that test yet. #512's t6 runs still wait on the owner's swap line.
+  SFSE code is unwritten; Interiors). Gate 2 ticks once that toggle is built and tested on the Vault 95 exit; no bar
+  is set for that test yet. It is the only border fix: the owner chose to leave the land open with no walls (L, 16:58
+  UTC; playtest-issues.md row 36). #512's t6 runs still wait on the owner's swap line.
 - [x] **Gate 3. The owner's section A checks on v6i** ([owner/in-game-test-sheet.md](owner/in-game-test-sheet.md), the
   same on the live sheet): A2 mission (tab, raiders, Preston friendly, credits, complete), A3 Codsworth (at his house,
   look, greeting), A4 map (getpos, screenshot, the four own names, the Concord arrival on the ground), A5 the six doors
   and prompts, A6 the extras. Result (the owner's report, 23 Oct 15:46 UTC, and answers at 16:30 and 16:57; playtest-issues.md rows 31 to 38): A2 the
   mission worked (the owner's summary, not field by field); A3 **Codsworth did not spawn** (on the test save the sheet named); A4 "the map markers and
   stuff worked", with getpos and the map screenshot taken; A5 at Fort Hagen the ground entrance worked and **the owner
-  could not find the roof hatch inside** (the sheet's (d), FO4 door 0C38BF; row 33), the Vault 95 door landed them in
+  could not find the roof hatch inside** (the sheet's (d), FO4 door 0C38BF; by Bugs' reading of the door audit the core
+  writes it as a static model with no door to activate, row 33), the Vault 95 door landed them in
   the right place before the border popup (row 38),
   the other doors worked; A6 cans and books can be
   moved inside, not outside (a defect row, not a gate); A7 the quest probe ran, its marker away from the door (not a
