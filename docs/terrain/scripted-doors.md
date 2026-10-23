@@ -40,6 +40,15 @@ waits `SettleSeconds` (default 1.0; an Auto property, so existing VMADs need no 
 `phase=settled` before the SetPosition. It is a diagnostic first: the popup pauses Papyrus, so where the trace stops
 tells which step raised it.
 
+**One long jump instead of two (2026-10-23, not yet run in game).** Before the MoveTo, with `UseDestinationPosition`,
+the script puts the destination marker itself at `DestinationX / Y / Z` (`destination.SetPosition`, traced as
+`phase=marker_placed`) unless it is already within 0.01 of it. The MoveTo onto a persistent overlay marker lands at the
+marker's own coordinates in the player's world, so it should now land at the merged spot, and the SetPosition after it
+becomes a move of about 0. An interior marker's written position is the requested one, so the forward trip does not
+move it. The moved marker stays moved in the save, so later trips skip the move. What to read in the next runs:
+`marker_placed` at the requested position, `after_move` at the requested position instead of 1.2 / 2.7 km off, and
+the failure rate. Plugins and VMADs do not change; only FO4SF_LoadDoor.pex does.
+
 Per door, this build writes:
 
 | side | record | where | what |

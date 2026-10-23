@@ -41,6 +41,7 @@ Event OnActivate(ObjectReference akActionRef)
     Moving = True
     Debug.Trace("FO4SF_LoadDoor requested " + DestinationPlugin + ":" + DestinationId)
     TracePosition("marker", destination)
+    PlaceDestination(destination)
     TracePosition("before_move", akActionRef)
     Cell origin = akActionRef.GetParentCell()
     akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)
@@ -74,6 +75,24 @@ Event OnActivate(ObjectReference akActionRef)
     endif
     Moving = False
 EndEvent
+
+; Land the MoveTo where the door wants the player: put the destination marker at DestinationX / Y / Z first. A
+; persistent marker of the overlay reads its UNMERGED position, so without this the MoveTo lands 1.2 / 2.7 km from
+; the merged spot and the SetPosition after it is a second long jump; one of the two raises BOUNDARY REACHED in about
+; 3 of 10 Vault 95 exits (docs/terrain/border.md, "Rate and retry runs"). A marker already there (an interior marker:
+; its written position is the requested one) is not touched. Untested in game.
+Function PlaceDestination(ObjectReference destination)
+    if !UseDestinationPosition
+        return
+    endif
+    float dx = destination.GetPositionX() - DestinationX
+    float dy = destination.GetPositionY() - DestinationY
+    float dz = destination.GetPositionZ() - DestinationZ
+    if dx * dx + dy * dy + dz * dz > 0.0001
+        destination.SetPosition(DestinationX, DestinationY, DestinationZ)
+        TracePosition("marker_placed", destination)
+    endif
+EndFunction
 
 ; The trip left the player's starting cell (an exterior door near a cell edge can be activated from the next cell, so
 ; not the door's). Compared by cell, not world: on an exterior trip the player's GetWorldSpace() may be the runtime
