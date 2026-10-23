@@ -118,6 +118,11 @@ class Event:
             return None
         return x if x is None or math.isfinite(x) else None   # nan or inf is no reading (Codex review of #431)
 
+    def count(self, key: str):
+        """A whole-number field as an int, None when missing, malformed or fractional (Codex review of #431)."""
+        x = self.num(key)
+        return int(x) if x is not None and x.is_integer() else None
+
     def flag(self, key: str):
         v = self.fields.get(key)
         if isinstance(v, str) and v.lower() in ("true", "false", "1", "0"):
@@ -807,18 +812,17 @@ def check_p4(c: Collection) -> Verdict:
         v.reasons.append(f"only {want} cycles, the probe asks {P4_CYCLES} (cgf \"FOCC_Probe.P4Run\" {P4_CYCLES} 8.0): "
                          "not the bloat answer")
         return v
-    seen = {}
-    for e in cycles:
-        n = e.num("n")
-        if n is not None:
-            seen[int(n)] = e
+    if any(e.count("n") is None for e in cycles):   # n=1.5 is not cycle 1 (Codex review of #431)
+        v.reasons.append("a p4 cycle line has no whole-number n=")
+        return v
+    seen = {e.count("n"): e for e in cycles}
     modes = sorted({e.fields.get("mode", "?") for e in cycles})
     v.extra["modes"] = modes
     missing = [n for n in range(1, want + 1) if n not in seen]
     if missing:
         v.reasons.append(f"cycles missing: {missing}")
         return v
-    numbers = sorted(int(e.num("n")) for e in cycles if e.num("n") is not None)
+    numbers = sorted(e.count("n") for e in cycles)
     if numbers != list(range(1, want + 1)):        # P5's rule: one row per cycle, no extras (Codex review of #431)
         v.reasons.append(f"the cycle lines are not numbered 1..{want} once each: repeated or extra cycles")
         return v
@@ -907,7 +911,10 @@ def check_p5(c: Collection) -> Verdict:
         v.cite(*blank[:3])
         v.reasons.append(f"{len(blank)} p5 tick line(s) lack ms= or places=")
         return v
-    if len(ticks) >= want and sorted(e.num("n") for e in ticks) != [float(n) for n in range(1, want + 1)]:
+    if any(e.count("n") is None for e in ticks):    # an unnumbered tick cannot be placed (Codex review of #431)
+        v.reasons.append("a p5 tick line has no whole-number n=")
+        return v
+    if len(ticks) >= want and sorted(e.count("n") for e in ticks) != list(range(1, want + 1)):
         # every tick row, not only the good ones, is exactly 1..want once each: an extra or interleaved row would
         # hide in the recorded baseline (Codex review of #431)
         v.reasons.append(f"the tick lines are not numbered 1..{want} once each: repeated, extra or missing ticks")

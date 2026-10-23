@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 import json
+import types
+import typing
 
 from .modes import Settings
 
@@ -145,7 +147,47 @@ class WorldState:
         ws.regional_reputation = {region: {k: Reputation(**v) for k, v in layer.items()}
                                   for region, layer in d.get("regional_reputation", {}).items()}
         ws.settings = Settings.from_dict(d.get("settings"))
+        _check_state(ws)
         return ws
+
+
+def _type_ok(value, hint) -> bool:
+    """`value` matches a field hint of the simple shapes the model uses: int (not bool), str, None, a union of
+    those, dict[str, int] and dict[str, int | None]."""
+    if hint is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if hint is str:
+        return isinstance(value, str)
+    if hint is type(None):
+        return value is None
+    origin, args = typing.get_origin(hint), typing.get_args(hint)
+    if origin in (typing.Union, types.UnionType):
+        return any(_type_ok(value, a) for a in args)
+    if origin is dict:
+        return isinstance(value, dict) and all(_type_ok(k, args[0]) and _type_ok(v, args[1]) for k, v in value.items())
+    return True                                   # shapes checked elsewhere (events, settings)
+
+
+def _check_record(what: str, rec) -> None:
+    for name, hint in typing.get_type_hints(type(rec)).items():
+        if not _type_ok(getattr(rec, name), hint):
+            raise ValueError(f"world state {what}.{name} is {getattr(rec, name)!r}, not a {hint}")
+
+
+def _check_state(ws: "WorldState") -> None:
+    """Field types of every restored record, and routes that join known places in a positive whole number of
+    hours, so a misshapen save fails here with a ValueError instead of a TypeError deep in a tick (Codex review
+    of #431)."""
+    for table in ("places", "settlements", "factions", "squads", "reputation"):
+        for k, rec in getattr(ws, table).items():
+            _check_record(f"{table}[{k!r}]", rec)
+    for region, layer in ws.regional_reputation.items():
+        for k, rec in layer.items():
+            _check_record(f"regional_reputation[{region!r}][{k!r}]", rec)
+    for n, r in enumerate(ws.routes):
+        _check_record(f"routes[{n}]", r)
+        if r.a not in ws.places or r.b not in ws.places or r.hours <= 0:
+            raise ValueError(f"world state routes[{n}] must join two known places in a positive number of hours")
 
 
 def _event_ok(e) -> bool:

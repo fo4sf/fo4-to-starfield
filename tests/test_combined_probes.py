@@ -466,6 +466,15 @@ class P4Tests(unittest.TestCase):
             c.saves = saves(focc_p4_before=1, focc_p4_after=1)
             self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE, field)
 
+    def test_cycle_numbers_must_be_whole(self):
+        # Codex review of #431: n=1.5 or a missing n is not a cycle id
+        for bad in (lambda l: re.sub(r" n=(\d+)", r" n=\1.5", l), lambda l: re.sub(r" n=\S+", "", l)):
+            log = p4_log()
+            log[3] = bad(log[3])
+            c = col(log=log)
+            c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+            self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE, log[3])
+
     def test_a_repeated_cycle_row_is_not_judged(self):
         log = p4_log()
         c = col(log=log[:-1] + [log[-2], log[-1]])
@@ -576,6 +585,14 @@ class P5Tests(unittest.TestCase):
             log = p5_log()
             log[3] = re.sub(field, "", log[3]) if " p5 tick " in log[3] else log[3]
             self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, field)
+
+    def test_tick_numbers_must_be_whole(self):
+        # Codex review of #431: a tick without n (or a fractional n) is INCONCLUSIVE, not a crash
+        for bad in (lambda l: re.sub(r" n=\S+", "", l), lambda l: re.sub(r" n=(\d+)", r" n=\1.5", l)):
+            log = p5_log()
+            i = next(i for i, l in enumerate(log) if " p5 tick " in l)
+            log[i] = bad(log[i])
+            self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, log[i])
 
     def test_a_cut_log_without_done_is_inconclusive(self):
         # Codex review of #431: ten good ticks without `p5 done` may be a truncated copy.

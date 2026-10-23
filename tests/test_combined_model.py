@@ -65,6 +65,21 @@ class ModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 WorldState.from_json(other)
 
+    def test_from_json_rejects_misshapen_records_and_routes(self):
+        # Codex review of #431: a resumed route or record of the wrong shape fails at load, not in a tick
+        d = json.loads(world(r1()).to_json())
+        place = sorted(d["places"])[0]
+        bad = []
+        for hours in ("bad", 0, -2, 1.5):
+            bad.append({**d, "routes": [{**d["routes"][0], "hours": hours}]})
+        bad.append({**d, "routes": [{**d["routes"][0], "a": "nowhere"}]})
+        bad.append({**d, "places": {**d["places"], place: {**d["places"][place], "defence": "high"}}})
+        faction = sorted(d["factions"])[0]
+        bad.append({**d, "factions": {**d["factions"], faction: {**d["factions"][faction], "relations": {"x": "y"}}}})
+        for other in bad:
+            with self.assertRaises(ValueError):
+                WorldState.from_json(json.dumps(other))
+
     def test_model_load_pack_delegates(self):
         ws = WorldState(seed=1)
         model.load_pack(ws, r1())
