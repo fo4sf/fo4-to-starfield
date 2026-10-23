@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
@@ -254,6 +255,150 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 1, bad.stdout)
         self.assertIn("1 quest(s) for 205 marker(s): 3 wanted", bad.stdout)
 
+    EXTRA = [{"tag": "M01F2A9", "name": "Abernathy Farm", "src": "01F2A9:Fallout4.esm", "pos": [120.0, 30.0, 4.0], "cell": [1, 0]},
+             {"tag": "M01F2AA", "name": "Starlight Drive In", "src": "01F2AA:Fallout4.esm", "pos": [40.0, 160.0, 6.5], "cell": [0, 1]}]
+
+    def extra_file(self, name, markers):
+        path = self.root / f"{name}.json"
+        path.write_text(json.dumps({"markers": markers}))
+        return path
+
+    def test_extra_markers_are_the_plugins_own_with_lcsr_rows(self):
+        # --extra (make_map_markers.py stage --fo4-map-markers): FO4's other markers as REFRs of this plugin, copies of
+        # the core's first marker in the core world's persistent cell, one MapMarkerRefType LCSR row each in an
+        # override of the core's Location, and listed after the core's markers in the quest
+        extra = self.extra_file("extra", self.EXTRA)
+        out = self.root / "plugin-extra"
+        proc = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("3 marker(s) overridden (own name shown, lifted 2.5 m), 2 of its own (--extra)", proc.stdout)
+        plugin = out / "FO4SFMapMarkers.esm"
+        check = self.tool_run("check", plugin, self.core, "--extra", extra)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertIn("2 marker(s) of this plugin, 2 in --extra", check.stdout)
+        recs = tri.records(plugin)
+        core_ids = sorted(int(v, 16) for v in self.ids.values())
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"REFR"), core_ids + [0x900, 0x901])
+        self.assertEqual(sorted(r[0] for r in recs.values()), [b"CELL", b"LCTN", b"QUST"] + [b"REFR"] * 5 + [b"WRLD"])
+        core_recs = tri.records(self.core)
+        cell = next(k for k, r in recs.items() if r[0] == b"CELL")
+        template = core_recs[core_ids[0]][1]
+        for k, m in zip((0x900, 0x901), self.EXTRA):
+            sig, payload, owner, flags = recs[k]
+            self.assertEqual(owner, cell, m["tag"])                                    # in the persistent cell copy
+            self.assertEqual(flags & 0xC00, 0x400, m["tag"])                          # persistent, enabled
+            self.assertEqual(tlw.field(payload, b"NAME"), struct.pack("<I", 0x10))    # Starfield.esm's MapMarker
+            self.assertEqual(tlw.field(payload, b"EDID"), f"SyntheticWorldMapMarker{m['tag']}".encode() + b"\0")
+            fnam = struct.unpack("<I", tlw.field(payload, b"FNAM"))[0]
+            self.assertEqual(fnam & (USE_LOCATION_NAME | VISIBLE), VISIBLE, m["tag"])
+            self.assertEqual(tlw.field(payload, b"TNAM"), tlw.field(template, b"TNAM"))  # the core's icon type
+            self.assertEqual(tlw.field(payload, b"FULL"), m["name"].encode() + b"\0")
+            x, y, z = struct.unpack_from("<fff", tlw.field(payload, b"DATA"))
+            self.assertEqual([x, y], m["pos"][:2])
+            self.assertAlmostEqual(z, m["pos"][2] + Z_LIFT, places=4)
+        # the Location: the core's rows unchanged, then one row per own marker (own index 2, after Starfield.esm and
+        # the core), the cell's grid packed as the core writes it (the core's Sanctuary row has cell [1, 0])
+        sys.path.insert(0, str(ROOT / "src"))
+        from fo4sf import map_markers
+        loc = next(k for k, r in recs.items() if r[0] == b"LCTN")
+        rows = map_markers.parse_lcsr(tlw.field(recs[loc][1], b"LCSR"))
+        core_rows = map_markers.parse_lcsr(tlw.field(core_recs[loc][1], b"LCSR"))
+        self.assertEqual(len(core_rows), 3)
+        self.assertEqual([r["refr"] & 0xFFFFFF for r in rows[:3]], [r["refr"] & 0xFFFFFF for r in core_rows])
+        self.assertEqual([r["refr"] for r in rows[3:]], [0x02000900, 0x02000901])
+        self.assertEqual({r["lcrt"] for r in rows}, {map_markers.MAPMARKER_REF_TYPE})
+        self.assertEqual({r["wrld"] for r in rows}, {rows[0]["wrld"]})
+        self.assertEqual({r["tail"] for r in rows}, {map_markers.LCSR_TAIL})
+        sanctuary = int(self.ids["Sanctuary"], 16)
+        self.assertEqual(rows[3]["pad"], next(r["pad"] for r in core_rows if r["refr"] & 0xFFFFFF == sanctuary))
+        self.assertNotEqual(rows[3]["pad"], rows[4]["pad"])
+        # the quest: the core's markers in FormID order (index 1), then the plugin's own (index 2)
+        got = self.object_list(tlw.field(recs[0x800][1], b"VMAD"))
+        self.assertEqual(got, [0x01000000 | i for i in core_ids] + [0x02000900, 0x02000901])
+        by_id = {int(self.ids[m["tag"]], 16): m["pos"] for m in self.markers}
+        xs = [by_id[i][0] for i in core_ids] + [m["pos"][0] for m in self.EXTRA]
+        zs = [by_id[i][2] + Z_LIFT for i in core_ids] + [m["pos"][2] + Z_LIFT for m in self.EXTRA]
+        self.assertIn(f"LocalX: {', '.join(self.num(v) for v in xs)}", check.stdout)
+        self.assertIn(f"LocalZ: {', '.join(self.num(v) for v in zs)}", check.stdout)
+
+    def test_check_wants_the_same_extra_markers(self):
+        extra = self.extra_file("extra-same", self.EXTRA)
+        out = self.root / "plugin-extra-same"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra).returncode, 0)
+        plugin = out / "FO4SFMapMarkers.esm"
+        bare = self.tool_run("check", plugin, self.core)                    # without --extra: they are not expected
+        self.assertEqual(bare.returncode, 1, bare.stdout)
+        self.assertIn("is a REFR of this plugin that --extra does not list", bare.stdout)
+        self.assertIn("1 Location record(s) without --extra", bare.stdout)
+        moved = copy.deepcopy(self.EXTRA)
+        moved[1]["pos"][0] += 1.0
+        far = self.tool_run("check", plugin, self.core, "--extra", self.extra_file("extra-moved", moved))
+        self.assertEqual(far.returncode, 1, far.stdout)
+        self.assertIn("not --extra's (41, 160, 6.5) lifted 2.5 m", far.stdout)
+        renamed = copy.deepcopy(self.EXTRA)
+        renamed[0]["cell"] = [0, 0]                                          # another grid: the LCSR row differs
+        grid = self.tool_run("check", plugin, self.core, "--extra", self.extra_file("extra-grid", renamed))
+        self.assertEqual(grid.returncode, 1, grid.stdout)
+        self.assertIn("LCSR rows are not the core's followed by one MapMarkerRefType row per own marker", grid.stdout)
+        plain = self.root / "plugin-extra-none"                              # a plugin without them, checked with them
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", plain).returncode, 0)
+        missing = self.tool_run("check", plain / "FO4SFMapMarkers.esm", self.core, "--extra", extra)
+        self.assertEqual(missing.returncode, 1, missing.stdout)
+        self.assertIn("(M01F2A9 \"Abernathy Farm\", --extra) is missing", missing.stdout)
+        self.assertIn("Location records []: want one override of", missing.stdout)
+
+    def test_check_rejects_a_location_copy_that_no_longer_matches_the_core(self):
+        extra = self.extra_file("extra-loc", self.EXTRA)
+        out = self.root / "plugin-extra-loc"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra).returncode, 0)
+        plugin = out / "FO4SFMapMarkers.esm"
+        data = bytearray(plugin.read_bytes())
+        rec = data.index(b"LCTN", data.index(b"LCTN") + 4)                   # the record, after the group label
+        at = data.index(b"EDID", rec) + 6                                     # a stale copy: its EditorID changes case
+        data[at] ^= 0x20
+        plugin.write_bytes(bytes(data))
+        stale = self.tool_run("check", plugin, self.core, "--extra", extra)
+        self.assertEqual(stale.returncode, 1, stale.stdout)
+        self.assertIn("Location override differs from the core's beyond its LCSR rows (a core rebuilt since the stage: stage again)",
+                      stale.stdout)
+
+    def test_build_refuses_a_bad_extra_file(self):
+        for name, markers, want in [
+                ("extra-repeat", [self.EXTRA[0], dict(self.EXTRA[1], tag="m01f2a9")], "tag M01F2A9 repeats"),
+                ("extra-noname", [dict(self.EXTRA[0], name="")], "M01F2A9: no name"),
+                ("extra-badtag", [dict(self.EXTRA[0], tag="M 1")], 'tag "M 1": want letters, digits or _'),
+                ("extra-short", [dict(self.EXTRA[0], pos=[1.0, 2.0])], "M01F2A9: pos needs 3 finite numbers")]:
+            proc = self.tool_run("build", "--core", self.core, "--out", self.root / f"plugin-{name}", "--extra",
+                                 self.extra_file(name, markers))
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            self.assertIn(want, proc.stderr)
+        # a marker the core already has (a core built with --fo4-map-markers) is not added twice
+        dup = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-extra-dup", "--extra",
+                            self.extra_file("extra-dup", [dict(self.EXTRA[0], tag="Sanctuary")]))
+        self.assertEqual(dup.returncode, 1, dup.stdout + dup.stderr)
+        self.assertIn("the core already has a record SyntheticWorldMapMarkerSanctuary", dup.stderr)
+
+    def test_extra_markers_fill_the_quests_after_the_core_markers(self):
+        # 3 core markers and 205 of the plugin's own: quests of 100, 100 and 8, each with its own move budget
+        many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+                for k in range(205)]
+        extra = self.extra_file("extra-many", many)
+        out = self.root / "plugin-extra-many"
+        built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        check = self.tool_run("check", out / "FO4SFMapMarkers.esm", self.core, "--extra", extra)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        # the third quest is 0x802 of this plugin, the core's Location override 0x802 of the core: read by full FormID
+        recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
+        lists = [self.object_list(tlw.field(recs[0x02000000 | q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
+        self.assertEqual([len(x) for x in lists], [100, 100, 8])
+        flat = [f for x in lists for f in x]
+        self.assertEqual([f >> 24 for f in flat], [1] * 3 + [2] * 205)       # the core's first, then the plugin's
+        self.assertEqual([f & 0xFFFFFF for f in flat[3:]], list(range(0x900, 0x900 + 205)))
+        nxt = struct.unpack_from("<I", (out / "FO4SFMapMarkers.esm").read_bytes(), 24 + 4 + 2 + 8)[0]   # HEDR next id
+        self.assertEqual(nxt, 0x900 + 205)
+
     def test_check_rejects_an_alias_encoded_marker(self):
         out = self.root / "plugin-alias"
         self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out).returncode, 0)
@@ -298,6 +443,26 @@ class MapMarkersPluginTests(unittest.TestCase):
         proc = self.tool_run("build", "--core", stage / "Synthetic.esm", "--out", self.root / "none")
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("no MapMarker REFR", proc.stderr)
+
+    @staticmethod
+    def records_by_form(path):
+        """{full FormID: (sig, payload)} of a plugin (tri.records keys by the low 24 bits, so an override and a record of
+        the plugin's own with the same low bits collide there)."""
+        data, out = path.read_bytes(), {}
+
+        def walk(pos, end):
+            while pos < end:
+                sig, size = data[pos:pos + 4], struct.unpack_from("<I", data, pos + 4)[0]
+                if sig == b"GRUP":
+                    walk(pos + 24, pos + size)
+                    pos += size
+                    continue
+                flags, form = struct.unpack_from("<II", data, pos + 8)
+                payload = data[pos + 24:pos + 24 + size]
+                out[form] = (sig, zlib.decompress(payload[4:]) if flags & 0x40000 else payload)
+                pos += 24 + size
+        walk(0, len(data))
+        return out
 
     @staticmethod
     def num(v):
@@ -443,6 +608,98 @@ class StageTests(unittest.TestCase):
         self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core])
         self.assertEqual(build2[0][-9:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city"])
         self.assertEqual(check2[0][-5:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city"])
+
+    def test_stage_adds_fo4_markers_from_the_core_stage(self):
+        # --fo4-map-markers with --core-stage: the core's own stage folder gives the bounds, the fixed markers and the
+        # BTD (its copy of the core must be --core), the export the markers; both dotnet runs get --extra
+        sys.path.insert(0, str(ROOT / "scripts" / "mapmarkers"))
+        sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
+        sys.path.insert(0, str(ROOT / "src"))
+        import make_map_markers as mm
+        import make_core64c
+        calls, btds = [], []
+
+        def fake_run(cmd, cwd=None):
+            calls.append(cmd)
+            if cmd[0].endswith("PapyrusCompiler.exe"):
+                open(os.path.join(cmd[-1][3:], "FO4SF_MapMarkers.pex"), "wb").close()
+                return "Compilation succeeded."
+            return "ok\n"
+
+        class FlatTerrain:
+            def __init__(self, path):
+                btds.append(path)
+
+            def bilinear(self, xs, ys):
+                return [3.0 for _ in xs]
+
+        fixed = [{"tag": "RedRocket", "name": "Red Rocket Truck Stop", "src": "0211C0:Fallout4.esm",
+                  "pos": [-989.2571, 1146.5143, 107.1429], "cell": [-10, 11]}]
+        export = {"plugin": "Fallout4.esm", "world": "Commonwealth", "markers": [
+            {"fid": "0001F2A9", "name": "Abernathy Farm", "pos": [-81000.0, 86000.0, 0]},
+            {"fid": "0001F2AA", "name": None, "pos": [0, 0, 0]},
+            {"fid": "0001F2AB", "name": "Far Away", "pos": [-300000.0, 0.0, 0]},
+            {"fid": "00024FBE", "name": "Red Rocket Truck Stop", "pos": [-69230.0, 80240.0, 0]}]}   # on the fixed one
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(mm.make_bridge, "run", fake_run), \
+                mock.patch.object(mm.make_bridge, "extract_sources", lambda z, w: w), \
+                mock.patch.object(make_core64c, "Terrain", FlatTerrain):
+            cs, core = os.path.join(d, "core_stage"), os.path.join(d, "FO4TerrainCore.esm")
+            os.makedirs(cs)
+            for path in (core, os.path.join(cs, "FO4TerrainCore.esm")):
+                with open(path, "wb") as f:
+                    f.write(b"core bytes")
+
+            def params(markers):
+                with open(os.path.join(cs, "overlays_params.json"), "w", encoding="utf-8-sig") as f:   # the PC's BOM
+                    json.dump({"overlays": [{"btd_file": "Data/Terrain/W.btd", "bounds_min_m": -3200.0,
+                                             "bounds_max_m": 3200.0, "map_markers": markers}]}, f)
+            params(fixed)
+            exp = os.path.join(d, "cw_markers.json")
+            with open(exp, "w", encoding="utf-8") as f:
+                json.dump(export, f)
+            out = os.path.join(d, "stage")
+            mm.main(["stage", "--core", core, "--out", out, "--compiler", "PapyrusCompiler.exe",
+                     "--fo4-map-markers", exp, "--core-stage", cs])
+            self.assertEqual(btds, [os.path.join(cs, "Data", "Terrain", "W.btd")])
+            with open(os.path.join(out, "extra_markers.json"), encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual([(m["tag"], m["name"], m["cell"]) for m in doc["markers"]],
+                             [("M01F2A9", "Abernathy Farm", [-12, 12])])
+            pos = doc["markers"][0]["pos"]
+            self.assertAlmostEqual(pos[0], -81000.0 / 70, places=3)
+            self.assertAlmostEqual(pos[1], 86000.0 / 70, places=3)
+            self.assertEqual(pos[2], 3.0)                                     # the BTD ground, before the lift
+            with open(os.path.join(out, "map_markers_left_out.json"), encoding="utf-8") as f:
+                reasons = sorted(e["reason"] for e in json.load(f)["left_out"])
+            self.assertEqual(len(reasons), 3)
+            self.assertIn("no name", reasons)
+            self.assertTrue(any(r.startswith("outside the overlay") for r in reasons), reasons)
+            self.assertIn("Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket", reasons)
+            path = os.path.join(out, "extra_markers.json")
+            build, _comp, check = calls
+            self.assertEqual(build[-2:], ["--extra", path])
+            self.assertEqual(check[-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--extra", path])
+            with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
+                self.assertIn("Plus 1 markers of its own (extra_markers.json", f.read())
+            # refusals: half the pair; a core stage holding another core build; a core already built with the markers
+            with self.assertRaises(SystemExit) as e:
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s1"), "--fo4-map-markers", exp])
+            self.assertIn("go together", str(e.exception))
+            with open(os.path.join(cs, "FO4TerrainCore.esm"), "wb") as f:
+                f.write(b"another build")
+            with self.assertRaises(SystemExit) as e:
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s2"), "--compiler", "PapyrusCompiler.exe",
+                         "--fo4-map-markers", exp, "--core-stage", cs])
+            self.assertIn("is not --core (another build)", str(e.exception))
+            with open(os.path.join(cs, "FO4TerrainCore.esm"), "wb") as f:
+                f.write(b"core bytes")
+            params(fixed + [dict(doc["markers"][0])])
+            with self.assertRaises(SystemExit) as e:
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s3"), "--compiler", "PapyrusCompiler.exe",
+                         "--fo4-map-markers", exp, "--core-stage", cs])
+            self.assertIn("it was built with --fo4-map-markers", str(e.exception))
+        self.assertEqual(len(calls), 3)                                       # no dotnet run after a refusal
 
 
 if __name__ == "__main__":

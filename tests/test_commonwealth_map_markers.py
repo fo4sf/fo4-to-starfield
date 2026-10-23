@@ -90,6 +90,18 @@ class ExportedMarkers(unittest.TestCase):
         self.assertEqual(left, [{"src": "01F2B0:Fallout4.esm",
                                  "reason": "Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket"}])
 
+    def test_a_same_named_marker_close_to_a_kept_one_is_left_out(self):
+        # FO4's USS Constitution: two markers 4 m apart where the ship comes to rest; the first in FormID order stays.
+        # A same-named place farther off (FO4's two "Cave" markers) is another place and stays too
+        rows = [("M01F2C0", "USS Constitution", 0x1F2C0, 27160.0, -3990.0),
+                ("M01F2C1", "Cave", 0x1F2C1, -75390.0, -89810.0),
+                ("M01F2C2", "USS Constitution", 0x1F2C2, 27370.0, -3850.0),
+                ("M01F2C3", "Cave", 0x1F2C3, -72030.0, -116760.0)]
+        entries, left = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 0.0)
+        self.assertEqual([e["tag"] for e in entries], ["M01F2C0", "M01F2C1", "M01F2C3"])
+        self.assertEqual(left, [{"src": "01F2C2:Fallout4.esm",
+                                 "reason": "USS Constitution: within 100 m of the kept marker M01F2C0"}])
+
     def test_another_world_is_refused(self):
         with self.assertRaises(ValueError):
             map_markers.load_fo4_markers(dict(self.DOC, world="FarHarbor"))

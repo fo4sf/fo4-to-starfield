@@ -130,19 +130,27 @@ def extra_markers(markers, bounds_m, ground, keep=EDGE_KEEP_M, fixed=(), near_m=
     """overlay_markers for exported markers (load_fo4_markers): a marker less than `keep` inside the overlay is left
     out with its reason instead of stopping the build (the core covers only part of the Commonwealth), and so is one
     within `near_m` of a fixed entry with the same name (overlay_markers output: Red Rocket's sits on the COC arrival,
-    not on FO4's own Red Rocket marker, so that one would draw a second icon there). A differently named place close by
-    (the Museum of Freedom in Concord) is its own location and stays. Returns (entries, left out: [{"src", "reason"}])."""
+    not on FO4's own Red Rocket marker, so that one would draw a second icon there), and so is one within `near_m` of an
+    earlier kept marker with the same name (FO4's USS Constitution has two markers 4 m apart where the ship comes to
+    rest, 1F2637 and 074BE0: one icon is enough). A differently named place close by (the Museum of Freedom in Concord)
+    is its own location and stays, and so is a same-named one farther off (FO4's two "Cave" markers, 390 m apart).
+    Returns (entries, left out: [{"src", "reason"}])."""
     lo, hi = bounds_m
     inside, left = [], []
     for tag, name, src, fx, fy in markers:
         x, y = fx / FO4_UNITS_PER_M, fy / FO4_UNITS_PER_M
         near = next((f for f in fixed if f["name"].casefold() == name.casefold()
                      and math.hypot(f["pos"][0] - x, f["pos"][1] - y) < near_m), None)
+        twin = next((k for k in inside if k[1].casefold() == name.casefold()
+                     and math.hypot(k[3] / FO4_UNITS_PER_M - x, k[4] / FO4_UNITS_PER_M - y) < near_m), None)
         if not (lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep):
             left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"outside the overlay ({x:.1f}, {y:.1f}) m"})
         elif near is not None:
             left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"{name}: within {near_m:.0f} m of the fixed "
                          f"marker {near['tag']}"})
+        elif twin is not None:
+            left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"{name}: within {near_m:.0f} m of the kept "
+                         f"marker {twin[0]}"})
         else:
             inside.append((tag, name, src, fx, fy))
     return overlay_markers(None, bounds_m, ground, markers=inside, keep=keep), left

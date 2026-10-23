@@ -322,6 +322,50 @@ merge there, so the cause is likely in our WRLD / LCTN records (diff them next).
 says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
 door script, #353, this quest) as the design, but does not prove no record shape can merge.
 
+### More location markers without a core rebuild (Claude-cloud, 2026-10-23, offline)
+
+The owner asked for "more location markers" after the section A play (2026-10-23). The core route above
+(`make_core64c.py stage --fo4-map-markers`) needs a new core, and v6i closes this phase, so the markers plugin now adds
+them itself:
+
+1. `make_map_markers.py stage ... --fo4-map-markers <export.json> --core-stage <folder>` picks the markers the core route
+   would pick (`load_fo4_markers`, `extra_markers`), with the BTD ground and the bounds of the folder that staged the core.
+   Its copy of the core must be `--core` byte for byte, so the heights and the markers belong to that build. A core that
+   already carries them (tags `M<FO4 id>` among its params' markers) stops the stage. The picked markers go to
+   `extra_markers.json` and the rest to `map_markers_left_out.json`, each with its reason.
+2. `extra_markers` now also leaves out a marker within 100 m of an earlier kept marker with the same name. FO4's
+   USS Constitution has two markers 4 m apart where the ship comes to rest (1F2637, 074BE0). Same-named places farther
+   apart stay (FO4's two "Cave" markers, about 390 m apart).
+3. `dotnet/MapMarkers build --extra <json>` writes each as a REFR of the plugin (0x900, 0x901, ...). Each is a copy of the
+   core's first marker (LC172's template, as the core writes its own), in the WRLD copy's persistent cell at its local
+   spot, lifted `--z-lift`, with its own name and the overrides' flags. Each also gets one `MapMarkerRefType` `LCSR` row
+   in an override of the core's Location, as TerrainOverlays writes the core's four. The quests list them after the
+   core's markers, at most 100 per quest. `check --extra` fails a plugin with any other REFR of its own. It also fails a
+   Location override that differs from the core's in anything but those rows, the same stale-stage rule as the WRLD copy.
+   Without `--extra` the plugin is byte for byte as before: built here from the v6i core, it has sha256 `af56df9c`, the
+   installed one.
+
+**Verified offline** (cloud, 2026-10-23) against the installed v6i core (sha256 `dc751664`), its stage folder's BTD and
+`overlays_params.json` (`terrain_core64v6i_l125_mission_wfc11_plainshader`), and the PC's export (`cw_markers.json`,
+310 markers). All of them were read from the PC without running anything there.
+- The fixed four's heights in the params match that BTD (Red Rocket sits on the COC arrival, as written), so it is the
+  core's own ground.
+- 305 markers are kept and 5 left out: the fixed three, FO4's Red Rocket next to the core's, and one USS Constitution.
+- The plugin is 73,904 bytes, sha256 `d7b17206`. It has 4 quests (100, 100, 100, 9 markers), 309 LCSR rows, and all
+  checks pass.
+- The Papyrus compile and the stage itself run on the PC.
+
+**Unresolved until the owner's play:**
+- whether all 309 icons draw, and whether they draw only after a revisit like the four;
+- whether a fast travel arrival at the ground plus 2.5 m clears the converted buildings, since FO4's markers stand at
+  the place and some sit by a wall or under a roof;
+- whether 309 rows on one Location change anything about the four.
+
+Some FO4 markers belong to quests and show only during them in FO4, such as "Waypoint Echo" and the USS Constitution's
+resting place. Here they show from the start. **Known risk, larger now:** the mover cannot tell another world with the
+same coordinates apart (above). In such a world it would pull up to 100 markers per quest there, and the move budget,
+200 per quest per build, would run out after one trip there and back.
+
 ## BACUP's FO4 to Starfield world writer (Claude-cloud, 2026-10-19, read only)
 
 [BACUP](https://github.com/Bryant-21/bacup) (GPL-3) was read at commit `cfa3d0d` (2026-10-17). Nothing was run, and

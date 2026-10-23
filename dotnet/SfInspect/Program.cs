@@ -17,6 +17,8 @@
 //   dotnet run -- <Starfield.esm> doorsounds         one TSV row per DOOR with sounds: open / close WWise events, graph, rig
 //   dotnet run -- <Starfield.esm> furn <substr> [n]   FURN without a bench type (chairs, beds, ...): markers, template, graph
 //   dotnet run -- <Starfield.esm> scripted <Script>  bases and placed refs with that script (base, graph, linked-ref keywords)
+//   dotnet run -- <Starfield.esm> landing <WRLD substr> [n]   ship landing / map / heading markers of those worlds, their links,
+//                                                              and the world's Location LCSR rows (how a ship lands there)
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Starfield;
 
@@ -475,6 +477,64 @@ switch (args[1])
                     Console.WriteLine($"   linked from {o.FormKey} ({BaseOf(o.FormKey)}) in {ow} by {string.Join(",", o.LinkedReferences.Where(l => l.Reference.FormKey == r.FormKey).Select(l => Edid(cache, l.KeywordOrReference.FormKey)))}");
                 if (r.EnableParent is { } ep)
                     Console.WriteLine($"   enable parent {ep.Reference.FormKey} ({BaseOf(ep.Reference.FormKey)}) flags {ep.Flags}");
+            }
+        }
+        break;
+    case "landing":   // read-only: landing <WRLD EditorID substr> [n]: how a vanilla world lets a ship land (the owner's temporary
+                      // landing spot, Map thread 2026-10-23; docs/terrain/map-markers.md): in up to n worlds (default 4), every placed
+                      // object whose base EditorID names a ship landing, a map marker, a heading marker or a landing zone, with every
+                      // REFR property, its linked references (keyword -> target and its base) and the references that link to it,
+                      // then the world's Location: keywords, parent, and every LCSR row (ref type -> ref, world, grid)
+        {
+            var sub = args[2]; var max = args.Length > 3 ? int.Parse(args[3]) : 4;
+            string[] kinds = { "ShipLanding", "MapMarker", "XMarkerHeading", "LandingZone", "Landing" };
+            foreach (var w in mod.Worldspaces.Where(w => (w.EditorID ?? "").Contains(sub, StringComparison.OrdinalIgnoreCase)).Take(max))
+            {
+                var placed = new List<(IPlacedObjectGetter r, string where)>();
+                if (w.TopCell != null)
+                    foreach (var r in w.TopCell.Persistent.Concat(w.TopCell.Temporary).OfType<IPlacedObjectGetter>()) placed.Add((r, "persistent"));
+                foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
+                    foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) placed.Add((r, $"cell ({c.Grid?.Point.X}, {c.Grid?.Point.Y}) {c.EditorID}"));
+                var byKey = new Dictionary<Mutagen.Bethesda.Plugins.FormKey, IPlacedObjectGetter>();
+                foreach (var (r, _) in placed) byKey.TryAdd(r.FormKey, r);
+                string BaseEdid(IPlacedObjectGetter r) => Edid(cache, r.Base.FormKey);
+                string BaseOf(Mutagen.Bethesda.Plugins.FormKey fk) => byKey.TryGetValue(fk, out var t) ? BaseEdid(t) : "? (outside this world)";
+                var picked = placed.Where(x => x.r.MapMarker != null || kinds.Any(k => BaseEdid(x.r).Contains(k, StringComparison.OrdinalIgnoreCase))).ToList();
+                var keys = picked.Select(x => x.r.FormKey).ToHashSet();
+                foreach (var (r, wh) in picked.ToList())                     // one hop: what they link to, in this world
+                    foreach (var l in r.LinkedReferences)
+                        if (byKey.TryGetValue(l.Reference.FormKey, out var t) && keys.Add(t.FormKey)) picked.Add((t, placed.First(x => x.r.FormKey == t.FormKey).where));
+                Console.WriteLine($"######## {w.EditorID} {w.FormKey}: {placed.Count} placed objects, {picked.Count} shown; location {w.Location.FormKey} {Edid(cache, w.Location.FormKey)}");
+                foreach (var (r, where) in picked)
+                {
+                    Console.WriteLine($"== {r.FormKey} base {Edid(cache, r.Base.FormKey)} {r.Base.FormKey} in {where} pos {r.Position} rot {r.Rotation} flags 0x{r.MajorRecordFlagsRaw:X}");
+                    foreach (var p in r.GetType().GetProperties())
+                    {
+                        if (p.GetIndexParameters().Length > 0 || p.Name is "StaticRegistration" or "Registration" or "Position" or "Rotation") continue;
+                        object? v; try { v = p.GetValue(r); } catch (Exception e) { v = "ERR " + e.GetType().Name; }
+                        if (v == null) continue;
+                        var s = v is System.Collections.IEnumerable en && v is not string ? "[" + string.Join(", ", en.Cast<object>().Take(16)) + "]" : v.ToString() ?? "";
+                        if (s.Length == 0 || s == "[]" || s == "Null") continue;
+                        Console.WriteLine($"   {p.Name} = {(s.Length > 240 ? s.Substring(0, 240) + "..." : s)}");
+                    }
+                    if (r.MapMarker is { } mm)
+                        Console.WriteLine($"   map marker: flags {mm.Flags} (0x{(int)mm.Flags:X}) name \"{mm.Name}\" type {mm.Type}");
+                    foreach (var l in r.LinkedReferences)
+                        Console.WriteLine($"   link {Edid(cache, l.KeywordOrReference.FormKey)} -> {l.Reference.FormKey} ({BaseOf(l.Reference.FormKey)})");
+                    foreach (var (o, ow) in placed.Where(x => x.r.LinkedReferences.Any(l => l.Reference.FormKey == r.FormKey)).Take(12))
+                        Console.WriteLine($"   linked from {o.FormKey} ({BaseEdid(o)}) in {ow} by {string.Join(",", o.LinkedReferences.Where(l => l.Reference.FormKey == r.FormKey).Select(l => Edid(cache, l.KeywordOrReference.FormKey)))}");
+                    if (r.EnableParent is { } ep)
+                        Console.WriteLine($"   enable parent {ep.Reference.FormKey} ({BaseOf(ep.Reference.FormKey)}) flags {ep.Flags}");
+                }
+                if (cache.TryResolve<ILocationGetter>(w.Location.FormKey, out var loc))
+                {
+                    Console.WriteLine($"-- location {loc.FormKey} {loc.EditorID} \"{loc.Name}\" parent {Edid(cache, loc.ParentLocation.FormKey)} " +
+                                      $"keywords [{string.Join(", ", (loc.Keywords ?? Array.Empty<Mutagen.Bethesda.Plugins.IFormLinkGetter<IKeywordGetter>>()).Select(k => Edid(cache, k.FormKey)))}]");
+                    foreach (var row in loc.MasterSpecialReferences ?? Enumerable.Empty<ILocationCellStaticReferenceGetter>())
+                        Console.WriteLine($"   LCSR {Edid(cache, row.LocationRefType.FormKey)} -> {row.Marker.FormKey} ({BaseOf(row.Marker.FormKey)}) world {Edid(cache, row.Location.FormKey)} grid {row.Grid} unknown {row.Unknown}");
+                    foreach (var r in loc.MasterInitiallyDisabledReferences ?? Enumerable.Empty<Mutagen.Bethesda.Plugins.IFormLinkGetter<IPlacedGetter>>())
+                        Console.WriteLine($"   LCID {r.FormKey} ({BaseOf(r.FormKey)})");
+                }
             }
         }
         break;
