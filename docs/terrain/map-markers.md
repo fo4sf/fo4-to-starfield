@@ -388,10 +388,48 @@ and links to its shield animation.
 
 So a landing spot is four references: a pad with its script, a landing-zone trigger on it, a map marker linked to a
 heading, and three LCSR rows on the Location. Our Location has none of the ship rows today (the core writes only
-MapMarkerRefType), which fits the owner's report that the ship and the arrival "get buggy". Which script the pad carries
-is **unresolved** until the survey prints scripts (added after this run). Two more questions stay **unresolved**: whether
-a pad in our world needs the runtime move the markers get (it is persistent, so it would stay at its local spot), and
-which ground near Red Rocket is flat and clear for an 80 m pad.
+MapMarkerRefType), which fits the owner's report that the ship and the arrival "get buggy".
+
+Two later runs at commits e3c470e5 and 1d59b368 (`landingoverlay01_scripts.txt`, `landingoverlay01_primitive.txt`) add
+**verified** detail:
+- LandingOverlay01's pad carries the script `LandingPadBlastShields` with no properties. PCMShipLanding01's pad carries
+  none.
+- The trigger's primitive is a Box with bounds 81.6183, 81.53047, 29.697622, color A 0 R 204 G 76 B 51, and unknown
+  0.3. It sits 8.03 m above the pad, with the pad's rotation.
+- The pad and the marker are `IsLinkedRefTransient`; the trigger and the heading are not.
+
+### A temporary landing spot (Claude-cloud, 2026-10-23, offline)
+
+The owner asked for "a temp ship landing spot". The markers plugin now carries one: `make_map_markers.py stage --landing
+<x> <y> --core-stage <folder>`, with the pad at getpos (x, y) in the merged frame.
+- **Layout.** `fo4sf.map_markers.landing_spot` moves LandingOverlay01's four references by one offset, so the pad lands
+  at the spot and the rest keeps the vanilla layout and rotations. The pad takes the BTD ground at its spot, and the
+  trigger and the marker keep their vanilla height above it. The heading stands on its own ground plus the markers'
+  lift (2.5 m), in case it is the fast-travel arrival (**hypothesis**).
+- **Records.** `dotnet/MapMarkers --landing` writes the four as REFRs of the plugin at 0x8F0..0x8F3, persistent in the
+  world copy's persistent cell:
+  - the pad (ShipLandingMarker_80m_Large `007145`, without the blast-shield script, as PCMShipLanding01's), linked by
+    LandingZoneTriggerKeyword to the trigger and by LinkShipLandingOverlayMapMarker to the marker;
+  - the trigger (`267F4C`, the vanilla primitive), persistent here, while LandingOverlay01's is temporary, so the quests
+    move it with the rest;
+  - the marker, a copy of the core's first marker with flags 0x33, type 45, Radius 100 and the name "Commonwealth
+    Landing Area", linked to the heading;
+  - the heading (`000034`).
+- **Rows and quests.** The Location override gets the three LandingOverlay01 rows, after `--extra`'s. The quests list
+  the four after the markers, so the mover places them in the merged world like the markers.
+- **Mover.** It now keeps each reference's own rotation (`MoveTo` without match-rotation), so the pad keeps its facing
+  instead of taking the player's. That makes no difference to the markers.
+- **Check.** `check --landing` requires exactly the four records the build makes (so a core rebuilt since the stage
+  fails too) and the three rows.
+- **The spot.** The ground around Red Rocket inside FO4's border is cluttered everywhere (a 90 m square search within
+  1.5 km; the best candidate 470 m north-east has trees, shrubs and rocks within 15 m). Just past FO4's north border,
+  1.09 km north of Red Rocket, the pad at local (-759, 2207), getpos (-1959, -493), has a 2.2 m rise over a 50 m square
+  and no object within 270 m. The owner can move it with a snapshot at a spot they prefer.
+- **Cloud build** against the installed v6i core (core sha256 `dc751664`), with the 305 extra markers: 74,695 bytes,
+  sha256 `79eb6a93…`, 4 quests, 312 LCSR rows, check passes.
+- **Unverified until a play test:** whether the ship lands at this pad when the player lands at the Commonwealth;
+  whether the planet map offers "Commonwealth Landing Area" as a landing target; whether the trigger works when
+  persistent; and whether landing on uneven ground clips the ship's gear.
 
 ## BACUP's FO4 to Starfield world writer (Claude-cloud, 2026-10-19, read only)
 
@@ -421,3 +459,8 @@ offset entirely, but it is a different design from our overlay and is a decision
 for three ideas rather than writing our own: zero a door's transition cell when that cell is not built, keep each
 cell's FO4 lighting template, and texture land per quadrant from `VTXT` / `ATXT`. None of them touches markers,
 locations or the merge probe; they belong to the doors, lighting and terrain work.
+
+## Border signal (2026-10-23)
+`FO4SF_MapMarkers` also writes `border=off` / `border=on` lines to fo4sf_map.0.log for the SFSE plugin FO4SFBorder
+(docs/terrain/border.md, "Per-world switch"). `BorderSignal = False` turns the lines off. They are written before the
+marker pass; indoors the last state is kept. The lines change nothing in the game by themselves.

@@ -12,13 +12,16 @@
 # The load indices come from the repo's door_rounds.py order (step 1): run it from a checkout at main db7c015c or later
 # (7ecc3185 gave port 07 where the live game had 06, 2026-10-22), and read Plugins.txt after a launch, not before: the
 # game rewrites it about 25 s after start (docs/testing/load-order.md).
+# -Repo <checkout>: the repo whose door_rounds.py plans and judges; by default the checkout this script sits in
+# (J4 ran a local copy of this file because the old fixed D:\Modding\wt_nightrun was stale, 2026-10-23).
 param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '', [switch]$RoundsOnly, [string]$CorePin = '06C0DECD',
-      [string]$CoreBuild = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11', [string]$OutMinM = '<FILL: metres>')
+      [string]$CoreBuild = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11', [string]$OutMinM = '<FILL: metres>',
+      [string]$Repo = '')   # last, so a positional first argument still binds -Tag as before
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- pins and placeholders (check every line before use)
 $py          = 'C:\Modding\venv-render\Scripts\python.exe'
-$Repo        = 'D:\Modding\wt_nightrun'      # PLACEHOLDER (supported): Card J used C:\Modding\scratch\wt_testcell at main; db7c015c or later
+if (-not $Repo) { $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path }   # testing\queues-v6e\doors -> repo root
 if (-not $PortStaging) { $PortStaging = '<FILL: full path of integ_v6_specmask_doors_c>' }
 # $CoreBuild (a parameter): door_rounds stage --core; needs objects.json, formids.json, plan.json, overlays_params.json
 $Bridge      = 'C:\Modding\staging\bridge_t4'

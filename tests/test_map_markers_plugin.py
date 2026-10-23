@@ -342,8 +342,8 @@ class MapMarkersPluginTests(unittest.TestCase):
         plugin = out / "FO4SFMapMarkers.esm"
         bare = self.tool_run("check", plugin, self.core)                    # without --extra: they are not expected
         self.assertEqual(bare.returncode, 1, bare.stdout)
-        self.assertIn("is a REFR of this plugin that --extra does not list", bare.stdout)
-        self.assertIn("1 Location record(s) without --extra", bare.stdout)
+        self.assertIn("is a REFR of this plugin that --extra and --landing do not list", bare.stdout)
+        self.assertIn("1 Location record(s) without --extra or --landing", bare.stdout)
         moved = copy.deepcopy(self.EXTRA)
         moved[1]["pos"][0] += 1.0
         far = self.tool_run("check", plugin, self.core, "--extra", self.extra_file("extra-moved", moved))
@@ -412,6 +412,114 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual([f & 0xFFFFFF for f in flat[3:]], list(range(0x900, 0x900 + 205)))
         nxt = struct.unpack_from("<I", (out / "FO4SFMapMarkers.esm").read_bytes(), 24 + 4 + 2 + 8)[0]   # HEDR next id
         self.assertEqual(nxt, 0x900 + 205)
+
+    @staticmethod
+    def landing(**kw):
+        """fo4sf.map_markers.landing_spot on the synthetic overlay (0..200 m): the pad at (100, 100), flat ground at 1 m."""
+        sys.path.insert(0, str(ROOT / "src"))
+        from fo4sf import map_markers
+        return map_markers.landing_spot(100.0, 100.0, (0, 200), lambda x, y: 1.0, Z_LIFT, **kw)
+
+    def landing_file(self, name, spot):
+        path = self.root / f"{name}.json"
+        path.write_text(json.dumps({"landing": spot}))
+        return path
+
+    def test_landing_spot_is_landingoverlay01s_four_references_and_rows(self):
+        # --landing (make_map_markers.py stage --landing): the pad, its landing-zone trigger, the "Landing Area" marker
+        # and its heading, persistent in the world copy, linked as LandingOverlay01's, with its three LCSR rows after
+        # --extra's, and listed after the plugin's markers in the quest
+        sys.path.insert(0, str(ROOT / "src"))
+        from fo4sf import map_markers
+        spot = self.landing()
+        landing, extra = self.landing_file("landing", spot), self.extra_file("extra-landing", self.EXTRA)
+        out = self.root / "plugin-landing"
+        proc = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--landing", landing)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("2 of its own (--extra), a landing spot (--landing RedRocketNorth)", proc.stdout)
+        plugin = out / "FO4SFMapMarkers.esm"
+        check = self.tool_run("check", plugin, self.core, "--extra", extra, "--landing", landing)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertEqual(check.stdout.count("  landing 0008F"), 4)
+        recs = tri.records(plugin)
+        core_ids = sorted(int(v, 16) for v in self.ids.values())
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"REFR"),
+                         core_ids + [0x8F0, 0x8F1, 0x8F2, 0x8F3, 0x900, 0x901])
+        cell = next(k for k, r in recs.items() if r[0] == b"CELL")
+        bases = {0x8F0: 0x7145, 0x8F1: 0x267F4C, 0x8F2: 0x10, 0x8F3: 0x34}   # pad, trigger, MapMarker, XMarkerHeading
+        parts = dict(zip((0x8F0, 0x8F1, 0x8F2, 0x8F3), ("pad", "trigger", "marker", "heading")))
+        for k, part in parts.items():
+            sig, payload, owner, flags = recs[k]
+            self.assertEqual(owner, cell, part)                                     # all four persistent in the copy
+            self.assertEqual(flags & 0xC00, 0x400, part)
+            self.assertEqual(tlw.field(payload, b"NAME"), struct.pack("<I", bases[k]), part)   # Starfield.esm's bases
+            got = struct.unpack_from("<6f", tlw.field(payload, b"DATA"))
+            for g, w in zip(got, spot[part]["pos"] + spot[part]["rot"]):
+                self.assertAlmostEqual(g, w, places=3, msg=part)
+        links = lambda k: [struct.unpack("<II", d) for s, d in tlw.subrecords(recs[k][1]) if s == b"XLKR"]  # noqa: E731
+        self.assertEqual(links(0x8F0), [(0x267F4D, 0x020008F1), (0x3A866F, 0x020008F2)])   # trigger, marker
+        self.assertEqual(links(0x8F2), [(0, 0x020008F3)])                                   # the heading, no keyword
+        self.assertEqual(links(0x8F1) + links(0x8F3), [])
+        self.assertIsNotNone(tlw.field(recs[0x8F1][1], b"XPRM"))                            # the trigger's box
+        marker = recs[0x8F2][1]
+        self.assertEqual(struct.unpack("<I", tlw.field(marker, b"FNAM"))[0], 0x33)           # LandingOverlay01's
+        self.assertEqual(tlw.field(marker, b"FULL"), b"Landing Area\0")
+        # the Location: the core's rows, --extra's, then the marker's MapMarkerRefType row and the pad's two
+        loc = next(k for k, r in recs.items() if r[0] == b"LCTN")
+        rows = map_markers.parse_lcsr(tlw.field(recs[loc][1], b"LCSR"))
+        self.assertEqual([r["refr"] for r in rows[3:]], [0x02000900, 0x02000901, 0x020008F2, 0x020008F0, 0x020008F0])
+        self.assertEqual([r["lcrt"] for r in rows[5:]], [map_markers.MAPMARKER_REF_TYPE, map_markers.SHIP_LANDING_MARKER_REF_TYPE,
+                                                         map_markers.SHIP_LANDING_MARKER_REF_TYPE_LARGE])
+        self.assertNotEqual(rows[5]["pad"], rows[6]["pad"])          # the marker sits in the cell south of the pad's
+        # the quest moves them with the markers, at their written spots (no lift: landing_spot lifted the heading)
+        got = self.object_list(tlw.field(recs[0x800][1], b"VMAD"))
+        self.assertEqual(got[3:], [0x02000900, 0x02000901, 0x020008F0, 0x020008F1, 0x020008F2, 0x020008F3])
+        zs = [self.markers_z(i) for i in core_ids] + [m["pos"][2] + Z_LIFT for m in self.EXTRA] + \
+             [spot[p]["pos"][2] for p in ("pad", "trigger", "marker", "heading")]
+        self.assertIn(f"LocalZ: {', '.join(self.num(v) for v in zs)}", check.stdout)
+        nxt = struct.unpack_from("<I", plugin.read_bytes(), 24 + 4 + 2 + 8)[0]          # HEDR next id: after --extra's
+        self.assertEqual(nxt, 0x902)
+
+    def markers_z(self, form):
+        return next(m["pos"][2] for m in self.markers if int(self.ids[m["tag"]], 16) == form) + Z_LIFT
+
+    def test_check_wants_the_same_landing_spot(self):
+        landing = self.landing_file("landing-same", self.landing())
+        out = self.root / "plugin-landing-same"
+        built = self.tool_run("build", "--core", self.core, "--out", out, "--landing", landing)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        plugin = out / "FO4SFMapMarkers.esm"
+        self.assertEqual(struct.unpack_from("<I", plugin.read_bytes(), 24 + 4 + 2 + 8)[0], 0x8F4)   # no --extra
+        self.assertEqual(self.tool_run("check", plugin, self.core, "--landing", landing).returncode, 0)
+        bare = self.tool_run("check", plugin, self.core)
+        self.assertEqual(bare.returncode, 1, bare.stdout)
+        self.assertIn("is a REFR of this plugin that --extra and --landing do not list", bare.stdout)
+        self.assertIn("1 Location record(s) without --extra or --landing", bare.stdout)
+        renamed = self.tool_run("check", plugin, self.core, "--landing", self.landing_file("landing-renamed", self.landing(name="Pad")))
+        self.assertEqual(renamed.returncode, 1, renamed.stdout)
+        self.assertIn("SyntheticWorldLandingMapMarkerRedRocketNorth is not the record --landing builds", renamed.stdout)
+        moved = self.landing()
+        moved["pad"]["cell"] = [0, 0]                                           # the pad's rows name another grid
+        grid = self.tool_run("check", plugin, self.core, "--landing", self.landing_file("landing-grid", moved))
+        self.assertEqual(grid.returncode, 1, grid.stdout)
+        self.assertIn("and the landing spot's three", grid.stdout)
+        plain = self.root / "plugin-landing-none"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", plain).returncode, 0)
+        missing = self.tool_run("check", plain / "FO4SFMapMarkers.esm", self.core, "--landing", landing)
+        self.assertEqual(missing.returncode, 1, missing.stdout)
+        self.assertIn("SyntheticWorldLandingPadRedRocketNorth (--landing) is missing", missing.stdout)
+
+    def test_build_refuses_a_bad_landing_file(self):
+        spot = self.landing()
+        for name, bad, want in [
+                ("landing-badtag", dict(spot, tag="Red Rocket"), 'tag "Red Rocket": want letters, digits or _'),
+                ("landing-noname", dict(spot, name=""), "RedRocketNorth: no name"),
+                ("landing-nopart", {k: v for k, v in spot.items() if k != "heading"}, "RedRocketNorth: no heading"),
+                ("landing-short", dict(spot, pad=dict(spot["pad"], rot=[0.0, 0.0])), "pad: rot needs 3 finite numbers")]:
+            proc = self.tool_run("build", "--core", self.core, "--out", self.root / f"plugin-{name}", "--landing",
+                                 self.landing_file(name, bad))
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            self.assertIn(want, proc.stderr)
 
     def test_check_rejects_an_alias_encoded_marker(self):
         out = self.root / "plugin-alias"
@@ -578,7 +686,8 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(loop, place.index("m.Enable"))
         self.assertEqual(place.count("moves += 1"), 1)
         self.assertEqual(place.count("MoveTo("), 1)
-        self.assertRegex(place, r"m\.MoveTo\(player, x - px, y - py, z - pz, True, False\)")
+        # no match-rotation: a moved pad keeps its record's facing, not the player's
+        self.assertRegex(place, r"m\.MoveTo\(player, x - px, y - py, z - pz, False, False\)")
         self.assertIn('Trace("moved "', place)
         self.assertNotIn("Math.", self.text)               # only the base scripts the bridge already imports
 
@@ -699,7 +808,7 @@ class StageTests(unittest.TestCase):
             # refusals: half the pair; a core stage holding another core build; a core already built with the markers
             with self.assertRaises(SystemExit) as e:
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s1"), "--fo4-map-markers", exp])
-            self.assertIn("go together", str(e.exception))
+            self.assertIn("--core-stage goes with --fo4-map-markers or --landing", str(e.exception))
             with open(os.path.join(cs, "FO4TerrainCore.esm"), "wb") as f:
                 f.write(b"another build")
             with self.assertRaises(SystemExit) as e:
@@ -714,6 +823,71 @@ class StageTests(unittest.TestCase):
                          "--fo4-map-markers", exp, "--core-stage", cs])
             self.assertIn("it was built with --fo4-map-markers", str(e.exception))
         self.assertEqual(len(calls), 3)                                       # no dotnet run after a refusal
+
+    def test_stage_adds_a_landing_spot_at_a_getpos_spot(self):
+        # --landing x y (the merged frame, as getpos and the owner's snapshots give it) with --core-stage: the pad at
+        # x, y less the merge offset, heights from the core stage's BTD; both dotnet runs get --landing
+        sys.path.insert(0, str(ROOT / "scripts" / "mapmarkers"))
+        sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
+        sys.path.insert(0, str(ROOT / "src"))
+        import make_map_markers as mm
+        import make_core64c
+        calls = []
+
+        def fake_run(cmd, cwd=None):
+            calls.append(cmd)
+            if cmd[0].endswith("PapyrusCompiler.exe"):
+                open(os.path.join(cmd[-1][3:], "FO4SF_MapMarkers.pex"), "wb").close()
+                return "Compilation succeeded."
+            return "ok\n"
+
+        class FlatTerrain:
+            def __init__(self, path):
+                pass
+
+            def bilinear(self, xs, ys):
+                return [3.0 for _ in xs]
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(mm.make_bridge, "run", fake_run), \
+                mock.patch.object(mm.make_bridge, "extract_sources", lambda z, w: w), \
+                mock.patch.object(make_core64c, "Terrain", FlatTerrain):
+            cs, core = os.path.join(d, "core_stage"), os.path.join(d, "FO4TerrainCore.esm")
+            os.makedirs(cs)
+            for path in (core, os.path.join(cs, "FO4TerrainCore.esm")):
+                with open(path, "wb") as f:
+                    f.write(b"core bytes")
+            with open(os.path.join(cs, "overlays_params.json"), "w", encoding="utf-8-sig") as f:
+                json.dump({"overlays": [{"btd_file": "Data/Terrain/W.btd", "bounds_min_m": -3200.0,
+                                         "bounds_max_m": 3200.0, "map_markers": []}]}, f)
+            out = os.path.join(d, "stage")
+            mm.main(["stage", "--core", core, "--out", out, "--compiler", "PapyrusCompiler.exe",
+                     "--landing", "-1959", "-493", "--core-stage", cs])
+            path = os.path.join(out, "landing.json")
+            with open(path, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual((doc["getpos"], doc["merge_offset"]), ([-1959.0, -493.0], [-1200.0, -2700.0]))
+            spot = doc["landing"]
+            self.assertEqual(spot["pad"]["pos"], [-759.0, 2207.0, 3.0])          # local = getpos less the offset
+            self.assertEqual(spot["heading"]["pos"][2], 5.5)                     # its ground plus the tool's 2.5 m
+            self.assertEqual(spot["name"], "Commonwealth Landing Area")
+            build, _comp, check = calls
+            self.assertEqual(build[-2:], ["--landing", path])
+            self.assertEqual(check[-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--landing", path])
+            with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
+                self.assertIn('Plus a ship landing spot "Commonwealth Landing Area" (landing.json): a pad at getpos -1959.0 -493.0', f.read())
+            mm.main(["stage", "--core", core, "--out", os.path.join(d, "lift"), "--compiler", "PapyrusCompiler.exe",
+                     "--landing", "-1959", "-493", "--core-stage", cs, "--z-lift", "1.0"])
+            with open(os.path.join(d, "lift", "landing.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["landing"]["heading"]["pos"][2], 4.0)   # --z-lift lifts the heading too
+            # refusals: no core stage; a pad less than a cell inside the overlay
+            with self.assertRaises(SystemExit) as e:
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s1"), "--landing", "-1959", "-493"])
+            self.assertIn("--core-stage goes with --fo4-map-markers or --landing", str(e.exception))
+            with self.assertRaises(SystemExit) as e:
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s2"), "--compiler", "PapyrusCompiler.exe",
+                         "--landing", "1950", "-493", "--core-stage", cs])
+            self.assertIn("less than 100 m inside the overlay", str(e.exception))
+        self.assertEqual(len(calls), 6)                                       # two stages, none after a refusal
 
 
 if __name__ == "__main__":
