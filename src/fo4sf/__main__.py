@@ -18,6 +18,24 @@ from .manifest import ManifestError, load_manifest, summarize_manifest
 MIN_PYTHON = (3, 12)
 
 
+
+def _git_rev() -> str | None:
+    """Return short git revision if this is a checkout, else None."""
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return None
+
 def cmd_status(args: argparse.Namespace) -> int:
     try:
         cfg = load_config(args.config)
@@ -26,6 +44,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
     print("fo4-to-starfield status")
+    rev = _git_rev()
+    if rev:
+        print(f"  git: {rev}")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
