@@ -10,12 +10,20 @@ usage:
       bridge goes last): read them before planning; the judge checks them again against the game's own lines.
   python scripts/bridge/door_rounds.py stage --core <core build dir> --port <installed FO4Port staging>
          --core-index HH --port-index HH --out <NEW folder> [--core-plugin <installed FO4TerrainCore.esm>]
-         [--only <cell editor id or FO4 door src>,...] [--limit N]
+         [--only <cell editor id or FO4 door src>,...] [--limit N] [--legs both|out] [--border-off]
       reads the doors (objects.json / formids.json of --core) and checks each one in the INSTALLED plugins: the
       exterior door REFR, its base and its FO4SF_LoadDoor VMAD (destination = the port's arrival marker), the interior
       door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door that fails a
       check is listed as skipped, with why, and never planned. Writes plan.json (two terrain tests per door),
       rounds.json (what each test must read) and README.txt. Refuses an existing --out. Nothing is linked or copied.
+      --legs out plans, per door, a Red Rocket arrival (unjudged; coc and the ground reference only) and then the OUT
+      leg's coc into the interior; the judge holds the OUT leg INCONCLUSIVE ORIGIN unless its attempt began in an
+      exterior within ORIGIN_TOL_M of that arrival (a crash between the two relaunches into Vault111Cryo)
+      (the owner's Vault 95 case, 2026-10-22: coc in from Red Rocket, the exit's one 2.3 km jump raised Boundary
+      Reached; with both legs the IN leg hops to the door first and the OUT jump is short). Plan it without --fresh:
+      the launch cell is an interior (Vault111Cryo), so a relaunch would lose the Red Rocket arrival. --border-off adds console_pre
+      GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI to every test (and a GetINI after the arrival), to learn whether the border can be
+      switched off in a running game (unresolved, docs/ai/test-queue.md).
   python scripts/game/testqueue.py plan-terrain --staging <installed FO4Port staging> --exp-dir <out> --out <queue>
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
@@ -26,7 +34,7 @@ usage:
       player's cell is one of the core's and the stage found one worldspace in the core), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
-      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
+      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN, BEYOND: a queue planned with a teleport after the trip).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
@@ -51,6 +59,7 @@ from fo4sf import fo4land  # noqa: E402
 CORE_PLUGIN = "FO4TerrainCore.esm"
 PORT_PLUGIN = "FO4Port.esm"
 BRIDGE_PLUGIN = "FO4SFBridge.esm"
+MARKERS_PLUGIN = "FO4SFMapMarkers.esm"       # cycle.ps1 orders it right after the port (PC run 2026-10-22: port at 06, not 07)
 SPAWN_COC = "FO4Core_RedRocketSpawn"
 COMPRESSED = 0x00040000
 CELL_GROUPS = (vmad_patch.GROUP_CELL_CHILDREN, vmad_patch.GROUP_PERSISTENT, vmad_patch.GROUP_TEMPORARY)
@@ -64,6 +73,7 @@ INTERIOR_DROP_M = 1.5            # the interior drop: just above the marker (the
 DOOR_BASES = ("DOOR", "ACTI")
 VMAD_TOL_M = 0.01               # a door's VMAD return position against its marker's merged position
 TOL_M = 3.0                      # judge_door_trip.py's 3 m
+ORIGIN_TOL_M = 100.0             # --legs out: the OUT attempt must start this close to its Red Rocket prelude's end
 
 
 def load(p):
@@ -211,6 +221,27 @@ def full(index, local_hex):
     return f"{index:02X}{local_hex}"
 
 
+BORDER = '"bBorderRegionsEnabled:General"'
+BORDER_OFF = [f"GetINI {BORDER}", f"SetINI {BORDER} 0", f"GetINI {BORDER}"]
+
+
+def border_off(entry):
+    """The plan entry with the border switch typed first (--border-off) and read again after the arrival (a coc that
+    restores it would otherwise look like a switch with no effect); door_out_legs.py rebuilds entries the same way."""
+    return dict(entry, console_pre=list(BORDER_OFF) + entry.get("console_pre", []),
+                console_post=entry.get("console_post", []) + [f"GetINI {BORDER}"])
+
+
+def prelude(k, r, spawn_local, zref, drop_z):
+    """--legs out: the Red Rocket arrival alone (the core plan's first entry is a whole terrain sweep that ends far
+    away): coc, settle, the ground reference, no other point, no move after it. Judged by nobody; its OUT leg checks
+    it started there (judge_test's ORIGIN)."""
+    return {"coc": SPAWN_COC, "travel": "", "spawn_local": list(spawn_local), "settle_ms": SETTLE_MS,
+            "z_ref": "zref_ground", "teleport_console": True, "drop_z": round(drop_z, 4), "points": [dict(zref)],
+            "beyond": {"x": zref["x"], "y": zref["y"]},
+            "label": f"door round {k} OUT prelude ({r['cell_edid']}): arrive at Red Rocket, then the OUT leg's coc"}
+
+
 def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     """(forward entry, return entry, forward expectation, return expectation) for door k."""
     ex, it = r["exterior"], r["interior"]
@@ -220,7 +251,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
            "z_ref": "zref_ground", "hop_m": HOP_M, "hop_wait_ms": HOP_WAIT_MS, "teleport_console": True,
            "drop_z": round(max(drop_z, stand[2] + STAND_ABOVE_M), 4),
            "points": [dict(zref), {"label": "door_front", "x": stand[0], "y": stand[1], "expect": stand[2]}],
-           "beyond": {"x": stand[0], "y": stand[1] + 120.0},
+           "beyond": None,                                # no teleport after the trip: the judge reads the last position
            "activate": {"ref": full(core_index, ex["door"]), "base": full(core_index, ex["base"]), "expect": []},
            "console_post": [ack(f"door-fwd-{k}"), resolve(PORT_PLUGIN, int(it["marker"], 16))],
            "label": f"door round {k} IN ({r['cell_edid']}, FO4 {r['src']}): {dist:.0f} m from the Red Rocket arrival "
@@ -230,7 +261,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     ret = {"coc": r["cell_edid"], "travel": f"coc {r['cell_edid']}", "teleport_console": True,
            "drop_z": round(m[2] + INTERIOR_DROP_M, 4),
            "points": [{"label": "inside_arrival", "x": m[0], "y": m[1], "expect": m[2]}],
-           "beyond": {"x": ex["arrival_merged"][0], "y": ex["arrival_merged"][1]},
+           "beyond": None,                                # no teleport after the trip: the judge reads the last position
            "activate": {"ref": full(port_index, it["door"]), "base": full(port_index, it["base"]), "expect": []},
            "console_post": [ack(f"door-ret-{k}"), resolve(CORE_PLUGIN, int(ex["arrival"], 16))],
            "label": f"door round {k} OUT ({r['cell_edid']}): coc inside, activate the interior door "
@@ -294,14 +325,30 @@ def marker_cell(port, e):
         return None
 
 
-def plan_rounds(rounds, first, ci, pi):
-    """(plan, expectations): two tests per door, numbered in order."""
+def plan_rounds(rounds, first, ci, pi, merge=None, legs="both", border_off_=False):
+    """(plan, expectations): two tests per door, numbered in order; legs "out": per door an unjudged Red Rocket arrival,
+    then the OUT leg with its origin (merge: the build's merge offset); border_off_: border_off on every judged test."""
     spawn_local, zref = first["spawn_local"], {k: first["points"][0][k] for k in ("label", "x", "y", "expect")}
     plan, expect = [], []
     for k, r in enumerate(rounds):
         f, b, ef, eb = plan_door(k, r, spawn_local, zref, float(first.get("drop_z", 175.0)), ci, pi)
-        plan += [f, b]
-        expect += [dict(ef, test=2 * k), dict(eb, test=2 * k + 1)]
+        # --legs out: each OUT leg follows a fresh arrival at Red Rocket in the same session (the core plan's own first
+        # entry, judged by nobody), so its coc leaves the engine's last exterior position there, as the owner's was
+        if legs == "both":
+            pairs = [(f, ef), (b, eb)]
+        else:
+            origin = {"pos": [round(v, 4) for v in vmad_patch.merged([zref["x"], zref["y"]], merge[:2])],
+                      "tol_m": ORIGIN_TOL_M}
+            pairs = [(prelude(k, r, spawn_local, zref, float(first.get("drop_z", 175.0))), None),
+                     (b, dict(eb, origin=origin))]
+        for entry, exp in pairs:
+            if exp is None:
+                plan.append(entry)
+                continue
+            if border_off_:
+                entry = border_off(entry)
+            expect.append(dict(exp, test=len(plan)))
+            plan.append(entry)
     return plan, expect
 
 
@@ -314,27 +361,35 @@ def stage(a):
     if not rounds:
         sys.exit("no door passed the checks: " + "; ".join(f"{s['src']}: {s['why']}" for s in skipped))
     ci, pi = int(a.core_index, 16), int(a.port_index, 16)
-    plan, expect = plan_rounds(rounds, first, ci, pi)
+    plan, expect = plan_rounds(rounds, first, ci, pi, merge=merge, legs=a.legs, border_off_=a.border_off)
     os.makedirs(out)
     info = {"core": core_dir, "core_plugin": core.path, "port_plugin": port.path, "core_index": f"{ci:02X}",
             "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": TOL_M, "doors": rounds, "skipped": skipped,
-            "tests": expect, "core_worlds": core.worlds()}
+            "tests": expect, "core_worlds": core.worlds(), "legs": a.legs, "border_off": bool(a.border_off)}
     save_stage(out, plan, info)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(stage_readme(info))
     print(f"staged {out}: {len(rounds)} doors, {len(plan)} tests; {len(skipped)} skipped")
-    for r, e in zip(rounds, expect[::2]):
+    hops = {e["door"]: e["hops"] for e in expect if e["leg"] == "in"}
+    for k, r in enumerate(rounds):
         print(f"  {r['cell_edid']:32s} {r['src']}  out door {r['exterior']['door']} -> in marker {r['interior']['marker']}"
-              f"; in door {r['interior']['door']} -> out marker {r['exterior']['arrival']}; {e['hops']} hops")
+              f"; in door {r['interior']['door']} -> out marker {r['exterior']['arrival']}"
+              + (f"; {hops[k]} hops" if k in hops else "; OUT leg only"))
     for s in skipped:
         print(f"  SKIPPED {s['src']}: {s['why']}")
 
 
 def stage_readme(info):
-    lines = [f"Door round trips (scripts/bridge/door_rounds.py): {len(info['doors'])} scripted load doors, two tests each.",
+    each = ("two tests each" if info.get("legs", "both") == "both"
+            else "the OUT leg only, each after an unjudged Red Rocket arrival")
+    lines = [f"Door round trips (scripts/bridge/door_rounds.py): {len(info['doors'])} scripted load doors, {each}."
+             + (' Every test first types GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI.'
+                if info.get("border_off") else ""),
              f"Checked against the installed plugins {info['core_plugin']} (index {info['core_index']}) and",
              f"{info['port_plugin']} (index {info['port_index']}); the core build {info['core']} gave the pairs.",
-             "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>",
+             "Plan: testqueue.py plan-terrain --staging <the installed FO4Port staging> --exp-dir <this folder> --out <queue>"
+             + ("  (no --fresh: each OUT leg runs right after its own Red Rocket arrival, in the same session)"
+                if info.get("legs", "both") == "out" else ""),
              "  --bridge <the installed bridge staging>  (no --plugins: the installed set is not touched).",
              "Judge: door_rounds.py judge --queue <queue>.", ""]
     for t in info["tests"]:
@@ -346,14 +401,17 @@ def stage_readme(info):
 
 
 # ------------------------------------------------------------------------------------------------------------- order
-def order(lines, first_index=2, port=PORT_PLUGIN, bridge=BRIDGE_PLUGIN):
+def order(lines, first_index=2, port=PORT_PLUGIN, bridge=BRIDGE_PLUGIN, markers=MARKERS_PLUGIN):
     """{plugin: index} of the active Plugins.txt lines after a runner launch: cycle.ps1 re-deploys the port at the end,
-    the bridge goes last. Implicit masters (exp_install.implicit) take no line. Assumes full-slot plugins."""
+    puts the map markers plugin right after it when it is active (map_markers_install.py order) and the bridge last.
+    Implicit masters (exp_install.implicit) take no line. Assumes full-slot plugins."""
     import exp_install
     names = [ln.strip()[1:].strip() for ln in lines if ln.strip().startswith("*")]
     names = [n for n in names if not exp_install.implicit(n)]
-    rest = [n for n in names if n.casefold() not in (port.casefold(), bridge.casefold())]
-    return {n: first_index + i for i, n in enumerate(rest + [port, bridge])}
+    active = {n.casefold() for n in names}
+    tail = [port] + [n for n in (markers,) if n.casefold() in active] + [bridge]
+    rest = [n for n in names if n.casefold() not in {t.casefold() for t in tail}]
+    return {n: first_index + i for i, n in enumerate(rest + tail)}
 
 
 def cmd_order(a):
@@ -435,6 +493,27 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
     at = next((i for i, e in enumerate(events) if e.get("kind") == "ack" and e.get("tag") == exp["ack"]), None)
     if at is None:
         return "INCONCLUSIVE", f"NO_ACK: no 'FO4SF ack {exp['ack']}' (console or bridge failed)", None
+    origin = exp.get("origin")
+    if origin is not None:                                # --legs out: began where its prelude left the player?
+        # the attempt's bridge.log is the whole session's (launch in Vault111Cryo, earlier tests): the exterior the
+        # OUT leg's coc left is the LAST loaded exterior position before its ack (Codex on #444). The game rewrites
+        # the log on every launch (bridge_log), so a relaunch after the prelude leaves no prelude in it; rt going
+        # back (seconds since launch) marks a new session all the same
+        since, last_rt = 0, None
+        for i, e in enumerate(events[:at]):
+            rt = e.get("rt")
+            if isinstance(rt, (int, float)):
+                if last_rt is not None and rt < last_rt:
+                    since = i
+                last_rt = rt
+        began = next((e for e in reversed(events[since:at]) if e.get("kind") == "pos" and e.get("pos") is not None
+                      and e.get("loaded") is True and finite(e["pos"]) and e.get("world")), None)
+        if began is None or not began.get("world") or not finite(origin.get("pos"), 2) or \
+                math.dist(began["pos"][:2], origin["pos"][:2]) > float(origin.get("tol_m", ORIGIN_TOL_M)):
+            where = "no loaded exterior position before the ack" if began is None else \
+                f"cell {began.get('cell')} world {began.get('world')} at {began['pos'][:2]}"
+            return "INCONCLUSIVE", (f"ORIGIN: the attempt did not start at its Red Rocket prelude ({where}; want an "
+                                    f"exterior within {origin.get('tol_m')} m of {origin.get('pos')})"), None
     after = events[at + 1:]
     want = exp["resolve"]
     hits = [e for e in after if e.get("kind") == "resolve" and e.get("id") == want["id"]
@@ -485,10 +564,21 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
                                         f"the marker resolves in {target['world']} ({dxy:.1f} m off)"
                                         + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
-        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
+        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m){runtime(last, target)}", last
     return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
                     + (f" (world {last['world']} taken as {target['world']} {tie})" if not exp["cell"]
                        and last.get("world") != target.get("world") else "")), last
+
+
+def runtime(last, target):
+    """The player against the marker's own runtime position (its resolve line), a readout beside the verdict, never the
+    expectation: a player on the resolved marker but off its record position points at the record's frame, a player off
+    both at the trip (J2, 2026-10-23: every IN leg 1450 to 4250 m off its record position, in the right interior cell)."""
+    p = target.get("pos")
+    if not finite(p):
+        return ""
+    return (f"; {math.dist(last['pos'][:2], p[:2]):.1f} m in xy, {abs(last['pos'][2] - p[2]):.1f} m in z from the "
+            f"marker's runtime position {[round(v, 3) for v in p]}")
 
 
 def judge(a):
@@ -515,6 +605,10 @@ def judge(a):
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
         verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
                                        pairs or None, core_world(info))
+        if t.get("beyond"):                               # a queue planned before the judged legs dropped it
+            verdict, why = "INCONCLUSIVE", (f"BEYOND: the runner teleported the player to the test's beyond point after "
+                                            f"the trip, so the last position is that teleport's; re-plan (as read: "
+                                            f"{verdict} {why})")
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
     save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,
@@ -542,6 +636,10 @@ def main(argv=None):
     s.add_argument("--out", required=True, help="a NEW folder")
     s.add_argument("--only", default="", help="only these doors: interior cell editor ids or FO4 door srcs, comma-separated")
     s.add_argument("--limit", type=int, default=0)
+    s.add_argument("--legs", choices=("both", "out"), default="both",
+                   help="out: only the OUT legs, each starting with a coc from the launch's position")
+    s.add_argument("--border-off", action="store_true",
+                   help='console_pre GetINI / SetINI "bBorderRegionsEnabled:General" 0 / GetINI on every test')
     j = sub.add_parser("judge")
     j.add_argument("--queue", required=True)
     j.add_argument("--rounds", default="", help="rounds.json (default: the queue's experiment folder)")

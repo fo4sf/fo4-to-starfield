@@ -3,6 +3,16 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-18 Grok: #359 collision-vs-mesh AABB oracle (fo4-native bounds decode)
+
+- Question: can `sfcollision.py` and `fo4collision.py` decode the Havok blobs the converter writes for `fo4-native` collision far enough to compare a converted model's collision AABB with its drawn-mesh AABB.
+- Method: synthetic 6,168-byte identity `hknpBoxShape` (`tests/test_collision.py` `fake_template` + `sfcollision.box_blob`) and synthetic Starfield compressed-mesh tagfile (`tests/test_sfbodies.py` `mesh_blob`). No game assets.
+- Box templates, **verified**: `sfcollision.read_box` reads centre/half from the 8 corners at blob offset 592 (`<3f` × 8). `check_template` requires `TAG0`, length 6168, `hknpBoxShape`, identity axes at 528/544/560. Existing `test_collision.test_box_roundtrip`.
+- FO4 packfile decoder, **verified**: `fo4collision.decode` / `decode_bodies` parse Havok 2014 packfiles (`hkpackfile.MAGIC` `57e0e05710c0c010`). A Starfield box blob starts `\x00\x00\x18\x18TAG0`; `fo4collision.decode(blob)` raises `PackfileError: not a Havok packfile`. Command: `python -m unittest tests.test_collision_bounds_oracle.CollisionBoundsOracleTests.test_fo4collision_rejects_starfield_box_blob`.
+- Compressed-mesh / convex `fo4-native` output, **verified**: `meshcollision.convert_bodies` writes Starfield TAG0 tagfiles (`hknpCompressedMeshShape` / convex / compound), not the 6168-byte box template. `sfcollision.check_template` raises `CollisionError` on a synthetic CMS blob (`hknpCompressedMeshShape` present). `fo4collision` cannot parse them either (same packfile magic miss).
+- Existing readback, **verified**: `sfbodies.blob_bodies` / `nif_bodies` already decode converted Starfield tagfiles (CMS via section @48/@60/@72, hulls, and `sfcollision.read_box` when `len(blob)==6168`). `scripts/oracles/collision_bounds.py` uses that path; it does not add a new Havok layout.
+- GO: the oracle. NOT go: treating `fo4collision.decode` as a Starfield output decoder, or inventing a second CMS parser.
+
 ## 2026-10-17 Grok: FO4 FLOR harvest -> Starfield FLOR (playtest row 14)
 
 - Question: what Starfield record harvests like FO4 flora, and how many placed plants the core would promote.

@@ -29,7 +29,14 @@ float Property MaxY = 500.0 Auto Const
  worlds apart: a player standing outdoors in another world inside this box would pull the markers there.}
 
 float Property Tolerance = 5.0 Auto Const
-{A marker within this many units of its merged spot, in the player's world, counts as placed.}
+{A marker within this many units of its merged spot (x, y), in the player's world, counts as placed.}
+
+float Property ZTolerance = 0.05 Auto Const
+{The same for height: a save made before a build that lifted LocalZ holds the markers at the old height, and the
+ moved markers' saved positions outlive the records (docs/JOURNAL.md, changed references); a marker more than this
+ far from its LocalZ is moved again. Half the lift step: dotnet/MapMarkers accepts --z-lift in steps of 0.1 m only,
+ so any change between builds is at least 0.1 m and is seen, while a landed move (within 0.01 m, fo4sf_map.0.log
+ 22 Oct) is not moved again.}
 
 float Property SameWorld = 100000.0 Auto Const
 {GetDistance above this means the marker is in another world (it reads float max there, 18 Oct).}
@@ -37,16 +44,31 @@ float Property SameWorld = 100000.0 Auto Const
 float Property Interval = 2.0 Auto Const
 
 int Property MaxMoves = 40 Auto Const
-{Stop moving after this many moves in one session (a move that never lands would otherwise repeat every Interval).}
+{Stop moving after this many moves for one build (a move that never lands would otherwise repeat every Interval).
+ The count is saved state; it starts over when a build changes the markers' count or their height (budgetN, budgetZ),
+ so a later lift reaches a save whose budget an earlier placement spent (Codex on #483).}
 
 string LogName = "fo4sf_map"
 int moves = 0
+; the build the move budget was spent on: the marker count and LocalZ[0] (every lift changes it). Const properties
+; read the installed records, these two the save, so a new build differs on the first pass after it.
+int budgetN = -1
+float budgetZ = 0.0
 
 Event OnInit()
     Debug.OpenUserLog(LogName)
     Trace("init markers=" + Markers.Length)
     StartTimer(Interval, 1)
 EndEvent
+
+Function ResetBudget()
+    if Markers.Length > 0 && (budgetN != Markers.Length || budgetZ != LocalZ[0])
+        Trace("budget reset for markers=" + Markers.Length + " z0=" + LocalZ[0] + " (was " + budgetN + " / " + budgetZ + ", moves=" + moves + ")")
+        budgetN = Markers.Length
+        budgetZ = LocalZ[0]
+        moves = 0
+    endif
+EndFunction
 
 Event OnTimer(int aiTimerID)
     if aiTimerID == 1
@@ -56,6 +78,7 @@ Event OnTimer(int aiTimerID)
 EndEvent
 
 Function Place(Actor player)
+    ResetBudget()
     if player.IsInInterior()
         return
     endif
@@ -75,7 +98,8 @@ Function Place(Actor player)
             float before = player.GetDistance(m)                ; float max: another world
             float ex = m.GetPositionX() - x
             float ey = m.GetPositionY() - y
-            if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance
+            float ez = m.GetPositionZ() - z
+            if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
                 m.Enable(False)
                 m.MoveTo(player, x - px, y - py, z - pz, True, False)
                 moves += 1
