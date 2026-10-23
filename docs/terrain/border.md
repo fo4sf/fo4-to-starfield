@@ -11,7 +11,7 @@ than one game's world.
   caused the pass.
 - **verified** (owner, Oct 22 18:55Z): no wall on foot north of Vault 111. They walked far north, past where Fallout
   4's own border would be, without the popup. An earlier note of a wall there was a misreading and is withdrawn.
-  **owner, Oct 23 16:33Z:** facing Sanctuary from Red Rocket, the boundary fires on the left (W/SW) only; every other
+  **verified** (owner, Oct 23 16:33Z): facing Sanctuary from Red Rocket, the boundary fires on the left (W/SW) only; every other
   direction is open until generated Mars land.
 - **supported hypothesis** (research log 2026-10-12, "which teleports raise Boundary Reached"): of 145 setpos moves
   of at most 2 cells (200 m; a cell is 100 m) per axis, 144 landed; of 28 moves of 3 or more cells, 11 failed. "300 m hops are safe"
@@ -151,6 +151,6 @@ no walls ("L because the full vison"), so the border must be off in our world an
 - **Check for card B (Planet research T1):** on foot from Red Rocket, due west and then south (not through the Vault
   95 door), `player.getpos x` and `player.getpos y` at each popup, once with the switch off (Mode=0) and once on.
   The off run says where the fence is; the on run says whether the switch removes it.
-- Even with the border off, the planet's physics edge is reported at about 6-7 km from the landing centre, and our
+- **unresolved** (Planet research, inferred, not measured by us): even with the border off, the planet's physics edge is reported at about 6-7 km from the landing centre, and our
   terrain's SW corner is about 7.4 km from merged (0,0) (Planet research, inferred). Re-centring the core is a
   core change for the next phase, not part of this switch.
