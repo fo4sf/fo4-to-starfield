@@ -2182,3 +2182,12 @@ there is no door to activate, and the fix is to convert it as a door in the next
 core rebuild, with the outside roof elevator riding the same fix. That cause is
 inferred, not checked in game; the ground entrance is written as a static door
 too and works, so row 33 keeps both. The entries above stand as written.
+
+## 2026-10-23: correction: the Fort Hagen hatch's cause is open
+
+Bugs withdrew the reading in the entry above (the hatch written as a static model
+with no door to activate): the ground entrance is written the same way and works,
+and the owner looked from inside, where the hatch is the port's reference
+0100C7A6. The cause is open. Bugs' read-only PC check of that reference (record
+type, teleport data, script, ladder collision) runs after card J4. The entry
+above stands as written.

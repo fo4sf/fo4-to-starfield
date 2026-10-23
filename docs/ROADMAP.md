@@ -88,8 +88,7 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   and prompts, A6 the extras. Result (the owner's report, 23 Oct 15:46 UTC, and answers at 16:30 and 16:57; playtest-issues.md rows 31 to 38): A2 the
   mission worked (the owner's summary, not field by field); A3 **Codsworth did not spawn** (on the test save the sheet named); A4 "the map markers and
   stuff worked", with getpos and the map screenshot taken; A5 at Fort Hagen the ground entrance worked and **the owner
-  could not find the roof hatch inside** (the sheet's (d), FO4 door 0C38BF; by Bugs' reading of the door audit the core
-  writes it as a static model with no door to activate, row 33), the Vault 95 door landed them in
+  could not find the roof hatch inside** (the sheet's (d), FO4 door 0C38BF; the cause is open, row 33), the Vault 95 door landed them in
   the right place before the border popup (row 38),
   the other doors worked; A6 cans and books can be
   moved inside, not outside (a defect row, not a gate); A7 the quest probe ran, its marker away from the door (not a
