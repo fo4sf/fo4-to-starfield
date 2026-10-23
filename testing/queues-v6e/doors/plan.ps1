@@ -2,7 +2,8 @@
 # run on v6i 2026-10-22 as -Tag v6ib (Card J).
 # Planner: scripts/bridge/door_rounds.py (docs/terrain/door-rounds.md), the one the v6c door queues used; judge: the same.
 # Two queues from ONE stage: doors_out (the OUT legs only, as v6c's doors_out2: comparable with its 5 PASS / 3 FAIL)
-# and doors_rounds (every door in, then out). Needs the repo at main db7c015c or later (refused below).
+# and doors_rounds (every door in, then out). Needs the repo at main dc3481bd or later (refused below): before it the
+# judged legs kept the runner's beyond teleport, which ran after the door, so J2 (v6ib) judged the teleport's spot.
 # Usage (PowerShell, game closed):   .\plan.ps1        plan + dry runs only
 #                                    .\plan.ps1 -Run   also run doors_out, judge it, then doors_rounds, judge it
 # -Tag <name>: a retest into NEW queue folders (<queue>_<name>); -PortStaging: the value the earlier v6e runs used.
@@ -77,8 +78,9 @@ Need ((Get-PSDrive D).Free / 1GB -ge 40) 'less than 40 GB free on D:'
 Need (-not (Get-Process Starfield -ErrorAction SilentlyContinue)) 'Starfield is running: close it first'
 Set-Location $Repo
 git merge-base --is-ancestor db7c015c HEAD; Need ($LASTEXITCODE -eq 0) 'the repo checkout is older than db7c015c (its door_rounds.py order places the map markers after the port): git fetch and check out main first'
+git merge-base --is-ancestor dc3481bd HEAD; Need ($LASTEXITCODE -eq 0) 'the repo checkout is older than dc3481bd (its judged door legs keep the beyond teleport after the trip, #504): git fetch and check out main first'
 Need (-not (git status --porcelain -- scripts src)) 'the checkout has uncommitted changes in scripts or src: the stage pins name HEAD only (Codex on #500)'
-Write-Host "repo HEAD $(git rev-parse HEAD)  (db7c015c or later)"
+Write-Host "repo HEAD $(git rev-parse HEAD)  (dc3481bd or later)"
 
 # ---------------------------------------------------------------- 1. load indices of the runner's launch
 # cycle.ps1 re-deploys FO4Port.esm at the end of Plugins.txt and the bridge goes last (door_rounds.py order)
