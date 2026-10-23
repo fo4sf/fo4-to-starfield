@@ -2201,3 +2201,15 @@ owner reached only with tcl, because the load-door choice had no floor or reach
 limit. #518 merged at 16:42 UTC with that limit; it is not compiled or rerun on
 the PC yet. playtest-issues.md row 35 carries it. The entries above stand as
 written.
+
+## 2026-10-23: the Fort Hagen hatch is a working door out of reach
+
+Directing read the installed FO4Port.esm (read-only): the roof hatch the owner
+could not find inside Fort Hagen is a working scripted load door to the roof, set
+in the ceiling about 3.2 m above the upper floor with nothing to climb within 4 m.
+In FO4 the ladder is part of the trapdoor model, so Bugs' likely cause is that the
+converted model lost its hanging ladder or that ladder's collision; that is not
+checked. The fix stays in the next phase (the owner's call F): check the converted
+model for the ladder and an activation volume reaching the floor, then fix it in
+the door conversion. Card H1 (Bugs' PC read of the hatch) is dropped; card J4,
+the door rounds, still runs. playtest-issues.md row 33 carries it. The entries above stand as written.
