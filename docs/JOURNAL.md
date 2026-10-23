@@ -2213,3 +2213,21 @@ checked. The fix stays in the next phase (the owner's call F): check the convert
 model for the ladder and an activation volume reaching the floor, then fix it in
 the door conversion. Card H1 (Bugs' PC read of the hatch) is dropped; card J4,
 the door rounds, still runs. playtest-issues.md row 33 carries it. The entries above stand as written.
+
+## 2026-10-23: Phase 0: card J4's door rounds (gate 1)
+
+Card J4 reran both door queues on v6i with the fixed judge (runner at main
+6c007035, `-Tag v6ic`, core 02 and port 07, the quest probe at 06), finishing at
+14:43 PC time with no crash and no "beyond" read on a judged leg. The exits: 14 of
+15 PASS, the fifteenth (Vault 95 OUT) INCONCLUSIVE with no feed after the door,
+consistent with the BOUNDARY REACHED popup and read under gate 2. The round trips:
+26 of 30 PASS, 4 INCONCLUSIVE (NOT_ACTIVATED: the runner could not open the console
+safely), 0 FAIL. The three wrong-place exits of v6e all passed, and Vault75 passes
+both ways. No door failed, but gate 1 stays open until Bugs reruns and judges the
+four harness-fault legs (ParsonsState01 and FortHagen02 IN from the Red Rocket
+spawn, Museum OUT, Prydwen OUT). Two wording fixes ride along: gate 2 now says the
+FO4SFBorder plugin (#522) is written and built, its hashes verified on the PC and
+card A pre-staged, not yet run or tested on the PC; and world-and-planet.md no
+longer calls exp3 verified, since this journal (11 to 12 Oct) found it confounded
+by the border and asked for a hop re-run that has not run. The entries above stand
+as written.
