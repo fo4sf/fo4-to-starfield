@@ -67,13 +67,20 @@ class TestCLI(unittest.TestCase):
                 os.chdir(old)
         self.assertEqual(os.getcwd(), old)
 
-    def test_status_ok(self):
+    def test_status_reports_python_and_git(self):
+        import contextlib
+        import io
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "config.toml"
             cfg.write_text('[paths]\nwork_dir = "/tmp/w"\n')
-            with patch("sys.stdout") as mock_out:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
                 rc = main(["--config", str(cfg), "status"])
-            self.assertEqual(rc, 0)
+            text = out.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("Python:", text)
+        # Git line is optional (None when not in a checkout the helper can see)
+        # but the key must not crash; presence depends on the test runner's cwd/repo.
 
     def test_status_reports_directory_existence(self):
         import contextlib

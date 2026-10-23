@@ -27,6 +27,14 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    # Python version (also reported by validate)
+    version = ".".join(str(n) for n in sys.version_info[:3])
+    py_ok = sys.version_info >= MIN_PYTHON
+    print(f"  Python: {version}" + ("" if py_ok else f" (needs {'.'.join(map(str, MIN_PYTHON))}+)"))
+    # Git revision of this checkout, if available
+    git_rev = _git_rev()
+    if git_rev:
+        print(f"  Git: {git_rev}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
@@ -89,6 +97,22 @@ def _repo_root() -> Path | None:
     """This checkout's root, when running from one (config paths must stay outside it: no game data in Git)."""
     root = Path(__file__).resolve().parents[2]
     return root if (root / ".git").exists() and (root / "src" / "fo4sf").is_dir() else None
+
+
+def _git_rev() -> str | None:
+    """Short git revision of the current checkout, or None if not in a repo or git is unavailable."""
+    root = _repo_root()
+    if root is None:
+        return None
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=root, stderr=subprocess.DEVNULL, timeout=2, text=True,
+        )
+        return out.strip() or None
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return None
 
 
 def _inside(p: Path, root: Path | None) -> bool:
