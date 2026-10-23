@@ -43,6 +43,7 @@ function Console-Open {
   # the attempt's own folder, so the HUD check's last screenshot (hud_check.png) stays with a refusal (J2, 2026-10-22:
   # two code 3s left no picture, %TEMP%\fo4sf_ocr is overwritten by every later test)
   $w = Join-Path $Out 'console_open'
+  Remove-Item -LiteralPath (Join-Path $w 'hud_check.png') -ErrorAction SilentlyContinue   # only this call's picture names a refusal
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') -Work $w | Out-Null
   $c = $LASTEXITCODE
   if ($c -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
