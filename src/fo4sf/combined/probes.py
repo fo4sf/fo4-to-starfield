@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import statistics
@@ -112,9 +113,10 @@ class Event:
     def num(self, key: str):
         v = self.fields.get(key)
         try:
-            return float(v) if v is not None else None
+            x = float(v) if v is not None else None
         except (TypeError, ValueError):
             return None
+        return x if x is None or math.isfinite(x) else None   # nan or inf is no reading (Codex review of #431)
 
     def flag(self, key: str):
         v = self.fields.get(key)
@@ -171,9 +173,10 @@ def pos(e: Event, key: str = "pos"):
     if len(parts) != 3:
         return None
     try:
-        return [float(x) for x in parts]
+        p = [float(x) for x in parts]
     except ValueError:
         return None
+    return p if all(math.isfinite(x) for x in p) else None
 
 
 # ----------------------------------------------------------------------------------------------- inputs
@@ -823,6 +826,12 @@ def check_p4(c: Collection) -> Verdict:
     if blank:                                   # a missing count is no evidence either way (Codex review of #431)
         v.reasons.append(f"cycles without placed=, deleted= or loaded=: {sorted(blank)}")
         return v
+    odd = [n for n, e in seen.items() if e.num("placed") > 3 or e.num("deleted") > 3
+           or not 0 <= e.num("loaded") <= 3 or not all(float(e.num(k)).is_integer() for k in ("placed", "deleted", "loaded"))]
+    if odd:                                     # the script places exactly three: more is malformed (Codex, #431)
+        v.reasons.append(f"cycles with counts the script cannot log (placed/deleted above 3, loaded outside "
+                         f"0..3, or fractional): {sorted(odd)}")
+        return v
     short = [n for n, e in seen.items() if e.num("placed") < 3 or e.num("deleted") < 3]
     unloaded = [n for n, e in seen.items() if e.num("loaded") < 1]
     if short:
@@ -911,6 +920,9 @@ def check_p5(c: Collection) -> Verdict:
         v.verdict = FAIL
         return v
     ms = [e.num("ms") for e in ticks]
+    if any(m < 0 for m in ms):                  # elapsed real time is never negative (Codex review of #431)
+        v.reasons.append("a p5 tick reports a negative ms= reading")
+        return v
     if len(ms) < want:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE

@@ -447,6 +447,16 @@ class P4Tests(unittest.TestCase):
         c.saves = saves(focc_p4_before=1, focc_p4_after=1)
         self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
 
+    def test_counts_the_script_cannot_log_are_not_judged(self):
+        # Codex review of #431: four placed in a three-actor cycle is malformed
+        for bad in ("placed=4", "deleted=4", "loaded=4", "loaded=-1", "loaded=1.5"):
+            log = p4_log()
+            log[3] = re.sub(r"placed=3" if "placed" in bad else r"deleted=3" if "deleted" in bad else r"loaded=3",
+                            bad, log[3])
+            c = col(log=log)
+            c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+            self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE, bad)
+
     def test_every_cycle_carries_its_counts(self):
         # Codex review of #431: a cycle without loaded= (or placed=, deleted=) is not measured
         for field in (" loaded=3", " placed=3", " deleted=3"):
@@ -546,6 +556,12 @@ def p5_log(ticks=10, ms=(3.1, 2.9, 3.4, 3.0, 2.8, 3.3, 3.1, 2.7, 3.2, 3.0)):
 
 
 class P5Tests(unittest.TestCase):
+    def test_latency_readings_must_be_real(self):
+        # Codex review of #431: negative or non-finite ms never settles a baseline
+        for bad in ("-1.000000", "nan", "inf"):
+            log = [re.sub(r"ms=\S+", f"ms={bad}", l) if " p5 tick " in l else l for l in p5_log()]
+            self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, bad)
+
     def test_an_extra_tick_row_is_never_hidden(self):
         # Codex review of #431: an out-of-shape row is judged, not filtered away
         log = p5_log()
