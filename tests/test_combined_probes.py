@@ -475,6 +475,13 @@ class P4Tests(unittest.TestCase):
             c.saves = saves(focc_p4_before=1, focc_p4_after=1)
             self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE, log[3])
 
+    def test_the_done_count_must_be_whole(self):
+        # Codex review of #431: cycles=20.5 is not a count the script logs
+        log = [re.sub(r"cycles=(\d+)", r"cycles=\1.5", l) if " p4 done " in l else l for l in p4_log()]
+        c = col(log=log)
+        c.saves = saves(focc_p4_before=1, focc_p4_after=1)
+        self.assertEqual(probes.check_p4(c).verdict, INCONCLUSIVE)
+
     def test_a_repeated_cycle_row_is_not_judged(self):
         log = p4_log()
         c = col(log=log[:-1] + [log[-2], log[-1]])
@@ -593,6 +600,11 @@ class P5Tests(unittest.TestCase):
             i = next(i for i, l in enumerate(log) if " p5 tick " in l)
             log[i] = bad(log[i])
             self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE, log[i])
+
+    def test_the_start_count_must_be_whole(self):
+        # Codex review of #431: ticks=10.5 is not a count the script logs
+        log = [re.sub(r"ticks=(\d+)", r"ticks=\1.5", l) if " p5 start " in l else l for l in p5_log()]
+        self.assertEqual(probes.check_p5(col(log=log)).verdict, INCONCLUSIVE)
 
     def test_a_cut_log_without_done_is_inconclusive(self):
         # Codex review of #431: ten good ticks without `p5 done` may be a truncated copy.

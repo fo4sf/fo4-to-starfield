@@ -807,7 +807,10 @@ def check_p4(c: Collection) -> Verdict:
     if not done:
         v.reasons.append("no `p4 done` line: the run did not finish")
         return v
-    want = int(done[0].num("cycles") or 0)
+    want = done[0].count("cycles")
+    if want is None:                            # cycles=20.5 is not a count the script logs (Codex review of #431)
+        v.reasons.append("`p4 done` has no whole-number cycles=")
+        return v
     if want < P4_CYCLES:
         v.reasons.append(f"only {want} cycles, the probe asks {P4_CYCLES} (cgf \"FOCC_Probe.P4Run\" {P4_CYCLES} 8.0): "
                          "not the bloat answer")
@@ -900,7 +903,10 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(_foreign_reason("p5 start", start, bad, ids) if bad else
                          f"p5 start places={start.fields.get('places')}, want the probe's 50 globals")
         return v
-    want = int(start.num("ticks") or 0)
+    want = start.count("ticks")
+    if want is None:                            # ticks=10.5 is not a count the script logs (Codex review of #431)
+        v.reasons.append("`p5 start` has no whole-number ticks=")
+        return v
     if want < P5_TICKS:
         v.cite(*ticks)
         v.reasons.append(f"the run asked for {want} ticks, the probe asks {P5_TICKS} (cgf \"FOCC_Probe.P5Tick\" "
@@ -933,7 +939,7 @@ def check_p5(c: Collection) -> Verdict:
         v.reasons.append(f"{len(ms)} tick lines with places=50 after start, want {want}")
         v.verdict = FAIL if ticks else INCONCLUSIVE
         return v
-    if done is None or (done.num("ticks") or 0) < want:   # a truncated copy never settles P5 (Codex review of #431)
+    if done is None or (done.count("ticks") or 0) < want:   # a truncated copy never settles P5 (Codex review of #431)
         v.reasons.append(f"no `p5 done ticks={want}` after the ticks: the run did not finish or the log was cut")
         return v
     v.cite(done)

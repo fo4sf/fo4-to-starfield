@@ -175,8 +175,8 @@ def _check_record(what: str, rec) -> None:
 
 
 def _check_state(ws: "WorldState") -> None:
-    """Field types of every restored record, and routes that join known places in a positive whole number of
-    hours, so a misshapen save fails here with a ValueError instead of a TypeError deep in a tick (Codex review
+    """Field types of every restored record, references that name restored places and factions, and routes that
+    join known places in a positive whole number of hours, so a misshapen save fails here with a ValueError instead of a TypeError deep in a tick (Codex review
     of #431)."""
     for table in ("places", "settlements", "factions", "squads", "reputation"):
         for k, rec in getattr(ws, table).items():
@@ -184,6 +184,23 @@ def _check_state(ws: "WorldState") -> None:
     for region, layer in ws.regional_reputation.items():
         for k, rec in layer.items():
             _check_record(f"regional_reputation[{region!r}][{k!r}]", rec)
+    known = lambda ref, table: ref is None or ref in getattr(ws, table)
+    for k, pl in ws.places.items():
+        if pl.id != k or not known(pl.holder, "factions"):
+            raise ValueError(f"world state places[{k!r}] must carry its own id and a known holder, not {pl.holder!r}")
+    for k, st in ws.settlements.items():
+        if st.place != k or k not in ws.places:
+            raise ValueError(f"world state settlements[{k!r}] must belong to a known place of the same id")
+    for k, f in ws.factions.items():
+        if f.id != k or f.home not in ws.places:
+            raise ValueError(f"world state factions[{k!r}] must carry its own id and a known home")
+    for k, q in ws.squads.items():
+        owner_ok = q.faction in ws.factions or q.faction == "player"   # sim.player_defended's garrison
+        if q.id != k or not owner_ok or q.at not in ws.places or not known(q.goal, "places"):
+            raise ValueError(f"world state squads[{k!r}] must name a known faction, place and goal")
+    layers = [ws.reputation, *ws.regional_reputation.values()]
+    if any(k not in ws.factions for layer in layers for k in layer):
+        raise ValueError("world state reputation must name known factions")
     for n, r in enumerate(ws.routes):
         _check_record(f"routes[{n}]", r)
         if r.a not in ws.places or r.b not in ws.places or r.hours <= 0:
