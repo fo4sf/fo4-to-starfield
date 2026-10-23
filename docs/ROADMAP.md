@@ -29,8 +29,8 @@ FO4TerrainCore DC751664, Mars 8BBA3EE9, Raider BED4EF1A, FO4SFMission 03C2A7A8, 
 | Codsworth renders | **in game: yes** (plain-shader model, owner's screenshot) | Bugs thread, 22 Oct |
 | Codsworth at his Sanctuary spot on the owner's existing save | **in game: not met.** He was not there until enabled by console (`prid 05000811`, then enable and moveto). Plugins.txt was rewritten 25 s after the launcher started the game, moving FO4Port after FO4SFMission, so his index changed from 06 to 05 between sessions; the writer is inferred to be the game (the launcher's code does not write it then), not traced | playtest row 27; [testing/load-order.md](testing/load-order.md) |
 | Map markers on the surface map | **in game: partly checked** (22 Oct 17:40 UTC): the mover quest started 55 s into the session and moved all four markers, the icons drew (only after the owner came back to the area; the first-read delay is open) and fast travel landed on them. Not passed on that run: every icon read "COMMONWEALTH 00 (FO4 TERRAIN)" instead of its own name, and the Concord arrival put the player half in the ground (docs/terrain/map-markers.md, Overrides). The fix #483 merged 19:14 UTC and was installed on the owner's line at 19:32 UTC (mapmarkers_v6i_ovr); its in-game check (the four own names on the map, the Concord arrival above ground; the 2.5 m lift is unresolved until then) is in item 5 | playtest row 28; docs/terrain/map-markers.md (#483, merged) |
-| The boundary (the Vault 95 exit) | **in game: cause proven for the Vault 95 exit; no wall on foot.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The earlier report of a walking wall north of Vault 111 was a misreading and is withdrawn: the owner walked far north of Vault 111, past where Fallout 4's own border would be, without the popup (22 Oct 18:55 UTC; [terrain/border.md](terrain/border.md); playtest-issues.md row 29; journal correction 22 Oct). The border is read as a limit on how far one teleport may move the player, not a fence at a position (supported hypothesis, border.md). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city), one Vault 95 OUT leg each on the PC with the border on: the 18:13 UTC pass ran none of the three (NOT RUN: the owner was active at the PC); the rerun with the idle wait: **city (SmallWorld cleared, HNAM 5) PASSED (0.00 m off in xy, 0.02 m in z; the Red Rocket spawn leg passed too); hnam5 (HNAM 5 only, SmallWorld kept) FAILED STAYED; nosmall (SmallWorld cleared only) PASSED** (city and hnam5 on border.md's results list; nosmall by Install's report through the coordinator at 20:46 UTC). **Not yet proven:** FO4SFMapMarkers.esm was installed in those runs, carries a copy of the core's WRLD (SmallWorld, HNAM 0) and loaded after the probe, so by record order the live WRLD was the control's, and moves of 3 or more cells fail about 11 times in 28 without any border change, so one pass against one fail may be chance. The settling test (border.md, queues `doors_v95_settle_*`; the owner's line 20:53 UTC, done 22:26 UTC): the markers plugin carried each variant's fields as the last WRLD override, no probe plugin, the same save, 3 runs each: **control PASS, PASS, PASS; nosmall PASS, PASS, FAIL; city FAIL, PASS, PASS** (7 of 9; every PASS at the same spot, every FAIL "STAYED" with the popup). **What it shows: city and nosmall are not reliable fixes, and the unchanged world passes too, so the failure is intermittent.** What it does not show: whether the fields change the rate (3 runs cannot tell), or what causes the intermittent failure; the popup still points at the border mechanism. **The border fields are shelved** (`make_core64c.py stage --world-border` stays in the code, `template` the default, no core built with it): **no core rebuild, no v6j; the installed v6i (core DC751664) is the phase 0 build.** Next, on the PC (Interiors, with Install): the failure rate, 10 Vault 95 exits on the installed build with the FO4SF_LoadDoor trace (card 2; the owner's line "Run the vault 95 test", 23:37 UTC, and after their 23:39 UTC line not to wait 15 minutes per run Install cut the idle wait to 1 minute; queued behind the door rounds), then the same 10 with the door's retry of a missed trip (#499, merged 23:52 UTC, main 9f08155: after the MoveTo the script checks that the player left the cell; if not, it waits 0.5 s, checks again and repeats the MoveTo once if they still have not, tracing `retry 1 of 1`, `phase=after_retry` and `retry gave up`; compiled on the PC at 9f08155, 4,617 bytes, into bridge_t5, a copy of bridge_t4 with only that PEX replaced; the owner authorized the swap to t5 for those runs at 00:00 UTC 23 Oct, t4 goes back after). If the retry does not help, the per-world route is an SFSE plugin that toggles `bBorderRegionsEnabled` only inside our world (border.md) | #485 (merged 19:45 UTC; adds docs/terrain/border.md, the method and results); #495 (merged; the shelved core flag); #499 (merged; border.md Results, scripted-doors.md "Retry on a missed trip"); #444 |
-| Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. Bugs' card J runs on the installed v6i set, since no core rebuild comes (item 4): J1 planned it on the PC (22 Oct): a local copy of doors/plan.ps1 pinned to core DC751664 and the build folder terrain_core64v6i_l125, `-Tag v6ib`, load order `--core-index 02 --port-index 06`; stages doors_v6e_rounds_v6ib (15 doors, 30 tests) and doors_v6e_out_v6ib (15 doors), queues doors_out_v6ib (15 tests) and doors_rounds_v6ib (30 tests). Two planning faults were caught and redone before any run: `-Tag` left the 21 Oct OUT stage in place (it is tagged too now), and the runner checkout at 7ecc3185 computed port index 07 where main db7c015c gives 06, the index the settling runs activated. **J2 is running since 22:39 UTC** (wait-for-idle): the 15 OUT legs have run and the 30 round-trip legs (15 round trips, an IN and an OUT leg per door) are in progress; the summary is pending (item 1). #500 puts the plan on main with the core as parameters and the OUT stage tagged (Codex approved, CI green, merged 00:28 UTC 23 Oct, main b78bb893) | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger); #500 (merged) |
+| The boundary (the Vault 95 exit) | **in game: cause proven for the Vault 95 exit; no wall on foot.** The Vault 95 exit after a coc stays inside with "Boundary reached" while Starfield's border regions are on; with `SetINI "bBorderRegionsEnabled:General" 0` typed mid-session the same exit lands 0.00 m from its marker (run _f, a43afef). The earlier report of a walking wall north of Vault 111 was a misreading and is withdrawn: the owner walked far north of Vault 111, past where Fallout 4's own border would be, without the popup (22 Oct 18:55 UTC; [terrain/border.md](terrain/border.md); playtest-issues.md row 29; journal correction 22 Oct). The border is read as a limit on how far one teleport may move the player, not a fence at a position (supported hypothesis, border.md). **Owner's decision (22 Oct): B, a fix for our world only, not the global INI.** BorderProbe (#485: three one-field test plugins, nosmall, hnam5, city), one Vault 95 OUT leg each on the PC with the border on: the 18:13 UTC pass ran none of the three (NOT RUN: the owner was active at the PC); the rerun with the idle wait: **city (SmallWorld cleared, HNAM 5) PASSED (0.00 m off in xy, 0.02 m in z; the Red Rocket spawn leg passed too); hnam5 (HNAM 5 only, SmallWorld kept) FAILED STAYED; nosmall (SmallWorld cleared only) PASSED** (city and hnam5 on border.md's results list; nosmall by Install's report through the coordinator at 20:46 UTC). **Not yet proven:** FO4SFMapMarkers.esm was installed in those runs, carries a copy of the core's WRLD (SmallWorld, HNAM 0) and loaded after the probe, so by record order the live WRLD was the control's, and moves of 3 or more cells fail about 11 times in 28 without any border change, so one pass against one fail may be chance. The settling test (border.md, queues `doors_v95_settle_*`; the owner's line 20:53 UTC, done 22:26 UTC): the markers plugin carried each variant's fields as the last WRLD override, no probe plugin, the same save, 3 runs each: **control PASS, PASS, PASS; nosmall PASS, PASS, FAIL; city FAIL, PASS, PASS** (7 of 9; every PASS at the same spot, every FAIL "STAYED" with the popup). **What it shows: city and nosmall are not reliable fixes, and the unchanged world passes too, so the failure is intermittent.** What it does not show: whether the fields change the rate (3 runs cannot tell), or what causes the intermittent failure; the popup still points at the border mechanism. **The border fields are shelved** (`make_core64c.py stage --world-border` stays in the code, `template` the default, no core built with it): **no core rebuild, no v6j; the installed v6i (core DC751664) is the phase 0 build.** Then, on the PC (Interiors, with Install; both ran 23 Oct, results below): the failure rate, 10 Vault 95 exits on the installed build with the FO4SF_LoadDoor trace (card 2; the owner's line "Run the vault 95 test", 23:37 UTC, and after their 23:39 UTC line not to wait 15 minutes per run Install cut the idle wait to 1 minute; queued behind the door rounds), then the same 10 with the door's retry of a missed trip (#499, merged 23:52 UTC, main 9f08155: after the MoveTo the script checks that the player left the cell; if not, it waits 0.5 s, checks again and repeats the MoveTo once if they still have not, tracing `retry 1 of 1`, `phase=after_retry` and `retry gave up`; compiled on the PC at 9f08155, 4,617 bytes, into bridge_t5, a copy of bridge_t4 with only that PEX replaced; the owner authorized the swap to t5 for those runs at 00:00 UTC 23 Oct, t4 goes back after). **Results (23 Oct; border.md "Rate and retry runs" in #512, draft): card 2 on bridge_t4, 7 of 10 landed (fails r01, r02, r10); card 3 on bridge_t5, 6 of 10 landed (fails r01, r04, r08, r10), and no run traced the retry.** In all 7 fails the BOUNDARY REACHED popup came up during the exit and paused the game: the bridge feed went stale (its newest line 76 to 78 s old) and the judge fell back to the last read before the door, inside cell 06007D12, and called it STAYED, so STAYED in these runs means the popup came up, not a measured bounce back inside. The script's trace was the same in every PASS and FAIL: the MoveTo lands in the exterior at the marker's unmerged position, then a SetPosition goes to the merged spot (the 1,200 / 2,700 gap is the overlay offset), so no check right after the move can tell a failing trip from a passing one, which is why the retry never fired. Which step raises the popup, the MoveTo's 2.9 km landing or the SetPosition jump back, is open. 13 of 20 over both runs; the owner's call on the rate is gate 2 of the exit checklist. Next on the PC: #512's door change (the destination marker moved to the merged spot before the MoveTo, and a settle step whose trace shows which step raised the popup; not yet compiled or run, 10 Vault 95 runs); if it does not help, an SFSE plugin that toggles `bBorderRegionsEnabled` only inside our world (border.md; unwritten) | #485 (merged 19:45 UTC; adds docs/terrain/border.md, the method and results); #495 (merged; the shelved core flag); #499 (merged; border.md Results, scripted-doors.md "Retry on a missed trip"); #512 (draft; the rate and retry runs, the door change); #444 |
+| Automated door rounds | **not passed on any v6 build.** v6e (21 Oct, 15 OUT legs): PASS 10, FAIL 3, INCONCLUSIVE 2 (below). The IN legs (doors_rounds, 30 tests) never got past test 0000: the game left at the Red Rocket spawn, the crash later traced to Codsworth's model. Bugs' card J runs on the installed v6i set, since no core rebuild comes (item 4): J1 planned it on the PC (22 Oct): a local copy of doors/plan.ps1 pinned to core DC751664 and the build folder terrain_core64v6i_l125, `-Tag v6ib`, load order `--core-index 02 --port-index 06`; stages doors_v6e_rounds_v6ib (15 doors, 30 tests) and doors_v6e_out_v6ib (15 doors), queues doors_out_v6ib (15 tests) and doors_rounds_v6ib (30 tests). Two planning faults were caught and redone before any run: `-Tag` left the 21 Oct OUT stage in place (it is tagged too now), and the runner checkout at 7ecc3185 computed port index 07 where main db7c015c gives 06, the index the settling runs activated. **J2 is running since 22:39 UTC** (wait-for-idle): the 15 OUT legs have run and the 30 round-trip legs (15 round trips, an IN and an OUT leg per door) are in progress; the summary is pending (item 1); **its counts and the v6e counts are void** (the judge read positions after the "beyond" teleport, Bugs 23 Oct; #504 merged with the fix, card J4 reruns after the owner's session, gate 1 below). #500 puts the plan on main with the core as parameters and the OUT stage tagged (Codex approved, CI green, merged 00:28 UTC 23 Oct, main b78bb893) | docs/spikes/door-exit-heights.md; journal 22 Oct (ledger); #500 (merged) |
 | The owner's v6 hand checks (test sheet steps 3 to 9) | **partly checked.** Checked: Codsworth renders, map markers, the Ctrl+Alt+K box (#463). Not recorded on v6: the mission (Missions tab text, Preston friendly, 100 credits; on v6c, 19 Oct, only completion was verified: Preston targeted the player twice on that run and the ally-faction fix came after it, so the friendliness check has no pass yet; docs/mission/when-freedom-calls.md), Codsworth's greeting voice (heard, subtitle only, neither), the map extent (getpos at Red Rocket plus a zoomed-out surface map screenshot; Map dropped the 3D-view spots, Cydonia and the landing coordinates, on 22 Oct because the border question they served is answered), the Red Rocket side door, the Fort Hagen and Vault 95 elevator prompts from outside, the roof hatch and Vault 114 manhole prompts from inside, cans and books picking up. **v6i is the final phase 0 build (no core rebuild, item 4), so the owner's next session on it closes the phase** (item 5); it follows the PC's door rounds and Vault 95 runs, which use the game | test sheet; journal 22 Oct (ledger) |
 | Launcher (runs alongside) | **in game by the owner's word (22 Oct):** the desktop shortcut opened the launcher window and started the game. #476 (window), #481 (locations tab, load-order report) merged; #487 (load-order fix before play, Fallout 4 found once, start through SFSE, StarfieldCustom.ini written as bytes so the BOM and CRLF survive) merged 22 Oct (main ab55f272); #497 (the target order on load-order.md, Fallout 4 folders listed once, the start line names SFSE) merged 22 Oct (main c9f0578); the PC re-check at c9f0578 (22 Oct, 21:23 and 22:27 UTC): paths and the play dry run exit 0, detect NOT READY only for the four missing DLC (the Steam install is pending), nothing written; the dry run would swap the FO4SFMapMarkers and FO4SFBridge lines, which is open with Map (item 6) | Launcher thread; #481, #487, #497 (merged) |
 
@@ -55,8 +55,13 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 - [x] **Gate 0. #353 merged after Codex review**: done 20 Oct.
 - [ ] **Gate 1. The automated door rounds on v6i** (Bugs, with Install): card J2 on the installed build, queues
   doors_out_v6ib (15 OUT legs, one per door) and doors_rounds_v6ib (15 round trips, an IN and an OUT leg per door, 30
-  tests; [terrain/door-rounds.md](terrain/door-rounds.md)). Result: OUT legs _ of 15 PASS; round-trip legs _ of 30
-  PASS (the 15 OUT legs had run and the round trips were running at 00:15 UTC 23 Oct; Bugs posts the summary). Pass:
+  tests; [terrain/door-rounds.md](terrain/door-rounds.md)). Result: blank. J2 ran (doors_out 15 tests, doors_rounds 30 legs, 0 crashes), but Bugs' check of its
+  judge (23 Oct, 03:16 UTC) voids every count it gave: in Bugs' reading the positions were taken after qstep's
+  unscored "beyond" teleport (the walk plan's last point), not at the door's arrival, so J2 measured no door
+  arrival in either direction, and the v6e counts (PASS 10, FAIL 3, INCONCLUSIVE 2) carry the same flaw. No door
+  round so far proves an arrival position, only the world or cell reached. The fix is #504 (merged 03:32 UTC 23 Oct,
+  main 981c0216); gate 1 is refilled by card J4, a full rerun of both queues from main under `-Tag v6ic`, queued on
+  the PC after the running chain and the owner's play session, so the owner sits down with this slot blank. Slots for J4: OUT legs _ of 15 PASS; round-trip legs _ of 30 PASS. Pass:
   every OUT and IN leg PASS, with two readings set here: a Vault 95 leg that fails STAYED with the popup is the border
   failure gate 2 measures and is read there, not as a gate 1 fail; an INCONCLUSIVE leg (a harness fault, as Vault75
   and ParsonsState01 were on v6e) is not a door result and leaves the gate open until Bugs reruns and judges that leg.
@@ -66,7 +71,11 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 - [ ] **Gate 2. The Vault 95 exit** (Interiors, with Install): the owner's own orders, card 2 ("Run the vault 95 test",
   23:37 UTC 22 Oct: 10 exits on the installed build, bridge_t4) and card 3 (the swap to bridge_t5 for 10 more with the
   door's retry, 00:00 UTC 23 Oct), so they finish and are recorded before the owner's session. Result for the owner's
-  call: _ of 10 landed on t4; _ of 10 landed on t5, retries used _. No pass bar is set: the owner decides whether the
+  call (23 Oct): **7 of 10 landed on t4; 6 of 10 landed on t5, retries used 0**; 13 of 20 over both runs. In all 7
+  fails the BOUNDARY REACHED popup came up during the exit and paused the game, so the judge's STAYED is its last read
+  before the door, not a measured bounce back inside; the retry never fired because the script sees the same landing
+  in a passing and a failing trip (border.md "Rate and retry runs", #512, draft). #512's door change and its 10 runs
+  are the next PC card. The slot is filled; the tick is the owner's. No pass bar is set: the owner decides whether the
   measured rate holds the phase or goes on the defect list, with an SFSE per-world toggle of `bBorderRegionsEnabled`
   as the next phase's route (border.md: the INI switch is proven only globally; the per-world SFSE code is unwritten).
 - [ ] **Gate 3. The owner's section A checks on v6i** ([owner/in-game-test-sheet.md](owner/in-game-test-sheet.md), the
@@ -79,15 +88,14 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 
 **Not a gate** (where each goes is in its bold lead)
 
-- **Quest probe, runs now, feeds the quest research** (NewGame, with Install): questprobe_v2 is staged (port pin
-  9AF962D2, three scripts compiled). The owner's word at 00:14 UTC ("do whatever with the probe that is ready") lets Install put it in
-  at the next gap between games; if Install's install rule still wants the exact line, Install asks the owner for it in
-  its thread. Its result answers the engine questions in docs/questprobe/engine-questions.md (stage fragments,
+- **Quest probe, runs now, feeds the quest research** (NewGame, with Install): questprobe_v2 is installed (23 Oct, on
+  the owner's word at 00:14 UTC, "do whatever with the probe that is ready"; port pin 9AF962D2, three scripts
+  compiled). Its result answers the engine questions in docs/questprobe/engine-questions.md (stage fragments,
   OnStageSet, alias markers, our quest-type tab, a Story Manager branch) for the later people-and-story work; it gates
   neither phase 0 nor the new game.
-- **The new game, phase 1** (NewGame): newgame_v6 is pinned to the v6e core; the restage against v6i (newgame_v7, its
-  card sent to the coordinator's PC queue at 00:24 UTC 23 Oct) and the owner's line "Install the new game." open
-  phase 1.
+- **The new game, phase 1** (NewGame): newgame_v6 was pinned to the v6e core; newgame_v7 passed its restage against the
+  installed v6i core on the PC (23 Oct, NewGame's report: 4 scripts compiled, plan pinned to port 9AF962D2 and core
+  DC751664; not installed). The owner's line "Install the new game." opens phase 1; it is ready to type.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
@@ -96,7 +104,7 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   batch it builds on, was removed by the 21 Oct cleanup. In its place a read-only check of b10's door wiring against
   the v6i core is queued on the PC (card 1b). A pass installs b10 as built (with the installer's `--other-core`,
   since it stays wired to v6c) on the owner's line; on a fail Interiors adds a redoors mode first. Detail in the Phase 1 paragraph below.
-- **The combined-core probe, after phase 0** (CombinedCore): #431 in review (Grok this week, see merges); the restage goes against v6i; the
+- **The combined-core probe, after phase 0** (CombinedCore): #431 merged (01:51 UTC 23 Oct, main d05f8fc1); the restage from main goes against v6i; the
   owner's line "Turn off FO4SFMission and install the combined-core probe for one test session."
 - **Codsworth on the old saves, right after phase 0** (Bugs, with NPC and Interiors): #493 (the keeper quest) is
   merged but in no installed plugin; without a core rebuild it needs its own FO4SFMission build against the v6i core
@@ -117,19 +125,18 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   checks with Map before changing the target).
 - **Merges, housekeeping**: #408 (framework, merged 00:17 UTC 23 Oct, main 597ea5f6), #500 (doors plan, 00:28 UTC,
   main b78bb893), #501 (LOD doc, 00:45 UTC, main 7625deaa) and #502 (Bugs: the HUD screenshot is kept when a test step
-  cannot open the console, 00:58 UTC, main 564dfa64) are on main. #431 (combined core) waits on a review pass: Codex
-  (the bot and the desktop app, one account) ran out of usage on 23 Oct until 29 Oct, so on the owner's word (23 Oct,
-  01:25 UTC, option A) Grok reviews this week, #431 first and then this ledger's PR (#503); a Grok "no major issues"
-  is the review pass, and nothing merges without one.
+  cannot open the console, 00:58 UTC, main 564dfa64) are on main, and so are #503 (this checklist, 01:41 UTC, main 7816bb1e) and #431 (combined core, 01:51 UTC, main
+  d05f8fc1). Codex (the bot and the desktop app, one account) ran out of usage on 23 Oct until 29 Oct, so on the
+  owner's word (23 Oct, 01:25 UTC, option A) Grok reviews this week; a Grok "no major issues" is the review pass, and
+  nothing merges without one.
 
 **The owner's install lines.** Typed in the Install thread, one at a time, only when a thread asks. None of them is
 a phase 0 gate.
 
-- "Install the quest probe plugin." (only if Install still asks for the exact line; the owner's 00:14 UTC word already
-  covers the install)
-- "Install the new game." (after the restage against v6i passes)
+- "Install the quest probe plugin.": not needed; the probe went in on the owner's 00:14 UTC word (23 Oct)
+- "Install the new game." (**ready**: newgame_v7 passed its restage against v6i, 23 Oct, NewGame's report 11:30 UTC)
 - "Install the animated doors port." (after the port build passes)
-- "Turn off FO4SFMission and install the combined-core probe for one test session." (after #431 merges and the restage)
+- "Turn off FO4SFMission and install the combined-core probe for one test session." (after the restage from main; #431 is merged)
 - the b10 line: Interiors words it after card 1b passes
 - the Codsworth keeper line: not worded yet; it follows the FO4SFMission build against v6i (item 3)
 
@@ -147,7 +154,9 @@ a phase 0 gate.
    and must be given unless `-RoundsOnly` is passed, 0 keeps every exit as the v6e doors did), the OUT stage tagged
    with the rest, a checkout at main db7c015c or later so the load indices come from the live order, and a pins.json in
    every stage it makes (the inputs' sha256s and the indices), reused only on an exact match; stages made before it,
-   the v6ib ones included, have none, so a rerun from the main plan needs a new `-Tag`.
+   the v6ib ones included, have none, so a rerun from the main plan needs a new `-Tag`. J2's counts are void (Bugs, 23 Oct
+   03:16 UTC: the judge read positions after the "beyond" teleport, not at the arrival; the v6e counts share the flaw);
+   #504 (merged, main 981c0216) fixes the judge and card J4 reruns both queues under `-Tag v6ic` after the owner's session (gate 1).
 2. **The three wrong-place exits** (Bugs): card L, after J2, one in-game look per exit still wrong to tell timing
    from overlap, then the fix (converter collision, core arrival marker or FO4SF_LoadDoor), a rebuild, and an install
    on the owner's line; the exit fix follows L's result and is not a phase 0 gate unless the owner holds for it (gate 1).
@@ -166,12 +175,18 @@ a phase 0 gate.
    nosmall 2 of 3, city 2 of 3, so neither world field is a reliable fix and the failure is intermittent
    ([terrain/border.md](terrain/border.md), Results). The border fields are shelved: no core is built with
    `--world-border`, there is no v6j, no stage is restaged for a core change (the new game and the combined-core probe
-   still restage against v6i, Phase 1 below), and v6i stays the phase 0 build. The next two PC runs, on
-   the owner's lines: card 2, 10 exits on the installed build with the FO4SF_LoadDoor trace (the rate), and card 3, the
-   same 10 with the door's retry of a missed trip (#499, bridge_t5), swapped back to bridge_t4 after. These two runs
-   are gate 2 in the checklist above: no pass bar is set, and the owner decides whether the measured rate holds the
-   phase or goes on the defect list; if the retry does not help, the next phase's route is an SFSE plugin that turns
-   the border off only inside our world (border.md; that code is unwritten). There is nothing to recheck on foot: the wall north of Vault 111 is withdrawn.
+   still restage against v6i, Phase 1 below), and v6i stays the phase 0 build. The two PC runs on the
+   owner's lines ran on 23 Oct: card 2, 10 exits on the installed build with the FO4SF_LoadDoor trace, landed 7 of 10;
+   card 3, the same 10 with the door's retry of a missed trip (#499, bridge_t5, swapped back to bridge_t4 after),
+   landed 6 of 10, and the retry never fired. In every fail the BOUNDARY REACHED popup came up during the exit and
+   paused the game, so the judge's STAYED was its last read before the door, not a measured bounce back; the script's
+   trace was the same in every PASS and FAIL (the MoveTo lands at the marker's unmerged spot, then a SetPosition goes
+   to the merged one), so no check right after the move can catch the failure (border.md "Rate and retry runs",
+   #512, draft). These two runs are gate 2 in the checklist above: no pass bar is set, and the owner decides whether
+   13 of 20 holds the phase or goes on the defect list. Next on the PC: #512's door change (the destination marker
+   moved to the merged spot before the MoveTo, plus a settle step that shows which step raises the popup), not yet
+   compiled or run; if it does not help, the route is an SFSE plugin that turns the border off only inside our world
+   (border.md; that code is unwritten). There is nothing to recheck on foot: the wall north of Vault 111 is withdrawn.
 5. **The owner's remaining v6 checks** (NPC for the mission and the voice, Map for the map extent, Bugs and Interiors for
    the doors and prompts): written up as section A of [owner/in-game-test-sheet.md](owner/in-game-test-sheet.md)
    (the same text is on the owner's live test sheet, https://claude.ai/artifact/N5ZhYy7zgoxnJ2Fuzhws6b) for their
@@ -198,15 +213,14 @@ a phase 0 gate.
 ### Phase 1 (new game) and the other staged plugins
 
 The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
-against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it is
-restaged against the installed v6i core (no core rebuild is planned, item 4) before the owner's line "Install the new
-game." The same holds for the focc probe (#431, in review with Grok this week; 3,349 tests passed at 1db5919): CombinedCore restages
-it from the head that merges, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
+against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it was
+restaged against the installed v6i core as newgame_v7 (passed on the PC, 23 Oct: 4 scripts compiled, pins port 9AF962D2
+and core DC751664; no core rebuild, item 4) and waits only on the owner's line "Install the new game." The same holds for the focc probe (#431, merged 23 Oct, main d05f8fc1): CombinedCore restages
+it from main, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
 that ends up installed is v6i (Interiors shelved the border fields on 22 Oct, no v6j); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
 probe_install.py uninstall restores Plugins.txt afterwards. The quest probe is pinned to the port, which is unchanged
-(9AF962D2); a read-only pin check precedes its install, which the owner's word of 00:14 UTC 23 Oct covers (the line
-"Install the quest probe plugin." only if Install asks for it; the checklist above). The object test room and the merge probe
+(9AF962D2); it is installed (23 Oct) on the owner's word of 00:14 UTC 23 Oct, no line needed. The object test room and the merge probe
 have no install route while the core set holds exp_install's one experiment slot. Interiors b10 (all 253 interiors,
 coc-only) gets its installer from #494 (merged 22 Oct; `deploy_starfield.py install --batch <stage>`: the batch's whole set,
 companions included, each file checked against its pinned sha256; it refuses when Data's FO4TerrainCore.esm is not the

@@ -2084,3 +2084,39 @@ rounds moved from "on v6j" to the installed build (card J2, running since 22:39
 UTC 22 Oct). The ROADMAP's 22 Oct section carries the exit checklist with its
 gates and the items that move to the next phase; the entries above stand as
 written.
+
+## 2026-10-23: the Vault 95 rate is measured, the retry never fired, the door counts are void
+
+Gate 2 of the phase 0 exit checklist has its numbers (Interiors with Install, on
+the owner's lines of 22 Oct 23:37 UTC and 23 Oct 00:00 UTC): 10 Vault 95 exits on
+the installed v6i build with bridge_t4 landed 7 of 10, the 3 fails STAYED in the
+interior cell with the popup; the same 10 with FO4SF_LoadDoor's retry of a missed
+trip (#499, bridge_t5) landed 6 of 10, and the retry never fired in any run: by
+Install's trace the engine's bounce back into the cell comes after the script's
+check that follows the MoveTo, so the check sees the player gone. 13 of 20 over
+both runs. No pass bar was set; whether the rate holds the phase or goes on the
+defect list is the owner's call, and the next phase's route is the SFSE per-world
+toggle of the border (border.md; unwritten). Gate 1 has no numbers: Bugs' check of
+the door-round judge (03:16 UTC) found the positions read after qstep's unscored
+"beyond" teleport, not at the door's arrival, so J2's counts and the v6e counts
+are void; #504 (merged, main 981c0216) fixes the judge and card J4 reruns both
+queues under v6ic after the owner's session. The quest probe (questprobe_v2) is
+installed on the owner's 00:14 UTC word; newgame_v7 is built and staged against
+v6i, not installed. The entries above stand as written.
+
+## 2026-10-23: correction: the Vault 95 fails were the popup, not a bounce back
+
+The entry above on the Vault 95 rate said the retry never fired because the
+engine's bounce back into the cell came after the script's check, and that every
+fail STAYED in the interior cell. That reading was wrong (Grok's review of #505,
+against border.md "Rate and retry runs" in #512, draft, on the same 20 runs): in
+all 7 fails the BOUNDARY REACHED popup came up during the exit and paused the
+game; the bridge feed went stale (its newest line 76 to 78 s old) and the judge
+fell back to the last read before the door, inside cell 06007D12, so STAYED there
+means the popup came up, not a measured bounce back inside. The script's trace
+was the same in every PASS and FAIL (the MoveTo lands in the exterior at the
+marker's unmerged position), so no check right after the move can tell a failing
+trip from a passing one, which is why the retry never fired. Which step raises the
+popup is open; #512's door change (the destination marker moved to the merged spot
+before the MoveTo, plus a settle step) is the next PC card. The counts stand: 7 of
+10 and 6 of 10. The entry above stands as written.
