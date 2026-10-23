@@ -160,7 +160,7 @@ plan above, which tells custom-world support from anything about the core, befor
    argument can take an ID stays **unresolved**). Only vanilla LC172World bakes; the question goes to the tiny
    custom-world gate.
 
-6. **Tiny custom-world gate (built, not yet run).** `dotnet/LodGate build <Starfield.esm> <FO4TerrainCore.esm>
+6. **Tiny custom-world gate (built; run, results in 7).** `dotnet/LodGate build <Starfield.esm> <FO4TerrainCore.esm>
    <out>` writes three plugins, each one new world of nine empty cells around the origin plus three references
    to the three vanilla statics with the widest object bounds (so a bake has objects to write placeholders for;
    the build prints which): `FO4SFLodGate1.esm` (world `FO4SF_LodGate1`, the WRLD record copied from vanilla
@@ -184,3 +184,41 @@ plan above, which tells custom-world support from anything about the core, befor
    custom worlds are unsupported needs a positive control first (a plugin-added world the CK itself made and is
    known to bake) or a narrower follow-up, and meanwhile the surface map's buildings wait on the FO4 LOD mesh
    conversion.
+
+7. **Gate runs G1, G2, G3 (verified, 2026-10-22, Creation Kit log times 16:29-16:34 local, 22:29Z-22:34Z; Install
+   ran them on the PC with the backup protocol of run 4; outputs `D:\Modding\staging\lod_gate\G1`, `G2`,
+   `G3`).** The three plugins were built on the PC at ceeb558 (statics picked by the widest object bounds:
+   `12DFE0:Starfield.esm` HoudiniPlanet_ring, extent 4972; `1C419E` HoudiniPlanet_atmo and `1C41A1`
+   HoudiniPlanet_atmo_decal, 1992 each; `FO4SFLodGate1.esm` 1,352 bytes, sha256 9c983ac4…;
+   `noflag\FO4SFLodGate1.esm` 1,352 bytes, aa710133…; `FO4SFLodGate3.esm` 1,377 bytes, bd5c95e6…). Each run
+   copied its plugin into `Data` after the before-listing and swept it out after; the final listings match the
+   before-listings (732 files). **Nothing bakes.** G1: exit 0 after 111 s, `LODGENERATION: Failed to find
+   worldspace: [FO4SF_LodGate1]`, `EditorDataFilesLoaded` 000 Starfield.esm, 001 FO4SFLodGate1.esm, nothing
+   written. G2 (the noflag twin, from its own folder): exit 0 after 99 s, the same line and the same load list.
+   G3: exit 0 after 189 s, `Failed to find worldspace: [FO4SF_LodGate3]`, loaded 000 Starfield.esm,
+   001 FO4TerrainCore.esm, 002 FO4SFLodGate3.esm, nothing written. Every gate plugin was in
+   `EditorDataFilesLoaded`, so no run was inconclusive and the Plugins.txt rerun was not needed. Where the
+   evidence sits: the exit codes, durations, load lists and failure lines are Install's relay of the CK log; the
+   three output folders hold the plugin copies (sizes and hash prefixes as above) and the before / after
+   inventories (732 entries, identical before and final, the gate plugin the only extra entry while it was in
+   `Data`; SHA-256 for 644 entries, size plus mtime for 88), not the CK log itself (Codex desktop's read-only
+   check on #501 confirmed the copies and the inventories and could not re-check the log lines). Reading, per
+   the key in 6: the command found none of the three plugin worlds, with or without the Master flag, with the
+   vanilla record or the core's. The result does not differentiate. Gate 1 fails without the core's scale, cell
+   tree or identity, so none of those is needed for a plugin world to be missed; but gate 1 and the core can be
+   missed for different reasons (item 6 allows a loading or registration prerequisite the gate lacks, or a defect
+   in its synthetic layout), so the core-only differences stay **unresolved** candidates for the core run's
+   failure until a controlled variant changes an outcome. Gate 2 shows only that the Master flag alone does not
+   change gate 1's outcome. The route stays **unproved**, not closed. The candidates every failed world shares
+   (being a plugin-added world at all, the dropped OFST / CLSZ, the freshly made persistent cell, and anything
+   the CK registers at save time for a world it made itself) need a positive control first: a world made and
+   saved in the CK, then the same command on it. A CK-made world changes those candidates together, so on its
+   own it separates none of them: if it bakes, it is the known-good custom world item 6 asks for, and
+   one-variable variants between it and gate 1 (OFST / CLSZ kept or dropped, the CK's persistent cell or a fresh
+   one, saved by the CK or written by Mutagen) are what then tell the causes apart; if it does not bake, there
+   is still no plugin-added world known to bake and the question stays open. That control needs the owner at
+   the CK (a new worldspace, the plugin saved, the mock run on it) and is parked as an optional item for a
+   future session there, not asked for now: on what runs 1 and 3 showed, even a found world gets the placeholder files of run 1
+   unless per-object generation turns out to be possible here (the **unresolved** hypothesis under item 3: no
+   generation was attempted), so for now the surface map's buildings wait on the FO4 LOD mesh conversion
+   (`fo4-lod-mesh-scoping.md`) either way.

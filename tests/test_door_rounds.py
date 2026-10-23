@@ -444,6 +444,7 @@ class OutLegsTests(unittest.TestCase):
         kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
         self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        self.assertEqual(rounds["out_min_m"], 0.0)              # Codex on #500: a reused OUT stage is checked by it
         with open(os.path.join(self.d, "near", "plan.json"), "rb") as f:   # the renumbered plan's own digest
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])

@@ -1,0 +1,586 @@
+# World and planet
+
+Part of the [next-phase framework](README.md). Waves 1 and 2, 2026-10-19. Sources: findings/world-planet.md,
+findings/multi-game-scope.md (geography and travel), findings/precedents.md (world parts: FNV to FO4, TTW),
+findings/versions-performance.md (budget parts), findings/starfield-toolchain.md (wave 2: LOD, precombine, master limits).
+
+Builds on, does not repeat: research/next-phase/world-maps-lod-fasttravel.md (core extent, DLC overlays, maps, LOD,
+fast travel, persistent-ref merge problem and #376). Where a topic is fully covered there, this file points to it.
+Short names below: WP = findings/world-planet.md, MG = findings/multi-game-scope.md, PR = findings/precedents.md,
+VP = findings/versions-performance.md, ST = findings/starfield-toolchain.md, WM = next-phase/world-maps-lod-fasttravel.md, sf1.pas = xEdit
+`Core/wbDefinitionsSF1.pas` dev-4.1.6.
+
+## In short
+
+- "One Earth-like planet" means three landings on one planet, not one worldspace. A landing holds about 90 usable cells;
+  the core alone is 64, so Far Harbor and Nuka-World each need their own overlay and landing, joined by scripted travel.
+- An Earth-like feel is mostly planet data: day length, gravity, temperature and air are PNDT and WRLD fields, and
+  hazards are tested through planet-trait keywords. The sky look (WTHS/ATMO) is the part that stays opaque.
+- New option: Starfield's own Earth already has a 24 h day, the real Sun and Moon, and overlays at real city coordinates.
+  Cloning a planet (SFStarEditor pattern) is the other serious host; Mars is today's host.
+- Most uncertain: whether PNDT `EOVR` can add our overlays without overriding `CNAM`; how Bethesda built Shattered
+  Space's landmass; whether the surface map fast travels between landings without the ship; how a coast looks where
+  overlay sea meets planet ocean.
+- Wave 2: the PCM has two levers to keep random POIs out (exclusion-zone keyword, branch conditions); ~~the CK makes
+  object LOD headlessly (`-MockWorldSpaceLOD`)~~ [Correction 2026-10-19: ~~whether the CK switch `-MockWorldSpaceLOD`
+  exists is **unresolved (sources conflict)**~~: web guides say it does, ~~a job 18 string dump of the installed
+  CreationKit.exe does not show it~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default
+  patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; job 20 (read-only,
+  patterns Mock, WorldSpaceLOD and "Should be -") found it: `-MockWorldSpaceLOD` is **verified (Starfield CK, job
+  20)**, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"; headless use is still
+  unproven]; the
+  dump does show the LOD-related `-GenerateMeshLOD*` switches (**verified**)];
+  Starfield has no precombine/previs records, ~~so there is no bake to
+  replicate~~ [Correction 2026-10-19: but its CK has the GUI actions "Generate Precombined Visibility for Current Cell"
+  and "... All Loaded Cells" (interiors.md T9), so a precombined-visibility bake may exist; what it writes and whether
+  it matters for performance is **unresolved**]; the core must be a full master (a medium master holds at most 65,536 ObjectIDs).
+- Three decisions that unlock the most: **WP-01 host planet**, **WP-14 real geography or compact layout**, **WP-27 the
+  ship: fenced out or disguised**.
+
+## What is settled
+
+- **Owner direction, 2026-10-22 20:31Z** (quoted with typos fixed, meaning kept): "Keep that as a building note for other Fallout locations, unless for some reason making it an interior is better (for something like Cydonia, other places, or giant interiors; I don't know how others handle it, like the futuristic city a lot of people say is like Cyberpunk). We will probably wait to use Starfield world generation for later, because there are a few pretty complex systems we need to get working first, like our own A-Life-style system that allows going between these areas without direct walking paths, and building the overall game system of our GAMMA."
+  1. **Building note for every Fallout location world (unresolved; candidate only):** ~~a converted world needs the city-style WRLD settings, with the Small World flag off and `HNAM` 5, so Starfield leaves the planet border off its interior exits (supported hypothesis, pending the Interiors thread's repeat test).~~ [Correction 2026-10-23: the repeat test is done and does not support this. docs/terrain/border.md "Repeat test" (settling runs, each variant as the last WRLD override, 3 runs each): control (SmallWorld, HNAM 0) PASS, PASS, PASS; nosmall PASS, PASS, FAIL; city FAIL, PASS, PASS. The Vault 95 exit failure is intermittent and neither field change is a reliable fix; the writer's default stays `template` and `--world-border` stays opt-in.] The owner's request stands as history: keep the world settings that fix the border as a building note for future location worlds, once a fix is proven. The city-style settings are one candidate. See WP-46.
+  2. **Very large places may be better as interiors.** Before choosing, check how Starfield builds its own big cities (the Neon-style city) and places like Cydonia, as a worldspace or as an interior. See WP-47.
+  3. **Starfield world generation (procedural planets) is deferred.** ~~This also puts WP-16's "procedural Earth terrain now" (WO-6) on hold until the owner says otherwise (inference from the same message).~~ [Owner, 2026-10-22 20:36Z: "We can do that if there's extra space."] The generated horizon (WP-16, WO-6) stays allowed as the exception, where there is extra space around a converted map, for now (owner, 20:40Z: "For now"); not a permanent decision.
+  4. **The systems that come first after this phase:** our own A-Life-style simulation, travel between separate areas without direct walking paths, and the overall GAMMA-style game system (combined-core.md owns these).
+
+| Fact or decision | Label | Source |
+|---|---|---|
+| Owner: the Commonwealth, Far Harbor and Nuka-World on ONE Earth-like planet with real days, nights and weather; breadth before polish; SFSE and the Starfield CK MAY be required | owner decision | findings/BRIEF.md |
+| Core today: one overlay `FO4Core_Commonwealth`, 64 x 64 Starfield cells, on Mars; holds all 648,358 converting Fallout4.esm exterior refs | verified | WM facts table (docs/terrain/core64c.md) |
+| Landing default 100 cells, 5-cell playable buffer, 1-cell merge zone; largest planet-registered vanilla overlay is 14 cells | verified values | WP 3; WM (commonwealth-scale.md 1.1-1.2) |
+| Each world is its own overlay landing, joined by scripted travel (the settled layout) | settled in project notes | MG 5; WM 2 (vehicles-and-travel.md) |
+| A landing loads only the overlay it arrives in (exp3); border-unlock mods extend procedural ground only, and past the edge the game crashes or degrades (author claims) | verified (exp3), supported hypothesis (consequence) | WP 3; Nexus mods 261, 14643 |
+| Local time depends on the overlay's registered lat/long: night 18 of 18 at (0.3, -1.2), day 13 of 13 at (0.2, 1.2), same save | verified data | WP 4 (docs/ai/test-queue.md) |
+| Day length is PNDT `ENAM` Rotational Velocity as rotations per 24 h; Earth 1.0 = 24 h; Jemison 0.48 matches its 50 h day | supported hypothesis, one outside check | WP 4; nukesdragons Jemison |
+| Planet data fields exist: PNDT `CNAM` (lat, long, WRLD), `EOVR` (Added/Removed), `PPBD` biomes, `ENAM` orbit incl. axial tilt and rotation, `FNAM` surface gravity, `HNAM` year length, `INAM` atmosphere, `KNAM` terrain max height, `TEMP`; WRLD `GNAM` gravity scale; SFBK `WHGT` water height | verified schema | WP 1 (sf1.pas 16054-16219, 17525) |
+| Hazard conditions `BodyIsAtmosphereType` (867) and `BodyIsTemperatureType` (868) take a keyword | verified schema | WP 4 (sf1.pas 682-684) |
+| WTHS carries conditions (CTDA), which weather-time-climate.md did not record | verified schema | WP Corrections (sf1.pas 18931) |
+| Starfield's Earth: 11 overlays at real city coordinates via `CNAM` | verified | WP 2 (commonwealth-scale.md 2) |
+| Landable custom planets are a shipped mod pattern (SFStarEditor clones STDT/PNDT/LCTN and copies the `.biom`; Pytheas, Star Wars galaxy) | verified as described | WP 2 |
+| Project Tamriel (whole game world on one Starfield planet) was cancelled in days for lack of interest, not for a technical reason | verified as reported | WP 2 |
+| No seasons mechanism found in the schema; FO4 has none either | supported hypothesis | WP 4 |
+| Real distances rule out continuous terrain between worlds: Boston to Bar Harbor 323 km, DC to Boston 634 km, DC to Las Vegas 3,349 km | computed (inference) | MG 5 |
+| Anchorage is a VR simulation, Zeta is in orbit: sealed worlds that need no planet position | verified | MG 4 (Wikipedia FO3 DLC) |
+| TTW kept separate worldspaces joined by a train chokepoint with quest state; console travel breaks it | verified | MG 1; PR 1 |
+| A player-side cross-engine converter that ships world, cells, landscape and placements only (FNV to FO4) is tolerated on Nexus; it dropped navmesh because it crashed | verified | PR 6; MG 2 |
+| Engine ceilings: 256 active BA2s (8-bit index; SFSE "BA2 Limit Fix" raises it), 253 full-master slots, soft instability near 100 to 120 plugins; full-res 64-cell core needs about 8.5 GiB | verified (as published claims) | VP engine limits |
+| BA2 offsets are 64-bit in the format, so the format does not stop at 4 GiB; whether Starfield's engine reads past 4 GiB is open, so keep splitting at 4,095 MB | verified (format) / unresolved (engine) | VP W2-3; ST W2-6 (wbBSArchive.pas 54, 75) |
+| A medium master holds ObjectIDs 0x0000-0xFFFF (at most 65,536) in 256 medium slots; Update-flagged files cannot hold new records. The 64-cell core (649,596 refs) is about 10x that, so world plugins must be full masters | verified (xEdit source); consequence is inference | ST W2-5 (wbImplementation.pas 5219, 2464-2468; wbInterface.pas 22600) |
+| Starfield CELL has no `VISI`/`PCMB`/`XPRI`/`XCRI` (FO4's previs and precombine fields); there is an `OVIS` "Object Visibility Manager" record of unknown purpose [Added 2026-10-19: the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has neither but has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells", and `-GenerateCellAndRefCounts` (possibly per-cell reference counts; unresolved); what the Starfield bake writes is unresolved] | verified schema; CK strings verified | ST W2-2 (sf1.pas 15514; fo4.pas 5988-6088); interiors.md T9 (job 18) |
+| The CK makes object LOD for a plugin worldspace: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace,...>`; objects chosen by layers with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells may fail in multi-cell worldspaces. LAYR `LODB` and base-object LOD flags are plugin data. xLODGen/DynDoLOD do not list Starfield | ~~verified (as described; schema)~~ [Correction 2026-10-19: switch ~~**unresolved (sources conflict)**~~: web guides describe it; ~~a keyword-filtered string dump of the installed CreationKit.exe (job 18, `D:\Modding\research\ck_switches_1.txt`) does not show it, though it shows other "WorldSpace" strings; it may be a wide string the filter missed, or absent in the current CK~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; the other "WorldSpace" strings appeared only because they also contain "Generate"; job 20 (read-only, patterns Mock, WorldSpaceLOD and "Should be -") found it: switch **verified (Starfield CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)]. Schema part verified. Verified LOD-related CK switches: `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`] | ST W2-1; WP W2-3; job 18 |
+| Terrain edits reach the game only through an exported `.btd` under `Data\Terrain\<Worldspace>.btd`; our pipeline already writes BTD directly | verified | ST W2-1 (Steam guide 3385012985) |
+| The CK's own overlay workflow (Overlays tab, "Unique") is used at no larger than 6 x 6 cells; cells named with `*` need a unique name or the POI is missing from the planet map; placing far from the central cell can crash the CK | verified as described | WP W2-2 (Steam guide 3266682879) |
+| Mods that override cells of a vanilla worldspace broke surface maps and POI scanner markers until a patch re-copied the sub-blocks (1.13.61) | verified (user report) | WP W2-2 (forum 13497605) |
+| PCM: Location keyword `PCM_OverlayExclusionZone` keeps random POIs at least 4,000 units away; PCM branches apply conditions (e.g. biome) to their content; overlay WRLDs carry `BSGPlanetContentManagerContentProperties_Component` | verified as described | WP W2-1 (forum 13491382; Steam guide 3269084567) |
+| Renderer is GPU-driven in part: compute shaders build ExecuteIndirect arguments; uses up to eight CPU cores | verified | VP W2-2 (vkd3d-proton PR 1694; DSOGaming) |
+| Vanilla VRAM on a 12 GB RTX 3080: under 3 GB at 1080p low to about 6.5 GB at 4K ultra (one test) | verified (single test, vanilla) | VP W2-2 (Noticias3D) |
+| A Starfield patch changed planet data storage (USFP 1.0.7a/b, 1.15.222) | verified | VP Starfield versions |
+| Target runtime Starfield 1.16.244 + SFSE 0.2.21, Steam only; SFSE supports only the latest Steam runtime | verified | VP |
+
+## Possibilities
+
+### Host planet
+
+| Option | What it gives | Cost or risk | Precedent | Label |
+|---|---|---|---|---|
+| Keep Mars (today) | Proven path; nothing new to build | 25 h day, 0.38 g, Mars sky and ground; not "Earth-like" | current core | verified (in use) |
+| Starfield's Earth, edited | 24 h day, Sun and Moon free, real coordinates | Must override air, temperature, keywords and biomes on a quest-bearing vanilla planet; conflicts with Earth mods | Bethesda's 11 Earth overlays | supported hypothesis |
+| Cloned Earth-like planet in its own system | Full control of rotation, gravity, air, biomes; can be named for the setting | Galaxy edit; early reports of new-game need and save damage; `.biom` must be copied from the user's archive | SFStarEditor, Pytheas, Star Wars galaxy | verified pattern, our use unresolved |
+| Planet records in their own small master | Clean load order; later games can reuse it | One more plugin slot | none read | supported hypothesis |
+
+### Placing overlays on the planet
+
+| Option | What it gives | Cost or risk | Precedent | Label |
+|---|---|---|---|---|
+| PNDT `CNAM` override (today) | Proven on Mars | Copies the whole list; conflicts with any mod touching that planet | our core; Bethesda Earth | verified |
+| PNDT `EOVR` Added | Adds an overlay without overriding `CNAM` | Engine merge behaviour across plugins unknown | none found yet | verified schema, behaviour unresolved |
+| Unique surface pattern with `UniqueOverlayList` / `BGSOverlayDesignatedPlacementInfo` | A grid of standard-sized overlays in one 16 x 16-block pattern; a native way past 14 cells | Which records carry them is unknown | possibly Shattered Space | supported hypothesis |
+| PCM content node pointing at a WRLD | Procedural placement | Wrong tool for fixed worlds; useful to know so POIs stay out; random spawning "not guaranteed" | vanilla POIs; MikkoK141 tutorial (WP W2-1) | verified (as described) |
+| CK Overlays tab, "Unique" overlay at fixed coordinates, with MapMarker, ship landing marker and heading marker linked | Bethesda-tool route for a fixed POI | Used at no larger than 6 x 6 cells; ours are 64 cells (Far Harbor about 18 x 18), written by the converter, not cut in the CK | Anig Steam guide 3266682879 (WP W2-2) | verified as described; our size unresolved |
+| A grid of smaller overlays instead of one 64-cell overlay | Stays inside the overlay size the community has seen working | More registrations and seams | none | supported hypothesis (WP W2-2) |
+| CK "terrain cutting from a planet location grid" | Bethesda-tool route to new worldspaces | Needs the CK on the user's PC; edits reach the game only via exported `.btd` | Steam guide 3385012985 | verified as described |
+
+### Layout and geography
+
+| Option | What it gives | Cost or risk | Precedent | Label |
+|---|---|---|---|---|
+| Real coordinates (Boston about 42.4 N 71.1 W, Mount Desert Island about 44.4 N 68.2 W) | Real local-time offsets (about 12 min), credible map; about 3,800 cells apart on Earth scale, harmless | Worlds do not share one surface-map view | Bethesda Earth | supported hypothesis |
+| Compact stylised layout (more than 100 cells apart) | One map view for all three | Breaks real geography | none | supported hypothesis |
+| East-coast cluster at real relative positions, Mojave across the continent | Later FO3, Pitt, Point Lookout, Appalachia fit near Boston | Mojave is far: travel scene only | TTW train | supported hypothesis |
+
+### Day, sky and weather
+
+| Option | What it gives | Cost or risk | Label |
+|---|---|---|---|
+| Rotation 1.0 (24 h) | Same as Starfield's Earth; with FO4's `TimeScale` 20 a day is 72 real minutes, so nothing changes for the player | none known | supported hypothesis |
+| `SetLocalTime` at the vault exit, or choose the longitude so the default start is daylight | Morning exit from Vault 111 | Bethesda uses `SetLocalTime` in `QF_MQ101` | verified use (test-queue.md) |
+| One CLMT for the planet | Simple | Far Harbor fog and Glowing Sea storms need variety | supported hypothesis |
+| Per-world climate via WRLD `CNAM`, BIOM `ENAM` and WTHS conditions, or REGN `RDWT` | Fog, radstorms, regional weather without new systems | Which of WRLD and BIOM wins on an overlay is unknown | supported hypothesis |
+| Vanilla Earth-like WTHS/ATMO presets (Jemison, New Atlantis) | v1 sky without editing opaque blobs | Sky may still read alien | unresolved |
+
+### Hazards, gravity, temperature
+
+| Option | What it gives | Cost or risk | Label |
+|---|---|---|---|
+| Host carries "standard O2 / temperate" planet-trait keywords | No suit warnings or damage | Wrong or missing keyword shows hazards in Boston | supported hypothesis |
+| WRLD `GNAM` gravity scale on our worlds | 1 g on any host | Multiply or set is unknown (2.63 on Mars if it multiplies) | unresolved |
+| PNDT `FNAM` surface gravity on a cloned planet | 1 g everywhere | Only on a planet we own | verified schema |
+
+### Sea, coasts and ground beyond the overlay
+
+| Option | What it gives | Cost or risk | Precedent | Label |
+|---|---|---|---|---|
+| SFBK `WHGT` sea at 0 m inside the overlay | Boston Harbor and the Charles (55 % of core LAND cells average below 0) | Edge meets the planet's own water | our core | supported hypothesis |
+| Ocean biome (`TNAM` Ocean) around Far Harbor | Sea on every side of the island | Possible visible step at the merge ring | Jemison 60 % ocean | unresolved |
+| Biome map swap to our own BIOM (biom.py, article 643) | New England forest and sea on the horizon before any LOD | "Generate Biome Placements" touches every planet; launcher must write only needed records | Nexus article 643 | verified method |
+| `BlockHeightAdjustment` per-block terrain and water heights | Fine sea-level control inside a pattern | Meaning only supported | none | supported hypothesis |
+| Outer FO4 ring (114 vs 64 cells) as terrain, LOD, or procedural Earth biome (new option D) | Horizon | See WM section 1 for options A to C | none | supported hypothesis |
+
+### LOD and horizon
+
+Covered in WM section 4 (no `lodsettings`, no generated LOD, xLODGen does not list Starfield, CK or own generator).
+New here: the Earth biome around overlays (above) is a cheap horizon before LOD, and the FNV to FO4 converter
+shows a world-only release can ship with rough horizon edges (PR 6).
+
+Wave 2 (ST W2-1, WP W2-3):
+
+| Option | What it gives | Cost or risk | Label |
+|---|---|---|---|
+| CK `-MockWorldSpaceLOD` run on the player's PC | Object LOD from Bethesda's own tool, headless | Needs the CK; cells may fail in multi-cell worldspaces; stray purple meshes reported; run time for 64 cells and `.esm` acceptance unknown | ~~verified command~~ [Correction 2026-10-19: ~~command **unresolved (sources conflict)**, not in the job 18 CK string dump~~] [Correction 2026-10-19: command **verified (Starfield CK, job 20)**; the job 18 dump's filter patterns had filtered it out; usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"]; headless batch use supported hypothesis |
+| Converter writes LAYR `LODB` and base-object LOD flags so the CK run picks the right objects | No manual layer work | Which vanilla layers and flags to copy is unread | verified schema; approach supported hypothesis |
+| Our own LOD writer | No CK dependency | Format work | unresolved |
+| No previs bake; object LOD plus terrain BTD only | Nothing to produce for occlusion | Dense cells unmeasured | ~~supported hypothesis (no precombine/previs CELL fields)~~ [Correction 2026-10-19: **unresolved**: no precombine/previs CELL fields, but the Starfield CK has "Generate Precombined Visibility" GUI actions (interiors.md T9)] |
+| [Added 2026-10-19] Run the CK's "Generate Precombined Visibility" GUI action on our cells | Whatever the engine's precombined-visibility bake gives | GUI only so far; what it writes and whether it matters for performance unknown | unresolved (interiors.md T9) |
+
+A Reddit snippet ties the LOD run to local-map rendering (supported hypothesis, not read in full); distant LOD for a
+PCM-placed POI was unsolved in the MikkoK141 thread.
+
+### Map, fast travel and the ship
+
+| Option | What it gives | Cost or risk | Precedent | Label |
+|---|---|---|---|---|
+| Scripted travel scene (boat, monorail, vertibird, "travel menu" activator) through one chokepoint | Full control; matches TTW | Every arrival path must run the same handler, or world-state breaks | TTW Union Station | verified precedent |
+| Ship reskinned as a vertibird, native landing UI | Native fast travel between landings | Star map, grav jump, orbit view must be hidden | none | unresolved |
+| Surface-map fast travel between landings without the ship | Seamless one-planet travel | Not yet known to work; playtest row 7 hang risk on the ship path | none | unresolved |
+| PCM limits and WRLD `FNAM` flags ("Prevent Merge Cell Content", "Allow ProcGen") | Keep Starfield POIs out of the buffer ring | Today's flags inherited from the template, unread | vanilla | verified schema |
+| `PCM_OverlayExclusionZone` keyword on our Locations | Random POIs kept at least 4,000 units away | Does it scale past 4,000 units around a 64-cell overlay? | Anig Steam guide 3269084567 | verified as described |
+| PCM branch conditions that exclude our host planet | No random content on the planet | Overrides vanilla branches: conflict risk with PCM mods | Anig Steam guide 3269084567 | supported hypothesis |
+
+### Performance and budgets
+
+| Item | Number or option | Label | Source |
+|---|---|---|---|
+| Exterior refs per 64 cells | about 650k, placed one by one; Starfield has no precombine/previs records [Correction 2026-10-19: but its CK has "Generate Precombined Visibility" GUI actions, effect unresolved, interiors.md T9], and its renderer builds ExecuteIndirect arguments on the GPU, so the likely cost is CPU-side reference loading, scripts/havok and streaming, not draw submission | verified count and schema; cost location supported hypothesis (no measurement of a dense modded cell) | VP W2-2; ST W2-2 |
+| Archive and plugin budget | 256 BA2s, 253 full slots, 256 medium slots, soft limit 100 to 120 plugins; world plugins full masters (a medium holds at most 65,536 ObjectIDs), mediums for interior clusters under 65k records; archives split at 4,095 MB until a > 4 GiB probe | verified (published; xEdit source) | VP; ST W2-5, W2-6 |
+| Traversal stutter | SFEF ships "Reduce Traversal Stutter"; vanilla pain point | supported hypothesis | VP |
+| Owner PC vs player floor | 7950X3D / 4070 Ti 12 GB / 32 GB vs 16 GB / GTX 1070 Ti; no data at the floor | verified | VP |
+| Texture caps | 1024 colour / 512 normal, chosen for archive size, not VRAM | verified | VP |
+| VRAM headroom | Vanilla uses under 3 GB (1080p low) to about 6.5 GB (4K ultra) on a 12 GB card; our core's VRAM unmeasured; Corsair recommends 32 GB RAM with no numbers in text | verified (single vanilla test) / unresolved (with core) | VP W2-2 |
+| Patch exposure | Planet and worldspace overrides are the data Bethesda changed in 1.15.222 | verified precedent | VP |
+
+### Where later games could sit
+
+| Option | What it gives | Cost or risk | Label |
+|---|---|---|---|
+| Same planet, real coordinates (DC, Pittsburgh, Point Lookout, Mojave) | "One Earth" holds; planet master reused | More landings and save state; Mojave by travel scene only | supported hypothesis |
+| Stylised "regions" map | Simple map | Loses real geography | supported hypothesis |
+| Separate planets per game | Suits Starfield travel | Breaks the "one Earth" premise | supported hypothesis |
+| Anchorage and Zeta as sealed worldspaces (Zeta could use Starfield's space engine) | No planet slot needed | Zeta-in-space is a fun option only | verified facts, option supported |
+
+## Questions
+
+### Host planet and planet data
+
+**WP-01. Host: Starfield's Earth, a cloned Earth-like planet, or keep Mars?**
+- Why: decides sky, sun, moon, day length, ground beyond the BTD, and mod conflicts.
+- Options: (a) Earth, edited; (b) a clone in its own system (SFStarEditor pattern); (c) Mars. (WP Q3; also WM owner Q3)
+- Answer by: dump of Earth's and Jemison's PNDT (`INAM`, `TEMP`, keywords, `PPBD`, `CNAM`/`EOVR`), then WP-08 result; owner decision.
+- Blocks: World, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-1): "Earth if the probe works, else clone" (as recommended). Before: open.
+
+**WP-02. Does a new galaxy entry (a cloned planet) need a new game, and is that acceptable?**
+- Why: forum reports say new systems needed a new game and bad entries "can destroy your save"; phase 1 is a new game anyway.
+- Options: accept new-game-only; host on an existing planet to avoid galaxy edits. (WP Q2)
+- Answer by: install the plugin on an existing save and see if the planet appears; PC probe, then owner decision.
+- Blocks: World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-1): "Earth if the probe works, else clone" (as recommended). Before: open.
+
+**WP-03. Can the launcher generate the planet records (clone, rotation, gravity, keywords) and copy the `.biom` from the user's own archive deterministically, and is the `.biom` keyed by planet name, FormID or edid?**
+- Why: no CK on the user's PC and no shipped assets; SFStarEditor renames the `.biom` by planet name.
+- Options: Mutagen writer with a synthetic-fixture test; copy-and-rename like SFStarEditor. (WP Q13, Q25)
+- Answer by: read SFStarEditor source (`espreadpntd.cpp`, `espreadlctn.cpp`); fixture test; offline research.
+- Blocks: World, Launcher. Status: open.
+
+**WP-04. Does the planet live in its own small master that the world plugins depend on?**
+- Why: load order and reuse by FO3/NV later. (WP Q26)
+- Options: planet master; planet records inside the core ESM.
+- Answer by: owner decision after WP-01. Blocks: World, Launcher, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-2): "Own small planet master" (as recommended). Before: open.
+
+**WP-05. Can SfInspect dump PNDT `ENAM`/`FNAM`/`INAM`/`TEMP`/keywords for all 1,765 planets, to pick a host by data?**
+- Why: choose rotation 0.9 to 1.1, about 1 g, standard O2, temperate. (WP Q31)
+- Answer by: PC read-only walker run. Blocks: World. Status: open.
+
+**WP-06. Would hosting on Starfield's Earth conflict with vanilla Earth quests and popular Earth overhaul mods?**
+- Why: whole-record PNDT override on a quest planet; Nexus release. (WP Q29)
+- Options: `EOVR` to avoid `CNAM` override (WP-08); a clone instead.
+- Evidence (wave 2): mods overriding cells of a vanilla worldspace broke surface maps and POI scanner markers until a
+  patch re-copied the sub-blocks (user report, 1.13.61, forum 13497605): **verified** risk if we touch vanilla Earth cells.
+- Answer by: survey of Earth-editing mods; list of vanilla quests on Earth; community research.
+- Blocks: World, Release. Status: narrowed (wave 2): one concrete failure mode known (cell overrides break surface maps); conflict survey still open [WP W2-2].
+
+**WP-07. Is a custom star system a release liability for saves (removing it later)?**
+- Why: removing a galaxy-edit mod may break saves. (WP Q30)
+- Answer by: SFStarEditor and Pytheas comment threads; community research. Blocks: Release. Status: open.
+
+### Overlays and worldspaces
+
+**WP-08. Can a plugin add our overlays through PNDT `EOVR` (Added) instead of overriding `CNAM`?**
+- Why: conflict-free registration on any host. (WP Q4; extends WM 2)
+- Answer by: find vanilla or DLC uses of `EOVR` (ShatteredSpace.esm, SFBGS00x) offline, then one terrain-only overlay registered by `EOVR` alone; PC probe.
+- Blocks: World, Multi-game. Status: open.
+
+**WP-09. How did Bethesda build Shattered Space's handmade landmass: one big overlay, several, or a unique surface pattern?**
+- Why: the closest vanilla model of a large handmade region. (WP Q5)
+- Evidence (wave 2): Pagliarulo: "a single, large landmass" with hand-crafted content and "some procedural, repeatable
+  content"; "at least 50 unique locations" (Kotaku AU). No public source gives km, cells or the build method: **unresolved**.
+- Answer by: read the DLC esm (WRLD records with bounds, PNDT `EOVR`/`CNAM` for Va'ruun'kai, SFBK sizes, SFPT components) and the sizes of the `.btd` files in its archives; PC read-only walker.
+- Blocks: World. Status: narrowed (wave 2): public sources exhausted; only the PC read of `ShatteredSpace.esm` and its archives answers it [WP W2-4].
+
+**WP-10. What do `UniqueOverlayList`, `UniquePatternPlacementInfo` and `BGSOverlayDesignatedPlacementInfo` do, and on which records?**
+- Why: a grid of overlays in one pattern might give seamless 12-cell-pitch tiles and an official multi-overlay path. (WP Q6)
+- Answer by: census of DAT2 components by record type in Starfield.esm; offline (PC read-only).
+- Blocks: World. Status: open (wave 2 adds only that overlay WRLDs carry `BSGPlanetContentManagerContentProperties_Component`, WP W2-1; see WP-44).
+
+**WP-11. One overlay per DLC world, or a grid of smaller overlays, and do TTW's separate worldspaces apply?**
+- Why: Far Harbor is about 18 x 18 cells and Nuka-World about 14 (community size, unverified); one overlay each fits the proven path. TTW kept separate worldspaces joined by travel. (WP Q15; also PR Q14)
+- Evidence (wave 2): the CK's overlay tool is used at no larger than 6 x 6 cells and placing far from the central cell can
+  crash the CK (verified as described); our 64-cell and about 18 x 18 overlays are 10 to 100x that and written by the
+  converter. A grid of smaller overlays stays inside the size seen working (supported hypothesis).
+- New sub-question: is a converter-written 64-cell overlay stable in the CK and the game? (Today's core runs in game; CK stability unread.)
+- Answer by: DLC census after the owner installs the DLC (WM step 2); WP-09/10 results.
+- Blocks: World. Status: narrowed (wave 2): grid option gains weight; size limit of the CK overlay path unknown [WP W2-2].
+
+**WP-12. Do border-unlock settings (`bBorderRegionsEnabled`, "Remove Planetary Tile Boundary") interfere with our landings?**
+- Why: users may run those mods; authors report crashes past the edge. (WP Q24)
+- Answer by: compatibility test; PC probe, community contact. Blocks: Release. Status: open.
+
+**WP-13. Can the Planet Content Manager be told to place nothing on our worlds?**
+- Why: Starfield POIs in the outer ring (about 18 cells per side) of a landing; the 10-cell safe zone covers only the overlay. (WP Q20, section 6)
+- Options: (a) `PCM_OverlayExclusionZone` keyword on our Locations (4,000-unit ring, **verified** as described);
+  (b) PCM branch conditions that exclude our host planet (**supported hypothesis**; overrides vanilla branches, a conflict
+  risk with PCM mods); (c) WRLD `FNAM` flags; (d) per-planet limit 0. Removing `RE_PackIn_Overlay` landing areas stops ship encounters.
+- Remaining: does an exclusion zone scale beyond 4,000 units, or do we need conditions?
+- Answer by: one test planet with both levers, land 10 times and count POIs; xEdit read of our WRLD flags offline; PC probe.
+- Blocks: World. Status: answered in part (wave 2): two data levers named; which one covers a 64-cell landing is open [WP W2-1; Steam guide 3269084567].
+
+### Geography and layout
+
+**WP-14. Real geography or a compact layout for the worlds?**
+- Why: real lat/long gives real local-time offsets and a credible map; compact keeps one map view. (WP Q7; also MG Q11)
+- Options: real coordinates; stylised layout over 100 cells apart.
+- Answer by: owner decision. Blocks: World, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page WO-4): real map coordinates; a lore research pass before placing anything from games other than FO4. Owner's note: "Talk it through first. Fallout 1 and 2 handle locations against real-world distances much better than the later games, so placing things properly will have its own issues if we have world generation that lets players travel through recreated locations, based on all the lore you are going to research soon.". Before: open.
+
+**WP-15. Where is Nuka-World on the planet?**
+- Why: FO4 reaches it by monorail; its real-world position was not in the sources read. (WP Q8)
+- Options: a fictional inland site west of Boston; the lore location if FO4 data or game text gives one.
+- Answer by: offline research (FO4 data and lore), then owner decision. Blocks: World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-5): "Lore location, if FO4 data gives one" (not the recommended option). Before: open.
+
+**WP-16. Do we keep FO4's unplayable outer ring (114 vs 64 cells) as terrain, LOD, or a procedural Earth biome?**
+- Why: the horizon. WM section 1 has options A to C; new option D is an Earth biome (cheap). (WP Q16)
+- Wave 2: the terrain-or-LOD options now have a concrete tool (CK `-MockWorldSpaceLOD`, see WP-45). [Correction 2026-10-19: ~~whether that switch exists is **unresolved (sources conflict)**; see WP-45.~~] [Correction 2026-10-19: the switch is **verified (Starfield CK, job 20)**; see WP-45.]
+- Answer by: owner decision after WP-25 and WP-45. Blocks: World. Status: **Owner answer, 2026-10-19:** [Owner, 2026-10-22 20:36Z: kept as the exception to deferred world generation, "if there's extra space", for now (20:40Z).] decided by owner in the talk-through, 2026-10-19 (page WO-6): procedural Earth terrain now; converted terrain later (breadth before polish). Before: open.
+
+**WP-17. Does the host's `KNAM` "Terrain Max Height" or biome noise shape the merge ring around a 64-cell overlay?**
+- Why: cliffs at the overlay edge. (WP Q17)
+- Answer by: compare edge heights on hosts with different `KNAM`; PC probe. Blocks: World. Status: open.
+
+### Day, night, sky and weather
+
+**WP-18. Which day length: a real 24 h (rotation 1.0) or something else?**
+- Why: with FO4's `TimeScale` 20 a 24 h day is 72 real minutes, the same as Starfield's Earth. (WP Q11)
+- Answer by: compare `Planet.GetDayLength()` in game with the `ENAM` formula; PC probe, then owner decision.
+- Blocks: World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-7): "Real 24 hours" (as recommended). Before: open.
+
+**WP-19. What local time does a new game give at the Vault 111 exit, and how do we make it morning?**
+- Why: local time depends on lat/long plus the save's universal time. (WP Q1; cross-cutting with newgame.md)
+- Options: `SetLocalTime` at the vault exit (Bethesda's `QF_MQ101`); choose the registration longitude.
+- Answer by: one fresh-start run reading local time at the core; PC probe. Blocks: New game, World. Status: open.
+
+**WP-20. Weather per world: one planet CLMT, or per-world climates via WRLD `CNAM`, BIOM `ENAM` and WTHS conditions?**
+- Why: Far Harbor's fog and the Glowing Sea's radstorms. (WP Q18)
+- Answer by: one `fw` test each to see whether WRLD `CNAM` or BIOM `ENAM` wins on an overlay; PC probe.
+- Blocks: World. Status: open.
+
+**WP-21. Which vanilla WTHS/ATMO set reads most Earth-like (clear, overcast, rain, fog)?**
+- Why: the v1 sky; WTHS/ATMO/CLDF are opaque reflection blobs, so only vanilla presets can be referenced. (WP Q19)
+- Answer by: the runner's sky_light script over Jemison and New Atlantis weathers; PC probe. Blocks: World. Status: open.
+
+**WP-22. Is the Glowing Sea a separate biome or climate inside the Commonwealth overlay?**
+- Why: its radstorm weather and colour. (WP Q34)
+- Options: REGN weather (Starfield keeps REGN `RDWT`); WTHS conditions.
+- Answer by: offline record read, then PC probe. Blocks: World, Fallout systems. Status: open.
+
+### Hazards, gravity and temperature
+
+**WP-23. Does WRLD `GNAM` gravity scale multiply the planet's gravity or replace it?**
+- Why: 1 g in the Commonwealth on any host. (WP Q9)
+- Answer by: set `GNAM` 2.63 on a Mars overlay and read `GetPlayerGravityScale` or jump height; PC probe.
+- Blocks: World. Status: open.
+
+**WP-24. Which planet-trait keywords stop hazards and suit warnings?**
+- Why: no oxygen or temperature damage in Boston. (WP Q10)
+- Answer by: list the keywords that `BodyIsAtmosphereType`/`BodyIsTemperatureType` test in Starfield.esm and the ones Jemison carries; offline.
+- Blocks: World. Status: open.
+
+### Sea, coasts and ground beyond the overlay
+
+**WP-25. Can the procedural ground outside our BTDs be made New England-like by a biome map edit?**
+- Why: horizon without LOD, and the buffer ring. (WP Q12)
+- Options: biom.py swap to our BIOM (article 643); clone Jemison's forest biomes.
+- Answer by: one biome swap on the host and a look from the core's edge; offline build plus PC look.
+- Blocks: World. Status: open.
+
+**WP-26. Overlay sea vs planet ocean: does SFBK `WHGT` plus BIOM water give a seamless coast?**
+- Why: Far Harbor (sea on every side), Boston Harbor, the Charles. (WP Q14)
+- Answer by: a terrain-only island overlay at 0 m water inside an Ocean biome; look at the merge ring; PC probe.
+- Blocks: World. Status: open.
+
+### Map, fast travel and the ship
+
+**WP-27. The ship: fenced out completely, or kept as a disguised fast-travel vehicle (a vertibird skin)?**
+- Why: between landings Starfield's native path is the ship. (WP Q21)
+- Options: scripted boat or monorail (vehicles-and-travel.md); ship reskinned with the native landing UI.
+- Answer by: owner decision, informed by WP-28 and WP-29. Blocks: World, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-9): no usable ship, scripted travel; the vertibird-ship idea is kept for the combined core. Owner's note: "Go with your recommendation for now, but don't drop the idea of using the ship as a vertibird, maybe for the second core that combines the games.". Before: open.
+
+**WP-28. Does the surface map show, and fast travel to, markers of another landing on the same planet without the ship?**
+- Why: one-planet fast travel between worlds. (WP Q22; also MG Q12; already listed in vehicles-and-travel.md, gains weight here)
+- Answer by: two terrain-only landings and one map look; PC probe. Blocks: World, Multi-game. Status: open.
+
+**WP-29. How do we hide the star map, grav jump and orbit view on an Earth-like host?**
+- Why: opening the star map in Boston breaks the setting. (WP Q23)
+- Options: menu blocks by script; SFSE only if needed (unresolved).
+- Answer by: offline research. Blocks: World, Fallout systems. Status: open.
+
+**WP-30. Does every route into a world (travel scene, fast travel, `coc`, our test teleports) run one arrival handler that sets world-state?**
+- Why: TTW's FAQ warns that console travel bypasses the variables its train sets. (MG precedent 3, MG Q12)
+- Options: one arrival quest per world called from all paths; test harness calls it after `coc`.
+- Answer by: design review plus one route-run test; offline design, then PC. Blocks: World, People and story, Multi-game. Status: open.
+
+### Performance and budgets
+
+**WP-31. What does a landing or fast travel into a 64-cell overlay with about 648k refs cost in load time and memory?**
+- Why: three such worlds, more later. (WP Q27)
+- Answer by: timed `coc` and first-frame times, memory at the core; numbers to docs/ai/optimization.md; PC probe.
+  Wave 2 suggests the cost sits in reference loading and streaming rather than draw submission (supported hypothesis, VP W2-2).
+- Blocks: World, Release. Status: open.
+
+**WP-32. Does a heavier Earth-like atmosphere (fog volumes, clouds) change frame time over the dense core?** (WP Q28)
+- Answer by: frame time with Mars vs an Earth-like weather on the same route; PC probe. Blocks: World. Status: open.
+
+**WP-33. Does an exterior with 650k+ individually placed refs stream without traversal stutter?**
+- Why: no precombines on our side; SFEF's stutter fix exists because vanilla stutters. (VP Q18)
+- Evidence (wave 2): Starfield has no precombine/previs records (**verified schema**), ~~so there is no bake to replicate~~
+  [Correction 2026-10-19: the "no bake step" hypothesis is weakened: interiors.md T9 (both CK string dumps, PC job 18)
+  found `-GeneratePreCombined` and `-GeneratePreVisData` in the FO4 CK only, and the GUI actions "Generate Precombined
+  Visibility for Current Cell" and "... All Loaded Cells" in the Starfield CK; Starfield may have a
+  precombined-visibility bake run from the CK GUI; what it writes and whether it matters for performance is
+  **unresolved**; `-GenerateCellAndRefCounts` (possibly per-cell reference counts) is **unresolved**];
+  its renderer builds ExecuteIndirect arguments on the GPU (**verified**), so per-object draw cost matters less; the
+  remaining cost is likely CPU-side reference loading, scripts/havok and streaming (**supported hypothesis**; no source
+  measures a dense modded cell).
+- Answer by: at 3 fixed spots (dense downtown, open wasteland, interior) log fps, frame time, VRAM and RAM (PresentMon +
+  GPU counters), vanilla vs core vs core-with-LOD, plus a frame-time walk on the route runner; PC probe.
+- Blocks: World, Release. Status: narrowed (wave 2): reduced to "measure frame time on a dense cell" [ST W2-2; VP W2-2]. [Correction 2026-10-19: also open: what the Starfield CK's precombined-visibility bake writes and whether it helps (interiors.md T9).]
+
+**WP-34. How many BA2 archives and plugin slots will the full world use, and does it need the BA2 Limit Fix?**
+- Why: 256 archives and 253 full slots are shared with the player's mods. (VP Q17)
+- Options: one full-master ESM + archives for the core; medium masters only for clusters under 65k records (interiors);
+  archives split at 4,095 MB, or fewer larger archives if Starfield reads past 4 GiB.
+- Evidence (wave 2): a medium master holds at most 65,536 ObjectIDs in 256 medium slots (**verified**, xEdit source), so
+  the core (649,596 refs) and likely each DLC world must be full masters; BA2 offsets are 64-bit (format **verified**),
+  engine reading past 4 GiB **unresolved** (FO4 user reports of 9.5 and 14.7 GB archives only).
+- Answer by: archive count with Starfield Engine Fixes' counter on the owner's PC; a 5 GiB synthetic archive load test; PC probe.
+- Blocks: World, Launcher, Release. Status: narrowed (wave 2): master type settled (full masters for worlds); archive count and the 4 GiB engine limit open [ST W2-5, W2-6; VP W2-3].
+
+**WP-35. After each Starfield patch, do the planet and worldspace overrides still hold?**
+- Why: 1.15.222 changed planet data storage (USFP). (VP Q19)
+- Answer by: scripted record diff of overridden records against each new Starfield.esm; offline tooling.
+- Blocks: World, Release. Status: open.
+
+**WP-36. What texture caps should the default world build use per VRAM tier?**
+- Why: current caps were chosen for archive size, not VRAM. (VP Q20)
+- Options: three presets keyed to detected VRAM.
+- Evidence (wave 2): vanilla uses under 3 GB (1080p low) to about 6.5 GB (4K ultra) on a 12 GB card (single test,
+  **verified**), so the owner's card has headroom; VRAM with our core loaded is **unresolved**.
+- Answer by: VRAM at the 3 fixed spots of WP-33, then again with texture caps halved; VRAM use at each cap on an 8 GB card; PC probe on lower-end hardware (community). Blocks: World, Launcher. Status: narrowed (wave 2): vanilla baseline known; our cost unmeasured [VP W2-2].
+
+**WP-37. Can the runner read local time, gravity and hazard state in one probe, as an acceptance step per world?** (WP Q32)
+- Answer by: PC runner design. Blocks: World. Status: open.
+
+### Release scope and later games
+
+**WP-38. Should a "walkable world" release (world, placements, landscape, no people) ship before people and story?**
+- Why: FNV to FO4 shipped exactly that scope and has an audience on Nexus. (PR Q15)
+- Answer by: owner decision. Blocks: Release, World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-10): "Wait for a fuller game" (not the recommended option). Before: open.
+
+**WP-39. FO3 and New Vegas later: the same planet at other coordinates (DC, Mojave), a stylised map, or other planets?**
+- Why: decides whether the planet master is "Earth" generically. (WP Q33; MG Q11)
+- Answer by: owner decision after WP-01 and WP-14. Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-5): "Same planet, real relative positions" (as recommended). Owner's note: "Pay attention to my other comment about placing the locations on the planet (WO-4).". Before: open.
+
+**WP-40. Are Anchorage and Zeta sealed worldspaces with no planet position, and could Zeta use Starfield's space engine?**
+- Why: fewer landings; a fun option. (MG Q13)
+- Answer by: owner decision; offline research. Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-5): "Same planet, real relative positions" (as recommended). Owner's note: "Pay attention to my other comment about placing the locations on the planet (WO-4).". Before: open (facts verified, choice open; the facts also answer part of MG-14).
+
+**WP-41. What weather and climate model do the DC and Mojave landings use (FO3 green tint, NV desert)?** (MG Q14)
+- Answer by: map FO3/NV CLMT/WTHR onto Starfield biomes and weather; offline research. Blocks: Multi-game. Status: open.
+
+**WP-42. How many landings, plugins and loaded worlds can one save carry before performance or plugin limits bite?**
+- Why: FO4 + FO3 + NV + 11 DLC is about 15 source masters' worth of content. (MG Q15; ties to WP-34)
+- Answer by: PC stress test with terrain-only landings. Blocks: Multi-game, Release. Status: open.
+
+### Added in wave 2
+
+**WP-43. Do overlay names with underscores break terrain in the cell view or in game?**
+- Why: two independent user reports tie missing terrain to underscores in the overlay name (MikkoK141 thread). (WP W2 new Q35)
+- Options: avoid underscores in generated EDIDs until disproved; test both.
+- Answer by: offline naming rule now; PC probe later (one overlay with and one without). Blocks: World. Status: open (rule: avoid until disproved).
+
+**WP-44. Do fixed (unique) overlays also need `BSGPlanetContentManagerContentProperties_Component` and a Location with `LocTypeOverlay`/`LocTypeOE_Keyword`?**
+- Why: the PCM tutorial adds both to random overlays; unknown for our fixed ones. (WP W2 new Q36)
+- Answer by: xEdit read of a vanilla unique overlay (e.g. an Earth city); offline. Blocks: World. Status: open.
+
+**WP-45. Object LOD: run CK `-MockWorldSpaceLOD` on the player's PC, or write our own LOD; and should the converter set LAYR `LODB` and object LOD flags itself?**
+- Why: horizon and possibly the local map (supported hypothesis); xLODGen/DynDoLOD do not support Starfield. (ST Q15, ST new Q35)
+- Options: CK headless run with converter-set layers and flags; own LOD writer.
+- Answer by: [Correction 2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled: **verified (Starfield CK, job 20)**]; then] run it on a 4-cell test worldspace, time it, check `.esm` acceptance and partial-cell failures on 64 cells; xEdit read of a vanilla overlay's layers offline; PC probe.
+- Blocks: World, Launcher. Status: narrowed (wave 2): ~~CK command and output paths verified~~ [Correction 2026-10-19: CK command ~~**unresolved (sources conflict)**~~: web guides say it exists, ~~the job 18 string dump of CreationKit.exe does not show it~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; the CK command is **verified (Starfield CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)]; `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport` and `-GenerateMeshLODStats` are **verified** LOD-related CK switches]; headless use, run time and `.esm` support open [ST W2-1].
+
+**WP-46. Do all converted Fallout location worlds use the city-style WRLD settings (Small World off, `HNAM` 5)?** (new 2026-10-22)
+- Why it matters: with other settings the planet border shows on a world's interior exits; the owner wants this kept as a building note for every future location world.
+- Evidence: docs/terrain/border.md (record counts **verified**; what HNAM means is a **supported hypothesis**). ~~The Interiors thread's repeat test is pending.~~ [Correction 2026-10-23: done. The settling test (control 3/3 PASS, nosmall 2/3, city 2/3) shows city and nosmall are **not reliable fixes**; whether either changes the failure rate, and the fourth combination (SmallWorld kept, HNAM 5), are untested.]
+- Answer by: the Interiors thread's next steps in border.md: the failure rate (10 control runs with the FO4SF_LoadDoor trace), the door's retry of a missed MoveTo (docs/terrain/scripted-doors.md), and, if that fails, toggling `bBorderRegionsEnabled` only in our world via SFSE. Blocks: World, Multi-game, All interiors (exits).
+- Status: **unresolved**. The owner's building note (2026-10-22) is kept as history; it applies to whichever world settings or door fix is proven, not to city-style settings as such.
+
+**WP-47. Should very large places be built as interiors rather than worldspaces?** (new 2026-10-22)
+- Why it matters: the owner raised it for places like Cydonia, giant interiors and Starfield's Neon-style city.
+- Options: (a) worldspace with the WP-46 settings; (b) one or more large interior cells; (c) decide per place.
+- Answer by: offline read of how Starfield's own big cities and Cydonia are stored (WRLD or interior CELL), then a per-place rule. Who: offline research.
+- Blocks: World, Multi-game, combined core.
+- Status: open.
+
+## Owner decisions in this area
+
+- **WP-01 host planet.** Recommendation: keep Mars until WP-05, WP-08 and WP-24 report; then prefer Earth via `EOVR`
+  if `EOVR` works (Sun, Moon, 24 h for free, no galaxy edit), otherwise a clone in its own small master.
+- **WP-02 new-game-only for a cloned planet.** Recommendation: acceptable, since phase 1 is a new game anyway.
+- **WP-04 planet master.** Recommendation: its own small master, so later games reuse it.
+- **WP-14 layout.** Recommendation: real coordinates; placement math is the same `CNAM` path and the offsets are harmless.
+- **WP-15 Nuka-World site.** Recommendation: decide after offline lore research; default a fictional inland site.
+- **WP-16 outer ring.** Recommendation: option D (Earth biome) first as the cheap horizon; terrain or LOD later (breadth before polish).
+- **WP-18 day length.** Recommendation: rotation 1.0 (24 h); it matches FO4's feel at `TimeScale` 20.
+- **WP-27 ship.** Recommendation: fence the ship out for v1 and use scripted travel through one chokepoint (TTW model, avoids the playtest row 7 hang).
+- **WP-38 world-only release.** Recommendation: yes, as an early public demo; Project Tamriel shows interest needs a demo early.
+- **WP-39 later games.** Recommendation: same planet, real coordinates, so the planet master is reused; Anchorage and Zeta sealed (WP-40).
+
+## Cheapest experiments
+
+Offline first:
+1. **Planet and component census (xEdit or SfInspect read of Starfield.esm, ShatteredSpace.esm, SFBGS00x):** Earth and
+   Jemison PNDT fields and keywords, all `EOVR` uses, DAT2 unique-pattern components by record type, keywords tested
+   by the hazard conditions, our WRLD `FNAM` flags, Shattered Space WRLD bounds and `.btd` sizes, and the components,
+   Location keywords and LAYR `LODB` of a vanilla unique overlay (an Earth city). Closes WP-05, WP-09, WP-10, WP-24,
+   WP-44; feeds WP-01, WP-08, WP-13, WP-45.
+2. **Read SFStarEditor source** for `.biom` keying and records written. Closes WP-03 (design half); feeds WP-02.
+3. **Record diff of overridden planet and worldspace records across Starfield 1.16.236, .242, .244.** Closes WP-35.
+4. **FO4 data read for Nuka-World's position and the Glowing Sea's weather records.** Feeds WP-15, WP-22.
+5. **Naming rule: no underscores in generated overlay EDIDs** (one-line converter check). Holds WP-43 until the PC test.
+
+PC read-only or terrain-only probes:
+6. **One terrain-only island overlay at a second lat/long**, registered by `EOVR` alone, with `GNAM` 2.63, 0 m water in
+   an Ocean biome, and one map marker. Closes WP-08, WP-23, WP-26, WP-17 (edge look), WP-28 (map look) and measures the
+   second merge offset (WM 5).
+7. **Fresh start, read local time and `GetDayLength()` at the core.** Closes WP-18, WP-19.
+8. **Weather `fw` tests on an overlay plus sky_light over Jemison/New Atlantis presets.** Closes WP-20, WP-21; feeds WP-22, WP-32.
+9. **Timed `coc` into core64, frame-time walk on the route runner, SFEF archive counter; PresentMon + GPU counters at 3
+   fixed spots (downtown, wasteland, interior), vanilla vs core vs core-with-LOD, then texture caps halved.** Closes
+   WP-31, WP-33, WP-34 (count); feeds WP-32, WP-36, WP-42.
+10. **Install a cloned-planet plugin on an existing save.** Closes WP-02; feeds WP-07.
+11. **PCM test planet with both levers (exclusion-zone keyword, branch condition); land 10 times, count POIs.** Closes WP-13.
+12. **CK `-MockWorldSpaceLOD` on a 4-cell test worldspace, timed, `.esm` vs `.esp`, then on 64 cells.** Closes WP-45; feeds WP-16. [Correction 2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled, **verified (Starfield CK, job 20)**].]
+13. **Load a 5 GiB synthetic BA2.** Closes the 4 GiB part of WP-34.
+14. **Two terrain-only overlays, one named with underscores.** Closes WP-43.
+
+## Gaps (after wave 2)
+
+- Shattered Space's landmass size and build method: no public source; only a PC read of `ShatteredSpace.esm` answers it. Feeds WP-09.
+- Nuka-World's lore or real-world location. Feeds WP-15.
+- Survey of Earth-editing Starfield mods. Feeds WP-06.
+- SFStarEditor and Pytheas comment threads on save safety. Feeds WP-02, WP-07.
+- Measured performance of a dense modded cell (no source; draw path and missing precombines now known). Feeds WP-33. [Correction 2026-10-19: plus what the Starfield CK's "Generate Precombined Visibility" GUI actions write (interiors.md T9).]
+- Whether `PCM_OverlayExclusionZone` scales past 4,000 units. Feeds WP-13.
+- Whether Starfield's engine reads BA2 archives past 4 GiB. Feeds WP-34.
+- Starfield total conversions on Nexus (not researched). Feeds WP-38.
+- Engine merge of `EOVR` across several plugins (no source). Feeds WP-08.
+- How TTW structures its worldspaces in detail (only "separate worldspaces plus a train" read). Feeds WP-11.
+
+## Handed to phase files
+
+| Question | Target file |
+|---|---|
+| Which game does a multi-game playthrough start in, and must phase 1 have a "start world" hook? (MG Q1, Q3) | newgame.md |
+| Local time at the Vault 111 exit (kept here as WP-19, cross-cutting) | newgame.md |
+| Do FO3/NV load doors need the same enter/exit treatment; DOOR/XTEL compatibility (MG Q4) | door-animations.md |
+| Can the interior pipeline take FO3/NV cells; navmesh regenerate vs convert (MG Q5, PR Q5) | interiors.md |
+| Disk space check, Creation Kit requirement for LOD, archive packing (VP Q15; WM owner Q4) | launcher.md |
+| Arrival scripts and save state across worlds, game-time handling (WP-30 is the world side) | engine-mechanics.md |
+
+## Sources
+
+- xEdit Starfield definitions, `Core/wbDefinitionsSF1.pas` dev-4.1.6: https://github.com/TES5Edit/TES5Edit
+- https://www.nexusmods.com/starfield/mods/11384
+- https://github.com/tridashafox/SFStarEditor
+- https://www.nexusmods.com/starfield/mods/15571
+- https://www.nexusmods.com/starfield/mods/16954?tab=description
+- https://www.nexusmods.com/starfield/articles/643
+- https://forums.nexusmods.com/topic/13462799-hm-so-i-take-it-modded-planets-cant-be-a-thing-o_o/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985
+- https://starfieldportal.com/article/project-tamriel-ambitiously-plans-to-add-all-elders-scrolls-region-in-starfield
+- https://starfieldportal.com/article/starfield-project-tamriel-is-cancelled
+- https://80.lv/articles/starfield-dev-explained-how-shattered-space-s-world-was-created/
+- https://www.nexusmods.com/starfield/mods/261
+- https://www.nexusmods.com/starfield/mods/14643
+- https://finance.yahoo.com/news/modders-already-got-around-starfields-132556059.html
+- https://nukesdragons.com/starfield/db/planets/jemison
+- https://starfieldwiki.net/wiki/Starfield:Jemison
+- https://forums.nexusmods.com/topic/13491382-tutorial-creating-your-own-randomly-placed-pois/ (read in wave 2)
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3266682879 (read in wave 2)
+- https://thebestoftimes.moddinglinked.com/faq.html
+- https://fallout.wiki/wiki/Mod:Tale_of_Two_Wastelands
+- https://nexusmods.com/fallout4/mods/75425
+- https://github.com/terry-haire/fnv-to-fo4
+- https://en.wikipedia.org/wiki/Fallout_3_downloadable_content
+- https://www.nexusmods.com/starfield/mods/17936
+- https://forums.nexusmods.com/topic/13518743-crash-issue-too-many-ba2-files-causing-ctds-%E2%80%93-looking-for-fix-or-insight/
+- https://www.nexusmods.com/starfield/articles/688
+- https://www.nexusmods.com/starfield/mods/10457?tab=files
+- https://www.afkmods.com/Unofficial%20Starfield%20Patch%20Version%20History.html
+- https://starfieldwiki.net/wiki/Starfield:System_Requirements
+- https://sfse.silverlock.org/
+- Wave 2: https://steamcommunity.com/sharedfiles/filedetails/?id=3269084567
+- https://forums.nexusmods.com/topic/13497605-info-mods-changing-world-spaces-may-break-surface-maps-poi-markers
+- https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod
+- https://forums.nexusmods.com/topic/13497519-how-to-create-lod/
+- https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/starfields_local_maps/ (snippet only)
+- https://dyndolod.info/Help/xLODGen
+- https://www.gamesradar.com/games/rpg/players-can-explore-like-they-used-to-in-fallout-and-skyrim-how-shattered-space-brings-the-bespoke-goodness-of-past-bethesda-rpgs-to-starfield/
+- https://kotaku.com.au/2024/09/9-minute-starfield-deep-dive-gives-a-tour-of-the-expansions-new-handcrafted-planet
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/ (wbDefinitionsSF1.pas, wbDefinitionsFO4.pas, wbImplementation.pas, wbInterface.pas, wbBSArchive.pas)
+- https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s
+- https://github.com/HansKristian-Work/vkd3d-proton/pull/1694
+- https://www.destructoid.com/open-source-community-figures-out-problems-with-performance-in-starfield/
+- https://www.dsogaming.com/pc-performance-analyses/starfield-pc-performance-analysis/
+- https://www.noticias3d.com/noticia/92797/starfield-requisitos-4k-cuanta-memoria-grafica-consume.html
+- https://www.corsair.com/us/de/explorer/diy-builder/memory/how-memory-capacity-affects-starfield/
+- Project notes: research/next-phase/world-maps-lod-fasttravel.md, trees-grass-terrain.md;
+  research/engine-mechanics/weather-time-climate.md, vehicles-and-travel.md; repo docs/terrain/commonwealth-scale.md,
+  docs/terrain/core64c.md, docs/ai/test-queue.md, docs/ai/optimization.md, docs/ai/decisions.md (2026-10-12)
