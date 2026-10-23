@@ -34,7 +34,8 @@ usage:
       player's cell is one of the core's and the stage found one worldspace in the core), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
-      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
+      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN, BEYOND: a queue planned with a teleport after the trip,
+      STALE_FEED: no position after the door's own trace began, the game paused).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
@@ -251,7 +252,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
            "z_ref": "zref_ground", "hop_m": HOP_M, "hop_wait_ms": HOP_WAIT_MS, "teleport_console": True,
            "drop_z": round(max(drop_z, stand[2] + STAND_ABOVE_M), 4),
            "points": [dict(zref), {"label": "door_front", "x": stand[0], "y": stand[1], "expect": stand[2]}],
-           "beyond": {"x": stand[0], "y": stand[1] + 120.0},
+           "beyond": None,                                # no teleport after the trip: the judge reads the last position
            "activate": {"ref": full(core_index, ex["door"]), "base": full(core_index, ex["base"]), "expect": []},
            "console_post": [ack(f"door-fwd-{k}"), resolve(PORT_PLUGIN, int(it["marker"], 16))],
            "label": f"door round {k} IN ({r['cell_edid']}, FO4 {r['src']}): {dist:.0f} m from the Red Rocket arrival "
@@ -261,7 +262,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
     ret = {"coc": r["cell_edid"], "travel": f"coc {r['cell_edid']}", "teleport_console": True,
            "drop_z": round(m[2] + INTERIOR_DROP_M, 4),
            "points": [{"label": "inside_arrival", "x": m[0], "y": m[1], "expect": m[2]}],
-           "beyond": {"x": ex["arrival_merged"][0], "y": ex["arrival_merged"][1]},
+           "beyond": None,                                # no teleport after the trip: the judge reads the last position
            "activate": {"ref": full(port_index, it["door"]), "base": full(port_index, it["base"]), "expect": []},
            "console_post": [ack(f"door-ret-{k}"), resolve(CORE_PLUGIN, int(ex["arrival"], 16))],
            "label": f"door round {k} OUT ({r['cell_edid']}): coc inside, activate the interior door "
@@ -533,7 +534,15 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
                                     f"ref={e.get('ref')} cell={e.get('cell')} world={e.get('world')}; planned {full_id}"
                                     f" in cell={hits[0].get('cell')} world={hits[0].get('world')}"), None
     target = hits[0]
-    pos = [e for e in after if e.get("kind") == "pos" and e.get("pos") is not None]
+    # the door's own trace, when the bridge log has it, marks where its trip began: only a position after it is the
+    # trip's (Interiors, #512: on the Vault 95 exit a BOUNDARY REACHED popup paused the game, the feed stopped, and the
+    # last read was the one before the door, judged STAYED)
+    door = next((k for k, e in enumerate(after) if e.get("kind") == "loaddoor"), None)
+    pos = [e for e in after[(door or 0):] if e.get("kind") == "pos" and e.get("pos") is not None]
+    if not pos and door is not None:
+        return "INCONCLUSIVE", ("STALE_FEED: no bridge position after the door's trip began (FO4SF_LoadDoor "
+                                f"phase={after[door].get('phase')}); the feed stopped, e.g. a BOUNDARY REACHED popup "
+                                "pausing the game"), None
     if not pos:
         return "INCONCLUSIVE", "NO_POSITION: no bridge position line after the ack", None
     last = pos[-1]
@@ -564,10 +573,21 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
                                         f"the marker resolves in {target['world']} ({dxy:.1f} m off)"
                                         + ("" if instances is None else "; no --world-instance pins the pair")), last
     if dxy > tol or dz > tol:
-        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
+        return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m){runtime(last, target)}", last
     return "PASS", (f"{dxy:.2f} m off in xy, {dz:.2f} m in z"
                     + (f" (world {last['world']} taken as {target['world']} {tie})" if not exp["cell"]
                        and last.get("world") != target.get("world") else "")), last
+
+
+def runtime(last, target):
+    """The player against the marker's own runtime position (its resolve line), a readout beside the verdict, never the
+    expectation: a player on the resolved marker but off its record position points at the record's frame, a player off
+    both at the trip (J2, 2026-10-23: every IN leg 1450 to 4250 m off its record position, in the right interior cell)."""
+    p = target.get("pos")
+    if not finite(p):
+        return ""
+    return (f"; {math.dist(last['pos'][:2], p[:2]):.1f} m in xy, {abs(last['pos'][2] - p[2]):.1f} m in z from the "
+            f"marker's runtime position {[round(v, 3) for v in p]}")
 
 
 def judge(a):
@@ -594,6 +614,10 @@ def judge(a):
         obs = load(os.path.join(d, "obs.json")) if os.path.exists(os.path.join(d, "obs.json")) else {}
         verdict, why, last = judge_test(bridge_log.read_events(os.path.join(d, "bridge.log")), obs, exp, info["tol_m"],
                                        pairs or None, core_world(info))
+        if t.get("beyond"):                               # a queue planned before the judged legs dropped it
+            verdict, why = "INCONCLUSIVE", (f"BEYOND: the runner teleported the player to the test's beyond point after "
+                                            f"the trip, so the last position is that teleport's; re-plan (as read: "
+                                            f"{verdict} {why})")
         rows.append(dict(exp, id=t["id"], attempt=os.path.basename(d), verdict=verdict, why=why,
                          got=last and {k: last.get(k) for k in ("pos", "cell", "world")}))
     save(os.path.join(qdir, "door_rounds_judge.json"), {"rounds": a.rounds or q["experiment"], "rounds_sha256": rounds_sha,

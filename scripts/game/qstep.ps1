@@ -881,11 +881,16 @@ switch ($kind) {
       }
       Save-Obs
     }
-    # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
-    Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
-    Start-Sleep -Milliseconds 4500
-    $obs['beyond_read'] = Read-Pos
-    $obs['beyond_shot'] = Shot 'beyond.png'
+    # Unscored plan diagnostic: use the same merged frame/drop height as the judged points. A door leg plans none
+    # (beyond null): the bridge's last position must be the trip's, not this teleport's (J2, 2026-10-23)
+    if ($t.beyond) {
+      Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
+      Start-Sleep -Milliseconds 4500
+      $obs['beyond_read'] = Read-Pos
+      $obs['beyond_shot'] = Shot 'beyond.png'
+    } else {
+      Start-Sleep -Milliseconds 4500                  # the bridge's timer logs the settled arrival
+    }
   }
   'npc_nav' {
     # NPC navigation (PR #61 docs/actors/npc-navigation.md 3.4, docs/ai/test-queue.md): travel, spawn a vanilla actor at

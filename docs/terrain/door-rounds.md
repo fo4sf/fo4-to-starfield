@@ -19,6 +19,15 @@ installed before it writes a test.
 - **Out**: `coc` into the interior, a drop onto the interior arrival marker, then the interior door is activated. The
   bridge must put the player within 3 m of the exterior arrival marker's merged position, in the exterior world.
 
+Neither leg has a `beyond` point: the runner's diagnostic teleport after a terrain test would move the player away
+from where the door put them, and the judge reads the last position. In J2 (v6i, 2026-10-23) it did exactly that: every
+IN leg read 1450 to 4250 m off its marker while the door's own trace put the player on it, and an OUT leg's beyond was its arrival
+marker's merged position, so its 0.0 m in xy is inferred to be the teleport's spot, not proof of the door's. A queue planned with a `beyond` on a judged leg is INCONCLUSIVE BEYOND; re-plan it.
+
+When the bridge log carries the door's own trace (`FO4SF_LoadDoor phase=...`), only a position after it counts. With
+none after it the leg is INCONCLUSIVE STALE_FEED, not STAYED: on the Vault 95 exit a BOUNDARY REACHED popup paused the
+game, the feed stopped, and the last read was the one before the door (Interiors, #512).
+
 The runner turns the save's companion off at the start of every session unless the queue says `"companion": "keep"`;
 these queues leave it off.
 
