@@ -266,6 +266,16 @@ class JudgeTests(unittest.TestCase):
         self.assertTrue(why.startswith("WRONG_PLACE"), why)
         self.assertIn("2.2 m in xy, 2.0 m in z from the marker's runtime position [-930.0, -1690.0, -270.0]", why)
 
+    def test_a_feed_that_stops_after_the_door_is_stale_not_stayed(self):
+        # Interiors (#512): a BOUNDARY REACHED popup paused the game after the door; the last read was the one before it
+        trace = "[17:44:42] FO4SF_LoadDoor phase=Marker destination=fo4terraincore.esm:1794 ref=1 pos=1 2 3 angle=0 cell=x world=y"
+        inside = pos(5, 17, -3)                                          # the read before the door: still inside
+        stale = (OUT_OK[0], OUT_OK[1], inside, trace)
+        self.assertEqual(verdict(stale, EXP_OUT), ("INCONCLUSIVE", "STALE_FEED"))
+        self.assertEqual(verdict((OUT_OK[0], OUT_OK[1], inside), EXP_OUT), ("FAIL", "STAYED"))   # no trace: as before
+        self.assertEqual(verdict((OUT_OK[0], OUT_OK[1], inside, trace, OUT_OK[2]), EXP_OUT)[0], "PASS")
+        self.assertEqual(verdict((OUT_OK[0], OUT_OK[1], trace, inside), EXP_OUT), ("FAIL", "STAYED"))   # read after it
+
     def test_missing_proof_is_never_a_pass(self):
         self.assertEqual(verdict(IN_OK, EXP_IN, {"activate": {"selected": False}}), ("INCONCLUSIVE", "NOT_ACTIVATED"))
         for obs in ({}, {"activate": {}}, None):                         # Codex #358: absence is not success

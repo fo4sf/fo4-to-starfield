@@ -34,7 +34,8 @@ usage:
       player's cell is one of the core's and the stage found one worldspace in the core), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
-      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN, BEYOND: a queue planned with a teleport after the trip).
+      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN, BEYOND: a queue planned with a teleport after the trip,
+      STALE_FEED: no position after the door's own trace began, the game paused).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
@@ -533,7 +534,15 @@ def judge_test(events, obs, exp, tol=TOL_M, instances=None, core=None):
                                     f"ref={e.get('ref')} cell={e.get('cell')} world={e.get('world')}; planned {full_id}"
                                     f" in cell={hits[0].get('cell')} world={hits[0].get('world')}"), None
     target = hits[0]
-    pos = [e for e in after if e.get("kind") == "pos" and e.get("pos") is not None]
+    # the door's own trace, when the bridge log has it, marks where its trip began: only a position after it is the
+    # trip's (Interiors, #512: on the Vault 95 exit a BOUNDARY REACHED popup paused the game, the feed stopped, and the
+    # last read was the one before the door, judged STAYED)
+    door = next((k for k, e in enumerate(after) if e.get("kind") == "loaddoor"), None)
+    pos = [e for e in after[(door or 0):] if e.get("kind") == "pos" and e.get("pos") is not None]
+    if not pos and door is not None:
+        return "INCONCLUSIVE", ("STALE_FEED: no bridge position after the door's trip began (FO4SF_LoadDoor "
+                                f"phase={after[door].get('phase')}); the feed stopped, e.g. a BOUNDARY REACHED popup "
+                                "pausing the game"), None
     if not pos:
         return "INCONCLUSIVE", "NO_POSITION: no bridge position line after the ack", None
     last = pos[-1]
