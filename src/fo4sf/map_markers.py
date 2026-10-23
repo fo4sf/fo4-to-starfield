@@ -154,3 +154,33 @@ def extra_markers(markers, bounds_m, ground, keep=EDGE_KEEP_M, fixed=(), near_m=
         else:
             inside.append((tag, name, src, fx, fy))
     return overlay_markers(None, bounds_m, ground, markers=inside, keep=keep), left
+
+
+# A ship landing spot as LandingOverlay01 (Starfield.esm 1.16.244, SfInspect landing on the PC, 2026-10-23;
+# docs/terrain/map-markers.md "How a vanilla world lands a ship"): (position, rotation) of its pad 093DC9, its
+# landing-zone trigger 093DCA, its "Landing Area" map marker 3A866E and the XMarkerHeading 3A8670 that marker links to
+LANDING_OVERLAY01 = {
+    "pad": ((49.773224, 51.7724, 4.653347), (0.0, 0.0, 6.138185)),
+    "trigger": ((49.37545, 52.24151, 12.682769), (0.0, 0.0, 6.1381845)),
+    "marker": ((49.277767, 40.811398, 13.383609), (0.0, 0.0, 0.0)),
+    "heading": ((87.82548, 78.992676, 5.156708), (0.0, 0.0, 3.7151914)),
+}
+LANDING_KEEP_M = 100.0  # the pad's box is about 82 m across: the whole spot stays a cell inside the overlay
+
+
+def landing_spot(x, y, bounds_m, ground, lift, tag="RedRocketNorth", name="Landing Area", keep=LANDING_KEEP_M):
+    """dotnet/MapMarkers --landing's spot for a pad at local (x, y): LandingOverlay01's four references moved by the
+    same offset, its rotations kept. The pad, and so the trigger and the marker above it, take the ground height at
+    (x, y) (LandingOverlay01's pad sits on its ground); the heading takes its own ground plus `lift`, as the markers'
+    arrivals do. Raises ValueError for a pad less than `keep` inside the overlay."""
+    lo, hi = bounds_m
+    if not (lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep):
+        raise ValueError(f"the pad at ({x:.1f}, {y:.1f}) m is less than {keep:.0f} m inside the overlay ({lo}..{hi} m)")
+    (px, py, pz), _ = LANDING_OVERLAY01["pad"]
+    dz = float(ground(x, y)) - pz
+    spot = {"tag": tag, "name": name}
+    for part, ((vx, vy, vz), rot) in LANDING_OVERLAY01.items():
+        sx, sy = x + vx - px, y + vy - py
+        sz = float(ground(sx, sy)) + lift if part == "heading" else vz + dz
+        spot[part] = {"pos": [round(sx, 4), round(sy, 4), round(sz, 4)], "rot": list(rot), "cell": sf_cell(sx, sy)}
+    return spot

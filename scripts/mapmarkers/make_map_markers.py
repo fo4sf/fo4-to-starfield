@@ -5,13 +5,17 @@ usage:
   python scripts/mapmarkers/make_map_markers.py stage --core <FO4TerrainCore.esm> --out <NEW folder>
                                                      [--compiler <PapyrusCompiler.exe>] [--content-resources <zip>]
                                                      [--z-lift <m>] [--world control|nosmall|city]
-                                                     [--fo4-map-markers <export.json> --core-stage <folder>]
+                                                     [--fo4-map-markers <export.json>] [--landing <x> <y>]
+                                                     [--landing-name <name>] [--core-stage <folder>]
       0. with --fo4-map-markers (the owner's "more location markers", 2026-10-23): the rest of FO4's named
          Commonwealth markers, picked as make_core64c.py stage --fo4-map-markers picks them for a core
          (fo4sf.map_markers.load_fo4_markers and extra_markers: 200 m inside the land, none on a same-named fixed or
          kept marker within 100 m), z the core's BTD ground, into <out>/extra_markers.json (the left out with their
          reason in map_markers_left_out.json). --core-stage is the folder that staged the core: its overlays_params.json
          (bounds, the BTD path, the fixed markers) and its BTD; its copy of the core must be --core, byte for byte;
+         with --landing (the owner's "temp ship landing spot", 2026-10-23): a pad at getpos (x, y), the merged frame
+         the game and the owner's snapshots report, and LandingOverlay01's trigger, "Landing Area" marker and heading
+         around it (fo4sf.map_markers.landing_spot, heights from the same BTD), into <out>/landing.json;
       1. dotnet/MapMarkers build: the plugin (one start-game-enabled quest carrying FO4SF_MapMarkers, its Markers the
          core's MapMarker REFRs, LocalX / LocalY / LocalZ their positions as overridden below), plus an override of
          each of those REFRs: the marker's own name on the map (no UseLocationName flag) and the arrival lifted
@@ -20,7 +24,8 @@ usage:
          stage belongs to one core build (check fails a stale one), and --world takes the WRLD copy from
          dotnet/BorderProbe's variants (the border settling test): control as the core's, nosmall without
          SmallWorld, city without SmallWorld and HNAM 5; with step 0, --extra adds those markers as this plugin's
-         own REFRs, with one LCSR row each in an override of the core's Location, after the core's in the quests;
+         own REFRs, with one LCSR row each in an override of the core's Location, after the core's in the quests,
+         and --landing adds the landing spot's four REFRs and its three LCSR rows, after those in the quests;
       2. the Papyrus compile of FO4SF_MapMarkers.psc (base sources from the Creation Kit's ContentResources.zip, as
          scripts/bridge/make_bridge.py), the .pex into <out>/Data/Scripts;
       3. dotnet/MapMarkers check: the plugin read back against the core (offline_check.txt); core.json (the core's
@@ -59,6 +64,7 @@ def compile_script(compiler, src_dir, out_dir):
 
 
 PLUGIN = "FO4SFMapMarkers.esm"   # the one name scripts/game/map_markers_install.py installs
+DEFAULT_Z_LIFT = 2.5             # dotnet/MapMarkers DefaultZLift: the landing heading's lift when --z-lift is not given
 PIN = "core.json"                # {"masters": {core file name: sha256}}: the core this plugin's FormIDs belong to
 WORLDS = {"control": ", as the core's record (SmallWorld kept, HNAM the core's)",
           "nosmall": " (dotnet/BorderProbe's: SmallWorld cleared, HNAM the core's)",
@@ -70,11 +76,10 @@ def sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def fo4_extra(export, core_stage, core_sha256, core_name, out):
-    """Step 0: the markers --extra adds, written to <out>/extra_markers.json; returns (its path, kept, left out)."""
+def core_terrain(core_stage, core_sha256, core_name):
+    """The core's own stage: (its one overlay's params, ground(x, y) from its BTD), local metres."""
     sys.path.insert(0, os.path.join(REPO, "src"))
     sys.path.insert(0, os.path.join(REPO, "scripts", "terrain"))
-    from fo4sf import map_markers
     import make_core64c                                  # Terrain: the BTD reader the core's own stage samples with
     staged_core = os.path.join(core_stage, core_name)
     if not os.path.isfile(staged_core) or sha256(staged_core) != core_sha256:
@@ -86,7 +91,13 @@ def fo4_extra(export, core_stage, core_sha256, core_name, out):
         sys.exit(f"--core-stage {core_stage}: overlays_params.json has {len(overlays)} overlays, want the one core world")
     ov = overlays[0]
     terrain = make_core64c.Terrain(os.path.join(core_stage, *ov["btd_file"].split("/")))
-    ground = lambda x, y: float(terrain.bilinear([x], [y])[0])  # noqa: E731
+    return ov, lambda x, y: float(terrain.bilinear([x], [y])[0])
+
+
+def fo4_extra(export, core_stage, ov, ground, out):
+    """Step 0: the markers --extra adds, written to <out>/extra_markers.json; returns (its path, kept, left out)."""
+    sys.path.insert(0, os.path.join(REPO, "src"))
+    from fo4sf import map_markers
     fixed = ov.get("map_markers") or []
     with open(export, encoding="utf-8-sig") as f:
         doc = json.load(f)
@@ -108,24 +119,53 @@ def fo4_extra(export, core_stage, core_sha256, core_name, out):
     return path, len(extra), len(left) + len(outside)
 
 
+def landing(at, name, core_stage, ov, ground, lift, out):
+    """Step 0: the landing spot --landing adds, its pad at getpos `at`, written to <out>/landing.json; returns
+    (its path, the spot)."""
+    sys.path.insert(0, os.path.join(REPO, "src"))
+    sys.path.insert(0, os.path.join(REPO, "scripts", "terrain"))
+    from fo4sf import map_markers
+    import vmad_patch                                    # MERGE_MEASURED: getpos = local + the merge offset
+    ox, oy, _ = vmad_patch.MERGE_MEASURED
+    try:
+        spot = map_markers.landing_spot(at[0] - ox, at[1] - oy, (ov["bounds_min_m"], ov["bounds_max_m"]), ground, lift,
+                                        name=name)
+    except ValueError as e:
+        sys.exit(f"--landing {at[0]} {at[1]}: {e}")
+    path = os.path.join(out, "landing.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"getpos": list(at), "merge_offset": [ox, oy], "core_stage": os.path.abspath(core_stage), "btd": ov["btd_file"],
+                   "landing": spot}, f, indent=1)
+    return path, spot
+
+
 def stage(a):
     a.plugin = PLUGIN
     out = os.path.abspath(a.out)
     if os.path.exists(out) and os.listdir(out):
         sys.exit(f"{out} is not empty: stage into a new folder")
-    if bool(a.fo4_map_markers) != bool(a.core_stage):
-        sys.exit("--fo4-map-markers and --core-stage go together (the export, and the core's own stage folder for its BTD)")
+    if bool(a.fo4_map_markers or a.landing) != bool(a.core_stage):
+        sys.exit("--core-stage goes with --fo4-map-markers or --landing (the core's own stage folder, for its BTD)")
     core_sha256 = sha256(a.core)                         # the installer refuses any other core build
     os.makedirs(out, exist_ok=True)
     tool = os.path.join(REPO, "dotnet", "MapMarkers")
     lift = [] if a.z_lift is None else ["--z-lift", repr(float(a.z_lift))]
     lift += [] if a.world == "control" else ["--world", a.world]      # build and check take the same variant
     extra_note = ""
+    if a.core_stage:
+        ov, ground = core_terrain(a.core_stage, core_sha256, os.path.basename(a.core))
     if a.fo4_map_markers:
-        path, kept, dropped = fo4_extra(a.fo4_map_markers, a.core_stage, core_sha256, os.path.basename(a.core), out)
+        path, kept, dropped = fo4_extra(a.fo4_map_markers, a.core_stage, ov, ground, out)
         lift += ["--extra", path]                                     # build and check take the same markers
         extra_note = (f"\n  Plus {kept} markers of its own (extra_markers.json, from {os.path.abspath(a.fo4_map_markers)}; "
                       f"{dropped} left out, map_markers_left_out.json),\n  each with an LCSR row in its override of the core's Location.")
+    if a.landing:
+        path, spot = landing(a.landing, a.landing_name, a.core_stage, ov, ground, DEFAULT_Z_LIFT if a.z_lift is None else a.z_lift, out)
+        lift += ["--landing", path]                                   # build and check take the same spot
+        pad = spot["pad"]["pos"]
+        extra_note += (f"\n  Plus a ship landing spot \"{spot['name']}\" (landing.json): a pad at getpos {a.landing[0]} {a.landing[1]} "
+                       f"(local {pad[0]} {pad[1]}, z {pad[2]}),\n  its landing zone, map marker and heading as LandingOverlay01 "
+                       "places them, and its three LCSR rows.")
     built = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "build", "--core", a.core,
                              "--out", out, "--plugin", a.plugin] + lift)
     src = make_bridge.extract_sources(a.content_resources, os.path.join(out, "work"))
@@ -153,7 +193,8 @@ Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game
   and install it again after (its only master, the core, leaves Plugins.txt during the swap).
 """)
     print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, {PIN}, offline_check.txt, README.txt"
-          + (", extra_markers.json, map_markers_left_out.json" if a.fo4_map_markers else ""))
+          + (", extra_markers.json, map_markers_left_out.json" if a.fo4_map_markers else "")
+          + (", landing.json" if a.landing else ""))
 
 
 def main(argv=None):
@@ -170,8 +211,11 @@ def main(argv=None):
                    help="the plugin's WRLD copy: the core's record (control) or dotnet/BorderProbe's nosmall / city variant of it")
     s.add_argument("--fo4-map-markers", default="",
                    help="a Fo4Land export-mapmarkers json (Commonwealth): add the rest of FO4's named markers as the plugin's own")
+    s.add_argument("--landing", type=float, nargs=2, metavar=("X", "Y"), default=None,
+                   help="a temporary ship landing spot: the pad at this getpos x, y (the merged frame)")
+    s.add_argument("--landing-name", default="Commonwealth Landing Area", help="the landing spot's name on the map")
     s.add_argument("--core-stage", default="",
-                   help="with --fo4-map-markers: the folder that staged --core (overlays_params.json and the BTD)")
+                   help="with --fo4-map-markers or --landing: the folder that staged --core (overlays_params.json and the BTD)")
     a = ap.parse_args(argv)
     stage(a)
 

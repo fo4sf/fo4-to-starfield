@@ -6,11 +6,13 @@ Scriptname FO4SF_MapMarkers extends Quest
  places the core's records at local + the merge offset: no icon showed (owner, 19 Oct, v6). Every Interval seconds,
  with the player outdoors inside the overlay's merged extent, each marker that is not at its merged spot in the
  player's world is enabled and moved there (MoveTo onto the player with the difference as the offset, the form
- FO4SF_LoadDoor and the mission's Relocate use). Every move goes to the user log "fo4sf_map"
+ FO4SF_LoadDoor and the mission's Relocate use, but keeping the reference's own rotation: the list also holds the
+ landing spot's pad, whose facing is the ship's). Every move goes to the user log "fo4sf_map"
  (My Games\Starfield\Logs\Script\User\fo4sf_map.0.log).}
 
 ObjectReference[] Property Markers Auto Const Mandatory
-{The core's MapMarker references (dotnet/MapMarkers fills them from the core plugin).}
+{The core's MapMarker references (dotnet/MapMarkers fills them from the core plugin), then the plugin's own: its
+ markers (--extra) and the landing spot's pad, trigger, marker and heading (--landing).}
 
 float[] Property LocalX Auto Const Mandatory
 float[] Property LocalY Auto Const Mandatory
@@ -101,7 +103,7 @@ Function Place(Actor player)
             float ez = m.GetPositionZ() - z
             if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
                 m.Enable(False)
-                m.MoveTo(player, x - px, y - py, z - pz, True, False)
+                m.MoveTo(player, x - px, y - py, z - pz, False, False)   ; no match-rotation: keep the record's
                 moves += 1
                 Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + player.GetDistance(m) + " moves=" + moves)
             endif
