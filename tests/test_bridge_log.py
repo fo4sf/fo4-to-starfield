@@ -178,6 +178,13 @@ if __name__ == "__main__":
 
 class EventTests(unittest.TestCase):
     """The probe's lines (FO4SF_Probe.psc) and acknowledgements beside the timer's position lines."""
+    def test_the_load_doors_own_trace(self):
+        line = ("[17:41:26] FO4SF_LoadDoor phase=after_move destination=fo4port.esm:57717 ref=20 pos=60.266670 "
+                "41.791134 41.371429 angle=180.000015 cell=FO4Port_Vault75 (06009FB0) world=None")
+        self.assertEqual(bridge_log.parse_event(line), {"kind": "loaddoor", "phase": "after_move"})
+        self.assertEqual(bridge_log.parse_event("FO4SF_LoadDoor phase=Marker x"), {"kind": "loaddoor", "phase": "marker"})
+        self.assertEqual(bridge_log.parse_event("FO4SF_LoadDoor MoveTo returned"), {"kind": "loaddoor", "phase": None})
+
     def test_ack_ref_player_and_init(self):
         self.assertEqual(bridge_log.parse_event("[21:33:44] ack 7"), None)          # a bare TraceUser without the prefix word
         self.assertEqual(bridge_log.parse_event("[21:33:44] FO4SF ack probe-1"), {"kind": "ack", "tag": "probe-1"})
