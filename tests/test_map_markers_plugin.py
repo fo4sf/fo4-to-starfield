@@ -255,6 +255,20 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 1, bad.stdout)
         self.assertIn("1 quest(s) for 205 marker(s): 3 wanted", bad.stdout)
 
+    # sha256 of the synthetic core above and of the plugin main's dotnet/MapMarkers (5ffe8ff0, before --extra) built
+    # from it with no options: a build without --extra must stay those bytes (Grok on #519)
+    SYNTHETIC_CORE_SHA256 = "642628d4b3fad1397558f6a48728a7e3f3e90f09ffa58ce31a99d873b6f1dd40"
+    PLAIN_PLUGIN_SHA256 = "750a80440b07bd8b042d51c1bd6d365f8d41cc440492183ed9ce4bb93811065d"
+
+    def test_without_extra_the_plugin_is_byte_for_byte_the_one_before_extra(self):
+        core = hashlib.sha256(self.core.read_bytes()).hexdigest()
+        self.assertEqual(core, self.SYNTHETIC_CORE_SHA256, "the synthetic core changed (TerrainOverlays or its fixture): "
+                         "rebuild the plain plugin with the last MapMarkers before the change and record both hashes")
+        out = self.root / "plain"
+        proc = self.tool_run("build", "--core", self.core, "--out", out)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(hashlib.sha256((out / "FO4SFMapMarkers.esm").read_bytes()).hexdigest(), self.PLAIN_PLUGIN_SHA256)
+
     EXTRA = [{"tag": "M01F2A9", "name": "Abernathy Farm", "src": "01F2A9:Fallout4.esm", "pos": [120.0, 30.0, 4.0], "cell": [1, 0]},
              {"tag": "M01F2AA", "name": "Starlight Drive In", "src": "01F2AA:Fallout4.esm", "pos": [40.0, 160.0, 6.5], "cell": [0, 1]}]
 
