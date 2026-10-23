@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -27,6 +29,23 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    # Environment summary for diagnostics
+    py_ver = ".".join(map(str, sys.version_info[:3]))
+    py_ok = "ok" if sys.version_info >= MIN_PYTHON else f"needs {'.'.join(map(str, MIN_PYTHON))}+"
+    print(f"  Python: {py_ver} ({py_ok}) at {sys.executable}")
+    import platform
+    print(f"  Platform: {platform.system()} {platform.release()}")
+    repo = _repo_root()
+    if repo:
+        try:
+            import subprocess
+            rev = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL, text=True
+            ).strip()
+            print(f"  Git: {rev}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
