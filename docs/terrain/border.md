@@ -104,5 +104,20 @@ MoveTo (docs/terrain/scripted-doors.md).
 - The runs start from a coc at Red Rocket, 2.3 km from the Vault 95 door; a player who walked in through that door
   would not make that jump. The unmerged landing is a 2.9 km jump in both cases.
 
+### The owner's play (PC, 2026-10-23, v6i_plainshader, bridge t4, before #512)
+- **verified** (bridge feed, fo4sf.0.log, read by Install): both Vault 95 exits that session ended at the marker's
+  UNMERGED spot. `after_move` read (-714.6, -1284.1, 61.3) in cell Surface 02001133 with `requested_position`
+  (-1914.6, -3984.1, 61.2), and the feed then stayed at (-713.8, -1283.1, 61.2) and (-714.6, -1284.1, 61.3): the
+  player's SetPosition never took effect. This is a third outcome, beside the runs' PASS (the SetPosition lands a few
+  seconds later) and FAIL (the popup pauses the game). Every other door that session landed on its requested position.
+- The owner's account (Oct 23, 16:30 UTC): "each time I left the entrance, it would teleport me away because I was
+  hitting a boundary and it wouldn't let me run around like it did previously". The player stood 2.9 km from the
+  merged entrance, in a spot the engine treats as outside the area it lets them walk in.
+- The setpos hops typed in the same session all landed where they were typed (feed, 09:18 to 09:26 local), so the
+  console's frame and the bridge's agree.
+- The door change of #512 (`PlaceDestination`: the marker moves to the merged spot before the MoveTo) removes the
+  dependence on that SetPosition. The bridge_t6 runs check the landing (`marker_placed`, `after_move` at the
+  requested position) and, after it, that the player can move about near the entrance without the popup.
+
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
