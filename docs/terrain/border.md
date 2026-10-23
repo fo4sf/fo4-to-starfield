@@ -6,14 +6,19 @@ than one game's world.
 ## What is known
 - **verified** (PC run _f, Oct 22, #444): it is the engine's border-region system. With
   `SetINI "bBorderRegionsEnabled:General" 0` typed in the running game, the Vault 95 exit after a coc PASSes at 0.00 m;
-  with it on, the exit FAILs STAYED and the popup shows.
-- **verified** (owner, Oct 22 18:55Z): no wall on foot. They walked far north of Vault 111, past where Fallout 4's own
-  border would be, without the popup. An earlier note of a wall there was a misreading and is withdrawn.
+  with it on, the exit FAILs STAYED and the popup shows. That is one run (n=1): with the border on the same exit
+  passed 7/10, 6/10 and 3/3 in the rate runs below, so one pass shows the switch is worth testing, not that it
+  caused the pass.
+- **verified** (owner, Oct 22 18:55Z): no wall on foot north of Vault 111. They walked far north, past where Fallout
+  4's own border would be, without the popup. An earlier note of a wall there was a misreading and is withdrawn.
+  **owner, Oct 23 16:33Z:** facing Sanctuary from Red Rocket, the boundary fires on the left (W/SW) only; every other
+  direction is open until generated Mars land.
 - **supported hypothesis** (research log 2026-10-12, "which teleports raise Boundary Reached"): of 145 setpos moves
-  of at most 2 cells (100 m) per axis, 144 landed; of 28 moves of 3 or more cells, 11 failed. "300 m hops are safe"
+  of at most 2 cells (200 m; a cell is 100 m) per axis, 144 landed; of 28 moves of 3 or more cells, 11 failed. "300 m hops are safe"
   was refuted there (core64b's hops were at most 187.4 m per axis), and no distance threshold is known.
 - **supported hypothesis**: so the border is a limit on how far one teleport (MoveTo, coc, setpos) may move the player
-  from where the engine last had them outside, not a fence at a position. The Vault 95 exit after a coc from Red
+  from where the engine last had them outside. It may be a fence at a position as well: the owner's Oct 23 report
+  (W/SW of Red Rocket only) fits a fence on that side, untested until the walk below (Planet research T1). The Vault 95 exit after a coc from Red
   Rocket is one 2.26 km jump. A player who walks to a door and back is never more than a few metres away.
 - **verified** (Fallout4.esm, read-only): FO4's own border is REGN `Border` (0x049BE0, flag 0x40, Commonwealth):
   x -107,076..106,396, y -103,493..108,385 game units, about -1,530..1,520 m and -1,478..1,548 m. Starfield never
@@ -121,7 +126,10 @@ MoveTo (docs/terrain/scripted-doors.md).
   toggle below is the route.
 
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
-world. That needs SFSE code, since no Papyrus INI setter has been verified in Starfield.
+world. That needs SFSE code, or `Utility.SetINIBool` from Papyrus: it exists (DebugOnly, and DebugOnly natives run
+in our builds, docs/testing/probe-stage.md: GetFormEditorID returned `MQ101`), but whether the engine reads the new
+value of this setting is untested. The SFSE switch below was built first; SetINIBool is the fallback to try if it
+cannot be armed.
 
 ## Per-world switch (SFSE plugin FO4SFBorder, built 2026-10-23, not yet run in game)
 The owner chose this route on 2026-10-23: the popup comes after a correct landing, and the map stays open land with
@@ -140,3 +148,9 @@ no walls ("L because the full vison"), so the border must be off in our world an
   `SetINI "bBorderRegionsEnabled:General" 0` and then `1` (the command run _f used), and the plugin's log shows the
   byte that changed. Card B sets that offset and `Mode=2`, then the Vault 95 exit and a walk at the west edge.
 - The plugin refuses to write unless exactly one candidate setting is found and its byte reads 0 or 1.
+- **Check for card B (Planet research T1):** on foot from Red Rocket, due west and then south (not through the Vault
+  95 door), `player.getpos x` and `player.getpos y` at each popup, once with the switch off (Mode=0) and once on.
+  The off run says where the fence is; the on run says whether the switch removes it.
+- Even with the border off, the planet's physics edge is reported at about 6-7 km from the landing centre, and our
+  terrain's SW corner is about 7.4 km from merged (0,0) (Planet research, inferred). Re-centring the core is a
+  core change for the next phase, not part of this switch.
