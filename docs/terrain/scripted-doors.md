@@ -23,7 +23,7 @@ the player is put with `SetPosition` after the MoveTo, see "Return trip" below) 
 the script applies the three floats only when it is true; zero is a valid coordinate, so the bool, not the values,
 is the switch). No plugin masters the other.
 
-**Retry on a missed trip (2026-10-22, not yet run in game).** The Vault 95 exit fails intermittently: the player stays
+**Retry on a missed trip (2026-10-22; run in game 2026-10-22/23, it never fired).** The Vault 95 exit fails intermittently: the player stays
 in the interior and the engine shows "BOUNDARY REACHED" (2 of 9 runs in the settling test, plus earlier control and
 hnam5 failures; whether the world's border fields change the rate is open, docs/terrain/border.md). After the MoveTo the script checks whether the player has left the cell they activated it from (by cell,
 not world: on an exterior trip the player's world can read as the runtime instance while the marker's reads as the
