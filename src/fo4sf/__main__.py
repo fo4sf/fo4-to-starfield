@@ -2,6 +2,7 @@
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
+python -m fo4sf oracles   # list offline diagnostic oracles in scripts/oracles
 """
 from __future__ import annotations
 
@@ -270,6 +271,37 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_oracles(args: argparse.Namespace) -> int:
+    """List offline diagnostic oracles available in this checkout."""
+    root = _repo_root()
+    if root is None:
+        print("oracles: not running from a repository checkout", file=sys.stderr)
+        return 1
+    oracle_dir = root / "scripts" / "oracles"
+    if not oracle_dir.is_dir():
+        print("oracles: scripts/oracles not found", file=sys.stderr)
+        return 1
+    print("fo4-to-starfield offline oracles (scripts/oracles)")
+    print("  These are read-only diagnostics. None starts a game or writes game data.")
+    count = 0
+    for path in sorted(oracle_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        count += 1
+        doc = ""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if text.startswith('"""'):
+                end = text.find('"""', 3)
+                if end > 0:
+                    doc = text[3:end].strip().split("\n")[0].strip()
+        except OSError:
+            doc = "(unreadable)"
+        print(f"  {path.name:<32} {doc}")
+    print(f"\n  {count} oracles")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_oracles = sub.add_parser("oracles", help="list offline diagnostic oracles in scripts/oracles")
+    p_oracles.set_defaults(func=cmd_oracles)
 
     args = parser.parse_args(argv)
     return args.func(args)
