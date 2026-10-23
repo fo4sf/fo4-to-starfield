@@ -4,6 +4,10 @@
     a = Ba2("Fallout4 - Textures1.ba2")
     a.names                    # file names as stored (backslashes)
     data = a.read(name)        # general file bytes, or a complete DDS (DX10 header) for a texture
+    a.summary()                # short counts
+    a.size_estimates()         # packed/unpacked byte totals for planning
+    a.by_extension()           # extension -> count dict for conversion planning
+    a.largest_entries(10)      # biggest entries by unpacked size
 Lookup is case-insensitive and slash-agnostic: a.find("textures/setdressing/x_d.dds").
 Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompressed are.
 """
