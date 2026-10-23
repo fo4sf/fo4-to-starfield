@@ -14,9 +14,9 @@
 # game rewrites it about 25 s after start (docs/testing/load-order.md).
 # -Repo <checkout>: the repo whose door_rounds.py plans and judges; by default the checkout this script sits in
 # (J4 ran a local copy of this file because the old fixed D:\Modding\wt_nightrun was stale, 2026-10-23).
-param([string]$Repo = '',
-      [switch]$Run, [string]$Tag = '', [string]$PortStaging = '', [switch]$RoundsOnly, [string]$CorePin = '06C0DECD',
-      [string]$CoreBuild = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11', [string]$OutMinM = '<FILL: metres>')
+param([switch]$Run, [string]$Tag = '', [string]$PortStaging = '', [switch]$RoundsOnly, [string]$CorePin = '06C0DECD',
+      [string]$CoreBuild = 'D:\Modding\staging\terrain_core64v6e_l125_mission_wfc11', [string]$OutMinM = '<FILL: metres>',
+      [string]$Repo = '')   # last, so a positional first argument still binds -Tag as before
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- pins and placeholders (check every line before use)
