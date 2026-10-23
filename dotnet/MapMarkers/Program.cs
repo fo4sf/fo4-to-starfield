@@ -29,13 +29,25 @@
 // that lists the core's markers (as TerrainOverlays writes the core's own); and the quests' Markers / LocalX / Y / Z
 // list them after the core's markers. check takes the same --extra and fails a plugin with any other own REFR, and a
 // Location override that differs from the core's in anything but those rows. Without --extra the plugin is as before.
+// --landing <json> adds a temporary ship landing spot of this plugin's own (the owner's "temp ship landing spot",
+// 2026-10-23), laid out as LandingOverlay01 lands a ship (docs/terrain/map-markers.md "How a vanilla world lands a
+// ship"): at 0x8F0 the pad (ShipLandingMarker_80m_Large 00007145) linked by LandingZoneTriggerKeyword to 0x8F1, the
+// landing-zone trigger (landingZoneTrigger 00267F4C, LandingOverlay01's box primitive), and by
+// LinkShipLandingOverlayMapMarker to 0x8F2, a "Landing Area" map marker (a copy of the core's first marker with
+// LandingOverlay01's flags 0x33, type 45 and radius 100) that links to 0x8F3, an XMarkerHeading (00000034). All four
+// are persistent in the WRLD copy's persistent cell at the json's positions (no lift here: make_map_markers.py
+// writes them), the trigger too (LandingOverlay01's is temporary), so the quests move them with the markers; the
+// Location override gets LandingOverlay01Location's three rows (MapMarkerRefType to the marker,
+// ShipLandingMarkerRefType and its _Large twin to the pad) after --extra's. check takes the same --landing.
 // The quest's VMAD shape is dotnet/Bridge's (vanilla Starfield quests: version 6, object format 2, extra-bind-data
 // version 3, an empty fragment script entry, object properties with alias -1; record version 581 / 12).
 //
-// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]
-//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]   reads both back (exit 1 on a mismatch)
+// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]
+//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]   reads both back (exit 1 on a mismatch)
 // --extra: {"markers": [{"tag", "name", "pos": [x, y, z], "cell": [x, y]}, ...]} (fo4sf.map_markers.overlay_markers
 // entries: local metres, z the ground before the lift), written by make_map_markers.py stage --fo4-map-markers.
+// --landing: {"landing": {"tag", "name", "pad" | "trigger" | "marker" | "heading": {"pos": [x, y, z], "rot": [x, y, z],
+// "cell": [x, y]}}} (fo4sf.map_markers.landing_spot: local metres, final positions), from make_map_markers.py --landing.
 using System.Globalization;
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
@@ -45,6 +57,14 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 
 const uint QuestId = 0x800, MapMarkerStat = 0x10, ExtraId = 0x900, MapMarkerRefType = 0x2271F;
+const uint LandingId = 0x8F0;           // pad, trigger, marker, heading: 0x8F0..0x8F3, so the quests end below 0x8F0
+// Starfield.esm 1.16.244, LandingOverlay01 (docs/terrain/map-markers.md "Landing overlay")
+const uint LandingPad = 0x7145, LandingTrigger = 0x267F4C, XMarkerHeading = 0x34;
+const uint LandingZoneTriggerKeyword = 0x267F4D, LinkShipLandingOverlayMapMarker = 0x3A866F;
+const uint ShipLandingMarkerRefType = 0x9105, ShipLandingMarkerRefTypeLarge = 0x9102;
+const PlacedObjectMapMarker.Flag LandingMarkerFlags = (PlacedObjectMapMarker.Flag)0x33;
+const sbyte LandingMarkerType = 45;
+const float LandingMarkerRadius = 100;
 const int PerQuest = 100, DefaultMaxMoves = 40;
 const float DefaultZLift = 2.5f;        // metres above the core's sampled terrain height (local units are metres)
 const float ZLiftStep = 0.1f;           // lifts come in steps of 0.1 m: the mover's ZTolerance (0.05 m, half a step) then tells
@@ -54,8 +74,8 @@ var sfKey = ModKey.FromFileName("Starfield.esm");
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] | " +
-                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]");
+    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] | " +
+                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]");
     return 2;
 }
 if (args.Length == 0) return Usage();
@@ -87,6 +107,16 @@ try
 catch (Exception e) when (e is IOException or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException)
 {
     Console.Error.WriteLine($"--extra {Arg("--extra", "")}: {e.Message}");
+    return 2;
+}
+Landing? landing;
+try
+{
+    landing = LoadLanding(Arg("--landing", ""));
+}
+catch (Exception e) when (e is IOException or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException)
+{
+    Console.Error.WriteLine($"--landing {Arg("--landing", "")}: {e.Message}");
     return 2;
 }
 
@@ -142,16 +172,16 @@ if (args[0] == "build")
     foreach (var w in mod.Worldspaces) WorldVariant(w, world);       // the WRLD copy as the probe's variant
 
     // the plugin's own markers (--extra): copies of the core's first marker in the same persistent cell, one LCSR row
-    // each in an override of the core's Location, listed after the core's markers
+    // each in an override of the core's Location, listed after the core's markers; then the landing spot (--landing)
     var all = markers.Select(m => m.FormKey).ToList();
-    if (extras.Count > 0)
+    if (extras.Count > 0 || landing != null)
     {
         var w = mod.Worldspaces.Single();
         var known = core.EnumerateMajorRecords().Select(r => r.EditorID).Where(e => e != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var coreLoc = MarkersLocation(core, markers);
         if (coreLoc == null)
         {
-            Console.Error.WriteLine($"{corePath}: no Location lists the core's markers in LCSR (MapMarkerRefType): --extra needs one to add rows to");
+            Console.Error.WriteLine($"{corePath}: no Location lists the core's markers in LCSR (MapMarkerRefType): --extra and --landing need one to add rows to");
             return 1;
         }
         var loc = coreLoc.DeepCopy();                                // an override: the same FormKey, in this plugin
@@ -178,14 +208,35 @@ if (args[0] == "build")
             lifted[r.FormKey] = r.Position;
             all.Add(r.FormKey);
         }
-        Console.WriteLine($"  {extras.Count} marker(s) of this plugin ({ExtraId:X6}..{ExtraId + extras.Count - 1:X6}) in {w.TopCell!.FormKey}, " +
-                          $"LCSR rows in the override of {loc.FormKey} {loc.EditorID}");
+        if (extras.Count > 0)
+            Console.WriteLine($"  {extras.Count} marker(s) of this plugin ({ExtraId:X6}..{ExtraId + extras.Count - 1:X6}) in {w.TopCell!.FormKey}, " +
+                              $"LCSR rows in the override of {loc.FormKey} {loc.EditorID}");
+        if (landing != null)
+        {
+            var pieces = LandingRecords(markers[0], modKey, w, landing);
+            var taken = pieces.FirstOrDefault(r => known.Contains(r.EditorID!));
+            if (taken != null)
+            {
+                Console.Error.WriteLine($"--landing {landing.Tag}: the core already has a record {taken.EditorID}");
+                return 1;
+            }
+            foreach (var r in pieces)
+            {
+                w.TopCell!.Persistent.Add(r);
+                lifted[r.FormKey] = r.Position;                      // as written: make_map_markers.py lifted what needs it
+                all.Add(r.FormKey);
+            }
+            loc.MasterSpecialReferences.AddRange(LandingRows(modKey, w.FormKey, landing));
+            Console.WriteLine($"  landing spot {landing.Tag} \"{landing.Name}\" ({LandingId:X6}..{LandingId + 3:X6}): " +
+                              string.Join(", ", pieces.Select(r => $"{r.EditorID} ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)})")) +
+                              $"; 3 LCSR rows in the override of {loc.FormKey} {loc.EditorID}");
+        }
     }
 
     var chunks = all.Chunk(PerQuest).ToList();
-    if (QuestId + (uint)chunks.Count > ExtraId)
+    if (QuestId + (uint)chunks.Count > LandingId)
     {
-        Console.Error.WriteLine($"{all.Count} markers need {chunks.Count} quests, more than fit below {ExtraId:X}");
+        Console.Error.WriteLine($"{all.Count} markers need {chunks.Count} quests, more than fit below {LandingId:X}");
         return 1;
     }
     for (int k = 0; k < chunks.Count; k++)
@@ -222,7 +273,8 @@ if (args[0] == "build")
         mod.Quests.Add(quest);
     }
 
-    mod.ModHeader.Stats.NextFormID = extras.Count > 0 ? ExtraId + (uint)extras.Count : QuestId + (uint)chunks.Count;
+    mod.ModHeader.Stats.NextFormID = extras.Count > 0 ? ExtraId + (uint)extras.Count
+        : landing != null ? LandingId + 4 : QuestId + (uint)chunks.Count;
     Directory.CreateDirectory(outDir);
     var path = Path.Combine(outDir, plugin);
     mod.BeginWrite.ToPath(path).WithLoadOrder(sfKey, core.ModKey)
@@ -230,6 +282,7 @@ if (args[0] == "build")
     Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {chunks.Count} quest(s) " +
                       $"{string.Join(", ", mod.Quests.Select(q => $"{q.EditorID} {q.FormKey}"))} script {ScriptName}, " +
                       $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), {extras.Count} of its own (--extra), " +
+                      (landing != null ? $"a landing spot (--landing {landing.Tag}), " : "") +
                       $"world copy --world {world} ({WorldDescribed(world)}):");
     foreach (var w in mod.Worldspaces)
         Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]");
@@ -320,16 +373,38 @@ if (args[0] == "check" && args.Length >= 3)
         if ((r.MajorRecordFlagsRaw & 0xC00) != 0x400) problems.Add($"{key} flags {r.MajorRecordFlagsRaw:X}: not persistent and enabled");
         if (!persistentKeys.Contains(key)) problems.Add($"{key} is not in the world's persistent cell");
     }
+    // the landing spot: the four records --landing builds, exactly (a copy of the core's first marker among them, so a
+    // core rebuilt since the stage shows here too), in the persistent cell, listed after --extra's in the quests
+    if (landing != null)
+    {
+        if (ownWorld == null || want.Count == 0) problems.Add("--landing: the plugin has no world copy, or the core no marker to copy");
+        else
+            foreach (var exp in LandingRecords(want[0], mod.ModKey, ownWorld, landing))
+            {
+                expect[exp.FormKey] = exp.Position;
+                wantKeys.Add(exp.FormKey);
+                if (!own.TryGetValue(exp.FormKey, out var r))
+                {
+                    problems.Add($"{exp.FormKey} {exp.EditorID} (--landing) is missing");
+                    continue;
+                }
+                Console.WriteLine($"  landing {r.FormKey} {r.EditorID} base {r.Base.FormKey} flags {r.MajorRecordFlagsRaw:X} " +
+                                  $"at ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)}), {r.LinkedReferences.Count} link(s)");
+                if (!exp.Equals(r.DeepCopy()))
+                    problems.Add($"{r.FormKey} {r.EditorID} is not the record --landing builds (another --landing, or a core rebuilt since the stage: stage again)");
+                if (!persistentKeys.Contains(exp.FormKey)) problems.Add($"{exp.FormKey} is not in the world's persistent cell");
+            }
+    }
     foreach (var k in own.Keys.Where(k => !expect.ContainsKey(k)).OrderBy(k => k.ID))
-        problems.Add($"{k} {own[k].EditorID} is a REFR of this plugin that --extra does not list");
+        problems.Add($"{k} {own[k].EditorID} is a REFR of this plugin that --extra and --landing do not list");
     if (extras.Count > 0) Console.WriteLine($"  {own.Count} marker(s) of this plugin, {extras.Count} in --extra");
     // the Location override that carries their LCSR rows: the core's record plus one MapMarkerRefType row per own
     // marker, in order; nothing else differs (it loads after the core, as the WRLD copy)
     var coreLoc = MarkersLocation(core, want);
     var locs = mod.Locations.ToList();
-    if (extras.Count == 0)
+    if (extras.Count == 0 && landing == null)
     {
-        if (locs.Count > 0) problems.Add($"{locs.Count} Location record(s) without --extra");
+        if (locs.Count > 0) problems.Add($"{locs.Count} Location record(s) without --extra or --landing");
     }
     else if (coreLoc == null) problems.Add("no core Location lists the core's markers in LCSR");
     else if (locs.Count != 1 || locs[0].FormKey != coreLoc.FormKey)
@@ -341,10 +416,12 @@ if (args[0] == "check" && args.Length >= 3)
             problems.Add($"{coreLoc.FormKey} Location override differs from the core's beyond its LCSR rows (a core rebuilt since the stage: stage again)");
         var rows = (locs[0].MasterSpecialReferences ?? Enumerable.Empty<ILocationCellStaticReferenceGetter>()).Select(RowKey).ToList();
         var wantRows = (coreLoc.MasterSpecialReferences ?? Enumerable.Empty<ILocationCellStaticReferenceGetter>()).Select(RowKey)
-            .Concat(extras.Select((e, i) => RowKey(Row(new FormKey(mod.ModKey, ExtraId + (uint)i), ownWorld?.FormKey ?? FormKey.Null, e)))).ToList();
+            .Concat(extras.Select((e, i) => RowKey(Row(new FormKey(mod.ModKey, ExtraId + (uint)i), ownWorld?.FormKey ?? FormKey.Null, e))))
+            .Concat(landing == null ? Enumerable.Empty<(FormKey, FormKey, FormKey, P2Int16, int)>()
+                : LandingRows(mod.ModKey, ownWorld?.FormKey ?? FormKey.Null, landing).Select(RowKey)).ToList();
         Console.WriteLine($"  location {locs[0].FormKey} {locs[0].EditorID}: {rows.Count} LCSR row(s), {wantRows.Count} wanted");
         if (!rows.SequenceEqual(wantRows))
-            problems.Add($"{coreLoc.FormKey} LCSR rows are not the core's followed by one MapMarkerRefType row per own marker");
+            problems.Add($"{coreLoc.FormKey} LCSR rows are not the core's followed by one MapMarkerRefType row per own marker and the landing spot's three");
     }
     // the containers the overrides need, the WRLD and its persistent CELL, are copies of the core's records, and a
     // plugin that loads after the core overrides them with whatever it holds: they must match the core this plugin
@@ -460,14 +537,70 @@ static ILocationGetter? MarkersLocation(IStarfieldModGetter core, List<IPlacedOb
 }
 static string ExtraEditorId(IWorldspaceGetter w, Extra e) => w.EditorID + "MapMarker" + e.Tag;    // as TerrainOverlays names the core's
 // one MapMarkerRefType row, as TerrainOverlays writes the core's (Mutagen writes Grid Y then X; Unknown -1 is vanilla 0xFFFFFFFF)
-static LocationCellStaticReference Row(FormKey marker, FormKey world, Extra e) => new()
+static LocationCellStaticReference Row(FormKey marker, FormKey world, Extra e) => RowOf(MapMarkerRefType, marker, world, e.CellX, e.CellY);
+static LocationCellStaticReference RowOf(uint refType, FormKey marker, FormKey world, short cellX, short cellY) => new()
 {
-    LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(ModKey.FromFileName("Starfield.esm"), MapMarkerRefType)),
+    LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(ModKey.FromFileName("Starfield.esm"), refType)),
     Marker = new FormLink<IPlacedObjectGetter>(marker),
     Location = new FormLink<IWorldspaceGetter>(world),
-    Grid = new P2Int16(e.CellX, e.CellY),
+    Grid = new P2Int16(cellX, cellY),
     Unknown = -1,
 };
+// LandingOverlay01Location's three rows, in its order: the marker, then the pad twice
+static LocationCellStaticReference[] LandingRows(ModKey mod, FormKey world, Landing l) => new[]
+{
+    RowOf(MapMarkerRefType, new FormKey(mod, LandingId + 2), world, l.Marker.CellX, l.Marker.CellY),
+    RowOf(ShipLandingMarkerRefType, new FormKey(mod, LandingId), world, l.Pad.CellX, l.Pad.CellY),
+    RowOf(ShipLandingMarkerRefTypeLarge, new FormKey(mod, LandingId), world, l.Pad.CellX, l.Pad.CellY),
+};
+// the landing spot's four REFRs (pad, trigger, marker, heading), as LandingOverlay01 has them, at --landing's spots;
+// the marker is a copy of the core's first marker (as --extra's) with LandingOverlay01's map-marker data
+static List<PlacedObject> LandingRecords(IPlacedObjectGetter template, ModKey mod, IWorldspaceGetter w, Landing l)
+{
+    var sf = ModKey.FromFileName("Starfield.esm");
+    FormKey Id(int k) => new FormKey(mod, LandingId + (uint)k);
+    LinkedReferences Link(uint keyword, FormKey to)
+    {
+        var link = new LinkedReferences();
+        if (keyword != 0) link.KeywordOrReference.SetTo(new FormKey(sf, keyword));
+        link.Reference.SetTo(to);
+        return link;
+    }
+    PlacedObject Placed(int k, string part, uint baseId, LandingPiece p)
+    {
+        var r = new PlacedObject(Id(k), StarfieldRelease.Starfield)
+        {
+            EditorID = w.EditorID + part + l.Tag, Position = p.Pos, Rotation = p.Rot, MajorRecordFlagsRaw = 0x400,
+        };
+        r.Base.SetTo(new FormKey(sf, baseId));
+        return r;
+    }
+    var pad = Placed(0, "LandingPad", LandingPad, l.Pad);
+    pad.IsLinkedRefTransient = true;
+    pad.LinkedReferences.Add(Link(LandingZoneTriggerKeyword, Id(1)));
+    pad.LinkedReferences.Add(Link(LinkShipLandingOverlayMapMarker, Id(2)));
+    var trigger = Placed(1, "LandingZone", LandingTrigger, l.Trigger);     // persistent here, so the quests move it
+    trigger.Primitive = new PlacedPrimitive                                    // LandingOverlay01's 093DCA
+    {
+        Type = PlacedPrimitive.TypeEnum.Box, Bounds = new P3Float(81.6183f, 81.53047f, 29.697622f),
+        Color = System.Drawing.Color.FromArgb(0, 204, 76, 51), Unknown = 0.3f,
+    };
+    var marker = (PlacedObject)template.Duplicate(Id(2));
+    marker.EditorID = w.EditorID + "LandingMapMarker" + l.Tag;
+    marker.Position = l.Marker.Pos;
+    marker.Rotation = l.Marker.Rot;
+    marker.MajorRecordFlagsRaw = (marker.MajorRecordFlagsRaw | 0x400) & ~0x800;
+    marker.LinkedReferences.Clear();
+    marker.LinkedReferences.Add(Link(0, Id(3)));
+    marker.IsLinkedRefTransient = true;
+    marker.Radius = LandingMarkerRadius;
+    if (marker.MapMarker == null) throw new InvalidDataException($"{template.FormKey} has no map-marker data");
+    marker.MapMarker.Flags = LandingMarkerFlags;
+    marker.MapMarker.Type = LandingMarkerType;
+    marker.MapMarker.Name = l.Name;
+    var heading = Placed(3, "LandingHeading", XMarkerHeading, l.Heading);
+    return new List<PlacedObject> { pad, trigger, marker, heading };
+}
 static (FormKey, FormKey, FormKey, P2Int16, int) RowKey(ILocationCellStaticReferenceGetter r) =>
     (r.LocationRefType.FormKey, r.Marker.FormKey, r.Location.FormKey, r.Grid, r.Unknown);
 // --extra's markers in file order; "" = none. Each entry needs a tag (letters, digits, _), a name, pos [x, y, z] (finite),
@@ -493,8 +626,34 @@ static List<Extra> LoadExtras(string path)
     if (dup != null) throw new InvalidDataException($"tag {dup.Key} repeats");
     return list;
 }
+// --landing's spot; "" = none. A tag (letters, digits, _), a name, and pad, trigger, marker, heading each with pos [x, y, z]
+// and rot [x, y, z] (finite) and cell [x, y].
+static Landing? LoadLanding(string path)
+{
+    if (path == "") return null;
+    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+    var l = doc.RootElement.GetProperty("landing");
+    var tag = l.GetProperty("tag").GetString() ?? "";
+    var name = l.GetProperty("name").GetString() ?? "";
+    if (tag == "" || !tag.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')) throw new InvalidDataException($"tag \"{tag}\": want letters, digits or _");
+    if (name == "") throw new InvalidDataException($"{tag}: no name");
+    LandingPiece Piece(string part)
+    {
+        if (!l.TryGetProperty(part, out var p)) throw new InvalidDataException($"{tag}: no {part}");
+        var pos = p.GetProperty("pos").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var rot = p.GetProperty("rot").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var cell = p.GetProperty("cell").EnumerateArray().Select(v => v.GetInt16()).ToArray();
+        if (pos.Length != 3 || !pos.All(float.IsFinite)) throw new InvalidDataException($"{part}: pos needs 3 finite numbers");
+        if (rot.Length != 3 || !rot.All(float.IsFinite)) throw new InvalidDataException($"{part}: rot needs 3 finite numbers");
+        if (cell.Length != 2) throw new InvalidDataException($"{part}: cell needs 2 numbers");
+        return new LandingPiece(new P3Float(pos[0], pos[1], pos[2]), new P3Float(rot[0], rot[1], rot[2]), cell[0], cell[1]);
+    }
+    return new Landing(tag, name, Piece("pad"), Piece("trigger"), Piece("marker"), Piece("heading"));
+}
 static string QuestName(int k) => "FO4SF_MapMarkersQuest" + (k == 0 ? "" : (k + 1).ToString(CultureInfo.InvariantCulture));
 // the script's own default (40) holds up to 20 markers; above that, twice the quest's markers
 static int? MaxMovesFor(int n) => 2 * n > DefaultMaxMoves ? 2 * n : null;
 
 record Extra(string Tag, string Name, P3Float Pos, short CellX, short CellY);
+record LandingPiece(P3Float Pos, P3Float Rot, short CellX, short CellY);
+record Landing(string Tag, string Name, LandingPiece Pad, LandingPiece Trigger, LandingPiece Marker, LandingPiece Heading);
