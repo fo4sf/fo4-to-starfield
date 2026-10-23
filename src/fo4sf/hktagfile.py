@@ -181,12 +181,17 @@ class Tagfile:
         """Fields of a type including its parents (parents first)."""
         chain, t = [], ti
         while t:
+            if t in chain:
+                raise TagfileError(f"type {ti} has a parent cycle")
             chain.append(t)
             t = self.types[t].parent
         return [f for t in reversed(chain) for f in self.types[t].fields]
 
     def size_of(self, ti: int) -> int:
-        t = ti
+        t, seen = ti, set()
         while t and not self.types[t].size:
+            if t in seen:
+                raise TagfileError(f"type {ti} has a parent cycle")
+            seen.add(t)
             t = self.types[t].parent
         return self.types[t].size if t else 0
