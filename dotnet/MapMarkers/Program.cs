@@ -21,19 +21,30 @@
 //   nosmall  DATA without SmallWorld, HNAM as the core's
 //   city     DATA without SmallWorld, HNAM 5
 // check expects the same variant (--world again) and fails any other copy.
+// --extra <json> adds markers of this plugin's own (the owner's "more location markers", 2026-10-23; the rest of FO4's
+// named Commonwealth markers that make_map_markers.py stage --fo4-map-markers picks, so no core rebuild): each a copy
+// of the core's first marker REFR (LC172's template, as the core writes its own) at 0x900, 0x901, ... in the plugin,
+// persistent in the WRLD copy's persistent cell at its local spot (z the core's BTD ground, lifted as the overrides),
+// its own name, flags as the overrides'; one MapMarkerRefType LCSR row each in an override of the core's Location
+// that lists the core's markers (as TerrainOverlays writes the core's own); and the quests' Markers / LocalX / Y / Z
+// list them after the core's markers. check takes the same --extra and fails a plugin with any other own REFR, and a
+// Location override that differs from the core's in anything but those rows. Without --extra the plugin is as before.
 // The quest's VMAD shape is dotnet/Bridge's (vanilla Starfield quests: version 6, object format 2, extra-bind-data
 // version 3, an empty fragment script entry, object properties with alias -1; record version 581 / 12).
 //
-// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city]
-//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city]   reads both back (exit 1 on a mismatch)
+// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]
+//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]   reads both back (exit 1 on a mismatch)
+// --extra: {"markers": [{"tag", "name", "pos": [x, y, z], "cell": [x, y]}, ...]} (fo4sf.map_markers.overlay_markers
+// entries: local metres, z the ground before the lift), written by make_map_markers.py stage --fo4-map-markers.
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
 
-const uint QuestId = 0x800, MapMarkerStat = 0x10;
+const uint QuestId = 0x800, MapMarkerStat = 0x10, ExtraId = 0x900, MapMarkerRefType = 0x2271F;
 const int PerQuest = 100, DefaultMaxMoves = 40;
 const float DefaultZLift = 2.5f;        // metres above the core's sampled terrain height (local units are metres)
 const float ZLiftStep = 0.1f;           // lifts come in steps of 0.1 m: the mover's ZTolerance (0.05 m, half a step) then tells
@@ -43,8 +54,8 @@ var sfKey = ModKey.FromFileName("Starfield.esm");
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] | " +
-                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city]");
+    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] | " +
+                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>]");
     return 2;
 }
 if (args.Length == 0) return Usage();
@@ -65,6 +76,17 @@ var world = Arg("--world", "control");
 if (world is not ("control" or "nosmall" or "city"))
 {
     Console.Error.WriteLine($"--world {world}: want control (the core's world record), nosmall or city (dotnet/BorderProbe's variants of it)");
+    return 2;
+}
+
+List<Extra> extras;
+try
+{
+    extras = LoadExtras(Arg("--extra", ""));
+}
+catch (Exception e) when (e is IOException or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException)
+{
+    Console.Error.WriteLine($"--extra {Arg("--extra", "")}: {e.Message}");
     return 2;
 }
 
@@ -119,7 +141,53 @@ if (args[0] == "build")
     }
     foreach (var w in mod.Worldspaces) WorldVariant(w, world);       // the WRLD copy as the probe's variant
 
-    var chunks = markers.Chunk(PerQuest).ToList();
+    // the plugin's own markers (--extra): copies of the core's first marker in the same persistent cell, one LCSR row
+    // each in an override of the core's Location, listed after the core's markers
+    var all = markers.Select(m => m.FormKey).ToList();
+    if (extras.Count > 0)
+    {
+        var w = mod.Worldspaces.Single();
+        var known = core.EnumerateMajorRecords().Select(r => r.EditorID).Where(e => e != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var coreLoc = MarkersLocation(core, markers);
+        if (coreLoc == null)
+        {
+            Console.Error.WriteLine($"{corePath}: no Location lists the core's markers in LCSR (MapMarkerRefType): --extra needs one to add rows to");
+            return 1;
+        }
+        var loc = coreLoc.DeepCopy();                                // an override: the same FormKey, in this plugin
+        mod.Locations.Add(loc);
+        loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
+        for (int i = 0; i < extras.Count; i++)
+        {
+            var e = extras[i];
+            var edid = ExtraEditorId(w, e);
+            if (known.Contains(edid))
+            {
+                Console.Error.WriteLine($"--extra {e.Tag}: the core already has a record {edid} (a core built with these markers needs no --extra)");
+                return 1;
+            }
+            var r = (PlacedObject)markers[0].Duplicate(new FormKey(modKey, ExtraId + (uint)i));
+            r.EditorID = edid;
+            r.Position = e.Pos;
+            r.Rotation = new P3Float(0, 0, 0);
+            r.LinkedReferences?.Clear();
+            Override(r, zLift);
+            r.MapMarker!.Name = e.Name;
+            w.TopCell!.Persistent.Add(r);
+            loc.MasterSpecialReferences.Add(Row(r.FormKey, w.FormKey, e));
+            lifted[r.FormKey] = r.Position;
+            all.Add(r.FormKey);
+        }
+        Console.WriteLine($"  {extras.Count} marker(s) of this plugin ({ExtraId:X6}..{ExtraId + extras.Count - 1:X6}) in {w.TopCell!.FormKey}, " +
+                          $"LCSR rows in the override of {loc.FormKey} {loc.EditorID}");
+    }
+
+    var chunks = all.Chunk(PerQuest).ToList();
+    if (QuestId + (uint)chunks.Count > ExtraId)
+    {
+        Console.Error.WriteLine($"{all.Count} markers need {chunks.Count} quests, more than fit below {ExtraId:X}");
+        return 1;
+    }
     for (int k = 0; k < chunks.Count; k++)
     {
         var part = chunks[k];
@@ -133,13 +201,13 @@ if (args[0] == "build")
         foreach (var m in part)
             refs.Objects.Add(new ScriptObjectProperty
             {
-                Object = new FormLink<IStarfieldMajorRecordGetter>(m.FormKey), Alias = -1, Unused = 0,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(m), Alias = -1, Unused = 0,
             });
         script.Properties.Add(refs);
         foreach (var (name, pick) in new (string, Func<P3Float, float>)[] { ("LocalX", p => p.X), ("LocalY", p => p.Y), ("LocalZ", p => p.Z) })
         {
             var list = new ScriptFloatListProperty { Name = name, Flags = ScriptProperty.Flag.Edited };
-            foreach (var m in part) list.Data.Add(pick(lifted[m.FormKey]));     // the override's position
+            foreach (var m in part) list.Data.Add(pick(lifted[m]));     // the override's (or own marker's) position
             script.Properties.Add(list);
         }
         if (MaxMovesFor(part.Length) is int cap)                     // every marker may need a move, plus retries
@@ -154,18 +222,25 @@ if (args[0] == "build")
         mod.Quests.Add(quest);
     }
 
-    mod.ModHeader.Stats.NextFormID = QuestId + (uint)chunks.Count;
+    mod.ModHeader.Stats.NextFormID = extras.Count > 0 ? ExtraId + (uint)extras.Count : QuestId + (uint)chunks.Count;
     Directory.CreateDirectory(outDir);
     var path = Path.Combine(outDir, plugin);
     mod.BeginWrite.ToPath(path).WithLoadOrder(sfKey, core.ModKey)
         .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full), new KeyedMasterStyle(core.ModKey, MasterStyle.Full)).Write();
     Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {chunks.Count} quest(s) " +
                       $"{string.Join(", ", mod.Quests.Select(q => $"{q.EditorID} {q.FormKey}"))} script {ScriptName}, " +
-                      $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), world copy --world {world} ({WorldDescribed(world)}):");
+                      $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), {extras.Count} of its own (--extra), " +
+                      $"world copy --world {world} ({WorldDescribed(world)}):");
     foreach (var w in mod.Worldspaces)
         Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]");
     foreach (var m in markers)
         Console.WriteLine($"  {m.FormKey} {m.EditorID} \"{m.MapMarker?.Name}\" local ({F(m.Position.X)}, {F(m.Position.Y)}, {F(m.Position.Z)}) -> z {F(lifted[m.FormKey].Z)}");
+    for (int i = 0; i < extras.Count; i++)
+    {
+        var e = extras[i];
+        var key = new FormKey(modKey, ExtraId + (uint)i);
+        Console.WriteLine($"  {key} {e.Tag} \"{e.Name}\" local ({F(e.Pos.X)}, {F(e.Pos.Y)}, {F(e.Pos.Z)}) -> z {F(lifted[key].Z)} cell ({e.CellX}, {e.CellY})");
+    }
     return 0;
 }
 
@@ -209,6 +284,68 @@ if (args[0] == "check" && args.Length >= 3)
     }
     foreach (var extra in overrides.Keys.Except(want.Select(m => m.FormKey)))
         problems.Add($"{extra} is overridden but is not a core map marker");
+    // the plugin's own markers: exactly --extra's, in order from ExtraId, each as the overrides are, in the WRLD
+    // copy's persistent cell, at its local spot lifted zLift
+    var own = mod.EnumerateMajorRecords<IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == mod.ModKey).ToDictionary(r => r.FormKey);
+    var ownWorld = mod.Worldspaces.FirstOrDefault();
+    var persistentKeys = ownWorld?.TopCell?.Persistent.Select(r => r.FormKey).ToHashSet() ?? new HashSet<FormKey>();
+    var wantKeys = want.Select(m => m.FormKey).ToList();
+    for (int i = 0; i < extras.Count; i++)
+    {
+        var e = extras[i];
+        var key = new FormKey(mod.ModKey, ExtraId + (uint)i);
+        var target = Lifted(e.Pos, zLift);
+        expect[key] = target;
+        wantKeys.Add(key);
+        if (!own.TryGetValue(key, out var r))
+        {
+            problems.Add($"{key} ({e.Tag} \"{e.Name}\", --extra) is missing");
+            continue;
+        }
+        var flags = r.MapMarker?.Flags;
+        if (i < 3 || i == extras.Count - 1)
+            Console.WriteLine($"  own {r.FormKey} {r.EditorID} \"{r.MapMarker?.Name}\" flags {(flags.HasValue ? ((int)flags.Value).ToString("X2") : "none")} " +
+                              $"at ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)})");
+        var edid = ownWorld == null ? null : ExtraEditorId(ownWorld, e);
+        if (r.EditorID != edid) problems.Add($"{key} EditorID {r.EditorID} != {edid}");
+        if (r.Base.FormKey != new FormKey(sfKey, MapMarkerStat)) problems.Add($"{key} base {r.Base.FormKey} is not MapMarker {MapMarkerStat:X8}");
+        if (r.MapMarker == null || flags == null) problems.Add($"{key} has no map-marker data");
+        else
+        {
+            if (flags.Value.HasFlag(PlacedObjectMapMarker.Flag.UseLocationName)) problems.Add($"{key} uses the location's name");
+            if (!flags.Value.HasFlag(PlacedObjectMapMarker.Flag.Visible)) problems.Add($"{key} is not Visible");
+            if (r.MapMarker.Name?.String != e.Name) problems.Add($"{key} name \"{r.MapMarker.Name}\" != \"{e.Name}\"");
+        }
+        if (r.Position != target) problems.Add($"{key} at ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)}), not --extra's ({F(e.Pos.X)}, {F(e.Pos.Y)}, {F(e.Pos.Z)}) lifted {F(zLift)} m");
+        if ((r.MajorRecordFlagsRaw & 0xC00) != 0x400) problems.Add($"{key} flags {r.MajorRecordFlagsRaw:X}: not persistent and enabled");
+        if (!persistentKeys.Contains(key)) problems.Add($"{key} is not in the world's persistent cell");
+    }
+    foreach (var k in own.Keys.Where(k => !expect.ContainsKey(k)).OrderBy(k => k.ID))
+        problems.Add($"{k} {own[k].EditorID} is a REFR of this plugin that --extra does not list");
+    if (extras.Count > 0) Console.WriteLine($"  {own.Count} marker(s) of this plugin, {extras.Count} in --extra");
+    // the Location override that carries their LCSR rows: the core's record plus one MapMarkerRefType row per own
+    // marker, in order; nothing else differs (it loads after the core, as the WRLD copy)
+    var coreLoc = MarkersLocation(core, want);
+    var locs = mod.Locations.ToList();
+    if (extras.Count == 0)
+    {
+        if (locs.Count > 0) problems.Add($"{locs.Count} Location record(s) without --extra");
+    }
+    else if (coreLoc == null) problems.Add("no core Location lists the core's markers in LCSR");
+    else if (locs.Count != 1 || locs[0].FormKey != coreLoc.FormKey)
+        problems.Add($"Location records [{string.Join(", ", locs.Select(l => l.FormKey))}]: want one override of {coreLoc.FormKey} {coreLoc.EditorID}");
+    else
+    {
+        var lmask = new Location.TranslationMask(defaultOn: true) { MasterSpecialReferences = false };
+        if (!coreLoc.DeepCopy(lmask).Equals(locs[0].DeepCopy(lmask)))
+            problems.Add($"{coreLoc.FormKey} Location override differs from the core's beyond its LCSR rows (a core rebuilt since the stage: stage again)");
+        var rows = (locs[0].MasterSpecialReferences ?? Enumerable.Empty<ILocationCellStaticReferenceGetter>()).Select(RowKey).ToList();
+        var wantRows = (coreLoc.MasterSpecialReferences ?? Enumerable.Empty<ILocationCellStaticReferenceGetter>()).Select(RowKey)
+            .Concat(extras.Select((e, i) => RowKey(Row(new FormKey(mod.ModKey, ExtraId + (uint)i), ownWorld?.FormKey ?? FormKey.Null, e)))).ToList();
+        Console.WriteLine($"  location {locs[0].FormKey} {locs[0].EditorID}: {rows.Count} LCSR row(s), {wantRows.Count} wanted");
+        if (!rows.SequenceEqual(wantRows))
+            problems.Add($"{coreLoc.FormKey} LCSR rows are not the core's followed by one MapMarkerRefType row per own marker");
+    }
     // the containers the overrides need, the WRLD and its persistent CELL, are copies of the core's records, and a
     // plugin that loads after the core overrides them with whatever it holds: they must match the core this plugin
     // is checked against, or a core rebuilt since the stage (a changed world flag, say) is undone by this plugin
@@ -245,10 +382,10 @@ if (args[0] == "check" && args.Length >= 3)
             problems.Add($"{w.TopCell.FormKey} persistent cell record differs from the core's (a core rebuilt since the stage: stage again)");
         if (w.TopCell.Temporary.Count > 0) problems.Add($"{w.TopCell.FormKey} carries {w.TopCell.Temporary.Count} temporary reference(s)");
     }
-    var chunks = want.Chunk(PerQuest).ToList();
+    var chunks = wantKeys.Chunk(PerQuest).ToList();
     var quests = mod.Quests.OrderBy(x => x.FormKey.ID).ToList();
     if (quests.Count != chunks.Count)
-        problems.Add($"{quests.Count} quest(s) for {want.Count} marker(s): {chunks.Count} wanted ({PerQuest} per quest)");
+        problems.Add($"{quests.Count} quest(s) for {wantKeys.Count} marker(s): {chunks.Count} wanted ({PerQuest} per quest)");
     for (int k = 0; k < Math.Min(quests.Count, chunks.Count); k++)
     {
         var q = quests[k];
@@ -272,14 +409,14 @@ if (args[0] == "check" && args.Length >= 3)
         // a direct reference: alias -1, unused 0 (the quest has no aliases; an alias-encoded entry is another binding)
         foreach (var (o, j) in objs.Select((o, j) => (o, j)))
             if (o.Alias != -1 || o.Unused != 0) problems.Add($"{tag}Markers[{j}] is not a direct reference (alias {o.Alias}, unused {o.Unused})");
-        Console.WriteLine($"  {tag}Markers: {string.Join(", ", got)}");
-        if (!got.SequenceEqual(part.Select(m => m.FormKey)))
-            problems.Add($"{tag}Markers [{string.Join(", ", got)}] are not the core's MapMarker REFRs [{string.Join(", ", part.Select(m => m.FormKey))}]");
+        Console.WriteLine($"  {tag}Markers: {(got.Count > 12 ? string.Join(", ", got.Take(6)) + $", ... {got.Count - 6} more" : string.Join(", ", got))}");
+        if (!got.SequenceEqual(part))
+            problems.Add($"{tag}Markers [{string.Join(", ", got)}] are not the core's MapMarker REFRs and --extra's [{string.Join(", ", part)}]");
         foreach (var (name, pick) in new (string, Func<P3Float, float>)[] { ("LocalX", p => p.X), ("LocalY", p => p.Y), ("LocalZ", p => p.Z) })
         {
             var data = s.Properties.OfType<IScriptFloatListPropertyGetter>().FirstOrDefault(p => p.Name == name)?.Data.ToList();
-            Console.WriteLine($"  {tag}{name}: {(data == null ? "missing" : string.Join(", ", data.Select(F)))}");
-            if (data == null || !data.SequenceEqual(part.Select(m => pick(expect[m.FormKey]))))
+            Console.WriteLine($"  {tag}{name}: {(data == null ? "missing" : data.Count > 12 ? string.Join(", ", data.Take(6).Select(F)) + $", ... {data.Count - 6} more" : string.Join(", ", data.Select(F)))}");
+            if (data == null || !data.SequenceEqual(part.Select(m => pick(expect[m]))))
                 problems.Add($"{tag}{name} does not hold the markers' overridden positions");
         }
         var cap = s.Properties.OfType<IScriptIntPropertyGetter>().FirstOrDefault(p => p.Name == "MaxMoves")?.Data;
@@ -314,6 +451,50 @@ static string WorldDescribed(string variant) => variant switch
     "city" => "SmallWorld cleared, HNAM 5",
     _ => "as the core's",
 };
+// the core's Location whose LCSR rows name the core's markers (the one TerrainOverlays fills); null when none
+static ILocationGetter? MarkersLocation(IStarfieldModGetter core, List<IPlacedObjectGetter> markers)
+{
+    var keys = markers.Select(m => m.FormKey).ToHashSet();
+    return core.Locations.Where(l => l.FormKey.ModKey == core.ModKey && (l.MasterSpecialReferences?.Any(r => keys.Contains(r.Marker.FormKey)) ?? false))
+        .OrderBy(l => l.FormKey.ID).FirstOrDefault();
+}
+static string ExtraEditorId(IWorldspaceGetter w, Extra e) => w.EditorID + "MapMarker" + e.Tag;    // as TerrainOverlays names the core's
+// one MapMarkerRefType row, as TerrainOverlays writes the core's (Mutagen writes Grid Y then X; Unknown -1 is vanilla 0xFFFFFFFF)
+static LocationCellStaticReference Row(FormKey marker, FormKey world, Extra e) => new()
+{
+    LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(ModKey.FromFileName("Starfield.esm"), MapMarkerRefType)),
+    Marker = new FormLink<IPlacedObjectGetter>(marker),
+    Location = new FormLink<IWorldspaceGetter>(world),
+    Grid = new P2Int16(e.CellX, e.CellY),
+    Unknown = -1,
+};
+static (FormKey, FormKey, FormKey, P2Int16, int) RowKey(ILocationCellStaticReferenceGetter r) =>
+    (r.LocationRefType.FormKey, r.Marker.FormKey, r.Location.FormKey, r.Grid, r.Unknown);
+// --extra's markers in file order; "" = none. Each entry needs a tag (letters, digits, _), a name, pos [x, y, z] (finite),
+// cell [x, y]; tags do not repeat.
+static List<Extra> LoadExtras(string path)
+{
+    var list = new List<Extra>();
+    if (path == "") return list;
+    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+    foreach (var m in doc.RootElement.GetProperty("markers").EnumerateArray())
+    {
+        var tag = m.GetProperty("tag").GetString() ?? "";
+        var name = m.GetProperty("name").GetString() ?? "";
+        var pos = m.GetProperty("pos").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var cell = m.GetProperty("cell").EnumerateArray().Select(v => v.GetInt16()).ToArray();
+        if (tag == "" || !tag.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')) throw new InvalidDataException($"tag \"{tag}\": want letters, digits or _");
+        if (name == "") throw new InvalidDataException($"{tag}: no name");
+        if (pos.Length != 3 || !pos.All(float.IsFinite)) throw new InvalidDataException($"{tag}: pos needs 3 finite numbers");
+        if (cell.Length != 2) throw new InvalidDataException($"{tag}: cell needs 2 numbers");
+        list.Add(new Extra(tag, name, new P3Float(pos[0], pos[1], pos[2]), cell[0], cell[1]));
+    }
+    var dup = list.GroupBy(e => e.Tag, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+    if (dup != null) throw new InvalidDataException($"tag {dup.Key} repeats");
+    return list;
+}
 static string QuestName(int k) => "FO4SF_MapMarkersQuest" + (k == 0 ? "" : (k + 1).ToString(CultureInfo.InvariantCulture));
 // the script's own default (40) holds up to 20 markers; above that, twice the quest's markers
 static int? MaxMovesFor(int n) => 2 * n > DefaultMaxMoves ? 2 * n : null;
+
+record Extra(string Tag, string Name, P3Float Pos, short CellX, short CellY);

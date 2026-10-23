@@ -322,6 +322,77 @@ merge there, so the cause is likely in our WRLD / LCTN records (diff them next).
 says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
 door script, #353, this quest) as the design, but does not prove no record shape can merge.
 
+### More location markers without a core rebuild (Claude-cloud, 2026-10-23, offline)
+
+The owner asked for "more location markers" after the section A play (2026-10-23). The core route above
+(`make_core64c.py stage --fo4-map-markers`) needs a new core, and v6i closes this phase, so the markers plugin now adds
+them itself:
+
+1. `make_map_markers.py stage ... --fo4-map-markers <export.json> --core-stage <folder>` picks the markers the core route
+   would pick (`load_fo4_markers`, `extra_markers`), with the BTD ground and the bounds of the folder that staged the core.
+   Its copy of the core must be `--core` byte for byte, so the heights and the markers belong to that build. A core that
+   already carries them (tags `M<FO4 id>` among its params' markers) stops the stage. The picked markers go to
+   `extra_markers.json` and the rest to `map_markers_left_out.json`, each with its reason.
+2. `extra_markers` now also leaves out a marker within 100 m of an earlier kept marker with the same name. FO4's
+   USS Constitution has two markers 4 m apart where the ship comes to rest (1F2637, 074BE0). Same-named places farther
+   apart stay (FO4's two "Cave" markers, about 390 m apart).
+3. `dotnet/MapMarkers build --extra <json>` writes each as a REFR of the plugin (0x900, 0x901, ...). Each is a copy of the
+   core's first marker (LC172's template, as the core writes its own), in the WRLD copy's persistent cell at its local
+   spot, lifted `--z-lift`, with its own name and the overrides' flags. Each also gets one `MapMarkerRefType` `LCSR` row
+   in an override of the core's Location, as TerrainOverlays writes the core's four. The quests list them after the
+   core's markers, at most 100 per quest. `check --extra` fails a plugin with any other REFR of its own. It also fails a
+   Location override that differs from the core's in anything but those rows, the same stale-stage rule as the WRLD copy.
+   Without `--extra` the plugin is byte for byte as before: built here from the v6i core, it has sha256 `af56df9c`, the
+   installed one.
+
+**Verified offline** (cloud, 2026-10-23) against the installed v6i core (sha256 `dc751664`), its stage folder's BTD and
+`overlays_params.json` (`terrain_core64v6i_l125_mission_wfc11_plainshader`), and the PC's export (`cw_markers.json`,
+310 markers). All of them were read from the PC without running anything there.
+- The fixed four's heights in the params match that BTD (Red Rocket sits on the COC arrival, as written), so it is the
+  core's own ground.
+- 305 markers are kept and 5 left out: the fixed three, FO4's Red Rocket next to the core's, and one USS Constitution.
+- The plugin is 73,904 bytes, sha256 `d7b17206`. It has 4 quests (100, 100, 100, 9 markers), 309 LCSR rows, and all
+  checks pass.
+- The Papyrus compile and the stage itself run on the PC.
+
+**Unresolved until the owner's play:**
+- whether all 309 icons draw, and whether they draw only after a revisit like the four;
+- whether a fast travel arrival at the ground plus 2.5 m clears the converted buildings, since FO4's markers stand at
+  the place and some sit by a wall or under a roof;
+- whether 309 rows on one Location change anything about the four.
+
+Some FO4 markers belong to quests and show only during them in FO4, such as "Waypoint Echo" and the USS Constitution's
+resting place. Here they show from the start. **Known risk, larger now:** the mover cannot tell another world with the
+same coordinates apart (above). In such a world it would pull up to 100 markers per quest there, and the move budget,
+200 per quest per build, would run out after one trip there and back.
+
+### How a vanilla world lands a ship (survey, 2026-10-23)
+
+This is for the owner's "temp ship landing spot". The source is `SfInspect landing`, run on the PC read-only against
+Starfield.esm 1.16.244 (queue folder `C:\Modding\scratch\landing_survey`, commit 69a3b4ce). It is **verified** as
+records; nothing here has run in game.
+
+| Part | LandingOverlay01 (`1187EA`) | DefaultSpaceshipLandingOverlay (`2A5AE3`) | PCMShipLanding01 (`233DA3`) |
+|---|---|---|---|
+| pad | `093DC9` ShipLandingMarker_80m_Large (`007145`), persistent `0x400`, has a script | `2C66E6`, the same | `0314F2`, the same base, `0x10400`, no script, LocationRefTypes `076E88` |
+| pad links | LandingZoneTriggerKeyword to the trigger; LinkShipLandingOverlayMapMarker to the marker | the same | LandingZoneTriggerKeyword to the trigger only |
+| trigger | `093DCA` landingZoneTrigger (`267F4C`), a primitive, temporary in cell (0, 0), on the pad | `267F51`, the same | `0314F5`, the same |
+| map marker | `3A866E` MapMarker, persistent, Radius 100, flags 0x33, type 45, "Landing Area" | `3A8679`, the same | `0314F7` MapMarker_ShortRange, `0xC00` (initially disabled, in LCID), Radius 50, flags 0, type 45 |
+| heading | `3A8670` XMarkerHeading, persistent, linked from the marker (no keyword), about 47 m from the pad | `3A867A`, the same, about 50 m from the pad | `0314F8`, the same link |
+| Location LCSR | MapMarkerRefType to the marker; ShipLandingMarkerRefType and ShipLandingMarkerRefType_Large to the pad | the same | the same three, plus random-encounter rows |
+
+New Atlantis does the same per site. Its spaceport location lists marker `023602` (NewAtlantisMapMarkerSpaceport, flags
+0x13, type 4, linked to a heading `023604`) and the pad `2CFDE8` (ShipLandingMarkerVertical_80m_Large) under
+ShipLandingMarkerRefType and its _Large twin. The player's pad `023605` NewAtlantisShipLandingMarker carries a script
+and links to its shield animation.
+
+So a landing spot is four references: a pad with its script, a landing-zone trigger on it, a map marker linked to a
+heading, and three LCSR rows on the Location. Our Location has none of the ship rows today (the core writes only
+MapMarkerRefType), which fits the owner's report that the ship and the arrival "get buggy". Which script the pad carries
+is **unresolved** until the survey prints scripts (added after this run). Two more questions stay **unresolved**: whether
+a pad in our world needs the runtime move the markers get (it is persistent, so it would stay at its local spot), and
+which ground near Red Rocket is flat and clear for an 80 m pad.
+
 ## BACUP's FO4 to Starfield world writer (Claude-cloud, 2026-10-19, read only)
 
 [BACUP](https://github.com/Bryant-21/bacup) (GPL-3) was read at commit `cfa3d0d` (2026-10-17). Nothing was run, and
