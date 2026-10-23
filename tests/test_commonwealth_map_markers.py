@@ -90,6 +90,47 @@ class ExportedMarkers(unittest.TestCase):
         self.assertEqual(left, [{"src": "01F2B0:Fallout4.esm",
                                  "reason": "Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket"}])
 
+    def test_a_same_named_marker_close_to_a_kept_one_is_left_out(self):
+        # FO4's USS Constitution: two markers 4 m apart where the ship comes to rest; the first in FormID order stays.
+        # A same-named place farther off (FO4's two "Cave" markers) is another place and stays too
+        rows = [("M01F2C0", "USS Constitution", 0x1F2C0, 27160.0, -3990.0),
+                ("M01F2C1", "Cave", 0x1F2C1, -75390.0, -89810.0),
+                ("M01F2C2", "USS Constitution", 0x1F2C2, 27370.0, -3850.0),
+                ("M01F2C3", "Cave", 0x1F2C3, -72030.0, -116760.0)]
+        entries, left = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 0.0)
+        self.assertEqual([e["tag"] for e in entries], ["M01F2C0", "M01F2C1", "M01F2C3"])
+        self.assertEqual(left, [{"src": "01F2C2:Fallout4.esm",
+                                 "reason": "USS Constitution: within 100 m of the kept marker M01F2C0"}])
+
+    def test_a_landing_spot_is_landingoverlay01_moved_to_the_pad(self):
+        # the pad on the ground at (x, y); the trigger and marker keep LandingOverlay01's offsets from it, heights
+        # included; the heading keeps its x, y offset and stands on its own ground, lifted as the markers' arrivals
+        ground = lambda x, y: 50.0 + 0.01 * (x - y)                              # noqa: E731  (a slope)
+        spot = map_markers.landing_spot(-759.0, 2207.0, BOUNDS, ground, 2.5)
+        vanilla = map_markers.LANDING_OVERLAY01
+        (vx, vy, vz), _ = vanilla["pad"]
+        self.assertEqual(spot["pad"]["pos"], [-759.0, 2207.0, round(ground(-759.0, 2207.0), 4)])
+        for part in ("trigger", "marker", "heading"):
+            (px, py, pz), rot = vanilla[part]
+            got = spot[part]["pos"]
+            self.assertAlmostEqual(got[0] - spot["pad"]["pos"][0], px - vx, places=3, msg=part)
+            self.assertAlmostEqual(got[1] - spot["pad"]["pos"][1], py - vy, places=3, msg=part)
+            want_z = ground(got[0], got[1]) + 2.5 if part == "heading" else spot["pad"]["pos"][2] + pz - vz
+            self.assertAlmostEqual(got[2], want_z, places=3, msg=part)
+            self.assertEqual(spot[part]["rot"], list(rot), part)
+            self.assertEqual(spot[part]["cell"], map_markers.sf_cell(got[0], got[1]), part)
+        self.assertEqual(spot["pad"]["rot"], list(vanilla["pad"][1]))
+        self.assertEqual(spot["marker"]["cell"], [-8, 21])                     # 11 m south of the pad: the next cell
+        self.assertEqual(spot["pad"]["cell"], [-8, 22])
+        self.assertEqual((spot["tag"], spot["name"]), ("RedRocketNorth", "Landing Area"))
+
+    def test_a_landing_spot_stays_a_cell_inside_the_overlay(self):
+        map_markers.landing_spot(3100.0, -3100.0, BOUNDS, lambda x, y: 0.0, 2.5)
+        for x, y in ((3100.1, 0.0), (0.0, -3100.1)):
+            with self.assertRaises(ValueError) as e:
+                map_markers.landing_spot(x, y, BOUNDS, lambda x, y: 0.0, 2.5)
+            self.assertIn("less than 100 m inside the overlay", str(e.exception))
+
     def test_another_world_is_refused(self):
         with self.assertRaises(ValueError):
             map_markers.load_fo4_markers(dict(self.DOC, world="FarHarbor"))
