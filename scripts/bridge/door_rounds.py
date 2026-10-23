@@ -253,7 +253,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
            "drop_z": round(max(drop_z, stand[2] + STAND_ABOVE_M), 4),
            "points": [dict(zref), {"label": "door_front", "x": stand[0], "y": stand[1], "expect": stand[2]}],
            "beyond": None,                                # no teleport after the trip: the judge reads the last position
-           "activate": {"ref": full(core_index, ex["door"]), "base": full(core_index, ex["base"]), "expect": []},
+           "activate": {"ref": full(core_index, ex["door"]), "base": full(core_index, ex["base"]), "expect": [], "close": False},
            "console_post": [ack(f"door-fwd-{k}"), resolve(PORT_PLUGIN, int(it["marker"], 16))],
            "label": f"door round {k} IN ({r['cell_edid']}, FO4 {r['src']}): {dist:.0f} m from the Red Rocket arrival "
                     f"to its exterior arrival marker, activate the exterior door {full(core_index, ex['door'])}; "
@@ -263,7 +263,7 @@ def plan_door(k, r, spawn_local, zref, drop_z, core_index, port_index):
            "drop_z": round(m[2] + INTERIOR_DROP_M, 4),
            "points": [{"label": "inside_arrival", "x": m[0], "y": m[1], "expect": m[2]}],
            "beyond": None,                                # no teleport after the trip: the judge reads the last position
-           "activate": {"ref": full(port_index, it["door"]), "base": full(port_index, it["base"]), "expect": []},
+           "activate": {"ref": full(port_index, it["door"]), "base": full(port_index, it["base"]), "expect": [], "close": False},
            "console_post": [ack(f"door-ret-{k}"), resolve(CORE_PLUGIN, int(ex["arrival"], 16))],
            "label": f"door round {k} OUT ({r['cell_edid']}): coc inside, activate the interior door "
                     f"{full(port_index, it['door'])}; expect the exterior marker {full(core_index, ex['arrival'])} "

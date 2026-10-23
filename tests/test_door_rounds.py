@@ -92,12 +92,12 @@ class StageTests(unittest.TestCase):
         rounds, plan = stage(core, port, os.path.join(d, "out"))
         self.assertEqual(rounds["skipped"], [])
         fwd, ret = plan
-        self.assertEqual(fwd["activate"], {"ref": "03000701", "base": "03000700", "expect": []})
+        self.assertEqual(fwd["activate"], {"ref": "03000701", "base": "03000700", "expect": [], "close": False})   # no Tab after a door
         self.assertEqual(fwd["points"][1], {"label": "door_front", "x": -469.444, "y": 636.074, "expect": 42.356})
         self.assertEqual(fwd["drop_z"], 175.0)
         self.assertEqual(fwd["console_post"], ['cgf "FO4SF_Probe.Ack" "door-fwd-0"', 'cgf "FO4SF_Probe.Resolve" "FO4Port.esm" 2304'])
         self.assertEqual((ret["coc"], ret["travel"]), ("FO4Port_SuperDuperMart01", "coc FO4Port_SuperDuperMart01"))
-        self.assertEqual(ret["activate"], {"ref": "02000802", "base": "02000800", "expect": []})
+        self.assertEqual(ret["activate"], {"ref": "02000802", "base": "02000800", "expect": [], "close": False})
         self.assertAlmostEqual(ret["drop_z"], -3.654 + 1.5, places=3)
         t0, t1 = rounds["tests"]
         self.assertEqual((t0["cell"], t0["pos"], t0["resolve"]["index"]), ("02000801", [5.449, 17.291, -3.654], "02"))

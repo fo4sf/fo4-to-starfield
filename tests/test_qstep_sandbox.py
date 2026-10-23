@@ -484,6 +484,20 @@ class QstepActivateSandboxTests(SandboxStep, unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.out, "activate_sel_prep140.png")))
         self.assertIn("activate player", self.typed)
 
+    def test_close_false_holds_no_tab(self):
+        # a load door's block (door_rounds.py): nothing to close, and a held Tab would open the game's menus (J4)
+        v, obs, _ = self.run_step(test=self.terrain(dict(CABINET, close=False)), world=self.world())
+        self.assertIn("activate player", self.typed)
+        self.assertIs(obs["activate"]["close"], False)
+        self.assertNotIn("tab", self.state.get("held", []))
+
+    def test_no_tab_while_the_hud_is_up(self):
+        # the sandbox opens no container menu: the HUD is up after the activation, so no Tab is held
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world())
+        self.assertIs(obs["activate"]["close"], True)
+        self.assertNotIn("tab", self.state.get("held", []))
+        self.assertNotIn("closed_shot", obs["activate"])
+
     def test_a_reply_lost_at_every_threshold_activates_nothing(self):
         v, obs, _ = self.run_step(test=self.terrain(), world=self.world(isid_lost_at=[135, 140, 130, 145]))
         a = obs["activate"]
