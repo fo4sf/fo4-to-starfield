@@ -529,6 +529,8 @@ switch (args[1])
                             IScriptStringPropertyGetter t => $"{sp.Name} = \"{t.Data}\"",
                             _ => $"{sp.Name} ({sp.GetType().Name.Replace("BinaryOverlay", "")})",
                         })));
+                    if (r.Primitive is { } pr)
+                        Console.WriteLine($"   primitive: type {pr.Type} bounds {pr.Bounds} color {pr.Color} unknown {pr.Unknown}");
                     if (r.MapMarker is { } mm)
                         Console.WriteLine($"   map marker: flags {mm.Flags} (0x{(int)mm.Flags:X}) name \"{mm.Name}\" type {mm.Type}");
                     foreach (var l in r.LinkedReferences)
