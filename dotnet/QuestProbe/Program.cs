@@ -93,9 +93,9 @@ static class QuestProbe
     public const float MaxRise = 3f, MaxReach = 60f, MinReach = 8f;
 
     /// The cell's one COC marker (the player's "here" test: same parent cell) and the marker's target, so the compass
-    /// has somewhere to point: the load door (a placed object with a teleport destination) farthest from it; in a cell
-    /// with none (the library in the installed port, PC 19 Oct), the farthest door, then the farthest object, on the
-    /// marker's floor (within MaxRise metres of its height) and within MaxReach metres, so the player can walk to it.
+    /// has somewhere to point: the load door (a placed object with a teleport destination) farthest from it, then the
+    /// farthest door, then the farthest object, each on the marker's floor (within MaxRise metres of its height) and
+    /// within MaxReach metres, so the player can walk to it.
     public const string PortFile = "FO4Port.esm";
 
     public static Place Resolve(string portPath, string cellEdid)
@@ -118,7 +118,9 @@ static class QuestProbe
         var own = refs.Where(r => r.FormKey.ModKey == port.ModKey && r != cocs[0]).ToList();
         var level = own.Where(r => MathF.Abs(r.Position.Z - a.Z) <= MaxRise && Dist(r) <= MaxReach && Dist(r) >= MinReach).ToList();
         SF.IPlacedObjectGetter? Far(IEnumerable<SF.IPlacedObjectGetter> c) => c.OrderByDescending(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault();
-        var (door, kind) = Far(own.Where(r => r.TeleportDestination is not null)) is { } ld ? (ld, "load door")
+        // a load door too must be on the marker's floor and in reach (owner, 23 Oct: the library's farthest load door,
+        // 72 m away, put the marker under the stairs, reachable only with tcl)
+        var (door, kind) = Far(level.Where(r => r.TeleportDestination is not null)) is { } ld ? (ld, "load door")
                          : Far(level.Where(r => doors.Contains(r.Base.FormKey))) is { } d ? (d, "door")
                          : Far(level) is { } o ? (o, "object")
                          : throw new Refusal($"{cellEdid} has nothing between {MinReach} and {MaxReach} m of its COC marker on its floor to point the marker at");
@@ -434,6 +436,14 @@ static class QuestProbe
         cell.Persistent.Add(near);
         cell.Persistent.Add(far);
         cell.Temporary.Add(R(0x804, pdoor.FormKey, 90));   // a door with no teleport is not a target
+        // load doors out of reach or a floor down are not targets either (the library, 23 Oct)
+        var below = R(0x805, pdoor.FormKey, 50);
+        below.Position = new P3Float(50, 0, -6);
+        below.TeleportDestination = new SF.TeleportDestination { Door = new FormLink<SF.IPlacedObjectGetter>(new FormKey(portKey, 0x882)) };
+        var beyond = R(0x806, pdoor.FormKey, 72);
+        beyond.TeleportDestination = new SF.TeleportDestination { Door = new FormLink<SF.IPlacedObjectGetter>(new FormKey(portKey, 0x883)) };
+        cell.Persistent.Add(below);
+        cell.Persistent.Add(beyond);
         // cells with no load door (the installed library, PC 19 Oct): the farthest door on the marker's floor and in
         // reach, else the farthest object there; never one a floor up, out of reach, or next to the marker
         var pstat = new SF.Static(new FormKey(portKey, 0x811), rel) { EditorID = "FO4Port_Shelf" };
