@@ -2,6 +2,7 @@
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
+python -m fo4sf oracles   # list offline oracle scripts
 """
 from __future__ import annotations
 
@@ -16,6 +17,39 @@ from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
 MIN_PYTHON = (3, 12)
+
+
+def cmd_oracles(args: argparse.Namespace) -> int:
+    """List offline oracle scripts with a short description from their module docstring."""
+    root = _repo_root()
+    if root is None:
+        print("oracles: not running from a checkout", file=sys.stderr)
+        return 1
+    oracles_dir = root / "scripts" / "oracles"
+    if not oracles_dir.is_dir():
+        print("oracles: scripts/oracles/ not found", file=sys.stderr)
+        return 1
+    print("Offline oracles (scripts/oracles/):")
+    found = 0
+    for p in sorted(oracles_dir.glob("*.py")):
+        if p.name.startswith("_"):
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+            desc = ""
+            if text.startswith('"""'):
+                end = text.find('"""', 3)
+                if end != -1:
+                    doc = text[3:end].strip()
+                    desc = doc.split("\n", 1)[0].strip()
+            if not desc:
+                desc = "(no description)"
+            print(f"  {p.stem}: {desc[:120]}")
+            found += 1
+        except OSError as e:
+            print(f"  {p.stem}: unreadable ({e})", file=sys.stderr)
+    print(f"\n{found} oracle script(s). Run with python scripts/oracles/<name>.py --help")
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -281,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_oracles = sub.add_parser("oracles", help="list offline oracle scripts in scripts/oracles/")
+    p_oracles.set_defaults(func=cmd_oracles)
 
     args = parser.parse_args(argv)
     return args.func(args)
