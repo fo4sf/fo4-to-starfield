@@ -2220,9 +2220,12 @@ Card J4 reran both door queues on v6i with the fixed judge (runner at main
 6c007035, `-Tag v6ic`, core 02 and port 07, the quest probe at 06), finishing at
 14:43 PC time with no crash and no "beyond" read on a judged leg. The exits: 14 of
 15 PASS, the fifteenth (Vault 95 OUT) INCONCLUSIVE with no feed after the door,
-consistent with the BOUNDARY REACHED popup and read under gate 2. The round trips:
+consistent with the BOUNDARY REACHED popup and read under gate 2; Bugs reads from
+code (not run) that bridge t4's door first moves the player to the marker's local
+position, about 2.95 km from the merged spot, and that the correction raises the
+popup, which bridge t6 (#512) addresses. The round trips:
 26 of 30 PASS, 4 INCONCLUSIVE (NOT_ACTIVATED: the runner could not open the console
-safely), 0 FAIL. The three wrong-place exits of v6e all passed, and Vault75 passes
+safely; fix draft #530), 0 FAIL. The three wrong-place exits of v6e all passed, and Vault75 passes
 both ways. No door failed, but gate 1 stays open until Bugs reruns and judges the
 four harness-fault legs (ParsonsState01 and FortHagen02 IN from the Red Rocket
 spawn, Museum OUT, Prydwen OUT). Two wording fixes ride along: gate 2 now says the

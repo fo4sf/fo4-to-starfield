@@ -62,13 +62,17 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   quest probe at 06), plan exit 0, crashes 0, no "beyond" read on a judged leg in either queue, Plugins.txt the same
   before and after.
   - doors_out_v6ic: **14 of 15 PASS**, INCONCLUSIVE 1, FAIL 0. The one is 0010, Vault 95 OUT (STALE_FEED): the door's
-    last log line has the position after its MoveTo, at the marker's unmerged coordinates (-714.6, -1284.1, 61.3), the
-    step border.md records in passing and failing trips alike, and no feed came after, consistent with the BOUNDARY
-    REACHED popup. Since #515 the judge gives that stale feed as INCONCLUSIVE rather than STAYED, so the Vault 95
+    last log line has the position after its MoveTo, (-714.6, -1284.1, 61.3), and no feed came after, consistent with
+    the BOUNDARY REACHED popup. Bugs' reading from code (23 Oct; not run): that is the exit marker's local position
+    (the merged spot minus the overlay offset of -1,200 and -2,700 m); bridge t4's door first moves the player to that
+    persistent marker, about 2.95 km from the merged spot, and the correction to the merged spot raises the popup.
+    Bridge t6 (#512: the marker placed at the merged spot, then one MoveTo) addresses it, verified in code only and not
+    yet run on the PC (it waits on the owner's t6 line). Since #515 the judge gives that stale feed as INCONCLUSIVE rather than STAYED, so the Vault 95
     reading below applies: it is gate 2's case, not a gate 1 fail or a leg to rerun. The three wrong-place exits of v6e
     (CambridgePolymerLabs01, MuseumOfWitchcraft01 0012, FortHagen02 0013) all PASS.
   - doors_rounds_v6ic: **26 of 30 PASS**, INCONCLUSIVE 4, FAIL 0. The four are NOT_ACTIVATED, a harness fault (the
-    runner's "console not opened safely (3)"; the last door line is the previous test's): 0002 the Red Rocket spawn IN
+    runner's "console not opened safely (3)", a console-open timeout after about 4 s by Bugs' reading, fix draft #530,
+    its cause being confirmed from the HUD check pictures; the last door line is the previous test's): 0002 the Red Rocket spawn IN
     to ParsonsState01, 0023 Museum OUT, 0026 the Red Rocket spawn IN to FortHagen02, 0029 Prydwen OUT. Vault75's IN
     and OUT legs pass (0.00 m; the 14.39 m HEIGHTS line is the prelude's terrain check, not a leg).
   **Gate 1 stays open on those four legs**: no door failed, but by the rule below a harness fault is not a door
