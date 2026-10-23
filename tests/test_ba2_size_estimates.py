@@ -1,4 +1,4 @@
-"""Tests for Ba2.size_estimates."""
+"""Tests for Ba2.size_estimates and summary sizes."""
 import os
 import tempfile
 import unittest
@@ -21,6 +21,10 @@ class TestBa2SizeEstimates(unittest.TestCase):
             self.assertEqual(est["entries"], 1)
             self.assertEqual(est["packed_bytes"], len(data))
             self.assertEqual(est["unpacked_bytes"], len(data))
+            # summary includes the sizes
+            sm = ba2.summary()
+            self.assertEqual(sm["packed_bytes"], len(data))
+            self.assertEqual(sm["unpacked_bytes"], len(data))
 
     def test_compressed(self):
         data = b"a" * 1000  # compressible
@@ -33,6 +37,9 @@ class TestBa2SizeEstimates(unittest.TestCase):
             self.assertEqual(est["entries"], 1)
             self.assertLess(est["packed_bytes"], est["unpacked_bytes"])
             self.assertEqual(est["unpacked_bytes"], len(data))
+            sm = ba2.summary()
+            self.assertLess(sm["packed_bytes"], sm["unpacked_bytes"])
+            self.assertEqual(sm["unpacked_bytes"], len(data))
 
 
 if __name__ == "__main__":
