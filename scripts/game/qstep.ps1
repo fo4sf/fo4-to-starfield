@@ -40,10 +40,17 @@ function Send($seq) {
   if ($LASTEXITCODE -ne 0) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
 }
 function Console-Open {
-  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') | Out-Null
+  # the attempt's own folder, so the HUD check's last screenshot (hud_check.png) stays with a refusal (J2, 2026-10-22:
+  # two code 3s left no picture, %TEMP%\fo4sf_ocr is overwritten by every later test)
+  $w = Join-Path $Out 'console_open'
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'console_open.ps1') -Work $w | Out-Null
   $c = $LASTEXITCODE
   if ($c -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
-  if ($c -ne 0) { $obs['stopped'] = "console not opened safely ($c)"; Save-Obs; exit 3 }
+  if ($c -ne 0) {
+    $obs['stopped'] = "console not opened safely ($c)"
+    if (Test-Path (Join-Path $w 'hud_check.png')) { $obs['console_open_shot'] = 'console_open\hud_check.png' }
+    Save-Obs; exit 3
+  }
 }
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
