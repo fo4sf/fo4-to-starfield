@@ -549,5 +549,22 @@ class TestCLI(unittest.TestCase):
                 rc, text = self._run_validate(cfg, tex)
         self.assertEqual(rc, 0, text)
 
+
+    def test_status_prints_env_info(self):
+        """Status prints short git revision and Python version."""
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[paths]\nwork_dir = "/tmp/w"\n')
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["--config", str(cfg), "status"])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("revision:", out)
+            self.assertIn("python:", out)
+
+
 if __name__ == "__main__":
     unittest.main()

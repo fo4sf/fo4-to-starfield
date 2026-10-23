@@ -26,6 +26,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
     print("fo4-to-starfield status")
+    root = _repo_root()
+    print(f"  revision: {_git_revision(root)}")
+    pyver = ".".join(str(n) for n in sys.version_info[:3])
+    if sys.version_info >= MIN_PYTHON:
+        print(f"  python: {pyver}")
+    else:
+        print(f"  python: {pyver} (needs {'.'.join(map(str, MIN_PYTHON))} or newer)")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
@@ -90,6 +97,21 @@ def _repo_root() -> Path | None:
     root = Path(__file__).resolve().parents[2]
     return root if (root / ".git").exists() and (root / "src" / "fo4sf").is_dir() else None
 
+
+
+def _git_revision(root: Path | None) -> str:
+    """Short commit hash of this checkout, or 'unknown' if not a git repo or git unavailable."""
+    if root is None:
+        return 'unknown'
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=root, stderr=subprocess.DEVNULL, text=True, timeout=2
+        ).strip()
+        return out or 'unknown'
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return 'unknown'
 
 def _inside(p: Path, root: Path | None) -> bool:
     if root is None:
