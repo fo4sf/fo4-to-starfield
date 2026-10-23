@@ -2211,5 +2211,5 @@ In FO4 the ladder is part of the trapdoor model, so Bugs' likely cause is that t
 converted model lost its hanging ladder or that ladder's collision; that is not
 checked. The fix stays in the next phase (the owner's call F): check the converted
 model for the ladder and an activation volume reaching the floor, then fix it in
-the door conversion. Bugs' PC check after card J4 is dropped. playtest-issues.md
-row 33 carries it. The entries above stand as written.
+the door conversion. Card H1 (Bugs' PC read of the hatch) is dropped; card J4,
+the door rounds, still runs. playtest-issues.md row 33 carries it. The entries above stand as written.
