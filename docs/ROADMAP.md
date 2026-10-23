@@ -92,9 +92,9 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   compiled). Its result answers the engine questions in docs/questprobe/engine-questions.md (stage fragments,
   OnStageSet, alias markers, our quest-type tab, a Story Manager branch) for the later people-and-story work; it gates
   neither phase 0 nor the new game.
-- **The new game, phase 1** (NewGame): newgame_v6 was pinned to the v6e core; newgame_v7 is built and staged against the
-  installed v6i core on the PC (23 Oct; not installed). The owner's line "Install the new game." opens phase 1 once
-  NewGame confirms the staging report.
+- **The new game, phase 1** (NewGame): newgame_v6 was pinned to the v6e core; newgame_v7 passed its restage against the
+  installed v6i core on the PC (23 Oct, NewGame's report: 4 scripts compiled, plan pinned to port 9AF962D2 and core
+  DC751664; not installed). The owner's line "Install the new game." opens phase 1; it is ready to type.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
@@ -133,8 +133,7 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 a phase 0 gate.
 
 - "Install the quest probe plugin.": not needed; the probe went in on the owner's 00:14 UTC word (23 Oct)
-- "Install the new game." (newgame_v7 is built and staged against v6i, 23 Oct; NewGame asks for the line once its
-  staging report is confirmed)
+- "Install the new game." (**ready**: newgame_v7 passed its restage against v6i, 23 Oct, NewGame's report 11:30 UTC)
 - "Install the animated doors port." (after the port build passes)
 - "Turn off FO4SFMission and install the combined-core probe for one test session." (after #431 merges and the restage)
 - the b10 line: Interiors words it after card 1b passes
@@ -210,8 +209,8 @@ a phase 0 gate.
 
 The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
 against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it was
-restaged against the installed v6i core as newgame_v7 (built and staged on the PC, 23 Oct; no core rebuild, item 4) and
-waits on the owner's line "Install the new game." The same holds for the focc probe (#431, in review with Grok this week; 3,349 tests passed at 1db5919): CombinedCore restages
+restaged against the installed v6i core as newgame_v7 (passed on the PC, 23 Oct: 4 scripts compiled, pins port 9AF962D2
+and core DC751664; no core rebuild, item 4) and waits only on the owner's line "Install the new game." The same holds for the focc probe (#431, in review with Grok this week; 3,349 tests passed at 1db5919): CombinedCore restages
 it from the head that merges, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
 that ends up installed is v6i (Interiors shelved the border fields on 22 Oct, no v6j); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
