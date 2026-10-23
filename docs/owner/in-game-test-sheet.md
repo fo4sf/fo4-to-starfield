@@ -17,6 +17,9 @@ sections, or use the cell and object names instead.
 
 ## A. Next session (23 Oct 2026): the checks that close phase 0
 
+**Done 23 Oct** (the owner's session; results in playtest-issues.md rows 31 to 38 and under gate 3 of the ROADMAP
+exit checklist).
+
 Added 22 Oct, updated 23 Oct. Installed: v6i_plainshader (FO4Port 9AF962D2, core DC751664, mission 03C2A7A8), the map
 markers plugin, the bridge door-script set t4 (no retry) and the quest probe plugin (A7). Not installed: the new game
 (newgame_v7, staged) and the Codsworth keeper fix for older saves (#493); sections 1 to 8 below are the 16 Oct sheet for core64k and are kept for reference. The same
@@ -94,7 +97,7 @@ setting, so the PC measured it instead of the owner (23 Oct): ten plain exits la
 retry landed 6 of 10. In every failed exit the BOUNDARY REACHED popup came up during the exit and paused the game;
 the retry never fired because the door's script sees the same thing in a passing and a failing exit (border.md, #512,
 draft). Which step raises the popup is open; a door-script change that aims the move straight at the merged spot is
-next on the PC (#512, not yet run). Whether that rate holds the phase or goes on the defect list is the owner's call
+next on the PC (#512, merged, not yet run). Whether that rate holds the phase or goes on the defect list is the owner's call
 (gate 2 of the exit checklist).
 
 ### A7. Quest probe (optional, last; not a phase check)
