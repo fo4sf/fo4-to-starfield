@@ -26,8 +26,8 @@ game is the inferred writer, not a traced one), so this section uses cell names 
 
 **Which build closes the phase:** v6i, the installed build. The first route for the border fix, the world's own
 settings, did not hold up on the PC (22 Oct: the Vault 95 exit failed now and then with every setting, the unchanged
-one included), so no core rebuild comes and this session's results close phase 0. The PC's door rounds and Vault 95 runs use the game and finish
-first; the owner is told when it is free.
+one included), so no core rebuild comes and this session's results close phase 0. The PC's Vault 95 runs are done (7 of 10 and 6 of 10 exits landed, 23 Oct); the door rounds rerun after this
+session; the owner is told when the game is free.
 
 **Save to use:** the dedicated test save `fo4sf_test_1d4591b6_s100`. It predates the mission plugin, so the mission
 starts fresh; the 19 Oct save already completed it and cannot replay it.
@@ -86,8 +86,10 @@ Any time: cans and books still pick up; press Ctrl+Alt+K once and the describe b
 No wall to check north of Vault 111: that report was a misreading and is withdrawn (the owner walked past the spot
 without the popup, 22 Oct). The owner's choice stands (B, a fix for our world only, not the global INI); its first
 route, the world's own settings, did not hold up on the PC (22 Oct): the Vault 95 exit fails now and then with any
-setting, so the door's own retry is what the PC tests there next, not the owner: ten plain exits for the rate
-first, then the same ten with the retry (compiled into bridge_t5, not yet run in game).
+setting, so the PC measured it instead of the owner (23 Oct): ten plain exits landed 7 of 10, and ten with the door's own
+retry landed 6 of 10, the retry never firing (the game bounces the player back after the script has checked). Whether
+that rate holds the phase or goes on the defect list is the owner's call (gate 2 of the exit checklist); nothing for
+the owner to do at that door.
 
 ## 1. Get there
 
