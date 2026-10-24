@@ -1,4 +1,5 @@
 """Tests for Ba2.by_extension and the ba2-summary CLI."""
+import json
 import os
 import subprocess
 import sys
@@ -50,6 +51,25 @@ class TestBa2SummaryCLI(unittest.TestCase):
             self.assertIn("entries", r.stdout)
             self.assertIn(".nif=", r.stdout)
             self.assertIn("largest:", r.stdout)
+
+    def test_cli_json(self):
+        files = {"meshes\\test.nif": b"x" * 100, "textures\\test.dds": b"y" * 50}
+        raw = general_archive(files, compressed=False)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "test.ba2"
+            path.write_bytes(raw)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+            r = subprocess.run(
+                [sys.executable, "-m", "fo4sf", "ba2-summary", str(path), "--json"],
+                capture_output=True, text=True, env=env, check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            data = json.loads(r.stdout)
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["entries"], 2)
+            self.assertIn("nif", data[0]["by_extension"])
+            self.assertEqual(data[0]["by_extension"]["nif"], 1)
 
 
 if __name__ == "__main__":

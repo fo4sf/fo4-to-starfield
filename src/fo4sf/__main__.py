@@ -6,6 +6,7 @@ python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -19,6 +20,7 @@ from .manifest import ManifestError, load_manifest, summarize_manifest
 
 def cmd_ba2_summary(args: argparse.Namespace) -> int:
     """Print a planning summary for one or more BA2 archives."""
+    results = []
     for path in args.paths:
         try:
             ba2 = Ba2(path)
@@ -31,17 +33,34 @@ def cmd_ba2_summary(args: argparse.Namespace) -> int:
         s = ba2.summary()
         est = ba2.size_estimates()
         by_ext = ba2.by_extension()
-        print(f"{path}")
-        print(f"  version {s['version']} {s['kind']}: {s['entries']} entries "
-              f"({s['general']} general, {s['textures']} textures)")
-        print(f"  packed ~{est['packed_bytes']:,} B, unpacked ~{est['unpacked_bytes']:,} B")
-        if by_ext:
-            top = sorted(by_ext.items(), key=lambda kv: -kv[1])[:8]
-            print("  by extension: " + ", ".join(f".{k or '(none)'}={v}" for k, v in top))
+        item = {
+            "path": path,
+            "version": s["version"],
+            "kind": s["kind"],
+            "entries": s["entries"],
+            "general": s["general"],
+            "textures": s["textures"],
+            "packed_bytes": est["packed_bytes"],
+            "unpacked_bytes": est["unpacked_bytes"],
+            "by_extension": by_ext,
+        }
         if args.largest:
-            print("  largest:")
-            for item in ba2.largest_entries(args.largest):
-                print(f"    {item['unpacked']:>10,}  {item['name']}")
+            item["largest"] = ba2.largest_entries(args.largest)
+        results.append(item)
+        if not args.json:
+            print(f"{path}")
+            print(f"  version {s['version']} {s['kind']}: {s['entries']} entries "
+                  f"({s['general']} general, {s['textures']} textures)")
+            print(f"  packed ~{est['packed_bytes']:,} B, unpacked ~{est['unpacked_bytes']:,} B")
+            if by_ext:
+                top = sorted(by_ext.items(), key=lambda kv: -kv[1])[:8]
+                print("  by extension: " + ", ".join(f".{k or '(none)'}={v}" for k, v in top))
+            if args.largest:
+                print("  largest:")
+                for item_l in ba2.largest_entries(args.largest):
+                    print(f"    {item_l['unpacked']:>10,}  {item_l['name']}")
+    if args.json:
+        print(json.dumps(results, indent=2))
     return 0
 
 MIN_PYTHON = (3, 12)
@@ -315,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ba2.add_argument("paths", nargs="+", help="path(s) to .ba2 file(s)")
     p_ba2.add_argument("--largest", type=int, default=0, metavar="N",
                        help="also list the N largest entries by unpacked size")
+    p_ba2.add_argument("--json", action="store_true",
+                       help="output machine-readable JSON instead of text")
     p_ba2.set_defaults(func=cmd_ba2_summary)
 
     args = parser.parse_args(argv)
