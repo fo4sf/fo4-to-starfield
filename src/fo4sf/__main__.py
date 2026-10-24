@@ -19,13 +19,26 @@ MIN_PYTHON = (3, 12)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    print("fo4-to-starfield status")
+    # Git revision if available
+    try:
+        import subprocess
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+        ).strip()
+        print(f"  git: {rev}")
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass
+
     try:
         cfg = load_config(args.config)
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return 1
 
-    print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
