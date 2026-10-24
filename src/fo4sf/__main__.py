@@ -27,6 +27,21 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+
+    # Repo info when running from a checkout
+    repo = _repo_root()
+    if repo:
+        print(f"  repo root: {repo}")
+        try:
+            import subprocess
+            branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True).strip()
+            sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=repo, text=True).strip()
+            print(f"  branch: {branch} @ {sha}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("  branch: (git unavailable)")
+    else:
+        print("  repo root: (not a checkout)")
+
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
