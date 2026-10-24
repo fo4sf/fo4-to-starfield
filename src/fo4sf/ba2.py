@@ -144,6 +144,23 @@ class Ba2:
                     unpacked += up
         return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
 
+    def by_extension(self) -> dict:
+        """Count entries by file extension (case-insensitive, including the dot).
+
+        Useful for conversion planning: how many .nif, .dds, .hkx, etc. are in the archive.
+        Returns a dict mapping extension (e.g. '.nif') to count. Files with no extension are under ''.
+        """
+        from collections import Counter
+        counts = Counter()
+        for e in self.entries:
+            name = e.name.lower()
+            if '.' in name:
+                ext = '.' + name.rsplit('.', 1)[-1]
+            else:
+                ext = ''
+            counts[ext] += 1
+        return dict(sorted(counts.items()))
+
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
 
