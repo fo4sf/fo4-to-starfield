@@ -2247,3 +2247,27 @@ gate 2 measures. With J4's exits (14 of 15, the fifteenth the same Vault 95 case
 every door leg but Vault 95 out has passed, so gate 1 is ticked by its own rule.
 Phase 0 now waits only on gate 2, the per-world border switch, which the owner
 asked to see written and tested. The entries above stand as written.
+
+## 2026-10-24: Phase 0: gate 2 ticked (card B, the border switch on in game)
+
+Card A's probe (08:21 UTC) found the border setting's byte 16 before its name
+pointer, and #539 made -16 the switch's offset. On card B the owner walked with
+FO4SFBorder in Mode 2 (v6i_plainshader, the markers plugin with the border
+signal, Starfield 1.16.244) from Red Rocket west and then south past Vault 95,
+went in and out through its door, and hit no wall and no popup: "idk what
+changed but I didn't hit any walls this time". The door put them at the merged
+arrival at 16:24 UTC and they walked on with no stall. The plugin's log, as
+Install read it live, has three writes, every one ok: off and then on within a
+second on the first load at the Red Rocket spawn, and off again back in our
+world at 16:22 UTC after a trip to Cydonia, a vanilla world, where the border
+stayed on. The first load is the caveat: the map script's log went border=on,
+on, off and on within 0.8 s (each of the markers plugin's quests writing the
+signal, #542's reading), and the plugin's two writes followed the last two,
+which left the border on in our world until the trip to Cydonia and back, so a
+player who never leaves could keep it on. A walk at 15:33 UTC is void, since
+Windows' Controlled Folder Access blocked the game's saves and logs. Gate 2's
+rule was the toggle tested on the Vault 95 exit, and that is what the owner did,
+so gate 2 is ticked and with it every gate of the phase 0 exit. The flicker
+stays a defect in the switch. The phase is not called done yet: Interiors' fix
+for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
+calling it done is the owner's word. The entries above stand as written.
