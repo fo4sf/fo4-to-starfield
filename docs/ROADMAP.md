@@ -114,20 +114,20 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   16:20:59 UTC and on (0 to 1) at 16:21:00, both on the first load at the Red Rocket spawn; off (1 to 0) at 16:22:08
   back in our world. Every write ok, no refusal. In Cydonia, a vanilla world, the map script's log has border=on at
   16:21:45 and the plugin wrote nothing, the border being on already. **Caveat, the first load:** at the Red Rocket
-  spawn the map script's signal went on, off, on and on within 0.8 s and the plugin acted on two of them, so the
-  border stayed on in our world until the trip to Cydonia and back; a player who never leaves our world could keep it
-  on. An earlier walk at 15:33 UTC is void: Windows' Controlled Folder Access blocked the game's saves and the logs
-  the switch needs (the owner's screenshots from it show the wall south of Vault 95); the owner fixed it and walked
-  again. **The Vault 95 exit with the switch on** (Install's read of fo4sf.0.log, its bridge feed and LoadDoor lines,
-  through the coordinator): with the border off since 16:22:08 UTC, the owner went into Vault 95 at 16:24:13 and out
-  at 16:24:17 to 16:24:20; the door's line logged its after_position (-714.6, -1284.1, 61.3), the exit marker's local
-  position (gate 1), in cell Surface 02001133, and the feed at 16:24:24 had them at the merged arrival (-1914.6,
-  -3984.1, 61.2) and moving, with no stall and no popup; they walked on to (-2829.8, -5493.7, 170.2) by 16:25:36.
-  **Gate 2 is ticked (24 Oct)**: the toggle is tested on the Vault 95 exit, which closes the owner's call C. The
-  first-load flicker is a defect in the switch (playtest-issues.md row 39; Interiors' fix, #542, is in review), and
-  whether it holds the phase is the owner's call. With gates 0 to 3 ticked, the exit checklist is met. The phase is
-  not called done yet: Interiors' flicker fix (#542) and #512's t6 Vault 95 runs (on the owner's swap line) come
-  first, and calling it done is the owner's word.
+  spawn the map script's log has border=on, on, off and on within 0.8 s (each of the markers plugin's quests writing
+  the signal, #542's reading) and the plugin acted on two of them, so the border stayed on in our world until the trip
+  to Cydonia and back; a player who never leaves our world could keep it on. An earlier walk at 15:33 UTC is void:
+  Windows' Controlled Folder Access blocked the game's saves and the logs the switch needs (the owner's screenshots
+  from it show the wall south of Vault 95); the owner fixed it and walked again. **The Vault 95 exit with the switch
+  on** (Install's read of fo4sf.0.log, its bridge feed and LoadDoor lines, through the coordinator): with the border
+  off since 16:22:08 UTC, the owner went into Vault 95 at 16:24:13 and out at 16:24:17 to 16:24:20; the door's line
+  logged its after_position (-714.6, -1284.1, 61.3), the exit marker's local position (gate 1), in cell Surface
+  02001133, and the feed at 16:24:24 had them at the merged arrival (-1914.6, -3984.1, 61.2) and moving, with no stall
+  and no popup; they walked on to (-2829.8, -5493.7, 170.2) by 16:25:36. **Gate 2 is ticked (24 Oct)**: the toggle is
+  tested on the Vault 95 exit, which closes the owner's call C. The first-load flicker is a defect in the switch
+  (playtest-issues.md row 39; Interiors' fix, #542, is in review), and whether it holds the phase is the owner's call.
+  With gates 0 to 3 ticked, the exit checklist is met. The phase is not called done yet: Interiors' flicker fix (#542)
+  and #512's t6 Vault 95 runs (on the owner's swap line) come first, and calling it done is the owner's word.
 - [x] **Gate 3. The owner's section A checks on v6i** ([owner/in-game-test-sheet.md](owner/in-game-test-sheet.md), the
   same on the live sheet): A2 mission (tab, raiders, Preston friendly, credits, complete), A3 Codsworth (at his house,
   look, greeting), A4 map (getpos, screenshot, the four own names, the Concord arrival on the ground), A5 the six doors
