@@ -27,6 +27,26 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    print(f"  Python: {sys.version.split()[0]} ({sys.platform})")
+    # Dependency checks (offline, no side effects)
+    for mod in ("numpy", "PIL"):
+        try:
+            __import__(mod)
+            print(f"  {mod}: available")
+        except ImportError:
+            print(f"  {mod}: MISSING")
+    # Git short hash if this is a checkout
+    root = _repo_root()
+    if root:
+        try:
+            import subprocess
+            rev = subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+                text=True, stderr=subprocess.DEVNULL
+            ).strip()
+            print(f"  git: {rev}")
+        except Exception:
+            print("  git: unavailable")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
