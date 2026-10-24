@@ -11,6 +11,7 @@
 // Note: opening a plugin other than Starfield.esm needs a master flag lookup (not implemented).
 //   dotnet run -- <Starfield.esm> navm <substr|*>     NAVM count per worldspace (+ interior total)
 //   dotnet run -- <Starfield.esm> npcfind <substr>   NPC_ by EditorID or race EditorID
+//   dotnet run -- <Starfield.esm> startquests        QUST flagged StartGameEnabled (spike E: what a Fallout-only start holds off)
 //   dotnet run -- <Starfield.esm> npc <hex,hex>      all fields of NPC_ records (verifies the FormIDs exist)
 //   dotnet run -- <Starfield.esm> props <Class>      Mutagen's Starfield schema for a record class (Npc, NavmeshGeometry)
 //   dotnet run -- <Starfield.esm> doortsv            one TSV row per DOOR: graph (ANAM), rig (BNAM), clip folder (CNAM), flags
@@ -583,6 +584,15 @@ switch (args[1])
                                              || Edid(cache, n.Race.FormKey).Contains(args[2], StringComparison.OrdinalIgnoreCase))
                      .Take(int.Parse(args.Length > 3 ? args[3] : "40")))
             Console.WriteLine($"{n.FormKey}  {n.EditorID}  race={Edid(cache, n.Race.FormKey)}");
+        break;
+    case "startquests":   // read-only: QUST whose flags include StartGameEnabled (what a Fallout-only start must hold off),
+                          // read by reflection so the dump follows whatever Mutagen exposes for the flags field
+        foreach (var q in mod.Quests)
+        {
+            var flags = q.GetType().GetProperty("Data")?.GetValue(q)?.GetType().GetProperty("Flags") is { } fp
+                ? fp.GetValue(q.GetType().GetProperty("Data")!.GetValue(q))?.ToString() ?? "" : "";
+            if (flags.Contains("StartGameEnabled")) Console.WriteLine($"{q.FormKey}  {q.EditorID}  {flags}");
+        }
         break;
     case "npc":   // every property of the given NPC_ (FormIDs in hex, comma separated); links shown with EditorIDs
         foreach (var id in args[2].Split(','))
