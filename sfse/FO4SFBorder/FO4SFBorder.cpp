@@ -9,7 +9,9 @@
 //     a pointer to its name, with its value a few bytes before that pointer. Which byte is the value is not assumed:
 //     Mode=1 (probe) only watches the 32 bytes before every candidate pointer and logs every change, so typing
 //     SetINI 0 and 1 in the console shows the value's offset. Mode=2 (switch) writes the byte at ValueOffset
-//     (from the INI; -16, verified by the Mode=1 probe on the PC, 2026-10-24: docs/terrain/border.md).
+//     (from the INI text; -16, verified by the Mode=1 probe on the PC, 2026-10-24: docs/terrain/border.md).
+//     The number is parsed from the ini string. GetPrivateProfileInt returns 0 for a negative value, so it
+//     cannot carry -16.
 //   - The signal. SFSE's plugin API has no Papyrus or console bridge (PluginAPI.h, commit 48535cc: Messaging,
 //     Trampoline, Menu, Task only), so the world test is in Papyrus: FO4SF_MapMarkers writes "border=off" when the
 //     player is in one of the core's exterior cells, the generated land past them in the same world, or an interior
@@ -386,8 +388,9 @@ __declspec(dllexport) bool SFSEPlugin_Load(const SFSEInterface* sfse) {
     const std::wstring ini = base + L"\\FO4SFBorder.ini";
     g_mode = static_cast<int>(GetPrivateProfileIntW(L"FO4SFBorder", L"Mode", 0, ini.c_str()));
     if (g_mode != 1 && g_mode != 2) return true;      // the kill switch: idle, silent
-    g_value_offset = static_cast<int>(GetPrivateProfileIntW(L"FO4SFBorder", L"ValueOffset", -16, ini.c_str()));
-    if (g_value_offset >= 0 || g_value_offset < -kWatchBytes) g_value_offset = -16;
+    wchar_t offset_text[64] = {0};
+    GetPrivateProfileStringW(L"FO4SFBorder", L"ValueOffset", L"-16", offset_text, 64, ini.c_str());
+    g_value_offset = fo4sfborder::parse_value_offset(narrow(offset_text), -16, kWatchBytes);
     wchar_t path[1024] = {0};
     GetPrivateProfileStringW(L"FO4SFBorder", L"SignalLog", L"", path, 1024, ini.c_str());
     g_signal_path = path[0] ? std::wstring(path) : documents_signal_path();

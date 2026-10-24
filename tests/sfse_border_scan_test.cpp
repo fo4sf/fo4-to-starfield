@@ -43,6 +43,17 @@ int main() {
     assert(lines == "FO4SF_MAP rt=1 border=off cell=[Cell]\n" && parse_signal(lines) == 0 && carry == "FO4SF_MAP rt=2 mov");
     assert(complete_lines(carry, "ed 1\r\n") == "FO4SF_MAP rt=2 moved 1\r\n" && carry.empty());
 
+    // GetPrivateProfileInt would turn "-16" and "-8" into 0. The text parser must keep both, and reject the rest.
+    assert(parse_value_offset("-16", -16, 32) == -16);
+    assert(parse_value_offset("-8", -16, 32) == -8);
+    assert(parse_value_offset("  -16\r\n", -16, 32) == -16);
+    assert(parse_value_offset("", -16, 32) == -16);
+    assert(parse_value_offset("0", -16, 32) == -16);          // what GetPrivateProfileInt returns for "-16"
+    assert(parse_value_offset("-33", -16, 32) == -16);        // outside the 32 bytes the probe watches
+    assert(parse_value_offset("5", -16, 32) == -16);
+    assert(parse_value_offset("nope", -16, 32) == -16);
+    assert(parse_value_offset("-", -16, 32) == -16);
+
     // a region that could not be copied (data null, size 0) is skipped
     std::vector<Region> none = {{rbase, nullptr, 0, true}};
     assert(find_strings(none, kSettingName).empty() && find_pointers(none, strings).empty());

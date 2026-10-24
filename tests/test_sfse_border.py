@@ -66,8 +66,11 @@ class ContractTests(unittest.TestCase):
         ini = (PLUGIN / "FO4SFBorder.ini").read_text(encoding="utf-8")
         self.assertRegex(ini, r"(?m)^ValueOffset=-16$")
         self.assertIn("int g_value_offset = -16;", self.cpp)
-        self.assertIn('L"ValueOffset", -16,', self.cpp)
-        self.assertIn("g_value_offset < -kWatchBytes) g_value_offset = -16;", self.cpp)          # out-of-range fallback
+        # GetPrivateProfileInt returns 0 for a negative ini value, so -16 must be read as text.
+        self.assertIn('GetPrivateProfileStringW(L"FO4SFBorder", L"ValueOffset", L"-16",', self.cpp)
+        self.assertNotIn('GetPrivateProfileIntW(L"FO4SFBorder", L"ValueOffset"', self.cpp)
+        self.assertIn("parse_value_offset(narrow(offset_text), -16, kWatchBytes)", self.cpp)
+        self.assertIn("inline int parse_value_offset", self.scan)
 
     def test_game_memory_is_read_only_through_read_process_memory(self):
         # the worker has no SEH (mingw): a page freed or reprotected after VirtualQuery must fail a read, not crash

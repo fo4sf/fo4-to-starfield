@@ -7,6 +7,8 @@
 //    byte sits a few bytes before the name pointer. Which offset is the value is NOT assumed: the probe mode watches
 //    the bytes before every candidate and logs each change, so typing SetINI in the console shows it.
 // 2. parse_signal: the newest "border=off" / "border=on" token in new text from FO4SF_MapMarkers' user log.
+// 3. parse_value_offset: the signed byte offset from the ini. Windows GetPrivateProfileInt returns 0 for every
+//    negative number, so "ValueOffset=-16" cannot be read with it.
 #pragma once
 
 #include <cstddef>
@@ -89,6 +91,34 @@ inline std::string complete_lines(std::string& carry, const std::string& chunk) 
     }
     carry = all.substr(nl + 1);
     return all.substr(0, nl + 1);
+}
+
+// Signed offset of the setting's value byte, in [-watch_bytes, -1]. Anything else (blank, not an integer,
+// zero, positive, or further back than the probe watches) is `fallback`.
+//
+// Do not feed this through GetPrivateProfileInt: its return is unsigned, and a negative ini value comes back as 0
+// (Win32 docs), so ValueOffset=-16 would be thrown away and only the fallback would remain.
+inline int parse_value_offset(const std::string& text, int fallback, int watch_bytes) {
+    if (watch_bytes < 1) return fallback;
+    std::size_t a = 0, b = text.size();
+    while (a < b && (text[a] == ' ' || text[a] == '\t' || text[a] == '\r' || text[a] == '\n')) ++a;
+    while (b > a && (text[b - 1] == ' ' || text[b - 1] == '\t' || text[b - 1] == '\r' || text[b - 1] == '\n')) --b;
+    if (a >= b) return fallback;
+    int sign = 1;
+    if (text[a] == '+' || text[a] == '-') {
+        if (text[a] == '-') sign = -1;
+        ++a;
+        if (a >= b) return fallback;
+    }
+    long v = 0;
+    for (std::size_t i = a; i < b; ++i) {
+        if (text[i] < '0' || text[i] > '9') return fallback;
+        v = v * 10 + (text[i] - '0');
+        if (v > 1000000L) return fallback;
+    }
+    v *= sign;
+    if (v < -watch_bytes || v > -1) return fallback;
+    return static_cast<int>(v);
 }
 
 }  // namespace fo4sfborder
