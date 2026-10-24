@@ -1,13 +1,16 @@
 """Minimal CLI for fo4-to-starfield.
 
-python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
+python -m fo4sf status    # print config summary (including directory existence, Python version, git SHA) and optional manifest coverage
+python -m fo4sf status --json  # machine-readable JSON summary
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +21,22 @@ from .manifest import ManifestError, load_manifest, summarize_manifest
 MIN_PYTHON = (3, 12)
 
 
+def _git_rev(root: Path | None) -> str | None:
+    """Short SHA of the current checkout, or None if not a git repo or git is unavailable."""
+    if root is None:
+        return None
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        ).strip()
+        return out or None
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     try:
         cfg = load_config(args.config)
@@ -25,44 +44,113 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"config error: {e}", file=sys.stderr)
         return 1
 
-    print("fo4-to-starfield status")
-    print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    root = _repo_root()
+    py_ver = ".".join(str(n) for n in sys.version_info[:3])
+    py_ok = sys.version_info >= MIN_PYTHON
+    git_sha = _git_rev(root)
+
+    status = {
+        "python": py_ver,
+        "python_ok": py_ok,
+        "min_python": ".".join(map(str, MIN_PYTHON)),
+        "git_sha": git_sha,
+        "config": str(Path(args.config or "config.toml").resolve()),
+        "fo4_data_dirs": [],
+        "starfield_data_dir": None,
+        "paths": {},
+        "manifest": None,
+    }
+
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
-    print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
     for i, d in enumerate(data_dirs):
         if d is None:
-            print(f"    [{i}] (blank) (MISSING)")
+            status["fo4_data_dirs"].append({"index": i, "path": None, "exists": False})
             continue
-        exists = d.is_dir() if isinstance(d, Path) else Path(d).is_dir()
-        print(f"    [{i}] {d} ({'exists' if exists else 'MISSING'})")
+        p = d if isinstance(d, Path) else Path(d)
+        status["fo4_data_dirs"].append({"index": i, "path": str(p), "exists": p.is_dir()})
+
     sf = cfg.get("starfield", {})
     sf_dir = sf.get("data_dir")
     if sf_dir:
-        exists = sf_dir.is_dir() if isinstance(sf_dir, Path) else Path(sf_dir).is_dir()
-        print(f"  Starfield data dir: {sf_dir} ({'exists' if exists else 'MISSING'})")
-    else:
-        print("  Starfield data dir: missing")
+        p = sf_dir if isinstance(sf_dir, Path) else Path(sf_dir)
+        status["starfield_data_dir"] = {"path": str(p), "exists": p.is_dir()}
+
     paths = cfg.get("paths", {})
     for key in ("work_dir", "staging_dir"):
         d = paths.get(key)
         if d:
-            exists = d.is_dir() if isinstance(d, Path) else Path(d).is_dir()
-            print(f"  {key}: {d} ({'exists' if exists else 'MISSING or not created'})")
+            p = d if isinstance(d, Path) else Path(d)
+            status["paths"][key] = {"path": str(p), "exists": p.is_dir()}
+        else:
+            status["paths"][key] = None
+
+    manifest_path = None
+    if args.manifest:
+        manifest_path = Path(args.manifest)
+    else:
+        for key in ("staging_dir", "work_dir"):
+            d = paths.get(key)
+            if d:
+                cand = Path(d) / "manifest.json"
+                if cand.is_file():
+                    manifest_path = cand
+                    break
+
+    if manifest_path and manifest_path.is_file():
+        try:
+            items = load_manifest(manifest_path)
+            summary = summarize_manifest(items)
+            status["manifest"] = {
+                "path": str(manifest_path),
+                "total": summary["total"],
+                "by_type": summary.get("by_type"),
+                "by_tier": summary.get("by_tier"),
+            }
+        except ManifestError as e:
+            status["manifest"] = {"path": str(manifest_path), "error": str(e)}
+
+    if args.json:
+        print(json.dumps(status, indent=2))
+        return 0
+
+    print("fo4-to-starfield status")
+    print(f"  Python: {py_ver}" + ("" if py_ok else f" (needs {status['min_python']}+)"))
+    if git_sha:
+        print(f"  Git: {git_sha}")
+    print(f"  config: {status['config']}")
+    print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
+    for item in status["fo4_data_dirs"]:
+        mark = "exists" if item["exists"] else "MISSING"
+        path = item["path"] or "(blank)"
+        print(f"    [{item['index']}] {path} ({mark})")
+    if status["starfield_data_dir"]:
+        sd = status["starfield_data_dir"]
+        print(f"  Starfield data dir: {sd['path']} ({'exists' if sd['exists'] else 'MISSING'})")
+    else:
+        print("  Starfield data dir: missing")
+    for key, val in status["paths"].items():
+        if val:
+            print(f"  {key}: {val['path']} ({'exists' if val['exists'] else 'MISSING or not created'})")
         else:
             print(f"  {key}: missing")
 
-    if args.manifest:
-        return _print_manifest(Path(args.manifest))
-
-    # Optional auto-discovery in staging_dir or work_dir
-    for key in ("staging_dir", "work_dir"):
-        d = paths.get(key)
-        if d:
-            cand = Path(d) / "manifest.json"
-            if cand.is_file():
-                return _print_manifest(cand)
-    print("  Manifest: not found (run a conversion stage to generate one)")
+    if status["manifest"]:
+        m = status["manifest"]
+        if "error" in m:
+            print(f"  Manifest: {m['path']} (error: {m['error']})", file=sys.stderr)
+            return 1
+        print(f"\n  Manifest: {m['path']} ({m['total']} items)")
+        if m.get("by_type"):
+            print("  By type:")
+            for k, v in sorted(m["by_type"].items()):
+                print(f"    {k}: {v}")
+        if m.get("by_tier"):
+            print("  By fidelity tier:")
+            for k, v in sorted(m["by_tier"].items()):
+                print(f"    {k}: {v}")
+    else:
+        print("  Manifest: not found (run a conversion stage to generate one)")
     return 0
 
 
@@ -277,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="show configuration summary (with dir existence), and manifest coverage")
     p_status.add_argument("--manifest", help="explicit path to manifest.json")
+    p_status.add_argument("--json", action="store_true", help="emit a machine-readable JSON summary instead of text")
     p_status.set_defaults(func=cmd_status)
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
