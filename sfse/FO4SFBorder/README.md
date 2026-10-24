@@ -27,7 +27,7 @@ memory; `tests/test_sfse_border.py` also pins the contract with the script's log
   whenever they change (`changed` lines). Never writes game memory. Typing `SetINI "bBorderRegionsEnabled:General" 0`
   then `1` in the console shows the value's offset.
 - `Mode=2` switch: on each new `border=off` / `border=on` in the signal log, queues a one-byte write at
-  `ValueOffset` (default -8, unverified) through SFSE's Task interface. Refuses (`refuse` line) unless exactly one
+  `ValueOffset` (default -16, verified by the probe on 1.16.244) through SFSE's Task interface. Refuses (`refuse` line) unless exactly one
   candidate is found and the byte reads 0 or 1.
 
 `SignalLog` overrides the log path (default `Documents\My Games\Starfield\Logs\Script\User\fo4sf_map.0.log`). Lines
