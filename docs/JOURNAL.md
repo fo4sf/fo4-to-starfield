@@ -2271,3 +2271,17 @@ so gate 2 is ticked and with it every gate of the phase 0 exit. The flicker
 stays a defect in the switch. The phase is not called done yet: Interiors' fix
 for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
 calling it done is the owner's word. The entries above stand as written.
+
+## 2026-10-24: Phase 0 done (the owner's word)
+
+Interiors' first-load fix (#542) merged and was installed on the PC at 17:20
+UTC on the owner's line. At 18:45 UTC the owner loaded fresh at the Red Rocket
+spawn, walked west and south past Vault 95, and reported "no walls"; Install's
+log read agrees: the border switched off once at Red Rocket, came back on only
+in Cydonia, and switched off again on return. At 18:58 UTC the owner said
+"phase 0 is done", with all four exit gates ticked; #512's t6 runs did not run
+and no longer hold anything. For the next phase the owner named the map icons
+that don't load as the real map issue, possibly a map mod, and likely FO4's map
+locations on the Pip-Boy. Also next phase: the owner's Steam Fallout 4 is the
+newer update, not 1.10.163, so the launcher's version check needs it added. The
+entries above stand as written.
