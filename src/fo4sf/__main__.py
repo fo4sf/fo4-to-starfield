@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,24 @@ from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
 MIN_PYTHON = (3, 12)
+VERSION = "0.1.0"  # tooling version; bump on notable CLI changes
+
+
+def _git_short_rev() -> str | None:
+    """Short git revision of this checkout, or None if not a git repo or git unavailable."""
+    root = _repo_root()
+    if not root:
+        return None
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out or None
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -26,6 +45,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
     print("fo4-to-starfield status")
+    print(f"  version: {VERSION}")
+    rev = _git_short_rev()
+    if rev:
+        print(f"  git: {rev}")
+    print(f"  python: {'.'.join(str(n) for n in sys.version_info[:3])}")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
@@ -270,6 +294,15 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_version(_args: argparse.Namespace) -> int:
+    print(f"fo4-to-starfield {VERSION}")
+    rev = _git_short_rev()
+    if rev:
+        print(f"git {rev}")
+    print(f"python {'.'.join(str(n) for n in sys.version_info[:3])}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +314,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_version = sub.add_parser("version", help="print tooling version, git revision and Python version")
+    p_version.set_defaults(func=cmd_version)
 
     args = parser.parse_args(argv)
     return args.func(args)
