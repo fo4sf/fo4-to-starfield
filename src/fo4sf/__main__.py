@@ -12,6 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .ba2 import Ba2, Ba2Error
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
@@ -270,6 +271,33 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_ba2_summary(args: argparse.Namespace) -> int:
+    """Print a short summary of a BA2 archive for conversion planning."""
+    try:
+        a = Ba2(args.archive)
+    except (Ba2Error, OSError) as e:
+        print(f"ba2 error: {e}", file=sys.stderr)
+        return 1
+    print(f"BA2 summary: {args.archive}")
+    print(f"  version: {a.version}  kind: {a.kind}")
+    s = a.summary()
+    print(f"  entries: {s['entries']}  (general {s['general']}, textures {s['textures']})")
+    sizes = a.size_estimates()
+    print(f"  packed: {sizes['packed_bytes']:,} bytes  unpacked: {sizes['unpacked_bytes']:,} bytes")
+    exts = a.by_extension()
+    if exts:
+        print("  by extension:")
+        for ext, n in list(exts.items())[:12]:
+            print(f"    .{ext}: {n}")
+        if len(exts) > 12:
+            print(f"    ... and {len(exts) - 12} more")
+    if args.largest:
+        print(f"  largest {args.largest}:")
+        for item in a.largest_entries(args.largest):
+            print(f"    {item['name']}  {item['kind']}  unpacked={item['unpacked']:,} packed={item['packed']:,}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +309,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_ba2 = sub.add_parser("ba2-summary", help="summarize a BA2 archive (version, counts, sizes, extensions)")
+    p_ba2.add_argument("archive", help="path to a .ba2 file")
+    p_ba2.add_argument("--largest", type=int, default=0, help="also list the N largest entries by unpacked size")
+    p_ba2.set_defaults(func=cmd_ba2_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)

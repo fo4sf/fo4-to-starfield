@@ -144,6 +144,23 @@ class Ba2:
                     unpacked += up
         return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
 
+    def by_extension(self) -> dict:
+        """Count entries by file extension (case-insensitive, no leading dot).
+
+        Useful for conversion planning: see how many .nif, .dds, .hkx, etc. without extracting.
+        Empty extension is reported as "(none)".
+        """
+        from collections import Counter
+        counts = Counter()
+        for e in self.entries:
+            name = e.name
+            if "." in name:
+                ext = name.rsplit(".", 1)[-1].lower()
+            else:
+                ext = "(none)"
+            counts[ext] += 1
+        return dict(counts.most_common())
+
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
 
