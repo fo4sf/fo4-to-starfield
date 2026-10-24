@@ -171,6 +171,20 @@ class Ba2:
             for e in ranked
         ]
 
+    def by_extension(self) -> dict:
+        """Count entries by file extension (basename only, case-insensitive, mixed separators).
+
+        Useful for conversion planning: how many .nif meshes, .dds textures, etc. are in the archive.
+        Returns a dict of extension -> count, sorted by count descending (stable for ties).
+        """
+        from collections import Counter
+        counts = Counter()
+        for e in self.entries:
+            base = e.name.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+            ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+            counts[ext] += 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
     @staticmethod
     def _norm(n: str) -> str:
         return n.replace("/", "\\").lower().lstrip("\\")

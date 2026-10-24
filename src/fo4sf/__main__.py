@@ -270,6 +270,53 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_ba2_summary(args: argparse.Namespace) -> int:
+    """Print a summary of one or more BA2 archives: counts, sizes, extensions."""
+    from .ba2 import Ba2, Ba2Error
+    import json
+
+    if not args.paths:
+        print("error: at least one BA2 path required", file=sys.stderr)
+        return 1
+
+    results = []
+    for path in args.paths:
+        try:
+            a = Ba2(path)
+            summ = a.summary()
+            sizes = a.size_estimates()
+            exts = a.by_extension()
+            item = {
+                "summary": summ,
+                "sizes": sizes,
+                "top_extensions": dict(list(exts.items())[:10]),
+            }
+            if args.largest:
+                item["largest"] = a.largest_entries(args.largest)
+            results.append(item)
+        except (OSError, Ba2Error) as e:
+            print(f"error reading {path}: {e}", file=sys.stderr)
+            return 1
+
+    if args.json:
+        print(json.dumps(results if len(results) > 1 else results[0], indent=2))
+    else:
+        for item in results:
+            s = item["summary"]
+            sz = item["sizes"]
+            print(f"{s['path']}: v{s['version']} {s['kind']}  {s['entries']} entries "
+                  f"(packed ~{sz['packed_bytes']:,} B, unpacked ~{sz['unpacked_bytes']:,} B)")
+            top = item["top_extensions"]
+            if top:
+                print("  extensions: " + ", ".join(f"{k}:{v}" for k, v in top.items()))
+            if "largest" in item:
+                print("  largest:")
+                for e in item["largest"]:
+                    print(f"    {e['unpacked']:,} B  {e['name']}")
+            print()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +328,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_ba2 = sub.add_parser("ba2-summary", help="summarize one or more BA2 archives (offline, no extraction)")
+    p_ba2.add_argument("paths", nargs="+", help="BA2 file paths")
+    p_ba2.add_argument("--largest", type=int, default=0, help="also list N largest entries by unpacked size")
+    p_ba2.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    p_ba2.set_defaults(func=cmd_ba2_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
