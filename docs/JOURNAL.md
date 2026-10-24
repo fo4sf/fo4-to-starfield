@@ -2234,3 +2234,16 @@ card A pre-staged, not yet run or tested on the PC; and world-and-planet.md no
 longer calls exp3 verified, since this journal (11 to 12 Oct) found it confounded
 by the border and asked for a hop re-run that has not run. The entries above stand
 as written.
+
+## 2026-10-24: Phase 0: gate 1 ticked (card J5)
+
+Card J5 reran all 30 round-trip door legs on v6i with #530's console fix (runner
+at main 2eede55d, tag v6id; the run ended at 01:19 UTC). 29 of 30 passed, none
+failed and nothing crashed; the four legs J4 could not start (Parsons and Fort
+Hagen 02 in from the Red Rocket spawn, Museum out, Prydwen out) all passed, and
+the runner never failed to open the console. The one leg that did not pass is
+Vault 95 out, whose feed stopped after the door trip began: the border popup that
+gate 2 measures. With J4's exits (14 of 15, the fifteenth the same Vault 95 case),
+every door leg but Vault 95 out has passed, so gate 1 is ticked by its own rule.
+Phase 0 now waits only on gate 2, the per-world border switch, which the owner
+asked to see written and tested. The entries above stand as written.
