@@ -33,6 +33,8 @@ or manifest is an unreadable report, not a traceback.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
+Example: python scripts/oracles/collision_bounds.py tests/fixtures/box.nif --scale 1.0
+       python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
 (one or the other, not both)
 """
 import argparse
