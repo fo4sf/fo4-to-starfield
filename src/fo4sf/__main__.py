@@ -27,6 +27,19 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    # Diagnostic env for reports (offline)
+    import subprocess
+    try:
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_repo_root() or Path.cwd(),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        print(f"  git revision: {rev}")
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        print("  git revision: unavailable")
+    print(f"  python: {sys.version.split()[0]}")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
