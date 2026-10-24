@@ -102,5 +102,37 @@ class CollisionTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<i", g.blocks[0], 8 + 4 + 8 + 52)[0], -1)
 
 
+class LeafClampTests(unittest.TestCase):
+    """Offline reproduction of the Red Rocket 0.02 leaf-clamp (issue #458 task 1).
+
+    A synthetic static whose collision half-extent is below MIN_LEAF_HALF must
+    be floored to 0.05, and the IEEE bits of the old 0.02 value (0x3ca3d70a)
+    must never appear in the written Havok blob.
+    """
+
+    def test_small_half_extent_is_floored_and_old_bits_absent(self):
+        # half-extents that would have been 0.02 before the #455 fix
+        raw_half = (0.02, 0.01, 0.03)
+        floored = tuple(max(sfcollision.MIN_LEAF_HALF, abs(v)) for v in raw_half)
+        blob = sfcollision.box_blob(fake_template(), (0.0, 0.0, 0.0), floored)
+
+        # the exact bit pattern every Red Rocket crash dump read as an index
+        bad_bits = struct.pack("<f", 0.02)
+        self.assertNotIn(bad_bits, blob)
+
+        # the written box must report the floor, not the raw small value
+        _, h = sfcollision.read_box(blob)
+        for got in h:
+            self.assertAlmostEqual(got, sfcollision.MIN_LEAF_HALF, places=5)
+            self.assertGreater(got, 0.02)
+
+        # the constant itself is the post-fix value
+        self.assertEqual(sfcollision.MIN_LEAF_HALF, 0.05)
+
+        # also confirm the 0.05 bits are present
+        good_bits = struct.pack("<f", 0.05)
+        self.assertIn(good_bits, blob)
+
+
 if __name__ == "__main__":
     unittest.main()
