@@ -1,4 +1,5 @@
 """Synthetic tests for Ba2.by_extension."""
+import sys
 import os
 import tempfile
 import unittest
@@ -46,3 +47,23 @@ class ByExtensionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Ba2SummaryCLITests(unittest.TestCase):
+    def test_cli_text_output(self):
+        entries = {"meshes/a.nif": b"x" * 50, "textures/b.dds": b"y" * 100}
+        data = general_archive(entries)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cli.ba2")
+            with open(path, "wb") as f:
+                f.write(data)
+            import subprocess
+            r = subprocess.run(
+                [sys.executable, "-m", "fo4sf", "ba2-summary", path],
+                capture_output=True, text=True,
+                env={**os.environ, "PYTHONPATH": "src"},
+                cwd=os.path.dirname(os.path.dirname(__file__)) or "."
+            )
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("nif:1", r.stdout)
+            self.assertIn("dds:1", r.stdout)
