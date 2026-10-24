@@ -537,7 +537,7 @@ class ProbePointTests(unittest.TestCase):
     def test_floor_pieces_by_file_name_not_folder(self):
         import subprocess
         d = tempfile.mkdtemp()
-        kit = "Interiors\Building\Deco\Small_FloorCeilKit\\"
+        kit = "Interiors\\Building\\Deco\\Small_FloorCeilKit\\"
         refs = [{"type": "Static", "model": kit + name, "pos": [70.0 * k * 5, 0.0, 0.0]} for k, name in
                 enumerate(["BldDecoSmCeilOnly03.nif", "BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif",
                            "SubPlatformWall03.nif", "BldWoodPSmStairsHalfTiny03.nif"])]
@@ -1031,7 +1031,7 @@ class NumericReadTests(unittest.TestCase):
     def test_offsets_only_from_numeric_reads(self):
         # 2026-10-11 World03: a failed spawn read "fail console 3" produced the offset (0, 0, -7)
         src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
-        self.assertEqual(src.count("-match '^\s*-?\d+"), 3)
+        self.assertEqual(src.count(r"-match '^\s*-?\d+"), 3)
 
 
 class ZRefTests(unittest.TestCase):
@@ -1215,7 +1215,7 @@ class BridgeQueueTests(unittest.TestCase):
             extra = tq.apply_bridge(tests, SimpleNamespace(bridge=d))
             self.assertTrue(all(t["bridge_reads"] for t in tests))
             self.assertEqual(extra["bridge"]["plugin"], "FO4SFBridge.esm")
-            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\Scripts\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
+            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\\Scripts\\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
                              if os.sep == "\\" else ["Data/Scripts/FO4SF_Bridge.pex", "FO4SFBridge.esm"])
             self.assertIn("bridge", tq.runner_features.needs(tests))
             self.assertIsNone(tq.bridge_mismatch(extra["bridge"]))
