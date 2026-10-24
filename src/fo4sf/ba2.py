@@ -171,6 +171,42 @@ class Ba2:
             for e in ranked
         ]
 
+    def diagnostics(self) -> dict:
+        """Return potential conversion-planning issues found in the index (offline, no payload read).
+
+        Flags empty names (already rejected on init), zero-size entries, very large single entries
+        that could dominate conversion time or RAM, duplicate normalized names, and unsupported
+        texture compression.
+        """
+        issues = []
+        zero_size = 0
+        large = []          # unpacked > 50 MiB
+        names_norm = []
+        for e in self.entries:
+            u = e.unpacked if e.kind == "GNRL" else sum(c[2] for c in (e.chunks or []))
+            if u == 0:
+                zero_size += 1
+            if u > 50 * 1024 * 1024:
+                large.append({"name": e.name, "unpacked": u})
+            names_norm.append(self._norm(e.name))
+        from collections import Counter
+        dups = [n for n, c in Counter(names_norm).items() if c > 1]
+        if zero_size:
+            issues.append(f"{zero_size} zero-size entries")
+        if large:
+            issues.append(f"{len(large)} entries larger than 50 MiB")
+        if dups:
+            issues.append(f"{len(dups)} duplicate normalized names")
+        if self.version == 3 and self.compression == 3:
+            issues.append("LZ4-compressed textures (v3) are not supported by the reader")
+        return {
+            "issues": issues,
+            "zero_size_entries": zero_size,
+            "large_entries": large[:5],   # top 5 only
+            "duplicate_names": dups[:5],
+            "unsupported_compression": self.version == 3 and self.compression == 3,
+        }
+
     @staticmethod
     def _norm(n: str) -> str:
         return n.replace("/", "\\").lower().lstrip("\\")
