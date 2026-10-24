@@ -67,6 +67,7 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(ini, r"(?m)^ValueOffset=-16$")
         self.assertIn("int g_value_offset = -16;", self.cpp)
         self.assertIn('L"ValueOffset", -16,', self.cpp)
+        self.assertIn("g_value_offset < -kWatchBytes) g_value_offset = -16;", self.cpp)          # out-of-range fallback
 
     def test_game_memory_is_read_only_through_read_process_memory(self):
         # the worker has no SEH (mingw): a page freed or reprotected after VirtualQuery must fail a read, not crash
