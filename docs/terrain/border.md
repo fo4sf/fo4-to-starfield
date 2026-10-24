@@ -155,7 +155,7 @@ no walls ("L because the full vison"), so the border must be off in our world an
 - **verified** (PC, 2026-10-24, Card B step 4, Mode=2): the owner walked W and S from Red Rocket and out of Vault 95
   with no popup ("I didn't hit any walls this time"). Every write was ok (1 -> 0 off, 0 -> 1 on in Cydonia, 1 -> 0 back
   in our world); no `refuse` line.
-- **Fixed after that run:** on the first load the map log flickered on/off/on/on within 0.8 s. Every quest of the
+- **Fixed after that run:** on the first load the map log flickered on/on/off/on within 0.8 s. Every quest of the
   markers plugin runs `FO4SF_MapMarkers`, and only the first quest's `Markers[0]` is a core marker (the later quests
   hold the plugin's own extra and landing records), so the later quests read the plugin's index as the core's and wrote
   `border=on`. The owner was fine because the state settled after a trip to Cydonia; a player who never left could have
