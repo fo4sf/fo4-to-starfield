@@ -152,6 +152,16 @@ no walls ("L because the full vison"), so the border must be off in our world an
   plugin's log shows the byte that changed. Card B sets that offset and `Mode=2`, then the Vault 95 exit and a walk at
   the west edge.
 - The plugin refuses to write unless exactly one candidate setting is found and its byte reads 0 or 1.
+- **verified** (PC, 2026-10-24, Card B step 4, Mode=2): the owner walked W and S from Red Rocket and out of Vault 95
+  with no popup ("I didn't hit any walls this time"). Every write was ok: off (1 -> 0) at 16:20:59Z and on (0 -> 1) at
+  16:21:00Z, both at Red Rocket on the first load (the flicker below), then off (1 -> 0) at 16:22:08Z back in our
+  world. In Cydonia (16:21:45Z) the map log said `border=on` and the plugin wrote nothing, as the byte was already 1.
+  No `refuse` line.
+- **Fixed after that run:** on the first load the map log flickered on/on/off/on within 0.8 s. Every quest of the
+  markers plugin runs `FO4SF_MapMarkers`, and only the first quest's `Markers[0]` is a core marker (the later quests
+  hold the plugin's own extra and landing records), so the later quests read the plugin's index as the core's and wrote
+  `border=on`. The owner was fine because the state settled after a trip to Cydonia; a player who never left could have
+  kept the border on. Now only the first quest (0x800) writes the signal.
 - **Check for card B (Planet research T1):** on foot from Red Rocket, due west and then south (not through the Vault
   95 door), `player.getpos x` and `player.getpos y` at each popup, once with the switch off (Mode=0) and once on.
   The off run says where the fence is; the on run says whether the switch removes it.
