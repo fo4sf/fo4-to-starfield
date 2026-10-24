@@ -171,6 +171,22 @@ class Ba2:
             for e in ranked
         ]
 
+    def by_extension(self) -> dict:
+        """Count entries by file extension (basename only, case-insensitive, handles mixed separators).
+
+        Useful for conversion planning: how many .nif, .dds, .bgsm, etc. without a second walk.
+        """
+        from collections import Counter
+        c = Counter()
+        for e in self.entries:
+            base = e.name.replace("/", "\\").rsplit("\\", 1)[-1]
+            if "." in base:
+                ext = base.rsplit(".", 1)[-1].lower()
+            else:
+                ext = ""
+            c[ext] += 1
+        return dict(c)
+
     @staticmethod
     def _norm(n: str) -> str:
         return n.replace("/", "\\").lower().lstrip("\\")
