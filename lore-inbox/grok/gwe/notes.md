@@ -1,23 +1,32 @@
 # gwe second-read notes (Grok, session 01a14976)
 
-Packet: issue 32 comment 6387271188. Claim 6387328704. Second-read of east game worlds batch `gwe`, limited to **MA (41), ME (12), DC (7)** in that order.
+Packet: issue 32 comment 6387271188 (MA/ME/DC) then keep-working continuation of the rest of batch `gwe`. Claim 6387328704.
 
-MA done; ME done; DC done.
+MA done; ME done; DC done; MD done; PA done; VA done; NJ done; OH done; TN done; coast/None done; WV done.
+
+Whole 170-entry `gwe` second-read is complete.
 
 ## Scope
 
-- Input (read-only): `research/lore-inbox/store/data/entries/gwe.jsonl` (170 entries, all `unchecked`).
+- Input (read-only): `research/lore-inbox/store/data/entries/gwe.jsonl` (170 entries, all `unchecked` at start).
 - Marker file (read-only): `D:\Modding\scratch\mapmarkers\cw_markers.json` (Fallout4.esm / Commonwealth, 310 named markers).
-- Output: this folder. Fold-in replaces `gwe.jsonl`, so this file holds the **whole** 170-entry batch. WV/PA/MD/OH/VA/NJ/TN/None (110 entries) are byte-for-byte the same claims with `check` still `unchecked`.
-- No ids changed. No entries dropped. `label` stays `as-reported` (wiki pages, primary in-game text not opened in CK). Existing lead rulings kept.
+- Output: this folder. Fold-in replaces `gwe.jsonl`, so this file holds the **whole** 170-entry batch.
+- No ids changed. No entries dropped. `label` stays `as-reported` (wiki pages as pointers to game/dev/guide quotes; primary in-game text not opened in CK). Existing lead rulings kept. Wiki is never `source_kind` `fan`.
 
 ## Second-read method
 
-Opened fallout.wiki raw for: The_Commonwealth, Boston, Fallout_4 (Story / Pre-Production), Nuka-World_(location), Nuka-World_(add-on), Bradberton, The_Island, Far_Harbor_(add-on), Far_Harbor_(location), Capital_Wasteland. Claims match infoboxes, loading-screen quotes, Ada, Switchboard DEFCON, Nuka-World park dates, Far Harbor Bar Harbor / fog / Acadia observatory / Nucleus sub base, Capital Wasteland FO3 2277 / Rivet City carrier / Burgess GDC / cut downtown 26 to 12, Wayward patron line.
+Opened fallout.wiki raw for: The_Commonwealth, Boston, Fallout_4 (Story / Pre-Production), Nuka-World_(location), Nuka-World_(add-on), Bradberton, The_Island, Far_Harbor_(add-on), Far_Harbor_(location), Capital_Wasteland, Point_Lookout_(DLC), Point_Lookout_(location), The_Pitt_(DLC), Atlantic_City, Burning_Springs_(Location), Skyline_Valley_(region), Appalachia.
 
 Confirmed as written: `check=checked`, `check_note=null`.
 Added in-game pos from a named Commonwealth map marker: `check=corrected`, `check_note` names the marker and FormID.
 Unsupported: none dropped.
+
+## Counts
+
+- 19 corrected (Commonwealth `pos` from `cw_markers.json`).
+- 151 checked (no named Commonwealth pin, or not a FO4 Commonwealth place).
+- 0 still `unchecked`.
+- 0 dropped.
 
 ## Corrected (pos added) — 19
 
@@ -41,27 +50,32 @@ Unsupported: none dropped.
 - `GW-0031` Lexington FormID 00024F9C x=-33029.695 y=41006.22
 - `GW-0032` Malden Center FormID 0002C561 x=14824.555 y=58814.344
 
-## Checked (confirmed, no pos) — 41
+## Why the rest have no FO4 Commonwealth pos
 
-`GW-0001`, `GW-0002`, `GW-0003`, `GW-0004`, `GW-0005`, `GW-0006`, `GW-0007`, `GW-0008`, `GW-0010`, `GW-0018`, `GW-0020`, `GW-0023`, `GW-0029`, `GW-0033`, `GW-0034`, `GW-0035`, `GW-0036`, `GW-0037`, `GW-0038`, `GW-0039`, `GW-0040`, `GW-0041`, `GW-0042`, `GW-0043`, `GW-0044`, `GW-0045`, `GW-0046`, `GW-0047`, `GW-0048`, `GW-0049`, `GW-0050`, `GW-0051`, `GW-0052`, `GW-0053`, `GW-0054`, `GW-0055`, `GW-0056`, `GW-0057`, `GW-0058`, `GW-0063`, `GW-0170`
-
-## Why those have no pos
-
-- Regions / whole-map: GW-0001 Commonwealth, GW-0004 Boston, GW-0007 Glowing Sea (Edge of the Glowing Sea 0015E9A7 and Crater of Atom 000ADD89 exist; the claims are the region, not one pin).
-- No named Commonwealth marker: GW-0010 Diamond City / Fenway Park (310 named markers, none named Diamond City or Fenway), GW-0018 Paul Revere Monument (Paul Revere House 001A5B68 is a different place), GW-0020 Freedom Trail, GW-0029 Nahant town (Nahant Oceanological Society / Chapel / Wharf / Sheriff only), GW-0023 Lake Quannapowitt (terminal at Nahant Oceanological Society; the claim is the lake).
-- Other worldspaces: GW-0036..0040 Nuka-World / Bradberton; GW-0041..0052 The Island / Far Harbor / Acadia / Nucleus (Far Harbor worldspace). Nakano Residence is off the Commonwealth map edge and is not in cw_markers.json.
-- DC / FO3: GW-0053..0058, GW-0063 Capital Wasteland (no FO4 Commonwealth pos).
-- Zone write-ups without a single town pin: GW-0008 Glowing Sea guide, GW-0033 Western Commonwealth, GW-0034 Coastal Commonwealth, GW-0035 Southern Commonwealth.
-- Design / quote entries with no one map pin: GW-0002 Emil 2009, GW-0003 FO4 dates, GW-0005 Ada Boston hit, GW-0006 Switchboard DEFCON, GW-0170 Making of Fallout 4 Boston photos.
+- Regions / whole-map: GW-0001 Commonwealth, GW-0004 Boston, GW-0007 Glowing Sea.
+- No named Commonwealth marker: GW-0010 Diamond City / Fenway, GW-0018 Paul Revere Monument, GW-0020 Freedom Trail, GW-0029 Nahant town, GW-0023 Lake Quannapowitt.
+- Other worldspaces: Nuka-World, Far Harbor / The Island, Point Lookout, The Pitt, Appalachia / Skyline Valley / Burning Springs / Atlantic City.
+- DC / FO3 Capital Wasteland.
+- Zone / quote / design entries without one map pin.
 
 ## Rulings left as written
 
-- GW-0002 Emil 2009 (tier 2 adopt): FO4 later set the Commonwealth in Massachusetts.
-- GW-0008 / GW-0031..0035 guide zones (tier 2 adopt): map layout matches.
-- GW-0014 State House 1969 Thirteen Commonwealths (tier 2 hold): year still only in the guide; US batch owns that check.
-- GW-0057 Burgess GDC 2011 (tier 2 adopt): design statement; released map matches.
-- GW-0058 cut downtown 26 to 12 (tier 3 hold): inspiration only, not adopted as fact.
-- GW-0170 Making of Fallout 4 (tier 2 adopt): design statement.
+- GW-0002 Emil 2009 (tier 2 adopt).
+- GW-0008 / GW-0031..0035 guide zones (tier 2 adopt).
+- GW-0014 State House 1969 Thirteen Commonwealths (tier 2 hold).
+- GW-0057 Burgess GDC 2011 (tier 2 adopt).
+- GW-0058 cut downtown 26 to 12 (tier 3 hold).
+- GW-0065 / GW-0071 Gardiner Point Lookout (tier 2 adopt).
+- GW-0078 / GW-0079 Pitt radiation / Trogs (tier 2 adopt).
+- GW-0081 guide dates the Scourge to 2042 (tier 2 **reject**; contradicts GW-0080 ~2247). Confirmed, not reopened.
+- GW-0089 / GW-0090 Baudoin Appalachia nukes (tier 2 adopt).
+- GW-0096 / GW-0098 / GW-0100 / GW-0120 / GW-0123 / GW-0124 / GW-0129..0132 / GW-0135 FO76 guide (tier 2 adopt).
+- GW-0104 Massey Bramwell (tier 2 adopt).
+- GW-0122 Massey / Purkeypile Whitespring (tier 2 adopt).
+- GW-0148 Purkeypile Cranberry Bog (tier 2 adopt).
+- GW-0156 McKevitt Chattanooga (tier 2 adopt).
+- GW-0169 Massey next Expeditions city (tier 2 adopt).
+- GW-0170 Making of Fallout 4 (tier 2 adopt).
 
 ## Dropped ids
 
@@ -69,6 +83,10 @@ None.
 
 ## Validate
 
-From `research/lore-inbox/store`: `python tools/lore.py validate <this-folder>/verified-1.jsonl`.
+`python tools/lore.py validate` on this `verified-1.jsonl`: 0 problems.
 
 Did not touch `queue-todo.tsv` (599 pages). Did not write `store/data/`. Did not run plan.ps1. Did not write game Data.
+
+## Delivery
+
+Draft PR https://github.com/fo4sf/fo4-to-starfield/pull/544 (first commit 5f16e7ef MA/ME/DC; this folder is the fold-in copy). #32 recap 6387402578 for the first slice.
