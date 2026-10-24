@@ -27,6 +27,22 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    version = ".".join(str(n) for n in sys.version_info[:3])
+    print(f"  Python: {version} ({sys.executable})")
+    # Short git revision if running from a checkout
+    repo = _repo_root()
+    if repo:
+        try:
+            import subprocess
+            rev = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL, text=True
+            ).strip()
+            print(f"  Git revision: {rev}")
+        except Exception:
+            print("  Git revision: unavailable")
+    else:
+        print("  Git revision: not a checkout")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
