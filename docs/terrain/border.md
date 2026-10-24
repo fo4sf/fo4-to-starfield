@@ -144,9 +144,13 @@ no walls ("L because the full vison"), so the border must be off in our world an
 - **The switch** is `sfse/FO4SFBorder` (README there). It finds the setting `bBorderRegionsEnabled:General` by its
   name in Starfield.exe's memory, tails that log, and writes the setting's value byte on the main thread (SFSE Task
   interface). "on" restores the value it found. Kill switch: `Mode=0` in FO4SFBorder.ini (the default) writes nothing.
-- **Unverified until the PC probe:** which byte is the value. Card A runs `Mode=1` (watch only): the owner types
-  `SetINI "bBorderRegionsEnabled:General" 0` and then `1` (the command run _f used), and the plugin's log shows the
-  byte that changed. Card B sets that offset and `Mode=2`, then the Vault 95 exit and a walk at the west edge.
+- **verified** (PC, 2026-10-24, Card A, Mode=1, runtime 1.16.244): the probe found exactly 1 candidate (1 name
+  string, 131 regions), and the byte 16 before the name pointer went 1 -> 0 on `SetINI ... 0` (08:21:06Z) and back
+  to 1 on `SetINI ... 1` (08:21:30Z); nothing else changed. The byte at -8 also reads 1 and did not move (probably the
+  default). So `ValueOffset=-16`, now the ini's and the code's default. How it was found: Card A runs `Mode=1` (watch
+  only), the owner types `SetINI "bBorderRegionsEnabled:General" 0` and then `1` (the command run _f used), and the
+  plugin's log shows the byte that changed. Card B sets that offset and `Mode=2`, then the Vault 95 exit and a walk at
+  the west edge.
 - The plugin refuses to write unless exactly one candidate setting is found and its byte reads 0 or 1.
 - **Check for card B (Planet research T1):** on foot from Red Rocket, due west and then south (not through the Vault
   95 door), `player.getpos x` and `player.getpos y` at each popup, once with the switch off (Mode=0) and once on.

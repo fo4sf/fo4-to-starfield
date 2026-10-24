@@ -61,6 +61,13 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(ini, r"(?m)^Mode=0$")
         self.assertIn("kStructureIndependence_1_14_70_Layout", self.cpp)
 
+    def test_the_value_offset_is_the_one_the_probe_found(self):
+        # Card A on the PC (2026-10-24): the byte 16 before the name pointer followed SetINI 0 and 1 (border.md)
+        ini = (PLUGIN / "FO4SFBorder.ini").read_text(encoding="utf-8")
+        self.assertRegex(ini, r"(?m)^ValueOffset=-16$")
+        self.assertIn("int g_value_offset = -16;", self.cpp)
+        self.assertIn('L"ValueOffset", -16,', self.cpp)
+
     def test_game_memory_is_read_only_through_read_process_memory(self):
         # the worker has no SEH (mingw): a page freed or reprotected after VirtualQuery must fail a read, not crash
         # the game (Grok on #522). Regions carry no live pointer, and no code dereferences the value byte.
