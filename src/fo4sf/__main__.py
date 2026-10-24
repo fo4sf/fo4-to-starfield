@@ -12,8 +12,37 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .ba2 import Ba2, Ba2Error
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+
+
+def cmd_ba2_summary(args: argparse.Namespace) -> int:
+    """Print a planning summary for one or more BA2 archives."""
+    for path in args.paths:
+        try:
+            ba2 = Ba2(path)
+        except Ba2Error as e:
+            print(f"{path}: {e}", file=sys.stderr)
+            continue
+        except OSError as e:
+            print(f"{path}: {e}", file=sys.stderr)
+            continue
+        s = ba2.summary()
+        est = ba2.size_estimates()
+        by_ext = ba2.by_extension()
+        print(f"{path}")
+        print(f"  version {s['version']} {s['kind']}: {s['entries']} entries "
+              f"({s['general']} general, {s['textures']} textures)")
+        print(f"  packed ~{est['packed_bytes']:,} B, unpacked ~{est['unpacked_bytes']:,} B")
+        if by_ext:
+            top = sorted(by_ext.items(), key=lambda kv: -kv[1])[:8]
+            print("  by extension: " + ", ".join(f".{k or '(none)'}={v}" for k, v in top))
+        if args.largest:
+            print("  largest:")
+            for item in ba2.largest_entries(args.largest):
+                print(f"    {item['unpacked']:>10,}  {item['name']}")
+    return 0
 
 MIN_PYTHON = (3, 12)
 
@@ -281,6 +310,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_ba2 = sub.add_parser("ba2-summary", help="print a planning summary of one or more BA2 archives")
+    p_ba2.add_argument("paths", nargs="+", help="path(s) to .ba2 file(s)")
+    p_ba2.add_argument("--largest", type=int, default=0, metavar="N",
+                       help="also list the N largest entries by unpacked size")
+    p_ba2.set_defaults(func=cmd_ba2_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
