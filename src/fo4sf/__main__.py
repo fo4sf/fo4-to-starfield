@@ -1,4 +1,5 @@
 """Minimal CLI for fo4-to-starfield.
+import subprocess
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
@@ -27,6 +28,17 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    # Short git revision of this checkout (offline, no network)
+    try:
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_repo_root() or Path("."),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        print(f"  revision: {rev}")
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        print("  revision: unknown")
     fo4 = cfg.get("fo4", {})
     data_dirs = fo4.get("data_dirs", [])
     print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
