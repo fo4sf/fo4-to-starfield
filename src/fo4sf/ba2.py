@@ -144,6 +144,25 @@ class Ba2:
                     unpacked += up
         return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
 
+
+    def by_extension(self) -> dict[str, int]:
+        """Count entries by file extension (basename only, case-insensitive, mixed separators ok).
+
+        Returns a dict mapping extension (without dot, lower-case, empty string for no extension)
+        to the number of entries with that extension. Useful for conversion planning.
+        """
+        from collections import Counter
+        counts = Counter()
+        for name in self.names:
+            # Basename only: last path component, accept both separators
+            base = name.replace("/", "\\").split("\\")[-1]
+            if "." in base:
+                ext = base.rsplit(".", 1)[-1].lower()
+            else:
+                ext = ""
+            counts[ext] += 1
+        return dict(counts)
+
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
 

@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 from .config import ConfigError, load_config
+from .ba2 import Ba2, Ba2Error
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
 MIN_PYTHON = (3, 12)
@@ -270,6 +271,29 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+
+def cmd_ba2_summary(args: argparse.Namespace) -> int:
+    """Print a summary of one or more BA2 archives (version, kind, entry counts by extension, size estimates)."""
+    for path in args.paths:
+        try:
+            ba2 = Ba2(path)
+        except (Ba2Error, OSError) as e:
+            print(f"{path}: {e}", file=sys.stderr)
+            continue
+        print(f"\n{path}")
+        print(f"  version: {ba2.version}  kind: {ba2.kind}  entries: {len(ba2.entries)}")
+        est = ba2.size_estimates()
+        print(f"  packed: {est['packed_bytes']:,} bytes  unpacked: {est['unpacked_bytes']:,} bytes")
+        ext = ba2.by_extension()
+        if ext:
+            top = sorted(ext.items(), key=lambda x: -x[1])[:args.top]
+            print("  by extension:", ", ".join(f"{e or '(none)'}={c}" for e, c in top))
+        if args.largest:
+            print("  largest:")
+            for item in ba2.largest_entries(args.largest):
+                print(f"    {item['unpacked']:>10,}  {item['name']}")
+    return 0
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +305,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_ba2 = sub.add_parser("ba2-summary", help="summarize BA2 archives (counts by extension, sizes)")
+    p_ba2.add_argument("paths", nargs="+", help="BA2 file paths")
+    p_ba2.add_argument("--top", type=int, default=8, help="show this many top extensions")
+    p_ba2.add_argument("--largest", type=int, default=0, help="also list this many largest entries")
+    p_ba2.set_defaults(func=cmd_ba2_summary)
+
 
     args = parser.parse_args(argv)
     return args.func(args)
