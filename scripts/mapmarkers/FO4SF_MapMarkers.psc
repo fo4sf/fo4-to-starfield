@@ -122,11 +122,24 @@ Function Place(Actor player)
     endwhile
 EndFunction
 
+; Only the first quest (0x800) writes the signal: every quest of the plugin runs this script, and only the first one's
+; Markers[0] is a core marker (dotnet/MapMarkers lists the core's markers first; the extra and landing records that fill
+; the later quests are this plugin's own), so a later quest would read the plugin's index as the core's and write
+; border=on (PC, 2026-10-24: on/off/on/on within 0.8 s on the first load at Red Rocket). Low 12 bits, so a light
+; plugin's FE-prefixed (negative) id gives the same answer.
+bool Function SignalQuest()
+    int low = GetFormID() % 4096
+    if low < 0
+        low += 4096
+    endif
+    return low == 2048
+EndFunction
+
 ; In our world: the player's cell is one of the core's own cells (the runtime instance keeps the core's cell ids:
 ; docs/terrain/door-rounds.md), or the player is outdoors in the same world as when they last were (the generated
 ; land past our cells). Indoors keeps the last state, so a door out lands with the border already off.
 Function Border(Actor player)
-    if !BorderSignal || Markers.Length == 0 || Markers[0] == None
+    if !BorderSignal || !SignalQuest() || Markers.Length == 0 || Markers[0] == None
         return
     endif
     float rt = Utility.GetCurrentRealTime()

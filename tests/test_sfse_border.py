@@ -1,5 +1,6 @@
 """FO4SFBorder (sfse/FO4SFBorder): the scan and signal rules, compiled and run here, and the contract between the
 plugin and FO4SF_MapMarkers' border lines (docs/terrain/border.md, "Per-world switch")."""
+import math
 import re
 import shutil
 import subprocess
@@ -46,6 +47,24 @@ class ContractTests(unittest.TestCase):
         self.assertLess(border.index("IsInInterior"), border.index("want = 1"))
         place = self.psc[self.psc.index("Function Place"):self.psc.index("Function Border")]
         self.assertLess(place.index("Border(player)"), place.index("IsInInterior"))
+
+    def test_only_the_first_quest_writes_the_signal(self):
+        # every quest of the plugin runs the script; a later quest's Markers[0] is the plugin's own record, so it read
+        # the plugin's index as the core's and wrote border=on (PC, 2026-10-24). Only quest 0x800 writes.
+        program = (ROOT / "dotnet" / "MapMarkers" / "Program.cs").read_text(encoding="utf-8")
+        self.assertRegex(program, r"const uint QuestId = 0x800\b")
+        self.assertIn("var all = markers.Select(m => m.FormKey).ToList();", program)      # core markers first
+        quest = self.psc[self.psc.index("bool Function SignalQuest"):self.psc.index("Function Border")]
+        self.assertIn("GetFormID() % 4096", quest)
+        self.assertIn("return low == 2048", quest)                                           # 0x800
+        border = self.psc[self.psc.index("Function Border"):self.psc.index("Function Trace")]
+        self.assertIn("!SignalQuest()", border.split("\n")[1])
+        def low(formid):                                     # Papyrus % truncates toward zero, as C and math.fmod do
+            r = int(math.fmod(formid, 4096))
+            return r + 4096 if r < 0 else r
+        self.assertEqual(low(0x0A000800), 2048)                                              # a full plugin's quest
+        self.assertEqual(low(0xFE001800 - (1 << 32)), 2048)                                  # a light plugin's, negative
+        self.assertNotEqual(low(0x0A000801), 2048)                                           # the second quest
 
     def test_our_world_is_the_cores_cells_and_their_runtime_world(self):
         border = self.psc[self.psc.index("Function Border"):self.psc.index("Function Trace")]
