@@ -2260,13 +2260,14 @@ arrival at 16:24 UTC and they walked on with no stall. The plugin's log, as
 Install read it live, has three writes, every one ok: off and then on within a
 second on the first load at the Red Rocket spawn, and off again back in our
 world at 16:22 UTC after a trip to Cydonia, a vanilla world, where the border
-stayed on. The first load is the caveat: the map script's signal flickered
-within 0.8 s and left the border on in our world until the trip to Cydonia and
-back, so a player who never leaves could keep it on. A walk at 15:33 UTC is
-void, since Windows' Controlled Folder Access blocked the game's saves and logs.
-Gate 2's rule was the toggle tested on the Vault 95 exit, and that is what the
-owner did, so gate 2 is ticked and with it every gate of the phase 0 exit. The
-flicker stays a defect in the switch. The phase is not called done yet:
-Interiors' fix for the flicker (#542, in review) and #512's t6 Vault 95 runs
-come first, and calling it done is the owner's word. The entries above stand as
-written.
+stayed on. The first load is the caveat: the map script's log went border=on,
+on, off and on within 0.8 s (each of the markers plugin's quests writing the
+signal, #542's reading), and the plugin's two writes followed the last two,
+which left the border on in our world until the trip to Cydonia and back, so a
+player who never leaves could keep it on. A walk at 15:33 UTC is void, since
+Windows' Controlled Folder Access blocked the game's saves and logs. Gate 2's
+rule was the toggle tested on the Vault 95 exit, and that is what the owner did,
+so gate 2 is ticked and with it every gate of the phase 0 exit. The flicker
+stays a defect in the switch. The phase is not called done yet: Interiors' fix
+for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
+calling it done is the owner's word. The entries above stand as written.
