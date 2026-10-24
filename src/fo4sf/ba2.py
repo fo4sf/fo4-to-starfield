@@ -144,6 +144,27 @@ class Ba2:
                     unpacked += up
         return {"packed_bytes": packed, "unpacked_bytes": unpacked, "entries": len(self.entries)}
 
+    def by_extension(self) -> dict:
+        """Return a dict of file-extension (lowercased, with leading '.') → count.
+
+        Helps conversion planning by showing at a glance how many .nif, .dds, .bgsm, etc.
+        an archive contains without walking the name list twice. Directories are ignored
+        (only the basename is considered). Files with no '.' get the empty string key.
+        Mixed separators and dotted directory names are handled correctly.
+        """
+        from collections import Counter
+        counts: Counter[str] = Counter()
+        for e in self.entries:
+            # Normalize separators, take basename only so "dir.with.dot/file.nif" → ".nif"
+            norm = e.name.replace("\\", "/")
+            base = norm.rsplit("/", 1)[-1]
+            if "." in base:
+                ext = "." + base.rsplit(".", 1)[-1].lower()
+            else:
+                ext = ""
+            counts[ext] += 1
+        return dict(counts)
+
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
 
