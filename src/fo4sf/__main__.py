@@ -270,6 +270,28 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_ba2_summary(args: argparse.Namespace) -> int:
+    """Print extension counts and a short summary for one or more BA2 files."""
+    from .ba2 import Ba2, Ba2Error
+    for path in args.paths:
+        try:
+            a = Ba2(path)
+        except (Ba2Error, OSError) as e:
+            print(f"{path}: {e}", file=sys.stderr)
+            continue
+        print(f"{path}:")
+        print(f"  version={a.version} kind={a.kind} entries={len(a.entries)}")
+        counts = a.by_extension()
+        if counts:
+            print("  by extension:")
+            for ext, n in counts.items():
+                label = ext or "(no extension)"
+                print(f"    .{label}: {n}")
+        else:
+            print("  (empty)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_ba2 = sub.add_parser("ba2-summary", help="summarize BA2 archives by extension (offline planning)")
+    p_ba2.add_argument("paths", nargs="+", help="one or more .ba2 files")
+    p_ba2.set_defaults(func=cmd_ba2_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
