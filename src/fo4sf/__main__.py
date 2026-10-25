@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from .nif import NifError, parse as parse_nif
 
 MIN_PYTHON = (3, 12)
 
@@ -270,6 +271,45 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+COLLISION_TYPES = {
+    "bhkPhysicsSystem", "bhkNPCollisionObject", "bhkCollisionObject",
+    "bhkRigidBody", "bhkRigidBodyT", "bhkMoppBvTreeShape", "bhkConvexVerticesShape",
+    "bhkCompressedMeshShape", "hknpPhysicsSystem", "hknpCompressedMeshShape",
+}
+
+
+def cmd_collision_summary(args: argparse.Namespace) -> int:
+    """Report collision-related block counts for one or more NIF files (offline diagnostic)."""
+    ok = True
+    for path_str in args.paths:
+        path = Path(path_str)
+        print(f"=== {path} ===")
+        if not path.is_file():
+            print("  error: file not found", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            nif = parse_nif(data)
+        except (NifError, OSError) as e:
+            print(f"  error: {e}", file=sys.stderr)
+            ok = False
+            continue
+        summary = nif.summary()
+        print(f"  BS version: {summary['bs_version']}")
+        print(f"  total blocks: {summary['blocks']}")
+        type_counts = summary["type_counts"]
+        coll = {t: c for t, c in type_counts.items() if t in COLLISION_TYPES or "collision" in t.lower() or "bhk" in t.lower() or "hknp" in t.lower()}
+        if coll:
+            print("  collision-related blocks:")
+            for t, c in sorted(coll.items()):
+                print(f"    {t}: {c}")
+        else:
+            print("  collision-related blocks: none detected")
+        print(f"  footer bytes: {summary['footer_bytes']}")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +321,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_coll = sub.add_parser("collision-summary", help="report collision block counts for NIF files (offline)")
+    p_coll.add_argument("paths", nargs="+", help="one or more .nif paths")
+    p_coll.set_defaults(func=cmd_collision_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
