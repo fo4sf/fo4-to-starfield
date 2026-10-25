@@ -2,6 +2,14 @@
 
 Codex, 25 October 2026. **Exploratory research, not an approved implementation plan or native acceptance.** Prepared at the owner's request before a work pause. Base: main `5fa5c20575519f87e75f497bdf1507e7a7947e97`. No game, staging, installation or asset inspection was performed for this note. It supplements Claude's research rather than replacing its decisions or claiming an independent peer review of the whole framework.
 
+## Owner clarification after this research
+
+The owner subsequently narrowed the current scope: modest outskirts expansion, limited one-time persistent generation, and corridor transitions or map-selected eligible landing areas within a distance cap. Longer travel requires vertibirds or other transport; settlement-based range and distance-priced hired transport are desired. Approximate map layout and Fallout styling may support custom settlements, not building-by-building real-world reconstruction. Generated areas persist rather than rerolling.
+
+Continuous inter-region walking is **deferred**, only an optional build/test after all planned locations are added. The alternatives below remain research history, not equally active delivery options. The owner confirmed the Claude descriptions located here were the intended sources. Generation timing, exact ranges/costs and permitted destination rules remain undecided.
+
+See the [decision brief for Claude and the owner](claude-reuse-decision-brief-oct25.md) for evaluating reusable implementation techniques while preserving Starfield and existing work. No Rust/library adoption, rewrite or phase change has been approved.
+
 ## Direction and evidence
 
 The project is a GAMMA-style Fallout experience built on Starfield, initially Boston/Commonwealth, with more regions after its mechanics work. It is also an integrated framework others could adapt for an original world. The owner clarified on 25 October:
@@ -119,15 +127,9 @@ These are integration risks and research candidates, not an instruction to build
 
 No live experiment, new helper, dependency installation, or queue entry is created by this research. Claude retains controller/deployment ownership. Separate source review, native acceptance, publication permission and packaging decisions remain distinct.
 
-## Questions for the owner
+## Remaining design choices
 
-The first three were asked in this conversation and remain unanswered at this snapshot; options below stay open, not defaults approved by silence.
-
-1. Does hardcore Boston-to-DC travel need every intervening stretch to be walkable, or may authored corridors/transport join detailed regions with explicit transitions?
-2. Which aids are allowed: earned vehicles/faction transport, only geographic necessities such as boats, or configurable travel choices?
-3. Is there a more specific Claude discussion than the linked combined-core/world/multi-game notes that should govern this research?
-
-Later, after those answers: what real playtime should a major journey take; what changes while traveling; which recovery option is acceptable when transport is lost; can optional regions be added mid-save or require a new content-set start? These are design decisions, not reasons to reopen already settled Warfare/Survival choices.
+The earlier route-choice and source-identification questions were answered by the owner clarification above; do not re-ask them. Remaining choices include outskirts extent, travel range/cost/access rules, generation timing and content-version persistence, acceptable stranded-player recovery, and whether optional regions can be added mid-save. Owner and Claude will decide the architecture/phase questions in the linked brief. These open details do not reopen the narrowed travel scope or settled Warfare/Survival choices.
 
 ## Research limits and handoff
 

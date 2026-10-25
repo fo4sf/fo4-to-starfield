@@ -2275,3 +2275,7 @@ calling it done is the owner's word. The entries above stand as written.
 ## 2026-10-25: Codex connected-travel risk research
 
 Owner-requested exploratory note in research/framework/travel-and-runtime-risks-oct25.md reconciles Claude's combined-core/world plans with current Warfare/Survival and reusable-support direction. Separates connected regions from continuous terrain, preserves boundary-test limitations, and lists travel/save/AI/vehicle/UI/suit risks and small future experiments. Primary SFSE, Bethesda and framework sources checked; document links/guard checked. No engine-limit verdict, native tests, source implementation, installation or merge. Owner route-preference questions remain pending.
+
+## 2026-10-25: Codex reuse decision brief for Claude
+
+Added a documentation-only owner-requested brief comparing pattern reuse, the existing simulation baseline and optional native/Rust components. No technology or performance result selected. Proposed save/identity/generation contracts and bounded phase gates await owner + Claude decisions. Reconciled the travel note with one-time persistent areas, limited outskirts/corridor/map-selected travel and full walking deferred until all planned locations exist. References/guard/diff checked; no source changes, native tests, installs or agent wake. Scheduled follow-up remains paused.
