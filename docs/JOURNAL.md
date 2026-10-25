@@ -2276,3 +2276,7 @@ calling it done is the owner's word. The entries above stand as written.
 ## 2026-10-25: Codex next-phase preparation
 
 Added a concise review/lore/tool index and linked it from the README, framework and historical handoff. Corrected the stale repository-private wording after the owner's public confirmation. All 170 Grok gwe entries were checked for preservation, schema/policy consistency and content; all 19 added marker XY pairs match their cited source. Primary lore was not reread wholesale. Intake flags and the owner's living-world/creature-test ideas were sent to Grok on #544. Tool candidates are recommendations only. No game/deploy/source-code changes or lore-store fold-in.
+
+## 2026-10-25: Codex repository housekeeping proposal
+
+Owner clarified that next-phase cleanup includes branches and commits. Audited 474 remote branches, 452 PRs and 121 known worktrees across two Git stores. Recorded 168 exact merged-branch ref candidates and six optional matching local refs, excluding open PR dependencies, protected/default and checked-out branches. All candidate tips are reachable from retained main history. Manifest/table predicates and links checked; peer review and separate owner approval remain pending. No refs, commits, PRs, worktrees or files deleted; no history rewrite or game action.

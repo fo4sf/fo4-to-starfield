@@ -11,6 +11,8 @@ Codex, requested by the owner. Documentation and review preparation only; no gam
 
 ## Reduce the review queue before adding helpers
 
+The owner clarified that cleanup includes branches and commits. The [repository housekeeping proposal](../../maintenance/repository-cleanup-oct25.md) lists 168 exact merged-branch candidates and six optional local refs, with protected exclusions and approval steps. It preserves commit history and awaits independent review plus owner approval; no deletion has happened.
+
 These are overlapping **candidates for consolidation**, not claims that every implementation is equivalent. Preserve branches, tests and review history. Have the author identify unique behavior, then review one combined change; do not merge competing implementations independently.
 
 | Family | Existing work | Next action |
