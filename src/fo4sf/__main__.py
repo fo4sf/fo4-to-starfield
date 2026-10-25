@@ -270,6 +270,45 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_hk_summary(args: argparse.Namespace) -> int:
+    """Offline diagnostic: summarize Havok packfiles (version, section count, object classes)."""
+    import json
+    from .hkpackfile import Packfile, PackfileError
+
+    results = []
+    any_error = False
+    for path in args.paths:
+        p = Path(path)
+        if not p.is_file():
+            results.append({"path": str(path), "error": "not a file"})
+            any_error = True
+            continue
+        try:
+            data = p.read_bytes()
+            pf = Packfile(data)
+            classes = sorted({c for _, c in pf.objects()})
+            results.append({
+                "path": str(path),
+                "version": pf.version,
+                "sections": len(pf.sections),
+                "n_objects": len(pf.objects()),
+                "classes": classes,
+            })
+        except (PackfileError, OSError, Exception) as e:
+            results.append({"path": str(path), "error": str(e)})
+            any_error = True
+
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        for r in results:
+            if "error" in r:
+                print(f"{r['path']}: ERROR {r['error']}")
+            else:
+                print(f"{r['path']}: version={r['version']} sections={r['sections']} objects={r['n_objects']} classes={','.join(r['classes']) or '-'}")
+    return 1 if any_error else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_hk = sub.add_parser("hk-summary", help="report Havok packfile version, sections and classes (offline diagnostic)")
+    p_hk.add_argument("paths", nargs="+", help="one or more .hkx / packfile paths")
+    p_hk.add_argument("--json", action="store_true", help="print JSON")
+    p_hk.set_defaults(func=cmd_hk_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
