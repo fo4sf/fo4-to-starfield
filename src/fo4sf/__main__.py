@@ -14,7 +14,6 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
-from . import textures
 
 MIN_PYTHON = (3, 12)
 
@@ -272,8 +271,21 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 
 
+def _fourcc_text(fourcc: bytes) -> str:
+    """Plain-text FourCC. An all-zero or NUL-padded field is '(none)', not embedded NULs."""
+    text = fourcc.replace(b"\x00", b"").decode("ascii", errors="replace").strip()
+    return text or "(none)"
+
+
 def cmd_dds_summary(args: argparse.Namespace) -> int:
     """Report DDS header info for one or more texture files (offline diagnostic)."""
+    # textures imports numpy. Keep that off the process until this command runs,
+    # so status / validate / --help still work when numpy is not installed.
+    try:
+        from . import textures
+    except ImportError as e:
+        print(f"dds-summary needs numpy ({e})", file=sys.stderr)
+        return 1
     paths = [Path(p) for p in args.paths]
     ok = True
     for path in paths:
@@ -284,7 +296,7 @@ def cmd_dds_summary(args: argparse.Namespace) -> int:
         try:
             data = path.read_bytes()
             hdr = textures.read_dds_header(data)
-            four = hdr["fourcc"].decode("ascii", errors="replace").strip() or "(none)"
+            four = _fourcc_text(hdr["fourcc"])
             dxgi = hdr["dxgi"]
             dxgi_s = f" DXGI={dxgi}" if dxgi is not None else ""
             print(f"{path}: {hdr['width']}x{hdr['height']} mips={hdr['mips']} fourCC={four}{dxgi_s} data_off={hdr['data_offset']}")
