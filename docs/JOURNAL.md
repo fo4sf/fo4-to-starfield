@@ -2279,3 +2279,7 @@ Owner-requested exploratory note in research/framework/travel-and-runtime-risks-
 ## 2026-10-25: Codex reuse decision brief for Claude
 
 Added a documentation-only owner-requested brief comparing pattern reuse, the existing simulation baseline and optional native/Rust components. No technology or performance result selected. Proposed save/identity/generation contracts and bounded phase gates await owner + Claude decisions. Reconciled the travel note with one-time persistent areas, limited outskirts/corridor/map-selected travel and full walking deferred until all planned locations exist. References/guard/diff checked; no source changes, native tests, installs or agent wake. Scheduled follow-up remains paused.
+
+## 2026-10-25: Codex focused reuse search
+
+Added five ranked research candidates to the Claude decision brief: event scheduling, owned-code profiling, interruptible behavior patterns, navigation diagnostics and bounded noise generation. Checked primary docs and existing prototype/tooling notes; no measured speedup, library selection, implementation or native test. Guard/diff checked; automation stays paused.
