@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from . import textures
 
 MIN_PYTHON = (3, 12)
 
@@ -270,6 +271,28 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+
+def cmd_dds_summary(args: argparse.Namespace) -> int:
+    """Report DDS header info for one or more texture files (offline diagnostic)."""
+    paths = [Path(p) for p in args.paths]
+    ok = True
+    for path in paths:
+        if not path.is_file():
+            print(f"missing: {path}", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            hdr = textures.read_dds_header(data)
+            four = hdr["fourcc"].decode("ascii", errors="replace").strip() or "(none)"
+            dxgi = hdr["dxgi"]
+            dxgi_s = f" DXGI={dxgi}" if dxgi is not None else ""
+            print(f"{path}: {hdr['width']}x{hdr['height']} mips={hdr['mips']} fourCC={four}{dxgi_s} data_off={hdr['data_offset']}")
+        except Exception as e:
+            print(f"{path}: error {e}", file=sys.stderr)
+            ok = False
+    return 0 if ok else 1
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_dds = sub.add_parser("dds-summary", help="summarize DDS texture headers (width, height, format)")
+    p_dds.add_argument("paths", nargs="+", help="one or more .dds files")
+    p_dds.set_defaults(func=cmd_dds_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
