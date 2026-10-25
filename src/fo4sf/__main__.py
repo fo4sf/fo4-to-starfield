@@ -2,6 +2,7 @@
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
+python -m fo4sf bgsm-summary <files>  # offline summary of Fallout 4 .bgsm materials
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from .convert_material import parse_bgsm
 
 MIN_PYTHON = (3, 12)
 
@@ -270,6 +272,44 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_bgsm_summary(args: argparse.Namespace) -> int:
+    """Print a short offline summary of one or more .bgsm material files."""
+    rc = 0
+    for path_str in args.paths:
+        p = Path(path_str)
+        if not p.is_file():
+            print(f"missing: {path_str}", file=sys.stderr)
+            rc = 1
+            continue
+        try:
+            data = p.read_bytes()
+            mat = parse_bgsm(data)
+        except Exception as e:  # noqa: BLE001 — diagnostic CLI reports any parse failure
+            print(f"{p.name}: parse error: {e}", file=sys.stderr)
+            rc = 1
+            continue
+        print(f"{p.name}: v{mat.version}  tile_u={mat.tile_u} tile_v={mat.tile_v}")
+        print(f"  uv_offset={mat.uv_offset}  uv_scale={mat.uv_scale}")
+        print(f"  diffuse={mat.diffuse or '(none)'}")
+        print(f"  normal={mat.normal or '(none)'}")
+        print(f"  smooth_spec={mat.smooth_spec or '(none)'}")
+        flags = []
+        if mat.alpha_blend:
+            flags.append("alpha_blend")
+        if mat.alpha_test:
+            flags.append(f"alpha_test(ref={mat.alpha_ref})")
+        if mat.decal:
+            flags.append("decal")
+        if mat.two_sided:
+            flags.append("two_sided")
+        if mat.palette_color:
+            flags.append(f"palette_color(scale={mat.palette_scale})")
+        print(f"  flags: {', '.join(flags) or 'none'}")
+        if mat.version == 2:
+            print(f"  smoothness={mat.smoothness:.3f}  spec_mult={mat.spec_mult:.3f}")
+    return rc
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +321,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_bgsm = sub.add_parser("bgsm-summary", help="offline summary of Fallout 4 .bgsm materials")
+    p_bgsm.add_argument("paths", nargs="+", help="one or more .bgsm files")
+    p_bgsm.set_defaults(func=cmd_bgsm_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
