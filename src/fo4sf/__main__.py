@@ -2,10 +2,12 @@
 
 python -m fo4sf status    # print config summary (including directory existence) and optional manifest coverage
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
+python -m fo4sf nif-summary <paths>  # summarize NIF block structure for conversion diagnostics
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -14,6 +16,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from .nif import NifError, parse as parse_nif
 
 MIN_PYTHON = (3, 12)
 
@@ -270,6 +273,45 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_nif_summary(args: argparse.Namespace) -> int:
+    """Print a short structural summary of one or more NIF files (offline diagnostic)."""
+    if not args.paths:
+        print("error: at least one NIF path required", file=sys.stderr)
+        return 1
+    ok = True
+    results = []
+    for raw in args.paths:
+        path = Path(raw)
+        if not path.is_file():
+            print(f"error: {path}: not a file", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            nif = parse_nif(data)
+            summary = nif.summary()
+            summary["path"] = str(path)
+            results.append(summary)
+        except NifError as e:
+            print(f"error: {path}: {e}", file=sys.stderr)
+            ok = False
+        except Exception as e:
+            print(f"error: {path}: unexpected {type(e).__name__}: {e}", file=sys.stderr)
+            ok = False
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        for s in results:
+            print(f"{s['path']}")
+            print(f"  BS version: {s['bs_version']}")
+            print(f"  Blocks: {s['blocks']}  Types: {s['block_types']}  Strings: {s['strings']}")
+            if s["type_counts"]:
+                top = sorted(s["type_counts"].items(), key=lambda kv: -kv[1])[:8]
+                print("  Top types: " + ", ".join(f"{t}={c}" for t, c in top))
+            print(f"  Footer: {s['footer_bytes']} bytes")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_nif = sub.add_parser("nif-summary", help="summarize NIF block structure (offline diagnostic)")
+    p_nif.add_argument("paths", nargs="+", help="NIF file paths")
+    p_nif.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    p_nif.set_defaults(func=cmd_nif_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
