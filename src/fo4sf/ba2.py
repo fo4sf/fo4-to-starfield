@@ -126,6 +126,22 @@ class Ba2:
             "textures": dx10,
         }
 
+    def by_extension(self) -> dict:
+        """Count entries by file extension (case-insensitive, without the leading dot).
+
+        Useful for conversion planning: see how many .nif, .dds, .wav, etc. are in the archive.
+        """
+        from collections import Counter
+        counts = Counter()
+        for e in self.entries:
+            name = e.name.replace("\\", "/").lower()
+            if "." in name:
+                ext = name.rsplit(".", 1)[-1]
+                counts[ext] += 1
+            else:
+                counts[""] += 1
+        return dict(counts.most_common())
+
     def size_estimates(self) -> dict:
         """Rough estimates of packed (on-disk) and unpacked (decompressed) total sizes.
 
