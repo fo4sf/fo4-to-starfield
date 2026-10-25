@@ -270,6 +270,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_config_summary(args: argparse.Namespace) -> int:
+    """Print a safe summary of config sections and key names (no full path values)."""
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 1
+    print("fo4-to-starfield config summary")
+    print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+    for section, data in sorted(cfg.items()):
+        if isinstance(data, dict):
+            keys = sorted(data.keys())
+            print(f"  [{section}] keys: {', '.join(keys) if keys else '(empty)'}")
+        else:
+            print(f"  [{section}] (non-dict)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_config = sub.add_parser("config-summary", help="print config section and key names (safe, no path values)")
+    p_config.set_defaults(func=cmd_config_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
