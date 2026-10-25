@@ -8,6 +8,8 @@ the phase threads write. Nothing here is decided until the owner says so; every 
 
 ## How to use it
 
+For the current cleanup and bounded next steps, see [25 October preparation](oct25-preparation.md). It distinguishes the owner's phase-0 decision, outstanding source reviews, the separate lore inbox and optional tools; the research below remains background, not a new implementation assignment.
+
 - Each question has a stable ID (`WP-14`, `REL-26` ...), why it matters, the options with sources, how to answer it
   (owner decision, offline research, PC probe, community or Bethesda/Nexus contact), what it blocks, and a status.
 - Evidence labels follow docs/ai/research-log.md: **verified** (read in a linked source or file), **supported

@@ -1,5 +1,7 @@
 # Codex / Claude / Grok status
 
+**Historical snapshot below.** For 25 October preparation, current review gates, lore intake and the tool shortlist, start with [the preparation index](research/framework/oct25-preparation.md), then refresh the linked PR heads and #32. Do not treat the October 17 results below as the current phase verdict.
+
 Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 
 ## Owners / locks

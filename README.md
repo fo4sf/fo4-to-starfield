@@ -2,13 +2,15 @@
 
 **Bring Fallout 4 into Starfield's Creation Engine 2 through a measured, repeatable conversion toolchain.** The goal is to preserve Fallout 4 gameplay while using Starfield's native physics and modern engine capabilities. Experimental interiors already load in Starfield; the full game conversion is unfinished.
 
-**Not offered for download or play for now.** On 19 Oct the owner withdrew the play and install guides, for legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same day, and the repository is now private. This page records progress only.
+**Not offered for download or play for now.** On 19 Oct the owner withdrew the play and install guides, for legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same day. The owner confirmed the repository public again on 22 Oct. This page records progress only.
 
 Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers.md](docs/ai/for-ai-reviewers.md) first.
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
 [Latest progress](#latest-progress--2026-10-22) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+
+[25 October preparation: review queue, lore and tools](docs/research/framework/oct25-preparation.md). The owner's phase-0 completion is recorded in [the pending ledger update #545](https://github.com/fo4sf/fo4-to-starfield/pull/545); proposals below do not replace that decision or establish new native results.
 
 ## Latest progress — 2026-10-22
 

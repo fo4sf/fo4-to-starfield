@@ -2271,3 +2271,8 @@ so gate 2 is ticked and with it every gate of the phase 0 exit. The flicker
 stays a defect in the switch. The phase is not called done yet: Interiors' fix
 for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
 calling it done is the owner's word. The entries above stand as written.
+
+
+## 2026-10-25: Codex next-phase preparation
+
+Added a concise review/lore/tool index and linked it from the README, framework and historical handoff. Corrected the stale repository-private wording after the owner's public confirmation. All 170 Grok gwe entries were checked for preservation, schema/policy consistency and content; all 19 added marker XY pairs match their cited source. Primary lore was not reread wholesale. Intake flags and the owner's living-world/creature-test ideas were sent to Grok on #544. Tool candidates are recommendations only. No game/deploy/source-code changes or lore-store fold-in.
