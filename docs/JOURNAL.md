@@ -2271,3 +2271,7 @@ so gate 2 is ticked and with it every gate of the phase 0 exit. The flicker
 stays a defect in the switch. The phase is not called done yet: Interiors' fix
 for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
 calling it done is the owner's word. The entries above stand as written.
+
+## 2026-10-25: Codex connected-travel risk research
+
+Owner-requested exploratory note in research/framework/travel-and-runtime-risks-oct25.md reconciles Claude's combined-core/world plans with current Warfare/Survival and reusable-support direction. Separates connected regions from continuous terrain, preserves boundary-test limitations, and lists travel/save/AI/vehicle/UI/suit risks and small future experiments. Primary SFSE, Bethesda and framework sources checked; document links/guard checked. No engine-limit verdict, native tests, source implementation, installation or merge. Owner route-preference questions remain pending.
