@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from . import btd
 
 MIN_PYTHON = (3, 12)
 
@@ -138,6 +139,31 @@ def _texconv_near_xedit(xedit) -> str | None:
         if cand.is_file():
             return str(cand)
     return None
+
+
+def cmd_btd_summary(args: argparse.Namespace) -> int:
+    """Report basic header info for one or more Starfield .btd terrain files (offline diagnostic)."""
+    rc = 0
+    for path in args.paths:
+        p = Path(path)
+        if not p.is_file():
+            print(f"{path}: missing or not a file", file=sys.stderr)
+            rc = 1
+            continue
+        try:
+            data = p.read_bytes()
+            terrain = btd.read(data)
+            print(
+                f"{path}: version={terrain.version} "
+                f"hmin={terrain.hmin:.4f} hmax={terrain.hmax:.4f} "
+                f"cells={terrain.ncx}x{terrain.ncy} "
+                f"ltex={len(terrain.ltex)} "
+                f"samples={terrain.heights_raw.shape[1]}x{terrain.heights_raw.shape[0]}"
+            )
+        except Exception as e:  # noqa: BLE001 — diagnostic CLI, report and continue
+            print(f"{path}: error: {e}", file=sys.stderr)
+            rc = 1
+    return rc
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -281,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_btd = sub.add_parser("btd-summary", help="report version, height range, cell counts and LTEX for .btd terrain files")
+    p_btd.add_argument("paths", nargs="+", help="one or more .btd files")
+    p_btd.set_defaults(func=cmd_btd_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
