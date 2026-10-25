@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+from .sfmesh import MeshFormatError, parse as parse_mesh
 
 MIN_PYTHON = (3, 12)
 
@@ -270,6 +271,47 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_mesh_summary(args: argparse.Namespace) -> int:
+    """Print a short structural summary of one or more Starfield .mesh files (offline diagnostic)."""
+    import json
+    if not args.paths:
+        print("error: at least one .mesh path required", file=sys.stderr)
+        return 1
+    ok = True
+    results = []
+    for raw in args.paths:
+        path = Path(raw)
+        if not path.is_file():
+            print(f"error: {path}: not a file", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            mesh = parse_mesh(data)
+            summary = mesh.summary()
+            summary["path"] = str(path)
+            results.append(summary)
+        except MeshFormatError as e:
+            print(f"error: {path}: {e}", file=sys.stderr)
+            ok = False
+        except Exception as e:
+            print(f"error: {path}: unexpected {type(e).__name__}: {e}", file=sys.stderr)
+            ok = False
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        for s in results:
+            print(f"{s['path']}")
+            print(f"  version: {s['version']}")
+            print(f"  vertices: {s['vertices']}  triangles: {s['triangles']}")
+            print(f"  scale: {s['scale']}  skinned: {s['skinned']}  weights/vert: {s['weights_per_vertex']}")
+            print(f"  lods: {s['lods']}  meshlets: {s['meshlets']}  meshlet_section: {s['has_meshlet_section']}")
+            print(f"  uv1: {s['has_uv1']}  uv2: {s['has_uv2']}  colors: {s['has_colors']}  normals: {s['has_normals']}  tangents: {s['has_tangents']}")
+            if s["tail_bytes"]:
+                print(f"  tail: {s['tail_bytes']} bytes")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -281,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="validate config paths, tools, and dependencies")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_mesh = sub.add_parser("mesh-summary", help="structural summary of Starfield .mesh files (offline diagnostic)")
+    p_mesh.add_argument("paths", nargs="+", help="paths to .mesh files")
+    p_mesh.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    p_mesh.set_defaults(func=cmd_mesh_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)

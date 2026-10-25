@@ -45,6 +45,29 @@ class SfMesh:
     has_meshlet_section: bool = True                                     # False: file ends after the LOD count
     tail: bytes = b""                                                    # unparsed trailing bytes (should be empty)
 
+    def summary(self) -> dict:
+        """Short structural summary for offline diagnostics / conversion planning."""
+        n_verts = len(self.positions)
+        n_tris = len(self.triangles)
+        skinned = self.weights_per_vertex > 0 or bool(self.weights)
+        return {
+            "version": self.version,
+            "vertices": n_verts,
+            "triangles": n_tris,
+            "scale": self.scale,
+            "weights_per_vertex": self.weights_per_vertex,
+            "skinned": skinned,
+            "lods": len(self.lods),
+            "meshlets": len(self.meshlets) if self.has_meshlet_section else 0,
+            "has_meshlet_section": self.has_meshlet_section,
+            "has_uv1": bool(self.uv1),
+            "has_uv2": bool(self.uv2),
+            "has_colors": bool(self.colors),
+            "has_normals": bool(self.normals),
+            "has_tangents": bool(self.tangents),
+            "tail_bytes": len(self.tail),
+        }
+
 
 class MeshFormatError(ValueError):
     pass
