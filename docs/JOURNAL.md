@@ -2283,3 +2283,7 @@ Added a documentation-only owner-requested brief comparing pattern reuse, the ex
 ## 2026-10-25: Codex focused reuse search
 
 Added five ranked research candidates to the Claude decision brief: event scheduling, owned-code profiling, interruptible behavior patterns, navigation diagnostics and bounded noise generation. Checked primary docs and existing prototype/tooling notes; no measured speedup, library selection, implementation or native test. Guard/diff checked; automation stays paused.
+
+## 2026-10-25: Codex practical modding-tool research
+
+Owner-requested follow-up maps the seven suggested tools and additional API, asset, record, editor and native-analysis candidates to existing project gaps. Upstream Caprica has guard generation with unresolved verification TODOs, correcting the older categorical absence claim without changing the official-compiler decision. Cassiopeia API/permission checks, independent asset validation and bounded workflow proposals documented with sources. Decision brief now carries current mode, no-runtime-model, FO76/ghoul and Warfare succession direction. Documentation only; no tools installed, source implementation, proprietary data publication, native execution, merge or agent wake. Automated follow-up remains paused; independent document review pending.

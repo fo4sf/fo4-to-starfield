@@ -4,6 +4,8 @@ Codex, 25 October 2026. **Discussion brief, not an architecture decision, optimi
 
 ## What the owner wants decided
 
+Follow-up: [modding tools and practical workflows](modding-tool-workflows-oct25.md) maps verified tool capabilities to project gaps, corrects the old categorical Caprica guard claim, and proposes small investigations. It preserves the official compiler/Archive2 baseline; no tool adoption is decided.
+
 Evaluate processes and independently useful components from other engines and game reimplementations that could improve this project without replacing Starfield or dismantling existing work. Rust is a candidate language, not the requested outcome. Borrowing a design and implementing it in the existing language is a valid result. No particular remake has been identified, so there is no audited donor project or selected dependency yet.
 
 Staying on Starfield is a firm owner constraint. This brief makes no independent legal claim about what Bethesda permits. Reuse must separately consider the selected project's license, provenance and dependencies before code is incorporated.
@@ -17,6 +19,9 @@ The owner and Claude make the final decisions together. Claude should bring a re
 - Generate an intermediate area once and preserve it. Approximate real-world layout plus Fallout styling can support custom settlements, such as the owner's Thompson Falls example. This is not exact building reconstruction or a continent-generation commitment. Generation timing and map-data source remain open.
 - Continuous walking across all regions is **out of the current delivery scope**. Only consider an optional build/test after all planned locations are added. The concern includes NPC behavior and simulation at scale, not just traversable ground. Whether a particular behavior would require engine source access remains unproved.
 - Keep the coupled overall framework together. Independently useful support modules may be considered separately, including living-world, UI or powered-suit support; neither dependency-free operation nor standalone release is required now.
+- Gameplay must not require a local language model, an AI server or online inference. Shared NPC behavior uses mode policies: Survival routines, Warfare organization and targeted story protections. Owner-guided behavior variants and simplified faction roles/ability tiers are planning work; significant NPC losses may produce reactions.
+- Warfare-only succession means playing another faction member after death, not reviving the same character. Existing NPC versus generated replacement, progression/equipment transfer and world consequences remain undecided.
+- FO76-derived content uses FO4-style single-player rules by default, retaining selected online-origin mechanics only by choice. Ghoul play is desired for Warfare and story-off Survival; extensive story-dialogue rewriting is deferred and must not be delegated to AI as a shortcut.
 
 ## Compare these options before adding a language
 
