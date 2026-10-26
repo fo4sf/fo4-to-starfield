@@ -6,6 +6,8 @@ Codex, 25 October 2026. **Discussion brief, not an architecture decision, optimi
 
 Follow-up: [modding tools and practical workflows](modding-tool-workflows-oct25.md) maps verified tool capabilities to project gaps, corrects the old categorical Caprica guard claim, and proposes small investigations. It preserves the official compiler/Archive2 baseline; no tool adoption is decided.
 
+Owner-requested [coverage audit](research-coverage-audit-oct25.md) distinguishes the lore intake from primary verification, identifies unfinished source sections and a held-entry display risk, and maps the broader framework to six prioritized evidence-closure packets. Do not claim comprehensive lore coverage or whole-system readiness from the previous summaries.
+
 Evaluate processes and independently useful components from other engines and game reimplementations that could improve this project without replacing Starfield or dismantling existing work. Rust is a candidate language, not the requested outcome. Borrowing a design and implementing it in the existing language is a valid result. No particular remake has been identified, so there is no audited donor project or selected dependency yet.
 
 Staying on Starfield is a firm owner constraint. This brief makes no independent legal claim about what Bethesda permits. Reuse must separately consider the selected project's license, provenance and dependencies before code is incorporated.
