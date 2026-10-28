@@ -1,3 +1,17 @@
+## Eleventh delivery: surgical-service source comparison
+
+19 new entries: eighteen attributed game statements and one guide statement. Combined230:197game,31guide,1dependent,1cutHOLD. This folder103; firstfolder127 unchanged. IDs8228,8229,8230,8231,8234..8238,8250..8258,8260. 8232/8233 rejected redundant helper sales pitches;8239,8240..8249,8259 unused. Next numeric8261.
+
+Doc Crocker5665657 and Doctor Sun5604545 were linked by the cached Diamond City source and queued in this inbox before first reading. Sun's explicitly linked Dialogue4652878 was then separately queued/read once. All three remain PARTIAL with exact omissions. Prior FULL sources were not fetched. The reused Diamond guide claim uses5709745.
+
+The guide's cybernetic-graft claim is ST-MA8228, adopted as tier2 guide material under the owner's A/K rule; no contradictory game evidence was established. This does not establish implemented player mechanics. Inspected dialogue supports facial reconstruction and a Sun takeover branch explicitly mentioning Crocker's death. This is authored dialogue evidence, not a verified live service or exhaustive compiled quest conditions. Absence of graft terminology here does not prove no such feature exists elsewhere. Parent corrected a provisional HOLD before publication: uncorroborated gameplay is not by itself grounds to reject an otherwise accepted tier2 guide statement. The provisional record and policy correction are retained privately. The article's100-cap cosmetic price is not independently established by these excerpts; a100-cap cellar bribe is a different transaction.
+
+Parent corrected helper attribution (Sun states the decade), unsupported Earl-resisted-surgery wording (Crocker blames Earl), schema kinds and redundant sales claims. Original proposals retained privately. Sun's blame-admitting and responsibility-denying lines have different player prompts; preserve both branches, not a universal attitude or a contradictory single event. Sales pitches and patient-recovery statements remain speaker/branch claims. No inferred coordinates or new runtime acceptance.
+
+All19 new and103 second-folder rows pass original validation. Earlier84 entry bytes, first127 folder, canonicaldata/build and validator source preserved; old17+1 policy mismatches unchanged/notrerun. Evidence snippets, schema/rulings/IDs/branch contexts,guard/diff/inboxscope checked. Source ledger now28 rows for23 unique sources:1FULL/22PARTIAL. Five earlier continuation rows still require ID unions; local merge_staging.py missing. No canonical fold-in/merge.
+
+The current raw snapshot and exact64-page queue remain requested from Claude, not assumed lost. StopA remains incomplete. Continue original reading order; do not rebuild existing material merely because the mirror is old.
+
 ### Same delivery: Diamond City continuation
 
 Fourteen additional cached claims, ST-MA-8214..8226 and FA-8227, are included in this same push: thirteen guide-attributed resident/business details and one quoted Lizzie Wyath statement. Becky's ancestry remains her claim; the guide's100-cap lodging price is not a universal economic guarantee. Lizzie's formula exclusions are her statement, not a native test. Guide surgery/service claims needing comparison with game sources remain unentered. No new map coordinates were invented.

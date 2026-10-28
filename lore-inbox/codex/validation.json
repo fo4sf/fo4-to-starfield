@@ -109,10 +109,10 @@
   "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete.",
   "twelfth_delivery_note": "Priority second reads complete318/318:146primary172asreported. States102,military86,vault130. Canonical data untouched;17 original validator tier-policy errors remain, in-memory owner-policy0. StopA incomplete: Commonwealth queue work remains. Exact raw snapshot/queue pending recovery, known explicitly assigned TODO sources can proceed.",
   "new_commonwealth": {
-    "entries": 211,
-    "ids": "LatestMIL8197..8203/FA8204..8213/ST-MA8214..8226/FA8227;next8228",
-    "sources": 20,
-    "coverage": "20unique sources:1full/19partial;5continuationrows sameSID/revision",
+    "entries": 230,
+    "ids": "Latest8228/8229/8230/8231/8234..8238/8250..8258/8260;next8261",
+    "sources": 23,
+    "coverage": "23unique sources:1full/22partial;5continuationrows",
     "all_unchecked": true,
     "original_validator_exit": 1,
     "known_original_policy_mismatches": 1,
@@ -120,24 +120,27 @@
     "canonical_unchanged": true,
     "exact_queue_recovered": false,
     "markers_verified": 14,
-    "game_tier1_count": 179,
-    "guide_tier2_count": 30,
+    "game_tier1_count": 197,
+    "guide_tier2_count": 31,
     "dependent_tier2_count": 1,
     "cut_tier2_hold_count": 1,
     "roadway_images_inspected": 3,
     "new33_original_validator_errors": 0,
     "folders": {
       "c-commonwealth": 127,
-      "c-commonwealth-2": 84
+      "c-commonwealth-2": 103
     },
-    "source_rows_across_folders": 25,
+    "source_rows_across_folders": 28,
     "new28_original_validator_errors": 0,
     "eighth_note": "28newrows pass originalCLI; previous127 unchanged/not rerun; existingCU8081policy mismatch remains. Cached26inventoryline coverage; both holotapeIDs staticallyverified. No lore refetch or canonical edits.",
     "new25_original_validator_errors": 0,
     "ninth_note": "25new terminal rows; all53 secondfolder rows pass originalCLI, earlier28 bytes preserved and prior127 folder unchanged. All10budgetlines mapped; plans/suspicions/menu text qualified. No lore refetch/canonical writes.",
     "new17_original_validator_errors": 0,
     "tenth_note": "31cachedFortStrong/DiamondCity claims in same delivery; all84secondfolder rows originalCLI0. Prior53bytes/127folder/canonical/validator unchanged. Guide tier2, attributed dialogue only, no lore network fetch/native test.",
-    "new31_original_validator_errors": 0
+    "new31_original_validator_errors": 0,
+    "guide_tier2_hold_count": 0,
+    "new19_original_validator_errors": 0,
+    "eleventh_note": "19newsourcecomparison claims;all103 secondfolder originalCLI0. Grafts guide claimtier2/adopt;playablemechanicunverified, Sun facialtakeover branch contextualized. Helper unsupportedresistance/duplicatedsales corrected. Earlier84bytes/127folder/canonical/validator unchanged;3newpages requestedbeforefetch,allpartial."
   },
   "mil_source_followup": {
     "id": "MIL-0011",
