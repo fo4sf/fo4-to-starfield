@@ -28,11 +28,13 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they run, and logs each stop. The list is walked twice: once before
    the move, and once one tick later, because stopping MQ101 runs its stage 9000, which starts the last two (section 2).
    Saving and the HUD, which MQ101's stage 0 had turned off, are turned back on right after the first pass.
-   The plugin also overrides Starfield's global `MQ101Debug` to 2 (section 2, NG-2). MQ101's start stage picks its
-   start by that value: 0 is the intro, 1 and 3 to 10 are developer starts, and 2 (what MQ102 to MQ305 write once the
-   intro is over) matches only the conditionless last entry, which ghosts three NPCs, so MQ101 starts inert and the
-   hold-off stops it. The first build's 10 was the developer start at the pirate fight (section 10). That override is a
-   record, not gated by the guard: whether an existing save keeps its own value of the global is unverified.
+   The plugin overrides no Starfield record (section 2, B). MQ101's start stage picks its start by the global
+   `MQ101Debug`: 0 is the intro, whose own fragment moves the player to its start marker and waits for the 3D; 1 and 3
+   to 10 are developer starts (10, the first build's override, is the pirate fight: section 10). A value no entry
+   matches moves nobody, and the new game never leaves its loading screen (the second build's override of 2: section
+   11). So Starfield's intro places the player, our quest starts once that first load is through, and right after the
+   hold-off's first pass has stopped MQ101 the quest writes 2 into the global itself (`SetValueInt`, the call MQ102
+   makes once the intro is over), logged as `mq101debug written=2.000000 was=0.000000`.
 4. **The cryo pod:** the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`) and stands up one metre
    in front of their own pod, facing out of it (on the installed port, which has no persistent reference in the cell,
    the script first loads the cell by centering on it: section 3a). The notification reads "Vault 111" and the objective is "Leave Vault
@@ -65,14 +67,16 @@ Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `m
 
 | Option | How | For | Against |
 |---|---|---|---|
-| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether one tick is enough for stage 9000 to have started its quests; with B at 2 the opening starts no scene, so the scene, controls and menus question falls away (28 Oct: the first run never reached the hold-off, so none of this has run in game yet; the log says what each pass stopped) |
-| **B. The debug global (on by default, `--mq101debug <n>` for another value, `--no-mq101debug` for none)** | The plugin overrides Starfield's GLOB `MQ101Debug` (0A7D31) to 2. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's run, 28 Oct): MQ101's stage 0 has 12 log entries conditioned on the global. Entry 2 (`== 0`) is the normal intro; entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed on 28 Oct (log: `opening_stage=250`). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a new game, so the 19 Oct belief that vanilla writes 10 was wrong, and so was the first build's override. 2 is what MQ102 to MQ305 write at their start stages once the intro is over, matches no start entry, and keeps PEO_SustenanceAllowed's `MQ101Debug != 0` open (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis) the same way | One GLOB override, no quest record touched; MQ101 starts with nothing but three ghosted NPCs, so the hold-off stops a quest that has not moved the player, locked the controls, hidden the HUD or turned saving off; sustenance stays possible | **unresolved** until the next run: whether the engine runs only the first matching entry or every one (entry 11 then runs in every start too, harmless either way), and whether an existing save keeps its own value of the global |
+| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether one tick is enough for stage 9000 to have started its quests; with no override the intro's stage 0 has run (character generation on, the move to its start marker, the chargen HUD mode) before our quest starts, so the hold-off stops a running intro, and whether any of its scene, controls or menus outlive the stop is **unverified** until the next run (28 Oct: neither run reached the hold-off; the log says what each pass stopped) |
+| **B. The debug global (written after the hold-off by default: `--debug-after-hold <n>`, 0 for no write; `--mq101debug <n>` overrides the record, experiments only)** | No record override. Right after hold-off pass 1 has stopped MQ101, the quest writes 2 into Starfield's GLOB `MQ101Debug` (0A7D31) with `SetValueInt`. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's two runs, 28 Oct): MQ101's stage 0 has 12 log entries conditioned on the global. Entry 2 (`== 0`) is the normal intro: its fragment (`Fragment_Stage_0000_Item_02`) turns character generation on, moves the player to `CharGenStartMarker`, sets the chargen HUD mode and waits for the player's 3D. Entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts, each moving the player itself; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed in run 1 (log: `opening_stage=250`). A value no entry matches moves nobody: the second build's override of 2 left the new game on its loading screen (run 2, section 11). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a New Game (the records report: it is no start-up stage; StartupQuest_DO 00562D starts MQ101), so the 19 Oct belief that vanilla writes 10 was wrong. 2 is what MQ102 to MQ305 write at their start stages once the intro is over, so writing it after the stop leaves the global as a finished intro would and keeps PEO_SustenanceAllowed's `MQ101Debug != 0` open (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis), a start that moves the player itself; RoleplayersAlternateStart writes its unmatched 11 only after its own quest has placed the player (the research thread's read, 28 Oct), the same order as ours | No record touched; the write comes after MQ101 is stopped, so its stage 0 never reads it; sustenance stays possible | **unverified** until the next run: the write's log line, and that nothing reads the global in the moment between the stop and the write |
 | C. Override MQ00 / MQ101 without StartGameEnabled | Plugin overrides of Starfield's quest records | The opening never starts | Edits Starfield records; anything that expects MQ101 (NG+, Constellation, achievements) may break; hardest to undo in a save |
 | D. Our own start menu (as SKK) | A message box after character creation picking Vault 111 or Starfield's own start | Players keep the choice | More UI; only worth it once the Fallout start works |
 
-The ladder for the next in-game proof: the default (A with B's global at 2) first; `--no-mq101debug` if the inert start
-itself does harm (Starfield's intro then starts and the hold-off stops it a second or two in, scene and all);
-`--mq101debug 10` is the first build's pirate-fight start, kept only to reproduce 28 Oct; C only on the owner's word.
+The ladder for the next in-game proof: the default (A, and B's write of 2 after the hold-off) first; `--debug-after-hold
+0` if the write itself does harm (the global then stays at the intro's 0, and PEO_SustenanceAllowed's `!= 0` stays
+closed); `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches) only if the intro's own stage 0 is the
+trouble. Never an override no entry matches (2, 11): it hangs the first load (section 11). `--mq101debug 10` is the
+first build's pirate-fight start, kept only to reproduce run 1; C only on the owner's word.
 Which of Starfield's other 142
 start-game quests to hold off (the ship, the radiant parents, city and companion quests, generic dialogue) is the
 `npcs-ai-factions-dialogue-quests.md` section 8 list; the first proof records what runs (`sqv`) before more are added,
@@ -203,7 +207,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   rule, tested in Python; the three constants live in `SPECIAL_BASE`, `SPECIAL_POINTS`, `SPECIAL_MAX` and are held
   equal to the writer's and the script's by `tests/test_newgame.py`.
 - **Unverified** until the PC run: `Actor.SetValue` / `GetValue` with a plugin's own AVIF (FO4's Actor.psc declares
-  them; the precheck reads Starfield's, and a miss means `--no-special`), the `%.0f` token substitution in a Starfield
+  them; Starfield's Actor.psc does not, but the script compiled for newgame_v7 on 23 Oct, so a script higher in Actor's
+  `extends` chain does: the precheck follows that chain since run 2, section 11, and only a miss along the whole chain
+  means `--no-special`), the `%.0f` token substitution in a Starfield
   message box, and a ten-button message box (FO4's MESG limit).
 - The quest never waits on SPECIAL: the player can ride the elevator with it unset. The script logs
   `special skipped: left the vault with SPECIAL unset` at stage 40, `special set S=.. P=.. ...` on Confirm, `special
@@ -285,22 +291,26 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    ContentResources.zip only and lists every native and event the four scripts use and every MQ101Debug line. Exit 1
    means a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
    `OnMenuOpenCloseEvent` means stage with `--no-looks`; a missing `Actor.SetValue` or `Actor.GetValue` means
-   `--no-special`; a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
+   `--no-special` (a function counts as present when any script in the base's `extends` chain declares it, as the
+   compiler resolves it); a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
    (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) belong to the quest script, so a miss there
    is a core miss (section 4c).
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
-   (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--debug-after-hold <n>`
+   (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
+   none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
+   `--no-mq101debug` is kept for old command lines and changes nothing), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
    `--require-persistent-anchor` (refuse a vault cell without a persistent reference instead of the temporary-anchor
    mode, section 3a). plan.json records them, the anchor's id and mode (`anchor`), and the stage contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
-   selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold,
+   selftest builds the default, `--no-looks`, `--mq101debug 0`, `--mq101debug 8`, `--debug-after-hold 0`,
+   `--mq101debug 10`, no-cog-door, two-quest-hold,
    `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
    `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the
    others' options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks,
@@ -419,24 +429,79 @@ failed the 0.25 limit alone. Starfield's clock starts at GameHour 8 (the record'
 the hour, so every new game reads about 0.3335 a second in. The limit is now one game day; a player's save is kept out
 by the opening-stage test, not by this number.
 
-**Fix (this PR, offline):** the override is 2, the inert start (row B); the day limit is 1.0; the guard logs every
+**Fix (#569, offline):** the override is 2, the inert start (row B); the day limit is 1.0; the guard logs every
 reading it judges and the global as the game read it (`guard days=... opening_stage=... mq101debug=... expected=...`);
 `make_newgame.py log` reports it as `guard`. Nothing else in the start changed. The hold-off, the saving and HUD
 restore, `Debug.CenterOnCell`, the move into the vault, the cog door and the elevator are still **unverified in game**:
 run 1 never reached them.
+
+**Correction (run 2, section 11):** 2 is not an inert start. No stage-0 entry matches it, so nothing moves the player
+and the new game never leaves its loading screen. Since newgame_v9 the plugin overrides nothing and the quest writes 2
+after the hold-off.
 
 **Mars:** the owner flew the vanilla game to Mars and landed at a vanilla site. Our world is an overlay worldspace on
 Mars that a vanilla landing does not enter; it is reached by `coc FO4Core_RedRocketSpawn` or, once this start works,
 by the Vault 111 elevator. Whether the "Commonwealth Landing Area" marker (#524) is offered as a landing choice from
 orbit is the Map thread's question (its markers are known to register only after a visit, 24 Oct).
 
-**Next on the PC:** after this PR merges, restage from main against the installed port and core (newgame_v8), reinstall
-on the owner's line, start a new game from the main menu, then read `make_newgame.py log` (the `guard` line first).
+**Next on the PC (done 28 Oct):** newgame_v8 was restaged from main, reinstalled and run: section 11.
+
+## 11. In game, run 2 (28 Oct 2026): FAIL, the new game never left its loading screen
+
+**Build:** FO4SFNewGame.esm 5167F6AA (newgame_v8, staged from main e9c12e2b after #569): GLOB `MQ101Debug` overridden
+to 2.0, the vault anchor FO4Port.esm:001338 (persistent), staged `--no-special` on the precheck's word. Install's copy of
+Plugins.txt: QuestProbe, Port, Core, Mars, Raider, Mission, NewGame, MapMarkers, Bridge, all active. FOCCSidecar.dll
+present with `bEnabled=0`. Starfield 1.16.244, SFSE 0.2.21.
+
+**The owner's report (19:39 UTC, typos fixed, meaning kept):** "So I clicked new game a few minutes ago and it has just
+been stuck on the loading screen. It's not crashed. I can't click any buttons or anything but there's a little loading
+circle on the right." Then: "I can run console commands."
+
+**The logs (Install's copy, `D:\Modding\testqueue\newgame_20261028_run2\`):** `fo4sf_newgame.0.log` has two lines, both
+at 13:35:28 PC time (rt 64.0): the log opening and `version saved=1.000000 (new game)`. There is no `init holdoff` and
+no `guard` line. The map and bridge scripts logged their init and nothing after, at the same second. Papyrus.0.log holds
+only a new game's first phase (alias binds, our version script, the map and bridge init) and vanilla `SFFL_SE_EC08`
+alias errors: none of the fragment loads and OnQuestInit lines that follow the first load in run 1. Install's snapshot:
+the game's main thread busy on one core, memory flat at 8.1 GB, the console working.
+
+**Cause, verified (fragment sources, records, both runs' logs): the override's value.** MQ101's stage 0 runs the entry
+whose `MQ101Debug` condition matches, and each start's fragment is what moves the player into the game: the intro's
+entry 2 moves the player to `CharGenStartMarker` and waits for the 3D, entry 10 to the pirate landing. No entry
+matches 2 (entry 11, the conditionless one, only ghosts three NPCs), so nobody moved the player and Starfield's first
+load never finished. Our quest's OnQuestInit only runs after that load (run 1: 1 s and 7 s after `version saved`), so
+the quest never started and could not have helped. Section 10's "inert start" was wrong: 2 is what MQ102 to MQ305
+write once the player is already in the world, not a start.
+
+**Ruled out:** FOCCSidecar.dll returns from `SFSEPlugin_Load` before registering anything when `bEnabled=0` (its
+source); the plugin order loads every plugin after its masters; the vault anchor is read only by our quest, which
+never started.
+
+**Fix (newgame_v9, offline):** the plugin overrides no record. Starfield's intro places the player as it does without
+mods; our quest starts after that load, and the guard and the hold-off run as before. Right after hold-off pass 1 has
+stopped MQ101, the quest writes `DebugAfterHold` (2) into the global with `SetValueInt`, the call MQ102's fragment
+makes. The guard line now ends `mq101debug=<read> write_after_hold=<n>`, and the write logs `mq101debug
+written=<n> was=<n>`; `make_newgame.py log` reports both (`guard`, `mq101debug_written`). `--debug-after-hold 0`
+writes nothing; `--mq101debug <n>` still builds an override for experiments.
+
+**SPECIAL:** v8 was staged `--no-special` because the precheck found neither `SetValue` nor `GetValue` in Starfield's
+Actor.psc. The compiler resolves inherited functions, and v7 compiled the same script on 23 Oct, so the declarations
+sit higher in the `extends` chain. The precheck now walks that chain, so v9 stages with SPECIAL again.
+
+**Unverified in game:** the intro's stage 0 turns character generation on and sets the chargen HUD mode before our
+quest starts; the hold-off's restore of saving and the HUD (section 1, step 3) is what undoes that. Run 3 is the first
+run that reaches the hold-off.
+
+**Next on the PC:** after this PR merges, restage newgame_v9 from main against the installed port and core with SPECIAL
+(no `--no-special` unless the precheck still reports a miss), reinstall on the owner's line, start a new game from the
+main menu, then read `make_newgame.py log`. Expected: the `guard` line ends `mq101debug=0.000000 write_after_hold=2`,
+then `mq101debug written=2.000000 was=0.000000`.
 
 ## Sources
 
 - [SKK Fast Start New Game (Nexus Starfield 5971)](https://www.nexusmods.com/starfield/mods/5971): MQ101Debug = 8, the
   `NewAtlantisSpaceport03` check, MQ101 stage checks.
+- RoleplayersAlternateStart (GitHub ZeCroque, `Data/Scripts/Source/RAS`, read by the research thread 28 Oct): its
+  startup quest places the player first and writes its unmatched MQ101Debug value afterwards.
 - [ECS Asteria (Nexus Starfield 16206)](https://www.nexusmods.com/starfield/mods/16206): a new game teleports the player
   from a start script and guards against mid-game installs.
 - docs/spikes/B4-mission-anatomy.md section 3 (the Vault 111 exit chain, verified ids), docs/terrain/scripted-doors.md,

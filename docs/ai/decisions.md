@@ -580,7 +580,22 @@ decided the import path); keeping the order as a parameter (two orders in the co
   markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
   fallbacks, `--mq101debug`, for the owner's talk).
 
-## 2026-10-28: the new game overrides MQ101Debug to 2, the value that starts Starfield's opening inert (Claude-cloud)
+## 2026-10-28: the new game overrides no record; the quest writes MQ101Debug = 2 after the hold-off (Claude-cloud)
+- Decision: FO4SFNewGame.esm carries no GLOB override (newgame_v9). Starfield's intro places the player; right after
+  hold-off pass 1 has stopped MQ101, our quest writes 2 into MQ101Debug with SetValueInt and logs the write. The
+  owner's NG-2 (we set the debug global ourselves) stands, at the one moment it is safe. The precheck follows each
+  script's `extends` chain, so SPECIAL stages again (docs/newgame/vault111-start.md sections 2 and 11).
+- Why: the owner's second new game (28 Oct, newgame_v8, override 2) never left its loading screen. MQ101's stage 0 runs
+  the entry whose MQ101Debug condition matches, and that entry's fragment is what moves the player into the game (the
+  intro's entry 2 moves the player to CharGenStartMarker and waits for the 3D). No entry matches 2, so nobody moved the
+  player, and our quest's OnQuestInit only runs after that first load. 2 is what MQ102 to MQ305 write once the player
+  is in the world, so writing it after the stop leaves the global as a finished intro would.
+- Alternatives: `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches; kept for the ladder);
+  overriding StartupQuest_DO with our own controller quest that moves the player and never starts MQ101 (No Ship Fast
+  Start's shape; a record override and more code, held for the owner if the hold-off path fails); any unmatched
+  override (rejected: it hangs the load).
+
+## 2026-10-28: the new game overrides MQ101Debug to 2, the value that starts Starfield's opening inert (Claude-cloud; superseded the same day by the entry above: 2 hangs the first load)
 - Decision: FO4SFNewGame.esm keeps the one GLOB override (the owner's NG-2, we set the debug global ourselves) but
   writes 2, not 10; the guard's day limit is one game day; the guard logs every reading and the global as the game read
   it (docs/newgame/vault111-start.md sections 2 and 10).

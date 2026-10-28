@@ -5,11 +5,14 @@ Scriptname FO4SF_NewGameQuest extends Quest
  arrival. Every step and a status line every 5 s go to the user log "fo4sf_newgame"
  (My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log), the evidence of a run.
  Starfield's GLOB MQ101Debug picks MQ101's start at its stage 0 (records, PC 21 Oct; fragment sources, PC 19 Oct;
- the run of 28 Oct): zero is the normal intro, one and three to ten are developer starts (ten is the pirate fight the
- owner met on 28 Oct, where the first build's override of ten sent them), and any other value runs only the last,
- conditionless entry, which ghosts three NPCs. The plugin overrides the record to DebugValue (default two, what
- Starfield's own MQ102 to MQ305 write once the intro is over), so MQ101 starts inert and the hold-off stops it; the
- guard logs the value the game read beside its other readings (the "guard" line).
+ the two runs of 28 Oct): zero is the normal intro, one and three to ten are developer starts (ten is the pirate fight
+ the first build's override of ten sent the owner to), and every matching entry's fragment is what moves the player
+ into the game (the intro's own moves PlayerREF to CharGenStartMarker, then waits for its 3D). A value matching no entry
+ moves nobody, and the new game never leaves its loading screen (the second run, value two: this script never even
+ started, since OnQuestInit only fires once that first load is through). So the plugin overrides nothing: Starfield's
+ intro places the player, the hold-off stops it, and right after that stop the quest writes DebugAfterHold (two, what
+ MQ102 to MQ305 write once the intro is over) into the global itself. The guard logs the value the game read (the
+ "guard" line) and the write logs its own line ("mq101debug written").
  Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
    0 started: waiting for the player's 3D, then the guard and the hold-off
@@ -25,7 +28,8 @@ Scriptname FO4SF_NewGameQuest extends Quest
  temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo.}
 
 GlobalVariable Property GameDaysPassed Auto Const Mandatory
-{Starfield.esm 000039, 0 on a new game. Part of the new-game guard (IsNewGame).}
+{Starfield.esm 000039 (the record's value is 0; in game it reads about 0.3335 one second into a new game, the 8:00 clock,
+ 28 Oct). Part of the new-game guard (IsNewGame).}
 
 Quest Property Opening Auto Const Mandatory
 {Starfield's MQ101. Part of the new-game guard: the opening turns saving off at its stage 0 and back on at 105 (PC read
@@ -36,16 +40,18 @@ int Property SaveableStage = 105 Auto Const
 
 GlobalVariable Property DebugGlobal Auto Const Mandatory
 {Starfield's MQ101Debug (Starfield.esm 0A7D31). MQ101's stage 0 has 12 log entries whose conditions read it (records,
- PC 21 Oct): 0 is the normal intro (entry 2); 1 and 3 to 10 are developer starts (entries 1, 3 to 10); entry 11 has no
- condition and only ghosts Lin, Heller and Barrett. The first build overrode it to 10 on the belief that MQ00 writes 10
- on every new game; MQ00's stage 10 is not a start-up stage, so vanilla never does, and 10 is the developer start at the
- pirate fight (Fragment_Stage_0000_Item_10: SetStage 210 and 250), where the owner landed on 28 Oct with our quest
- standing down (opening_stage=250). The writer now overrides it to DebugValue, read here only for the log.}
-float Property DebugValue = 2.0 Auto Const
-{The value the plugin's override writes (the writer's --mq101debug; 0 in a --no-mq101debug build, which overrides
- nothing). 2 is what MQ102 to MQ305 write at their start stages once the intro is over (fragment sources, PC 19 Oct),
- matches no developer start, and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open (records, PC 21 Oct), so the
- owner's decision NG-2 (we set it ourselves) stands with the one value that starts MQ101 inert.}
+ PC 21 Oct): 0 is the normal intro (entry 2); 1 and 3 to 10 are developer starts; entry 11 has no condition and only
+ ghosts Lin, Heller and Barrett. Each matching entry's fragment moves the player into the game (entry 2:
+ moves PlayerREF to CharGenStartMarker and waits for its 3D; entry 10: SetStage 210 and 250, the pirate fight the first
+ build's override of 10 sent the owner to, run 1 of 28 Oct). A value no entry matches (the second build's 2) moves
+ nobody, so Starfield's first load never completes and this script never starts (run 2 of 28 Oct). The plugin
+ therefore overrides the record no more; this property is read for the guard line and written after the hold-off.}
+int Property DebugAfterHold = 2 Auto Const
+{Written into DebugGlobal with SetValueInt (the call MQ102's own fragment makes) right after hold-off pass 1 has stopped
+ MQ101; 0 writes nothing (the writer's --debug-after-hold). 2 is what MQ102 to MQ305 write at their start stages once
+ the intro is over (fragment sources, PC 19 Oct), matches no start entry, and keeps PEO_SustenanceAllowed's
+ "MQ101Debug != 0" open (records, PC 21 Oct): the owner's decision NG-2 (we set it ourselves) stands, at the one moment
+ it is safe, after MQ101 is gone.}
 
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
@@ -189,7 +195,7 @@ Event OnTimer(int aiTimerID)
             bool fresh = IsFreshStart(openingStage, Opening.IsCompleted(), Opening.IsStopped())
             ; every reading the guard judges, and the debug global as the game read it (the 28 Oct run showed only the
             ; verdict's line, so the cause had to come from the records; this line carries it)
-            Trace("guard days=" + days + " level=" + level + " opening_stage=" + openingStage + " opening_running=" + Opening.IsRunning() + " fresh=" + fresh + " mq101debug=" + DebugGlobal.GetValue() + " expected=" + DebugValue)
+            Trace("guard days=" + days + " level=" + level + " opening_stage=" + openingStage + " opening_running=" + Opening.IsRunning() + " fresh=" + fresh + " mq101debug=" + DebugGlobal.GetValue() + " write_after_hold=" + DebugAfterHold)
             if !fresh || !IsNewGame(days, level)
                 Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
                 AdvanceTo(1)
@@ -197,6 +203,13 @@ Event OnTimer(int aiTimerID)
                 return
             endif
             HoldOffPass(1)
+            if DebugAfterHold != 0
+                ; MQ101 is stopped, so its stage 0 cannot read this again: the post-intro value goes in now (28 Oct run 2:
+                ; overriding the record at the start left the new game on its loading screen, see DebugGlobal)
+                float was = DebugGlobal.GetValue()
+                DebugGlobal.SetValueInt(DebugAfterHold)
+                Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)
+            endif
         endif
         ; MQ101's stage 0 has already run by now: it turned saving off (SetInChargen) and hid the HUD (SetCharGenHUDMode
         ; 2). Stopping MQ101 runs its stage 9000, which deletes its input layer but restores neither; vanilla does so

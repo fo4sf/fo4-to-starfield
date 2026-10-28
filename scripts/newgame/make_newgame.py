@@ -11,7 +11,7 @@ usage:
                                --core <FO4TerrainCore.esm> [--starfield <Starfield.esm>] [--compiler <exe>]
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
-                               [--no-mq101debug] [--pod-ref HEX] [--terminal-ref HEX]
+                               [--no-mq101debug] [--debug-after-hold N] [--pod-ref HEX] [--terminal-ref HEX]
                                [--clear-inventory [--vault-suit EDITORID]] [--require-persistent-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
@@ -79,8 +79,16 @@ STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage 
 # at the pirate fight (the owner's run, 28 Oct: opening_stage=250, our quest stood down); MQ00's stage 10 writes 10 but
 # is not a start-up stage, so vanilla never does.
 DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
-DEFAULT_MQ101DEBUG = 2
-DEBUG_START_PIRATES = 10      # the first build's value: Fragment_Stage_0000_Item_10, SetStage 210 and 250
+# GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
+# stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
+# WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
+# value 2, no quest started). The quest writes DEBUG_AFTER_HOLD (what MQ102 to MQ305 write once the intro is over) right
+# after the hold-off stopped MQ101 instead (--debug-after-hold, 0 writes nothing).
+DEFAULT_MQ101DEBUG = None
+DEBUG_AFTER_HOLD = 2
+DEBUG_INTRO = 0               # Starfield's own intro, entry 2
+DEBUG_START_PIRATES = 10      # the first build's value: Fragment_Stage_0000_Item_10, SetStage 210 and 250 (28 Oct run 1)
+DEBUG_UNMATCHED = 2           # the second build's value: no entry, no move, an endless loading screen (28 Oct run 2)
 # Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
 # which mode is looks-only is unverified until the in-game C1 test
 DEFAULT_RACE_MENU_MODE = 0
@@ -130,7 +138,7 @@ NATIVES = {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode"],
-        "GlobalVariable": ["GetValue"],
+        "GlobalVariable": ["GetValue", "SetValueInt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen", "RemoveAllItems", "GetItemCount",
@@ -259,6 +267,27 @@ def has_function(source, name):
     return re.search(rf"^\s*(?:[\w\[\]:]+\s+)?(?:Function|Event)\s+{re.escape(name)}\s*\(", source, re.M | re.I) is not None
 
 
+def parent_of(source):
+    """The base script a source extends ("Scriptname Actor extends ObjectReference"), or None."""
+    m = re.search(r"^\s*Scriptname\s+[\w:]+\s+extends\s+([\w:]+)", source, re.M | re.I)
+    return m.group(1) if m else None
+
+
+def declares(sources, base, name, depth=8):
+    """True when base's source, or one it extends (Actor extends ObjectReference extends Form ...), declares name. The
+    Papyrus compiler resolves an inherited call the same way: FO4SF_NewGameSpecial compiled on the PC (newgame_v7) while
+    a check of Actor.psc alone said Actor.SetValue was missing (28 Oct), so the two are declared above Actor. Bounded
+    by depth and by a seen set (a cycle in the sources stops the walk)."""
+    seen = set()
+    while base and base.lower() not in seen and len(seen) < depth:
+        seen.add(base.lower())
+        source = sources.get(base.lower(), "")
+        if has_function(source, name):
+            return True
+        base = parent_of(source)
+    return False
+
+
 def precheck_zip(zip_path):
     """{"natives": {script: {"Base.Function": bool}}, "mq101debug": [file:line: text], "missing_core": [...]}."""
     sources, debug = {}, []
@@ -275,7 +304,7 @@ def precheck_zip(zip_path):
                     debug.append(f"{name}:{i}: {line.strip()}")
     natives = {}
     for script, bases in NATIVES.items():
-        natives[script] = {f"{b}.{f}": has_function(sources.get(b.lower(), ""), f) for b, fs in bases.items() for f in fs}
+        natives[script] = {f"{b}.{f}": declares(sources, b, f) for b, fs in bases.items() for f in fs}
     missing = [k for k, ok in natives[SCRIPT].items() if not ok]
     drop = [opt for script, opt in OPTIONAL.items() if not all(natives[script].values())]
     return {"natives": natives, "mq101debug": debug, "missing_core": missing, "drop": drop}
@@ -344,6 +373,8 @@ def tool_options(a):
         opts.append("--no-mq101debug")
     elif a.mq101debug is not None:
         opts += ["--mq101debug", str(a.mq101debug)]
+    if a.debug_after_hold is not None:
+        opts += ["--debug-after-hold", str(a.debug_after_hold)]
     if not a.looks:
         opts.append("--no-looks")
     if a.race_menu_mode is not None:
@@ -366,10 +397,16 @@ def tool_options(a):
 
 
 def mq101debug_option(a):
-    """The GLOB MQ101Debug value the build writes: None under --no-mq101debug, else the value given or the default."""
+    """The GLOB MQ101Debug override the build writes at the start: None (no override, the default since 28 Oct run 2, and
+    under --no-mq101debug), else the value given with --mq101debug (experiments only)."""
     if a.no_mq101debug:
         return None
     return DEFAULT_MQ101DEBUG if a.mq101debug is None else a.mq101debug
+
+
+def debug_after_hold_option(a):
+    """The value the quest writes into MQ101Debug right after the hold-off (0: nothing)."""
+    return DEBUG_AFTER_HOLD if a.debug_after_hold is None else a.debug_after_hold
 
 
 def build_version_option(a):
@@ -425,7 +462,7 @@ def stage(a):
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
-            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks,
+            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
@@ -598,7 +635,9 @@ def summarize(lines):
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
     "entered_vault", "surfaced", "landed", "fell", "stood_down", "guard", "last_status", "runs", "earlier_completed"}.
     "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> fresh=<bool>
-    mq101debug=<n> expected=<n>", written before the verdict since 28 Oct; None in an older build's log).
+    mq101debug=<n> write_after_hold=<n>", written before the verdict since 28 Oct; None in an older build's log).
+    "mq101debug_written" is the write right after hold-off pass 1 ("<n> was=<n>"; None when the build writes nothing,
+    or when the hold-off never ran: run 2 of 28 Oct has only the version line, the game never finished its first load).
     "inventory_cleared" is the reset's line ("removed=<n> left=<n> ..."; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
@@ -615,7 +654,7 @@ def summarize(lines):
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
          "inventory_cleared": None, "vault_suit": None, "centered": None,
-         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None,
+         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None, "mq101debug_written": None,
          "last_status": None, "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
@@ -664,6 +703,8 @@ def summarize(lines):
             s["stood_down"] = True
         elif msg.startswith("guard "):
             s["guard"] = msg[len("guard "):]
+        elif msg.startswith("mq101debug written="):
+            s["mq101debug_written"] = msg[len("mq101debug written="):]
         elif msg.startswith("status "):
             s["last_status"] = msg
     return s
@@ -704,9 +745,13 @@ def main(argv=None):
                    help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
     s.add_argument("--mq101debug", type=float, default=None,
-                   help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG}, the inert start; 0 is Starfield's "
-                        f"intro, {DEBUG_START_PIRATES} the pirate-fight developer start the first build shipped)")
-    s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override (Starfield's intro then starts and is stopped)")
+                   help=f"override GLOB MQ101Debug at the start, experiments only (default: no override; Starfield's intro at "
+                        f"{DEBUG_INTRO} places the player and the hold-off stops it; {DEBUG_START_PIRATES} is the pirate-fight "
+                        f"developer start of 28 Oct run 1; {DEBUG_UNMATCHED} matched no entry and never left the loading screen, run 2)")
+    s.add_argument("--no-mq101debug", action="store_true", help="kept for old command lines: the default already writes no override")
+    s.add_argument("--debug-after-hold", type=int, default=None,
+                   help=f"the value the quest writes into MQ101Debug right after the hold-off stopped MQ101 (default "
+                        f"{DEBUG_AFTER_HOLD}, the post-intro value MQ102 to MQ305 write; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--clear-inventory", action="store_true",
                    help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")
