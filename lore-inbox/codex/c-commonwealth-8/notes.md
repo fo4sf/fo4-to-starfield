@@ -1,3 +1,11 @@
+# Thirty-second delivery: Tinker Tom and PAM screens
+
+22newgame entries: FA-8065, FA-8066, FA-8067, FA-8068, FA-8069, FA-8070, FA-8071, FA-8072, FA-8073, FA-8074, FA-8075, FA-8076, FA-8077, FA-8078, FA-8079, FA-8080, FA-8081, FA-8082, FA-8083, FA-8084, FA-8085, FA-8086. Localtotal1024:917game/70guide/1dependent/36cutHOLD;folder8now85. Allunchecked. PublishedPR still has978 until the next combined push.
+
+Only previously unread sections1/7/8/29 at5608766 fetched, cachedonce. Tom's six-hypothesis list and provisional disprovals are facts about his notes, not established world mechanics; Dsignature is not proven identity/time travel. Lethal-spike/cooling/reload claims are attributed test reports, no numeric performance proof. CircuitAnalyzer instructions remainconditional; implant-telemetry framing is not dated death. PAM restrictions and InstituteReport01 are displayed text, not verified access enforcement/teleport/quest execution. Thirteen synths is a plan quantity, not completed movement or faction limit. No real credentials accessed.
+
+Railroad row nowretains45prior+22newIDs. Parentsection6 notfetched because it would repeat cachedhistory; intro/remaining incidental detail notclaimedcomplete.57identities/73rows,1FULL/56PARTIAL,16continuations to consolidate. Priorclaims/folders/canonical/validator unchanged. Localcommit batching avoidsCI per smallchunk. Snapshot/exact64queue pending;no fold/merge/game/automation action.
+
 # Thirty-first delivery: Desdemona records and later-source clarification
 
 24newgame entries: FA-8041, FA-8042, FA-8043, FA-8044, FA-8045, FA-8046, FA-8047, FA-8048, FA-8049, FA-8050, FA-8051, FA-8052, FA-8053, FA-8054, FA-8055, FA-8056, FA-8057, FA-8058, FA-8059, FA-8060, FA-8061, FA-8062, FA-8063, FA-8064. Total1002 Commonwealth entries:895game/70guide/1dependent/36cutHOLD;folder8now63. All unchecked. New IDs follow actual available gaps; no existing IDs reused.

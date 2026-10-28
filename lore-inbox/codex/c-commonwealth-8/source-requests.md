@@ -3,3 +3,7 @@
 2026-10-28: begin queued Railroad HQ Terminal Entries using revision-pinned section reads. All canonical/inbox ledgers and named caches checked; no FULL or previously read section refetch. Prioritize PAM recorded faction history, preserve narrator uncertainty and dates. Exact64 queue membership remains unconfirmed.
 
 2026-10-28: continue Railroad HQ Terminal Entries at5608766, previously unread section18 Desdemona history only. Prior sections9/13 cached and notrefetched; canonical/inbox ledgers checked. Compare later evidence with existing chronology/source notes; no canonical replacement.
+
+2026-10-28: continue Railroad HQ Terminal Entries5608766, unread TinkerTom section1 (includes2-5) only. Previously read9/13/18 remaincached, notrefetched. Keep hypotheses,disprovedtheories,testlogs attributed;no speculative worldfact or nativeimplementation.
+
+2026-10-28: read only previously unread PAM sections7/8/29 at5608766. Do not request parent6 because it would repeat cachedhistory. Displayed predictions/template outcomes are not actual events; do not store projections as facts.
