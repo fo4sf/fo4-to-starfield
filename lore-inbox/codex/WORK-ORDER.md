@@ -10,4 +10,6 @@ New IDs8001–8999 only; source ledger by codex and truthful full/partial covera
 
 Canon: released games/show/Bethesda tier1; newer tier1wins but preserve conflicting older entries. Bible/dev/manual/guide/artbook/dependent/cancelled/cut tier2, lead ruling; cancelled/cut default hold. Tactics/BoS tier3 inspiration hold/reject. Fan work tier4, not canon/grey area. verified-source only on inspected primary text/transcript; otherwise as-reported/unresolved. No invented facts, coordinates or generated places. No long source reproductions in Git.
 
-Delivery: ONE draft PR titled Lore inbox (Codex, not for merge), branch codex/lore-inbox, only lore-inbox/codex/**. Parent coordinates Git. Two bounded low-cost helpers were owner-authorized; they are closed after first passes. No automation resume/game actions/merge authorized.
+Delivery: ONE draft PR titled Lore inbox (Codex, not for merge), branch codex/lore-inbox, only lore-inbox/codex/**. Parent coordinates Git. Two bounded low-cost helpers were owner-authorized; they are closed after each bounded pass. No automation resume/game actions/merge authorized.
+
+Owner follow-up28Oct: ask Claude for the current complete store/queue; if neither side can recover it, reconstruct missing material with Codex and Claude review. Preserve all existing records/caches. Request posted on PR562 comment6463282442; recovery outcome pending. This does not authorize discarding/re-reading recoverable material.
