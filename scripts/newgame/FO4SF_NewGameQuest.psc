@@ -4,6 +4,12 @@ Scriptname FO4SF_NewGameQuest extends Quest
  the cog door from its console, and takes the player up the elevator onto the Commonwealth at Fallout 4's surface
  arrival. Every step and a status line every 5 s go to the user log "fo4sf_newgame"
  (My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log), the evidence of a run.
+ Starfield's GLOB MQ101Debug picks MQ101's start at its stage 0 (records, PC 21 Oct; fragment sources, PC 19 Oct;
+ the run of 28 Oct): zero is the normal intro, one and three to ten are developer starts (ten is the pirate fight the
+ owner met on 28 Oct, where the first build's override of ten sent them), and any other value runs only the last,
+ conditionless entry, which ghosts three NPCs. The plugin overrides the record to DebugValue (default two, what
+ Starfield's own MQ102 to MQ305 write once the intro is over), so MQ101 starts inert and the hold-off stops it; the
+ guard logs the value the game read beside its other readings (the "guard" line).
  Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
    0 started: waiting for the player's 3D, then the guard and the hold-off
@@ -27,6 +33,19 @@ Quest Property Opening Auto Const Mandatory
 
 int Property SaveableStage = 105 Auto Const
 {MQ101's stage that turns saving back on (SetInChargen(false, ...), QF_MQ101_00003448.psc, PC read 19 Oct).}
+
+GlobalVariable Property DebugGlobal Auto Const Mandatory
+{Starfield's MQ101Debug (Starfield.esm 0A7D31). MQ101's stage 0 has 12 log entries whose conditions read it (records,
+ PC 21 Oct): 0 is the normal intro (entry 2); 1 and 3 to 10 are developer starts (entries 1, 3 to 10); entry 11 has no
+ condition and only ghosts Lin, Heller and Barrett. The first build overrode it to 10 on the belief that MQ00 writes 10
+ on every new game; MQ00's stage 10 is not a start-up stage, so vanilla never does, and 10 is the developer start at the
+ pirate fight (Fragment_Stage_0000_Item_10: SetStage 210 and 250), where the owner landed on 28 Oct with our quest
+ standing down (opening_stage=250). The writer now overrides it to DebugValue, read here only for the log.}
+float Property DebugValue = 2.0 Auto Const
+{The value the plugin's override writes (the writer's --mq101debug; 0 in a --no-mq101debug build, which overrides
+ nothing). 2 is what MQ102 to MQ305 write at their start stages once the intro is over (fragment sources, PC 19 Oct),
+ matches no developer start, and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open (records, PC 21 Oct), so the
+ owner's decision NG-2 (we set it ourselves) stands with the one value that starts MQ101 inert.}
 
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
@@ -88,8 +107,11 @@ float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
 {The core world's measured merge offset (vmad_patch.MERGE_MEASURED): the merged spot = local + this, z unchanged.}
 
-float Property MaxNewGameDays = 0.25 Auto Const
-{The guard: a new game has passed less than this many game days...}
+float Property MaxNewGameDays = 1.0 Auto Const
+{The guard: a new game has passed less than this many game days. Starfield's clock starts at GameHour 8 (the record's
+ value, docs/ai/test-queue.md) and GameDaysPassed carries the hour, so a new game reads about 0.3335 a second in
+ (verified in game 28 Oct, two runs: 0.333530 with MQ101 at stage 0, 0.333537 at 250); the first build's 0.25 stood
+ every new game down on this test alone. A save the player made is kept out by IsFreshStart, not by this number...}
 int Property MaxNewGameLevel = 1 Auto Const
 {...and the player is at most this level. An existing save that gains this plugin stands down (stage 1).}
 float Property ConsoleRadius = 2.5 Auto Const
@@ -163,7 +185,11 @@ Event OnTimer(int aiTimerID)
             ; hold-off itself stopped (21 Oct review on #393)
             float days = GameDaysPassed.GetValue()
             int level = player.GetLevel()
-            bool fresh = IsFreshStart(Opening.GetStage(), Opening.IsCompleted(), Opening.IsStopped())
+            int openingStage = Opening.GetStage()
+            bool fresh = IsFreshStart(openingStage, Opening.IsCompleted(), Opening.IsStopped())
+            ; every reading the guard judges, and the debug global as the game read it (the 28 Oct run showed only the
+            ; verdict's line, so the cause had to come from the records; this line carries it)
+            Trace("guard days=" + days + " level=" + level + " opening_stage=" + openingStage + " opening_running=" + Opening.IsRunning() + " fresh=" + fresh + " mq101debug=" + DebugGlobal.GetValue() + " expected=" + DebugValue)
             if !fresh || !IsNewGame(days, level)
                 Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
                 AdvanceTo(1)

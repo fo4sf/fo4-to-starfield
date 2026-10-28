@@ -166,7 +166,14 @@ for a named job", and this is that job. Its costs:
   named setting, the script reads it back and traces it; after a save and a load the same. No new dependency.
 - C. Check libxse first (does it track 1.16.244, and on what addresses), then choose between A and B.
 
-Until the call: P1 runs (it needs none of this), and CommonLibSF is built on the PC as the compile check only.
+**The owner's answer, 28 October, 16:45 UTC:** A first, with the brief to make sure it does not break and to fix it
+if it does; B is fine as the backup; C when needed, since a mod as a requirement is no problem unless it restricts
+the modding of the finished work. So B0 runs on stack A: the Address Library v22 installed, CommonLibSF `9caec20`
+built on the PC, and one plugin, `sfse/FOCCPing`, binding `FOCC.Ping`; if the 1.16.244 hook fails, the fix goes
+into the library (the id, the offset) before B comes in. The kit side is in the probes runbook as section B0:
+B0-1 (`FOCC_B0.Gmst`, Papyrus reads the probe plugin's game setting `iFOCC_Pong`; no SFSE plugin, so it runs with any
+probe session and also proves B's return leg) and B0-2 (`FOCC_B0.Ping`, the native, before and after a save and a
+load); `python -m fo4sf.combined.probes b0` judges both.
 
 **If B0 fails, or the licence does not fit:**
 - The 20-place slice runs in Papyrus, if P5 shows a Papyrus tick over 20 places is fast enough. P5 on the owner's
@@ -186,7 +193,8 @@ Each step is one PR, with green CI and an independent review.
    state with its JSON reader and writer, and the tick. Plus the parity harness and its unittest.
 3. **Offline, C2 to C4:** each step with its parity tests.
 4. **PC:** probes P2 to P10, then P1 (restaged from main and queued on 28 Oct).
-5. **PC:** bridge spike B0, on the stack the owner picks (A, B or C in section 4). The build tools are in (28 October).
+5. **PC:** bridge spike B0 on stack A (the owner's call, 28 October): B0-1 with the kit alone, then the Address
+   Library, the CommonLibSF build, `sfse/FOCCPing` and B0-2 (runbook section B0). The build tools are in.
 6. **PC:** the 20-place slice.
    - Python slices the real pack to the 20 places nearest the Commonwealth slice.
    - The plugin keeps the state in the save's sidecar (P1) and ticks every 6 game hours.
@@ -199,6 +207,6 @@ Each step is one PR, with green CI and an independent review.
 ## 6. What the owner decides, and when
 
 - Nothing for steps 1 to 4.
-- Before step 5: the bridge stack, A, B or C in section 4 (the build tools are in since 28 October).
+- Before step 5: the bridge stack. Decided 28 October: A, B as the backup, C when needed (section 4).
 - Before shipping anything built on it: the Address Library as a player dependency, and the CommonLibSF licence
   check.

@@ -169,7 +169,12 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   fallbacks; it is not compiled or rerun on the PC yet (engine-questions.md; row 35).
 - **The new game, phase 1** (NewGame): newgame_v6 was pinned to the v6e core; newgame_v7 passed its restage against the
   installed v6i core on the PC (23 Oct, NewGame's report: 4 scripts compiled, plan pinned to port 9AF962D2 and core
-  DC751664; not installed). The owner's line "Install the new game." opens phase 1; it is ready to type.
+  DC751664). **Installed and run 28 Oct, the owner's first new game: FAIL.** The build's MQ101Debug = 10 override picked
+  Starfield's pirate-fight developer start (MQ101 stage 0 entry 10) and our guard stood down at opening_stage=250; its
+  0.25-day limit also fails every Starfield new game (the 8:00 clock reads 0.3335 a second in). Both fixed offline
+  (override 2, the inert start; limit 1.0; the guard's readings logged): [newgame/vault111-start.md section
+  10](newgame/vault111-start.md), [playtest-issues row 40](owner/playtest-issues.md). Next: restage newgame_v8 from
+  main against the installed port and core, reinstall on the owner's line, new game again.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
@@ -208,7 +213,8 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 a phase 0 gate.
 
 - "Install the quest probe plugin.": not needed; the probe went in on the owner's 00:14 UTC word (23 Oct)
-- "Install the new game." (**ready**: newgame_v7 passed its restage against v6i, 23 Oct, NewGame's report 11:30 UTC)
+- "Install the new game." (**done 28 Oct, FAIL**: the pirate-fight developer start, vault111-start.md section 10; the
+  next line, after the newgame_v8 restage from main: "Reinstall the new game.")
 - "Install the animated doors port." (after the port build passes)
 - "Turn off FO4SFMission and install the combined-core probe for one test session." (after the restage from main; #431 is merged)
 - the b10 line: Interiors words it after card 1b passes
@@ -304,7 +310,9 @@ a phase 0 gate.
 The new game (newgame_v6, #393 and #435 merged) compiled all four scripts and passed its staging checks on the PC, but
 against the v6e core (06C0DECD), not the installed v6i core (DC751664); its installer checks the core pin, so it was
 restaged against the installed v6i core as newgame_v7 (passed on the PC, 23 Oct: 4 scripts compiled, pins port 9AF962D2
-and core DC751664; no core rebuild, item 4) and waits only on the owner's line "Install the new game." The same holds for the focc probe (#431, merged 23 Oct, main d05f8fc1): CombinedCore restages
+and core DC751664; no core rebuild, item 4). It was installed and run on 28 Oct: FAIL, Starfield's pirate-fight developer
+start (the MQ101Debug = 10 override; the guard's 0.25-day limit too), fixed offline, restage pending (vault111-start.md
+section 10). The same holds for the focc probe (#431, merged 23 Oct, main d05f8fc1): CombinedCore restages
 it from main, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
 that ends up installed is v6i (Interiors shelved the border fields on 22 Oct, no v6j); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and
