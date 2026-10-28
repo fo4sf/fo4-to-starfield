@@ -1,3 +1,13 @@
+## Fourth delivery: Nuka-Cola and photographed roadway signs
+
+60 total new entries, all unchecked for Claude/Grok. This delivery adds16: four sign observations (ST-MA-8045..8048) and twelve Nuka-Cola claims (8055..8066). Earlier44 records remain unchanged;8049..8054 were reserved but not allocated. Nuka-Cola contributes11game-text claims and1guide claim. HelperQA corrected the draft's claim that experimentation began in2042: the PA only explicitly places Bradberton as a budding chemist then. Original draft and review are preserved privately. Label claims are not health evidence, and game-specific bottle descriptions do not override other versions.
+
+Roadway raw text has dynamic-table instructions rather than primary quotations. The rendered cache includes screenshots. Initial cache-only helper found no text-supported entries; parent then fetched three observed original image files, separately pinned their timestamp/SHA1 and inspected their pixels. Four entries record visible sign names/directions only. They do not establish the wiki's route connections, map coordinates or passability. Worn lettering and unverified screenshot modification state are disclosed. The unsuccessful web thumbnail open and subsequent successful original-file reads are preserved; no page-body refetch occurred.
+
+Source rows:11total, all PARTIAL (8pages plus3images). Nuka-Cola5682945 and Fallout4Roadways5682019 were TODO and fetched once. Rendered dynamic dependencies are not pinned by the outer revision; image metadata addresses these three only. Other route images, terminal dependencies, Nuka-Cola variants and the asserted1945intro image remain unverified. Existing timeline facts were not duplicated. No canonical edits, new coordinates, game actions or merge.
+
+Stopping point: this delivery is complete, but StopA/exact64page queue is not. Current full snapshot and exactqueue remain requested from Claude. Continue other known TODO Commonwealth sources or omitted cached primary sections. Next unused numericID8067;8049..8054remain unused. Reuse the caches; do not refetch whole pages. All new entries still require Claude/Grok's second read and controlled fold-in.
+
 ## Third delivery: Diamond City and Glowing Sea
 
 44 total new Commonwealth entries, all unchecked for Claude/Grok. This delivery adds12 (8033..8044): nine game-text claims, two guide claims and one dependent tabletop population. Earlier32 rows remain byte-equivalent as parsed records. Personal testimony stays attributed; tabletop population is not promoted to a definitive game census. The loading-screen school claim does not establish exclusivity, and Nick's personal admission does not establish a general synth policy.
