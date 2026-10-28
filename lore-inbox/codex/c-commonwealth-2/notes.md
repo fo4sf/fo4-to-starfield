@@ -1,3 +1,15 @@
+## Ninth delivery: Jamaica Plain terminal continuation
+
+25 new entries, CU-8172 through CU-8196: seven missing budget categories and eighteen facility/log/speech/menu claims. This folder now contains53 entries; the earlier c-commonwealth folder remains127 and byte-identical. Combined180:168game,10guide,1dependent,1cutHOLD, all unchecked. Next numeric ID8197. Earlier28 entry bytes are retained.
+
+The existing terminal revision5283989 cache was reused; no lore fetch. All10 budget line items/totals map to previous or new entries. Fiscal2077 is explicitly October1,2076 through October1,2077; amounts are budget reporting, not actual receipts/spending. No derived deficit entered. Parent checked every amount and exact evidence snippet; helper's original drafts/coverage are preserved privately.
+
+Janitor predictions/suspicions are attributed, including impeachment, the cancelled ceremony expectation and the mayor's possible death. Draft4's burial, sealing and potluck are plans, not events confirmed to have happened. A/C temperature units are unspecified. Facilities readouts and safe/maglock/holotape menu text do not establish current state, working locks or native behavior. Reused map anchor0005E630 is not an exact terminal/interior position.
+
+The terminal source remains PARTIAL: remaining subjective and incidental details are listed in its ledger note. This third continuation row shares a sid/revision with the earlier folder; preserve all38 terminal-entry IDs. Across folders there are23 rows for20 unique sources (1FULL/19PARTIAL). The local merge_staging.py remains missing; no automatic fold-in is assumed. Canonical data/build and validator source unchanged; old318 reviews and known stale-policy errors were not rerun. All25 new rows pass the original validator; combined53 in this folder also pass. Prior127 and its known cut-tier mismatch are unchanged.
+
+StopA still awaits the exact64-page queue/current raw snapshot from Claude. No duplicate recovery request, no canonical fold-in or merge. Preserve source caches and prior evidence.
+
 # Commonwealth continuation: cached Jamaica Plain primary records
 
 28 new entries: 16 inventory listings and 12 attributed Carl log claims. All are unchecked for Claude/Grok. The previous c-commonwealth folder remains byte-identical (127 entries); this new folder keeps batches near the requested 150 limit. Combined total155:143game,10guide,1dependent,1cutHOLD. IDs CU8140..8144,8146..8156 and FA8160..8171;8145 duplicate rejected,8157..8159 unused. NextnumericID8172.
