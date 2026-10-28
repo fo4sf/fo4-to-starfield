@@ -196,10 +196,20 @@ Function Where()
         line += " local=other"
     endif
     string cellName = ""
+    string port = "none"
     if c != None
+        ; port=True: Game.GetFormFromFile finds this very cell at its plugin-local id in FO4Port.esm, so the id in cell=
+        ; is FO4Port.esm's in this run and not another plugin's in that load slot (Codex review of #560: the stage's
+        ; offline_check.txt proves the source FormKeys, not the run's load order). The local id is the low 24 bits of a
+        ; full plugin's id; the modulo is negative for a load index of 0x80 or more or a light plugin, and then nothing
+        ; is claimed (port=none).
+        int local = c.GetFormID() % 16777216
+        if local > 0
+            port = "" + (Game.GetFormFromFile(local, "FO4Port.esm") == (c as Form))
+        endif
         cellName = c.GetFormEditorID()
     endif
-    Trace(line + " cellname=" + cellName)
+    Trace(line + " cellname=" + cellName + " port=" + port)
 EndFunction
 
 ; ---------------------------------------------------------------- P4: materialize / dissolve cycles

@@ -174,7 +174,7 @@ Second session (28 Oct, after #557's restage; `focc_probe_20261028b`, plugin e2e
 | Probe | Verdict | What the log shows |
 |---|---|---|
 | P10 | PASS | the check printed the branch's new condition (GetEventData GetIsID Keyword1, record 00081F, equal to 1, the shape of 80 of the 82 vanilla keyword filters); `SendStoryEvent` ran, FOCC_P10_Quest's OnQuestInit came after it, `running=True` |
-| P3 (cell half) | INCONCLUSIVE; to be judged again | both `where` lines are in the log (Red Rocket cell 117449528, loc 167774215 = local 0x807; Super Duper Mart cell 117468230, loc 167774216 = local 0x808), but `cellname=` came back empty on both, and the judge named cells only by cellname. It now names them by the stage's form ids in offline_check.txt (P3b card); judge again with that file beside the log (`focc_P3cells_20261028`) |
+| P3 (cell half) | INCONCLUSIVE; run again after the restage | both `where` lines are in the log (Red Rocket cell 117449528, loc 167774215 = local 0x807; Super Duper Mart cell 117468230, loc 167774216 = local 0x808), but `cellname=` came back empty on both, and the judge named cells only by cellname. It now names them by the stage's form ids in offline_check.txt, bound to FO4Port.esm by the script's `port=True` (P3b card); the 28 Oct log has no `port=`, so P3b runs again with the restaged kit |
 | P9 (ladder) | INCONCLUSIVE | rung b (`PathToRef player`, start 16.7 m): the actor ended about 22 m away, so the ladder stopped there as the card says. Next: the scripted driver (P9 card) |
 
 **The load order trap.** Loading a save made while FO4SFMission.esm was active silently switched Starfield to that
@@ -262,9 +262,14 @@ cgf "FOCC_Probe.Where"
 
 Quit; collect as `focc.0.log` into `D:\Modding\testqueue\focc_P3cells_$date`, and copy `offline_check.txt` from
 `${stage}_p3cells` beside it; judge `probes p3`. Expect `FOCC init variant=p3cells`, then `where cell=<id> loc=<id>
-local=2055 cellname=` for Red Rocket and the Super Duper Mart line with `local=2056`. On the PC (28 Oct) `cellname=` came
-back empty on both lines, so the judge names each cell by the form id the stage recorded for it in offline_check.txt
-(`CELL FO4Port_RedRocket01 <id>:FO4Port.esm`); without that file the cell half is INCONCLUSIVE. FAIL = `loc=none` or another location. **Then run focc-uninstall and reinstall the default stage**
+local=2055 cellname=<editor id or empty> port=True` for Red Rocket and the Super Duper Mart line with `local=2056`. On
+the PC (28 Oct) `cellname=` came back empty on both lines, so the judge names each cell by the form id the stage recorded
+for it in offline_check.txt (`CELL FO4Port_RedRocket01 <id>:FO4Port.esm`), and only when the line also says `port=True`:
+the script asks `Game.GetFormFromFile(<the cell's local id>, "FO4Port.esm")` for the cell the player stands in and logs
+whether the game hands back that same cell, so the id is FO4Port.esm's in this run and not another plugin's in that load
+slot (the stage's file proves the source FormKeys, not the run's load order; Codex review of #560). Without the file, or
+on a log from before the script logged `port=` (the 28 Oct log), the cell half is INCONCLUSIVE and P3b runs again with
+the restaged kit. FAIL = `loc=none` or another location. **Then run focc-uninstall and reinstall the default stage**
 before anything else (rule 2: the variant overrides two FO4Port interiors while installed). A crash on load with the
 variant is itself the answer for an unparented LCTN (plan P3 risks): paste the dump name.
 
@@ -472,14 +477,18 @@ Quit after the last `p9 done` and its `p9 path returned` (or 30 s). Collect `foc
 loaded=<bool> dist=<m>` every 2 s.
 
 The verdict is the latest rung's: dist from >= 400 to < 10 within 600 s through >= 4 distinct cell ids, timed by each
-line's `rt=` from the start's (real seconds; late timers do not stretch the deadline). FAIL = stuck (dist within 2 m
-for 120 s while loaded) or never leaving the first cell, and only when the log shows the command moving this actor:
-it came at least 20 m closer on that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away
-and a later one sent the same way as the judged rung (the scripted driver, or not) arrived. Otherwise those cases are
-INCONCLUSIVE: a still actor cannot tell a command that did nothing from a navmesh with no path. Every rung is
-summarised in the verdict's `extra.attempts` (start and closest distance, how far the actor moved, cells, whether it
-arrived, its driver and target, and after how many seconds its PathToReference returned, paired by `call=`). Send
-back: the log, the verdict, the dx dy used and the actor id.
+line's `rt=` from the start's (real seconds; late timers do not stretch the deadline). When the script sent the actor, the walk and its clock start at its `p9 go`
+(samples before it show an actor not yet commanded). FAIL = stuck (dist within 2 m for 120 s while loaded) or never
+leaving the first cell, and only when the log shows the command moving this actor: it came at least 20 m closer on
+that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away and a later short rung that the
+script sent (its `p9 go` inside its track, after the start and before its `p9 done`) came under 10 m after that go. A
+console command leaves no line in the log, so a rung without a go never stands as the control and a rung without a go
+is judged by its own approach only: an actor that arrived without a logged command may have wandered (N1c drifted 14 m;
+Codex review of #560). Otherwise those cases are INCONCLUSIVE: a still actor cannot tell a command that did nothing
+from a navmesh with no path. Every rung is summarised in the verdict's `extra.attempts` (start and closest distance,
+how far the actor moved, cells, whether it arrived, its driver and target, the line of its go, and after how many
+seconds its PathToReference returned, paired by `call=`). Send back: the log, the verdict, the dx dy used and the actor
+id.
 
 ## P1: SFSE sidecar on save and load (last)
 

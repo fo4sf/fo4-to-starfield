@@ -2383,5 +2383,17 @@ wander. The ladder's control then settled the console route: from 16.7 m,
 is `Actor.PathToReference` called from Papyrus (FOCC_P9Drive), which the
 console's `cf` never reached. It is compiled on its own, so if Starfield does
 not declare it only P9 waits. The P9 card is the same ladder with that driver,
-and the judge gives FAIL only after a scripted control that arrived. Details
-are in docs/spikes/combined-core-probes.md.
+and the judge gives FAIL only after a scripted control that arrived. Codex's
+independent review of that change found three holes in the judges, each shown
+through the judge's own command line, and the fixes are in the same PR. The
+stage's file proves which source records the two cells are, not which plugin
+holds their load slot in a given run, so the probe script now asks the game
+(`Game.GetFormFromFile` on FO4Port.esm) whether the cell the player stands in
+is that record and logs `port=True`; an unnamed cell counts only with it, and
+the 28 Oct log, which has no `port=`, is run again after the restage instead
+of judged again. A `p9 go` counts only inside its rung's track, and only the
+samples after it answer it, so an actor that arrived before it was commanded
+is no control. And a rung with no go may be the actor's own wander, since a
+console command leaves no line, so it never stands as the control and a
+console-driven rung is judged by its own approach only. Details are in
+docs/spikes/combined-core-probes.md.

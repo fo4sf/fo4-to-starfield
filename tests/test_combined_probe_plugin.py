@@ -289,6 +289,10 @@ class ScriptContractTests(unittest.TestCase):
                      '"p9 sample t="', '"p9 done t="', '"p10 state id="'):
             self.assertIn(line, QUEST, line)
         self.assertIn('" p10 sent event="', PROBE)
+        # Codex review of #560: an unnamed cell is bound to FO4Port.esm by the game itself, not by the stage's record
+        self.assertIn('Game.GetFormFromFile(local, "FO4Port.esm") == (c as Form)', QUEST)
+        self.assertIn('" port=" + port', QUEST)
+        self.assertIn("int local = c.GetFormID() % 16777216", QUEST)
         self.assertNotRegex(PROBE, r"bool \w+ = k\.SendStoryEvent")     # PC compile 2d53642: its return is not a bool
         self.assertIn('" p10 quest started id="', P10)
         self.assertIn('Event OnQuestInit()', P10)
