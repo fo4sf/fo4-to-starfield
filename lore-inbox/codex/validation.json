@@ -109,14 +109,15 @@
   "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete.",
   "twelfth_delivery_note": "Priority second reads complete318/318:146primary172asreported. States102,military86,vault130. Canonical data untouched;17 original validator tier-policy errors remain, in-memory owner-policy0. StopA incomplete: Commonwealth queue work remains. Exact raw snapshot/queue pending recovery, known explicitly assigned TODO sources can proceed.",
   "new_commonwealth": {
-    "entries": 12,
-    "ids": "MIL-8001..MIL-8012",
-    "source": "Fort Strong Terminal Entries",
-    "revision": 5282862,
+    "entries": 32,
+    "ids": "8013..8032 added; priorMIL8001..8012retained",
+    "sources": 4,
     "coverage": "partial",
     "all_unchecked": true,
     "validator_exit": 0,
     "canonical_unchanged": true,
-    "exact_queue_recovered": false
+    "exact_queue_recovered": false,
+    "markers_verified": 5,
+    "guide_tier2_count": 6
   }
 }
