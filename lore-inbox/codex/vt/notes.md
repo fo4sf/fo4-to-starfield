@@ -1,3 +1,7 @@
+## Current checkpoint — seventh vault pass
+
+129/130 checked or corrected;51 primary verified,78 as-reported. VT-0112 remains unchecked/HOLD. Historical pass counts below are retained, not current totals. No removed IDs. Current raw-store recovery and exact64 Commonwealth queue remain pending; do not fold this draft into canonical data yet.
+
 # Codex vault second read — IN PROGRESS, NOT READY FOR FOLD-IN
 
 Input is the local read-only build/lore.json export built 2026-10-24T17:20:34Z, content hash `49e9df39b23185f0b82e578eb401af7f2a9c63cdfbfe62cc1e86a269d788ac00`, file SHA256 `ea31566e427e0f70b87b27f06b17772ddc302ec91b37eccec7af727ea2f864e9`. Raw data/entries/vt.jsonl is absent from this partial PC mirror. All 130 exported vt entries are retained with their existing IDs and other fields; the lore thread must compare against its current raw batch before any replacement. No canonical data/build files were modified.
@@ -54,3 +58,11 @@ Remaining unchecked IDs: VT-0011, VT-0017, VT-0018, VT-0020, VT-0031, VT-0032, V
 VT-0112 remains unchecked/HOLD: wiki comic1000:1 versus Bible table one man among1000total. Do not silently harmonize; original claim retained. Art/comic images returned403/unavailable, and linked archived comic pages were inaccessible. Artbook/panel-dependent entries are not primary-verified. The failed bare Player Vault lookup and corrected disambiguated response are preserved. No whole-ledger-FULL-page refetch or canonical data edit.
 
 Remaining unchecked IDs: VT-0011, VT-0017, VT-0018, VT-0020, VT-0031, VT-0032, VT-0033, VT-0034, VT-0036, VT-0054, VT-0055, VT-0056, VT-0112. Full current raw batches/exact64queue recovery still pending; no rows dropped, StopA incomplete, not ready for canonical replacement.
+
+## Seventh pass — remaining role, award and visual checks
+
+Twelve further checks completed. Parent validated every helper cache quote, inspected two cited images, and resolved missing DPL tables using only rendered sections and pinned linked leads. Four new primary-text checks: Cooper Howard/Ma June attributed quotations, Vault92 role mail headers, Vault108 personnel list. No episode playback claimed. Corrected the shelter scene timing (a blast is visible), separated Personnel Department from jobs, distinguished named/discussed G.O.A.T. roles from obtainable results, identified surveys as static/world objects, and stopped claiming all award labels are readable in one case.
+
+Other eight completions remain as-reported. Some trophy plaques cannot be confidently read; full role/award lists include wiki-only associations. Outer Vault revision does not pin transcluded dependencies. GOAT section3 included nested4, which was redundantly captured; this small duplicate is disclosed rather than described as perfect read-once behavior. The initial capitalized Vault76 terminal metadata request failed and was corrected to the observed case. Original failures and helper output retained privately.
+
+VT-0112 still needs the actual comic panel to settle1000:1 versus999:1. The newly found original comic link redirects to the current Fallout homepage; no numerical harmonization. No canonical edits, dropped rows, new lore IDs, game actions or merge. StopA remains incomplete.

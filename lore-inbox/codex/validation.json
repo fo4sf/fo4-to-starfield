@@ -3,40 +3,11 @@
   "progress": {
     "vt": {
       "rows": 130,
-      "checked_or_corrected": 117,
-      "newly_reviewed": 26,
-      "verified_source_among_reviewed": 47,
-      "as_reported_among_reviewed": 70,
+      "checked_or_corrected": 129,
+      "newly_reviewed": 12,
+      "verified_source_among_reviewed": 51,
+      "as_reported_among_reviewed": 78,
       "changed_ids": [
-        "VT-0104",
-        "VT-0105",
-        "VT-0106",
-        "VT-0107",
-        "VT-0108",
-        "VT-0109",
-        "VT-0110",
-        "VT-0111",
-        "VT-0112",
-        "VT-0113",
-        "VT-0114",
-        "VT-0115",
-        "VT-0116",
-        "VT-0117",
-        "VT-0118",
-        "VT-0119",
-        "VT-0120",
-        "VT-0121",
-        "VT-0122",
-        "VT-0123",
-        "VT-0124",
-        "VT-0125",
-        "VT-0126",
-        "VT-0127",
-        "VT-0128",
-        "VT-0129",
-        "VT-0130"
-      ],
-      "remaining_ids": [
         "VT-0011",
         "VT-0017",
         "VT-0018",
@@ -51,7 +22,10 @@
         "VT-0056",
         "VT-0112"
       ],
-      "unchanged_other_rows": 103,
+      "remaining_ids": [
+        "VT-0112"
+      ],
+      "unchanged_other_rows": 117,
       "ids_and_order_retained": true
     },
     "mil": {
@@ -188,10 +162,11 @@
   "method_exception": "Eight FULL-ledger pages were refetched by st3 helper; parent disclosed and preserved the failure. Helper networking disabled for future passes.",
   "fifth_pass_note": "Historical preceding delivery: eight NY entries brought totals to193/318,91primary102asreported; preserved in prior commits. See sixth_delivery_note for current totals.",
   "baseline_heads": {
-    "vt": "06db4a6cf269c4430e8684b836fd22dde918afb7",
+    "vt": "c20e1981750048f4e13f82b0bb03fa75ec7e78d5",
     "mil": "5ac49e8a82e365e3336159b952e37bfd41361d4a",
     "st3": "839a04d69c3be007619bfe1acb28326a6a0f5b3f"
   },
   "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits.",
-  "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending."
+  "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending.",
+  "eighth_delivery_note": "258/318 reviewed:108primary150as-reported;12new vault completions. VT0112 remains unchecked/HOLD for missing primary panel. Original validator17 stale-policy errors across318; owner-policy in-memory validation passes. No canonical edit; exact Commonwealth queue still awaits recovery."
 }
