@@ -103,7 +103,10 @@ Game closed. The repo checked out on the PC; `$sf` = the Starfield folder (the o
 
 0. **Toolchain check (stops cleanly if absent).** `powershell -File sfse\FOCCSidecar\check_toolchain.ps1 -Starfield $sf -Out toolchain.json`
    prints a JSON object and exits 1 when `cl.exe` (via `vswhere`, component `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`),
-   `vcvars64.bat`, a Windows 10/11 SDK with `um\windows.h`, `sfse_loader.exe` or any `sfse_*.dll` is missing. On exit 1
+   `vcvars64.bat`, a Windows 10/11 SDK with `um\windows.h`, `sfse_loader.exe` or any `sfse_*.dll` is missing. With the
+   portable MSVC (D:\Modding\tools since 28 Oct 2026: no Visual Studio, nothing registered) dot-source its `msvc_env.ps1`
+   first or pass `-Env D:\Modding\tools\msvc_env.ps1`: the check then takes the `cl.exe` on PATH and the SDK from
+   `INCLUDE`, needs no vswhere or vcvars64, and `toolchain` in the JSON reads `environment`. On exit 1
    nothing else runs; the owner decides whether to install **Visual Studio Build Tools 2022 with the "Desktop
    development with C++" workload** (several GB; not a decision this kit makes) and SFSE 0.2.21 for Starfield
    1.16.244 (SFSE's `sfse_whatsnew.txt` and readme: "SFSE will support the latest version of Starfield available on
@@ -115,7 +118,8 @@ Game closed. The repo checked out on the PC; `$sf` = the Starfield folder (the o
    `4a4b6926786f261e0c19178af304190c645b1b820b7722a6973c9b2a64b8a860`). A mismatch places nothing. Both files are
    gitignored; `scripts/guard.py` must stay green.
 2. **Build.** `powershell -File sfse\FOCCSidecar\build.ps1 -Out D:\Modding\staging\focc_sfse_<date>` runs
-   `cl.exe /nologo /std:c++20 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /LD FOCCSidecar.cpp sha256.cpp` inside `vcvars64`,
+   `cl.exe /nologo /std:c++20 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /LD FOCCSidecar.cpp sha256.cpp` inside `vcvars64`, or
+   straight in the loaded environment (same `-Env` as step 0; `build.json` records `toolchain` and the env script),
    writes `FOCCSidecar.dll`, `FOCCSidecar.ini` (`bEnabled=0`), `cl_output.txt` and `build.json` (sha256 of the four
    sources, of `PluginAPI.h` and of the dll). It refuses an `-Out` that already holds a dll. Compile errors on the first
    build are expected and cheap: this source has never met MSVC (below).
