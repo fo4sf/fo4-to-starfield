@@ -20,6 +20,7 @@ Scriptname FOCC_Probe Hidden
    cgf "FOCC_Probe.P9Dest" 450.0 0.0 / "FOCC_Probe.P9Track" <actor id, signed decimal> 600 (P9)
    cgf "FOCC_P9Drive.Go" <actor id, signed decimal> 0      P9's scripted driver (FOCC_P9Drive.psc, its own compile)
    cgf "FOCC_Probe.P10Send" / "FOCC_Probe.P10State"                                       (P10)
+   cgf "FOCC_B0.Gmst" / cgf "FOCC_B0.Ping" 41       B0, the plugin bridge (FOCC_B0.psc, its own compile with FOCC.psc)
  Form ids typed into cgf are ints: a runtime id FFxxxxxx is typed as the negative decimal Papyrus prints
  (src/fo4sf/combined/probes.py hex2dec).}
 

@@ -2534,3 +2534,29 @@ three stacks to the owner: A, the Address Library and B0 as written; B, a
 bridge with no game addresses on the two mechanisms FO4SFBorder already
 proved (log tail in, named setting out), with Utility.GetINI* to verify; C,
 check libxse first.
+
+## 2026-10-28: B0 kit: the probe plugin's game setting, FOCC_B0 and its judge; P9's driver logs its result code
+
+The owner picked stack A for the bridge spike (16:45 UTC: make sure it does
+not break, fix it if it does; B fine as the backup; C when needed, a mod
+dependency being no problem unless it restricts modding of the finished
+work). The kit side is now in the probe stage: GMST iFOCC_Pong = 7 (0x855,
+NextId 0x856) in FO4SFCombinedProbe.esm, FOCC.psc (the native stub the plugin
+binds, Ping(v) = v + 1) and FOCC_B0.psc (Gmst reads the setting back with
+Game.GetGameSettingInt, declared in Starfield's Game.psc per Install; Ping
+traces the sent value, calls the native and traces the answer), both compiled
+on their own (compile_b0.txt) and packed only when both compile, so a refusal
+leaves only B0 out. probes.py judges b0: B0-1 (7 read back; no SFSE plugin,
+so it runs with any probe session and settles B's return leg) and B0-2 (a
+pong of sent + 1, or on the setting route a gmst read of sent + 1 after the
+ping). Runbook section B0 holds the cards, with the Address Library and the
+FOCCPing dll as the owner's lines. The plugin itself (sfse/FOCCPing) is the
+next PR.
+
+P9: Install read Starfield's Actor.psc (line 490): PathToReference returns an
+int, latent, with PathingResult_Success 0, Failure 1, Stopped 2, Cleared 3,
+Timeout 4. The kit d ladder's rung b (28 Oct) returned after 2.89 s with the
+actor 26.7 m out and no code logged, so it could not tell a missing path
+from a stopped walk. FOCC_P9Drive now puts result= on the `p9 path returned`
+line and the judge names the code; the next rung decides between the navmesh
+(1) and the AI (2, 4) before any new driver is written.

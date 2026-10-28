@@ -26,6 +26,8 @@
 //                                     one condition GetEventData(FOCC_P10_Event), copied from a vanilla Script Event node
 //   0x822  SMQN FOCC_P10_QuestNode    parent = the branch, quests = [FOCC_P10_Quest]
 //   0x823..0x854  GLOB FOCC_P5_G00..G49
+//   0x855  GMST iFOCC_Pong            int 7: B0's plugin bridge (docs/combined-core-cpp-port.md section 4). Papyrus reads it
+//                                     with Game.GetGameSettingInt (FOCC_B0.Gmst); the setting-route plugin writes it by name
 //   --p3-cells: CELL overrides of FO4Port.esm's FO4Port_RedRocket01 (XLCN -> 0x807) and FO4Port_SuperDuperMart01
 //               (XLCN -> 0x808), copied without children
 // Record shapes verified in game come from dotnet/Bridge (GLOB, QUST + VMAD), dotnet/Mission and dotnet/MergeProbe
@@ -72,7 +74,7 @@ static class CombinedProbe
     public const string QuestEdid = "FOCC_ProbeQuest", QuestScript = "FOCC_ProbeQuest", P10QuestEdid = "FOCC_P10_Quest", P10Script = "FOCC_P10Quest";
     public const uint QuestId = 0x804, HolderId = 0x805, P2LocId = 0x806, P3NoParentId = 0x807, P3ChainedId = 0x808, RouteId = 0x809,
         P4MarkerId = 0x80B, P8Parent0Id = 0x80C, P8Child0Id = 0x80F, P9DestId = 0x81B, P6ListId = 0x81C, P7ListId = 0x81D, RepId = 0x81E,
-        P10EventId = 0x81F, P10QuestId = 0x820, P10BranchId = 0x821, P10NodeId = 0x822, P5FirstId = 0x823, NextId = 0x855;
+        P10EventId = 0x81F, P10QuestId = 0x820, P10BranchId = 0x821, P10NodeId = 0x822, P5FirstId = 0x823, PongId = 0x855, NextId = 0x856;
     public const int P5Count = 50, P8Stages = 3, P8ChildrenPerStage = 4;
     public const uint XMarker = 0x3B, LocTypeOverlay = 0x2CA99D;                         // Starfield.esm (MergeProbe, TerrainOverlays)
     public const string DefaultNpc = "Starfield.esm:2B211C";                              // EncCitizen01Template (docs/owner/in-game-test-sheet.md)
@@ -233,6 +235,14 @@ static class CombinedProbe
         }
         var rep = Glob(RepId, "FOCC_Rep_Test");
         var p5 = Enumerable.Range(0, P5Count).Select(i => Glob(P5FirstId + (uint)i, $"FOCC_P5_G{i:D2}")).ToList();
+        // B0 (docs/combined-core-cpp-port.md section 4): one game setting of ours. FOCC_B0.Gmst reads it back with
+        // Game.GetGameSettingInt("iFOCC_Pong") (B0-1: 7); on the no-address bridge the plugin writes it by its name. The
+        // EditorID's first letter is the setting's type, as the game reads GMST (Mutagen's GameSetting keeps it so). No
+        // FormVersion is forced: the KYWD and LCTN written the same way load in game (P2, P3). UNVERIFIED: a GMST new to
+        // the game (no vanilla record of that name) reaching Papyrus from a plugin; B0-1 is that test, and `check` reads
+        // the record back here.
+        var pong = new GameSettingInt(new FormKey(modKey, PongId), Release) { EditorID = "iFOCC_Pong", Data = 7 };
+        mod.GameSettings.Add(pong);
 
         // the core world and its persistent cell, overridden with only our references (Mission, MergeProbe)
         var w = world.DeepCopy(new Worldspace.TranslationMask(defaultOn: true)
@@ -378,7 +388,7 @@ static class CombinedProbe
         }
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): masters [{string.Join(", ", m.Keys.Select(k => k.FileName))}]; " +
                           $"QUST {QuestEdid} {quest.FormKey} script {QuestScript} ({script.Properties.Count} properties); " +
-                          $"{mod.Keywords.Count} KYWD, {mod.Locations.Count} LCTN, {mod.Globals.Count} GLOB, {cell.Persistent.Count} REFR in " +
+                          $"{mod.Keywords.Count} KYWD, {mod.Locations.Count} LCTN, {mod.Globals.Count} GLOB, {mod.GameSettings.Count} GMST, {cell.Persistent.Count} REFR in " +
                           $"WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey}; {(o.Lvln ? "2 LVLN" : "lvln skipped")}; " +
                           $"QUST {P10QuestEdid} {p10.FormKey} ({smNote}); {cellNote}; variant={(o.P3Cells ? "p3cells" : "default")}");
         Console.WriteLine($"  core location {o.Location} = {coreLoc.FormKey} (parent of FOCC_P2_Loc and FOCC_P3_LocChained); core world {world.FormKey}");
@@ -558,7 +568,7 @@ static class CombinedProbe
         var refs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey) ?? new();
         var cells = plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).ToList();
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{plug.ModHeader.Stats.NextFormID:X}, " +
-                          $"{plug.Quests.Count} QUST, {plug.Keywords.Count} KYWD, {plug.Locations.Count} LCTN, {plug.Globals.Count} GLOB, " +
+                          $"{plug.Quests.Count} QUST, {plug.Keywords.Count} KYWD, {plug.Locations.Count} LCTN, {plug.Globals.Count} GLOB, {plug.GameSettings.Count} GMST, " +
                           $"{plug.LeveledNpcs.Count} LVLN, {plug.StoryManagerBranchNodes.Count} SMBN, {plug.StoryManagerQuestNodes.Count} SMQN, " +
                           $"{plug.Worldspaces.Count} WRLD, {refs.Count} REFR, {cells.Count} CELL (interior)");
         Need(plug.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
@@ -590,6 +600,10 @@ static class CombinedProbe
             Need(globs.TryGetValue(K(P5FirstId + (uint)i), out var g) && g.EditorID == $"FOCC_P5_G{i:D2}", $"GLOB FOCC_P5_G{i:D2} missing");
         Need(globs.Count == P5Count + 1, $"not exactly {P5Count + 1} GLOB");
         Need(plug.Globals.All(g => !g.MajorFlags.HasFlag(Global.MajorFlag.Constant)), "a GLOB is Constant: the console and the script could not set it");
+        var pong = plug.GameSettings.FirstOrDefault(g => g.FormKey == K(PongId));
+        Need(pong is IGameSettingIntGetter pongInt && pongInt.EditorID == "iFOCC_Pong" && pongInt.Data == 7,
+             $"GMST 0x{PongId:X} iFOCC_Pong is not an int game setting of 7 (B0)");
+        Need(plug.GameSettings.Count == 1, "not exactly 1 GMST");
 
         // the world override and its references
         var world = FindWorld(m.Core, o.World);

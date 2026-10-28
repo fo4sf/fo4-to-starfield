@@ -10,10 +10,14 @@ Scriptname FOCC_P9Drive Hidden
  this script on its own: a refusal leaves only this script out.
    cgf "FOCC_P9Drive.Go" <actor id, signed decimal> 1      the actor paths to the player
    cgf "FOCC_P9Drive.Go" <actor id, signed decimal> 0      the actor paths to FOCC_P9_Dest
- Run P9Track first: it samples the walk. In FO4 the function is latent (it returns when the path completes or fails);
- Starfield is unverified, so the call is a statement (its return type is unknown, as SendStoryEvent's was) and the
- lines before and after it carry the real time; both name the call by its start time (call=), since a latent return
- can land after the next rung's lines. cgf does not wait for a latent call (P8: three calls with waits ran
+ Run P9Track first: it samples the walk. Starfield's Actor.psc (line 490 on the PC, 28 Oct 2026) declares it
+ `int Function PathToReference(ObjectReference aTarget, float afNormalizedSpeed, float afNormalizedRotationSpeed,
+ float afTargetRadius=-1.0, bool abHardRadius=false) native`, latent ("doesn't return until the goal is reached or
+ pathing" ends), with its codes as properties (lines 476 to 480): PathingResult_Success 0, Failure 1, Stopped 2,
+ Cleared 3, Timeout 4. The return goes on the `p9 path returned` line as result= (the kit d ladder of 28 Oct returned
+ after 2.89 s with the actor 26.7 m out and no code logged, so it could not tell a missing path from a stopped walk).
+ The lines before and after the call carry the real time; both name the call by its start time (call=), since a latent
+ return can land after the next rung's lines. cgf does not wait for a latent call (P8: three calls with waits ran
  at once from one console session), but the game is paused while the console is open: close it after the call.}
 
 Function Go(int actorId, int toPlayer) global
@@ -34,6 +38,6 @@ Function Go(int actorId, int toPlayer) global
     endif
     float t0 = Utility.GetCurrentRealTime()
     q.Trace("p9 go actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " id=" + target.GetFormID() + " dist=" + a.GetDistance(target))
-    a.PathToReference(target, 1.0, 1.0)
-    q.Trace("p9 path returned actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " after=" + (Utility.GetCurrentRealTime() - t0) + " dist=" + a.GetDistance(target))
+    int r = a.PathToReference(target, 1.0, 1.0)
+    q.Trace("p9 path returned actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " result=" + r + " after=" + (Utility.GetCurrentRealTime() - t0) + " dist=" + a.GetDistance(target))
 EndFunction
