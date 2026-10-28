@@ -743,7 +743,16 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("if m != None && !refused[i]", place)
         self.assertLess(place.index("!refused[i]"), place.index("m.Enable"))
         self.assertLess(place.index("m.MoveTo("), place.index("refused[i] = True"))
-        self.assertIn("if d > SameWorld && sx * sx + sy * sy < 0.0001", place)    # still in its own world, unmoved
+        # still in its own world after the move, while the player stayed in theirs: refused. The pad's x/y read before
+        # and after "cannot be moved" did not match on the PC (2026-10-28: 18 and 27 errors, no refused line), so the
+        # position is not asked for; the line logs where it was
+        after = place.index("float d = player.GetDistance(m)")
+        refuse = place.index("if d > SameWorld", after)
+        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w", refuse)
+        self.assertLess(stop, place.index("refused[i] = True"))
+        self.assertLess(place.index("return", stop), place.index("refused[i] = True"))
+        self.assertNotIn("sx * sx", place)
+        self.assertIn('Trace("refused " + i + ": still in its own world, was at " + bx + " " + by', place)
         self.assertLess(place.index("NewSession()"), place.index("IsInInterior"))
         session = self.text[self.text.index("Function NewSession"):self.text.index("Function ShowLanding")]
         size = int(re.search(r"refused = new bool\[(\d+)\]", session).group(1))
