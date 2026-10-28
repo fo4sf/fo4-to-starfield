@@ -126,8 +126,11 @@ Copy-Item "$logs\focc.0.log" "$out\focc_session1.log"      # or focc_session2.lo
 Get-FileHash -Algorithm SHA256 "$out\*"
 ```
 
-The game rewrites `focc.0.log` on every launch, so copy it **before** the next launch. First line of every log is
-`FOCC init variant=default` (or `variant=p3cells`); the judge needs it to prove a relaunch.
+The game rewrites `focc.0.log` on every launch, so copy it **before** the next launch. On a new game the first line
+of the log is `FOCC init variant=default` (or `variant=p3cells`). Loading a save made after the quest started does
+not run OnInit again (owner's PC, 28 Oct 2026), so session2 may have no init line. The judge then proves the relaunch
+by the clock: session2 repeats no line of session1, and its first `rt` (seconds since the game started) is below
+session1's highest.
 
 ## Compile answers so far (PC stage at 1b23a26, D:\Modding\staging\focc_probe_20261021d, Oct 21)
 
@@ -178,10 +181,10 @@ $env:PYTHONPATH = "src"; python -m fo4sf.combined.probes p2 "D:\Modding\testqueu
 ```
 
 Expect in session1: `FOCC rt=... p2 set loc=<id> local=2054 value=37.000000 readback=37.000000 holder=<id>` and `p2 link a=<id>
-b=<id> linked=True route=<id>`; in session2 a fresh `FOCC init` then `p2 read local=2054 value=37.000000` and `p2 linkread
-linked=True`. PASS = those four, across two launches. FAIL = the read is 0 or another value after a confirmed set, or
-linkread False. INCONCLUSIVE = a file missing, no init in session2, `refused` (a property did not resolve), or no
-readback. Send back: both logs, the verdict JSON, the console's reply to `Hello` if it printed anything.
+b=<id> linked=True route=<id>`; in session2 (a fresh `FOCC init`, or an `rt` that started again below session1's)
+`p2 read local=2054 value=37.000000` and `p2 linkread linked=True`. PASS = those four, across two launches. FAIL = the
+read is 0 or another value after a confirmed set, or linkread False. INCONCLUSIVE = a file missing, no relaunch proven
+in session2, `refused` (a property did not resolve), or no readback. Send back: both logs, the verdict JSON, the console's reply to `Hello` if it printed anything.
 
 ## P3: our location with and without a parent; the cell's current location
 

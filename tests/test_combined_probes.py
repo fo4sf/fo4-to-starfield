@@ -305,7 +305,32 @@ class P2Tests(unittest.TestCase):
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("same launch" in r for r in v.reasons), v.reasons)
         self.assertEqual(probes.check_p2(col(session1=S1_P2 + S2_P2[1:])).verdict, INCONCLUSIVE)   # read in the same session
-        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2[1:])).verdict, INCONCLUSIVE)  # no init: no relaunch proven
+        later = [ln.replace("rt=4.", "rt=6.") for ln in S2_P2[1:]]        # no init, and rt never went back: same process
+        v = probes.check_p2(col(session1=S1_P2, session2=later))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("relaunch is not proven" in r for r in v.reasons), v.reasons)
+        no_rt = [re.sub(r"rt=\S+ ", "", ln) for ln in S2_P2[1:]]
+        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=no_rt)).verdict, INCONCLUSIVE)
+
+    def test_a_loaded_save_proves_the_relaunch_by_its_clock(self):
+        # Owner's PC, 28 Oct 2026: loading a save made after the quest started does not run OnInit again, so session2
+        # has no init line. rt counts seconds since the process started; a lower one means a new process.
+        stamp = "[10/28/2026 - 04:41:12AM] "
+        s1, s2 = [stamp + ln for ln in S1_P2], [stamp.replace("04:41", "04:44") + ln for ln in S2_P2[1:]]
+        v = probes.check_p2(col(session1=s1, session2=s2))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertIn({"file": "focc_session2.log", "line": 1, "text": s2[0]}, v.evidence)
+        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2[1:])).verdict, PASS)
+
+    def test_a_later_copy_of_the_same_log_is_no_relaunch(self):
+        # A copy of focc.0.log taken later in the same launch repeats session1's lines, whatever its last rt.
+        note = "FOCC p5 start ticks=10"                                     # a FOCC line without rt
+        s1 = probes.parse_log(S1_P2 + [note])
+        self.assertIsNone(probes._relaunch(s1, probes.parse_log([note] + S2_P2[1:])))
+        self.assertIsNotNone(probes._relaunch(s1, probes.parse_log(S2_P2[1:])))
+        self.assertIsNone(probes._relaunch(probes.parse_log([INIT]), probes.parse_log(S2_P2[1:])))   # session1 has no clock to compare
+        init = probes._relaunch(s1, probes.parse_log(S2_P2))
+        self.assertEqual((init[0].kind, init[1]), ("init", 2))
 
     def test_fail_branches(self):
         lost = [f"FOCC init", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=0.000000 holder={HOLDER}", f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True route={ROUTE}"]
@@ -385,7 +410,9 @@ class P3Tests(unittest.TestCase):
         half = ["FOCC init", f"FOCC p3 read a={P3_NOPARENT} ra=0.000000 b={P3_CHAINED} rb=6.000000 holder={HOLDER}"]      # unparented one lost its datum
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=half)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(session1=S1_P3)).verdict, INCONCLUSIVE)
-        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, PASS)   # rt went back: relaunch
+        later = [S2_P3[1].replace("rt=4.0", "rt=7.0")]
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=later)).verdict, INCONCLUSIVE)
         for gone in (" ra=5.000000", " rb=6.000000"):        # Codex review of #431: a missing read-back is no FAIL
             cut = [S2_P3[0], S2_P3[1].replace(gone, "")]
             self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=cut)).verdict, INCONCLUSIVE)

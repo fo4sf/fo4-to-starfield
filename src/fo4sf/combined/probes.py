@@ -323,6 +323,26 @@ def _has_init(events: list[Event]) -> Event | None:
     return inits[0] if inits else None
 
 
+def _relaunch(s1: list[Event], s2: list[Event]) -> tuple[Event, int] | None:
+    """Where session2's own launch begins, as (the event that proves it, the first session2 line that counts), or None
+    when nothing proves session2 is a later process than session1.
+
+    Proof is an `init` line (reads count after it), or the real-time clock. OnInit does not fire again when a save
+    made after the quest started is loaded (owner's PC, 28 Oct 2026, P2 and P3 launch 2: "focc log opened" and the
+    reads, no init). rt is Utility.GetCurrentRealTime, seconds since the game process started. So a session2 that shares
+    no line with session1 and whose first rt is below session1's highest rt cannot be the same process (every line of
+    session2 counts). A later copy of the same process's log fails both tests: it repeats session1's lines, and its rt
+    only grows."""
+    init = _has_init(s2)
+    if init is not None:
+        return init, init.line + 1
+    rts1 = [e.rt for e in s1 if e.rt is not None]
+    first2 = next((e for e in s2 if e.rt is not None), None)
+    if not rts1 or first2 is None or {e.text for e in s1} & {e.text for e in s2}:
+        return None
+    return (first2, 1) if first2.rt < max(rts1) else None
+
+
 def _growth(v: Verdict, sizes: dict, before: str, after: str) -> str:
     """Save growth judged against the placeholder bound; records the numbers. Returns a verdict for that part."""
     v.extra["save_growth"] = {"before": sizes.get(before), "after": sizes.get(after),
@@ -612,15 +632,17 @@ def check_p2(c: Collection) -> Verdict:
             v.reasons.append(f"p2 link a/b are not the probe locations (locals {want_link[0]} and {want_link[1]})")
             return v
         link_ok = links[-1].flag("linked")
-    init = _has_init(s2)
-    if init is None:
-        v.reasons.append("session2 has no `FOCC init` line: a relaunch is not proven")
+    launch = _relaunch(s1, s2)
+    if launch is None:
+        v.reasons.append("session2 has no `FOCC init` line, and its rt does not restart below session1's: a relaunch "
+                         "is not proven")
         return v
-    v.cite(init)
-    reads = [e for e in s2 if e.kind == "p2 read" and e.line > init.line]
-    linkreads = [e for e in s2 if e.kind == "p2 linkread" and e.line > init.line]
+    proof, first = launch
+    v.cite(proof)
+    reads = [e for e in s2 if e.kind == "p2 read" and e.line >= first]
+    linkreads = [e for e in s2 if e.kind == "p2 linkread" and e.line >= first]
     if not reads:
-        v.reasons.append("session2 has no `p2 read` line after init")
+        v.reasons.append("session2 has no `p2 read` line in its own launch")
         return v
     rd = reads[-1]
     v.cite(rd)
@@ -705,14 +727,15 @@ def check_p3(c: Collection) -> Verdict:
         elif _same_launch(c, v):
             kw = INCONCLUSIVE
         else:
-            init = _has_init(s2)
-            reads = [e for e in s2 if e.kind == "p3 read" and init is not None and e.line > init.line]
-            if init is None or not reads:
-                v.reasons.append("session2 lacks an init line or a `p3 read` after it")
+            launch = _relaunch(s1, s2)
+            reads = [e for e in s2 if e.kind == "p3 read" and launch is not None and e.line >= launch[1]]
+            if launch is None or not reads:
+                v.reasons.append("session2 proves no relaunch (no init line, and its rt does not restart below "
+                                 "session1's) or has no `p3 read` in its own launch")
                 kw = INCONCLUSIVE
             else:
                 rd = reads[-1]
-                v.cite(init, rd)
+                v.cite(launch[0], rd)
                 a_ok, b_ok = _close(rd.num("ra"), va), _close(rd.num("rb"), vb)
                 if _set_before(s2, "p3 set", rd, v):
                     kw = INCONCLUSIVE
