@@ -15,6 +15,7 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 | Guardian status (one sample) | `guardian.py status` | 1.1 s | Claude |
 | Remote usage report, 24 h | `remote_usage.py` | 2.7 s | Claude |
 | Local model tokens per task | `guardian.py report` | no data yet (no model) | n/a |
+| Papyrus tick over 50 globals (combined-core P5), 10 ticks | `cgf "FOCC_Probe.P5Tick" 10` (docs/spikes/combined-core-probes.md) | median 121.0 ms (119.0 to 123.0), 2.42 ms per place | Install thread, 2026-10-28 |
 
 ## Candidates (not done; each needs a before/after)
 - Build: `--resume` checkpoints (Codex) instead of full rebuilds when only a few models change. The last six

@@ -151,6 +151,27 @@ Every judged line names the probe records it used (`holder=`, `route=`, `list=`,
 `first=`/`last=`, P8's `parent=`/`id=`, P9's dest `id=`, P10's `event=`/`id=`). A missing or foreign id (a stale or
 foreign property binding) makes the verdict INCONCLUSIVE, never PASS. P4's `base=` must equal plan.json's `npc`.
 
+## Results on the owner's PC (28 Oct 2026, stage and judges at main de91d6d0)
+
+Run by the Install thread from the main menu (`coc FO4Core_RedRocketSpawn`, `tgm`), with FO4SFMission.esm off. Logs
+and verdicts are in `D:\Modding\testqueue\focc_<P>_20261027\` on the PC.
+
+| Probe | Verdict | What the log shows |
+|---|---|---|
+| P2 | PASS (judged again at dc0bc3b4) | set 37, readback 37, link `linked=True`; after a relaunch and a load, read 37 and `linked=True`. Session2 had no init line (OnInit does not run again on loading a save made after the quest started), so the first judge said INCONCLUSIVE; since #556 a restarted `rt` (74 vs 127) proves the relaunch |
+| P3 (keyword half) | PASS (judged again at dc0bc3b4) | va=5 ra=5, vb=6 rb=6; read back ra=5 rb=6 after the relaunch. Same judge gap as P2. The cell half needs the `--p3-cells` restage |
+| P4 | PASS | 20 cycles, each placed 3 and deleted 3 (PlaceAtMe); the save shrank by 1,776 bytes |
+| P5 | PASS, recorded | 10 ticks over 50 globals, median 121.0 ms (min 119.0, max 123.0), 2.42 ms per place; `array_cap` 128. The first run quit before 10 ticks; a rerun with a 150 s hold passed |
+| P6 | PASS | `datum=1` spawned base A three times, `datum=2` base B three times, both resets read back 0 |
+| P7 | PASS (minimal; the vendor half is deferred) | tier 3 (global 3) gave A three times, tier 9 (global 9) gave B three times |
+| P8 | judge said FAIL; INCONCLUSIVE since #557 | every child matched its parent, but all three readouts (within 1.4 s) showed stage 0's layout: the three P8Stage calls overlapped in one console session. Save growth +1,104 bytes. Rerun with the console closed between calls |
+| P10 | INCONCLUSIVE | FOCC_P10_Quest started at game start (rt 59.1), 44 s before the send (rt 103.5); `running=True` after. See the P10 card |
+
+**The load order trap.** Loading a save made while FO4SFMission.esm was active silently switched Starfield to that
+save's load order: Mission came back on and the probe plugin went off, with no dialog. The cgf calls then failed with
+"Cannot open store for class FOCC_Probe". Start each probe from the main menu, or from a save made with the probe
+plugin on. The leader-core preflight must check the active plugins after a save loads, not only at launch.
+
 ## P2: keyword data persists across save and load
 
 Settles: **CC-02** (the floor of option C': location keyword data as the holder datum) and linked-location route data
@@ -264,10 +285,11 @@ if the stage's `plan.json` says `"sm_nodes_written": false`, the probe answers t
 **Job focc-P10. Game: running, default stage.**
 
 ```
+cgf "FOCC_Probe.P10State"
 cgf "FOCC_Probe.P10Send"
 ```
 
-wait 10 s,
+The first line proves the quest is not running before the send. Wait 10 s, then:
 
 ```
 cgf "FOCC_Probe.P10State"
@@ -276,8 +298,15 @@ cgf "FOCC_Probe.P10State"
 Quit. Collect `focc.0.log`, and from the stage `offline_check.txt`, `plan.json` and `FOCC_Probe.psc` (stage root,
 not Data\Scripts; copy, the judge reads the call from the source) into `D:\Modding\testqueue\focc_P10_$date`; judge `probes p10`.
 Expect `p10 sent event=<id>` (the call's return is not logged: Starfield's SendStoryEvent does not return a bool, PC compile at 2d53642), within 10 s (rt) `p10 quest started id=<id> local=2080` (FOCC_P10Quest.OnQuestInit) and
-`p10 state running=True`. FAIL = `result=False`, or True with no start and `running=False`. The verdict's
+`p10 state running=True`. FAIL = `result=False`, or True with no start and `running=False`. INCONCLUSIVE when
+the quest was already running before the send (a `p10 quest started` line or `running=True` before it). The verdict's
 `sendstoryevent_compiles` is the compile answer on its own. Send back: the four files and the verdict.
+
+**28 Oct 2026, owner's PC (stage at de91d6d0):** INCONCLUSIVE. FOCC_P10_Quest's OnQuestInit logged at rt 59.1, at
+game start, 44 s before the send at rt 103.5 (and at rt 58.6 in P2's session 1). `running=True` after the send, so
+the send did not start it. Likely cause, not yet proven: FOCC_P10_Branch has no condition, so the first script event
+any script sends that no earlier sibling takes starts our quest. The fix is a `GetEventData` condition on the
+branch that names FOCC_P10_Event, copied from Starfield.esm's own Script Event nodes; restage and rerun.
 
 ## P6: leveled-list entries conditioned on location keyword data
 
@@ -333,6 +362,10 @@ cgf "FOCC_Probe.P8Stage" 2
 cgf "FOCC_Probe.P8Stage" 0
 save focc_p8_after
 ```
+
+Close the console for about 3 s after each `P8Stage` line. P8Stage reads the children after `Utility.Wait(1.0)`,
+which does not count down while the console is open: three calls in one console session all toggle before any
+readout, and every readout sees the last stage (owner's PC, 28 Oct 2026). The judge reports that as INCONCLUSIVE.
 
 (A screenshot after each stage is optional: `scripts\game\shot.ps1`.) Quit, then:
 
