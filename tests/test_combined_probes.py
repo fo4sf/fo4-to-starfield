@@ -1451,6 +1451,14 @@ class B0Tests(unittest.TestCase):
         self.assertTrue(any("still reads 7 after the ping of 43, the value it held before the ping" in r for r in v.reasons), v.reasons)
         self.assertTrue(any("FOCC.Ping(43) answered 0, not 44: no plugin bound the native" in r for r in v.reasons), v.reasons)
         self.assertEqual([(r["gmst_after"], r["setting_ok"]) for r in v.extra["pings"]], [(None, None), (7, None)])
+        # Fresh review of fbf38fa1: a torn read right before the ping leaves no held value to compare; the 7 after the
+        # ping is then no answer, not a wrong write
+        torn = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong val"] \
+            + self.ping(43, 0, rt=60.0) + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=7"]
+        v = probes.check_b0(col(log=torn))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("no readable value=, so whether the read of 7" in r for r in v.reasons), v.reasons)
+        self.assertEqual((v.extra["pings"][-1]["gmst_before"], v.extra["pings"][-1]["setting_ok"]), (None, None))
 
     def test_reads_and_pongs_are_judged_within_the_pings_window(self):
         # Fresh review of #568: a read that came too early shows the old value; the answer two lines later still counts,

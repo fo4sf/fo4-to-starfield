@@ -1782,7 +1782,7 @@ def check_b0(c: Collection) -> Verdict:
             read, setting_ok = (readable[-1] if readable else None), None
         else:
             read = readable[-1]                                     # the setting's last state in the window
-            setting_ok = None if read == held else False            # unchanged: nothing wrote it; another value: wrong
+            setting_ok = None if held is None or read == held else False   # unchanged (or no held value to compare): no answer
         rounds.append({"line": ping.line, "sent": sent, "native_got": got, "gmst_before": held, "gmst_after": read,
                        "gmst_reads": values, "fresh": fresh,
                        "native_ok": (got == expect) if None not in (got, expect) else None, "setting_ok": setting_ok})
