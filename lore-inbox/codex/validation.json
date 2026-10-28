@@ -65,33 +65,11 @@
     },
     "st3": {
       "rows": 102,
-      "checked_or_corrected": 71,
-      "newly_reviewed": 5,
-      "verified_source_among_reviewed": 20,
-      "as_reported_among_reviewed": 51,
+      "checked_or_corrected": 90,
+      "newly_reviewed": 19,
+      "verified_source_among_reviewed": 32,
+      "as_reported_among_reviewed": 58,
       "changed_ids": [
-        "ST-NC-0001",
-        "ST-NC-0002",
-        "ST-NC-0003",
-        "ST-NC-0004",
-        "ST-NC-0005"
-      ],
-      "remaining_ids": [
-        "ST-MT-0007",
-        "ST-NE-0001",
-        "ST-NV-0001",
-        "ST-NV-0002",
-        "ST-NV-0031",
-        "ST-NV-0032",
-        "ST-NV-0033",
-        "ST-NV-0034",
-        "ST-NV-0035",
-        "ST-NV-0036",
-        "ST-NV-0037",
-        "ST-NV-0038",
-        "ST-NM-0004",
-        "ST-NM-0005",
-        "ST-NC-0006",
         "ST-OH-0001",
         "ST-OH-0002",
         "ST-OH-0003",
@@ -107,9 +85,26 @@
         "ST-OH-0013",
         "ST-OH-0014",
         "ST-OK-0001",
-        "ST-OK-0002"
+        "ST-OK-0002",
+        "ST-NE-0001",
+        "ST-NM-0004",
+        "ST-NV-0002"
       ],
-      "unchanged_other_rows": 97,
+      "remaining_ids": [
+        "ST-MT-0007",
+        "ST-NV-0001",
+        "ST-NV-0031",
+        "ST-NV-0032",
+        "ST-NV-0033",
+        "ST-NV-0034",
+        "ST-NV-0035",
+        "ST-NV-0036",
+        "ST-NV-0037",
+        "ST-NV-0038",
+        "ST-NM-0005",
+        "ST-NC-0006"
+      ],
+      "unchanged_other_rows": 83,
       "ids_and_order_retained": true
     }
   },
@@ -141,10 +136,11 @@
   "baseline_heads": {
     "vt": "c20e1981750048f4e13f82b0bb03fa75ec7e78d5",
     "mil": "1d29e94fa5133dadb3e9e8d1bacbc5ce0cfeb401",
-    "st3": "1d29e94fa5133dadb3e9e8d1bacbc5ce0cfeb401"
+    "st3": "1079eede6fddedbd7cb022f72609e5812787b404"
   },
   "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits.",
   "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending.",
   "eighth_delivery_note": "258/318 reviewed:108primary150as-reported;12new vault completions. VT0112 remains unchecked/HOLD for missing primary panel. Original validator17 stale-policy errors across318; owner-policy in-memory validation passes. No canonical edit; exact Commonwealth queue still awaits recovery.",
-  "ninth_delivery_note": "286/318 priority checks:122primary164asreported. Military86/86, states71/102, vault129/130.28new completions.17stale original-validator policy errors remain; in-memory owner policy0. StopA notcomplete, no canonical writes."
+  "ninth_delivery_note": "286/318 priority checks:122primary164asreported. Military86/86, states71/102, vault129/130.28new completions.17stale original-validator policy errors remain; in-memory owner policy0. StopA notcomplete, no canonical writes.",
+  "tenth_delivery_note": "305/318 checks:134primary171asreported. Military86/86, states90/102, vault129/130.19new checks;17stale original-validator policy errors preserved; owner-policy validation0. No canonical writes, StopA incomplete."
 }

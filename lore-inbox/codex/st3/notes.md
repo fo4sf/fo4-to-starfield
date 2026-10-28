@@ -1,3 +1,7 @@
+## Current seventh-pass checkpoint
+
+90/102 checked/corrected; 32 primary, 58 as-reported. Prior counts below are historical. Current raw snapshot comparison still required before fold-in; StopA incomplete.
+
 ## Current sixth-pass checkpoint
 
 71/102 checked/corrected; 20 primary, 51 as-reported. Prior counts below are historical. No rows removed. StopA incomplete; current raw snapshot comparison required before fold-in.
@@ -116,3 +120,9 @@ Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0
 Five North Carolina checks completed. Museum placard and Penelope terminal inspected as primary text. Charlotte expulsion and manufacturing-facility inferences narrowed. Poster/sign and company-artwork associations remain as-reported. ST-NC-0006 has only section metadata in cache: the cited Sawyer answer itself was not re-read, so it remains unchecked. Initial metadata cache was mistakenly treated as wikitext, raising KeyError; no content or source edit resulted.
 
 Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0004, ST-NM-0005, ST-NC-0006, ST-OH-0001, ST-OH-0002, ST-OH-0003, ST-OH-0004, ST-OH-0005, ST-OH-0006, ST-OH-0007, ST-OH-0008, ST-OH-0009, ST-OH-0010, ST-OH-0011, ST-OH-0012, ST-OH-0013, ST-OH-0014, ST-OK-0001, ST-OK-0002.
+
+## Seventh pass, parent reconciliation
+
+Nineteen more checks completed: Ohio14, Oklahoma2, Nebraska1, cancelled Reservation design1 and Nevada sign1. Primary dialogue/plaque/note text supports12; seven remain as-reported. Removed the Cincinnati abduction-location inference, clarified advertised vacancies versus free accommodation, and used the design document's actual Los Alamos Nuclear Testing Facility name. Cancelled/noncanon HOLD rulings remain. Parent verified all4 helper excerpts and5 cache hashes. Nine other Nevada checks remain unresolved because complete relevant sources were not in inspected caches; no full Sawyer List was fetched. Reservation section2 included nested layouts/timeline, which were not comprehensively read or used for new lore. AllIDs/order retained, no rows removed.
+
+Remaining unchecked IDs: ST-MT-0007, ST-NV-0001, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0005, ST-NC-0006.
