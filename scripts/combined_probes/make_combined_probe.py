@@ -138,7 +138,7 @@ def compile_drive(compiler, src_dir, work, out):
     if compiled:
         packed = os.path.join(out, "Data", "Scripts", DRIVE + ".pex")
         shutil.copyfile(pex, packed)
-    verdict = ("compiled: Actor.PathToReference(ObjectReference, float) is callable from Papyrus; packed" if compiled
+    verdict = ("compiled: Actor.PathToReference(ObjectReference, float, float) is callable from Papyrus; packed" if compiled
                else "refused: this stage has no P9 scripted driver (see the output above); the other probes are unaffected")
     with open(os.path.join(out, "compile_p9_drive.txt"), "w", encoding="utf-8") as f:
         f.write(f"{DRIVE}.psc: Actor.PathToReference from Papyrus (P9's scripted driver)\nexit code {code}\n{text}\n{verdict}\n")

@@ -40,14 +40,16 @@ waits `SettleSeconds` (default 1.0; an Auto property, so existing VMADs need no 
 `phase=settled` before the SetPosition. It is a diagnostic first: the popup pauses Papyrus, so where the trace stops
 tells which step raised it.
 
-**One long jump instead of two (2026-10-23, not yet run in game).** Before the MoveTo, with `UseDestinationPosition`,
-the script puts the destination marker itself at `DestinationX / Y / Z` (`destination.SetPosition`, traced as
-`phase=marker_placed`) unless it is already within 0.01 of it. The MoveTo onto a persistent overlay marker lands at the
-marker's own coordinates in the player's world, so it should now land at the merged spot, and the SetPosition after it
-becomes a move of about 0. An interior marker's written position is the requested one, so the forward trip does not
-move it. The moved marker stays moved in the save, so later trips skip the move. What to read in the next runs:
-`marker_placed` at the requested position, `after_move` at the requested position instead of 1.2 / 2.7 km off, and
-the failure rate. Plugins and VMADs do not change; only FO4SF_LoadDoor.pex does.
+**One long jump instead of two (2026-10-23; withdrawn 2026-10-28).** Bridge t6 (#512) put the destination marker
+itself at `DestinationX / Y / Z` with `destination.SetPosition` before the MoveTo (traced as `phase=marker_placed`), so
+that the MoveTo onto it would land at the merged spot and the SetPosition after it would move about 0. In game it did
+the opposite: in 20 Vault 95 exits on the PC (28 Oct, queues `doors_v95_land2_r01..r20`, the animated doors port
+07756819, border switch off and on alike) the trace read `marker_placed` (the marker in FO4Core_Commonwealth), then
+`MoveTo returned` with the player still in the interior cell, then the retry's MoveTo the same: 19 FAIL STAYED, 1 not
+run, 0 landings. Without that step (t4 and t5) every traced MoveTo of the same door landed outside (border.md "Rate
+and retry runs"; the owner's exits of 23 and 24 Oct). So a persistent marker moved far from its cell by SetPosition
+while unloaded is not a destination the player's MoveTo follows; the script no longer touches the marker, and the
+player is put at the merged spot by the SetPosition after the move, as before. Only FO4SF_LoadDoor.pex changes.
 
 Per door, this build writes:
 

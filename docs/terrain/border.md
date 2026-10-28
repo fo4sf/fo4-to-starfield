@@ -125,6 +125,19 @@ MoveTo (docs/terrain/scripted-doors.md).
   owner's walk around the entrance after them checks moving. If the popup still comes up there, the per-world border
   toggle below is the route.
 
+### Bridge t6's marker move (PC, 2026-10-28, animated doors port 07756819, queues `doors_v95_land2_r01..r20`)
+- 20 Vault 95 exits with bridge t6 (#512: the destination marker put at the merged spot with `SetPosition` before the
+  MoveTo): 19 FAIL STAYED, 1 NOT_RUN (the game sat in a menu after the save loaded), 0 PASS; FO4SFBorder Mode 0 and
+  Mode 2 alike. Every failure's trace: `marker_placed` (the marker in FO4Core_Commonwealth), `MoveTo returned`, the
+  player still in the interior cell, the retry's MoveTo the same. This is not the popup case above (the feed went on
+  and the player never left), and not a runner move: the OUT leg's runner moves are the `coc` into the interior and the
+  drop onto its marker; the MoveTo is the door script's own.
+- **verified** by contrast: without the marker move (t4, t5, 23 and 24 Oct) every traced MoveTo of this door landed
+  outside. The marker move is withdrawn (docs/terrain/scripted-doors.md); the player's SetPosition after the move stays.
+- **unresolved**: why the engine does not follow a MoveTo onto a persistent marker whose position SetPosition moved
+  2.9 km while its cell was unloaded. Which step raised the popup in the earlier runs stays open too; with the border
+  switch on (24 Oct) the exit raised none.
+
 If a retry does not help, the next per-world route is to toggle `bBorderRegionsEnabled` only while the player is in our
 world. That needs SFSE code, or `Utility.SetINIBool` from Papyrus: it exists (DebugOnly, and DebugOnly natives run
 in our builds, docs/testing/probe-stage.md: GetFormEditorID returned `MQ101`), but whether the engine reads the new
