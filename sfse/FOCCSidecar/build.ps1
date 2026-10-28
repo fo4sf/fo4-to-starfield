@@ -57,10 +57,12 @@ New-Item -ItemType Directory -Path $obj -Force | Out-Null
 $log = Join-Path $Out 'cl_output.txt'
 $bat = Join-Path $Out 'build.cmd'
 $enter = if ($vcvars) { @("call `"$vcvars`" >nul || exit /b 90") } else { @() }
-@("@echo off") + $enter + @("cd /d `"$src`" || exit /b 91",
-  "cl.exe /nologo /std:c++20 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /LD /Fo`"$obj\\`" /Fe`"$dll`" FOCCSidecar.cpp sha256.cpp " +
-  "/link /PDB:`"$Out\FOCCSidecar.pdb`" /IMPLIB:`"$obj\FOCCSidecar.lib`"",
-  "exit /b %ERRORLEVEL%") | Set-Content -Encoding ASCII $bat
+# The compiler line is built in its own statement: inside an array literal the comma binds tighter than +, so a
+# concatenation split across two elements made "/link ..." a batch line of its own (cl linked without /PDB and /IMPLIB,
+# cmd ran "/link": 9009; Install's find, 28 Oct 2026).
+$cl = "cl.exe /nologo /std:c++20 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /LD /Fo`"$obj\\`" /Fe`"$dll`" FOCCSidecar.cpp sha256.cpp " +
+      "/link /PDB:`"$Out\FOCCSidecar.pdb`" /IMPLIB:`"$obj\FOCCSidecar.lib`""
+@("@echo off") + $enter + @("cd /d `"$src`" || exit /b 91", $cl, "exit /b %ERRORLEVEL%") | Set-Content -Encoding ASCII $bat
 & cmd.exe /c $bat 2>&1 | Tee-Object -FilePath $log
 $code = $LASTEXITCODE
 if ($code -ne 0 -or -not (Test-Path $dll)) { "build.cmd exit $code (90 = vcvars64 failed, 91 = source folder); no dll produced. Output: $log"; exit 1 }

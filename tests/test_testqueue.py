@@ -1377,3 +1377,105 @@ class BridgeQueueTests(unittest.TestCase):
             writef(os.path.join(d, "FO4SFBridge.esm"), b"plugin")
             with self.assertRaises(SystemExit):
                 tq.apply_bridge([{"kind": "walk"}], SimpleNamespace(bridge=d))
+
+
+class NamedLoadTests(RunnerTests):
+    """Install, 2026-10-28: cycle.ps1 entered the game with Continue, which loads the NEWEST save. The owner's new-game
+    autosaves were newer than fo4sf_test_<build>, so every save-based run landed in ship combat, the HUD guard never
+    passed and setup_session's own named load never ran (door check (a) INCONCLUSIVE NOT_ACTIVATED, a cockpit in
+    end_state.png). Once the dedicated save exists the runner passes -Save and cycle.ps1 loads it by name from the main
+    menu's console; the session then skips its own load."""
+    NAME = "fo4sf_test_abcd1234"                          # make_queue's "save"
+
+    def launch(self, saves, code=0):
+        calls, kinds = [], []
+        self.ctl.pid = None                               # no game: ensure_game launches
+
+        def ps(script, a, *rest, **k):
+            calls.append((script, list(a)))
+            if script == "cycle.ps1":
+                self.ctl.pid = 42
+            return (code if script == "cycle.ps1" else 0, "main menu after 12 s\nsave loaded after 40 s")
+
+        def step(test, out):
+            kinds.append(test["kind"])
+            return self.landing(0.1)(test, out)
+        r = tq.Runner(self.d, args(max_tests=1), ctl=self.ctl, step=step)
+        r.pinned_ok = lambda: True
+        r._ps = ps
+        with mock.patch.object(tq, "saves_dir", return_value=saves):
+            r.run()
+        cycle = [a for sc, a in calls if sc == "cycle.ps1"]
+        return cycle, kinds, readf(os.path.join(self.d, "run.log"))
+
+    def test_the_dedicated_save_is_loaded_by_name_and_not_loaded_again(self):
+        saves = tempfile.mkdtemp()
+        writef(os.path.join(saves, f"{self.NAME}.sfs"), b"save")
+        writef(os.path.join(saves, "Autosave12_newer.sfs"), b"the owner's new game")
+        cycle, kinds, log = self.launch(saves)
+        self.assertEqual(len(cycle), 1)
+        self.assertEqual(cycle[0][-2:], ["-Save", self.NAME])
+        self.assertNotIn("load", kinds)                   # cycle.ps1 loaded it at the main menu
+        self.assertNotIn("save", kinds)                   # and nothing created it again
+        self.assertIn("godmode", kinds)
+        self.assertIn(f"loading the dedicated save {self.NAME} by name at the main menu", log)
+        self.assertIn("not loading it again", log)
+
+    def test_without_a_dedicated_save_the_runner_continues_and_the_session_creates_it(self):
+        saves = tempfile.mkdtemp()
+        writef(os.path.join(saves, f"{self.NAME}.sfs.bak"), b"set aside")           # not the save (2026-10-17)
+        cycle, kinds, log = self.launch(saves)
+        self.assertNotIn("-Save", cycle[0])
+        self.assertEqual(kinds[:1], ["save"])
+        self.assertIn(f"no dedicated save {self.NAME} yet: Continue loads the newest save", log)
+
+    def test_a_save_that_did_not_load_stops_the_run(self):
+        saves = tempfile.mkdtemp()
+        writef(os.path.join(saves, f"{self.NAME}.sfs"), b"save")
+        cycle, kinds, log = self.launch(saves, code=11)
+        self.assertEqual(len(cycle), 1)                   # no retry per test
+        self.assertEqual(kinds, [])                       # nothing tested
+        self.assertEqual(getattr(self.ctl, "closed", 0), 1)   # the game cycle.ps1 left up is closed, not reused
+        self.assertTrue(self.status().startswith(f"stopped: the dedicated save {self.NAME} was not loaded by name (cycle.ps1 exit 11"),
+                        self.status())
+
+    def status(self):
+        return jload(os.path.join(self.d, "state.json"))["status"]
+
+    def test_cycle_ps1_loads_the_named_save_from_the_main_menu_console(self):
+        cyc = readf(os.path.join(ROOT, "scripts", "game", "cycle.ps1"))
+        self.assertIn("[string]$Save = ''", cyc)
+        self.assertIn("if ($Save -and $Save -notmatch '^[A-Za-z0-9_]+$')", cyc)      # it is typed into the game
+        # the save file is checked before the running game is closed or anything is deployed
+        self.assertLess(cyc.index('Where-Object { $_.Name -ieq "$Save.sfs" }'), cyc.index("Starfield is running but was not started by cycle.ps1"))
+        self.assertIn("(nothing closed, deployed or launched)\"; exit 11", cyc)
+        # the console load replaces Continue (and its confirmation) only when a save is named
+        load = cyc.index('Send "click:768,432|wait:6000|key:grave|wait:1500|type:load $Save|wait:400|key:enter|wait:3000"')
+        cont = cyc.index("Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500'")
+        self.assertLess(load, cont)
+        self.assertIn("} else {", cyc[load:cont])
+        self.assertLess(cont, cyc.index("loadorder.ps1')"))                           # the load order dialog on both routes
+        # no HUD after a named load stops the run instead of going on
+        self.assertIn("if ($Save -and -not $hudSeen) {", cyc)
+        self.assertIn("did not load: no HUD within the wait", cyc)
+        self.assertEqual(cyc.count("; exit 11"), 2)                                   # the file check and the HUD check
+        # fresh review of #571: the HUD check must be able to run before a named load is judged by it (fail closed, before
+        # anything is touched), and the load order dialog is probed on every HUD poll of the named route, as qstep's load
+        # step does, since one probe 3 s after Enter can miss a dialog that opens later
+        hud = cyc.index("the HUD check cannot run (python exit $LASTEXITCODE")
+        self.assertLess(hud, cyc.index("Starfield is running but was not started by cycle.ps1"))
+        self.assertIn("if ($LASTEXITCODE -ne 0 -or @('yes', 'no') -notcontains \"$hudAns\")", cyc)
+        self.assertIn("function Wait-Screen($label, $maxSec, $check, $each = $null)", cyc)
+        self.assertIn("if ($each) { & $each }", cyc)
+        self.assertIn("$hudSeen = Wait-Screen 'save loaded' 300 $HudShown $(if ($Save) { $ProbeLoadOrder } else { $null })", cyc)
+        probe = cyc[cyc.index("$ProbeLoadOrder = {"):]
+        probe = probe[:probe.index("\n}\n")]
+        self.assertIn("if ($script:lo -ne 0) { return }", probe)                      # until the dialog has been seen
+        self.assertIn("if ($script:lo -eq 5) { $script:lo = 0 }", probe)              # a failed check: again next pass
+        self.assertIn("if ($script:lo -eq 9) {", probe)
+        for line in ('Write-Host "input guard stopped the sequence (someone else has focus)"; exit 2',
+                     'Write-Host "the load order dialog could not be answered with \'Current\': not confirming \'Save\'"; exit 8'):
+            self.assertIn(line, probe)        # review of #571: a plain string here is collected by the $hudSeen assignment and lost on exit
+        self.assertNotIn('{ "input guard', probe)
+        self.assertNotIn('{ "the load order', probe)
+

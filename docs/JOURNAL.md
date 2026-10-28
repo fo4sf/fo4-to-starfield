@@ -2561,6 +2561,53 @@ from a stopped walk. FOCC_P9Drive now puts result= on the `p9 path returned`
 line and the judge names the code; the next rung decides between the navmesh
 (1) and the AI (2, 4) before any new driver is written.
 
+## 2026-10-28: FOCCPing, the B0 spike's SFSE plugin
+
+sfse/FOCCPing is the plugin half of B0 on the owner's stack A: one Papyrus
+native, FOCC.Ping(int) answering int + 1, bound in CommonLibSF's Papyrus
+callback (the trampoline hook at REL::ID(169912) + 0x514; the first launch on
+1.16.244 is its test). Version data: Address Library, layout dependent,
+runtime 1.16.244. CMake links the installed CommonLibSF::CommonLibSF with the
+dynamic CRT its triplet uses; build.ps1 takes the install prefix and the
+library's vcpkg_installed folder as CMAKE_PREFIX_PATH, the loaded MSVC
+environment (x64 only, as FOCCSidecar's scripts), and writes build.json into a
+new staging folder. Nothing of CommonLibSF is in the repo; its GPL-with-
+exceptions licence review is owed before anything built on it ships. The
+Address Library archive turned out to be on the PC already (Install's state
+note, 24 Oct), so the runbook's B0-2 card names it there. Not compiled here:
+the PC build is the check, and the kit's rule (a dll that keeps the game from
+the main menu is deleted at once) stands.
+
+## 2026-10-28: FOCCSidecar build.ps1, the /link half was its own batch line
+
+Install's find on the PC (P1-1, 28 Oct): inside the `@( )` array that
+becomes build.cmd, the comma bound tighter than `+`, so the concatenated
+`"/link /PDB:... /IMPLIB:..."` half of the cl line became a line of its own.
+cl linked without the pdb and import library, cmd then ran `/link` (9009),
+and the script reported failure although FOCCSidecar.dll was there. Install
+patched it by hand and built (D:\Modding\staging\focc_sfse_20261028c, exit
+0). The fix here builds the line in a `$cl` statement and puts the variable
+in the array; a test pins the shape. The C4245 at FOCCSidecar.cpp(59) is a
+cast: PluginAPI.h's kPluginHandle_Invalid is an int enumerator, PluginHandle
+a std::uint32_t. CommonLibSF is built and installed on the PC (prefix
+D:\Modding\tools\CommonLibSF-install), so the FOCCPing README and the B0-2
+card name the real paths.
+
+## 2026-10-28: the runner loads the dedicated save by name
+
+Install's find, 28 Oct: cycle.ps1 entered the game with the main menu's
+Continue, which loads the newest save. The owner's new-game autosaves of
+the morning were newer than fo4sf_test_<build>, so every save-based run
+landed in ship combat, the HUD guard never passed, and the session's own
+named load (setup_session) never ran: door check (a) came out INCONCLUSIVE
+NOT_ACTIVATED from a cockpit. The stopgap was touching the dedicated
+save's mtime. Now testqueue.py passes -Save fo4sf_test_<build> once that
+save exists, cycle.ps1 checks the file before it closes or deploys
+anything, opens the console at the main menu and types `load <name>` (the
+line qstep.ps1's load step types in game), and stops with exit 11 when no
+HUD follows; the session skips its second load. A build's first session,
+with no dedicated save yet, still enters through Continue and creates it.
+
 ## 2026-10-28: Map markers: a door mid-pass, a pad that will not move, a landing marker to discover
 
 The owner's report on 28 Oct: no map icons after `coc FO4Core_RedRocketSpawn`,
