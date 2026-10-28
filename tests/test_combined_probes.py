@@ -1197,6 +1197,9 @@ class P9Tests(unittest.TestCase):
         self.assertEqual([(a["driver"], a["target"], a["path_returned_s"]) for a in rungs],
                          [(None, None, None), ("script", "player", 12.0), ("script", "dest", 0.0)])
         self.assertEqual([a["path_result"] for a in rungs], [None, 2, 2])     # Actor.psc PathingResult_Stopped
+        self.assertEqual(probes._p9_result_note({}), " (no result= on the line: a driver from before 28 Oct 2026)")
+        self.assertEqual(probes._p9_result_note({"path_result": 1}), " with result 1 (Failure)")
+        self.assertEqual(probes._p9_result_note({"path_result": 9}), " with result 9 (unknown code)")
         self.assertEqual([a["go_line"] is not None for a in rungs], [False, True, True])
         self.assertEqual([(a["go_id"], a["to_dest"]) for a in rungs], [(None, None), ("00000014", False), ("0300081B", True)])
         # Codex bot on 8dbfef8d: P9Sample measures the distance to FOCC_P9_Dest, so a judged rung whose go went to the
@@ -1434,11 +1437,54 @@ class B0Tests(unittest.TestCase):
         self.assertTrue(any("FOCC.Ping(41) answered 0, not 42: no plugin bound the native" in r for r in v.reasons), v.reasons)
         self.assertTrue(any("no `b0 gmst` read after the last ping" in r for r in v.reasons), v.reasons)
 
-    def test_both_routes_wrong_is_a_fail(self):
-        log = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=7"]
+    def test_both_routes_wrong_is_a_fail_but_an_unchanged_setting_is_no_answer(self):
+        log = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=43"]
         v = probes.check_b0(col(log=log))
         self.assertEqual(v.verdict, FAIL)
-        self.assertTrue(any("iFOCC_Pong read 7 after the ping, not 42" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("read 43 after the ping of 41, not 42 and not the 7 it held before the ping" in r for r in v.reasons), v.reasons)
+        self.assertEqual([e["line"] for e in v.evidence], [2, 3, 4, 5])
+        # Fresh review of #568: the stack A card ends with a Gmst, and an unbound native beside a setting nobody wrote
+        # (nothing does on stack A) is nothing happening, not two wrong answers: INCONCLUSIVE, with the plugin log to check
+        log = [INIT, self.GMST7] + self.ping(41, 0) + self.ping(43, 0, rt=60.0) + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=7"]
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("still reads 7 after the ping of 43, the value it held before the ping" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("FOCC.Ping(43) answered 0, not 44: no plugin bound the native" in r for r in v.reasons), v.reasons)
+        self.assertEqual([(r["gmst_after"], r["setting_ok"]) for r in v.extra["pings"]], [(None, None), (7, None)])
+
+    def test_reads_and_pongs_are_judged_within_the_pings_window(self):
+        # Fresh review of #568: a read that came too early shows the old value; the answer two lines later still counts,
+        # and a round's reads end at the next ping
+        early = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=7",
+                                                         "FOCC rt=15.0 b0 gmst name=iFOCC_Pong value=42"]
+        v = probes.check_b0(col(log=early))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual((v.extra["pings"][0]["gmst_reads"], v.extra["pings"][0]["gmst_after"]), ([7, 42], 42))
+        self.assertEqual([e["line"] for e in v.evidence], [2, 3, 4, 6])           # the answering read is cited, not the early one
+        two = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=42"] \
+            + self.ping(43, 0, rt=60.0) + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=42", "FOCC rt=65.0 b0 gmst name=iFOCC_Pong value=44"]
+        v = probes.check_b0(col(log=two))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual([(r["gmst_reads"], r["setting_ok"]) for r in v.extra["pings"]], [([42], True), ([42, 44], True)])
+        gap = [INIT, self.GMST7] + self.ping(41, 0) + self.ping(43, 0, rt=60.0) + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=44"]
+        v = probes.check_b0(col(log=gap))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual([(r["gmst_reads"], r["gmst_after"], r["setting_ok"]) for r in v.extra["pings"]], [([], None, None), ([44], 44, True)])
+        # a ping without a pong does not borrow the pong of a later ping of the same value
+        borrow = [INIT, self.GMST7, "FOCC rt=10.0 b0 ping sent=41"] + self.ping(41, 42, rt=20.0)
+        v = probes.check_b0(col(log=borrow))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual([r["native_got"] for r in v.extra["pings"]], [None, 42])
+        self.assertTrue(any("(1 of 2 pings answered sent + 1)" in r for r in v.reasons), v.reasons)
+        # a wrong value later in the window, with the answer in it too, is still the answer
+        v = probes.check_b0(col(log=early + ["FOCC rt=16.0 b0 gmst name=iFOCC_Pong value=9"]))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+
+    def test_a_torn_first_setting_read_is_inconclusive(self):
+        v = probes.check_b0(col(log=[INIT, "FOCC rt=5.0 b0 gmst name=iFOCC_Pong val"] + self.ping(41, 42)))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("no readable value=" in r for r in v.reasons), v.reasons)
+        self.assertIsNone(v.extra["gmst_first"])
 
     def test_a_ping_before_any_setting_read_and_a_refusal_stay_inconclusive(self):
         v = probes.check_b0(col(log=[INIT] + self.ping(41, 42)))

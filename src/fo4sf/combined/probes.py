@@ -1711,13 +1711,17 @@ def check_b0(c: Collection) -> Verdict:
     `b0 pong sent=N got=N+1` after the `b0 ping sent=N` (FOCC.Ping bound by FOCCPing.dll, stack A) or on the setting
     route as a `b0 gmst` after the ping reading N+1 (the plugin wrote the setting by its name, stack B). The last ping
     is judged (a save and a load between pings is the card's persistence check; every ping's answer is in `extra`).
+    A ping's window runs to the next ping (or the log's end): its pong and its setting reads are taken from there, any
+    read of N+1 in the window is the answer (a read that came too early shows the old value and is harmless), and a
+    window whose reads all show the value held before the ping is "unchanged" (nothing wrote the setting: nothing does
+    on stack A, and on stack B the bridge did not answer), which settles nothing rather than counting as a wrong answer.
     A setting answer counts only when it is fresh: N+1 must differ from the value the setting held before the ping
     (the last `b0 gmst` before it), or the read after the ping is the stale value and settles nothing (Codex review of
     #568: `gmst 7, ping 6, gmst 7` and a repeated `Ping 41` after a 42 are not answers). The first gmst read must come
     before the first ping of the launch, since B0-1 reads the stage's 7 and a read after a ping on stack B is the
     plugin's answer. PASS = B0-1 and one route. INCONCLUSIVE = B0-1 alone, a ping with neither answer readable, a stale
-    setting answer, or a first read after a ping. FAIL = the first gmst read is not 7 (0 = the setting is unknown to
-    the game), or the native answered wrong and the setting read after the ping was wrong too."""
+    setting answer, an unchanged setting, or a first read after a ping. FAIL = the first gmst read is not 7 (0 = the
+    setting is unknown to the game), or the native answered wrong and the setting changed to a wrong value too."""
     v = Verdict("b0", INCONCLUSIVE)
     v.extra["settles"] = "a value crosses from Papyrus into the SFSE plugin and back on 1.16.244 (B0)"
     evs = c.session(1)
@@ -1746,6 +1750,10 @@ def check_b0(c: Collection) -> Verdict:
     value = first.count("value")
     v.cite(first)
     v.extra["gmst_first"] = value
+    if value is None:
+        v.reasons.append("the first `b0 gmst` line has no readable value=, so B0-1 cannot be read (a torn line): run "
+                         "FOCC_B0.Gmst again")
+        return v
     if value != B0_PONG:
         v.verdict = FAIL
         v.reasons.append(f"Papyrus read iFOCC_Pong as {first.fields.get('value')}, not {B0_PONG}: the probe plugin's game "
@@ -1756,29 +1764,34 @@ def check_b0(c: Collection) -> Verdict:
         v.reasons.append("no `b0 ping` line: the bridge itself was not tried (B0-2 waits for the SFSE plugin)")
         return v
     rounds = []
-    for ping in pings:
+    for i, ping in enumerate(pings):
         sent = ping.count("sent")
-        pong = next((e for e in pongs if e.line > ping.line and e.count("sent") == sent), None)
+        end = pings[i + 1].line if i + 1 < len(pings) else float("inf")     # this ping's window ends at the next ping
+        pong = next((e for e in pongs if ping.line < e.line < end and e.count("sent") == sent), None)
         before = [e for e in gmst if e.line < ping.line][-1]          # exists: the first read precedes the first ping
-        after = next((e for e in gmst if e.line > ping.line), None)
+        values = [e.count("value") for e in gmst if ping.line < e.line < end]
         got = pong.count("got") if pong is not None else None
         held = before.count("value")
-        read = after.count("value") if after is not None else None
         expect = sent + 1 if sent is not None else None
         fresh = (expect != held) if None not in (expect, held) else None
-        if None in (read, expect):
-            setting_ok = None
-        elif read != expect:
-            setting_ok = False
+        readable = [x for x in values if x is not None]
+        if expect is not None and expect in readable:
+            read = expect                                           # the answer, wherever it is in the window
+            setting_ok = True if fresh is True else None            # the stale value, or an unreadable one before: no answer
+        elif not readable or expect is None:
+            read, setting_ok = (readable[-1] if readable else None), None
         else:
-            setting_ok = True if fresh is True else None        # the stale value, or an unreadable one before: no answer
+            read = readable[-1]                                     # the setting's last state in the window
+            setting_ok = None if read == held else False            # unchanged: nothing wrote it; another value: wrong
         rounds.append({"line": ping.line, "sent": sent, "native_got": got, "gmst_before": held, "gmst_after": read,
-                       "fresh": fresh, "native_ok": (got == expect) if None not in (got, expect) else None,
-                       "setting_ok": setting_ok})
+                       "gmst_reads": values, "fresh": fresh,
+                       "native_ok": (got == expect) if None not in (got, expect) else None, "setting_ok": setting_ok})
     v.extra["pings"] = rounds
     last = rounds[-1]
     ping = pings[-1]
-    v.cite(ping, *[e for e in pongs if e.line > ping.line][:1], *[e for e in gmst if e.line > ping.line][:1])
+    v.cite(ping, *[e for e in pongs if e.line > ping.line][:1],
+           *([e for e in gmst if e.line > ping.line and e.count("value") == last["gmst_after"]] or
+             [e for e in gmst if e.line > ping.line])[:1])
     if last["sent"] is None:
         v.reasons.append("the last `b0 ping` has no readable sent=")
         return v
@@ -1798,12 +1811,18 @@ def check_b0(c: Collection) -> Verdict:
     else:
         v.reasons.append("no `b0 pong` with a readable got= after the last ping")
     if last["setting_ok"] is False:
-        v.reasons.append(f"iFOCC_Pong read {last['gmst_after']} after the ping, not {last['sent'] + 1}")
+        v.reasons.append(f"iFOCC_Pong read {last['gmst_after']} after the ping of {last['sent']}, not {last['sent'] + 1} and "
+                         f"not the {last['gmst_before']} it held before the ping: something wrote a wrong value")
         v.verdict = FAIL if last["native_ok"] is False else INCONCLUSIVE
     elif last["gmst_after"] is None:
         v.reasons.append("no `b0 gmst` read after the last ping: the setting route was not read (run FOCC_B0.Gmst after "
                          "the ping on stack B); on stack A the native answer above is the finding once the plugin's log "
                          "shows it loaded")
+    elif last["gmst_after"] == last["gmst_before"] and last["gmst_after"] != last["sent"] + 1:
+        v.reasons.append(f"iFOCC_Pong still reads {last['gmst_after']} after the ping of {last['sent']}, the value it held "
+                         f"before the ping: nothing wrote the setting (nothing does on stack A; on stack B the bridge did "
+                         f"not answer), so the setting route settles nothing; on stack A the plugin's own log says whether "
+                         f"the dll loaded at all")
     elif last["fresh"] is None:
         v.reasons.append(f"the `b0 gmst` read before the last ping has no readable value=, so whether the read of "
                          f"{last['gmst_after']} after it is a fresh answer cannot be told")
