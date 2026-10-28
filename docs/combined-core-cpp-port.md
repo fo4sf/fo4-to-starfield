@@ -141,7 +141,7 @@ Each step is one PR, with green CI and an independent review.
 2. **Offline, C1:** a portable core in `sfse/FOCCSim/`, with no Windows or SFSE code. It holds the generator, the
    state with its JSON reader and writer, and the tick. Plus the parity harness and its unittest.
 3. **Offline, C2 to C4:** each step with its parity tests.
-4. **PC:** probes P2 to P10, then P1 (queued 28 Oct; the probe stage is `D:\Modding\staging\focc_probe_20261028a`).
+4. **PC:** probes P2 to P10, then P1 (restaged from main and queued on 28 Oct).
 5. **PC:** bridge spike B0, after the owner's OK for the build tools.
 6. **PC:** the 20-place slice.
    - Python slices the real pack to the 20 places nearest the Commonwealth slice.
