@@ -12,3 +12,7 @@
 2026-10-28: read queued104thInfantryRegiment/708thInfantryDivision/BackAlleyBowling/NationalGuard after canonical+ALLinbox/namedcache check. Cacheonce, prioritize new primary Commonwealth evidence; reuse prior unit transcripts and flag unsourced organizational/event inferences rather than re-enter existing claims. Older queue, not confirmed exact64queue.
 
 2026-10-28: request only Back Alley Bowling companion-comment transclusion (back block), absent from cached parent raw and existing location-comment ledger coverage. Reuse cached Galleria terminal and military transcripts; no whole companion page fetch.
+
+2026-10-28: queued MakingOfFallout4 developer transcript, FO4Brotherhood, RedMenace and cutDepartmentofLabor checked againstALLledgers/namedcaches. Cacheonce; extract only source-supported additions and scope existing entries, retain developer/cut tier2 distinctions. Exact64queue still pending.
+
+2026-10-28: request cited Maja's Message primary cut transcript and only Prydwen terminal Background/Accomplishments/Ingram concerns sections. ExistingALLledgers/namedcaches checked; no whole Prydwen page fetch. Inspect cited RedMenace starting-screen image only if not cached, no gameplay assertions inferred from it.

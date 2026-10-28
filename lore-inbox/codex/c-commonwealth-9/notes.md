@@ -1,3 +1,17 @@
+# Thirty-seventh delivery: Brotherhood sources, Boston design and cut material
+
+25new entries:16game,3guide,2developer,4cutHOLD; allunchecked. Folder9=107, total1177local. Source terms and uncertainty preserved, not every wiki summary promoted to fact.
+
+Prydwen terminal only17/19/39 at5709993 read: institutional Maxson history is attributed, not independent witness proof. Those sections do not establish age16appointment or Lyons-death chronology. Ingram's carrier is unnamed, not automatically RivetCity; coolant exhaustion is conditional, not a completed grounding. Kells says overtwo years design and morethantwiceaslong construction, so the overview's exactsixyear total is unsupported by that quote. Brandis's recollection does not establish the full casualty narrative. Guide promotion/gear statements remain tier2 and non-universal. FA5092 is not fully cleared: WaypointEcho is absent from these passages.
+
+Maja's cut recording supplies four attributed statements, tier2HOLD. Complaints are not proven regulatory violations; financial blame conditional. US0062's department mention corroborated, no canonical edit or rawunusedflag claim. Original validator still rejects cuttier2, so report its failure and apply only the already owner-approved in-memory classification for validation; validator file unchanged.
+
+RedMenace screenshot inspected privately:2075copyright credit is not by itself publication date. Screen image cannot prove minigame rules, 10secondarmor duration, tape placement or CreationClub support. Its pixelasset/hash remains private.
+
+MakingOfFallout4: primary GameInformer Boston passages checked. The wiki's Archived1 points to an unrelated NewVegas article. Publisher footeroriginalNov6 and bylineNov29 are distinct. CP0073/74 and GW0170 corroborated; no exact personal-house site identified. Pely architectural contrast overlaps CU0165/166, not duplicated. Two new Burgess geographic-design statements remain tier2developer, not topographic measurement or mandatory project policy. Generic production/performance and weather commentary not added as lore.
+
+82sourceidentities/99rows,2FULL80PARTIAL,17continuations. No newsiteanchors;32retained. Earlier entries/canonical/build/validator unchanged; private sourceevidence preserved. Independent secondread/currentrawsnapshot/exact64queue stillpending. No game/deploy/merge or automationresume.
+
 # Thirty-sixth delivery: military overlap and Back Alley Bowling
 
 11 new entries (8 game, 3 guide), all unchecked. Folder9 now82; localtotal1152. Four queued pages cached once plus only the missing Back Alley companion transclusion. The optional HTML-parser dependency was absent after successful fetch; retained failure, parsed cached HTML with the standard library, no refetch.
