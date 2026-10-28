@@ -8,10 +8,11 @@ Scriptname FO4SF_NewGameQuest extends Quest
  the two runs of 28 Oct): zero is the normal intro, one and three to ten are developer starts (ten is the pirate fight
  the first build's override of ten sent the owner to), and every matching entry's fragment is what moves the player
  into the game (the intro's own moves PlayerREF to CharGenStartMarker, then waits for its 3D). A value matching no entry
- moves nobody, and the new game never leaves its loading screen (the second run, value two: this script never even
- started, since OnQuestInit only fires once that first load is through). So the plugin overrides nothing: Starfield's
- intro places the player, the hold-off stops it, and right after that stop the quest writes DebugAfterHold (two, what
- MQ102 to MQ305 write once the intro is over) into the global itself. The guard logs the value the game read (the
+ moves nobody, and the new game never leaves its loading screen (the second run, value two: the quest started, its
+ version alias logged, but OnQuestInit only fires once that first load is through, so this script never ran). So the
+ plugin overrides nothing: Starfield's intro places the player, the hold-off stops it, and right after that stop the
+ quest writes DebugAfterHold (two, the value the main quests' developer skip-start stages write) into the global
+ itself, which opens PEO_SustenanceAllowed, whose normal route (MQ101 stage 310) a held-off intro never reaches. The guard logs the value the game read (the
  "guard" line) and the write logs its own line ("mq101debug written").
  Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
@@ -39,19 +40,22 @@ int Property SaveableStage = 105 Auto Const
 {MQ101's stage that turns saving back on (SetInChargen(false, ...), QF_MQ101_00003448.psc, PC read 19 Oct).}
 
 GlobalVariable Property DebugGlobal Auto Const Mandatory
-{Starfield's MQ101Debug (Starfield.esm 0A7D31). MQ101's stage 0 has 12 log entries whose conditions read it (records,
- PC 21 Oct): 0 is the normal intro (entry 2); 1 and 3 to 10 are developer starts; entry 11 has no condition and only
- ghosts Lin, Heller and Barrett. Each matching entry's fragment moves the player into the game (entry 2:
+{Starfield's MQ101Debug (Starfield.esm 0A7D31). MQ101's stage 0 has 12 log entries, ten of whose conditions read it
+ (records, PC 21 Oct): 0 is the normal intro (entry 2); 1 and 3 to 10 are developer starts; entry 0 is the NG+ start
+ (PlayerUnityTimesEntered >= 1, whatever the global holds); entry 11 has no condition and only ghosts Lin, Heller and
+ Barrett. Each matching entry's fragment moves the player into the game (entry 2:
  moves PlayerREF to CharGenStartMarker and waits for its 3D; entry 10: SetStage 210 and 250, the pirate fight the first
  build's override of 10 sent the owner to, run 1 of 28 Oct). A value no entry matches (the second build's 2) moves
- nobody, so Starfield's first load never completes and this script never starts (run 2 of 28 Oct). The plugin
+ nobody, so Starfield's first load never completes and this script's OnQuestInit never fires (run 2 of 28 Oct). The plugin
  therefore overrides the record no more; this property is read for the guard line and written after the hold-off.}
 int Property DebugAfterHold = 2 Auto Const
 {Written into DebugGlobal with SetValueInt (the call MQ102's own fragment makes) right after hold-off pass 1 has stopped
- MQ101; 0 writes nothing (the writer's --debug-after-hold). 2 is what MQ102 to MQ305 write at their start stages once
- the intro is over (fragment sources, PC 19 Oct), matches no start entry, and keeps PEO_SustenanceAllowed's
- "MQ101Debug != 0" open (records, PC 21 Oct): the owner's decision NG-2 (we set it ourselves) stands, at the one moment
- it is safe, after MQ101 is gone.}
+ MQ101; 0 writes nothing (the writer's --debug-after-hold). 2 is the value the main quests' developer skip-start
+ fragments write (MQ102 to MQ305, FFLodge01, City_NA_Viewport02; each then jumps MQ101 to its end, 1800 and 1810 or
+ 2000; fragment sources, PC 19 Oct);
+ a normally finished intro leaves the global at 0. It matches no start entry and opens PEO_SustenanceAllowed's
+ "MQ101Debug != 0", whose normal route (MQ101 stage 310 done) a held-off intro never reaches (records, PC 21 Oct): the
+ owner's decision NG-2 (we set it ourselves) stands, at the one moment it is safe, after MQ101 is gone.}
 
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
@@ -192,10 +196,11 @@ Event OnTimer(int aiTimerID)
             float days = GameDaysPassed.GetValue()
             int level = player.GetLevel()
             int openingStage = Opening.GetStage()
-            bool fresh = IsFreshStart(openingStage, Opening.IsCompleted(), Opening.IsStopped())
+            bool openingRunning = Opening.IsRunning()
+            bool fresh = IsFreshStart(openingStage, openingRunning, Opening.IsCompleted())
             ; every reading the guard judges, and the debug global as the game read it (the 28 Oct run showed only the
             ; verdict's line, so the cause had to come from the records; this line carries it)
-            Trace("guard days=" + days + " level=" + level + " opening_stage=" + openingStage + " opening_running=" + Opening.IsRunning() + " fresh=" + fresh + " mq101debug=" + DebugGlobal.GetValue() + " write_after_hold=" + DebugAfterHold)
+            Trace("guard days=" + days + " level=" + level + " opening_stage=" + openingStage + " opening_running=" + openingRunning + " fresh=" + fresh + " mq101debug=" + DebugGlobal.GetValue() + " write_after_hold=" + DebugAfterHold)
             if !fresh || !IsNewGame(days, level)
                 Trace("not a new game: days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " fresh=" + fresh + ": standing down")
                 AdvanceTo(1)
@@ -213,7 +218,8 @@ Event OnTimer(int aiTimerID)
         endif
         ; MQ101's stage 0 has already run by now: it turned saving off (SetInChargen) and hid the HUD (SetCharGenHUDMode
         ; 2). Stopping MQ101 runs its stage 9000, which deletes its input layer but restores neither; vanilla does so
-        ; at stages 105 and 315 (QF_MQ101_00003448.psc, PC read 19 Oct, start_read.py).
+        ; at stages 105 and 315 (QF_MQ101_00003448.psc, PC read 19 Oct, start_read.py). After its 3D wait the intro's
+        ; entry 2 also empties the inventory and equips the miner spacesuit: only ClearInventory undoes that.
         Game.SetInChargen(false, false, false)
         Game.SetCharGenHUDMode(0)
         Trace("saving and HUD restored after the hold-off")
@@ -249,11 +255,13 @@ bool Function IsNewGame(float days, int level)
     return days < MaxNewGameDays && level <= MaxNewGameLevel
 EndFunction
 
-bool Function IsFreshStart(int openingStage, bool openingCompleted, bool openingStopped)
+bool Function IsFreshStart(int openingStage, bool openingRunning, bool openingCompleted)
 {The rest of the guard (21 Oct review on #393: an early level-1 save under six hours passed days and level alone). A
- save the player made has the opening at SaveableStage or later, or stopped; a fresh start has it below, still running
- or not yet started (stage 0). make_newgame.py is_fresh_start is the same rule, tested there.}
-    return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)
+ save the player made has the opening at SaveableStage or later, or stopped; a New Game has it running below that, since
+ its stage 0 is what placed the player before this script could run (run 2 of 28 Oct). A session started with coc from
+ the main menu never starts MQ101 (Install's map test, 28 Oct: hold-off pass 1 found it not running, and the v8
+ build moved that character into the vault), so it stands down too. make_newgame.py is_fresh_start is the same rule.}
+    return openingRunning && openingStage < SaveableStage && !openingCompleted
 EndFunction
 
 Function HoldOffPass(int pass)

@@ -583,14 +583,18 @@ decided the import path); keeping the order as a parameter (two orders in the co
 ## 2026-10-28: the new game overrides no record; the quest writes MQ101Debug = 2 after the hold-off (Claude-cloud)
 - Decision: FO4SFNewGame.esm carries no GLOB override (newgame_v9). Starfield's intro places the player; right after
   hold-off pass 1 has stopped MQ101, our quest writes 2 into MQ101Debug with SetValueInt and logs the write. The
-  owner's NG-2 (we set the debug global ourselves) stands, at the one moment it is safe. The precheck follows each
-  script's `extends` chain, so SPECIAL stages again (docs/newgame/vault111-start.md sections 2 and 11).
+  owner's NG-2 (we set the debug global ourselves) stands, at the one moment it is safe. The guard also needs MQ101
+  running, so a session started with coc from the main menu stands down. The precheck follows each script's `extends`
+  chain, so SPECIAL stages again (docs/newgame/vault111-start.md sections 1, 2 and 11).
 - Why: the owner's second new game (28 Oct, newgame_v8, override 2) never left its loading screen. MQ101's stage 0 runs
   the entry whose MQ101Debug condition matches, and that entry's fragment is what moves the player into the game (the
   intro's entry 2 moves the player to CharGenStartMarker and waits for the 3D). No entry matches 2, so nobody moved the
-  player, and our quest's OnQuestInit only runs after that first load. 2 is what MQ102 to MQ305 write once the player
-  is in the world, so writing it after the stop leaves the global as a finished intro would.
-- Alternatives: `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches; kept for the ladder);
+  player, and our quest's OnQuestInit only runs after that first load. 2 is the value the main quests' developer
+  skip-start stages write (a normal intro leaves 0); writing it after the stop opens PEO_SustenanceAllowed, whose
+  normal route (MQ101 stage 310) a held-off intro never reaches. A coc session from the main menu never starts MQ101,
+  and Install's map test (28 Oct) showed the old guard moving such a character into the vault.
+- Alternatives: `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches; not usable with this guard,
+  since entry 8 sets MQ101 to 500 and 1310 itself);
   overriding StartupQuest_DO with our own controller quest that moves the player and never starts MQ101 (No Ship Fast
   Start's shape; a record override and more code, held for the owner if the hold-off path fails); any unmatched
   override (rejected: it hangs the load).

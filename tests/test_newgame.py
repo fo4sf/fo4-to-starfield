@@ -491,7 +491,13 @@ class ContractTests(unittest.TestCase):
         write = psc.index("DebugGlobal.SetValueInt(DebugAfterHold)")
         self.assertLess(psc.index("HoldOffPass(1)"), write)
         self.assertLess(write, psc.index("Game.SetInChargen(false, false, false)"))
-        self.assertLess(psc.rindex("if DebugAfterHold != 0", 0, write), write)
+        # inside the once-only guard block (a retried move must not write again) and inside its own if (0 writes nothing)
+        gate = psc.rindex("if holdPasses == 0", 0, write)
+        body = psc[gate:psc.index("\n        endif\n", gate)]
+        self.assertIn("DebugGlobal.SetValueInt(DebugAfterHold)", body)
+        self.assertLess(body.index("HoldOffPass(1)"), body.index("if DebugAfterHold != 0"))
+        self.assertNotIn("endif", body[body.index("if DebugAfterHold != 0"):body.index("DebugGlobal.SetValueInt(DebugAfterHold)")])
+        self.assertEqual(psc.count("SetValueInt("), 1)
         self.assertIn('Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)', psc)
         self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt"])
         # the two values of 28 Oct stay buildable on purpose (--mq101debug) for experiments, never as the default
@@ -503,7 +509,9 @@ class ContractTests(unittest.TestCase):
     def test_an_early_existing_save_is_not_a_fresh_start(self):
         """21 Oct review on #393: days and level alone let an early level-1 save under six hours through."""
         psc = read(PSC)
-        self.assertIn("return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)", psc)
+        self.assertIn("return openingRunning && openingStage < SaveableStage && !openingCompleted", psc)
+        self.assertIn("bool fresh = IsFreshStart(openingStage, openingRunning, Opening.IsCompleted())", psc)
+        self.assertIn("bool openingRunning = Opening.IsRunning()", psc)
         self.assertIn(f"int Property SaveableStage = {ng.SAVEABLE_STAGE} Auto Const", psc)
         self.assertIn("if !fresh || !IsNewGame(days, level)", psc)
         # the guard runs only before the hold-off, so a retried move never re-judges the opening it stopped
@@ -511,12 +519,13 @@ class ContractTests(unittest.TestCase):
         gate = psc.rindex("if holdPasses == 0", 0, guard)
         self.assertNotIn("endif", psc[gate:psc.index("bool fresh", gate)])
         self.assertLess(guard, psc.index("HoldOffPass(1)", gate))
-        self.assertTrue(ng.is_fresh_start(0, False, True))     # MQ101 not started yet
-        self.assertTrue(ng.is_fresh_start(0, False, False))    # MQ101 at its stage 0, saving still off
-        self.assertFalse(ng.is_fresh_start(105, False, False))  # saving is back on: a save could exist
-        self.assertFalse(ng.is_fresh_start(300, False, False))
+        self.assertTrue(ng.is_fresh_start(0, True, False))     # MQ101 running at its stage 0 (a New Game), saving off
+        self.assertTrue(ng.is_fresh_start(104, True, False))
+        self.assertFalse(ng.is_fresh_start(0, False, False))   # never started: coc from the main menu (map test, 28 Oct)
+        self.assertFalse(ng.is_fresh_start(105, True, False))  # saving is back on: a save could exist
+        self.assertFalse(ng.is_fresh_start(300, True, False))
         self.assertFalse(ng.is_fresh_start(0, True, True))     # completed
-        self.assertFalse(ng.is_fresh_start(30, False, True))   # stopped after it began
+        self.assertFalse(ng.is_fresh_start(30, False, False))  # stopped after it began
         self.assertIn('Obj("Opening", opening.FormKey)', read(CS))
 
     def test_every_native_the_script_calls_is_prechecked(self):
@@ -930,7 +939,7 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(s["guard"])
         # the 10:43 run of the same day stood down with the opening still at stage 0: the day limit alone did it
         self.assertFalse(ng.is_new_game(0.333530, 1, max_days=0.25))
-        self.assertTrue(ng.is_fresh_start(0, False, False))
+        self.assertTrue(ng.is_fresh_start(0, True, False))
         self.assertTrue(ng.is_new_game(0.333530, 1))
 
     def test_the_owners_run_2_of_28_oct_never_started(self):

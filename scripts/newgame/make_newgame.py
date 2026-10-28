@@ -70,20 +70,19 @@ STAGE_CONTRACT = {
     200: "complete: landed, or put on the fallback spot",
 }
 STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage records (Program.cs Stages)
-# the writer's defaults (Program.cs DefaultHold and DefaultMQ101Debug, held equal by tests/test_newgame.py): the opening
-# quests, the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1), and GLOB MQ101Debug overridden to 2
-# (NG-2, we set it ourselves). MQ101's stage 0 picks its start by that global (records report, PC 21 Oct; fragment
-# sources, PC 19 Oct): 0 the normal intro, 1 and 3 to 10 developer starts, any other value only its conditionless last
-# entry (ghosts three NPCs), so MQ101 starts inert and the hold-off stops it. 2 is what MQ102 to MQ305 write once the
-# intro is over and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open. The first build's 10 was the developer start
-# at the pirate fight (the owner's run, 28 Oct: opening_stage=250, our quest stood down); MQ00's stage 10 writes 10 but
-# is not a start-up stage, so vanilla never does.
+# the writer's default hold-off list (Program.cs DefaultHold, held equal by tests/test_newgame.py): the opening quests
+# and the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1). MQ101Debug: see below. The first build's
+# override of 10 was the developer start at the pirate fight (28 Oct run 1: opening_stage=250, our quest stood down);
+# the second build's 2 matched no start and hung the first load (28 Oct run 2). MQ00's stage 10 writes 10 but is not a
+# start-up stage, so vanilla never does.
 DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
-# value 2, no quest started). The quest writes DEBUG_AFTER_HOLD (what MQ102 to MQ305 write once the intro is over) right
-# after the hold-off stopped MQ101 instead (--debug-after-hold, 0 writes nothing).
+# value 2: the quest started, its version alias logged, but OnQuestInit never fired). The quest writes DEBUG_AFTER_HOLD
+# (the value the main quests' developer skip-start stages write; a normal intro leaves 0) right after the hold-off
+# stopped MQ101 instead, which opens PEO_SustenanceAllowed's "MQ101Debug != 0" (its normal route, MQ101 stage 310, is
+# never reached); --debug-after-hold, 0 writes nothing.
 DEFAULT_MQ101DEBUG = None
 DEBUG_AFTER_HOLD = 2
 DEBUG_INTRO = 0               # Starfield's own intro, entry 2
@@ -144,7 +143,7 @@ NATIVES = {
                             "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen", "RemoveAllItems", "GetItemCount",
                             "AddItem"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
-                  "SetObjectiveCompleted", "SetActive", "IsCompleted", "IsStopped"],
+                  "SetObjectiveCompleted", "SetActive", "IsCompleted"],
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
@@ -246,11 +245,13 @@ def is_new_game(days, level, max_days=MAX_NEW_GAME_DAYS, max_level=1):
 SAVEABLE_STAGE = 105   # MQ101's stage that turns saving back on (QF_MQ101_00003448.psc, PC read 19 Oct)
 
 
-def is_fresh_start(opening_stage, opening_completed, opening_stopped, saveable=SAVEABLE_STAGE):
-    """FO4SF_NewGameQuest.IsFreshStart: the opening (MQ101) below the stage that turns saving back on, not completed,
-    and not stopped after it began. A save the player made cannot have it there, so an early level-1 save under six
-    game hours still stands down (21 Oct review on #393)."""
-    return opening_stage < saveable and not opening_completed and not (opening_stopped and opening_stage > 0)
+def is_fresh_start(opening_stage, opening_running, opening_completed, saveable=SAVEABLE_STAGE):
+    """FO4SF_NewGameQuest.IsFreshStart: the opening (MQ101) running below the stage that turns saving back on, and not
+    completed. A save the player made cannot have it there, so an early level-1 save under six game hours still stands
+    down (21 Oct review on #393). A New Game has it running, since its stage 0 placed the player before our quest could
+    run (28 Oct run 2); a session started with coc from the main menu never starts it (Install's map test, 28 Oct), so it
+    stands down too."""
+    return opening_running and opening_stage < saveable and not opening_completed
 
 
 def declared_properties(psc_text):
@@ -748,7 +749,8 @@ def main(argv=None):
                    help=f"override GLOB MQ101Debug at the start, experiments only (default: no override; Starfield's intro at "
                         f"{DEBUG_INTRO} places the player and the hold-off stops it; {DEBUG_START_PIRATES} is the pirate-fight "
                         f"developer start of 28 Oct run 1; {DEBUG_UNMATCHED} matched no entry and never left the loading screen, run 2)")
-    s.add_argument("--no-mq101debug", action="store_true", help="kept for old command lines: the default already writes no override")
+    s.add_argument("--no-mq101debug", action="store_true",
+                   help="kept for old command lines: the default already writes no override; it still cancels a --mq101debug given with it")
     s.add_argument("--debug-after-hold", type=int, default=None,
                    help=f"the value the quest writes into MQ101Debug right after the hold-off stopped MQ101 (default "
                         f"{DEBUG_AFTER_HOLD}, the post-intro value MQ102 to MQ305 write; 0 writes nothing)")

@@ -147,15 +147,17 @@ static class NewGame
     // preferred mode and returns by itself once the port marks its COC markers persistent (same form id, another thread);
     // --require-persistent-anchor restores the refusal for a build that must not rely on the fallback.
     public const bool DefaultRequirePersistentAnchor = false;
-    // GLOB MQ101Debug (Starfield.esm 0A7D31): MQ101's stage 0 has 12 log entries conditioned on it (records report, PC
-    // 21 Oct): 0 the normal intro, 1 and 3 to 10 developer starts, and entry 11 with no condition (it only ghosts Lin,
-    // Heller and Barrett). Every matching entry's fragment is what moves the player into the game (entry 2:
+    // GLOB MQ101Debug (Starfield.esm 0A7D31): MQ101's stage 0 has 12 log entries, ten conditioned on it (records report,
+    // PC 21 Oct): 0 the normal intro, 1 and 3 to 10 developer starts; entry 0 is the NG+ start (PlayerUnityTimesEntered
+    // >= 1) and entry 11 has no condition (it only ghosts Lin, Heller and Barrett). Every matching entry's fragment is what moves the player into the game (entry 2:
     // PlayerREF.moveto(CharGenStartMarker) then WaitFor3dLoad; entry 10: SetStage 210 and 250, the pirate fight the
     // first build's override of 10 sent the owner to, run 1 of 28 Oct). A value no entry matches moves nobody: the
-    // second build's 2 left the new game on its loading screen for ever, with no quest started (run 2 of 28 Oct). So
-    // the default build writes NO override (vanilla 0 runs the intro, which the hold-off then stops) and the quest
-    // script writes DefaultDebugAfterHold into the global right after that stop: 2 is what MQ102 to MQ305 write once
-    // the intro is over, matches no start, and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open (NG-2, NG-M1).
+    // second build's 2 left the new game on its loading screen for ever: the quest started (its version alias logged)
+    // but its OnQuestInit never fired (run 2 of 28 Oct). So the default build writes NO override (vanilla 0 runs the
+    // intro, which the hold-off then stops) and the quest script writes DefaultDebugAfterHold into the global right after
+    // that stop: 2 is the value the main quests' developer skip-start stages write (a normal intro leaves 0), matches no
+    // start, and opens PEO_SustenanceAllowed's "MQ101Debug != 0", whose normal route (MQ101 stage 310) a held-off intro
+    // never reaches (NG-2, NG-M1).
     // --mq101debug <n> overrides the record for an experiment; --debug-after-hold <n> changes the write (0: none).
     public const int DefaultDebugAfterHold = 2;
     public const string DebugGlobEdid = "MQ101Debug";
@@ -1025,6 +1027,8 @@ static class NewGame
             ("default", plain with { MQ101Debug = 8 }, idsPath, "the default build as an MQ101Debug 8 one"),
             ("debug8", plain, idsPath, "an MQ101Debug 8 build as the default one"),
             ("debug10", plain, idsPath, "the first build's MQ101Debug 10 as the default one"),
+            ("debug8", plain with { MQ101Debug = 0 }, idsPath, "an MQ101Debug 8 build as an MQ101Debug 0 one"),
+            ("debug0", plain with { MQ101Debug = 8 }, idsPath, "an MQ101Debug 0 build as an MQ101Debug 8 one"),
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
             ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
