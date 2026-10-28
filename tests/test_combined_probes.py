@@ -1387,7 +1387,46 @@ class B0Tests(unittest.TestCase):
         v = probes.check_b0(col(log=log))
         self.assertEqual(v.verdict, PASS, v.reasons)
         self.assertTrue(any("setting route: iFOCC_Pong read 42 after the ping of 41" in r for r in v.reasons), v.reasons)
-        self.assertEqual(v.extra["pings"][0]["native_ok"], False)
+        r = v.extra["pings"][0]
+        self.assertEqual((r["native_ok"], r["gmst_before"], r["fresh"], r["setting_ok"]), (False, 7, True, True))
+
+    def test_a_setting_read_that_repeats_the_held_value_is_no_answer(self):
+        # Codex review of #568: a ping of 6 expects 7, the value the setting already held, so a read of 7 after it settles
+        # nothing (an inactive setting bridge would look the same); never a PASS
+        log = [INIT, self.GMST7] + self.ping(6, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=7"]
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("read 7 after the ping of 6, the value it already held before the ping" in r for r in v.reasons), v.reasons)
+        r = v.extra["pings"][0]
+        self.assertEqual((r["gmst_before"], r["fresh"], r["setting_ok"]), (7, False, None))
+        # Codex review of #568: a second `Ping 41` after the setting answered 42 reads the stale 42 and must not PASS on it
+        stale = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=42"] \
+            + self.ping(41, 0, rt=60.0) + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=42"]
+        v = probes.check_b0(col(log=stale))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertEqual([(r["gmst_before"], r["fresh"], r["setting_ok"]) for r in v.extra["pings"]], [(7, True, True), (42, False, None)])
+        # a fresh ping after it answers, and the second ping's stale read stays recorded as no answer
+        fresh = stale + self.ping(43, 0, rt=90.0) + ["FOCC rt=92.0 b0 gmst name=iFOCC_Pong value=44"]
+        v = probes.check_b0(col(log=fresh))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual([r["setting_ok"] for r in v.extra["pings"]], [True, None, True])
+        # a wrong read after a stale ping is still a wrong read: both routes wrong is a FAIL
+        wrong = stale[:-1] + ["FOCC rt=62.0 b0 gmst name=iFOCC_Pong value=7"]
+        v = probes.check_b0(col(log=wrong))
+        self.assertEqual(v.verdict, FAIL, v.reasons)
+        self.assertEqual(v.extra["pings"][-1]["setting_ok"], False)
+        # the native route is not held to freshness: FOCC.Ping(6) answering 7 is the plugin's own answer
+        self.assertEqual(probes.check_b0(col(log=[INIT, self.GMST7] + self.ping(6, 7))).verdict, PASS)
+
+    def test_the_first_setting_read_must_come_before_the_first_ping(self):
+        # Codex review of #568: every launch rewrites focc.0.log, so a launch whose first read follows a ping reads the
+        # plugin's answer on stack B, not the stage's 7; that is neither B0-1's FAIL nor a PASS
+        log = [INIT] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=42"]
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("run FOCC_B0.Gmst before the first ping of each launch" in r for r in v.reasons), v.reasons)
+        self.assertNotIn("gmst_first", v.extra)
+        self.assertEqual([e["line"] for e in v.evidence], [2, 4])
 
     def test_an_unbound_native_with_no_read_after_is_inconclusive(self):
         v = probes.check_b0(col(log=[INIT, self.GMST7] + self.ping(41, 0)))

@@ -596,8 +596,13 @@ game addresses: a traced line in, a game setting written by its name out), C (Ca
 (the native stub the plugin binds) and `FOCC_B0.psc` (the console entry points), compiled on their own
 (`compile_b0.txt`; a refusal leaves only B0 out of the stage), and GMST `iFOCC_Pong` = 7 (0x855) in the probe
 plugin. Judge: `python -m fo4sf.combined.probes b0 <folder>`: PASS = the setting read back as 7 and one route
-answered; INCONCLUSIVE = the first half alone; FAIL = Papyrus read something other than 7 first, or the native answered
-wrong and the setting read after the ping was wrong too. Two jobs.
+answered; INCONCLUSIVE = the first half alone, or a setting answer that is not fresh; FAIL = Papyrus read something
+other than 7 first, or the native answered wrong and the setting read after the ping was wrong too. Two rules for the
+commands, both from the Codex review of #568: every launch rewrites `focc.0.log`, so each launch starts with
+`cgf "FOCC_B0.Gmst"` before any ping (the judge wants the launch's first read to be the stage's 7, and a first read
+after a ping is INCONCLUSIVE, not FAIL); and a setting answer counts only when it differs from the value the setting
+held before the ping, so no ping value repeats within a launch and no ping expects the value already there (a ping of
+6 expects 7; a second `Ping 41` after a 42 reads the stale 42; neither settles anything). Two jobs.
 
 **Job focc-B0-1 (Papyrus reads our game setting; no SFSE plugin). Game: running, the default stage from this main
 installed, any save.** The stage's `compile_b0.txt` must say `compiled`. Then:
@@ -626,14 +631,16 @@ Prerequisites, in this order, each a game-folder or build step for the owner's l
 Then launch through `sfse_loader.exe`. The kit's rule holds: a dll that keeps the game from the main menu is deleted
 at once (an id the Address Library lacks stops the game with a message box; a wrong hook offset is a crash; either is
 stack A's finding on 1.16.244, and per the owner the fix goes into the library before B comes in). At the main menu,
-load a save and:
+load a save and, the `Gmst` first (this launch's `focc.0.log` is new, and the judge reads its first `b0 gmst` as B0-1):
 
 ```
+cgf "FOCC_B0.Gmst"
 cgf "FOCC_B0.Ping" 41
 save focc_b0_a
 ```
 
-Load `focc_b0_a` from the menu, then `cgf "FOCC_B0.Ping" 43` and `cgf "FOCC_B0.Gmst"`. Expect `b0 pong sent=41 got=42`
+Load `focc_b0_a` from the menu, then `cgf "FOCC_B0.Ping" 43` and `cgf "FOCC_B0.Gmst"`. Expect `b0 gmst name=iFOCC_Pong
+value=7` first, then `b0 pong sent=41 got=42`
 and `b0 pong sent=43 got=44`: the native bound, and still bound after a save and a load (section 4's pass). `got=0` is
 an unbound native (no plugin registered `FOCC.Ping`; `Papyrus.0.log` names it). Collect `focc.0.log`, the plugin's own
 log `Documents\My Games\Starfield\SFSE\Logs\FOCCPing.log` (CommonLibSF's logger path; as `sfse\FOCCPing.log` in the
@@ -642,8 +649,11 @@ before any other experiment.
 
 **Job focc-B0-2b (the setting route, stack B), only if B0-2 fails on 1.16.244 and the library fix does not come.**
 The plugin variant tails the `focc` log for `b0 ping sent=N` and writes N + 1 into `iFOCC_Pong` by its name (the
-`sfse/FO4SFBorder` mechanism of 24 Oct). Same commands as B0-2, with `cgf "FOCC_B0.Gmst"` a few seconds after each
-ping: the judge reads the `b0 gmst` after the ping as the answer (`value=42`, then `44`).
+`sfse/FO4SFBorder` mechanism of 24 Oct). Same commands as B0-2 (the `Gmst` first in each launch), with
+`cgf "FOCC_B0.Gmst"` a few seconds after each ping: the judge reads the `b0 gmst` after the ping as the answer
+(`value=42`, then `44`), and only when that answer differs from the value the setting held before the ping (7 before
+the 41, 42 before the 43). A repeated ping value, or one whose answer is the value already there, reads the stale
+value and is INCONCLUSIVE, never a PASS; on a rerun in the same launch pick a new value (45, 47, ...).
 
 ## What each answer settles (for the design)
 
