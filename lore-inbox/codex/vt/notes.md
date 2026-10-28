@@ -40,3 +40,9 @@ Parent inspected only cited lead/infobox sections and necessary Background/Locat
 Remaining unchecked IDs: VT-0011, VT-0017, VT-0018, VT-0020, VT-0031, VT-0032, VT-0033, VT-0034, VT-0036, VT-0054, VT-0055, VT-0056, VT-0087, VT-0088, VT-0090, VT-0091, VT-0092, VT-0093, VT-0095, VT-0096, VT-0097, VT-0098, VT-0100, VT-0102, VT-0103, VT-0104, VT-0105, VT-0106, VT-0107, VT-0108, VT-0109, VT-0110, VT-0111, VT-0112, VT-0113, VT-0114, VT-0115, VT-0116, VT-0117, VT-0118, VT-0119, VT-0120, VT-0121, VT-0122, VT-0123, VT-0124, VT-0125, VT-0126, VT-0127, VT-0128, VT-0129, VT-0130.
 
 Current raw batch and exact Commonwealth queue still await recovery from Claude; no fold-in or Stop A completion claim. Existing real-world anchors are inherited context, not independently verified in-game positions. See per-entry notes and the validation report for limits.
+
+## Fifth pass, parent-reviewed completion
+
+13 further checks:91/130. Corrected Vault96 fauna-versus-staff and Vault118 planned-versus-performed errors using primary terminal text. Vault88 intended prototype wording and its exact Commonwealth marker position verified from a private read-only DLC record; no load-order or native claim. Eleven new checks remain as-reported, two are primary-transcript verified. Parent-only requests used leads and exact sections; metadata and request provenance retained. No full-ledger whole-page refetch.
+
+Remaining unchecked IDs: VT-0011, VT-0017, VT-0018, VT-0020, VT-0031, VT-0032, VT-0033, VT-0034, VT-0036, VT-0054, VT-0055, VT-0056, VT-0104, VT-0105, VT-0106, VT-0107, VT-0108, VT-0109, VT-0110, VT-0111, VT-0112, VT-0113, VT-0114, VT-0115, VT-0116, VT-0117, VT-0118, VT-0119, VT-0120, VT-0121, VT-0122, VT-0123, VT-0124, VT-0125, VT-0126, VT-0127, VT-0128, VT-0129, VT-0130. All rows retained; none dropped. Exact current canonical batches and64-pageCommonwealthqueue recovery still await Claude; not fold-in ready, StopA incomplete.
