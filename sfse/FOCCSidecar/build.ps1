@@ -3,7 +3,7 @@
 # pinned to). Nothing is installed: step 3 of the runbook copies the dll by hand to <Starfield>\Data\SFSE\Plugins\.
 # usage: powershell -File build.ps1 -Out D:\Modding\staging\focc_sfse_<date> [-Env <msvc env .ps1>]
 # Needs: check_toolchain.ps1 exit 0 (the compiler is found the same way: a cl.exe already on PATH with INCLUDE and LIB
-# set, as the portable MSVC's D:\Modding\tools\msvc_env.ps1 leaves it when dot-sourced or passed as -Env; else vswhere
+# set and an x64 banner, as the portable MSVC's D:\Modding\tools\msvc_env.ps1 leaves it when dot-sourced or passed as -Env; else vswhere
 # and vcvars64.bat) and fetch_pluginapi.ps1 done (PluginAPI.h beside this script). Refuses an -Out folder that already holds a FOCCSidecar.dll (never overwrites, never deletes).
 # Compiler line (plan item B): cl.exe /nologo /std:c++20 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /LD FOCCSidecar.cpp
 # sha256.cpp; kernel32 is a default library, so no extra /link input is needed (the SHA-256 is our own portable code,
@@ -31,6 +31,10 @@ $clOnPath = Get-Command cl.exe -ErrorAction SilentlyContinue
 $inst = $null; $vcvars = $null
 if ($clOnPath -and $env:INCLUDE -and $env:LIB) {
   $toolchain = 'environment'
+  # As in check_toolchain.ps1: the loaded environment must target x64 (an x86 developer prompt also sets cl.exe, INCLUDE
+  # and LIB, and its 32-bit dll could not load into Starfield). The banner is read through cmd.exe, which merges stderr.
+  $banner = (& cmd.exe /c 'cl.exe 2>&1' | Select-Object -First 1) -join ''
+  if ($banner -notmatch '\bx64\b') { "cl.exe on PATH does not target x64 (banner: $banner); load the x64 environment (-Env D:\Modding\tools\msvc_env.ps1) or open an x64 developer prompt. Nothing was built."; exit 1 }
 } else {
   $toolchain = 'visual-studio'
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'

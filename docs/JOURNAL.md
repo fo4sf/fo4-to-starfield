@@ -2517,8 +2517,10 @@ knew vswhere and vcvars64. Both now take a loaded environment first (cl.exe on
 PATH with INCLUDE and LIB set, or the script passed as -Env, which they
 dot-source), fall back to vswhere, and record which route in toolchain.json
 and build.json; the SDK is read from INCLUDE before the registry. The compiler
-line is unchanged. tests/test_sfse_sidecar_scripts.py pins the contract. P1
-can run on the PC without CommonLibSF.
+line is unchanged. Codex's one finding on the PR: an x86 developer prompt
+also sets cl.exe, INCLUDE and LIB, so the environment route now reads cl.exe's
+banner and refuses anything but x64. tests/test_sfse_sidecar_scripts.py pins
+the contract. P1 can run on the PC without CommonLibSF.
 
 For B0 (docs/combined-core-cpp-port.md, section 4) CommonLibSF 9caec20 was
 read offline. spdlog: upstream pins no version and names spdlog from a

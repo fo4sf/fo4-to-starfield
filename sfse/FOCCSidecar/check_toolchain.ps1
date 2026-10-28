@@ -2,7 +2,7 @@
 # installed or changed. Prints one JSON object (and writes it to -Out) and exits 1 when the build cannot start, so the
 # runbook stops here and the owner decides about installing Visual Studio Build Tools 2022 (C++ workload) or SFSE.
 # usage: powershell -File check_toolchain.ps1 -Starfield <game dir> [-Out toolchain.json] [-Env <msvc env .ps1>]
-# Two compilers count: a cl.exe already on PATH with INCLUDE and LIB set (the PC's portable MSVC under D:\Modding\tools,
+# Two compilers count: a cl.exe already on PATH with INCLUDE and LIB set and a banner that says x64 (the PC's portable MSVC under D:\Modding\tools,
 # 28 Oct 2026, loaded by dot-sourcing its msvc_env.ps1, which -Env does for you; nothing registered, no vswhere), else a
 # Visual Studio instance found by vswhere. The JSON's `toolchain` says which (`environment` or `visual-studio`).
 # Checks: vswhere -> a VS instance with the C++ x64 tools (cl.exe, vcvars64.bat), a Windows 10/11 SDK (registry
@@ -16,7 +16,7 @@ if ($Env) {
   . $Env
 }
 $r = [ordered]@{ ok = $false; problems = @(); toolchain = $null; env_script = $(if ($Env) { (Resolve-Path $Env).Path } else { $null });
-                 vswhere = $null; vs_instance = $null; cl = $null; vcvars64 = $null;
+                 vswhere = $null; vs_instance = $null; cl = $null; cl_banner = $null; cl_x64 = $null; vcvars64 = $null;
                  windows_sdk = $null; starfield_exe = $null; starfield_version = $null; sfse_loader = $null; sfse_dlls = @();
                  sfse_plugins_dir = $null; checked_at = (Get-Date).ToUniversalTime().ToString('o') }
 
@@ -26,6 +26,12 @@ $clOnPath = Get-Command cl.exe -ErrorAction SilentlyContinue
 if ($clOnPath -and $env:INCLUDE -and $env:LIB) {
   $r.toolchain = 'environment'
   $r.cl = $clOnPath.Source
+  # The loaded environment must target x64: an x86 developer prompt also puts cl.exe, INCLUDE and LIB in place, and a
+  # 32-bit dll cannot load into Starfield's 64-bit process. cl.exe's banner names its target ("... Compiler Version
+  # 19.44.35229 for x64"); cmd.exe merges the stderr it is printed on, so the Stop preference above does not trip on it.
+  $r.cl_banner = (& cmd.exe /c 'cl.exe 2>&1' | Select-Object -First 1) -join ''
+  $r.cl_x64 = [bool]($r.cl_banner -match '\bx64\b')
+  if (-not $r.cl_x64) { $r.problems += "cl.exe on PATH does not target x64 (banner: $($r.cl_banner)); load the x64 environment (-Env D:\Modding\tools\msvc_env.ps1) or open an x64 developer prompt" }
 } else {
   $r.toolchain = 'visual-studio'
   if ($clOnPath) { $r.problems += 'cl.exe is on PATH but INCLUDE or LIB is not set: dot-source the MSVC environment script first, or pass it as -Env' }
@@ -78,7 +84,7 @@ if ($r.sfse_dlls.Count -eq 0) { $r.problems += 'no sfse_*.dll next to Starfield.
 $r.sfse_plugins_dir = Join-Path $Starfield 'Data\SFSE\Plugins'
 if (-not (Test-Path $r.sfse_plugins_dir)) { $r.problems += "$($r.sfse_plugins_dir) does not exist yet (SFSE creates it on first run; build.ps1 does not create it)" }
 
-$r.ok = ($r.cl -and ($r.toolchain -eq 'environment' -or $r.vcvars64) -and $r.windows_sdk -and $r.sfse_loader -and $r.sfse_dlls.Count -gt 0)
+$r.ok = ($r.cl -and (($r.toolchain -eq 'environment' -and $r.cl_x64) -or $r.vcvars64) -and $r.windows_sdk -and $r.sfse_loader -and $r.sfse_dlls.Count -gt 0)
 $json = $r | ConvertTo-Json -Depth 4
 $json | Set-Content -Encoding UTF8 $Out
 $json

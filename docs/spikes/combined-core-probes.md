@@ -519,7 +519,8 @@ Expect a JSON of findings (cl.exe, Windows SDK, `sfse_loader.exe` beside Starfie
 `1` = stop; nothing else in P1 proceeds until the owner decides on the Build Tools install.
 (28 Oct 2026: the owner approved, and Install put a portable MSVC 14.44 with the Windows SDK 10.0.26100 under
 `D:\Modding\tools`, loaded by dot-sourcing `msvc_env.ps1`; no Visual Studio, so nothing for vswhere to find. Both scripts
-take that environment with `-Env`, and the JSON's `toolchain` reads `environment`.)
+take that environment with `-Env`, and the JSON's `toolchain` reads `environment`; both refuse a loaded environment
+whose `cl.exe` banner does not say x64, so an x86 developer prompt cannot produce a dll the 64-bit game cannot load.)
 
 **Job focc-P1-1 (header and build). Game: any.**
 

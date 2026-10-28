@@ -106,7 +106,8 @@ Game closed. The repo checked out on the PC; `$sf` = the Starfield folder (the o
    `vcvars64.bat`, a Windows 10/11 SDK with `um\windows.h`, `sfse_loader.exe` or any `sfse_*.dll` is missing. With the
    portable MSVC (D:\Modding\tools since 28 Oct 2026: no Visual Studio, nothing registered) dot-source its `msvc_env.ps1`
    first or pass `-Env D:\Modding\tools\msvc_env.ps1`: the check then takes the `cl.exe` on PATH and the SDK from
-   `INCLUDE`, needs no vswhere or vcvars64, and `toolchain` in the JSON reads `environment`. On exit 1
+   `INCLUDE`, needs no vswhere or vcvars64, and `toolchain` in the JSON reads `environment` (only when `cl.exe`'s banner
+   says x64: an x86 developer prompt is refused, since its dll could not load into the 64-bit game). On exit 1
    nothing else runs; the owner decides whether to install **Visual Studio Build Tools 2022 with the "Desktop
    development with C++" workload** (several GB; not a decision this kit makes) and SFSE 0.2.21 for Starfield
    1.16.244 (SFSE's `sfse_whatsnew.txt` and readme: "SFSE will support the latest version of Starfield available on

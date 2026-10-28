@@ -28,10 +28,19 @@ class CompilerRouteTests(unittest.TestCase):
     def test_the_check_reports_which_toolchain_it_found(self):
         self.assertIn("$r.toolchain = 'environment'", self.check)
         self.assertIn("$r.toolchain = 'visual-studio'", self.check)
-        # the environment route needs no vcvars64; Visual Studio's does
-        self.assertIn("($r.toolchain -eq 'environment' -or $r.vcvars64)", self.check)
+        # the environment route needs no vcvars64 but must target x64; Visual Studio's route calls vcvars64
+        self.assertIn("(($r.toolchain -eq 'environment' -and $r.cl_x64) -or $r.vcvars64)", self.check)
         # the portable SDK is registered nowhere: INCLUDE is read first, the registry second
         self.assertLess(self.check.index("Join-Path $_ 'windows.h'"), self.check.index("HKLM:\\SOFTWARE\\Microsoft\\Windows Kits"))
+
+    def test_the_environment_route_must_target_x64(self):
+        # an x86 developer prompt also has cl.exe, INCLUDE and LIB; its dll could not load into Starfield's 64-bit process
+        # (Codex on #567). Both scripts read cl.exe's banner through cmd.exe (stderr merged) and want x64 in it.
+        for text in (self.check, self.build):
+            self.assertIn("(& cmd.exe /c 'cl.exe 2>&1' | Select-Object -First 1) -join ''", text)
+        self.assertIn("$r.cl_x64 = [bool]($r.cl_banner -match '\\bx64\\b')", self.check)
+        self.assertIn("if ($banner -notmatch '\\bx64\\b') {", self.build)
+        self.assertIn("Nothing was built.\"; exit 1 }", self.build)
 
     def test_the_build_calls_vcvars64_only_on_the_visual_studio_route(self):
         self.assertIn("$enter = if ($vcvars) { @(\"call `\"$vcvars`\" >nul || exit /b 90\") } else { @() }", self.build)
