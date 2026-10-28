@@ -13,7 +13,8 @@ usage:
          [--only <cell editor id or FO4 door src>,...] [--limit N] [--legs both|out] [--border-off]
       reads the doors (objects.json / formids.json of --core) and checks each one in the INSTALLED plugins: the
       exterior door REFR, its base and its FO4SF_LoadDoor VMAD (destination = the port's arrival marker), the interior
-      door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door that fails a
+      door REFR, its base and its VMAD (destination = the core's arrival marker), both markers. A door may carry
+      FO4SF_AnimatedLoadDoor instead (the animated doors port): it extends FO4SF_LoadDoor and runs the same trip. A door that fails a
       check is listed as skipped, with why, and never planned. Writes plan.json (two terrain tests per door),
       rounds.json (what each test must read) and README.txt. Refuses an existing --out. Nothing is linked or copied.
       --legs out plans, per door, a Red Rocket arrival (unjudged; coc and the ground reference only) and then the OUT
@@ -160,13 +161,22 @@ def check_ref(plug, local, what, want_sig="REFR"):
 
 
 def check_target(r, what, plugin, local):
-    """The decoded (plugin, id, position) of a door REFR's VMAD, or ValueError when it does not lead to plugin:local."""
+    """(position, script) of a door REFR's VMAD, or ValueError when it does not lead to plugin:local. The script is
+    FO4SF_LoadDoor or FO4SF_AnimatedLoadDoor (the animated doors port, docs/spikes/load-door-animations.md): the child
+    waits for the open animation, then runs FO4SF_LoadDoor's own OnActivate, so the trip, its properties and its trace
+    lines are the parent's and the same checks and judge apply. script: {"name"} plus "open_seconds" when animated."""
     if r["vmad"] is None:
         raise ValueError(f"{what} has no VMAD (not a scripted load door in the installed plugin)")
-    got_plugin, got_id, pos = vmad_patch.load_door_target(r["vmad"])
+    names = [s["name"] for s in vmad_patch.decode(r["vmad"])["scripts"]]
+    if names == [vmad_patch.ANIMATED_SCRIPT]:
+        got_plugin, got_id, pos, seconds = vmad_patch.animated_load_door_target(r["vmad"])
+        script = {"name": vmad_patch.ANIMATED_SCRIPT, "open_seconds": seconds}
+    else:
+        got_plugin, got_id, pos = vmad_patch.load_door_target(r["vmad"])
+        script = {"name": vmad_patch.SCRIPT}
     if got_plugin.casefold() != plugin.casefold() or got_id != local:
         raise ValueError(f"{what} leads to {got_plugin}:{got_id:06X}, the build says {plugin}:{local:06X}")
-    return pos
+    return pos, script
 
 
 def door_round(e, core, port, merge):
@@ -179,7 +189,7 @@ def door_round(e, core, port, merge):
         raise ValueError(f"exterior door {ext_ref:06X} has base {door['base_full']:08X}, the build says {ext_base:06X}")
     if core.ref(ext_base) is None or core.ref(ext_base)["sig"] not in DOOR_BASES:
         raise ValueError(f"exterior door base {ext_base:06X} is not a DOOR or ACTI of the installed {core.name}")
-    check_target(door, f"exterior door {ext_ref:06X}", port.name, marker)
+    _pos, ext_script = check_target(door, f"exterior door {ext_ref:06X}", port.name, marker)
     inside = check_ref(port, marker, "interior arrival marker")
     idoor = check_ref(port, int_ref, "interior door")
     if idoor["base"] is None or port.ref(idoor["base"]) is None or port.ref(idoor["base"])["sig"] not in DOOR_BASES:
@@ -187,7 +197,7 @@ def door_round(e, core, port, merge):
     if inside["cell"] is None or inside["cell"] != idoor["cell"]:
         raise ValueError(f"interior marker {marker:06X} (cell {inside['cell']}) and door {int_ref:06X} (cell "
                          f"{idoor['cell']}) are not in one cell")
-    back = check_target(idoor, f"interior door {int_ref:06X}", core.name, ext_arrival)
+    back, int_script = check_target(idoor, f"interior door {int_ref:06X}", core.name, ext_arrival)
     outside = check_ref(core, ext_arrival, "exterior arrival marker")
     cell_edid = port.edid(inside["cell"])
     if not cell_edid or not re.fullmatch(r"[A-Za-z0-9_]+", cell_edid):
@@ -204,9 +214,9 @@ def door_round(e, core, port, merge):
             "exterior": {"door": f"{ext_ref:06X}", "base": f"{ext_base:06X}", "arrival": f"{ext_arrival:06X}",
                          "arrival_local": [round(v, 4) for v in outside["pos"]],
                          "arrival_merged": [round(v, 4) for v in merged],
-                         "return_position_in_vmad": back is not None},
+                         "return_position_in_vmad": back is not None, "script": ext_script},
             "interior": {"door": f"{int_ref:06X}", "base": f"{idoor['base']:06X}", "marker": f"{marker:06X}",
-                         "marker_pos": [round(v, 4) for v in inside["pos"]]}}
+                         "marker_pos": [round(v, 4) for v in inside["pos"]], "script": int_script}}
 
 
 # ------------------------------------------------------------------------------------------------------------- stage
@@ -375,7 +385,8 @@ def stage(a):
     for k, r in enumerate(rounds):
         print(f"  {r['cell_edid']:32s} {r['src']}  out door {r['exterior']['door']} -> in marker {r['interior']['marker']}"
               f"; in door {r['interior']['door']} -> out marker {r['exterior']['arrival']}"
-              + (f"; {hops[k]} hops" if k in hops else "; OUT leg only"))
+              + (f"; {hops[k]} hops" if k in hops else "; OUT leg only")
+              + ("; animated" if r["interior"]["script"]["name"] == vmad_patch.ANIMATED_SCRIPT else ""))
     for s in skipped:
         print(f"  SKIPPED {s['src']}: {s['why']}")
 
@@ -392,6 +403,8 @@ def stage_readme(info):
              + ("  (no --fresh: each OUT leg runs right after its own Red Rocket arrival, in the same session)"
                 if info.get("legs", "both") == "out" else ""),
              "  --bridge <the installed bridge staging>  (no --plugins: the installed set is not touched).",
+             "  A port installed from an interior batch (deploy_starfield.py install --batch) is tested as installed:",
+             "  add --port installed --starfield <game folder>, and --launch sfse when an SFSE plugin must load.",
              "Judge: door_rounds.py judge --queue <queue>.", ""]
     for t in info["tests"]:
         lines.append(f"  test {t['test']:04d} {t['leg']:3s} {t['cell_edid']:32s} expect {t['pos']}"
