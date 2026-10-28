@@ -1,3 +1,15 @@
+# Twenty-second delivery: Vault-Tec Regional HQ
+
+Added20 entries, ORG-8861 through ORG-8880:17 game reports from terminal revision5293084 and3 guide claims quoted in location revision5575111. Both pages fetched once after ledger/cache checks. Commonwealth inbox total789:709 game,43 guide,1 dependent,36 cut-content HOLD; all new entries unchecked. Folder6 now136; next8881.
+
+The article summary assigns opening the Vault111 shipment to Reid. The quoted primary log says Walter opened it and told Reid. Stored attribution follows the transcript. The fifteen cases for Vault95 are a combined Psycho/Jet shipment, not fifteen cases of each. The logs show only month/day: no guessed2077 year, universal vault-purpose claim or resolution of Jet-origin chronology is introduced.
+
+Reid’s intended resignation, his forecast of violence, Davidson’s conditional threats and Scott’s reports of Sharon’s absence remain distinct. They do not establish that resignation happened, that Davidson attacked Sharon, or what became of her. Scott’s account of the pool-cue assault and Roger’s reported hearing difficulty is preserved without a medical diagnosis. Guide notices remain tier2; a mini-nuke restroom notice does not prove a detonation.
+
+Marker0008F07F was independently read from the base master and matched the existing export, bringing the verified site anchors to23. ORG-0007 is not duplicated or silently upgraded; the new anchor concerns the site, not interior positions or event locations. No native item/quest check occurred.
+
+Both sources remain PARTIAL: incidental diary remarks and generic controls, plus the article’s layout/loot/CreationClub/developer material, are not exhaustively extracted. Totals41unique sources,51ledger rows,1FULL/40PARTIAL;10earlier continuation rows require ID union. No canonical changes, merge or game actions. StopA still awaits the recoverable current raw snapshot and exact64-page queue.
+
 # Twenty-first delivery: Med-Tek and Wayne’s logs
 
 Added 45 entries, CU-8816 through CU-8860, from three pinned content pages: Med-Tek Research 5575852, its terminal transcript 5284507, and Backyard Bunker terminals 5421351. The case-only redirect 5284489 is retained privately and is not counted as another completed source. All pages were fetched once after ledger/cache checks; no FULL page was refetched. The inbox now has 769 Commonwealth entries: 692 game, 40 guide, one dependent and 36 cut-content HOLD. Folder6 has116; next ID8861. All new entries remain unchecked for peer review.
