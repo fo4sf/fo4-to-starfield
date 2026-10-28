@@ -3,38 +3,11 @@
   "progress": {
     "vt": {
       "rows": 130,
-      "checked_or_corrected": 91,
-      "newly_reviewed": 13,
-      "verified_source_among_reviewed": 45,
-      "as_reported_among_reviewed": 46,
+      "checked_or_corrected": 117,
+      "newly_reviewed": 26,
+      "verified_source_among_reviewed": 47,
+      "as_reported_among_reviewed": 70,
       "changed_ids": [
-        "VT-0087",
-        "VT-0088",
-        "VT-0090",
-        "VT-0091",
-        "VT-0092",
-        "VT-0093",
-        "VT-0095",
-        "VT-0096",
-        "VT-0097",
-        "VT-0098",
-        "VT-0100",
-        "VT-0102",
-        "VT-0103"
-      ],
-      "remaining_ids": [
-        "VT-0011",
-        "VT-0017",
-        "VT-0018",
-        "VT-0020",
-        "VT-0031",
-        "VT-0032",
-        "VT-0033",
-        "VT-0034",
-        "VT-0036",
-        "VT-0054",
-        "VT-0055",
-        "VT-0056",
         "VT-0104",
         "VT-0105",
         "VT-0106",
@@ -63,7 +36,22 @@
         "VT-0129",
         "VT-0130"
       ],
-      "unchanged_other_rows": 117,
+      "remaining_ids": [
+        "VT-0011",
+        "VT-0017",
+        "VT-0018",
+        "VT-0020",
+        "VT-0031",
+        "VT-0032",
+        "VT-0033",
+        "VT-0034",
+        "VT-0036",
+        "VT-0054",
+        "VT-0055",
+        "VT-0056",
+        "VT-0112"
+      ],
+      "unchanged_other_rows": 103,
       "ids_and_order_retained": true
     },
     "mil": {
@@ -176,8 +164,8 @@
   },
   "original_validator": {
     "vt": {
-      "exit_code": 0,
-      "output": "0 problem(s)\n"
+      "exit_code": 1,
+      "output": "inbox/codex/vt/verified-1.jsonl:120 VT-0120: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:121 VT-0121: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:122 VT-0122: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:123 VT-0123: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:124 VT-0124: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:125 VT-0125: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:126 VT-0126: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:127 VT-0127: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/vt/verified-1.jsonl:128 VT-0128: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\n9 problem(s)\n"
     },
     "mil": {
       "exit_code": 1,
@@ -200,9 +188,10 @@
   "method_exception": "Eight FULL-ledger pages were refetched by st3 helper; parent disclosed and preserved the failure. Helper networking disabled for future passes.",
   "fifth_pass_note": "Historical preceding delivery: eight NY entries brought totals to193/318,91primary102asreported; preserved in prior commits. See sixth_delivery_note for current totals.",
   "baseline_heads": {
-    "vt": "5ac49e8a82e365e3336159b952e37bfd41361d4a",
+    "vt": "06db4a6cf269c4430e8684b836fd22dde918afb7",
     "mil": "5ac49e8a82e365e3336159b952e37bfd41361d4a",
     "st3": "839a04d69c3be007619bfe1acb28326a6a0f5b3f"
   },
-  "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits."
+  "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits.",
+  "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending."
 }
