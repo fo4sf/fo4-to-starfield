@@ -1183,7 +1183,7 @@ class P9Tests(unittest.TestCase):
             out = rung[:k + 1] + [f"FOCC rt={rt:.1f} p9 go actor=-16711680 call={call}.000000 target={target} "
                                   f"id={0x0300081B if target == 'dest' else 20} dist={dist:.6f}"] + rung[k + 1:]
             if after is not None:
-                out.append(f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call}.000000 target={target} "
+                out.append(f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call}.000000 target={target} result=2 "
                            f"after={after:.6f} dist=3.000000")
             return out
         came = p9_log(start=20.0, speed=2.0, seconds=60)[1:]
@@ -1191,11 +1191,12 @@ class P9Tests(unittest.TestCase):
         v = probes.check_p9(col(log=BASE + go(came, "player", 12.0) + go(never, "dest", 0.0)))
         self.assertEqual(v.verdict, FAIL, v.reasons)
         self.assertTrue(any("scripted commanded rung" in r for r in v.reasons), v.reasons)
-        self.assertTrue(any("PathToReference returned after 0.0 s" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("PathToReference returned after 0.0 s with result 2 (Stopped)" in r for r in v.reasons), v.reasons)
         self.assertIn("FOCC_P9Drive.Go", v.extra["driver"])
         rungs = v.extra["attempts"]
         self.assertEqual([(a["driver"], a["target"], a["path_returned_s"]) for a in rungs],
                          [(None, None, None), ("script", "player", 12.0), ("script", "dest", 0.0)])
+        self.assertEqual([a["path_result"] for a in rungs], [None, 2, 2])     # Actor.psc PathingResult_Stopped
         self.assertEqual([a["go_line"] is not None for a in rungs], [False, True, True])
         self.assertEqual([(a["go_id"], a["to_dest"]) for a in rungs], [(None, None), ("00000014", False), ("0300081B", True)])
         # Codex bot on 8dbfef8d: P9Sample measures the distance to FOCC_P9_Dest, so a judged rung whose go went to the
@@ -1350,6 +1351,71 @@ P10_QUEST = str(0x03000820)                 # FOCC_P10_Quest, local 2080, at loa
 P10 = [INIT, f"FOCC rt=10.0 p10 sent event={0x0300081F}", f"FOCC rt=10.4 p10 quest started id={P10_QUEST} local=2080",
        f"FOCC rt=20.0 p10 state id={P10_QUEST} local=2080 running=True"]
 PSC = "Scriptname FOCC_Probe Hidden\nFunction P10Send() global\n  bool r = Q().P10Event.SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)\nEndFunction\n"
+
+
+class B0Tests(unittest.TestCase):
+    """B0, the plugin bridge (check_b0): B0-1 is the probe plugin's game setting read back as 7; B0-2 a pong of sent + 1
+    (stack A, the native) or a gmst read of sent + 1 after the ping (stack B, the setting written by name)."""
+    GMST7 = "FOCC rt=5.0 b0 gmst name=iFOCC_Pong value=7"
+
+    def ping(self, sent, got, rt=10.0):
+        return [f"FOCC rt={rt} b0 ping sent={sent}", f"FOCC rt={rt + 0.1} b0 pong sent={sent} got={got}"]
+
+    def test_the_setting_read_alone_is_inconclusive_with_half_one_passed(self):
+        v = probes.check_b0(col(log=[INIT, self.GMST7]))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("B0-1: Papyrus read the plugin's game setting iFOCC_Pong = 7" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("not tried" in r for r in v.reasons), v.reasons)
+        self.assertEqual(v.extra["gmst_first"], 7)
+        self.assertEqual(len(v.evidence), 1)
+
+    def test_a_setting_the_game_does_not_know_fails_half_one(self):
+        v = probes.check_b0(col(log=[INIT, "FOCC rt=5.0 b0 gmst name=iFOCC_Pong value=0"] + self.ping(41, 42)))
+        self.assertEqual(v.verdict, FAIL)
+        self.assertTrue(any("read iFOCC_Pong as 0, not 7" in r for r in v.reasons), v.reasons)
+
+    def test_the_native_route_passes_and_counts_every_ping(self):
+        log = [INIT, self.GMST7] + self.ping(41, 42) + self.ping(43, 44, rt=60.0)
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertTrue(any("native route: FOCC.Ping(43) answered 44 (2 of 2 pings answered sent + 1)" in r for r in v.reasons), v.reasons)
+        self.assertEqual([(r["sent"], r["native_ok"], r["setting_ok"]) for r in v.extra["pings"]], [(41, True, None), (43, True, None)])
+        self.assertEqual([e["line"] for e in v.evidence], [2, 5, 6])            # the first gmst, the last ping, its pong
+
+    def test_the_setting_route_passes_on_the_read_after_the_ping(self):
+        log = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=42"]
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertTrue(any("setting route: iFOCC_Pong read 42 after the ping of 41" in r for r in v.reasons), v.reasons)
+        self.assertEqual(v.extra["pings"][0]["native_ok"], False)
+
+    def test_an_unbound_native_with_no_read_after_is_inconclusive(self):
+        v = probes.check_b0(col(log=[INIT, self.GMST7] + self.ping(41, 0)))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("FOCC.Ping(41) answered 0, not 42: no plugin bound the native" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("no `b0 gmst` read after the last ping" in r for r in v.reasons), v.reasons)
+
+    def test_both_routes_wrong_is_a_fail(self):
+        log = [INIT, self.GMST7] + self.ping(41, 0) + ["FOCC rt=12.0 b0 gmst name=iFOCC_Pong value=7"]
+        v = probes.check_b0(col(log=log))
+        self.assertEqual(v.verdict, FAIL)
+        self.assertTrue(any("iFOCC_Pong read 7 after the ping, not 42" in r for r in v.reasons), v.reasons)
+
+    def test_a_ping_before_any_setting_read_and_a_refusal_stay_inconclusive(self):
+        v = probes.check_b0(col(log=[INIT] + self.ping(41, 42)))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("run FOCC_B0.Gmst first" in r for r in v.reasons), v.reasons)
+        v = probes.check_b0(col(log=[INIT, "FOCC rt=1.0 b0 refused quest=none"]))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("refused quest=none" in r for r in v.reasons), v.reasons)
+        self.assertEqual(len(v.evidence), 1)
+        # the one-launch log is judged (focc_session1.log before focc.0.log, as the other one-launch probes read it), else
+        # any log with b0 lines; `all` counts an attempted b0
+        c = col(session1=[INIT, self.GMST7] + self.ping(1, 2), log=[INIT, "FOCC rt=5.0 b0 gmst name=iFOCC_Pong value=0"])
+        self.assertEqual(probes.check_b0(c).verdict, PASS)
+        self.assertEqual(probes.check_b0(col(session1=[INIT], **{"other.log": [INIT, self.GMST7] + self.ping(1, 2)})).verdict, PASS)
+        self.assertTrue(probes._attempted("b0", c))
+        self.assertEqual(probes.check_all(col(log=[INIT, self.GMST7] + self.ping(1, 2)))["probes"]["b0"]["verdict"], PASS)
 
 
 class P10Tests(unittest.TestCase):

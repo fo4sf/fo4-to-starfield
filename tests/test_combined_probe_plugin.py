@@ -31,12 +31,14 @@ PROBE = (SCRIPTS / "FOCC_Probe.psc").read_text(encoding="utf-8")
 P10 = (SCRIPTS / "FOCC_P10Quest.psc").read_text(encoding="utf-8")
 ARRAY = (SCRIPTS / "FOCC_P5_Array129.psc").read_text(encoding="utf-8")
 DRIVE = (SCRIPTS / "FOCC_P9Drive.psc").read_text(encoding="utf-8")
+NATIVE = (SCRIPTS / "FOCC.psc").read_text(encoding="utf-8")
+B0 = (SCRIPTS / "FOCC_B0.psc").read_text(encoding="utf-8")
 
 # the plugin-local ids the plan fixes (dotnet/CombinedProbe/Program.cs header); the scripts quote some as decimals
 IDS = {"QuestId": 0x804, "HolderId": 0x805, "P2LocId": 0x806, "P3NoParentId": 0x807, "P3ChainedId": 0x808, "RouteId": 0x809,
        "P4MarkerId": 0x80B, "P8Parent0Id": 0x80C, "P8Child0Id": 0x80F, "P9DestId": 0x81B, "P6ListId": 0x81C, "P7ListId": 0x81D,
        "RepId": 0x81E, "P10EventId": 0x81F, "P10QuestId": 0x820, "P10BranchId": 0x821, "P10NodeId": 0x822, "P5FirstId": 0x823,
-       "NextId": 0x855}
+       "PongId": 0x855, "NextId": 0x856}
 # the properties the builder fills, by Papyrus type, as the quest script declares them
 PROPERTIES = {"Holder": "Keyword", "Route": "Keyword", "P2Loc": "Location", "P3LocNoParent": "Location", "P3LocChained": "Location",
               "P4Marker": "ObjectReference", "P4Base": "Form", "P5Globals": "GlobalVariable[]", "P6List": "Form", "P6BaseA": "Form",
@@ -108,6 +110,7 @@ class CombinedProbePluginTests(unittest.TestCase):
         self.assertIn("fn=651 EqualTo 1 param=", check.stdout)              # the P6 conditions read back
         self.assertIn("fn=74 LessThan 8 param=", check.stdout)              # the P7 conditions read back
         self.assertIn("event SCPT", check.stdout)                           # the P10 quest's Script Event
+        self.assertIn("1 GMST", check.stdout)                               # B0's game setting read back
         recs = records(plugin)
         sigs = {}
         for sig, *_ in recs.values():
@@ -116,6 +119,7 @@ class CombinedProbePluginTests(unittest.TestCase):
         self.assertEqual(sigs[b"KYWD"], 3)
         self.assertEqual(sigs[b"LCTN"], 3)
         self.assertEqual(sigs[b"GLOB"], 51)
+        self.assertEqual(sigs[b"GMST"], 1)
         self.assertEqual(sigs[b"REFR"], 2 + 3 * 5)
         self.assertEqual(sigs[b"LVLN"], 2)
         self.assertEqual(sigs[b"SMBN"], 1)
@@ -146,6 +150,10 @@ class CombinedProbePluginTests(unittest.TestCase):
         self.assertEqual(recs[OWN | 0x80C][3] & 0xC00, 0x400)                # stage 0 parent enabled
         for i in range(50):
             self.assertEqual(recs[OWN | (0x823 + i)][0], b"GLOB")
+        sig, payload, *_ = recs[OWN | 0x855]                                 # B0: iFOCC_Pong, an int game setting of 7
+        self.assertEqual(sig, b"GMST")
+        self.assertEqual(tlw.field(payload, b"EDID"), b"iFOCC_Pong\0")
+        self.assertEqual(tlw.field(payload, b"DATA"), struct.pack("<i", 7))
 
     def test_check_refuses_other_bases_and_a_mismatched_skip(self):
         plugin, _ = self.built("bases")
@@ -274,7 +282,9 @@ class ScriptContractTests(unittest.TestCase):
     def test_ids_in_scripts_match_the_builder(self):
         for name, id_ in IDS.items():
             self.assertRegex(PROGRAM, rf"\b{name} = 0x{id_:X}\b", name)
-        self.assertEqual(IDS["P5FirstId"] + 50, IDS["NextId"])
+        self.assertEqual(IDS["P5FirstId"] + 50, IDS["PongId"])
+        self.assertEqual(IDS["PongId"] + 1, IDS["NextId"])
+        self.assertIn('EditorID = "iFOCC_Pong", Data = 7', PROGRAM)
         self.assertIn('local=2054', QUEST)                                   # 0x806 FOCC_P2_Loc
         self.assertIn('local=2055', QUEST)                                   # 0x807
         self.assertIn('local=2056', QUEST)                                   # 0x808
@@ -308,7 +318,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn('refused quest=none', q)
 
     def test_only_imported_base_types_and_no_unverified_calls(self):
-        for text in (QUEST, PROBE, P10, ARRAY, DRIVE):
+        for text in (QUEST, PROBE, P10, ARRAY, DRIVE, NATIVE, B0):
             words = set(re.findall(r"\b([A-Z][A-Za-z]+)\b", text))
             used = words & set(PAPYRUS_TYPES)
             self.assertTrue(used <= set(mcp.IMPORTS), used - set(mcp.IMPORTS))
@@ -318,7 +328,8 @@ class ScriptContractTests(unittest.TestCase):
                 self.assertNotIn("PathToReference(", text)
         self.assertEqual(set(mcp.IMPORTS) - set(PAPYRUS_TYPES), set())     # nothing imported that no script uses
         # the kit's own scripts are not base scripts
-        self.assertFalse({"FOCC_ProbeQuest", "FOCC_Probe", "FOCC_P10Quest", "FOCC_P5_Array129"} & set(mcp.IMPORTS))
+        self.assertFalse({"FOCC_ProbeQuest", "FOCC_Probe", "FOCC_P10Quest", "FOCC_P5_Array129", "FOCC_P9Drive", "FOCC", "FOCC_B0"}
+                         & set(mcp.IMPORTS))
         # per-frame work runs from timers; the P4 and P5 loops never block a cgf call
         for f in ("P4Place()", "P4Dissolve()", "P5One()", "P9Sample()"):
             self.assertIn(f, QUEST[QUEST.index("Event OnTimer"):])
@@ -327,14 +338,17 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("new float[129]", ARRAY)
         self.assertIn("SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)", PROBE)
 
-    def test_p9_driver_calls_path_to_reference_as_a_statement_between_two_lines(self):
+    def test_p9_driver_calls_path_to_reference_between_two_lines_and_logs_its_result(self):
         body = DRIVE[DRIVE.index("Function Go(int actorId, int toPlayer) global"):]
         self.assertIn("Scriptname FOCC_P9Drive Hidden", DRIVE)
         self.assertIn('FOCC_ProbeQuest q = FOCC_Probe.Q("p9")', body)          # the quest, or a logged refusal
-        self.assertEqual(DRIVE.count("PathToReference("), 1)                  # the one call
-        # a statement (its return type is unknown) with Starfield's three arguments: the PC's compile at c0c3c96c refused
-        # the two-argument call, "argument afnormalizedrotationspeed is not specified and has no default value"
-        self.assertIn("\n    a.PathToReference(target, 1.0, 1.0)\n", body)
+        self.assertEqual(DRIVE.count("PathToReference("), 2)                  # the one call, and the declaration quoted
+        # Starfield's three arguments (the PC's compile at c0c3c96c refused the two-argument call) and its int return
+        # (Actor.psc line 490 on the PC, 28 Oct 2026: PathingResult_Success 0 .. Timeout 4), logged as result=
+        self.assertIn("\n    int r = a.PathToReference(target, 1.0, 1.0)\n", body)
+        self.assertIn('" result=" + r + " after="', body)
+        for code in ("PathingResult_Success 0", "Failure 1", "Stopped 2", "Cleared 3", "Timeout 4"):
+            self.assertIn(code, DRIVE)
         go, call, back = body.index('"p9 go actor="'), body.index("a.PathToReference("), body.index('"p9 path returned actor="')
         self.assertLess(go, call)
         self.assertLess(call, back)
@@ -343,14 +357,38 @@ class ScriptContractTests(unittest.TestCase):
         self.assertEqual(body.count('" call=" + t0'), 2)                    # the return names its own call
         self.assertNotIn("Debug.TraceUser", DRIVE)                             # every line through the quest's Trace
 
-    def test_sources_are_the_five_scripts(self):
-        self.assertEqual(mcp.sources(), ["FOCC_P10Quest.psc", "FOCC_P5_Array129.psc", "FOCC_P9Drive.psc", "FOCC_Probe.psc",
-                                         "FOCC_ProbeQuest.psc"])
-        self.assertEqual(set(mcp.PACKED) | {mcp.COMPILE_ONLY, mcp.DRIVE}, {s[:-4] for s in mcp.sources()})
+    def test_b0_scripts_declare_the_native_and_log_both_routes(self):
+        # the native stub the SFSE plugin binds (sfse/FOCCPing): one global native, no body, declared like Game.psc's
+        self.assertIn("Scriptname FOCC Hidden Native", NATIVE)
+        self.assertIn("\nint Function Ping(int v) global native\n", NATIVE)
+        self.assertNotIn("EndFunction", NATIVE)
+        # the entry points: both resolve the quest (a logged refusal otherwise) and trace through it
+        self.assertIn("Scriptname FOCC_B0 Hidden", B0)
+        self.assertEqual(B0.count('FOCC_ProbeQuest q = FOCC_Probe.Q("b0")'), 2)
+        self.assertEqual(B0.count("if q == None"), 2)
+        self.assertNotIn("Debug.TraceUser", B0)
+        # B0-1: the probe plugin's game setting read by name (Game.GetGameSettingInt, Starfield's Game.psc lines 217-221)
+        self.assertIn('q.Trace("b0 gmst name=iFOCC_Pong value=" + Game.GetGameSettingInt("iFOCC_Pong"))', B0)
+        # B0-2: the ping line a log-tailing plugin reads, the native call, the pong with its answer
+        body = B0[B0.index("Function Ping(int v) global"):]
+        self.assertIn('q.Trace("b0 ping sent=" + v)', body)
+        self.assertIn("int got = FOCC.Ping(v)", body)
+        self.assertIn('q.Trace("b0 pong sent=" + v + " got=" + got)', body)
+        self.assertLess(body.index('"b0 ping sent="'), body.index("FOCC.Ping(v)"))
+        self.assertLess(body.index("FOCC.Ping(v)"), body.index('"b0 pong sent="'))
+        # the stage compiles them apart, the stub first; the console header lists them
+        self.assertEqual(mcp.B0, ("FOCC", "FOCC_B0"))
+        self.assertIn('cgf "FOCC_B0.Gmst"', PROBE)
+        self.assertIn('cgf "FOCC_B0.Ping" 41', PROBE)
+
+    def test_sources_are_the_seven_scripts(self):
+        self.assertEqual(mcp.sources(), ["FOCC.psc", "FOCC_B0.psc", "FOCC_P10Quest.psc", "FOCC_P5_Array129.psc", "FOCC_P9Drive.psc",
+                                         "FOCC_Probe.psc", "FOCC_ProbeQuest.psc"])
+        self.assertEqual(set(mcp.PACKED) | {mcp.COMPILE_ONLY, mcp.DRIVE} | set(mcp.B0), {s[:-4] for s in mcp.sources()})
 
 
 class StageTests(unittest.TestCase):
-    def fake_tools(self, calls, array_ok, drive_ok=True):
+    def fake_tools(self, calls, array_ok, drive_ok=True, b0_ok=True):
         def fake_run(cmd, cwd=None):
             calls.append((cmd, cwd))
             if cmd[0].endswith("PapyrusCompiler.exe"):
@@ -368,15 +406,21 @@ class StageTests(unittest.TestCase):
                         f.write(b"drive")
                     return 0, "Compilation succeeded.\n"
                 return 1, "FOCC_P9Drive.psc(30,6): PathToReference is not a function or does not exist\nNo output generated\n"
+            if cmd[1] in ("FOCC.psc", "FOCC_B0.psc"):
+                if b0_ok or cmd[1] == "FOCC.psc":                      # the stub always compiles; the entry points may not
+                    with open(os.path.join(cmd[-1][3:], cmd[1][:-4] + ".pex"), "wb") as f:
+                        f.write(cmd[1].encode())
+                    return 0, "Compilation succeeded.\n"
+                return 1, "FOCC_B0.psc(18,41): GetGameSettingInt is not a function or does not exist\nNo output generated\n"
             if array_ok:
                 open(os.path.join(cmd[-1][3:], "FOCC_P5_Array129.pex"), "wb").close()
                 return 0, "Compilation succeeded.\n"
             return 1, "FOCC_P5_Array129.psc(8,15): arrays cannot have more than 128 elements\nNo output generated\n"
         return fake_run, fake_capture
 
-    def stage(self, d, array_ok=True, *extra, drive_ok=False):
+    def stage(self, d, array_ok=True, *extra, drive_ok=False, b0_ok=True):
         calls = []
-        fake_run, fake_capture = self.fake_tools(calls, array_ok, drive_ok)
+        fake_run, fake_capture = self.fake_tools(calls, array_ok, drive_ok, b0_ok)
         out = os.path.join(d, "stage")
         core = os.path.join(d, "FO4TerrainCore.esm")
         with open(core, "wb") as f:
@@ -410,8 +454,9 @@ class StageTests(unittest.TestCase):
             self.assertIs(plan["sm_nodes_written"], True)
             self.assertEqual(plan["build_id"], plan["plugin_sha256"][:8])
             self.assertEqual(plan["outputs"]["FO4SFCombinedProbe.esm"], plan["plugin_sha256"])
-            self.assertEqual(sorted(plan["outputs"]), ["Data/Scripts/FOCC_P10Quest.pex", "Data/Scripts/FOCC_Probe.pex",
-                                                       "Data/Scripts/FOCC_ProbeQuest.pex", "FO4SFCombinedProbe.esm"])
+            self.assertEqual(sorted(plan["outputs"]), ["Data/Scripts/FOCC.pex", "Data/Scripts/FOCC_B0.pex", "Data/Scripts/FOCC_P10Quest.pex",
+                                                       "Data/Scripts/FOCC_Probe.pex", "Data/Scripts/FOCC_ProbeQuest.pex",
+                                                       "FO4SFCombinedProbe.esm"])
             self.assertEqual(sorted(plan["inputs"]["sources"]), mcp.sources())
             self.assertEqual(plan["inputs"]["core"]["sha256"], mcp.sha256(os.path.join(d, "FO4TerrainCore.esm")))
             self.assertEqual(plan["array129"], {"script": "FOCC_P5_Array129", "compiled": False, "exit_code": 1,
@@ -425,10 +470,23 @@ class StageTests(unittest.TestCase):
             self.assertIn("exit code 1", report)
             self.assertIn("more than 128 elements", report)
             self.assertIn("refused:", report)
-            # the order of the tool calls: build, three compiles, the array compile, check
+            # the order of the tool calls: build, three compiles, the array compile, the driver, B0's two, check
             kinds = [("build" if "build" in c[0] else "check" if "check" in c[0] else c[0][1]) for c in calls]
             self.assertEqual(kinds, ["build", "FOCC_ProbeQuest.psc", "FOCC_Probe.psc", "FOCC_P10Quest.psc", "FOCC_P5_Array129.psc",
-                                     "FOCC_P9Drive.psc", "check"])
+                                     "FOCC_P9Drive.psc", "FOCC.psc", "FOCC_B0.psc", "check"])
+            # B0's two compiled: both packed and pinned, the plan names the entry-point script
+            self.assertEqual(plan["b0"], {"scripts": ["FOCC", "FOCC_B0"], "compiled": True, "exit_code": 0, "output": "compile_b0.txt"})
+            self.assertEqual(plan["scripts"]["b0"], "FOCC_B0")
+            for name in ("FOCC", "FOCC_B0"):
+                pex = os.path.join(out, "Data", "Scripts", name + ".pex")
+                self.assertEqual(plan["outputs"][f"Data/Scripts/{name}.pex"], mcp.sha256(pex))
+            b0_report = open(os.path.join(out, "compile_b0.txt"), encoding="utf-8").read()
+            self.assertIn("--- FOCC.psc\nexit code 0", b0_report)
+            self.assertIn("--- FOCC_B0.psc\nexit code 0", b0_report)
+            self.assertIn("compiled: FOCC.Ping is declared", b0_report)
+            readme = open(os.path.join(out, "README.txt"), encoding="utf-8").read()
+            self.assertIn("Data\\Scripts\\FOCC.pex, Data\\Scripts\\FOCC_B0.pex", readme)
+            self.assertIn('cgf "FOCC_B0.Gmst" needs no SFSE plugin', readme)
             # the driver refused: only it is missing, and the stage says so
             self.assertEqual(plan["p9_drive"], {"script": "FOCC_P9Drive", "compiled": False, "exit_code": 1,
                                                 "output": "compile_p9_drive.txt"})
@@ -459,6 +517,21 @@ class StageTests(unittest.TestCase):
             self.assertEqual(plan["outputs"]["Data/Scripts/FOCC_P9Drive.pex"], mcp.sha256(pex))   # probe_install packs it
             self.assertIn("compiled: Actor.PathToReference", open(os.path.join(out, "compile_p9_drive.txt"), encoding="utf-8").read())
             self.assertIn("Data\\Scripts\\FOCC_P9Drive.pex", open(os.path.join(out, "README.txt"), encoding="utf-8").read())
+
+    def test_a_refused_b0_leaves_both_scripts_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            out, _calls = self.stage(d, True, b0_ok=False)
+            plan = json.load(open(os.path.join(out, "plan.json"), encoding="utf-8"))
+            self.assertEqual(plan["b0"], {"scripts": ["FOCC", "FOCC_B0"], "compiled": False, "exit_code": 1, "output": "compile_b0.txt"})
+            self.assertIsNone(plan["scripts"]["b0"])
+            for name in ("FOCC", "FOCC_B0"):                      # the stub compiled, but nothing of B0 is packed without its caller
+                self.assertFalse(os.path.exists(os.path.join(out, "Data", "Scripts", name + ".pex")), name)
+                self.assertNotIn(f"Data/Scripts/{name}.pex", plan["outputs"])
+            report = open(os.path.join(out, "compile_b0.txt"), encoding="utf-8").read()
+            self.assertIn("--- FOCC.psc\nexit code 0", report)
+            self.assertIn("--- FOCC_B0.psc\nexit code 1\nFOCC_B0.psc(18,41): GetGameSettingInt", report)
+            self.assertIn("refused: this stage has no B0 scripts", report)
+            self.assertIn("refused, not packed: no B0", open(os.path.join(out, "README.txt"), encoding="utf-8").read())
 
     def test_variant_and_skip_reach_the_tool_and_the_plan(self):
         with tempfile.TemporaryDirectory() as d:
