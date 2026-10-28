@@ -1292,17 +1292,24 @@ def _p9_returned(evs: list[Event], go: Event) -> Event | None:
                  and e.form("actor") == go.form("actor")), None)
 
 
-def _p9_continuous(samples: list[Event]) -> bool | None:
-    """Whether a rung's samples read as one continuous walk: each with rt=, pos= and dist=, real time strictly
-    increasing, no step faster than p9_jump_m_per_s (the latest rung's own checks, applied to a control before it may
-    stand as proof that the command walks the actor; Codex review of #560). None with fewer than 2 samples."""
+def _p9_continuous(samples: list[Event], origin: Event | None = None) -> bool | None:
+    """Whether a rung's samples read as one continuous walk from its origin (the `p9 go` when the script sent the actor,
+    else the `p9 start`): each sample with rt=, pos= and dist=, the first no earlier than the origin and no closer than
+    a walk gets in the time since it (p9_stuck_m plus p9_jump_m_per_s per second), real time strictly increasing, no
+    step faster than p9_jump_m_per_s. The latest rung's own checks, applied to a control before it may stand as proof
+    that the command walks the actor (Codex review of #560). None with fewer than 2 samples."""
+    P = PLACEHOLDERS
     if len(samples) < 2:
         return None
     rows = [(e.rt, pos(e), e.num("dist")) for e in samples]
     if any(None in r for r in rows):
         return False
+    if origin is not None and origin.rt is not None and origin.num("dist") is not None:
+        t0, _, d0 = rows[0]
+        if t0 < origin.rt or abs(origin.num("dist") - d0) > P["p9_stuck_m"] + P["p9_jump_m_per_s"] * (t0 - origin.rt):
+            return False
     for (t0, p0, _), (t1, p1, _) in zip(rows, rows[1:]):
-        if t1 <= t0 or sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5 / (t1 - t0) > PLACEHOLDERS["p9_jump_m_per_s"]:
+        if t1 <= t0 or sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5 / (t1 - t0) > P["p9_jump_m_per_s"]:
             return False
     return True
 
@@ -1345,7 +1352,7 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "moved_m": round(max(sum((a - b) ** 2 for a, b in zip(ps[0], p)) ** 0.5 for p in ps), 1) if ps else None,
                     "cells": len({e.form("cell") for e in samples if e.form("cell")}),
                     "arrived": closest is not None and closest < P["p9_arrive_m"],
-                    "continuous": _p9_continuous(samples),
+                    "continuous": _p9_continuous(samples, go if go is not None else s),
                     "driver": "script" if go is not None else None,
                     "go_line": go.line if go is not None else None,
                     "go_rt": go.rt if go is not None else None,

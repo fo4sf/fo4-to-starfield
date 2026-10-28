@@ -1244,6 +1244,14 @@ class P9Tests(unittest.TestCase):
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
         self.assertIs(v.extra["attempts"][1]["continuous"], False)
         self.assertIs(probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest"))).extra["attempts"][1]["continuous"], True)
+        # ... and from its go: a control found 30 m out whose first counted sample, 0.01 s later, reads 12 m teleported
+        # (Codex bot on e8a9c186); the judged rung's own slack check applies to the control
+        warped = head + ["FOCC rt=1.51 p9 sample t=0.000000 actor=-16711680 pos=18.000000 0.000000 0.000000 cell=50333000 loaded=True dist=12.000000",
+                         "FOCC rt=3.5 p9 sample t=2.000000 actor=-16711680 pos=22.000000 0.000000 0.000000 cell=50333000 loaded=True dist=8.000000",
+                         "FOCC rt=4.0 p9 done t=2.000000 dist=8.000000"]
+        v = probes.check_p9(col(log=BASE + go(warped, "player", dist=30.0) + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
         # a go that found the actor under 15 m leaves the command too little to show (placeholder p9_control_min_m)
         v = probes.check_p9(col(log=BASE + go(came, "player", dist=12.0) + go(never, "dest")))
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
