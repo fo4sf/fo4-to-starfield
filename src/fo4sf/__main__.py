@@ -4,6 +4,8 @@ python -m fo4sf status    # print config summary (including directory existence)
 python -m fo4sf validate  # check paths, tools, and dependencies (PYTHONPATH=src)
 python -m fo4sf nif-summary <paths>  # summarize NIF block structure for conversion diagnostics
 python -m fo4sf bgsm-summary <files>  # offline summary of Fallout 4 .bgsm materials
+python -m fo4sf dds-summary <files>   # DDS header summary (needs numpy)
+python -m fo4sf btd-summary <files>   # Starfield .btd terrain summary (needs numpy)
 """
 from __future__ import annotations
 
@@ -15,7 +17,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .btd import BtdError, read as read_btd
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 from .nif import NifError, parse as parse_nif
@@ -353,7 +354,6 @@ def cmd_bgsm_summary(args: argparse.Namespace) -> int:
     return rc
 
 
-
 def _fourcc_text(fourcc: bytes) -> str:
     """Plain-text FourCC. An all-zero or NUL-padded field is '(none)', not embedded NULs."""
     text = fourcc.replace(b"\x00", b"").decode("ascii", errors="replace").strip()
@@ -391,7 +391,12 @@ def cmd_dds_summary(args: argparse.Namespace) -> int:
 
 def cmd_btd_summary(args: argparse.Namespace) -> int:
     """Print a short structural summary of one or more Starfield .btd terrain files (offline diagnostic)."""
-    import json
+    # btd imports numpy. Same rule as dds-summary: load it only when this command runs.
+    try:
+        from .btd import BtdError, read as read_btd
+    except ImportError as e:
+        print(f"btd-summary needs numpy ({e})", file=sys.stderr)
+        return 1
     if not args.paths:
         print("error: at least one BTD path required", file=sys.stderr)
         return 1
@@ -465,7 +470,6 @@ def main(argv: list[str] | None = None) -> int:
     p_btd.add_argument("paths", nargs="+", help="one or more .btd files")
     p_btd.add_argument("--json", action="store_true", help="emit JSON instead of text")
     p_btd.set_defaults(func=cmd_btd_summary)
-
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -11,6 +11,7 @@ import numpy as np
 
 from fo4sf.__main__ import main
 from fo4sf.btd import read as read_btd, Btd
+from test_dds_summary import _run_without_numpy
 
 
 def _minimal_btd(ncx=1, ncy=1, hmin=0.0, hmax=100.0, version=1) -> bytes:
@@ -43,6 +44,16 @@ def _minimal_btd(ncx=1, ncy=1, hmin=0.0, hmax=100.0, version=1) -> bytes:
 
 
 class TestBtdSummary(unittest.TestCase):
+    def test_needs_numpy_message_without_numpy(self):
+        """Like dds-summary (#548): numpy loads only when btd-summary runs."""
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "tiny.btd"
+            path.write_bytes(_minimal_btd())
+            run = _run_without_numpy("btd-summary", str(path))
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("needs numpy", run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
+
     def test_text_output(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "tiny.btd"
