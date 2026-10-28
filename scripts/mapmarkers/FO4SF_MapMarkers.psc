@@ -115,6 +115,7 @@ bool Function NewSession()
     bool fresh = placeRealTime <= 0.0 || rt < placeRealTime
     if fresh
         Debug.OpenUserLog(LogName)                              ; a load in a new launch runs no OnInit to open it
+        lastRealTime = 1000000000.0                             ; Border starts over too: an old save's first load had no event
         RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")  ; a save from before the registration ran OnInit
         if moves > 0
             Trace("session: move budget starts over (was moves=" + moves + ")")
@@ -168,10 +169,10 @@ Event OnTimer(int aiTimerID)
 EndEvent
 
 Function Place(Actor player)
-    ResetBudget()
-    if NewSession()
+    if NewSession()                                           ; first, so the log is open for every line after it
         SessionLine(player)
     endif
+    ResetBudget()
     Border(player)
     ShowLanding()
     if player.IsInInterior()

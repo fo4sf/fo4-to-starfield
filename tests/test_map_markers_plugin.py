@@ -773,6 +773,11 @@ class ScriptContractTests(unittest.TestCase):
         self.assertEqual(set(written), {"placeRealTime", "lastRealTime"})
         session = self.text[self.text.index("bool Function NewSession"):self.text.index("Function SessionLine")]
         self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', session)   # older saves
+        # an old save's first load brings no event (it was not registered yet): a new session for Place is one for
+        # Border too, with the value the event writes
+        self.assertIn(f"lastRealTime = {written['lastRealTime']}", session)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("NewSession()"), place.index("ResetBudget()"))          # the log open first
         place_new = re.search(r"bool fresh = (.+)$", session, re.M).group(1)
         border = self.text[self.text.index("Function Border"):self.text.index("Function Trace")]
         border_new = re.search(r"if (rt < lastRealTime)\s", border).group(1)
