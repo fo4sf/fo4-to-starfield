@@ -1,8 +1,10 @@
 # A Fallout 4 new game: the Vault 111 start (phase 1)
 
 Written 2026-10-19 by Claude-cloud (the new-game thread). Phase 1 of the approved roadmap: a new game that opens in
-Vault 111 with no Starfield intro, which everything else plugs into. **Offline only so far: nothing here has run in
-game or been installed.** Labels follow docs/ai/research-log.md (verified, supported hypothesis, unresolved).
+Vault 111 with no Starfield intro, which everything else plugs into. **In game once (28 Oct 2026, section 10): the first
+build sent the owner to Starfield's pirate-fight developer start and our quest stood down; both causes are fixed
+offline and the build waits for a restage.** Labels follow docs/ai/research-log.md (verified, supported hypothesis,
+unresolved).
 
 Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `dotnet/NewGame/Records.cs` (the read-only PC
 record reader, section 6a), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
@@ -15,18 +17,22 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 
 1. **Start:** our quest starts with the game (start game enabled, run once) and waits each second until the player's 3D
    is loaded (Starfield's Utility.psc has no IsInMenuMode, so open menus are not awaited).
-2. **Guard:** it acts only on a new game. That means fewer than 0.25 game days have passed, the player is at level 1, and
+2. **Guard:** it acts only on a new game. That means fewer than one game day has passed, the player is at level 1, and
    Starfield's opening (`MQ101`) is still below stage 105, where it turns saving back on, and is neither completed nor
    stopped after it began. A save the player made always has the opening at 105 or later, so even an early level-1 save
    stands down (21 Oct review). An existing save that gains the plugin stands the quest down at stage 1 and nothing
-   moves. The owner's test saves are safe.
+   moves. The owner's test saves are safe. The day limit was 0.25 in the first build, which stood every new game down:
+   Starfield's clock starts at 8:00 and `GameDaysPassed` carries the hour, so a new game reads about 0.3335 a second in
+   (**verified** in game 28 Oct, two runs; section 10). The guard now logs every reading it judges (the `guard` line).
 3. **Starfield's opening is held off:** the quest stops `MQ00` (the main-quest start), `MQ101` (the opening),
    `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they run, and logs each stop. The list is walked twice: once before
    the move, and once one tick later, because stopping MQ101 runs its stage 9000, which starts the last two (section 2).
    Saving and the HUD, which MQ101's stage 0 had turned off, are turned back on right after the first pass.
-   The plugin also overrides Starfield's global `MQ101Debug` to 10, the value MQ00 writes before it starts MQ101
-   (section 2, NG-2). That override is a record, not gated by the guard: whether an existing save keeps its own value
-   of the global is unverified until the PC run.
+   The plugin also overrides Starfield's global `MQ101Debug` to 2 (section 2, NG-2). MQ101's start stage picks its
+   start by that value: 0 is the intro, 1 and 3 to 10 are developer starts, and 2 (what MQ102 to MQ305 write once the
+   intro is over) matches only the conditionless last entry, which ghosts three NPCs, so MQ101 starts inert and the
+   hold-off stops it. The first build's 10 was the developer start at the pirate fight (section 10). That override is a
+   record, not gated by the guard: whether an existing save keeps its own value of the global is unverified.
 4. **The cryo pod:** the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`) and stands up one metre
    in front of their own pod, facing out of it (on the installed port, which has no persistent reference in the cell,
    the script first loads the cell by centering on it: section 3a). The notification reads "Vault 111" and the objective is "Leave Vault
@@ -59,14 +65,15 @@ Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `m
 
 | Option | How | For | Against |
 |---|---|---|---|
-| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (same read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether MQ101 has already started its scene, disabled controls or opened its menus before our quest runs, and whether one tick is enough for stage 9000 to have started its quests; the in-game proof decides (the log says what each pass stopped) |
-| **B. The debug global (on by default, `--no-mq101debug` turns it off)** | The plugin overrides Starfield's GLOB `MQ101Debug` to 10. The owner decided (2026-10-19, NG-2) that we set it ourselves: stopping MQ00 before its stage 10 runs would leave it at 0, which turns sustenance off (its condition form reads it, NG-M1). 10 is what MQ00 would have written, so a game started our way reads the same value a vanilla start does. `--mq101debug <n>` writes another value. SKK Fast Start New Game (Nexus Starfield 5971) sets it to 8 as a "hard edit in the ESM" and checks the player is in `NewAtlantisSpaceport03` | A path Bethesda built and a public mod relies on; one GLOB override, no quest record touched | **unresolved** which value skips what, and whether 10 is the right one for us (NG-M4): it is unverified until the PC run. The PC precheck (19 Oct, ContentResources.zip, verified lines): `MQ101Script.psc` declares the property (line 14) and branches on `MQ101Debug.GetValueInt() == 1` (line 79); `QF_MQ00_00005790.psc` line 7 sets it to 10; MQ101's fragment shows a debug message box `MQ101DebugMSG01` (line 288); most MQ102 to MQ305 start stages set it to 2; 8 is set by the test quest `QF_TestQuest_LVC_010D747E.psc` (line 101) and read by `SFBGS00D\CruiseModeTestSupportScript.psc` (line 29), so 8 belongs to a cruise-mode test start. MQ101Script's OnQuestInit (lines 75 to 82) only does `SetStage(400)` when the value is 1, and MQ00 writes 10 before starting MQ101, so an override of the global alone is undone by MQ00: B would need MQ00 held off too (the default does), and what stage 400 is remains **unresolved** |
+| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether one tick is enough for stage 9000 to have started its quests; with B at 2 the opening starts no scene, so the scene, controls and menus question falls away (28 Oct: the first run never reached the hold-off, so none of this has run in game yet; the log says what each pass stopped) |
+| **B. The debug global (on by default, `--mq101debug <n>` for another value, `--no-mq101debug` for none)** | The plugin overrides Starfield's GLOB `MQ101Debug` (0A7D31) to 2. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's run, 28 Oct): MQ101's stage 0 has 12 log entries conditioned on the global. Entry 2 (`== 0`) is the normal intro; entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed on 28 Oct (log: `opening_stage=250`). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a new game, so the 19 Oct belief that vanilla writes 10 was wrong, and so was the first build's override. 2 is what MQ102 to MQ305 write at their start stages once the intro is over, matches no start entry, and keeps PEO_SustenanceAllowed's `MQ101Debug != 0` open (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis) the same way | One GLOB override, no quest record touched; MQ101 starts with nothing but three ghosted NPCs, so the hold-off stops a quest that has not moved the player, locked the controls, hidden the HUD or turned saving off; sustenance stays possible | **unresolved** until the next run: whether the engine runs only the first matching entry or every one (entry 11 then runs in every start too, harmless either way), and whether an existing save keeps its own value of the global |
 | C. Override MQ00 / MQ101 without StartGameEnabled | Plugin overrides of Starfield's quest records | The opening never starts | Edits Starfield records; anything that expects MQ101 (NG+, Constellation, achievements) may break; hardest to undo in a save |
 | D. Our own start menu (as SKK) | A message box after character creation picking Vault 111 or Starfield's own start | Players keep the choice | More UI; only worth it once the Fallout start works |
 
-The ladder for the first in-game proof: the default (A with B's global at 10) first; if the mine scene, its sounds or a
-stuck camera still show, a rebuild with `--mq101debug 8` (nothing else changes); `--no-mq101debug` if the global itself
-turns out to do harm; C only on the owner's word. Which of Starfield's other 142
+The ladder for the next in-game proof: the default (A with B's global at 2) first; `--no-mq101debug` if the inert start
+itself does harm (Starfield's intro then starts and the hold-off stops it a second or two in, scene and all);
+`--mq101debug 10` is the first build's pirate-fight start, kept only to reproduce 28 Oct; C only on the owner's word.
+Which of Starfield's other 142
 start-game quests to hold off (the ship, the radiant parents, city and companion quests, generic dialogue) is the
 `npcs-ai-factions-dialogue-quests.md` section 8 list; the first proof records what runs (`sqv`) before more are added,
 because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
@@ -378,6 +385,53 @@ the quest after `LooksWait` seconds; a `--no-looks` build does not wait.
 
 `make_newgame.py log` prints the stages a run reached with these names (`stages_named`) and what each hold-off pass
 stopped (`held_off_by_pass`). Objective 10, "Leave Vault 111", shows from stage 10 and completes at 40.
+
+## 10. In game, run 1 (28 Oct 2026): FAIL, Starfield's pirate-fight developer start
+
+**Build:** FO4SFNewGame.esm sha256 3fb78b14 (newgame_v7, staged 23 Oct at 118d5d8 against port 9AF962D2 and core
+DC751664), installed on the owner's word 28 Oct with Plugins.txt QuestProbe, Core, Mars, Raider, Mission, NewGame,
+Port, MapMarkers, Bridge (all nine active, Install's copy). Starfield 1.16.244, SFSE 0.2.21.
+
+**The owner's report (17:29 and 17:35 UTC, typos fixed, meaning kept):** "I ended up at the beginning stage of the game
+where you fight the pirates. That mission activated with no cutscene or anything; I didn't need to go through the mine
+part." Then, after flying on: "I landed at Mars and don't see anything."
+
+**The logs (Install's copy, `D:\Modding\testqueue\newgame_20261028\`):** four new games between 10:35 and 11:24 PC
+time. Two ended within six seconds of the version line (`.3`, `.1`). The two that reached the guard stood down:
+
+- `fo4sf_newgame.2.log` (10:44): `init holdoff=4 vault=fo4port.esm:4920 anchor_temporary=true core=fo4terraincore.esm:685915`,
+  then `not a new game: days=0.333530 level=1 opening_stage=0 fresh=true: standing down`, `stage 1`.
+- `fo4sf_newgame.0.log` (11:24): the same init, then `not a new game: days=0.333537 level=1 opening_stage=250
+  fresh=false: standing down`, `stage 1`.
+
+Papyrus.0.log has no error of ours. Starfield prints booleans as `true` / `false` and plugin names lowercased; the log
+reader takes both spellings since this run.
+
+**Cause 1, verified (records, fragments, log): the override's value.** The installed plugin overrides GLOB `MQ101Debug`
+to 10 (read from the esm's GLOB group: `FLTV 10.0`). MQ101's stage 0 entry 10 needs `MQ101Debug == 10` (records report,
+21 Oct) and its fragment sets stages 210 and 250, the pirate landing (the 19 Oct fragment copy, section 2, row B). That
+is the start the owner described, and `opening_stage=250` is what our guard read. Our quest did run, saw the opening
+past stage 105 and stood down as designed, so Vault 111 never came. The 19 Oct reading that vanilla writes 10 (MQ00's
+stage 10) was wrong: that stage runs only when something sets it.
+
+**Cause 2, verified (log): the day limit.** The 10:44 run stood down with the opening still at stage 0: `days=0.333530`
+failed the 0.25 limit alone. Starfield's clock starts at GameHour 8 (the record's value) and `GameDaysPassed` carries
+the hour, so every new game reads about 0.3335 a second in. The limit is now one game day; a player's save is kept out
+by the opening-stage test, not by this number.
+
+**Fix (this PR, offline):** the override is 2, the inert start (row B); the day limit is 1.0; the guard logs every
+reading it judges and the global as the game read it (`guard days=... opening_stage=... mq101debug=... expected=...`);
+`make_newgame.py log` reports it as `guard`. Nothing else in the start changed. The hold-off, the saving and HUD
+restore, `Debug.CenterOnCell`, the move into the vault, the cog door and the elevator are still **unverified in game**:
+run 1 never reached them.
+
+**Mars:** the owner flew the vanilla game to Mars and landed at a vanilla site. Our world is an overlay worldspace on
+Mars that a vanilla landing does not enter; it is reached by `coc FO4Core_RedRocketSpawn` or, once this start works,
+by the Vault 111 elevator. Whether the "Commonwealth Landing Area" marker (#524) is offered as a landing choice from
+orbit is the Map thread's question (its markers are known to register only after a visit, 24 Oct).
+
+**Next on the PC:** after this PR merges, restage from main against the installed port and core (newgame_v8), reinstall
+on the owner's line, start a new game from the main menu, then read `make_newgame.py log` (the `guard` line first).
 
 ## Sources
 

@@ -580,6 +580,22 @@ decided the import path); keeping the order as a parameter (two orders in the co
   markers (rejected: a rebuild after every build); overriding MQ101 or GLOB MQ101Debug (kept as the documented
   fallbacks, `--mq101debug`, for the owner's talk).
 
+## 2026-10-28: the new game overrides MQ101Debug to 2, the value that starts Starfield's opening inert (Claude-cloud)
+- Decision: FO4SFNewGame.esm keeps the one GLOB override (the owner's NG-2, we set the debug global ourselves) but
+  writes 2, not 10; the guard's day limit is one game day; the guard logs every reading and the global as the game read
+  it (docs/newgame/vault111-start.md sections 2 and 10).
+- Why: the owner's first new game (28 Oct) landed in Starfield's pirate fight with no cutscene and our quest stood
+  down. MQ101's stage 0 picks its start by MQ101Debug (records, 21 Oct; fragments, 19 Oct): 0 the intro, 1 and 3 to 10
+  developer starts (10 is the pirate fight: stages 210 and 250), any other value only a conditionless entry that ghosts
+  three NPCs. Vanilla never writes 10 (MQ00's stage 10 is no start-up stage), so the 19 Oct premise was wrong. 2 is what
+  MQ102 to MQ305 write once the intro is over and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open. Starfield's
+  clock starts at 8:00, so GameDaysPassed reads 0.3335 a second into a new game and the old 0.25 limit stood every new
+  game down.
+- Alternatives: no override and a script write after the hold-off (rejected for now: Starfield's intro then starts its
+  scene, locks controls, hides the HUD and wipes the inventory before the hold-off kills it a second or two in; kept as
+  `--no-mq101debug`); the old 10 (kept as `--mq101debug 10` only to reproduce the run); overriding MQ101's record (C,
+  owner's word only).
+
 ## 2026-10-19: load doors open before the trip on Starfield's terms (Claude-cloud)
 - Decision: a load door gets a rig the way ordinary doors do (its own FO4 NIF, or its non-load twin's rig when the
   bounds match) and stays ONE DOOR record that opens and then travels; scripted doors wait for the open in a child
