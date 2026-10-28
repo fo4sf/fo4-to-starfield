@@ -1,3 +1,7 @@
+## Current priority-batch completion
+
+130/130 checked/corrected; 52 primary, 78 as-reported. No IDs removed. Prior counts below are historical. StopA still requires the Commonwealth queue.
+
 ## Current checkpoint — seventh vault pass
 
 129/130 checked or corrected;51 primary verified,78 as-reported. VT-0112 remains unchecked/HOLD. Historical pass counts below are retained, not current totals. No removed IDs. Current raw-store recovery and exact64 Commonwealth queue remain pending; do not fold this draft into canonical data yet.
@@ -66,3 +70,7 @@ Twelve further checks completed. Parent validated every helper cache quote, insp
 Other eight completions remain as-reported. Some trophy plaques cannot be confidently read; full role/award lists include wiki-only associations. Outer Vault revision does not pin transcluded dependencies. GOAT section3 included nested4, which was redundantly captured; this small duplicate is disclosed rather than described as perfect read-once behavior. The initial capitalized Vault76 terminal metadata request failed and was corrected to the observed case. Original failures and helper output retained privately.
 
 VT-0112 still needs the actual comic panel to settle1000:1 versus999:1. The newly found original comic link redirects to the current Fallout homepage; no numerical harmonization. No canonical edits, dropped rows, new lore IDs, game actions or merge. StopA remains incomplete.
+
+## Final priority-entry checks, 2026-10-28
+
+All 130 vault entries now second-read. The actual Bethesda-linked comic panel verifies VT-0112 as a 1000:1 ratio, not a literal population count. Its discrepancy with the Bible table remains HOLD; tier2 dependent is retained. Earlier access failures remain historical. No full-comic read or canonical data edit. Raw-snapshot reconciliation remains required before fold-in.

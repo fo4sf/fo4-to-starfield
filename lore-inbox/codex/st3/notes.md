@@ -1,3 +1,7 @@
+## Current priority-batch completion
+
+102/102 checked/corrected; 43 primary, 59 as-reported. No IDs removed. Prior counts below are historical. StopA still requires the Commonwealth queue.
+
 ## Current eighth-pass checkpoint
 
 93/102 checked/corrected; 34 primary, 59 as-reported. Prior counts below are historical. No IDs removed; StopA incomplete.
@@ -136,3 +140,7 @@ Remaining unchecked IDs: ST-MT-0007, ST-NV-0001, ST-NV-0031, ST-NV-0032, ST-NV-0
 Three checks completed. Dedicated dated developer tables supplied the full Cazador naming and carbine/Nellis question-and-answer pairs without fetching the2011List. The Nevada map description now acknowledges adjoining states and remains as-reported, with infobox/prose and native-map limits explicit. Other targeted discovery sections and search results did not establish the remaining dated posts; these stay unchecked. No Fandom result used as verification. Current raw snapshot/64-page queue still absent from observed mirror/default-branch code search; an unconfirmed lore-inbox remote ref returned404, which is not proof that Claude cannot recover it. No repeated recovery request or assumption of lost work.
 
 Remaining unchecked IDs: ST-MT-0007, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NC-0006.
+
+## Final priority-entry checks, 2026-10-28
+
+All 102 states entries now second-read. The actual canonical ledger marks the 2011 Sawyer compilation PARTIAL, not FULL; earlier handoffs were mistaken. A single pinned retrieval supported eight complete dated Q&As for the final nine entries, independently checked from cache. Four corrections narrow the Montana ruling, remove an unsupported Desert Rangers synonym, prevent treating 25x as a calibrated map transform, and scope tabletop advice to 2011. Other cited claims are confirmed. No whole-compilation coverage claim; source remains PARTIAL. Inherited coordinates and game-year context were not newly surveyed. Canonical data remains untouched; raw-snapshot reconciliation is still required before fold-in.

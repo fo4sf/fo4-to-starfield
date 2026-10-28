@@ -3,29 +3,15 @@
   "progress": {
     "vt": {
       "rows": 130,
-      "checked_or_corrected": 129,
-      "newly_reviewed": 12,
-      "verified_source_among_reviewed": 51,
+      "checked_or_corrected": 130,
+      "newly_reviewed": 1,
+      "verified_source_among_reviewed": 52,
       "as_reported_among_reviewed": 78,
       "changed_ids": [
-        "VT-0011",
-        "VT-0017",
-        "VT-0018",
-        "VT-0020",
-        "VT-0031",
-        "VT-0032",
-        "VT-0033",
-        "VT-0034",
-        "VT-0036",
-        "VT-0054",
-        "VT-0055",
-        "VT-0056",
         "VT-0112"
       ],
-      "remaining_ids": [
-        "VT-0112"
-      ],
-      "unchanged_other_rows": 117,
+      "remaining_ids": [],
+      "unchanged_other_rows": 129,
       "ids_and_order_retained": true
     },
     "mil": {
@@ -65,16 +51,11 @@
     },
     "st3": {
       "rows": 102,
-      "checked_or_corrected": 93,
-      "newly_reviewed": 3,
-      "verified_source_among_reviewed": 34,
+      "checked_or_corrected": 102,
+      "newly_reviewed": 9,
+      "verified_source_among_reviewed": 43,
       "as_reported_among_reviewed": 59,
       "changed_ids": [
-        "ST-NV-0001",
-        "ST-NV-0035",
-        "ST-NM-0005"
-      ],
-      "remaining_ids": [
         "ST-MT-0007",
         "ST-NV-0031",
         "ST-NV-0032",
@@ -85,7 +66,8 @@
         "ST-NV-0038",
         "ST-NC-0006"
       ],
-      "unchanged_other_rows": 99,
+      "remaining_ids": [],
+      "unchanged_other_rows": 93,
       "ids_and_order_retained": true
     }
   },
@@ -115,14 +97,15 @@
   "method_exception": "Eight FULL-ledger pages were refetched by st3 helper; parent disclosed and preserved the failure. Helper networking disabled for future passes.",
   "fifth_pass_note": "Historical preceding delivery: eight NY entries brought totals to193/318,91primary102asreported; preserved in prior commits. See sixth_delivery_note for current totals.",
   "baseline_heads": {
-    "vt": "c20e1981750048f4e13f82b0bb03fa75ec7e78d5",
+    "vt": "109f7476bf6ca4a436d92d49890dceee42ccd27a",
     "mil": "1d29e94fa5133dadb3e9e8d1bacbc5ce0cfeb401",
-    "st3": "9f98966c67001026bc9fc60c992d2e0e1cd7bf8c"
+    "st3": "109f7476bf6ca4a436d92d49890dceee42ccd27a"
   },
   "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits.",
   "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending.",
   "eighth_delivery_note": "258/318 reviewed:108primary150as-reported;12new vault completions. VT0112 remains unchecked/HOLD for missing primary panel. Original validator17 stale-policy errors across318; owner-policy in-memory validation passes. No canonical edit; exact Commonwealth queue still awaits recovery.",
   "ninth_delivery_note": "286/318 priority checks:122primary164asreported. Military86/86, states71/102, vault129/130.28new completions.17stale original-validator policy errors remain; in-memory owner policy0. StopA notcomplete, no canonical writes.",
   "tenth_delivery_note": "305/318 checks:134primary171asreported. Military86/86, states90/102, vault129/130.19new checks;17stale original-validator policy errors preserved; owner-policy validation0. No canonical writes, StopA incomplete.",
-  "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete."
+  "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete.",
+  "twelfth_delivery_note": "Priority second reads complete318/318:146primary172asreported. States102,military86,vault130. Canonical data untouched;17 original validator tier-policy errors remain, in-memory owner-policy0. StopA incomplete: Commonwealth queue work remains. Exact raw snapshot/queue pending recovery, known explicitly assigned TODO sources can proceed."
 }
