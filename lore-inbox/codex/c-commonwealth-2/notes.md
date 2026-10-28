@@ -1,3 +1,21 @@
+### Same delivery: Diamond City continuation
+
+Fourteen additional cached claims, ST-MA-8214..8226 and FA-8227, are included in this same push: thirteen guide-attributed resident/business details and one quoted Lizzie Wyath statement. Becky's ancestry remains her claim; the guide's100-cap lodging price is not a universal economic guarantee. Lizzie's formula exclusions are her statement, not a native test. Guide surgery/service claims needing comparison with game sources remain unentered. No new map coordinates were invented.
+
+Combined tenth delivery adds31 entries (17Fort Strong +14Diamond City). Total211:179game,30guide,1dependent,1cutHOLD. This folder84; original folder127 unchanged. Next numeric ID8228. Across folders25 rows represent20 unique sources (1FULL/19PARTIAL); five continuation rows require ID unions. Both pages remain PARTIAL. All31 new rows and84 second-folder rows pass original validation; canonical/source-policy restrictions below still apply. Earlier paragraphs describe the Fort Strong portion before this addition.
+
+## Tenth delivery: Fort Strong cached guide and dialogue
+
+17 new entries: seven guide claims MIL-8197..8203 and ten companion reactions FA-8204..8213. This folder now has70 entries; first folder127 unchanged; total197, all unchecked. Totals178game,17guide,1dependent,1cutHOLD. Next numeric ID8214. Earlier53 entry bytes retained.
+
+No network fetch. The cached Fort Strong wikitext/response/rendered table hashes match the original input manifest. All11 displayed companion rows are represented, including earlier CaitMIL8020. Their statements describe this occasion; Preston's city-annihilation claim is not a measured yield, and dialogue does not establish faction policy or future gameplay. The container page revision5593538 does not pin the transcluded page's revision. No upstream revision was invented, no raw dialogue record or native trigger checked.
+
+Guide material stays tier2 with the owner's lead-rule attribution. Early reoccupation/retrofit retaining outbuildings is distinguished from Brock's later demolition/testing. No exact Civil War construction year or evacuation cause inferred. Kiosk/bridge descriptions are relative guide placements, not exact coordinates or guaranteed loot. The prior Fort Strong marker0002BBF3 is reused as a map anchor only.
+
+Fort Strong remains PARTIAL: the source note lists remaining guide gameplay advice, wiki narration and gallery/credit limits. This fourth continuation row extends the earlier sid/revision; preserve the8 earlier and17 new IDs. Across folders24 rows represent20 unique sources (1FULL/19PARTIAL). Manual reconciliation remains required; merge_staging.py is missing locally. No canonical fold-in.
+
+All17 new and70 second-folder rows pass the original validator. Original first-folder/canonical/validator bytes are unchanged. Existing cut-tier policy mismatches are retained, not rerun or relabeled. IDs, per-speaker evidence, tier rulings, cache hashes, guard and scoped diff checked. Source caches/operational evidence remain private. StopA and the missing exact64-page queue/current snapshot remain unresolved; no duplicate request or assumed loss.
+
 ## Ninth delivery: Jamaica Plain terminal continuation
 
 25 new entries, CU-8172 through CU-8196: seven missing budget categories and eighteen facility/log/speech/menu claims. This folder now contains53 entries; the earlier c-commonwealth folder remains127 and byte-identical. Combined180:168game,10guide,1dependent,1cutHOLD, all unchecked. Next numeric ID8197. Earlier28 entry bytes are retained.
