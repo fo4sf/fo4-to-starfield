@@ -1,0 +1,29 @@
+{
+  "original_validator_problems": [
+    [
+      "ST-MT-0008",
+      "source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])"
+    ],
+    [
+      "ST-MT-0009",
+      "source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])"
+    ]
+  ],
+  "in_memory_owner_policy_check_problems": [],
+  "batches": {
+    "vt": {
+      "rows": 130,
+      "checked_or_corrected": 7
+    },
+    "mil": {
+      "rows": 86,
+      "checked_or_corrected": 2
+    },
+    "st3": {
+      "rows": 102,
+      "checked_or_corrected": 8
+    }
+  },
+  "data_unchanged": true,
+  "readiness": "partial; not for fold-in"
+}
