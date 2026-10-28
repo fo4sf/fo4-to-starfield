@@ -1,3 +1,7 @@
+## Current eighth-pass checkpoint
+
+93/102 checked/corrected; 34 primary, 59 as-reported. Prior counts below are historical. No IDs removed; StopA incomplete.
+
 ## Current seventh-pass checkpoint
 
 90/102 checked/corrected; 32 primary, 58 as-reported. Prior counts below are historical. Current raw snapshot comparison still required before fold-in; StopA incomplete.
@@ -126,3 +130,9 @@ Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0
 Nineteen more checks completed: Ohio14, Oklahoma2, Nebraska1, cancelled Reservation design1 and Nevada sign1. Primary dialogue/plaque/note text supports12; seven remain as-reported. Removed the Cincinnati abduction-location inference, clarified advertised vacancies versus free accommodation, and used the design document's actual Los Alamos Nuclear Testing Facility name. Cancelled/noncanon HOLD rulings remain. Parent verified all4 helper excerpts and5 cache hashes. Nine other Nevada checks remain unresolved because complete relevant sources were not in inspected caches; no full Sawyer List was fetched. Reservation section2 included nested layouts/timeline, which were not comprehensively read or used for new lore. AllIDs/order retained, no rows removed.
 
 Remaining unchecked IDs: ST-MT-0007, ST-NV-0001, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0005, ST-NC-0006.
+
+## Eighth pass, source-gap checks
+
+Three checks completed. Dedicated dated developer tables supplied the full Cazador naming and carbine/Nellis question-and-answer pairs without fetching the2011List. The Nevada map description now acknowledges adjoining states and remains as-reported, with infobox/prose and native-map limits explicit. Other targeted discovery sections and search results did not establish the remaining dated posts; these stay unchecked. No Fandom result used as verification. Current raw snapshot/64-page queue still absent from observed mirror/default-branch code search; an unconfirmed lore-inbox remote ref returned404, which is not proof that Claude cannot recover it. No repeated recovery request or assumption of lost work.
+
+Remaining unchecked IDs: ST-MT-0007, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NC-0006.
