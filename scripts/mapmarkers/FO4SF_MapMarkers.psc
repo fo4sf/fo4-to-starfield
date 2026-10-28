@@ -216,13 +216,18 @@ Function Place(Actor player)
                 moves += 1
                 float d = player.GetDistance(m)
                 Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " moves=" + moves)
-                float sx = m.GetPositionX() - bx
-                float sy = m.GetPositionY() - by
-                if d > SameWorld && sx * sx + sy * sy < 0.0001
-                    ; still where it was, in its own world: the game refused the move ("cannot be moved", the landing
-                    ; pad, 2026-10-24), so it is not tried again this session (it spent its quest's whole budget)
+                if d > SameWorld
+                    ; still in its own world after a move to the player: the game refused it ("cannot be moved", the
+                    ; landing pad, 2026-10-24), unless the player left. Not tried again this session (it spent its
+                    ; quest's whole budget). A move that works lands in the player's world at once (d 0.8 to 2.9 km on
+                    ; the PC, 2026-10-28); asking for an unchanged position too never held for the pad there (18 and 27
+                    ; "cannot be moved" in two runs, no refused line), so the line says where it was before
+                    if player.IsInInterior() || player.GetWorldSpace() != w
+                        Trace("pass stopped after moving " + i + ": the player went indoors or to another world")
+                        return
+                    endif
                     refused[i] = True
-                    Trace("refused " + i + ": not moved again this session")
+                    Trace("refused " + i + ": still in its own world, was at " + bx + " " + by + "; not moved again this session")
                 endif
             endif
         endif

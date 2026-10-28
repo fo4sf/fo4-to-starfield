@@ -481,8 +481,9 @@ FO4Core_RedRocketSpawn`, with the installed mapmarkers build `landing_border2` o
 - **verified: a load door during a pass misplaced every marker after it.** At 10:24:13 a FO4SF_LoadDoor trip into
   Vault 95 happened while a pass ran. `Place` had read the player once, so about 300 markers went to their target
   plus the trip's offset (1905.1, 3920.4, -72.4), and every budget was spent (moves=200), so that save kept them there.
-- **supported hypothesis: the map takes markers only when the player enters a world.** A marker moved into the
-  current world shows only after a world change or a save and load. Skyrim modders report the same, and that
+- **supported hypothesis (questioned by the 2026-10-28 PC runs below): the map takes markers only when the player
+  enters a world.** A marker moved into the current world shows only after a world change or a save and load.
+  Skyrim modders report the same, and that
   `AddToMap` does not help ([8993053](https://forums.nexusmods.com/topic/8993053-moving-mapmarkers-across-worldspaces),
   [8512658](https://forums.nexusmods.com/topic/8512658-help-needed-with-placing-a-dynamic-mapmarker)). Our markers
   are moved a few seconds after arrival, so the first arrival has no icons. Moving them cannot fix that on its own;
@@ -493,8 +494,10 @@ FO4Core_RedRocketSpawn`, with the installed mapmarkers build `landing_border2` o
 
 What the script does now (`FO4SF_MapMarkers.psc`):
 - Just before each move it reads the player again and stops the pass once they are indoors or in another world.
-- A reference that stays where it was, in its own world, after `MoveTo` (the pad) is not tried again that session
-  or build.
+- A reference still in its own world after `MoveTo` (the pad), while the player stayed in theirs, is not tried
+  again that session or build. Until 2026-10-28 the rule also asked for its x/y to be unchanged; on the PC that never
+  held for the pad (attempts 2 and 3: 18 and 27 `cannot be moved` errors, no `refused 9` line), so the `refused` line
+  now logs where the reference was before the move.
 - The move budget starts over at every game session as well as at every build, so markers a session left wrong are
   put right in the next one. A session starts at every save load (the player's `OnPlayerLoadGame`, which each quest
   registers for) and whenever the real-time clock goes back; the border signal starts over the same way. The clock
@@ -505,3 +508,22 @@ What the script does now (`FO4SF_MapMarkers.psc`):
 
 Unverified until a play test: whether a save and load brings the icons; whether Mars's map then lists "Commonwealth
 Landing Area"; and whether the ship can land with no pad (if not, the pad needs to be a record of the runtime world).
+
+PC attempts 2 to 4 (Install, 2026-10-28, `C:\Modding\scratch\a3_1017\cardB_border\logs_570`; a new game in
+Starfield's start, `coc FO4Core_RedRocketSpawn` from the main menu, mapmarkers `landing_border3` from #570):
+- **verified:** every marker reached the player's world. The moved lines go from another world (`before` float max)
+  to d 0.8 to 2.9 km within about 10 s of arrival, and the landing marker was marked discovered 6 s before it moved.
+- **verified:** after 60 s outdoors, Mars's surface map showed the player and one hexagon to the south-east. Mars's
+  planet view showed Starfield's Fracking Station, Cydonia and Mars Mech Factory, a place by the player named "Dark
+  Hollow Pond" with a small cyan hexagon beside it, and no "Commonwealth Landing Area" label. Dark Hollow Pond is one
+  of our markers (FO4's, in the `--fo4-map-markers` export `cw_markers.json` on the PC), so the planet view drew our
+  places as one labelled icon.
+- **the owner's assumption, 2026-10-28 (watching the run; they asked for research):** the hexagon is all our icons
+  layered over each other, the way Starfield draws a city: one icon, and clicking it lists the places inside to fast
+  travel to. If so, the icons register on the first arrival, and the world-entry limit above does not hold here.
+  Open: whether clicking it lists our places and fast travel reaches them, and how Starfield decides the grouping.
+- **verified:** a save load closes the user logs. fo4sf_map.0.log ends `Log closed` at the load (16:46:38); the
+  bridge's next line went to a new fo4sf.0.log with its own `log opened` header, though the bridge opens its log only
+  in OnInit. The map script reopens its log on the first pass after a load (`NewSession`); attempt 4 has no pass
+  after the load: the console stayed open after it (after_load_console_open_1650.png), and every log ends within 2 s
+  of it, though quest 4 still had budget to retry the pad every 4 s.

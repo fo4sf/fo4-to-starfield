@@ -2658,3 +2658,21 @@ record the finding; the format check now expects 05 00 00 00. Unverified
 until the first launch: that the GameVM singleton is set by kPostDataLoad,
 and that a native bound after BindEverythingToScript is callable from
 FOCC.pex.
+
+## 2026-10-28: Map markers: the pad's refusal is read from its world alone
+
+PC attempts 2 and 3 of the #570 test (a new game, `coc FO4Core_RedRocketSpawn`
+from the main menu) logged `FO4Core_CommonwealthLandingPadRedRocketNorth
+(090008F0): cannot be moved.` 18 and 27 times and never `refused 9`: after
+each failed MoveTo the pad was still in its own world (d float max), but the
+rule also asked for its x/y read before and after to match, and that never
+held. The rule now refuses a reference still in another world after the move
+while the player stayed in theirs (a move that works lands at d 0.8 to 2.9 km
+at once), stops the pass instead when the player left, and logs where the
+reference was before. Every marker reached the player's world within about
+10 s of arrival. Mars's surface map showed one hexagon; the owner, who
+watched the run, assumes it is all our icons layered under one, the way
+Starfield draws a city, and asked for research; whether it lists our places
+for fast travel is the next check.
+A save load closes the user logs (`Log closed` in fo4sf_map.0.log); attempt 4
+had no map pass after its load because the console stayed open.
