@@ -352,6 +352,41 @@ def cmd_bgsm_summary(args: argparse.Namespace) -> int:
     return rc
 
 
+
+def _fourcc_text(fourcc: bytes) -> str:
+    """Plain-text FourCC. An all-zero or NUL-padded field is '(none)', not embedded NULs."""
+    text = fourcc.replace(b"\x00", b"").decode("ascii", errors="replace").strip()
+    return text or "(none)"
+
+
+def cmd_dds_summary(args: argparse.Namespace) -> int:
+    """Report DDS header info for one or more texture files (offline diagnostic)."""
+    # textures imports numpy. Keep that off the process until this command runs,
+    # so status / validate / --help still work when numpy is not installed.
+    try:
+        from . import textures
+    except ImportError as e:
+        print(f"dds-summary needs numpy ({e})", file=sys.stderr)
+        return 1
+    paths = [Path(p) for p in args.paths]
+    ok = True
+    for path in paths:
+        if not path.is_file():
+            print(f"missing: {path}", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            hdr = textures.read_dds_header(data)
+            four = _fourcc_text(hdr["fourcc"])
+            dxgi = hdr["dxgi"]
+            dxgi_s = f" DXGI={dxgi}" if dxgi is not None else ""
+            print(f"{path}: {hdr['width']}x{hdr['height']} mips={hdr['mips']} fourCC={four}{dxgi_s} data_off={hdr['data_offset']}")
+        except Exception as e:
+            print(f"{path}: error {e}", file=sys.stderr)
+            ok = False
+    return 0 if ok else 1
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -372,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
     p_bgsm = sub.add_parser("bgsm-summary", help="offline summary of Fallout 4 .bgsm materials")
     p_bgsm.add_argument("paths", nargs="+", help="one or more .bgsm files")
     p_bgsm.set_defaults(func=cmd_bgsm_summary)
+
+    p_dds = sub.add_parser("dds-summary", help="summarize DDS texture headers (width, height, format)")
+    p_dds.add_argument("paths", nargs="+", help="one or more .dds files")
+    p_dds.set_defaults(func=cmd_dds_summary)
 
     args = parser.parse_args(argv)
     return args.func(args)
