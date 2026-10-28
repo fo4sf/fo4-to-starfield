@@ -652,8 +652,9 @@ static Landing? LoadLanding(string path)
 }
 static string QuestName(int k) => "FO4SF_MapMarkersQuest" + (k == 0 ? "" : (k + 1).ToString(CultureInfo.InvariantCulture));
 // PerQuest markers per quest, but the landing spot's four pieces (the list's last four, --landing) stay in one quest:
-// the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding), so a last quest of
-// one to three entries takes the rest of the pieces from the quest before it
+// the script reads the pad fourth from its quest's end and the landing marker two places after it
+// (FO4SF_MapMarkers.psc ShowLanding), so a last quest of one to three entries takes the rest of the pieces from the
+// quest before it
 static List<T[]> QuestChunks<T>(List<T> all, bool landing)
 {
     var chunks = all.Chunk(PerQuest).ToList();

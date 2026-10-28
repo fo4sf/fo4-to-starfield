@@ -54,8 +54,9 @@ int Property MaxMoves = 40 Auto Const
  session (NewSession), so markers a session left in the wrong place are put right in the next one.}
 
 int Property LandingPadID = 0x007145 Auto Const
-{ShipLandingMarker_80m_Large (Starfield.esm), the landing spot's pad. dotnet/MapMarkers lists the landing spot as pad,
- trigger, marker, heading, so the marker is two places after the pad.}
+{ShipLandingMarker_80m_Large (Starfield.esm), the landing spot's pad. dotnet/MapMarkers lists the landing spot last, as
+ pad, trigger, marker, heading, all four in one quest, so the pad is fourth from its quest's end and the marker two
+ places after it.}
 
 bool Property BorderSignal = True Auto Const
 {Write "border=off" / "border=on" to this log when the player enters or leaves our world, for the SFSE plugin
@@ -90,15 +91,17 @@ Function ResetBudget()
         budgetN = Markers.Length
         budgetZ = LocalZ[0]
         moves = 0
+        refused = new bool[128]                                 ; a new build can list other references at those places
     endif
 EndFunction
 
 ; A new game session (the real-time clock starts over at every launch, as Border reads it): the move budget starts over,
 ; and so does the list of references the game refused to move. A save from before this script had these variables
 ; brings them in unset (0.0 or the initial -1.0), so either one counts as a new session and the list is made.
-Function NewSession()
+bool Function NewSession()
     float rt = Utility.GetCurrentRealTime()
-    if placeRealTime <= 0.0 || rt < placeRealTime
+    bool fresh = placeRealTime <= 0.0 || rt < placeRealTime
+    if fresh
         if moves > 0
             Trace("session: move budget starts over (was moves=" + moves + ")")
         endif
@@ -107,27 +110,40 @@ Function NewSession()
         landingShown = False
     endif
     placeRealTime = rt
+    return fresh
+EndFunction
+
+; Once per session and quest, what Border's guards read: a coc session from the main menu at Red Rocket wrote no border
+; line in 240 s while "moved 9" lines kept coming (Review, 2026-10-28), and the log could not say whether 0x800 ticked
+; or its Markers[0] was None.
+Function SessionLine(Actor player)
+    ObjectReference first = None
+    if Markers.Length > 0
+        first = Markers[0]
+    endif
+    Trace("session id=" + GetFormID() + " signal=" + SignalQuest() + " enabled=" + BorderSignal + " markers=" + Markers.Length + " first=" + first + " interior=" + player.IsInInterior())
 EndFunction
 
 ; The landing spot's map marker, found after its pad, is marked discovered and shown on the star map, so the planet
 ; map can offer it as a place to land (owner, 2026-10-28: Mars's map had no Commonwealth location; a vanilla landing
-; site is discovered when the player lands there). Once per session, wherever the player is.
+; site is discovered when the player lands there). Once per session, wherever the player is; one reference read per
+; quest, so the border signal is not held up.
 Function ShowLanding()
     if landingShown
         return
     endif
     landingShown = True
-    Form pad = Game.GetForm(LandingPadID)
-    int i = 0
-    while i + 2 < Markers.Length
-        ObjectReference m = Markers[i]
-        if m != None && pad != None && m.GetBaseObject() == pad && Markers[i + 2] != None
-            Markers[i + 2].SetMarkerDiscovered()
-            Markers[i + 2].SetMarkerVisibleOnStarMap(True)
-            Trace("landing marker " + (i + 2) + " discovered and shown on the star map")
-        endif
-        i += 1
-    endwhile
+    int i = Markers.Length - 4
+    if i < 0
+        return
+    endif
+    ObjectReference pad = Markers[i]
+    ObjectReference marker = Markers[i + 2]
+    if pad != None && marker != None && pad.GetBaseObject() == Game.GetForm(LandingPadID)
+        marker.SetMarkerDiscovered()
+        marker.SetMarkerVisibleOnStarMap(True)
+        Trace("landing marker " + (i + 2) + " discovered and shown on the star map")
+    endif
 EndFunction
 
 Event OnTimer(int aiTimerID)
@@ -139,30 +155,24 @@ EndEvent
 
 Function Place(Actor player)
     ResetBudget()
-    NewSession()
-    ShowLanding()
+    if NewSession()
+        SessionLine(player)
+    endif
     Border(player)
+    ShowLanding()
     if player.IsInInterior()
         return
     endif
     WorldSpace w = player.GetWorldSpace()
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    if px < MinX || px > MaxX || py < MinY || py > MaxY
+        return
+    endif
     int i = 0
     while i < Markers.Length && moves < MaxMoves              ; the budget holds per move, not per batch
         ObjectReference m = Markers[i]
         if m != None && !refused[i]
-            ; the player as they are now, for every marker: a load door can take them away while a pass runs, and a
-            ; pass that read them once put about 300 markers into Vault 95 at the target plus the trip and spent every
-            ; budget (PC, 2026-10-24 10:24, fo4sf_map.0.log)
-            if player.IsInInterior() || player.GetWorldSpace() != w
-                Trace("pass stopped at " + i + ": the player went indoors or to another world")
-                return
-            endif
-            float px = player.GetPositionX()
-            float py = player.GetPositionY()
-            float pz = player.GetPositionZ()
-            if px < MinX || px > MaxX || py < MinY || py > MaxY
-                return
-            endif
             float x = LocalX[i] + MergeOffsetX
             float y = LocalY[i] + MergeOffsetY
             float z = LocalZ[i]
@@ -173,6 +183,19 @@ Function Place(Actor player)
             float ey = by - y
             float ez = m.GetPositionZ() - z
             if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
+                ; the player as they are now, just before the move: a load door can take them away while a pass runs,
+                ; and a pass that read them once put about 300 markers into Vault 95 at the target plus the trip and
+                ; spent every budget (PC, 2026-10-24 10:24, fo4sf_map.0.log)
+                if player.IsInInterior() || player.GetWorldSpace() != w
+                    Trace("pass stopped at " + i + ": the player went indoors or to another world")
+                    return
+                endif
+                px = player.GetPositionX()
+                py = player.GetPositionY()
+                float pz = player.GetPositionZ()
+                if px < MinX || px > MaxX || py < MinY || py > MaxY
+                    return
+                endif
                 m.Enable(False)
                 m.MoveTo(player, x - px, y - py, z - pz, False, False)   ; no match-rotation: keep the record's
                 moves += 1
@@ -198,11 +221,17 @@ EndFunction
 ; border=on (PC, 2026-10-24: on/on/off/on within 0.8 s on the first load at Red Rocket). Low 12 bits, so a light
 ; plugin's FE-prefixed (negative) id gives the same answer.
 bool Function SignalQuest()
+    int low = QuestLow()
+    return low == 2048
+EndFunction
+
+; The quest's FormID, low 12 bits (2048 for 0x800, 2049 for 0x801, ...), on every log line so the quests can be told apart.
+int Function QuestLow()
     int low = GetFormID() % 4096
     if low < 0
         low += 4096
     endif
-    return low == 2048
+    return low
 EndFunction
 
 ; In our world: the player's cell is one of the core's own cells (the runtime instance keeps the core's cell ids:
@@ -243,5 +272,5 @@ Function Border(Actor player)
 EndFunction
 
 Function Trace(string msg)
-    Debug.TraceUser(LogName, "FO4SF_MAP rt=" + Utility.GetCurrentRealTime() + " " + msg)
+    Debug.TraceUser(LogName, "FO4SF_MAP rt=" + Utility.GetCurrentRealTime() + " q=" + QuestLow() + " " + msg)
 EndFunction

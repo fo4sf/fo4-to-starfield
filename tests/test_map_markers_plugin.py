@@ -720,37 +720,21 @@ class ScriptContractTests(unittest.TestCase):
     def test_a_pass_reads_the_player_before_every_move(self):
         # a load door can take the player away while a pass runs: a pass that read them once put about 300 markers
         # into Vault 95 at the target plus the trip and spent every budget (PC, 2026-10-24 10:24, fo4sf_map.0.log).
-        # The player is read again before each move, and the pass stops once they are indoors or in another world
+        # Inside the move branch, just before MoveTo, the player is read again and the pass stops once they are
+        # indoors or in another world; a marker already in place costs no player reads (fresh review on #570)
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         loop = place.index("while i < Markers.Length && moves < MaxMoves")
         self.assertLess(place.index("WorldSpace w = player.GetWorldSpace()"), loop)
-        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w")
-        read = place.index("float px = player.GetPositionX()")
-        self.assertLess(loop, stop)
+        branch = place.index("if before > SameWorld", loop)
+        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w", loop)
+        read = place.index("px = player.GetPositionX()", loop)
+        self.assertLess(branch, stop)
         self.assertLess(stop, read)
-        self.assertLess(read, place.index("m.MoveTo("))
-        self.assertEqual(place.count("float px = player.GetPositionX()"), 1)
-        # modelled: MoveTo puts the marker at the player's actual spot plus the offset taken from the spot read
-        trip = (1905.1, 3920.4, -72.4)                                    # the Vault 95 door's, 24 Oct
-        targets = [(10.0 * i, -5.0 * i, 1.0) for i in range(10)]
-
-        def wrong(reread, door_at):
-            world, pos = "out", (0.0, 0.0, 0.0)
-            seen, bad = pos, 0
-            for i, t in enumerate(targets):
-                if i == door_at:
-                    world, pos = "vault", tuple(p + d for p, d in zip(pos, trip))
-                if reread:
-                    if world != "out":
-                        break
-                    seen = pos
-                landed = tuple(a + (b - r) for a, b, r in zip(pos, t, seen))
-                bad += world != "out" or any(abs(a - b) > 1e-6 for a, b in zip(landed, t))
-            return bad
-
-        self.assertEqual(wrong(False, 3), 7)                              # read once: every marker after the trip
-        self.assertEqual(wrong(True, 3), 0)                               # read each time: the pass stops instead
-        self.assertEqual(wrong(True, 99), 0)
+        self.assertLess(read, place.index("m.Enable", loop))
+        self.assertLess(place.index("m.Enable"), place.index("m.MoveTo("))
+        self.assertIn('Trace("pass stopped at "', place)
+        self.assertEqual(place.count("player.GetPositionX()"), 2)     # once for the extent, once before the move
+        self.assertEqual(place[loop:branch].count("player.Get"), 1)   # only the distance before a move is needed
 
     def test_a_reference_the_game_will_not_move_is_left_alone_for_the_session(self):
         # the landing pad: "cannot be moved" on every pass, and its quest spent its whole budget retrying it
@@ -770,8 +754,28 @@ class ScriptContractTests(unittest.TestCase):
         for line in ("moves = 0", "landingShown = False"):
             self.assertIn(line, session)
         # a save from before these variables brings them in unset: 0.0 counts as a new session too, so the list is made
-        self.assertIn("if placeRealTime <= 0.0 || rt < placeRealTime", session)
+        self.assertIn("bool fresh = placeRealTime <= 0.0 || rt < placeRealTime", session)
+        self.assertIn("return fresh", session)
         self.assertIn("float placeRealTime = -1.0", self.text)
+        # a new build can list other references at the same places, so the list starts over with its budget
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function NewSession")]
+        self.assertIn(f"refused = new bool[{size}]", reset)
+
+    def test_each_quest_says_once_per_session_what_the_border_guards_read(self):
+        # a coc session from the main menu at Red Rocket wrote no border line in 240 s while "moved 9" lines kept
+        # coming (Review, 2026-10-28): every line names its quest, and each quest's first pass of a session logs
+        # what Border's guards read, so the log tells whether 0x800 ticked or its Markers[0] was None
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("if NewSession()"), place.index("SessionLine(player)"))
+        self.assertLess(place.index("SessionLine(player)"), place.index("Border(player)"))
+        line = self.text[self.text.index("Function SessionLine"):self.text.index("Function ShowLanding")]
+        for field in ('"session id=" + GetFormID()', '" signal=" + SignalQuest()', '" enabled=" + BorderSignal',
+                      '" markers=" + Markers.Length', '" first=" + first', '" interior=" + player.IsInInterior()'):
+            self.assertIn(field, line)
+        self.assertIn("if Markers.Length > 0", line)                     # no index into an empty list
+        self.assertNotIn("border=", line)                                # FO4SFBorder takes the newest border= token
+        trace = self.text[self.text.index("Function Trace"):]
+        self.assertIn('" q=" + QuestLow() + " " + msg', trace)
 
     def test_the_landing_marker_is_found_after_its_pad_and_shown_once_per_session(self):
         # Mars's map had no Commonwealth location (owner, 2026-10-28): the landing marker is marked discovered and
@@ -782,13 +786,17 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("new List<PlacedObject> { pad, trigger, marker, heading }", program)
         self.assertIn("static List<T[]> QuestChunks<T>(", program)
         self.assertEqual(program.count("QuestChunks("), 2)                # build and check split the same way
+        self.assertIn("var chunks = all.Chunk(PerQuest).ToList();", program)    # the landing is the list's last four
         show = self.text[self.text.index("Function ShowLanding"):self.text.index("Event OnTimer")]
-        self.assertIn("Game.GetForm(LandingPadID)", show)
-        self.assertIn("m.GetBaseObject() == pad && Markers[i + 2] != None", show)
-        self.assertIn("Markers[i + 2].SetMarkerDiscovered()", show)
-        self.assertIn("Markers[i + 2].SetMarkerVisibleOnStarMap(True)", show)
+        self.assertIn("int i = Markers.Length - 4", show)                      # the pad, fourth from the end
+        self.assertIn("ObjectReference marker = Markers[i + 2]", show)
+        self.assertIn("pad.GetBaseObject() == Game.GetForm(LandingPadID)", show)
+        self.assertIn("marker.SetMarkerDiscovered()", show)
+        self.assertIn("marker.SetMarkerVisibleOnStarMap(True)", show)
+        self.assertNotIn("while", show)                                       # one read per quest
         self.assertLess(show.index("landingShown = True"), show.index("Game.GetForm"))   # once, found or not
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("Border(player)"), place.index("ShowLanding()"))   # the border signal first
         self.assertLess(place.index("ShowLanding()"), place.index("IsInInterior"))     # wherever the player is
 
 
