@@ -24,6 +24,7 @@ import test_terrain_reference_identity as tri  # noqa: E402
 import test_terrain_lights_writer as tlw  # noqa: E402
 
 SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
+PROGRAM = ROOT / "dotnet/MapMarkers/Program.cs"
 Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
 Z_LIFT_STEP = 0.1                # dotnet/MapMarkers ZLiftStep: the build takes a lift on this grid only
 USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
@@ -509,6 +510,31 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 1, missing.stdout)
         self.assertIn("SyntheticWorldLandingPadRedRocketNorth (--landing) is missing", missing.stdout)
 
+    def test_the_landing_spot_stays_in_one_quest(self):
+        # the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding): 3 core
+        # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in a third quest, so that
+        # quest takes the other two from the one before it (100, 98, 4), and the check wants the same split
+        many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+                for k in range(195)]
+        extra, landing = self.extra_file("extra-split", many), self.landing_file("landing-split", self.landing())
+        out = self.root / "plugin-landing-split"
+        built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--landing", landing)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        check = self.tool_run("check", out / "FO4SFMapMarkers.esm", self.core, "--extra", extra, "--landing", landing)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
+        vmads = [tlw.field(recs[0x02000000 | q][1], b"VMAD") for q in (0x800, 0x801, 0x802)]
+        lists = [self.object_list(v) for v in vmads]
+        self.assertEqual([len(x) for x in lists], [100, 98, 4])
+        self.assertEqual(lists[2], [0x020008F0, 0x020008F1, 0x020008F2, 0x020008F3])     # pad, trigger, marker, heading
+        flat = [f for x in lists for f in x]
+        self.assertEqual([f & 0xFFFFFF for f in flat[3:-4]], list(range(0x900, 0x900 + 195)))   # the order kept
+        name = b"\x08\x00MaxMoves"
+        at = vmads[1].index(name) + len(name)
+        self.assertEqual(struct.unpack_from("<BBi", vmads[1], at), (3, 1, 196))      # its own count's budget
+        self.assertNotIn(b"MaxMoves", vmads[2])                                       # 4: the script's 40
+
     def test_build_refuses_a_bad_landing_file(self):
         spot = self.landing()
         for name, bad, want in [
@@ -690,6 +716,81 @@ class ScriptContractTests(unittest.TestCase):
         self.assertRegex(place, r"m\.MoveTo\(player, x - px, y - py, z - pz, False, False\)")
         self.assertIn('Trace("moved "', place)
         self.assertNotIn("Math.", self.text)               # only the base scripts the bridge already imports
+
+    def test_a_pass_reads_the_player_before_every_move(self):
+        # a load door can take the player away while a pass runs: a pass that read them once put about 300 markers
+        # into Vault 95 at the target plus the trip and spent every budget (PC, 2026-10-24 10:24, fo4sf_map.0.log).
+        # The player is read again before each move, and the pass stops once they are indoors or in another world
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        loop = place.index("while i < Markers.Length && moves < MaxMoves")
+        self.assertLess(place.index("WorldSpace w = player.GetWorldSpace()"), loop)
+        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w")
+        read = place.index("float px = player.GetPositionX()")
+        self.assertLess(loop, stop)
+        self.assertLess(stop, read)
+        self.assertLess(read, place.index("m.MoveTo("))
+        self.assertEqual(place.count("float px = player.GetPositionX()"), 1)
+        # modelled: MoveTo puts the marker at the player's actual spot plus the offset taken from the spot read
+        trip = (1905.1, 3920.4, -72.4)                                    # the Vault 95 door's, 24 Oct
+        targets = [(10.0 * i, -5.0 * i, 1.0) for i in range(10)]
+
+        def wrong(reread, door_at):
+            world, pos = "out", (0.0, 0.0, 0.0)
+            seen, bad = pos, 0
+            for i, t in enumerate(targets):
+                if i == door_at:
+                    world, pos = "vault", tuple(p + d for p, d in zip(pos, trip))
+                if reread:
+                    if world != "out":
+                        break
+                    seen = pos
+                landed = tuple(a + (b - r) for a, b, r in zip(pos, t, seen))
+                bad += world != "out" or any(abs(a - b) > 1e-6 for a, b in zip(landed, t))
+            return bad
+
+        self.assertEqual(wrong(False, 3), 7)                              # read once: every marker after the trip
+        self.assertEqual(wrong(True, 3), 0)                               # read each time: the pass stops instead
+        self.assertEqual(wrong(True, 99), 0)
+
+    def test_a_reference_the_game_will_not_move_is_left_alone_for_the_session(self):
+        # the landing pad: "cannot be moved" on every pass, and its quest spent its whole budget retrying it
+        # (Papyrus.0.log, 2026-10-24); a refused reference is skipped until the next game session
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertIn("if m != None && !refused[i]", place)
+        self.assertLess(place.index("!refused[i]"), place.index("m.Enable"))
+        self.assertLess(place.index("m.MoveTo("), place.index("refused[i] = True"))
+        self.assertIn("if d > SameWorld && sx * sx + sy * sy < 0.0001", place)    # still in its own world, unmoved
+        self.assertLess(place.index("NewSession()"), place.index("IsInInterior"))
+        session = self.text[self.text.index("Function NewSession"):self.text.index("Function ShowLanding")]
+        size = int(re.search(r"refused = new bool\[(\d+)\]", session).group(1))
+        per_quest = int(re.search(r"const int PerQuest = (\d+)", PROGRAM.read_text(encoding="utf-8")).group(1))
+        self.assertGreaterEqual(size, per_quest)                          # every index a quest can hold
+        self.assertLessEqual(size, 128)                                   # a script-made array's limit
+        # every game session: the budget starts over, so markers a session left wrong are put right in the next
+        for line in ("moves = 0", "landingShown = False"):
+            self.assertIn(line, session)
+        # a save from before these variables brings them in unset: 0.0 counts as a new session too, so the list is made
+        self.assertIn("if placeRealTime <= 0.0 || rt < placeRealTime", session)
+        self.assertIn("float placeRealTime = -1.0", self.text)
+
+    def test_the_landing_marker_is_found_after_its_pad_and_shown_once_per_session(self):
+        # Mars's map had no Commonwealth location (owner, 2026-10-28): the landing marker is marked discovered and
+        # shown on the star map. dotnet/MapMarkers lists the landing spot pad, trigger, marker, heading, in one quest
+        program = PROGRAM.read_text(encoding="utf-8")
+        pad = int(re.search(r"LandingPad = 0x([0-9A-F]+)", program).group(1), 16)
+        self.assertEqual(int(re.search(r"int Property LandingPadID = 0x([0-9A-Fa-f]+) Auto Const", self.text).group(1), 16), pad)
+        self.assertIn("new List<PlacedObject> { pad, trigger, marker, heading }", program)
+        self.assertIn("static List<T[]> QuestChunks<T>(", program)
+        self.assertEqual(program.count("QuestChunks("), 2)                # build and check split the same way
+        show = self.text[self.text.index("Function ShowLanding"):self.text.index("Event OnTimer")]
+        self.assertIn("Game.GetForm(LandingPadID)", show)
+        self.assertIn("m.GetBaseObject() == pad && Markers[i + 2] != None", show)
+        self.assertIn("Markers[i + 2].SetMarkerDiscovered()", show)
+        self.assertIn("Markers[i + 2].SetMarkerVisibleOnStarMap(True)", show)
+        self.assertLess(show.index("landingShown = True"), show.index("Game.GetForm"))   # once, found or not
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("ShowLanding()"), place.index("IsInInterior"))     # wherever the player is
+
 
 
 class StageTests(unittest.TestCase):

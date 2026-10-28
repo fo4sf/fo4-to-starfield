@@ -233,7 +233,7 @@ if (args[0] == "build")
         }
     }
 
-    var chunks = all.Chunk(PerQuest).ToList();
+    var chunks = QuestChunks(all, landing != null);
     if (QuestId + (uint)chunks.Count > LandingId)
     {
         Console.Error.WriteLine($"{all.Count} markers need {chunks.Count} quests, more than fit below {LandingId:X}");
@@ -459,7 +459,7 @@ if (args[0] == "check" && args.Length >= 3)
             problems.Add($"{w.TopCell.FormKey} persistent cell record differs from the core's (a core rebuilt since the stage: stage again)");
         if (w.TopCell.Temporary.Count > 0) problems.Add($"{w.TopCell.FormKey} carries {w.TopCell.Temporary.Count} temporary reference(s)");
     }
-    var chunks = wantKeys.Chunk(PerQuest).ToList();
+    var chunks = QuestChunks(wantKeys, landing != null);
     var quests = mod.Quests.OrderBy(x => x.FormKey.ID).ToList();
     if (quests.Count != chunks.Count)
         problems.Add($"{quests.Count} quest(s) for {wantKeys.Count} marker(s): {chunks.Count} wanted ({PerQuest} per quest)");
@@ -651,6 +651,22 @@ static Landing? LoadLanding(string path)
     return new Landing(tag, name, Piece("pad"), Piece("trigger"), Piece("marker"), Piece("heading"));
 }
 static string QuestName(int k) => "FO4SF_MapMarkersQuest" + (k == 0 ? "" : (k + 1).ToString(CultureInfo.InvariantCulture));
+// PerQuest markers per quest, but the landing spot's four pieces (the list's last four, --landing) stay in one quest:
+// the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding), so a last quest of
+// one to three entries takes the rest of the pieces from the quest before it
+static List<T[]> QuestChunks<T>(List<T> all, bool landing)
+{
+    var chunks = all.Chunk(PerQuest).ToList();
+    int last = chunks.Count - 1;
+    if (landing && last > 0 && chunks[last].Length < 4)
+    {
+        var prev = chunks[last - 1];
+        int keep = prev.Length - (4 - chunks[last].Length);
+        chunks[last] = prev.Skip(keep).Concat(chunks[last]).ToArray();
+        chunks[last - 1] = prev.Take(keep).ToArray();
+    }
+    return chunks;
+}
 // the script's own default (40) holds up to 20 markers; above that, twice the quest's markers
 static int? MaxMovesFor(int n) => 2 * n > DefaultMaxMoves ? 2 * n : null;
 

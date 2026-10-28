@@ -7,7 +7,9 @@ Scriptname FO4SF_MapMarkers extends Quest
  with the player outdoors inside the overlay's merged extent, each marker that is not at its merged spot in the
  player's world is enabled and moved there (MoveTo onto the player with the difference as the offset, the form
  FO4SF_LoadDoor and the mission's Relocate use, but keeping the reference's own rotation: the list also holds the
- landing spot's pad, whose facing is the ship's). Every move goes to the user log "fo4sf_map"
+ landing spot's pad, whose facing is the ship's). The player is read again before every move, and a pass stops once
+ they are indoors, in another world or outside the extent. A reference the game will not move (the landing pad) is
+ left alone for the rest of the session. Every move goes to the user log "fo4sf_map"
  (My Games\Starfield\Logs\Script\User\fo4sf_map.0.log).}
 
 ObjectReference[] Property Markers Auto Const Mandatory
@@ -46,9 +48,14 @@ float Property SameWorld = 100000.0 Auto Const
 float Property Interval = 2.0 Auto Const
 
 int Property MaxMoves = 40 Auto Const
-{Stop moving after this many moves for one build (a move that never lands would otherwise repeat every Interval).
- The count is saved state; it starts over when a build changes the markers' count or their height (budgetN, budgetZ),
- so a later lift reaches a save whose budget an earlier placement spent (Codex on #483).}
+{Stop moving after this many moves in one game session (a move that never lands would otherwise repeat every
+ Interval). The count is saved state; it starts over when a build changes the markers' count or their height (budgetN,
+ budgetZ), so a later lift reaches a save whose budget an earlier placement spent (Codex on #483), and at every game
+ session (NewSession), so markers a session left in the wrong place are put right in the next one.}
+
+int Property LandingPadID = 0x007145 Auto Const
+{ShipLandingMarker_80m_Large (Starfield.esm), the landing spot's pad. dotnet/MapMarkers lists the landing spot as pad,
+ trigger, marker, heading, so the marker is two places after the pad.}
 
 bool Property BorderSignal = True Auto Const
 {Write "border=off" / "border=on" to this log when the player enters or leaves our world, for the SFSE plugin
@@ -65,6 +72,11 @@ int moves = 0
 ; read the installed records, these two the save, so a new build differs on the first pass after it.
 int budgetN = -1
 float budgetZ = 0.0
+; this game session (Place's own clock, as Border keeps its own): the references the game refused to move, and whether
+; the landing marker was shown on the star map
+float placeRealTime = -1.0
+bool[] refused
+bool landingShown = False
 
 Event OnInit()
     Debug.OpenUserLog(LogName)
@@ -81,6 +93,43 @@ Function ResetBudget()
     endif
 EndFunction
 
+; A new game session (the real-time clock starts over at every launch, as Border reads it): the move budget starts over,
+; and so does the list of references the game refused to move. A save from before this script had these variables
+; brings them in unset (0.0 or the initial -1.0), so either one counts as a new session and the list is made.
+Function NewSession()
+    float rt = Utility.GetCurrentRealTime()
+    if placeRealTime <= 0.0 || rt < placeRealTime
+        if moves > 0
+            Trace("session: move budget starts over (was moves=" + moves + ")")
+        endif
+        moves = 0
+        refused = new bool[128]                                 ; a quest lists at most 100 (dotnet/MapMarkers PerQuest)
+        landingShown = False
+    endif
+    placeRealTime = rt
+EndFunction
+
+; The landing spot's map marker, found after its pad, is marked discovered and shown on the star map, so the planet
+; map can offer it as a place to land (owner, 2026-10-28: Mars's map had no Commonwealth location; a vanilla landing
+; site is discovered when the player lands there). Once per session, wherever the player is.
+Function ShowLanding()
+    if landingShown
+        return
+    endif
+    landingShown = True
+    Form pad = Game.GetForm(LandingPadID)
+    int i = 0
+    while i + 2 < Markers.Length
+        ObjectReference m = Markers[i]
+        if m != None && pad != None && m.GetBaseObject() == pad && Markers[i + 2] != None
+            Markers[i + 2].SetMarkerDiscovered()
+            Markers[i + 2].SetMarkerVisibleOnStarMap(True)
+            Trace("landing marker " + (i + 2) + " discovered and shown on the star map")
+        endif
+        i += 1
+    endwhile
+EndFunction
+
 Event OnTimer(int aiTimerID)
     if aiTimerID == 1
         Place(Game.GetPlayer())
@@ -90,32 +139,53 @@ EndEvent
 
 Function Place(Actor player)
     ResetBudget()
+    NewSession()
+    ShowLanding()
     Border(player)
     if player.IsInInterior()
         return
     endif
-    float px = player.GetPositionX()
-    float py = player.GetPositionY()
-    float pz = player.GetPositionZ()
-    if px < MinX || px > MaxX || py < MinY || py > MaxY
-        return
-    endif
+    WorldSpace w = player.GetWorldSpace()
     int i = 0
     while i < Markers.Length && moves < MaxMoves              ; the budget holds per move, not per batch
         ObjectReference m = Markers[i]
-        if m != None
+        if m != None && !refused[i]
+            ; the player as they are now, for every marker: a load door can take them away while a pass runs, and a
+            ; pass that read them once put about 300 markers into Vault 95 at the target plus the trip and spent every
+            ; budget (PC, 2026-10-24 10:24, fo4sf_map.0.log)
+            if player.IsInInterior() || player.GetWorldSpace() != w
+                Trace("pass stopped at " + i + ": the player went indoors or to another world")
+                return
+            endif
+            float px = player.GetPositionX()
+            float py = player.GetPositionY()
+            float pz = player.GetPositionZ()
+            if px < MinX || px > MaxX || py < MinY || py > MaxY
+                return
+            endif
             float x = LocalX[i] + MergeOffsetX
             float y = LocalY[i] + MergeOffsetY
             float z = LocalZ[i]
             float before = player.GetDistance(m)                ; float max: another world
-            float ex = m.GetPositionX() - x
-            float ey = m.GetPositionY() - y
+            float bx = m.GetPositionX()
+            float by = m.GetPositionY()
+            float ex = bx - x
+            float ey = by - y
             float ez = m.GetPositionZ() - z
             if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
                 m.Enable(False)
                 m.MoveTo(player, x - px, y - py, z - pz, False, False)   ; no match-rotation: keep the record's
                 moves += 1
-                Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + player.GetDistance(m) + " moves=" + moves)
+                float d = player.GetDistance(m)
+                Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " moves=" + moves)
+                float sx = m.GetPositionX() - bx
+                float sy = m.GetPositionY() - by
+                if d > SameWorld && sx * sx + sy * sy < 0.0001
+                    ; still where it was, in its own world: the game refused the move ("cannot be moved", the landing
+                    ; pad, 2026-10-24), so it is not tried again this session (it spent its quest's whole budget)
+                    refused[i] = True
+                    Trace("refused " + i + ": not moved again this session")
+                endif
             endif
         endif
         i += 1
