@@ -942,6 +942,29 @@ class CellExportTests(unittest.TestCase):
             tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q5")])
             self.assertTrue(any("warning: no cell export Vault111Cryo.json" in str(c) for c in pr.call_args_list))
 
+    def test_the_plan_needs_only_the_exports_the_runner_reads(self):
+        # Codex on #564: the runner launches into a test's own cell, so a queue whose tests all name another cell never
+        # reads the launch cell's export; only a test without a cell needs it
+        d = tempfile.mkdtemp()
+        port, base = os.path.join(d, "port"), os.path.join(d, "base_exports")
+        os.makedirs(port)
+        os.makedirs(base)
+        writef(os.path.join(base, "BostonPublicLibrary02.json"), b'{"refs": []}')
+        named = [{"id": "0000_fall", "cell": "BostonPublicLibrary02"}]
+        given = SimpleNamespace(staging=port, launch_cell="", cell_exports=base)
+        pin = {"BostonPublicLibrary02": hashlib.sha256(b'{"refs": []}').hexdigest()}
+        self.assertEqual(tq.cell_exports(named, given), {"cell_exports": base, "cell_export_sha256": pin})
+        found = SimpleNamespace(staging=port, launch_cell="", cell_exports="")   # the batch stage's folder, from that cell
+        self.assertEqual(tq.cell_exports(named, found), {"cell_exports": base, "cell_export_sha256": pin})
+        with self.assertRaisesRegex(SystemExit, "--cell-exports: no cell export Vault111Cryo.json"):
+            tq.cell_exports(named + [{"id": "0001_terrain"}], given)
+        with self.assertRaisesRegex(SystemExit, "--cell-exports: no cell export Hub.json"):
+            tq.cell_exports(named + [{"id": "0001_terrain"}], SimpleNamespace(staging=port, launch_cell="Hub",
+                                                                               cell_exports=base))
+        with mock.patch("builtins.print") as pr:                                 # nowhere: named, no fields recorded
+            self.assertEqual(tq.cell_exports([{"id": "0000_fall", "cell": "Hub"}], found), {})
+            self.assertTrue(any("warning: no cell export Hub.json" in str(c) for c in pr.call_args_list))
+
 
 class PlanJsonTests(unittest.TestCase):
     def test_experiment_with_its_own_plan(self):

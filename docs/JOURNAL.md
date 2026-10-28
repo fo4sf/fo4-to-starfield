@@ -2443,5 +2443,8 @@ staging, and says so when none can be found; the runner checks the export
 before any launch or coc and stops with the reason. The later runs of that
 batch hit the focus guard instead: the Claude desktop window was in front
 after a Remote Control restart, and Install now minimises its own window
-before each launch. Details: docs/ai/test-queue.md, "SFSE launch and the
-installed port".
+before each launch. Codex on the PR: the runner launches into a test's own
+cell, so only a test without a cell needs the launch cell's export, and the
+plan asks for just the exports the runner reads; the export is checked after
+the staged experiment, so a changed experiment is still the first reason
+given. Details: docs/ai/test-queue.md, "SFSE launch and the installed port".

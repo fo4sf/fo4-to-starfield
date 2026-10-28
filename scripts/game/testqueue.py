@@ -2791,14 +2791,21 @@ def cell_exports(tests, a):
     export before a launch. Exports missing everywhere are named here, and refused with --cell-exports."""
     staging = os.path.abspath(a.staging)
     launch = getattr(a, "launch_cell", "") or "Vault111Cryo"
-    cells = sorted({launch} | {str(t["cell"]) for t in tests if t.get("cell")})
+    # the cells the runner launches into or travels to, as ensure_game() picks them: a test's own cell, else the queue's
+    # launch cell; the fallback is needed only by the tests without a cell (Codex on #564: a plan queue whose tests
+    # all name another cell never reads Vault111Cryo.json)
+    cells = sorted({str(t["cell"]) if t.get("cell") else launch for t in tests})
     given = getattr(a, "cell_exports", "") or ""
     batch = os.path.join(os.path.dirname(staging), "base_exports")
+
+    def holds(folder):
+        return any(os.path.isfile(os.path.join(folder, c + ".json")) for c in cells)
+
     if given:
         where = os.path.abspath(given)
-    elif os.path.isfile(os.path.join(staging, launch + ".json")):
+    elif holds(staging):
         where = staging
-    elif os.path.basename(staging).lower() == "port" and os.path.isfile(os.path.join(batch, launch + ".json")):
+    elif os.path.basename(staging).lower() == "port" and holds(batch):
         where = batch
     else:
         where = staging
@@ -3230,10 +3237,6 @@ class Runner:
         elif self.game_gone():
             self.count_vanished("between tests")          # before launch_limit, so --crash-budget sees it
         if not gp:
-            why = self.cell_export_mismatch(launch, cell_json)
-            if why:                                       # before the launch: cycle.ps1 exited 4 after it (T6, 28 Oct)
-                self.log(f"{why}: stopping")
-                return "stop"
             fresh = getattr(self, "fresh_launch", False)
             self.fresh_launch = False
             if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
@@ -3251,6 +3254,10 @@ class Runner:
             why = self.experiment_mismatch()
             if why:
                 self.log(f"{why}: stopping")
+                return "stop"
+            why = self.cell_export_mismatch(launch, cell_json)
+            if why:                                       # before the launch and the installs it brings: cycle.ps1 exited
+                self.log(f"{why}: stopping")              # 4 after the launch without it (T6, 28 Oct)
                 return "stop"
             br = self.q.get("bridge")
             if br:                                        # the observation bridge, installed before every launch

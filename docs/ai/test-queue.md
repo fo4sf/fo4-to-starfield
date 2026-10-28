@@ -89,8 +89,8 @@ live game, and restart it after; Windows LocalDumps still captures crashes.
   `COCMarkerHeading`), which a slice stage keeps next to FO4Port.esm and an interior batch stage in its `base_exports`
   folder. The first T6 door runs (28 Oct, `--port installed` with `--staging <doors_anim_b00>\port`) launched into
   Vault111Cryo and cycle.ps1 asked for `<port>\Vault111Cryo.json`: r01 exited 4 after the launch, r02 to r04 never
-  reached a cell. Every `plan-*` now records where the exports are (`cell_exports`: the staging when the launch cell's
-  export is there, else the stage's `base_exports` when `--staging` is its `port` folder, else `--cell-exports
+  reached a cell. Every `plan-*` now records where the exports are (`cell_exports`: the staging when an export the queue
+  needs is there, else the stage's `base_exports` when `--staging` is its `port` folder, else `--cell-exports
   <folder>`) and pins each export the queue launches into or travels to (`cell_export_sha256`) when they lie outside the
   staging; a plan whose exports are nowhere says so, and `--cell-exports` without them is refused. The runner checks the
   export before a launch or a coc and stops with the reason instead of launching into a cell it cannot verify.
