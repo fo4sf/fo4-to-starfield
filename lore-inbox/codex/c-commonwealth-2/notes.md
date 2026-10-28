@@ -1,3 +1,17 @@
+# Twelfth delivery: Bunker Hill and competing CPG accounts
+
+37 new entries: nine CPG/recording claims, twenty Bunker Hill claims and eight plaque claims. This folder140 plus unchanged first127 gives267, all new unchecked. Totals230game/35guide/1dependent/1cutHOLD; one guide date rejected under owner A. Next numeric8322; gaps8278..8299/8314..8315 unused.
+
+Nick's massacre account already exists in FA0057; no duplicate. Shaun describes infighting while the unnamed recording speaker describes four years preserving the CPG and proposes future android deployment. Do not infer a massacre order/cause, working-government duration, calendar dates or speaker identity. Canonical FA0057 should retain Nick attribution when Claude reconciles; no data edits here.
+
+Guide FA8305 construction1827-1843 conflicts with game plaque ST-MA8270 construction1825-1849. Both retained; guide rejected by owner game-over-guide rule. Not silently reconciled as building phases and no real-world dates substituted. Other guide services/unlock advice remains tier2, not native proof; wiki alternative-unlock narration is not a primary contradiction on its own.
+
+Kessler payoff claim and Zeller breach split; school request not treated as completed mission. Preston question has no asserted trigger timing. All12 companion remarks are represented as observations/opinions, not faction policy, inventory/commerce/defense guarantees or all-routes literal fact. Their text is directly in this page's wikitext. Parent corrected helper smart punctuation/work codes, compound claims, date conflict and unsupported trigger qualifier; helper drafts preserved.
+
+Four new source pages requested before first fetch, no FULL-source refetch. All PARTIAL, with exact omissions. Source total27unique/32rows (1FULL/26PARTIAL), five prior continuation rows still need manual ID unions. Bunker Hill marker0002B880 independently checked against unchanged cached exporter/reader and base-master hash; location anchor only. Fifteen total mapanchors; no native/writer/game test.
+
+All140 second-folder rows validate with original schema. Old103 byte prefix/first127/canonical/validator preserved. Prior17+1 known policy mismatches not rerun. Exact evidence/IDs/source revisions/guard/diff/scope checked. StopA incomplete: current rawsnapshot/exact64queue requested, no reply; do not assume lost or fold in. Source caches/assets/private evidence stay private.
+
 ## Eleventh delivery: surgical-service source comparison
 
 19 new entries: eighteen attributed game statements and one guide statement. Combined230:197game,31guide,1dependent,1cutHOLD. This folder103; firstfolder127 unchanged. IDs8228,8229,8230,8231,8234..8238,8250..8258,8260. 8232/8233 rejected redundant helper sales pitches;8239,8240..8249,8259 unused. Next numeric8261.
