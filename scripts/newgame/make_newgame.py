@@ -753,7 +753,7 @@ def main(argv=None):
                    help="kept for old command lines: the default already writes no override; it still cancels a --mq101debug given with it")
     s.add_argument("--debug-after-hold", type=int, default=None,
                    help=f"the value the quest writes into MQ101Debug right after the hold-off stopped MQ101 (default "
-                        f"{DEBUG_AFTER_HOLD}, the post-intro value MQ102 to MQ305 write; 0 writes nothing)")
+                        f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--clear-inventory", action="store_true",
                    help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")

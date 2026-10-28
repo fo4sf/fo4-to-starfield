@@ -209,7 +209,7 @@ Event OnTimer(int aiTimerID)
             endif
             HoldOffPass(1)
             if DebugAfterHold != 0
-                ; MQ101 is stopped, so its stage 0 cannot read this again: the post-intro value goes in now (28 Oct run 2:
+                ; MQ101 is stopped, so its stage 0 cannot read this again: the skip-start value goes in now (28 Oct run 2:
                 ; overriding the record at the start left the new game on its loading screen, see DebugGlobal)
                 float was = DebugGlobal.GetValue()
                 DebugGlobal.SetValueInt(DebugAfterHold)
