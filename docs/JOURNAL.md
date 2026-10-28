@@ -2285,3 +2285,23 @@ that don't load as the real map issue, possibly a map mod, and likely FO4's map
 locations on the Pip-Boy. Also next phase: the owner's Steam Fallout 4 is the
 newer update, not 1.10.163, so the launcher's version check needs it added. The
 entries above stand as written.
+
+## 2026-10-28: The combined core's seed, rerun with all seven Fallout 4 plugins
+
+Offline on the owner's PC, read-only on game files, run by the Install thread at
+main de91d6d0 into D:\Modding\research\combined_seed3. The data was the owner's
+Steam Fallout 4, the newer build, because the 1.10.163 depot copy lacks
+DLCCoast, DLCworkshop02, DLCworkshop03 and DLCNukaWorld; the sha256s are in
+docs/combined-core.md, "Real pack, all DLC". The seed read 487 locations, and
+the generated pack kept 243 places, 42 settlements and 7 holding factions. In
+`simulate --seed 1 --days 30`, 36 of 42 settlements ended at stage 3 with 14
+people, below their 20 beds; on 21 Oct, 36 of 38 sat at the bed cap. A 10-seed,
+30-day `balance` showed no settlement at its cap, population share 0.64 and
+morale 99. The command exited 1 on the fixtures' absolute bounds (attacks 3.91
+a day, 80.1 holder changes per 30 days). Per place and per faction, the scale
+bounds' terms, those are 0.33 and 0.56, inside the bounds and close to the
+synthetic baseline. At 30 days, morale above the scale bound's 95 was the one
+miss. A 5-seed, 90-day sweep of the same pack passes every scale bound (morale
+76.3, 11% of settlements at the cap, 5.1 settlement captures per 30 days) and
+sits close to the synthetic column D, so no rule changes. `balance --bounds
+scale` now picks that yardstick. Nothing here ran in game.

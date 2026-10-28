@@ -117,13 +117,18 @@ def _parse_set(item: str) -> tuple[str, object]:
         raise ValueError(f"--set {name}: value {raw!r} is not JSON (quote a string: '\"text\"')") from None
 
 
+# The balance command's yardsticks. The fixtures' bounds are absolute counts for 11 places, so a real Commonwealth pack
+# read against them reports churn that is normal for its size (docs/combined-core.md, "Real pack, all DLC").
+BOUNDS = {"fixtures": balance.DEFAULT_BOUNDS, "scale": balance.SCALE_BOUNDS}
+
+
 def cmd_balance(args) -> int:
     packs = [_load_json(p) for p in args.pack] if args.pack else [copy.deepcopy(REGION_1), copy.deepcopy(REGION_2)]
     overrides = dict(_parse_set(item) for item in args.set or [])
     result = balance.sweep(packs, range(args.seeds), args.days, overrides)
-    broken = balance.check(result["aggregate"])
-    _print({"aggregate": result["aggregate"], "broken": broken, "days": args.days, "overrides": overrides,
-            "seeds": args.seeds})
+    broken = balance.check(result["aggregate"], BOUNDS[args.bounds])
+    _print({"aggregate": result["aggregate"], "bounds": args.bounds, "broken": broken, "days": args.days,
+            "overrides": overrides, "seeds": args.seeds})
     return 1 if broken else 0
 
 
@@ -170,12 +175,15 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--days", type=int, default=30)
     s.set_defaults(fn=cmd_demo)
-    s = sub.add_parser("balance", help="sweep seeds and check the aggregate against DEFAULT_BOUNDS")
+    s = sub.add_parser("balance", help="sweep seeds and check the aggregate against the chosen bounds")
     s.add_argument("--seeds", type=int, required=True, help="run seeds 0..N-1")
     s.add_argument("--days", type=int, required=True)
     s.add_argument("--pack", action="append", metavar="FILE", help="default: the built-in fixtures")
     s.add_argument("--set", action="append", metavar="NAME=VALUE",
                    help="override a sim constant for the sweep (VALUE as JSON), e.g. sim.UPKEEP_PER_PLACE=2")
+    s.add_argument("--bounds", choices=sorted(BOUNDS), default="fixtures",
+                   help="fixtures: balance.DEFAULT_BOUNDS, written for the 11-place fixtures; scale: "
+                        "balance.SCALE_BOUNDS, per place and per faction, for a Commonwealth-size pack")
     s.set_defaults(fn=cmd_balance)
     for name, fn, what in (("news", cmd_news, "print the terminal news page at a place"),
                            ("present", cmd_present, "print the presence plan around a place")):

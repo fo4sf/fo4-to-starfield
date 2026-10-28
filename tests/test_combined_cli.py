@@ -123,6 +123,20 @@ class CliTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("attacks_per_day") for line in r["broken"]), r["broken"])
         self.assertEqual(sim.ATTACK_CHANCE_PER_AGGRESSION, 0.25)
 
+    def test_balance_bounds_choice_names_the_yardstick(self):
+        """28 Oct: a real Commonwealth pack read against the 11-place fixture bounds looked broken; --bounds scale
+        judges it per place and per faction instead, and the output says which bounds it used."""
+        code, out, _ = run(["balance", "--seeds", "2", "--days", "10"])
+        self.assertEqual((code, json.loads(out)["bounds"]), (0, "fixtures"))
+        code, out, _ = run(["balance", "--seeds", "2", "--days", "10", "--bounds", "scale"])
+        r = json.loads(out)
+        self.assertEqual(r["bounds"], "scale")
+        self.assertEqual(r["broken"], balance.check(r["aggregate"], balance.SCALE_BOUNDS))
+        self.assertEqual(code, 1 if r["broken"] else 0)
+        self.assertTrue(all(line.split(":")[0] in balance.SCALE_BOUNDS for line in r["broken"]), r["broken"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            cli.main(["balance", "--seeds", "1", "--days", "1", "--bounds", "nope"])
+
     def test_balance_takes_packs_and_rejects_bad_set(self):
         code, out, _ = run(["balance", "--seeds", "2", "--days", "5", "--pack", self.r1, "--pack", self.r2])
         self.assertEqual(code, 0)
