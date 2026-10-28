@@ -3,9 +3,9 @@
 **Fallout 4, running inside Starfield's engine, built by a toolchain instead of by hand.** The converters read your own
 copies of both games and turn Fallout 4's terrain, buildings, interiors, doors, objects, actors and scripts into
 Creation Engine 2 data that the stock Starfield executable loads as a mod. The playable Commonwealth exterior, a set of
-interiors, the first mission and a Vault 111 start already run in Starfield on the owner's test PC. The full game is
-unfinished, and on top of it a second way to play is taking shape: a living Commonwealth where settlements grow and
-factions fight over the map.
+interiors and the first mission already run in Starfield on the owner's test PC; a Vault 111 start is built and waits
+for its first run. The full game is unfinished, and on top of it a second way to play is taking shape: a living
+Commonwealth where settlements grow and factions fight over the map.
 
 **Not offered for download or play for now.** On 19 October 2026 the owner withdrew the play and install guides, for
 legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same
@@ -33,16 +33,16 @@ offline tests; dates are UTC.
 |---|---|---|
 | **Commonwealth exterior** | the 64 × 64 cell core as native terrain with 648,358 placed objects; the owner walked from Red Rocket to the Diamond City gate with no crash and no boundary | in game, 17 Oct |
 | **No walls** | an SFSE plugin (`FO4SFBorder`) switches Starfield's landing border off inside our world only; with it on the owner walked west and south of Red Rocket and hit no wall, and the first-load flicker that left the border on is fixed | in game, 24 Oct |
-| **Interiors** | 16 interiors reached in game so far (Vault 111, Vault 81, the Red Rocket cave, Vault 114, the Prydwen, Hotel Rexford, the Boston Public Library, Parsons and more), with working stairs, hinged and sliding doors and posed props; all 253 Commonwealth interiors are built in batches and held for install | in game (16), offline (253) |
+| **Interiors** | 16 interiors reached in game so far (Vault 111, Vault 81, the Red Rocket cave, Vault 114, the Prydwen, Hotel Rexford, the Boston Public Library, Parsons and more), with working stairs, hinged and sliding doors and posed props; 253 more (the 251 planned base-game interiors and Automatron's 2; 4 odd hook cells are left out) are built in batches and held for install | in game (16), offline (253 more) |
 | **Load doors with animation** | load doors that open before the trip (`FO4SF_AnimatedLoadDoor`); the port carrying them is installed and its automated door rounds are queued | installed 28 Oct, rounds pending |
 | **First mission** | a cut-down "When Freedom Calls" ran to completion: stages 20, 30 (5 of 5 raiders), 40, 200 and complete | in game, 19 Oct |
 | **Codsworth** | a robot stand-in at his Sanctuary spot, rendering with plain shader blocks (the fix that solved the Red Rocket crash); 20 of his voice lines converted from the owner's files; his spawn on an existing save is on the defect list | in game, 22 to 23 Oct |
 | **Map markers** | the four markers (Red Rocket, Sanctuary, Vault 111, Concord) draw on the surface map and fast travel lands on them; the icons that do not load are the owner's named map issue for the next phase | in game, 22 Oct |
-| **New game** | a Vault 111 cryo-pod start that is meant to skip Starfield's intro, built and installed on the test PC | installed 28 Oct, in-game check not yet reported |
+| **New game** | a Vault 111 cryo-pod start that is meant to skip Starfield's intro, built and staged against the installed core; by the record it has not yet run in game | staged 23 Oct, in-game run pending |
 | **Launcher** | a desktop window that finds both games, reports and fixes the load order and starts Starfield through SFSE; it is meant to ship no assets and build the port from the player's own Fallout 4, and it still needs the current Steam build of Fallout 4 added to its version check | started the game, by the owner's word, 22 Oct |
 | **Combined core, offline** | the Commonwealth seeded from the owner's own Fallout 4 and all six DLC: 487 locations read, 243 places kept, 42 settlements, 7 factions; a 90-day, 5-seed balance run passes every scale bound | offline, 28 Oct |
 | **Combined core, in game** | engine probes P2, P3 (keyword half), P4, P6, P7, P8 and P10 passed on the test PC and P5 recorded its timings: keyword data persists across save and load, actors materialize and dissolve without growing the save, leveled lists and conditions read our data, our Story Manager branch starts our quest; P3's cell half and P9 (long-route pathing) run again after a restage; P1 not yet run | in game, 28 Oct |
-| **Tests and CI** | 3,592 synthetic-fixture tests (28 Oct) and the asset guard run on every pull request | CI |
+| **Tests and CI** | 3,592 synthetic-fixture tests at #560's merge (28 Oct, recorded in the [journal](docs/JOURNAL.md)) and the asset guard run on every pull request | CI |
 
 What is next, in the owner's order: the combined core's simulation ported to C++ inside our SFSE plugin, a 20-place
 slice of it in game, then the map icons, the new game's exit test and the launcher's support for the current Steam

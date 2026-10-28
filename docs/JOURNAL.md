@@ -2448,3 +2448,23 @@ cell, so only a test without a cell needs the launch cell's export, and the
 plan asks for just the exports the runner reads; the export is checked after
 the staged experiment, so a changed experiment is still the first reason
 given. Details: docs/ai/test-queue.md, "SFSE launch and the installed port".
+
+## 2026-10-28: The front page rewritten
+
+The README was a running progress log. After the branch cleanup (160 old
+branches deleted, #552) it is rewritten as a front page: what the project is,
+where it stands in one table of areas with what was seen, where and when, the
+two ways to play, the pipeline, the repository map, why the conversion is
+difficult, and the rules. Every row is taken from a document in this
+repository; the earlier progress sections are kept verbatim in
+docs/history/readme-progress-2026-10.md. The record behind the table's test
+count: at #560's merge (main b00b5e63, head cd76c4a5, 28 Oct) `python -m
+unittest discover -s tests` ran 3,592 tests, OK with 151 skipped where no .NET
+SDK is present, and `python scripts/guard.py` said ok; CI's checks job runs
+the same two commands on every pull request. Codex's review of the page
+corrected three rows against the docs: the 253 interiors held for install are
+the 251 planned base-game cells and Automatron's 2 on top of the 16 installed,
+with 4 hook cells left out (docs/terrain/interior-batches.md); the new game is
+staged against the installed core and, by the record, not yet run in game
+(docs/ROADMAP.md, the owner's test sheet); and the test count needed this
+entry as its source.
