@@ -64,13 +64,21 @@ if ($p) { $p.CloseMainWindow() | Out-Null; Start-Sleep 8; $p.Refresh(); if (-not
 # silently put the older port back over an installed one such as doors_anim_b00). deploy_starfield.py verify checks it
 # against its own record instead: every file's size and sha256, FO4Port.esm and its companions active in Plugins.txt,
 # and with FO4SF_PORT_SHA256 the plugin the queue pinned. Any difference: exit 7, nothing launched.
+# Fail closed as the lease gate does (Codex on #558): python resolved first, the stale exit code cleared, an invocation
+# error caught, so a reused host's earlier 0 never passes. The game folder goes in without a trailing backslash:
+# PowerShell 5.1 quotes a path with a space as "...\", and the closing quote, escaped by that backslash, would swallow
+# the pin that follows (Codex on #558).
 if ($env:FO4SF_PORT -eq 'installed') {
-  $verArgs = @('verify', '--starfield', $sf)
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { "python not found: the installed port cannot be checked: not launching"; exit 7 }
+  $sfArg = $sf.TrimEnd('\', '/')
+  if ($sfArg -match ':$') { $sfArg = $sf }                       # a drive root keeps its backslash ("D:" is D:'s cwd)
+  $verArgs = @('verify', '--starfield', $sfArg)
   if ($env:FO4SF_PORT_SHA256) { $verArgs += @('--plugin-sha256', $env:FO4SF_PORT_SHA256) }
-  $ver = python -I "$repo\scripts\deploy_starfield.py" @verArgs
-  $verCode = $LASTEXITCODE
+  $global:LASTEXITCODE = $null
+  try { $ver = python -I "$repo\scripts\deploy_starfield.py" @verArgs; $verCode = $LASTEXITCODE }
+  catch { $ver = "deploy_starfield.py could not be run: $_"; $verCode = $null }
   $ver | Select-Object -Last 1
-  if ($verCode -ne 0) { "the installed port is not the recorded one (deploy_starfield.py verify exit $verCode): not launching"; exit 7 }
+  if ($null -eq $verCode -or $verCode -ne 0) { "the installed port is not the recorded one (deploy_starfield.py verify exit $verCode): not launching"; exit 7 }
 } else {
   python -I "$repo\scripts\deploy_starfield.py" uninstall --starfield $sf | Out-Null
   python -I "$repo\scripts\deploy_starfield.py" install --staging $Staging --starfield $sf | Select-Object -Last 1

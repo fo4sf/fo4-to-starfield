@@ -272,11 +272,18 @@ class RunnerLeaseTests(unittest.TestCase):
         installed, redeploy = block.split("} else {", 1)
         self.assertNotIn("uninstall", installed)
         self.assertNotIn("install --staging", installed)
-        self.assertIn("$verArgs = @('verify', '--starfield', $sf)", installed)
+        self.assertIn("$verArgs = @('verify', '--starfield', $sfArg)", installed)
         self.assertIn("$verArgs += @('--plugin-sha256', $env:FO4SF_PORT_SHA256)", installed)
         self.assertIn('python -I "$repo\\scripts\\deploy_starfield.py" @verArgs', installed)
-        self.assertIn("if ($verCode -ne 0) {", installed)
         self.assertIn("exit 7", installed)                                    # nothing launched on a mismatch
+        # Codex on #558: fail closed as the lease gate does (a reused host's stale 0, python missing), and no trailing
+        # backslash on the game folder (PowerShell 5.1 would escape the closing quote and swallow the pin after it)
+        self.assertLess(installed.index("Get-Command python"), installed.index("@verArgs"))
+        self.assertLess(installed.index("$global:LASTEXITCODE = $null"), installed.index("try { $ver = python"))
+        self.assertIn("catch { $ver =", installed)
+        self.assertIn("if ($null -eq $verCode -or $verCode -ne 0) {", installed)
+        self.assertIn("$sfArg = $sf.TrimEnd('\\', '/')", installed)
+        self.assertLess(installed.index("$sfArg = $sf.TrimEnd"), installed.index("$verArgs = @("))
         self.assertIn("uninstall --starfield $sf | Out-Null", redeploy)       # unchanged without the opt-in
         self.assertIn("install --staging $Staging --starfield $sf", redeploy)
         self.assertEqual(src.count("install --staging $Staging"), 1)
