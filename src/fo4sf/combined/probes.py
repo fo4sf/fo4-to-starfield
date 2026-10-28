@@ -1437,10 +1437,13 @@ def check_p9(c: Collection) -> Verdict:
     # The route's length is the distance at the command: the go's dist= when the script sent the actor, else the
     # start's (P9Track logs it just before its first sample; Codex reviews of #431 and #560).
     start = latest["go_dist_m"] if go_line is not None else starts[-1].num("dist")
-    if start is None or abs(start - rows[0][1]) > P["p9_stuck_m"]:
+    # The first counted sample may be as much closer as a walk covers in the time since the origin: P9Track's own
+    # first sample precedes the go, so after a go the first counted one is about 2 s later (Codex review of #560).
+    slack = P["p9_stuck_m"] + P["p9_jump_m_per_s"] * rows[0][0]
+    if start is None or abs(start - rows[0][1]) > slack:
         v.cite(starts[-1], rows[0][5])
         v.reasons.append(f"p9 {'go' if go_line is not None else 'start'} dist={start} is missing or disagrees with the "
-                         f"first sample's {rows[0][1]} m")
+                         f"first sample's {rows[0][1]} m ({rows[0][0]:.1f} s later)")
         return v
     v.extra["start_dist_m"] = start
     v.extra["start_dist_from"] = "p9 go" if go_line is not None else "p9 start"

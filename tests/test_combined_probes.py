@@ -1237,6 +1237,16 @@ class P9Tests(unittest.TestCase):
         v = probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest", dist=300.0)))
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
         self.assertTrue(any("disagrees with the first sample" in r for r in v.reasons), v.reasons)
+        # the game's order (Codex bot on 3f507a14): P9Track logs its first sample before the Go, so the first counted
+        # sample comes about 2 s after the go and a walking actor is already closer; a good walk still passes
+        walk = go(p9_log(), "dest", at=4)                             # the go after the t=0 sample; next at t=2, 446 m
+        v = probes.check_p9(col(log=walk))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual(v.extra["start_dist_m"], 450.0)
+        far = go(p9_log(jump_at=2), "dest", at=4)                     # 200 m closer 2 s after the go: not a walk
+        v = probes.check_p9(col(log=far))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("disagrees with the first sample" in r for r in v.reasons), v.reasons)
         for label, log in (("a console control does not stand for the script", LADDER + go(never, "dest", 0.0)),
                            ("a scripted control does not stand for the console", BASE + go(came, "player") + never),
                            ("a baseline with a go is no baseline", go(BASE[:1] + BASE[1:], "player")
