@@ -1,3 +1,13 @@
+# Thirty-first delivery: Desdemona records and later-source clarification
+
+24newgame entries: FA-8041, FA-8042, FA-8043, FA-8044, FA-8045, FA-8046, FA-8047, FA-8048, FA-8049, FA-8050, FA-8051, FA-8052, FA-8053, FA-8054, FA-8055, FA-8056, FA-8057, FA-8058, FA-8059, FA-8060, FA-8061, FA-8062, FA-8063, FA-8064. Total1002 Commonwealth entries:895game/70guide/1dependent/36cutHOLD;folder8now63. All unchecked. New IDs follow actual available gaps; no existing IDs reused.
+
+Only unread section18 at5608766 fetched. Prior9/13 reused as context, notrefetched. Desdemona's timeline now cached through2287; other terminal blocks remain unread. Names/assessments/counters are attributed, not universal faction caps, AI guarantees, population estimates or native gameplay proof. HistoricHQ events get no modernOldNorthChurch coordinates. JohnnyD remains a question; G7/DocA procedure, custompistolname and ghoulmechanism notexpanded by guess.
+
+Later-source clarification:2277Dec explicitly names PinkyThompson and Trinity. This resolves the earlier isolated-section surname/name gaps, not the exact appointment/deathmonth or linkingTrinity to unnamed2276Sep loss. FA0096 heading also is retrospective. FA0097 rail-sign meanings need support beyond its cited year. FA0098 must distinguish Farmattack/self-burning, intermediateHQs,2281Switchboarddiscovery and2285move. FA0099 Liamidentity/ignorance require other evidence. FA0100 reactor/Brotherhood explanation is absent; Desdemona explicitly states Noideawhy. No canonical edits or wholeentryrejections.
+
+57sourceidentities/72rows,1FULL/56PARTIAL;15continuations require provenance-preserving consolidation. Railroad latestrow retains21prior+24newIDs. Prior claims/folders/canonical/validator unchanged. Raw snapshot/exact64queue still pending;no fold/merge/game/automation action.
+
 # Thirtieth delivery: early Railroad records
 
 21 new game entries FA-8004..8020,8023,8031,8033,8034 from pinned Railroad HQ terminal revision5608766, sections9/13 (Wyatt and Pinky). Existing ID gaps retained; initial contiguous-range assumption refused before delivery, original preserved. Both sections cached once after all-ledger/cache checks. Total978 Commonwealth entries:871game/70guide/1dependent/36cutHOLD; folder8now39. All new claims unchecked.
