@@ -1,3 +1,13 @@
+# Twenty-seventh delivery: cached Mass Fusion policy records
+
+Added14 game-transcript claims, ORG-8001..8014, from cached revision5284075 without web requests. Full IDs were checked against canonical/all inbox entries and relevant published Git history before using the ORG namespace within8001–8999. No existing ID was reused or changed. Commonwealth total922:824game/61guide/1dependent/36cutHOLD; folder7has133. All new entries unchecked.
+
+These cover promotion recommendations, a resignation threat, internship complaints, company-resource rules, the employee store, post-protest security rules and a planned rooftop holiday celebration. Narrator assessments, instructions and proposed actions are not completed events or operational simulation proof. Security memo’s literal Dr.NoelChandrow spelling is retained rather than silently adopting the wiki link target Chandrich; the100-yard condition is a reporting instruction, not a native boundary test.
+
+The helper’s shortlist missed relevant PARTIAL inbox records for all three candidates. Parent checks rejected its fresh-source recommendations and narrowed the proposed Fort Strong continuation to exclude already covered sections. Original output and correction evidence retained. No source was refetched; FULL company/Cleanpower sources were not opened. Existing marker0002B83E reused with frozen provenance; verified-anchor count stays27.
+
+Continuation ledger explicitly retains10previous IDs plus14new. Totals55sourceidentities/66rows,1FULL/54PARTIAL;11extra continuation rows need consolidation with provenance, and cumulative ID lists are complete. Canonical store, previous entries/folders and validator remain unchanged. Original validator passes all133folder7entries. Current raw snapshot/exact64queue still pendingClaude; StopA incomplete. No canonical fold, merge, game action or automation resume.
+
 # Twenty-sixth delivery: Saugus and the Forged
 
 Added16 entries, FA-8984..8999:14 game-terminal claims and2 guide history claims. Location5684725 and terminals5287602 fetched once after ledger/cache checks; both PARTIAL. Commonwealth total908:810game/61guide/1dependent/36cutHOLD; folder7has119. All new entries remain unchecked. The monotonic numeric counter has reached8999; future IDs must use an unused FULL ID with an appropriate existing prefix within8001–8999, never9001+. This is namespace bookkeeping, not new permission to change the format or reuse an ID.
