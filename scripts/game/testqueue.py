@@ -3225,15 +3225,15 @@ class Runner:
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q.get("cell_exports") or self.q["staging"], launch + ".json")
-        why = self.cell_export_mismatch(launch, cell_json)
-        if why:                                           # before any launch: cycle.ps1 would exit 4 after it (T6, 28 Oct)
-            self.log(f"{why}: stopping")
-            return "stop"
         if gp:
             self.live_pid = gp                            # the runner's own game (a resumed run finds it running)
         elif self.game_gone():
             self.count_vanished("between tests")          # before launch_limit, so --crash-budget sees it
         if not gp:
+            why = self.cell_export_mismatch(launch, cell_json)
+            if why:                                       # before the launch: cycle.ps1 exited 4 after it (T6, 28 Oct)
+                self.log(f"{why}: stopping")
+                return "stop"
             fresh = getattr(self, "fresh_launch", False)
             self.fresh_launch = False
             if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
@@ -3313,6 +3313,10 @@ class Runner:
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
+            why = self.cell_export_mismatch(cell, cell_json)
+            if why:                                       # coc.ps1 reads the arrival marker from the export
+                self.log(f"{why}: stopping")
+                return "stop"
             # with the bridge installed coc.ps1 reads the arrival from its log, not the console's OCR (v6e stairs);
             # COC_TIMEOUT_S covers its retries when the first coc misses the marker (four more cocs and two more reads)
             code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json] + (["-Bridge"] if self.q.get("bridge")
