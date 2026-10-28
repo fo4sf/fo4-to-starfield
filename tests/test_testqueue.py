@@ -538,7 +538,7 @@ class ProbePointTests(unittest.TestCase):
     def test_floor_pieces_by_file_name_not_folder(self):
         import subprocess
         d = tempfile.mkdtemp()
-        kit = "Interiors\Building\Deco\Small_FloorCeilKit\\"
+        kit = "Interiors\\Building\\Deco\\Small_FloorCeilKit\\"
         refs = [{"type": "Static", "model": kit + name, "pos": [70.0 * k * 5, 0.0, 0.0]} for k, name in
                 enumerate(["BldDecoSmCeilOnly03.nif", "BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif",
                            "SubPlatformWall03.nif", "BldWoodPSmStairsHalfTiny03.nif"])]
@@ -872,7 +872,7 @@ class PreLaunchTests(unittest.TestCase):
 
 class CellExportTests(unittest.TestCase):
     """Install, 2026-10-28 (T6 door runs on doors_anim_b00, --port installed): cycle.ps1 asked coc.ps1 for
-    <staging>\Vault111Cryo.json, which an interior batch stage keeps in base_exports, so r01 exited 4 after the launch
+    <staging>\\Vault111Cryo.json, which an interior batch stage keeps in base_exports, so r01 exited 4 after the launch
     and r02 to r04 never reached a cell. The plan finds the exports and the runner stops before such a launch."""
 
     def launch(self, d, q):
@@ -1173,7 +1173,7 @@ class NumericReadTests(unittest.TestCase):
     def test_offsets_only_from_numeric_reads(self):
         # 2026-10-11 World03: a failed spawn read "fail console 3" produced the offset (0, 0, -7)
         src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
-        self.assertEqual(src.count("-match '^\s*-?\d+"), 3)
+        self.assertEqual(src.count(r"-match '^\s*-?\d+"), 3)
 
 
 class ZRefTests(unittest.TestCase):
@@ -1357,7 +1357,7 @@ class BridgeQueueTests(unittest.TestCase):
             extra = tq.apply_bridge(tests, SimpleNamespace(bridge=d))
             self.assertTrue(all(t["bridge_reads"] for t in tests))
             self.assertEqual(extra["bridge"]["plugin"], "FO4SFBridge.esm")
-            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\Scripts\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
+            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\\Scripts\\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
                              if os.sep == "\\" else ["Data/Scripts/FO4SF_Bridge.pex", "FO4SFBridge.esm"])
             self.assertIn("bridge", tq.runner_features.needs(tests))
             self.assertIsNone(tq.bridge_mismatch(extra["bridge"]))
