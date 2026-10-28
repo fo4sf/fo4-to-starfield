@@ -1,8 +1,124 @@
 {
+  "review_base": "1efb0d4228c76bb860cbbbe02988743acaef0589",
+  "batches": {
+    "vt": {
+      "rows": 130,
+      "checked_or_corrected": 55,
+      "newly_reviewed": 22,
+      "verified_source_among_reviewed": 43,
+      "as_reported_among_reviewed": 12,
+      "changed_ids": [
+        "VT-0038",
+        "VT-0039",
+        "VT-0040",
+        "VT-0041",
+        "VT-0042",
+        "VT-0043",
+        "VT-0044",
+        "VT-0045",
+        "VT-0046",
+        "VT-0047",
+        "VT-0048",
+        "VT-0049",
+        "VT-0050",
+        "VT-0051",
+        "VT-0052",
+        "VT-0053",
+        "VT-0057",
+        "VT-0058",
+        "VT-0059",
+        "VT-0060",
+        "VT-0061",
+        "VT-0062"
+      ],
+      "unresolved_assigned": [],
+      "unchanged_other_rows": 108,
+      "ids_and_order_retained": true
+    },
+    "mil": {
+      "rows": 86,
+      "checked_or_corrected": 41,
+      "newly_reviewed": 19,
+      "verified_source_among_reviewed": 25,
+      "as_reported_among_reviewed": 16,
+      "changed_ids": [
+        "MIL-0033",
+        "MIL-0034",
+        "MIL-0035",
+        "MIL-0036",
+        "MIL-0037",
+        "MIL-0038",
+        "MIL-0039",
+        "MIL-0040",
+        "MIL-0041",
+        "MIL-0042",
+        "MIL-0043",
+        "MIL-0044",
+        "MIL-0045",
+        "MIL-0046",
+        "MIL-0047",
+        "MIL-0048",
+        "MIL-0049",
+        "MIL-0050",
+        "MIL-0051",
+        "MIL-0052"
+      ],
+      "unresolved_assigned": [
+        "MIL-0036"
+      ],
+      "unchanged_other_rows": 66,
+      "ids_and_order_retained": true
+    },
+    "st3": {
+      "rows": 102,
+      "checked_or_corrected": 40,
+      "newly_reviewed": 12,
+      "verified_source_among_reviewed": 14,
+      "as_reported_among_reviewed": 26,
+      "changed_ids": [
+        "ST-NV-0023",
+        "ST-NV-0024",
+        "ST-NV-0025",
+        "ST-NV-0026",
+        "ST-NV-0027",
+        "ST-NV-0028",
+        "ST-NV-0029",
+        "ST-NV-0030",
+        "ST-NV-0031",
+        "ST-NV-0032",
+        "ST-NV-0033",
+        "ST-NV-0034",
+        "ST-NV-0035",
+        "ST-NV-0036",
+        "ST-NV-0037",
+        "ST-NV-0038",
+        "ST-NV-0039",
+        "ST-NH-0001",
+        "ST-NJ-0001",
+        "ST-NJ-0002"
+      ],
+      "unresolved_assigned": [
+        "ST-NV-0031",
+        "ST-NV-0032",
+        "ST-NV-0033",
+        "ST-NV-0034",
+        "ST-NV-0035",
+        "ST-NV-0036",
+        "ST-NV-0037",
+        "ST-NV-0038"
+      ],
+      "unchanged_other_rows": 82,
+      "ids_and_order_retained": true
+    }
+  },
   "original_validator_problems": [
     [
       "MIL-0019",
       "source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])"
+    ],
+    [
+      "MIL-0048",
+      "source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])"
     ],
     [
       "ST-MT-0008",
@@ -14,31 +130,8 @@
     ]
   ],
   "in_memory_owner_policy_check_problems": [],
-  "batches": {
-    "vt": {
-      "rows": 130,
-      "checked_or_corrected": 33,
-      "verified_source_among_reviewed": 25,
-      "as_reported_among_reviewed": 8,
-      "newly_reviewed": 26
-    },
-    "mil": {
-      "rows": 86,
-      "checked_or_corrected": 22,
-      "verified_source_among_reviewed": 18,
-      "as_reported_among_reviewed": 4,
-      "newly_reviewed": 20
-    },
-    "st3": {
-      "rows": 102,
-      "checked_or_corrected": 28,
-      "verified_source_among_reviewed": 10,
-      "as_reported_among_reviewed": 18,
-      "newly_reviewed": 20
-    }
-  },
   "input_export_sha256": "ea31566e427e0f70b87b27f06b17772ddc302ec91b37eccec7af727ea2f864e9",
   "data_unchanged": true,
   "readiness": "partial; not for fold-in",
-  "note": "All 318 IDs/order retained. As-reported second checks are not primary-source verification. Current raw batches/queue requested from Claude; owner authorizes reconstruction and both reviews only if unrecoverable."
+  "note": "All 318 IDs/order retained. Original validator reports four stale-policy errors; in-memory owner-policy comparison passes. As-reported checks are not primary verification. Current raw batches/exact Commonwealth queue recovery remains pending; no reconstruction presumed necessary."
 }

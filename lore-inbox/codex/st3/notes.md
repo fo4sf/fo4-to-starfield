@@ -64,3 +64,25 @@ Stopped at ST-NV-0022 (the 20th assigned entry). Next untouched entry: ST-NV-002
 Private proof: the private local source cache contains the authoritative input snapshots, once-cached targeted sections with revisions, empty-transclusion receipts, review-audit.json, validation-original.txt and validation-audit.json. First-pass evidence was not changed. Nine partial source-ledger records were appended; no full source coverage is claimed and no new long quotations were placed in the inbox.
 
 Validation ran from the store using `python tools/lore.py validate inbox/codex/st3/verified-1.jsonl`. The unmodified validator reports exactly two existing stale-policy errors for ST-MT-0008/0009 (cut at owner-required tier 2). All other validator fields pass; 102 unique IDs, row order, preserved unassigned rows and unchanged coordinates independently checked. No source tool or canon policy was changed.
+
+
+## Third bounded pass - 2026-10-28
+
+Used the parent's reconciled working batch, reported published head `1efb0d42`; input SHA-256 `653b14b78572b2b00103683f710288161d86a823220c02e6285ca9e59c5881f4`. Did not restore the older export/helper output. All 102 rows, IDs and order remain; 82 unassigned rows and every coordinate are unchanged. The October 24 export provenance above still applies. Current raw store/queue recovery is pending; no canonical rebuild or completeness claim.
+
+Attempted exactly 20 next untouched rows: ST-NV-0023, ST-NV-0024, ST-NV-0025, ST-NV-0026, ST-NV-0027, ST-NV-0028, ST-NV-0029, ST-NV-0030, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NV-0039, ST-NH-0001, ST-NJ-0001, ST-NJ-0002. Result: **4 checked, 8 corrected, 8 left unchecked**. The 12 completed rows comprise 4 primary-transcript verifications (ST-NV-0023 through 0026) and 8 as-reported compound claims. No new verified-source promotion. ST-NV-0029 was downgraded to as-reported because the primary note does not independently establish its editorially supplied identity/location context.
+
+Corrections: ST-NV-0023 now distinguishes treaty negotiations from signing; ST-NV-0026 removes the unsupported monument construction date; ST-NV-0027 narrows branch location to the inspected Silver Rush context; ST-NV-0029 distinguishes primary text from wiki context; ST-NV-0039 describes the fictional town's real-world basis; ST-NH-0001 omits uninspected logo-placement detail; ST-NJ-0001 uses trait and removes unsupported pre-war dating; ST-NJ-0002 removes the generic 2102 chronology. Each row's check_note records the actual evidence and limitations.
+
+Unresolved: **ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038**. The 2011 Sawyer compilation metadata is revision 5712589 and exposes only a single large List section. A narrowly targeted Nellis-pods search returned a truncated answer without a complete dated post. The whole 684 KB page/List was not fetched. None of the eight original posts or full relevant transcriptions was inspected; their dates, full compound claims and the proposed 25x distance rule remain unverified. They stay unchecked with detailed notes; their inherited verified-source labels are earlier-reader metadata, not second-read endorsements.
+
+Evidence: frozen second-pass Nevada cache reused for three exact bullets; newly inspected sections/revisions and exclusions are recorded in twelve appended partial source-ledger rows. The developer-page metadata/search-only probe is recorded in private proof, not claimed as a completed source read. No new long quotations are included here. First/second-pass caches were read-only. Private third-pass proof contains input snapshots, once-cached API responses, request manifest, preservation audit and validator output.
+
+Stopped at **ST-NJ-0002**, the 20th assigned row; next untouched row **ST-NJ-0003**. Full-batch validation with the unmodified tool reports the same two stale cut/tier-2 mapping errors for ST-MT-0008 and ST-MT-0009. All other validator checks pass; IDs are unique and all unassigned row values/order/coordinates were independently compared. Owner cut/cancelled tier-2 hold policy and validator source were preserved. Fold-in still requires comparison with the recovered current lore-thread batch.
+
+
+## Parent reconciliation of third pass
+
+Parent checked the cached Kimball transcript and Unaccounted Blood note, state/Jean/NH&M/Hoboken sections and exact already-cached Nevada bullets. ST-NV-0031–0038 remain unchecked; no full developer-compilation reread. All 12 newly completed checks retain the recorded evidence limits; inherited real-world anchors are not new in-game positions or independently verified coordinates.
+
+Cumulative completed checks: 40/102; new this pass: 12. All rows/IDs retained. Missing current raw snapshot still prevents fold-in.
