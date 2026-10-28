@@ -12,10 +12,15 @@ install --batch: installs an interior batch's built port as it is (scripts/terra
            after it. It refuses when the copies would leave less than --min-free-gb free on the game's drive, and
            when Data's FO4TerrainCore.esm is not the core the batch's door returns were wired to (--other-core).
 uninstall: removes exactly what the manifest lists, including the Plugins.txt lines.
+verify   : read-only. Exit 0 only when Data holds a complete install this script recorded, every file the manifest owns
+           has the size and sha256 it recorded, and FO4Port.esm and each texture companion it owns are active in
+           Plugins.txt; --plugin-sha256 also pins the installed FO4Port.esm. cycle.ps1 runs it instead of a redeploy
+           when the launch tests the port already installed (FO4SF_PORT=installed). Exit 1 with the reason otherwise.
 
 usage: python deploy_starfield.py install|uninstall --staging <dir> --starfield <game dir> [--dry-run]
        python deploy_starfield.py install --batch <interior batch stage> --starfield <game dir> [--min-free-gb 40] [--other-core]
                                     [--dry-run]
+       python deploy_starfield.py verify --starfield <game dir> [--plugin-sha256 <hex>]
 """
 import argparse
 import base64
@@ -475,6 +480,52 @@ def install_batch(a):
     publish(data, man_path, [src for src, _, _ in items], targets, identities, companions)
 
 
+def installed_port(data, plugins_txt):
+    """(None, FO4Port.esm's sha256) when Data holds a complete install this script recorded, every file the manifest
+    owns has the identity it recorded and every plugin it owns is active in Plugins.txt; else (why not, None). Reads
+    only. A port swapped in by hand over a recorded install shows as a changed file, never as the recorded build."""
+    man_path = os.path.join(data, MANIFEST)
+    if not os.path.exists(man_path):
+        return f"nothing installed ({man_path} missing)", None
+    try:
+        with open(man_path, encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError) as error:
+        return f"{man_path} cannot be read ({error})", None
+    if not isinstance(m, dict) or m.get("complete") is not True or m.get("cleanup_pending"):
+        return "an interrupted install or uninstall sits in the game folder (deploy_starfield.py uninstall first)", None
+    recorded = m.get("plugins_txt")
+    if (not isinstance(recorded, str) or
+            os.path.normcase(os.path.abspath(recorded)) != os.path.normcase(os.path.abspath(plugins_txt))):
+        return "the manifest's Plugins.txt is not this user's", None
+    files, arts = m.get("files"), m.get("artifacts")
+    if (not isinstance(files, list) or not isinstance(arts, dict) or set(files) != set(arts) or PLUGIN not in files
+            or not all(isinstance(rel, str) and deployable(rel) for rel in files)):
+        return f"the manifest's files {files!r} are not a port's recorded set", None
+    for rel in files:
+        p = os.path.join(data, rel)
+        if not os.path.isfile(p):
+            return f"Data\\{rel} is missing", None
+        if artifact_identity(p) != arts[rel]:
+            return f"Data\\{rel} changed since the install (not the bytes the manifest recorded)", None
+    active = {plugin_name(line).casefold() for line in read_lines(plugins_txt) if line.strip().startswith("*")}
+    off = [rel for rel in files if rel.endswith(".esm") and rel.casefold() not in active]
+    if off:
+        return f"{', '.join(off)} not active in Plugins.txt", None
+    return None, arts[PLUGIN]["sha256"]
+
+
+def verify(a):
+    problem, sha = installed_port(os.path.join(a.starfield, "Data"), plugins_txt_path())
+    want = (a.plugin_sha256 or "").lower()
+    if problem is None and want and sha != want:
+        problem = f"the installed {PLUGIN} is {sha[:8]}, the run pinned {want[:8]}"
+    if problem:
+        print(f"installed port check failed: {problem}")
+        sys.exit(1)
+    print(f"installed port as recorded: {PLUGIN} {sha[:8]}")
+
+
 def uninstall(a):
     data = os.path.join(a.starfield, "Data")
     man_path = os.path.join(data, MANIFEST)
@@ -563,7 +614,7 @@ def uninstall(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["install", "uninstall"])
+    ap.add_argument("action", choices=["install", "uninstall", "verify"])
     ap.add_argument("--staging", default="")
     ap.add_argument("--batch", default="", help="an interior batch stage: install its built port as it is")
     ap.add_argument("--other-core", action="store_true",
@@ -571,7 +622,8 @@ if __name__ == "__main__":
     ap.add_argument("--min-free-gb", type=float, default=40.0, help="--batch: free space the game's drive keeps")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--plugin-sha256", default="", help="verify: the FO4Port.esm the run pinned")
     args = ap.parse_args()
     if args.batch and (args.staging or args.action != "install"):
         ap.error("--batch is for install alone, without --staging")
-    (install if args.action == "install" else uninstall)(args)
+    {"install": install, "uninstall": uninstall, "verify": verify}[args.action](args)

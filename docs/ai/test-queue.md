@@ -56,6 +56,36 @@ Starfield.exe) logged a BREAKPOINT on it; every short-lived start since Oct 18 s
 debugger's attach ends the game). Stop the crashwatch loop before a runner launch, never while it is attached to a
 live game, and restart it after; Windows LocalDumps still captures crashes.
 
+**SFSE launch and the installed port (2026-10-28).** Two gaps the Install thread found before T6 and the doors checks:
+- *No SFSE plugin loaded in a runner test.* A Steam or exe launch loads none, so a T6 comparison of FO4SFBorder's
+  modes compared nothing. `FO4SF_LAUNCH=sfse` starts `sfse_loader.exe` from the game folder (the launcher's
+  `route=sfse`; a missing loader exits 10). A queue planned with `--launch sfse` sets it for its own launches, whatever
+  the shell says, and needs the runner feature `sfse_launch`, so an older runner refuses the queue instead of launching
+  through Steam.
+- *Every launch redeployed `-Staging`.* An installed port (the animated doors build `doors_anim_b00`) would be replaced
+  by the staging's without a word. With `FO4SF_PORT=installed` cycle.ps1 deploys nothing and runs
+  `deploy_starfield.py verify` instead. It passes only when `Data\FO4Port.deploy.json` is a complete install, every
+  file it owns has the size and sha256 it recorded, FO4Port.esm and its companions are active in Plugins.txt, and,
+  with `FO4SF_PORT_SHA256`, the plugin is the one pinned. Otherwise exit 7, nothing launched. A queue planned with
+  `--port installed --starfield <game dir>` pins the installed FO4Port.esm at plan time (the plan refuses when the
+  install fails the same check), sets both variables for its launches, and needs `installed_port`. The shell's
+  `FO4SF_PORT` is never used: the mode is the queue's. The installed port is then the queue's build: its hash is
+  `plugin_sha256` and `build_id` (the report, the ledger pins and the dedicated save name it), and the staging's own
+  FO4Port.esm keeps its pin as `staging_plugin_sha256`, still checked before every launch with the staging's other
+  files, since the plan read them (formids.json, routes). The preflight deploy check compares the install with the port
+  pin.
+- A queue with `--launch` or `--port` never reuses a game this run did not launch: the runner's game left by an
+  earlier queue may have come up through Steam or on another port, so it is closed and launched again through
+  cycle.ps1 (an intended relaunch, not counted against `--max-relaunch`).
+- So a port goes into the game folder through `deploy_starfield.py`, never by copying files over it: for an interior
+  batch stage such as `doors_anim_b00`, `uninstall`, then `install --batch <stage>`. A file copied over a recorded
+  install fails `verify` as "changed since the install". Without `FO4SF_PORT=installed`, cycle.ps1 refuses a `-Staging`
+  that is an interior batch stage or its `port` folder (exit 7, before the game is closed or anything removed):
+  `install --staging` packs archives from loose files, which a batch's port folder does not have, after the uninstall
+  had already removed the installed port.
+- In this mode the port's Plugins.txt line keeps its place (no uninstall and append), so a queue that addresses
+  records by load index is planned against the installed order.
+
 A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
 `test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of
 being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried. A walk crash on another install

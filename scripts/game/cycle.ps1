@@ -12,11 +12,13 @@
 # few minutes (load screen, then a hang).
 # Exit codes: 1 bad cell name, 2 input guard, 3 the game was not started by this script, 4 arrival not verified,
 # 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
-# 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched),
+# 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched), or the port
+# to test is wrong: -Staging is an interior batch stage, or with FO4SF_PORT=installed the installed port is not the one
+# its deploy record (or FO4SF_PORT_SHA256) names (nothing launched),
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
-# nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe) was asked to start the game and no Starfield process was alive 20 s
+# nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe, or sfse_loader.exe, FO4SF_LAUNCH=sfse) was asked to start the game and no Starfield process was alive 20 s
 # after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
@@ -41,13 +43,46 @@ if ($env:FO4SF_LEASE_DIR) {
   $leaseOut | Select-Object -Last 1
   if ($null -eq $leaseCode -or $leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
 }
+# An interior batch stage (result.json; doors_anim_b00 and its port folder, 2026-10-28) holds a built port: FO4Port.esm
+# and its archives, no loose meshes or textures. deploy_starfield.py install --staging would pack new archives from
+# nothing after the uninstall below had removed the installed port. Such a port goes in with install --batch, and the
+# runs test it with FO4SF_PORT=installed. Checked before anything is closed or touched.
+if ($env:FO4SF_PORT -ne 'installed') {
+  $stg = $Staging.TrimEnd('\', '/')
+  $stageRoot = if ((Split-Path -Leaf $stg) -eq 'port') { Split-Path $stg } else { $stg }
+  if (Test-Path -LiteralPath (Join-Path $stageRoot 'result.json')) {
+    "$Staging is an interior batch stage (result.json): install it with deploy_starfield.py install --batch and run with FO4SF_PORT=installed: not launching"; exit 7
+  }
+}
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
 $pidFile = Join-Path $PSScriptRoot 'cycle_pid.txt'           # local only: the PID of the game this script launched
 $own = if (Test-Path $pidFile) { [int](Get-Content $pidFile) } else { 0 }
 if ($p -and $p.Id -ne $own) { "Starfield is running but was not started by cycle.ps1 (the user's own session): not closing it"; exit 3 }
 if ($p) { $p.CloseMainWindow() | Out-Null; Start-Sleep 8; $p.Refresh(); if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -Confirm:$false }; Start-Sleep 4 }
-python -I "$repo\scripts\deploy_starfield.py" uninstall --starfield $sf | Out-Null
-python -I "$repo\scripts\deploy_starfield.py" install --staging $Staging --starfield $sf | Select-Object -Last 1
+# FO4SF_PORT=installed (opt-in, 2026-10-28; set by testqueue.py for a queue planned with --port installed): the port
+# already installed is the one this launch tests, so nothing is uninstalled or deployed (a redeploy of -Staging would
+# silently put the older port back over an installed one such as doors_anim_b00). deploy_starfield.py verify checks it
+# against its own record instead: every file's size and sha256, FO4Port.esm and its companions active in Plugins.txt,
+# and with FO4SF_PORT_SHA256 the plugin the queue pinned. Any difference: exit 7, nothing launched.
+# Fail closed as the lease gate does (Codex on #558): python resolved first, the stale exit code cleared, an invocation
+# error caught, so a reused host's earlier 0 never passes. The game folder goes in without a trailing backslash:
+# PowerShell 5.1 quotes a path with a space as "...\", and the closing quote, escaped by that backslash, would swallow
+# the pin that follows (Codex on #558).
+if ($env:FO4SF_PORT -eq 'installed') {
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { "python not found: the installed port cannot be checked: not launching"; exit 7 }
+  $sfArg = $sf.TrimEnd('\', '/')
+  if ($sfArg -match ':$') { $sfArg = $sf }                       # a drive root keeps its backslash ("D:" is D:'s cwd)
+  $verArgs = @('verify', '--starfield', $sfArg)
+  if ($env:FO4SF_PORT_SHA256) { $verArgs += @('--plugin-sha256', $env:FO4SF_PORT_SHA256) }
+  $global:LASTEXITCODE = $null
+  try { $ver = python -I "$repo\scripts\deploy_starfield.py" @verArgs; $verCode = $LASTEXITCODE }
+  catch { $ver = "deploy_starfield.py could not be run: $_"; $verCode = $null }
+  $ver | Select-Object -Last 1
+  if ($null -eq $verCode -or $verCode -ne 0) { "the installed port is not the recorded one (deploy_starfield.py verify exit $verCode): not launching"; exit 7 }
+} else {
+  python -I "$repo\scripts\deploy_starfield.py" uninstall --starfield $sf | Out-Null
+  python -I "$repo\scripts\deploy_starfield.py" install --staging $Staging --starfield $sf | Select-Object -Last 1
+}
 # A staged experiment installed before this launch (testqueue.py pre_launch) was appended to Plugins.txt before the
 # deploy above appended FO4Port.esm again: a plugin of it that masters FO4Port.esm (the slice door plugin) is moved
 # after its masters here. Nothing installed or nothing to move: no change. A master missing: exit 7, no launch.
@@ -104,10 +139,15 @@ $HudShown = { param($png)                                       # in game: oxyge
 # after start; crashwatch's ProcDump (-w, waiting for Starfield.exe) logged a BREAKPOINT on that process a second
 # before, as on every short-lived start since Oct 18 (supported: the debugger attach ends the game). An exe launch is
 # not expected to avoid that; stop the watcher for runner launches. Unset or any other value: the steam:// launch.
+# FO4SF_LAUNCH=sfse (opt-in, 2026-10-28; set by testqueue.py for a queue planned with --launch sfse): start
+# sfse_loader.exe from the game folder, which starts Starfield.exe with SFSE (the launcher's route=sfse). A Steam or exe
+# launch loads no SFSE plugin, so a run that compares FO4SFBorder modes through them compared nothing (Install,
+# 2026-10-28). The wait below follows the Starfield process, not the loader, as before.
 $launch = 'steam://rungameid/1716740'
-if ($env:FO4SF_LAUNCH -eq 'exe') {
-  $launch = Join-Path $sf 'Starfield.exe'
-  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "FO4SF_LAUNCH=exe but $launch is missing: nothing launched, nothing tested"; exit 10 }
+$exe = if ($env:FO4SF_LAUNCH -eq 'exe') { 'Starfield.exe' } elseif ($env:FO4SF_LAUNCH -eq 'sfse') { 'sfse_loader.exe' } else { '' }
+if ($exe) {
+  $launch = Join-Path $sf $exe
+  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "FO4SF_LAUNCH=$($env:FO4SF_LAUNCH) but $launch is missing: nothing launched, nothing tested"; exit 10 }
   Start-Process -FilePath $launch -WorkingDirectory $sf
 } else {
   Start-Process $launch

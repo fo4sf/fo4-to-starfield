@@ -954,6 +954,51 @@ class PlanJsonTests(unittest.TestCase):
         with self.assertRaises(SystemExit), mock.patch("builtins.print"):
             tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", os.path.join(d, "no")])
 
+    def test_plans_take_the_sfse_route_and_the_installed_port(self):
+        # Install, 2026-10-28: the runner launched through Steam (no SFSE plugin loads, so T6 compared nothing) and
+        # redeployed --staging over the installed port (doors_anim_b00 would have been reverted)
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        jdump([{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0,
+                "spot": [-3.0, 4.0, 0.0]}], os.path.join(d, "plan.json"))
+        game, pt = os.path.join(d, "game"), os.path.join(d, "Plugins.txt")
+        os.makedirs(os.path.join(game, "Data"))
+        writef(os.path.join(game, "Data", "FO4Port.esm"), b"TES4installed")
+        writef(pt, b"*FO4Port.esm\n")
+        ds = tq.deploy_starfield()
+        jdump({"complete": True, "plugins_txt": pt, "files": ["FO4Port.esm"],
+               "artifacts": {"FO4Port.esm": ds.artifact_identity(os.path.join(game, "Data", "FO4Port.esm"))}},
+              os.path.join(game, "Data", ds.MANIFEST))
+        want = hashlib.sha256(b"TES4installed").hexdigest()
+        out = os.path.join(d, "q")
+        with mock.patch("builtins.print"), mock.patch.dict(os.environ, {"LOCALAPPDATA": d}), \
+                mock.patch.object(tq, "deploy_starfield", return_value=ds), \
+                mock.patch.object(ds, "plugins_txt_path", return_value=pt):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--launch", "sfse",
+                     "--port", "installed", "--starfield", game])
+            q = jload(os.path.join(out, "queue.json"))
+            self.assertEqual((q["launch"], q["port"]), ("sfse", {"mode": "installed", "plugin_sha256": want}))
+            self.assertEqual((q["tests"][0]["launch"], q["tests"][0]["port"]), ("sfse", "installed"))
+            self.assertTrue({"sfse_launch", "installed_port"} <= set(q["needs"]))
+            self.assertIn("sfse_launch,", " ".join(q["pre_launch"]) + ",")      # an older runner refuses the queue
+            # Codex on #558: the results belong to the installed build (report, ledger pins, the dedicated save);
+            # the staging's plugin keeps its own pin for the planned inputs
+            self.assertEqual((q["plugin_sha256"], q["build_id"], q["save"]), (want, want[:8], f"fo4sf_test_{want[:8]}"))
+            self.assertEqual(q["staging_plugin_sha256"], hashlib.sha256(b"TES4").hexdigest())
+            self.assertEqual(tq.staging_pin(q), hashlib.sha256(b"TES4").hexdigest())
+            r = tq.Runner(out, args(), ctl=FakeControls(), step=lambda t, o: 0)
+            self.assertTrue(r.pinned_ok())                                     # checked against the staging's pin
+            writef(pt, b"FO4Port.esm\n")                                      # the installed port is off: no plan
+            with self.assertRaisesRegex(SystemExit, "--port installed: FO4Port.esm not active"):
+                tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q2"),
+                         "--port", "installed", "--starfield", game])
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q3")])
+        plain = jload(os.path.join(d, "q3", "queue.json"))                   # without the options: as before
+        self.assertFalse({"launch", "port", "staging_plugin_sha256"} & set(plain))
+        self.assertEqual(tq.staging_pin(plain), plain["plugin_sha256"])
+        self.assertFalse({"launch", "port"} & set(plain["tests"][0]))
+        self.assertEqual(tq.runner_features.missing(["sfse_launch", "installed_port"]), [])
+
     def test_the_terrain_judge_never_passes_a_test_without_usable_points(self):
         # #219: a queue planned before the check: no points judged PASS on a screenshot alone, a NaN expect passed a
         # read 400 m below, a string expect raised TypeError
