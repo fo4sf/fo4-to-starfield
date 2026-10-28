@@ -608,3 +608,72 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - Name the model base after the first name in ordinal order. A new name that sorts earlier still flips it.
 - **Boundary:** this is not a migration. A plugin or map built with the 4f0ad57 election is not compatible with it,
   but no staged or installed build used that version. Not verified in game.
+
+## 2026-10-25: travel narrowed, two play modes, succession and ghouls (the owner's calls, Claude-cloud)
+- **Decision (owner, given to Codex on 25 October, confirmed to Claude on 28 October):**
+  - **Travel:** a modest outskirts expansion, with limited generated areas that are made once and kept. The player
+    gets there by a corridor, or by picking an allowed spot on the map within a distance cap. Longer trips go by
+    vertibird or other transport, with settlement-based range and paid travel priced by distance. Continuous walking
+    between regions is deferred until every planned location is in.
+  - **Modes:** Warfare picks a faction and one of its starting bases. Survival picks story on or off, and a faction or
+    solo start. Some settings are fixed per save.
+  - **Warfare death:** the player continues as another member of the faction. The same character is not revived.
+  - **Ghouls:** ghoul play is wanted for Warfare and for Survival with the story off.
+  - **Gameplay:** no language model, AI server or online inference. FO76 content follows FO4's single-player rules.
+  - **Platform and shipping:** we stay on Starfield. Support mods may ship separately later.
+- **Why:** these narrow the travel research (`docs/research/framework/travel-and-runtime-risks-oct25.md` on draft
+  #553) and the Route C travel map to something deliverable. The owner confirmed that Codex's record of them is
+  correct (28 October, project thread).
+- **Open:** exact ranges and costs, generation timing, which destinations are allowed, and what replacing a member
+  means for progression.
+
+## 2026-10-28: Claude works alone after Codex and Grok leave; the review rule stays (Claude-cloud)
+- **Decision:** the owner's Codex and Grok subscriptions end a week or two after Claude's next renewal. After that,
+  Claude is the only worker, possibly for some months. The merge rule does not change: CI must be green and an
+  independent review must pass on the current head. Once Codex and Grok are gone, the independent review comes from
+  a fresh Claude session that did not write the change.
+- **Why:** the owner said to keep the same rules (28 October). A review by the author is not independent.
+- **Alternatives:**
+  - CI alone: rejected, because the owner keeps the rules.
+  - A local model as reviewer: deferred. The owner may buy a Mac Studio for a local coding assistant, but the
+    purchase is uncertain. It would not run the game, so game tests stay on the Windows PC.
+
+## 2026-10-28: the in-game world simulation is a C++ port inside the SFSE plugin; Python stays the reference (Claude-cloud)
+- **Decision:**
+  - `src/fo4sf/combined/` remains the reference model, and it runs the whole Commonwealth (about 230 places, from
+    the 21 October seed run) offline.
+  - In game, a 20-place slice comes first.
+  - When the simulation moves into the game, it is ported to C++ inside the SFSE plugin (the `sfse/FOCCSidecar/`
+    stack). The port must give the same results as the Python model on shared test worlds.
+  - We use no Rust, no ECS library and no separate simulation process.
+  - Probes P1 to P10 (`docs/spikes/combined-core-probes.md`) run first.
+- **Why:** the owner left scale and language to Claude (28 October). Codex's brief
+  (`docs/research/framework/claude-reuse-decision-brief-oct25.md` on #553) asked for keep, adapt, investigate or
+  defer. Nothing is measured slow, and Python never runs in the game. The open questions are save association,
+  keyword-data persistence, spawning and Papyrus latency (P1, P2, P4, P5), and no language answers them. Our native
+  plugins are already C++ on SFSE's own API.
+- **Alternatives:**
+  - Rust or an ECS library (Bevy ECS, hecs): deferred. They add a second native toolchain and a C bridge for no
+    measured gain.
+  - A separate process: deferred. Keeping it in step with saves and crashes is harder than keeping a table inside
+    the plugin.
+  - A Papyrus-only tick: kept only as the fallback if P1 fails, as a small frozen world (engine-feasibility.md).
+  - Event-driven updates and interruptible actions: patterns to investigate later in our own code.
+- **Boundary:** no in-game evidence yet. The settlement saturation found on the real pack was fixed offline on
+  21 October ("Commonwealth-scale baseline" in `docs/combined-core.md`), and it still needs a rerun on the real pack.
+
+## 2026-10-28: which outside tools we use (Claude-cloud)
+- **Decision:**
+  - **Keep:** xEdit, Mutagen, texconv, Archive2, the official Papyrus compiler and SFSE.
+  - **Use when the next work needs them:** texdiag and the fo76utils NifSkope fork, as independent texture and mesh
+    checks. JPEXS for the map and menu work. Cassiopeia, checking its functions before writing our own hooks.
+    Spriggit, for private plugin diffs.
+  - **Later, for a named job:** CommonLibSF, Champollion with B.A.E., PresentMon, Blender with Starfield Geometry
+    Bridge, CKPE and Tracy. Ghidra or a debugger only on the owner's word.
+  - **Not now:** Caprica, Bethesda Multitool, and the Rust, SimPy, BehaviorTree.CPP, Recast/Detour and FastNoise2
+    libraries.
+- **Why:** the owner asked for a verdict on the tools Codex researched
+  (`docs/research/framework/modding-tool-workflows-oct25.md` on #553). Installing software on the PC is the owner's
+  call, so this list installs nothing.
+- **Boundary:** none of these has been tested on our build. Cassiopeia is not bundled. CommonLibSF's licence is
+  checked before anything built on it ships.
