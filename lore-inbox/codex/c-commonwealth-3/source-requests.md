@@ -8,3 +8,5 @@ Linked primary follow-up: Factory Terminal Entries and Galleria Terminal Entries
 Both are canonical TODO with no own ledger/cache. Request one read of each, prioritizing quoted game/guide/primary descriptions. Preserve transport capacities/marketing as attributed, and Institute access/location facts without assuming converted-world functionality. No lore/network-model/game implementation is authorized by this research.
 
 Follow-up: Nuka-World Transit Center Terminal Entries, linked for timetable and railway power claims by Nuka-Express5680281. No matching ledger/cache; request transcript before accepting article timetable/power-story assumptions.
+
+- 2026-10-28: queued The Institute Terminal Entries, linked by cached Institute location rev5575035, to inspect primary division/infrastructure/access records. No matching source row in canonical/inbox ledgers or cached terminal file found. First read only; coverage to reflect actual sections.

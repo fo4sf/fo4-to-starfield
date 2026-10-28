@@ -1,3 +1,18 @@
+# Fifteenth delivery: Institute proposals, access and reactor records
+
+46 new entries:34 FO4 terminal claims and12 attributed FO3 Zimmer claims. Allunchecked; total406 (366game,38guide,1dependent,1cutHOLD), folders127/140/139. Next8492. Original93 third-folder rows remain byte-identical. Sourcecounts35unique/41rows,1FULL34PARTIAL; six continuations require IDunion.
+
+Institute Terminal Entries5666803 was queued before a single first fetch; cached location5575035 was reused. Whole page remains PARTIAL: selected sections only. The inaccessible/unused terminal block is not promoted to released-game canon. Original schema/guard/diff checks cover delivery structure, not independent lore acceptance.
+
+Research proposals are not implemented capabilities: cybernetic expansion/Relay miniaturization/cold fusion rejected; plasma research pending. Li.M's cold-fusion skepticism does not refute stored TV evidence. Reports of upgrades do not prove universal reliability. Director dated Kellogg age is retained;150/200 predicted lifespans are not stored. SRB clearance rule and Father's explicit visitor exception are separate. Proposed regulation updates are not enacted policy. Reactor success/failure texts remain alternative authored responses; adjacent quest/password/hacking conditions are not silently verified. No universal access or gameplay requirement is inferred.
+
+Zimmer's excerpts are FO3, not FO4 merely because the page is an FO4 location. Parent removed an inferred Harkness name/search-topic instruction, split compound search/physiology claims, preserved speculation and opinion, and kept digestion distinct from programmed breathing simulation. Blood is not called artificial: the quote only explicitly qualifies skin. No FO4 map position assigned. Helper's notes say six but JSON actually has seven initial proposals; original files preserved.
+
+Canonical reconciliation: prior FA8427 andFA8439 are attributed component claims supporting the compound canonicalFA0081; do not count them as additional unique lore when folding. Keep their source evidence/IDs and reconcile through Claude's merge process. This is a duplication/support note, not a canon rejection or canonical edit. OlderFA0080's nearly-limitless power wording remains source-attributed; today's maxed-output report supplies no timeline or countermeasurement. All canonical data and prior inbox files retained.
+
+StopA still incomplete: exact64-page queue/currentrawsnapshot requested once, no answer observed. No whole-source FULL refetch, canonical fold, merge, new native/build/game/deployment work or revived automation.
+
+
 # Fourteenth delivery: Nuka transport and Institute divisions
 
 52 new game entries, allunchecked. Total360:320game38guide1dependent1cutHOLD; one guide rejected remains historical. Folders127/140/93. Next8446; gaps8406..8419 unused. Prior41 third-folder bytes and firsttwofolders unchanged.
