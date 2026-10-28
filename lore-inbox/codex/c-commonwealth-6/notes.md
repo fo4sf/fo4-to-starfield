@@ -1,0 +1,15 @@
+# Twentieth delivery: Cambridge Polymer Labs
+
+Added 71 entries (CU-8745 through CU-8815) from terminal revision 5542194, fetched once after the ledger and cache check. This source begins folder6 because the full batch would overfill folder5. The Commonwealth inbox now has 724 entries: 649 game, 38 guide, one dependent and 36 cut-content HOLD. All new entries await second read. Folder counts: 127/140/139/150/97/71. Next ID: 8816.
+
+Research statements stay attributed. Hypothesized energy harvesting, reported test gains, static lifetime, tensile failures and proposed changes do not establish real engineering or a tested in-game armor effect. The literal recipe parameters are retained without treating hardform/pattern numbers as FormIDs. Reported success at one research step does not prove a finished prototype.
+
+Elwood’s communications, threats, injuries and attempts to obtain extraction remain his account. His claimed military-training explanation is not adopted as the cause of the outside noise. Blast-caused reactor damage and a septic wound are his hypotheses. Ericka not seeing him move does not prove death. Intended breaches, escape routes and extraction are not recorded as successful outcomes. One Bergman message explicitly bears 2078.1.16.04:17; this is not assigned to every log or used to resolve the incident chronology.
+
+Canonical reconciliation: CU-0020’s attached fusion/fission quotation is absent from this version of the cited terminal, including the word “turbines.” Flag the source attribution for correction; this alone does not disprove every other source on nuclear power. ST-AK-0004’s assertion of fighting in Alaska is stronger than Elwood’s primary taunt about Bergman being there and “pretending to be a soldier.” Ericka separately describes him as the only person in the lab with military training. Canonical records were not changed.
+
+The helper supplied 20 draft claims. Parent retained 18, removed two overlaps, narrowed compounds and unsupported name expansions, and added 12 distinct supported claims. Together with 41 parent claims this yields 71. Exact supporting text was checked; helper originals and the correction to the initial overly broad “dates absent” note remain private. CU-0020’s attribution finding is not a general correction of scientific lore.
+
+Map marker 00025561 was independently read from the base master and matched the existing export. It is a site anchor, not a coordinate for incidents inside the lab. There are now 21 verified anchors. All 71 new rows pass the unmodified validator, and prior folders/canonical files/validator remain unchanged. Older cut-tier failures remain explicitly disclosed rather than relabeled passed.
+
+Coverage: 36 unique sources and 46 ledger rows, one FULL and 35 PARTIAL. Ten earlier continuation rows still require ID union. Generic UI messages, fictional password/patch-note material and some incidental correspondence are not fully extracted, so this page stays PARTIAL. Stop A remains incomplete pending Claude’s current raw snapshot and exact 64-page queue. No canonical fold-in, merge, game/deployment action or automation resume.
