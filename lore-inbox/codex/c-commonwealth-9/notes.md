@@ -1,3 +1,15 @@
+# Thirty-sixth delivery: military overlap and Back Alley Bowling
+
+11 new entries (8 game, 3 guide), all unchecked. Folder9 now82; localtotal1152. Four queued pages cached once plus only the missing Back Alley companion transclusion. The optional HTML-parser dependency was absent after successful fetch; retained failure, parsed cached HTML with the standard library, no refetch.
+
+104th and708th summaries largely overlap existing military evidence, so no duplicate unit claims. MIL0010 preserves procedure effective date rather than arrival/staffing start. MIL0011/8075–8077 and CU8078 establish Reise’s ArmyReserves affiliation and specified joint duties, not whole-division status or every officer working together. Cached terminal text reused.
+
+NationalGuard: FO2 weapon descriptions supply arsenal reassignment, not Commonwealth inventories. TeslaArmor and TrainingYard expansion/PowerArmor use are tier2 guide claims. Rahmani’s US military service is not explicit NationalGuard affiliation; neither real-world108th organization nor wiki membership lists establish it in-game. Linked-but-unquoted Germantown/Poseidon terminals are not newly verified. VanBuren design material remains unextracted tier2HOLD, never canon.
+
+Six substantive BackAlley companion remarks retain speaker attribution. Piper’s apocalypse blame is sarcasm; Nick’s calibration remark is not a tested interface; X6’s destructive interpretation is not authoritative bowling rules. Generic comments/jokes are not padded into claims. CU0095 price and ST-MA0023 ArlingtonStreet poster already exist; this page does not independently re-clear their original primary evidence. Cell reference is not a map-marker ID; no BackAlley coordinates fabricated.
+
+National Guard Training Yard map marker0002BF2D independently read from unchanged base master: site anchor only.32siteanchors now. Canonical/build/validator and earlier entries unchanged; all new material awaits independent second read.74sourceidentities/91rows,1FULL73PARTIAL,17continuations. Exact64queue/currentrawsnapshot still pending existing requests; no assumption of loss or repeated request. No game/deploy/merge or automation resume.
+
 # Thirty-fifth delivery: expulsion, synth retention and competing accounts
 
 41 new entries:39game/2guide, allunchecked. Folder9=71; localtotal1141, published1070 until next batchpush. No new source identity or historical event is established merely by a wiki link target.

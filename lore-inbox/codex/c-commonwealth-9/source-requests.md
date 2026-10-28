@@ -8,3 +8,7 @@
 2026-10-28: request The Synthetic Truth, primary newspaper cited for2282 by queued Anti-Ghoul Decree and canonicalTL0275. No canonical/ALLinbox ledger row or named cache. Readonce to check election/expulsion chronology and distinguish reporting, eyewitness testimony and editorial allegations.
 
 2026-10-28: request Director's Recording 108, explicitly cited by canonicalFA0073. Targeted primary cross-check of BrokenMask against newspaper uncertainty, not wholesale Institute overview reread. Metadata resolves title; no cached/previouslyread record found.
+
+2026-10-28: read queued104thInfantryRegiment/708thInfantryDivision/BackAlleyBowling/NationalGuard after canonical+ALLinbox/namedcache check. Cacheonce, prioritize new primary Commonwealth evidence; reuse prior unit transcripts and flag unsourced organizational/event inferences rather than re-enter existing claims. Older queue, not confirmed exact64queue.
+
+2026-10-28: request only Back Alley Bowling companion-comment transclusion (back block), absent from cached parent raw and existing location-comment ledger coverage. Reuse cached Galleria terminal and military transcripts; no whole companion page fetch.
