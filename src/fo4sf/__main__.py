@@ -15,6 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .btd import BtdError, read as read_btd
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 from .nif import NifError, parse as parse_nif
@@ -387,6 +388,54 @@ def cmd_dds_summary(args: argparse.Namespace) -> int:
             ok = False
     return 0 if ok else 1
 
+
+def cmd_btd_summary(args: argparse.Namespace) -> int:
+    """Print a short structural summary of one or more Starfield .btd terrain files (offline diagnostic)."""
+    import json
+    if not args.paths:
+        print("error: at least one BTD path required", file=sys.stderr)
+        return 1
+    ok = True
+    results = []
+    for raw in args.paths:
+        path = Path(raw)
+        if not path.is_file():
+            print(f"error: {path}: not a file", file=sys.stderr)
+            ok = False
+            continue
+        try:
+            data = path.read_bytes()
+            btd = read_btd(data)
+            summary = {
+                "path": str(path),
+                "version": btd.version,
+                "height_min_m": btd.hmin,
+                "height_max_m": btd.hmax,
+                "cells_x": btd.ncx,
+                "cells_y": btd.ncy,
+                "ltex_count": len(btd.ltex),
+                "raw_height_range": [int(btd.heights_raw.min()), int(btd.heights_raw.max())],
+            }
+            results.append(summary)
+        except BtdError as e:
+            print(f"error: {path}: {e}", file=sys.stderr)
+            ok = False
+        except Exception as e:
+            print(f"error: {path}: unexpected {type(e).__name__}: {e}", file=sys.stderr)
+            ok = False
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        for s in results:
+            print(f"{s['path']}")
+            print(f"  Version: {s['version']}")
+            print(f"  Height range: {s['height_min_m']:.2f} .. {s['height_max_m']:.2f} m")
+            print(f"  Cells: {s['cells_x']} x {s['cells_y']}")
+            print(f"  LTEX FormIDs: {s['ltex_count']}")
+            print(f"  Raw height samples: {s['raw_height_range'][0]} .. {s['raw_height_range'][1]}")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fo4sf", description="Fallout 4 → Starfield conversion tools")
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
@@ -411,6 +460,12 @@ def main(argv: list[str] | None = None) -> int:
     p_dds = sub.add_parser("dds-summary", help="summarize DDS texture headers (width, height, format)")
     p_dds.add_argument("paths", nargs="+", help="one or more .dds files")
     p_dds.set_defaults(func=cmd_dds_summary)
+
+    p_btd = sub.add_parser("btd-summary", help="summarize Starfield .btd terrain files (version, height range, cell grid, LTEX count)")
+    p_btd.add_argument("paths", nargs="+", help="one or more .btd files")
+    p_btd.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    p_btd.set_defaults(func=cmd_btd_summary)
+
 
     args = parser.parse_args(argv)
     return args.func(args)
