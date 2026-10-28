@@ -485,11 +485,14 @@ sent (its `p9 go` inside its track, after the start and before its `p9 done`) wa
 came under 10 m after it through continuous samples (the walk's own checks: readings complete, time increasing, no
 step faster than 15 m/s; a jump to the destination is a setup fault, not the command). The distance that counts is the go line's `dist=`, not the start line's: what the actor did
 between P9Track and the go was not the command's doing, and an actor already under 10 m when commanded arrived on its
-own. A console command leaves no line in the log, so a rung without a go never stands as the control and a rung without
+own. The judged rung's go must name the tracked destination (`Go <id> 0`: `target=dest` with FOCC_P9_Dest's id), since
+P9Track measures the distance to FOCC_P9_Dest: a long rung sent to the player (`1` left in from the control) or to
+another reference commanded a different walk than the samples describe and is INCONCLUSIVE, whatever the samples show.
+The control's go may name the player (standing at the destination for that rung) or the destination itself. A console command leaves no line in the log, so a rung without a go never stands as the control and a rung without
 a go is judged by its own approach only: an actor that arrived without a logged command may have wandered (N1c drifted
 14 m; Codex review of #560). Otherwise those cases are INCONCLUSIVE: a still actor cannot tell a command that did nothing
 from a navmesh with no path. Every rung is summarised in the verdict's `extra.attempts` (start, go and closest
-distance, how far the actor moved, cells, whether it arrived, its driver and target, the line of its go, and after how
+distance, how far the actor moved, cells, whether it arrived, its driver, target and whether that was the tracked destination, the line of its go, and after how
 many seconds its PathToReference returned, paired by `call=`). Send back: the log, the verdict, the dx dy used and the
 actor id.
 

@@ -1360,6 +1360,12 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "go_line": go.line if go is not None else None,
                     "go_rt": go.rt if go is not None else None,
                     "target": go.fields.get("target") if go is not None else None,
+                    "go_id": go.form("id") if go is not None else None,
+                    # True when the go named the tracked destination itself (target=dest with the `p9 dest` line's id):
+                    # P9Sample measures the distance to FOCC_P9_Dest, so a go aimed anywhere else (the player, another
+                    # reference) is not the route the samples describe (Codex bot on 8dbfef8d)
+                    "to_dest": (go.fields.get("target") == "dest" and bool(dest) and go.form("id") is not None
+                                and go.form("id") == dest[-1].form("id")) if go is not None else None,
                     "path_returned_s": back.num("after") if back is not None else None})
     return out
 
@@ -1373,7 +1379,9 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     scripted rung whose go found the actor between p9_control_min_m and p9_control_m out and that arrived after the go
     through continuous samples (`continuous`: readings complete, time increasing, no teleport-fast step, loaded): an actor
     already under the arrival distance when commanded arrived on its own, whatever its start line said, and a jump to
-    the destination is a setup fault, not the command walking (Codex review of #560). Each a finished track of the same
+    the destination is a setup fault, not the command walking (Codex review of #560). The control's go names the player
+    (who stands at the destination for that rung, per the card) or the tracked destination itself (`to_dest`); a go to
+    another reference commanded a different walk than the one the samples measure. Each a finished track of the same
     actor to FOCC_P9_Dest."""
     P = PLACEHOLDERS
     if driver != "script":
@@ -1384,7 +1392,7 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
         return None
     ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == "script" and a["go_dist_m"] is not None
                 and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]
-                and a["continuous"] is True), None)
+                and a["continuous"] is True and (a["target"] == "player" or a["to_dest"] is True)), None)
     if ctl is None:
         return None
     return (f"the baseline rung (line {base['line']}) stayed {base['closest_m']:.1f} m or more away and the scripted "
@@ -1431,6 +1439,16 @@ def check_p9(c: Collection) -> Verdict:
     actor = starts[-1].form("actor")
     if actor is None:
         v.reasons.append("p9 start names no actor")
+        return v
+    if go_line is not None and latest["to_dest"] is not True:
+        # P9Sample measures the distance to FOCC_P9_Dest, so a go aimed at the player (`Go <id> 1`, the control's form)
+        # or at another reference commanded a different walk than the samples describe: its distance, clock and the
+        # ladder's proof say nothing about the route to the destination (Codex bot on 8dbfef8d)
+        v.cite(*[e for e in evs if e.line == go_line])
+        v.reasons.append(f"the judged rung's `p9 go` targets {latest['target'] or 'nothing named'} (id "
+                         f"{latest['go_id'] or 'none'}), not the tracked FOCC_P9_Dest (id {dest[-1].form('id')}): "
+                         f"P9Track measures the distance to the destination, so this command's walk is not the route "
+                         f"judged here (the long rungs take `FOCC_P9Drive.Go <actor> 0`)")
         return v
     others = [e for e in samples if e.form("actor") != actor]
     if others:                                  # every sample is the started actor's (Codex review of #431)
@@ -1536,9 +1554,10 @@ def check_p9(c: Collection) -> Verdict:
             v.reasons.append(f"but the actor came at most {approach:.1f} m closer (moved {moved:.1f} m at most) and no "
                              f"ladder rung in this log shows the command walking it (a baseline rung within "
                              f"{P['p9_control_m']:g} m with no `p9 go` that stayed away, then a scripted one, its "
-                             f"`p9 go` inside its track finding it {P['p9_control_min_m']:g} m or more out, that "
-                             f"arrived after that go through continuous samples; a console command leaves no line "
-                             f"and never stands as the control): the command cannot be told from the navmesh")
+                             f"`p9 go` inside its track finding it {P['p9_control_min_m']:g} m or more out, aimed at "
+                             f"the player or at the destination, that arrived after that go through continuous "
+                             f"samples; a console command leaves no line and never stands as the control): the "
+                             f"command cannot be told from the navmesh")
         return v
     if not arrived:
         v.reasons.append(f"dist never fell below {P['p9_arrive_m']} m within {P['p9_seconds']} s (last {rows[-1][1]} m)")

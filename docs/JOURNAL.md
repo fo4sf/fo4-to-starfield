@@ -2420,5 +2420,11 @@ found the last gap: the control's distance came from its start line, so an
 actor that wandered from 20 m to 8 m before its go and stayed there passed as
 a commanded arrival. The distance that counts is now the go line's, the
 control must be found 15 to 30 m out by its go, and a judged rung's route
-length is its go's distance too. Details are in
-docs/spikes/combined-core-probes.md.
+length is its go's distance too. Four more rounds, from Codex's bot and desktop
+reviews, tightened the control: its walk must pass the judged rung's own checks
+(a timed go, every sample timed, placed and with a readable loaded flag, the
+first sample within a walk's reach of the go, no teleport-fast step, loaded in
+at least half of them), and the judged rung's go must name the tracked
+destination, since the tracker measures the distance to FOCC_P9_Dest and a long
+rung sent to the player by mistake is a different walk than the samples
+describe. Details are in docs/spikes/combined-core-probes.md.

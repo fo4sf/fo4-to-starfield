@@ -1181,7 +1181,7 @@ class P9Tests(unittest.TestCase):
             if dist is None:
                 dist = float(re.search(r"dist=([\d.]+)", next(l for l in rung if " p9 start " in l)).group(1))
             out = rung[:k + 1] + [f"FOCC rt={rt:.1f} p9 go actor=-16711680 call={call}.000000 target={target} "
-                                  f"id=20 dist={dist:.6f}"] + rung[k + 1:]
+                                  f"id={0x0300081B if target == 'dest' else 20} dist={dist:.6f}"] + rung[k + 1:]
             if after is not None:
                 out.append(f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call}.000000 target={target} "
                            f"after={after:.6f} dist=3.000000")
@@ -1197,6 +1197,29 @@ class P9Tests(unittest.TestCase):
         self.assertEqual([(a["driver"], a["target"], a["path_returned_s"]) for a in rungs],
                          [(None, None, None), ("script", "player", 12.0), ("script", "dest", 0.0)])
         self.assertEqual([a["go_line"] is not None for a in rungs], [False, True, True])
+        self.assertEqual([(a["go_id"], a["to_dest"]) for a in rungs], [(None, None), ("00000014", False), ("0300081B", True)])
+        # Codex bot on 8dbfef8d: P9Sample measures the distance to FOCC_P9_Dest, so a judged rung whose go went to the
+        # player (`Go <id> 1` left in from the control) or to another reference is not the route the samples describe:
+        # an actor walking away to the player and stopping there must not be read as stuck on the destination's navmesh
+        away = p9_log(speed=-2.0, seconds=600, stuck_from=300)[1:]  # dist grows 450 -> 1050 m, then still for 300 s
+        self.assertEqual(probes.check_p9(col(log=BASE + go(came, "player") + go(away, "dest"))).verdict, FAIL)
+        for label, judged in (("the judged go went to the player", go(away, "player")),
+                              ("the judged go went to another reference",
+                               [l.replace(f"id={0x0300081B}", f"id={0x0300081C}") if " p9 go " in l else l
+                                for l in go(away, "dest")]),
+                              ("a still actor commanded to the player", go(never, "player"))):
+            v = probes.check_p9(col(log=BASE + go(came, "player") + judged))
+            self.assertEqual(v.verdict, INCONCLUSIVE, (label, v.reasons))
+            self.assertTrue(any("not the tracked FOCC_P9_Dest" in r for r in v.reasons), (label, v.reasons))
+            self.assertIs(v.extra["attempts"][-1]["to_dest"], False, label)
+            self.assertNotIn("start_dist_m", v.extra, label)      # its distance and clock were not used
+        # the control may be aimed at the player (standing at the destination) or at the destination itself, not elsewhere
+        self.assertEqual(probes.check_p9(col(log=BASE + go(came, "dest") + go(never, "dest"))).verdict, FAIL)
+        v = probes.check_p9(col(log=BASE + [l.replace(f"id={0x0300081B}", f"id={0x0300081C}") if " p9 go " in l else l
+                                            for l in go(came, "dest")] + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), v.reasons)
+        self.assertIs(v.extra["attempts"][1]["to_dest"], False)
         # Codex review of #560: the command's receipt is a go INSIDE the track, and only what follows it answers.
         arrived_first = go(came, "player", at=len(came) - 1)         # the go lands after the last sample, before done
         after_done = go(came, "player", at=len(came))                # the go lands after `p9 done`
