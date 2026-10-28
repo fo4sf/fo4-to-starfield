@@ -166,6 +166,16 @@ and verdicts are in `D:\Modding\testqueue\focc_<P>_20261027\` on the PC.
 | P7 | PASS (minimal; the vendor half is deferred) | tier 3 (global 3) gave A three times, tier 9 (global 9) gave B three times |
 | P8 | judge said FAIL; INCONCLUSIVE since #557 | every child matched its parent, but all three readouts (within 1.4 s) showed stage 0's layout: the three P8Stage calls overlapped in one console session. Save growth +1,104 bytes. Rerun with the console closed between calls |
 | P10 | INCONCLUSIVE | FOCC_P10_Quest started at game start (rt 59.1), 44 s before the send (rt 103.5); `running=True` after. See the P10 card |
+| P8 (rerun) | PASS | the console closed for about 4 s after each P8Stage call; every child followed its parent in each stage's layout; save growth 0 bytes (`focc_P8r_20261027`) |
+| P9 | judge said FAIL; INCONCLUSIVE since the ladder judge | `player.placeatme 002B211C`, `PathToRef` to FOCC_P9_Dest 450 m out: for 600 s the actor stayed within about 3 m of its start, in one cell. No rung showed the command moving it, so this cannot tell `PathToRef` from the navmesh; rerun as the ladder on the P9 card |
+
+Second session (28 Oct, after #557's restage; `focc_probe_20261028b`, plugin e2e549f2; Install's report):
+
+| Probe | Verdict | What the log shows |
+|---|---|---|
+| P10 | PASS | the check printed the branch's new condition (GetEventData GetIsID Keyword1, record 00081F, equal to 1, the shape of 80 of the 82 vanilla keyword filters); `SendStoryEvent` ran, FOCC_P10_Quest's OnQuestInit came after it, `running=True` |
+| P3 (cell half) | INCONCLUSIVE; to be judged again | both `where` lines are in the log (Red Rocket cell 117449528, loc 167774215 = local 0x807; Super Duper Mart cell 117468230, loc 167774216 = local 0x808), but `cellname=` came back empty on both, and the judge named cells only by cellname. It now names them by the stage's form ids in offline_check.txt (P3b card); judge again with that file beside the log (`focc_P3cells_20261028`) |
+| P9 (ladder) | INCONCLUSIVE | rung b (`PathToRef player`, start 16.7 m): the actor ended about 22 m away, so the ladder stopped there as the card says. Next: the scripted driver (P9 card) |
 
 **The load order trap.** Loading a save made while FO4SFMission.esm was active silently switched Starfield to that
 save's load order: Mission came back on and the probe plugin went off, with no dialog. The cgf calls then failed with
@@ -250,9 +260,11 @@ coc FO4Port_SuperDuperMart01
 cgf "FOCC_Probe.Where"
 ```
 
-Quit; collect as `focc.0.log` into `D:\Modding\testqueue\focc_P3cells_$date`; judge `probes p3`. Expect `FOCC init
-variant=p3cells`, then `where cell=<id> cellname=FO4Port_RedRocket01 loc=<id> local=2055` and the Super Duper Mart line
-with `local=2056`. FAIL = `loc=none` or another location. **Then run focc-uninstall and reinstall the default stage**
+Quit; collect as `focc.0.log` into `D:\Modding\testqueue\focc_P3cells_$date`, and copy `offline_check.txt` from
+`${stage}_p3cells` beside it; judge `probes p3`. Expect `FOCC init variant=p3cells`, then `where cell=<id> loc=<id>
+local=2055 cellname=` for Red Rocket and the Super Duper Mart line with `local=2056`. On the PC (28 Oct) `cellname=` came
+back empty on both lines, so the judge names each cell by the form id the stage recorded for it in offline_check.txt
+(`CELL FO4Port_RedRocket01 <id>:FO4Port.esm`); without that file the cell half is INCONCLUSIVE. FAIL = `loc=none` or another location. **Then run focc-uninstall and reinstall the default stage**
 before anything else (rule 2: the variant overrides two FO4Port interiors while installed). A crash on load with the
 variant is itself the answer for an unparented LCTN (plan P3 risks): paste the dump name.
 
@@ -403,33 +415,71 @@ cycles (a spawn problem, not a bloat answer). The growth number itself is the fi
 ## P9: one actor walks 450 m across exterior cells
 
 Settles: long-route pathing on the converted navmesh (the exterior gate passed only over 19 m in the test sheet).
-v1 drives the actor with the console's `PathToRef` (verified in docs/owner/in-game-test-sheet.md) and tracks it from
-Papyrus; a Travel package variant is deferred (Mutagen PACK API unverified). The judge needs continuous samples: a
-jump faster than a walk between two samples is read as a teleport and is never a PASS.
+The probe needs a driver that walks a calm citizen at all, and the console has none so far. The test sheet's 19 m
+gate read 7.2 m in 30 s, inside the 14 m a calm citizen drifts on its own (N1c); N0 refuted the earlier `PathToRef`
+PASSes as wander (docs/actors/npc-navigation.md section 5); and on the PC's ladder (28 Oct, second session) the
+console's `PathToRef player` left the actor about 22 m from the player after starting 16.7 m away. So the driver is
+now `FOCC_P9Drive.Go`: `Actor.PathToReference` called from Papyrus, which `cf` never reached (N0_cf). It is compiled
+on its own (`compile_p9_drive.txt`): if Starfield's Actor.psc does not declare it, only P9 waits, and the stage says so.
+If the scripted control does not bring the actor either, the next driver is a package on a quest alias (a Travel
+package, the way the game moves its own actors); its PACK record needs Mutagen's Starfield API checked first.
+The card is a ladder in one launch: a baseline with no command, a short scripted control, then longer routes. The
+judge needs continuous samples: a jump faster than a walk between two samples is read as a teleport and is never a
+PASS.
 
-**Job focc-P9. Game: running, default stage, at Red Rocket, `tgm`, `SetLocalTime 12`.**
+**Job focc-P9. Game: running, default stage, at Red Rocket, `tgm`, `SetLocalTime 12`.** First read the stage's
+`compile_p9_drive.txt`: if it says `refused`, do not run P9; send that file (the compiler's line is the finding).
 
 ```
 player.placeatme 002B211C 1
-PickLastRef                                  (note the FFxxxxxx it prints)
-cgf "FOCC_Probe.P9Dest" 450.0 0.0            (direction: along the road per docs/terrain/walk-redrocket-sanctuary.md; write the dx dy used on the card)
+PickLastRef                                  (note the FFxxxxxx it prints; hex2dec FFxxxxxx gives the negative decimal cgf wants)
 ```
 
-The log now has `p9 dest id=<signed decimal> pos=...`; convert it: `python -m fo4sf.combined.probes dec2hex <id>`.
+Walk about 20 m away from the actor and stand still there until rung b ends: you are the destination. Close the
+console after every rung's last line (the game is paused while it is open, so nothing walks).
+
+**Rung a, the baseline (60 s, no command).**
 
 ```
-prid FFxxxxxx
-PathToRef <dest id as hex>
-cgf "FOCC_Probe.P9Track" <actor id as signed decimal> 600
+cgf "FOCC_Probe.P9Dest" 0.0 0.0              (FOCC_P9_Dest at your feet)
+cgf "FOCC_Probe.P9Track" <actor id as signed decimal> 60
 ```
 
-(`hex2dec FFxxxxxx` gives the negative decimal `cgf` wants.) Follow with `tcl` if the actor gets far (AI processing
-distance may drop the path; the tracker's `loaded=` shows it). Quit after `p9 done`. Collect `focc.0.log` into
+**Rung b, the scripted control (60 s).** After `p9 done`:
+
+```
+cgf "FOCC_Probe.P9Track" <actor id as signed decimal> 60
+cgf "FOCC_P9Drive.Go" <actor id as signed decimal> 1
+```
+
+The log then has `p9 go actor=<id> call=<t> target=player ...` and, when the call returns, `p9 path returned ...
+after=<s> dist=<m>`. If the actor did not come within 10 m of you, stop here and send the log: the scripted command
+does not walk this actor either, and the longer rungs would only repeat that. Otherwise go on.
+
+**Rungs c, d and e (20 m for 120 s, 120 m for 180 s, 450 m for 600 s).** Start each only after the previous rung's
+`p9 done` and its `p9 path returned` (or 30 s after `p9 done` if no return came: note that). For each, with the dx
+used (direction: along the road per docs/terrain/walk-redrocket-sanctuary.md; write the dx dy used on the card):
+
+```
+cgf "FOCC_Probe.P9Dest" <dx> 0.0             (20.0, then 120.0, then 450.0)
+cgf "FOCC_Probe.P9Track" <actor id as signed decimal> <120, then 180, then 600>
+cgf "FOCC_P9Drive.Go" <actor id as signed decimal> 0
+```
+
+Follow with `tcl` if the actor gets far (AI processing distance may drop the path; the tracker's `loaded=` shows it).
+Quit after the last `p9 done` and its `p9 path returned` (or 30 s). Collect `focc.0.log` into
 `D:\Modding\testqueue\focc_P9_$date`; judge `probes p9`. Expect `p9 sample t=<s> actor=<id> pos=x y z cell=<id>
-loaded=<bool> dist=<m>` every 2 s with dist from >= 400 to < 10 within 600 s through >= 4 distinct cell ids, timed by each line's `rt=` from the start's (real seconds; late timers do not
-stretch the deadline). FAIL =
-stuck (dist within 2 m for 120 s while loaded) or never leaving the first cell. Send back: the log, the verdict, the dx
-dy used and the actor id.
+loaded=<bool> dist=<m>` every 2 s.
+
+The verdict is the latest rung's: dist from >= 400 to < 10 within 600 s through >= 4 distinct cell ids, timed by each
+line's `rt=` from the start's (real seconds; late timers do not stretch the deadline). FAIL = stuck (dist within 2 m
+for 120 s while loaded) or never leaving the first cell, and only when the log shows the command moving this actor:
+it came at least 20 m closer on that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away
+and a later one sent the same way as the judged rung (the scripted driver, or not) arrived. Otherwise those cases are
+INCONCLUSIVE: a still actor cannot tell a command that did nothing from a navmesh with no path. Every rung is
+summarised in the verdict's `extra.attempts` (start and closest distance, how far the actor moved, cells, whether it
+arrived, its driver and target, and after how many seconds its PathToReference returned, paired by `call=`). Send
+back: the log, the verdict, the dx dy used and the actor id.
 
 ## P1: SFSE sidecar on save and load (last)
 

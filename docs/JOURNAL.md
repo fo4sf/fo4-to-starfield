@@ -2365,3 +2365,23 @@ the bridge carries, still applies to these doors. The stager now checks either
 script, the animated one with its `OpenSeconds` too, and records which one each
 door has. The judge did not need a change. Details are in
 docs/terrain/door-rounds.md.
+
+## 2026-10-28: Probe session 2, the P3 cell judge and a scripted driver for P9
+
+P8 ran again with the console closed for about 4 s after each stage call, and
+passed: every child followed its parent in each stage's layout, and the save
+did not grow. After #557's restage, P10 passed: the story event started our
+quest only once it was sent. P3's cell half logged both cells with our two
+locations, but the game wrote no editor id for either cell, and the judge
+named cells only by editor id, so it said INCONCLUSIVE. The judge now names
+them by the form ids the stage recorded for them, and the existing log can be
+judged again. P9's first run (600 s with `PathToRef` to a marker 450 m away,
+the actor within about 3 m of its start) is INCONCLUSIVE, not FAIL: this
+repo's NPC tests never showed `PathToRef` moving a calm citizen beyond its own
+wander. The ladder's control then settled the console route: from 16.7 m,
+`PathToRef player` left the actor about 22 m from the player. The next driver
+is `Actor.PathToReference` called from Papyrus (FOCC_P9Drive), which the
+console's `cf` never reached. It is compiled on its own, so if Starfield does
+not declare it only P9 waits. The P9 card is the same ladder with that driver,
+and the judge gives FAIL only after a scripted control that arrived. Details
+are in docs/spikes/combined-core-probes.md.
