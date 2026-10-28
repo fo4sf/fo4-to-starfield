@@ -194,7 +194,8 @@ Each step is one PR, with green CI and an independent review.
 3. **Offline, C2 to C4:** each step with its parity tests.
 4. **PC:** probes P2 to P10, then P1 (restaged from main and queued on 28 Oct).
 5. **PC:** bridge spike B0 on stack A (the owner's call, 28 October): B0-1 with the kit alone, then the Address
-   Library, the CommonLibSF build, `sfse/FOCCPing` and B0-2 (runbook section B0). The build tools are in.
+   Library (on the PC since 24 October), the CommonLibSF build, `sfse/FOCCPing` (the plugin, in the repo) and B0-2
+   (runbook section B0). The build tools are in.
 6. **PC:** the 20-place slice.
    - Python slices the real pack to the 20 places nearest the Commonwealth slice.
    - The plugin keeps the state in the save's sidecar (P1) and ticks every 6 game hours.

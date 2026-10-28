@@ -2560,3 +2560,20 @@ actor 26.7 m out and no code logged, so it could not tell a missing path
 from a stopped walk. FOCC_P9Drive now puts result= on the `p9 path returned`
 line and the judge names the code; the next rung decides between the navmesh
 (1) and the AI (2, 4) before any new driver is written.
+
+## 2026-10-28: FOCCPing, the B0 spike's SFSE plugin
+
+sfse/FOCCPing is the plugin half of B0 on the owner's stack A: one Papyrus
+native, FOCC.Ping(int) answering int + 1, bound in CommonLibSF's Papyrus
+callback (the trampoline hook at REL::ID(169912) + 0x514; the first launch on
+1.16.244 is its test). Version data: Address Library, layout dependent,
+runtime 1.16.244. CMake links the installed CommonLibSF::CommonLibSF with the
+dynamic CRT its triplet uses; build.ps1 takes the install prefix and the
+library's vcpkg_installed folder as CMAKE_PREFIX_PATH, the loaded MSVC
+environment (x64 only, as FOCCSidecar's scripts), and writes build.json into a
+new staging folder. Nothing of CommonLibSF is in the repo; its GPL-with-
+exceptions licence review is owed before anything built on it ships. The
+Address Library archive turned out to be on the PC already (Install's state
+note, 24 Oct), so the runbook's B0-2 card names it there. Not compiled here:
+the PC build is the check, and the kit's rule (a dll that keeps the game from
+the main menu is deleted at once) stands.
