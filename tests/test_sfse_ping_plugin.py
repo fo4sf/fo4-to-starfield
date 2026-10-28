@@ -78,6 +78,10 @@ class PingPluginTests(unittest.TestCase):
             self.assertIn("-CommonLibSF D:\\Modding\\tools\\CommonLibSF-install", text)
             self.assertIn("-Vcpkg", text)
             self.assertIn("D:\\Modding\\tools\\CommonLibSF\\build\\release-msvc-ninja\\vcpkg_installed\\x64-windows-static-md-release", text)
+            self.assertIn("Format-Hex <", text)                                        # the address library format check
+            self.assertIn("| Select-Object -First 1", text)                            # runs on Windows PowerShell 5.1
+            self.assertNotIn("-Count 4", text)                                         # Format-Hex -Count is PowerShell 6.2+
+            self.assertIn("02 00 00 00", text)
 
 
 if __name__ == "__main__":

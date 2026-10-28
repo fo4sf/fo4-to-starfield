@@ -1473,4 +1473,9 @@ class NamedLoadTests(RunnerTests):
         self.assertIn("if ($script:lo -ne 0) { return }", probe)                      # until the dialog has been seen
         self.assertIn("if ($script:lo -eq 5) { $script:lo = 0 }", probe)              # a failed check: again next pass
         self.assertIn("if ($script:lo -eq 9) {", probe)
+        for line in ('Write-Host "input guard stopped the sequence (someone else has focus)"; exit 2',
+                     'Write-Host "the load order dialog could not be answered with \'Current\': not confirming \'Save\'"; exit 8'):
+            self.assertIn(line, probe)        # review of #571: a plain string here is collected by the $hudSeen assignment and lost on exit
+        self.assertNotIn('{ "input guard', probe)
+        self.assertNotIn('{ "the load order', probe)
 

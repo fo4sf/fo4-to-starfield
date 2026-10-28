@@ -34,8 +34,9 @@ compiler here).
   in `include/REL/ID.h`; another first word stops the game with "Unsupported address library format"), and SFSE's
   own `PluginAPI.h` names two libraries, "Address Library v1 (Nexus 3256)" and an "Address Library for 1.15.216+"
   (`kAddressIndependence_AddressLibraryV2`). So the `.bin`'s first four bytes must read `02 00 00 00`
-  (`Format-Hex <path> -Count 4` in PowerShell); anything else is the other generation, a library finding before the
-  hook is even reached, and goes on the card as such.
+  (`Format-Hex <path> | Select-Object -First 1` in Windows PowerShell 5.1, the first 16-byte row; `-Count` exists only
+  from PowerShell 6.2); anything else is the other generation, a library finding before the hook is even reached, and
+  goes on the card as such.
 - `SFSE::SetPapyrusCallback` hooks the call inside `GameVM::GameVM` that binds everything to the script VM
   (`REL::ID(169912) + 0x514`, a trampoline call hook). The callback runs there with the VM and binds the native:
   `BindNativeMethod("FOCC", "Ping", &Ping, true, false)` (callable from tasklets, not latent). A global native takes
@@ -68,7 +69,8 @@ Compile errors on the first build are expected and cheap: this source has never 
 ## Install and run (the owner's line; game closed for the copies)
 
 1. The Address Library's `.bin` into `<Starfield>\Data\SFSE\Plugins\` (its own name; `versionlib-1-16-244-0.bin` is
-   what the library opens), after the format check above (`Format-Hex <path> -Count 4` reads `02 00 00 00`).
+   what the library opens), after the format check above (the first row of
+   `Format-Hex <path> | Select-Object -First 1` opens with `02 00 00 00`).
 2. `FOCCPing.dll` into the same folder.
 3. Launch through `sfse_loader.exe`. The kit's rule: a dll that keeps the game from the main menu is deleted at once.
 4. Runbook job B0-2: `cgf "FOCC_B0.Ping" 41`, `save focc_b0_a`, load it, `cgf "FOCC_B0.Ping" 43`,

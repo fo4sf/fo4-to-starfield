@@ -256,8 +256,10 @@ $ProbeLoadOrder = {
   if ($script:lo -ne 0) { return }
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'loadorder.ps1') | Out-Null
   $script:lo = $LASTEXITCODE
-  if ($script:lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
-  if ($script:lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+  # Write-Host for every line here: the block runs inside Wait-Screen, whose result is assigned, so a string on the
+  # output stream would be collected for that assignment and lost when exit unwinds the script
+  if ($script:lo -eq 2) { Write-Host "input guard stopped the sequence (someone else has focus)"; exit 2 }
+  if ($script:lo -eq 9) { Write-Host "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
   if ($script:lo -eq 10) { Write-Host 'load order dialog answered: Current (the experiment plugins stay active)' }
   if ($script:lo -eq 5) { $script:lo = 0 }
 }

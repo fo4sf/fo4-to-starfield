@@ -626,8 +626,9 @@ Prerequisites, in this order, each a game-folder or build step for the owner's l
    `.bin` goes to `<Starfield>\Data\SFSE\Plugins\`. CommonLibSF opens
    `versionlib-1-16-244-0.bin` there on Steam (`src/REL/ID.cpp`: `versionlib-<version with dashes>`, no platform
    suffix for Steam, `.bin`); the archive's file is kept under its own name and that name goes on the card. A missing
-   file stops the game with a message box naming the path. Before the launch, `Format-Hex <the .bin> -Count 4` must
-   read `02 00 00 00`: CommonLibSF `9caec20` reads address library format 2 only (`src/REL/ID.cpp`), and SFSE's
+   file stops the game with a message box naming the path. Before the launch, the first row of
+   `Format-Hex <the .bin> | Select-Object -First 1` (Windows PowerShell 5.1 has no `-Count`) must open with
+   `02 00 00 00`: CommonLibSF `9caec20` reads address library format 2 only (`src/REL/ID.cpp`), and SFSE's
    `PluginAPI.h` names a second library generation ("Address Library for 1.15.216+") beside Nexus 3256's v1; another
    first word is a library-generation finding ("Unsupported address library format" box), not a hook finding.
 2. CommonLibSF `9caec20`, built and installed on the PC on 28 Oct (preset `release-msvc-ninja`, exit 0,
