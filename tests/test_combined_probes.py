@@ -914,6 +914,28 @@ class P8Tests(unittest.TestCase):
         c.saves = saves(focc_p8_before=1_000_000, focc_p8_after=9_000_000)
         self.assertEqual(probes.check_p8(c).verdict, FAIL)
 
+    def test_overlapping_stage_calls_measure_nothing(self):
+        # Owner's PC, 28 Oct 2026: P8Stage 1, 2, 0 typed in one console session; all three readouts saw stage 0.
+        log = p8_log()
+        heads = [i for i, l in enumerate(log) if " p8 stage=" in l]
+        last = log[heads[2] + 1:heads[2] + 13]                 # stage 0's twelve rows, as read at every readout
+        c = col(log=log[:heads[0] + 1] + last + [log[heads[1]]] + last + [log[heads[2]]] + last)
+        c.saves = saves(focc_p8_before=890_416, focc_p8_after=891_520)
+        v = probes.check_p8(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertEqual(len(v.extra["overlapping_stage_calls"]), 2)
+        self.assertTrue(any("overlapped" in r for r in v.reasons), v.reasons)
+        detached = [l.replace("disabled=False parent", "disabled=True parent", 1) if i == heads[0] + 1 else l
+                    for i, l in enumerate(c.logs["focc.0.log"])]   # in an overlapped readout, a child off its parent
+        c = col(log=detached)
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        self.assertEqual(probes.check_p8(c).verdict, FAIL)
+        # a parent in a layout no later call asked for is the parent not following the script: still FAIL
+        first = log[heads[0] + 1:heads[0] + 13]
+        c = col(log=log[:heads[2] + 1] + first)                # stage 0 read in stage 1's layout, nothing after it
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        self.assertEqual(probes.check_p8(c).verdict, FAIL)
+
     def test_inconclusive_branches(self):
         c = col(log=p8_log()[:1] + p8_log()[4:])            # no move line
         c.saves = saves(focc_p8_before=1, focc_p8_after=1)
@@ -1143,7 +1165,7 @@ class P10Tests(unittest.TestCase):
         self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 59.137})
         self.assertTrue(any("already running before the send" in r for r in v.reasons), v.reasons)
         stopped = real[:3] + [f"FOCC rt=140.0 p10 state id={q} local=2080 running=False"]
-        self.assertEqual(probes.check_p10(col(log=stopped)).verdict, INCONCLUSIVE)    # not "never started": it had
+        self.assertEqual(probes.check_p10(col(log=stopped)).verdict, INCONCLUSIVE)    # it was running before the send, so not a FAIL
         pre = [INIT, f"FOCC rt=9.0 p10 state id={q} local=2080 running=True", *P10[1:2], P10[3]]   # from a loaded save
         v = probes.check_p10(col(log=pre))
         self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 9.0})
@@ -1151,6 +1173,16 @@ class P10Tests(unittest.TestCase):
                          PASS)                                                              # not running before: the send started it
         restarted = [INIT, real[1]] + P10[1:]           # started at game start, stopped, started again by the send
         self.assertEqual(probes.check_p10(col(log=restarted)).verdict, PASS)
+        # Codex review of #557: a running=False read after the last start supersedes that start.
+        stopped_first = [INIT, f"FOCC rt=1.0 p10 quest started id={q} local=2080",
+                         f"FOCC rt=9.0 p10 state id={q} local=2080 running=False", P10[1]]
+        v = probes.check_p10(col(log=stopped_first + [f"FOCC rt=25.0 p10 state id={q} local=2080 running=False"]))
+        self.assertEqual(v.verdict, FAIL, v.reasons)                                        # eligible, and the send did not start it
+        self.assertNotIn("running_before_send", v.extra)
+        self.assertEqual(probes.check_p10(col(log=stopped_first + P10[2:])).verdict, PASS)
+        restarted_before = stopped_first[:3] + [f"FOCC rt=9.5 p10 quest started id={q} local=2080", P10[1], P10[3]]
+        v = probes.check_p10(col(log=restarted_before))                                     # stopped, then started again before the send
+        self.assertEqual(v.extra["running_before_send"], {"line": 4, "rt": 9.5})
 
     def test_reasons_say_what_the_log_holds(self):
         v = probes.check_p10(col(log=P10[:2] + [P10[3]]))         # running after the send, no start line anywhere

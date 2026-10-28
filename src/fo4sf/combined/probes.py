@@ -1160,7 +1160,7 @@ def check_p8(c: Collection) -> Verdict:
         return v
     stages = stages[-3:]
     children = [e for e in children if e.line > stages[0].line]
-    failed = []
+    failed, overlapped = [], []
     for i, st in enumerate(stages):
         s = st.num("stage")
         end = stages[i + 1].line if i + 1 < len(stages) else float("inf")
@@ -1181,13 +1181,34 @@ def check_p8(c: Collection) -> Verdict:
             if k is None or j is None or _local(e, "id") != LOCAL["p8_child0"] + 4 * int(k) + int(j):
                 v.reasons.append(f"stage={s}: child k={k} j={j} id={e.fields.get('id')} is not FOCC_P8_Child_<k>_<j>")
                 return v
-            if dis != pdis:
+        # Owner's PC, 28 Oct 2026: the three P8Stage calls ran from one console session, Utility.Wait(1.0) does not
+        # count down while the console is open, so every readout saw the last call's parents (stage 0's layout).
+        # Parents in the layout of a stage commanded later mean the calls overlapped: nothing was measured.
+        layout = {}
+        for e in rows:
+            layout.setdefault(int(e.num("stage")), set()).add(e.flag("parent_disabled"))
+        later = [t.num("stage") for t in stages[i + 1:]]
+        stale = False
+        if all(len(x) == 1 for x in layout.values()):
+            seen = tuple(next(iter(layout[k])) for k in range(3))
+            if seen != tuple(k != s for k in range(3)) and any(seen == tuple(k != t for k in range(3)) for t in later):
+                overlapped.append(f"stage={s} read in a later stage's layout (parents disabled {list(seen)})")
+                stale = True
+        for e in rows:
+            k, dis, pdis = e.num("stage"), e.flag("disabled"), e.flag("parent_disabled")
+            if dis != pdis:                         # a child against its own parent counts in any readout
                 failed.append(f"stage={s} child k={k} j={e.num('j')}: disabled={dis} but parent_disabled={pdis}")
-            elif dis != (k != s):
+            elif not stale and dis != (k != s):
                 failed.append(f"stage={s} child k={k} j={e.num('j')}: disabled={dis}, expected {k != s}")
     if failed:
         v.reasons.append("enable parents not honoured: " + "; ".join(failed[:6]))
         v.verdict = FAIL
+        return v
+    if overlapped:
+        v.extra["overlapping_stage_calls"] = overlapped
+        v.reasons.append("every child follows its parent, but " + "; ".join(overlapped) + ": the P8Stage calls "
+                         "overlapped (Utility.Wait does not count down while the console is open), so the swaps were "
+                         "not measured. Run each P8Stage with the console closed for about 3 s in between")
         return v
     v.reasons.append("all 36 child lines follow their parent's state across the three stage swaps")
     if c.saves is None:
@@ -1404,17 +1425,20 @@ def check_p10(c: Collection) -> Verdict:
         v.reasons.append("SendStoryEvent ran, FOCC_P10_Quest's OnQuestInit fired and IsRunning is True")
         v.verdict = PASS
         return v
-    if before or (pre and pre[-1].flag("running") is True):
+    # The latest word before the send decides: a start line or running=True means the quest was already running,
+    # a running=False read after the last start means it had stopped and could be started again (Codex, #557).
+    last = max(before + pre, key=lambda e: e.line, default=None)
+    if last is not None and (last.kind == "p10 quest started" or last.flag("running") is True):
         # Owner's PC, 28 Oct 2026: OnQuestInit logged at rt 59.1, the send at rt 103.5. A quest already running
         # cannot be started by the send, so the run says nothing about our branch.
-        e = before[-1] if before else pre[-1]
+        e = last
         v.extra["running_before_send"] = {"line": e.line, "rt": e.rt}
         v.reasons.append(f"FOCC_P10_Quest was already running before the send (line {e.line}, rt {e.rt}; the send "
                          f"is line {s.line}, rt {s.rt}): something else started it, so this run cannot show what the "
                          "send does")
         return v
     if running is False:
-        v.reasons.append("SendStoryEvent ran but the quest never started and IsRunning is False")
+        v.reasons.append("SendStoryEvent ran, the quest did not start after it, and IsRunning is False")
         v.verdict = FAIL
         return v
     if running is True:

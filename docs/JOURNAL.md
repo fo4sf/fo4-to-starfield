@@ -2315,13 +2315,18 @@ the owner's 24 Oct save had been made with Mission on, and loading it silently
 switched Starfield back to that save's load order, probe plugin off, with no
 dialog. Started from the main menu instead, P2 and P3 persisted their keyword
 data across a relaunch and a load (37 read back as 37, linked locations still
-linked, 5 and 6 read back as 5 and 6). The judges still said INCONCLUSIVE,
+linked, 5 and 6 read back as 5 and 6). The judges first said INCONCLUSIVE,
 because OnInit does not run again on loading such a save and the second log
-had no init line; they now accept a restarted real-time clock instead (#556),
-and the two folders are to be judged again. P6 and P7 passed: the leveled
-lists picked base A or B from location keyword data and from our reputation
-global. P5 recorded 10 ticks over 50 globals at a median 121 ms, 2.42 ms per
-place, and the compiler's 128-entry array cap. P10 is INCONCLUSIVE: its quest
+had no init line; since #556 they accept a restarted real-time clock instead,
+and both folders then judged PASS. P4 passed: 20 cycles placed and deleted
+three actors each, and the save shrank by 1,776 bytes. P6 and P7 passed: the
+leveled lists picked base A or B from location keyword data and from our
+reputation global. P5 recorded 10 ticks over 50 globals at a median 121 ms,
+2.42 ms per place, and the compiler's 128-entry array cap. The P8 judge said
+FAIL, wrongly: every child matched its parent, but the three stage calls ran
+in one console session, where Utility.Wait does not count down, so all three
+readouts saw the last stage. It now says INCONCLUSIVE for that, and P8 is to
+be rerun with the console closed between calls. P10 is INCONCLUSIVE: its quest
 started at game start, 44 s before the story event was sent. The likely cause
 is that our Story Manager branch had no condition, so any vanilla script event
 could start it; the builder now copies the keyword filter of Starfield.esm's
