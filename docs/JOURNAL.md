@@ -2395,5 +2395,10 @@ of judged again. A `p9 go` counts only inside its rung's track, and only the
 samples after it answer it, so an actor that arrived before it was commanded
 is no control. And a rung with no go may be the actor's own wander, since a
 console command leaves no line, so it never stands as the control and a
-console-driven rung is judged by its own approach only. Details are in
+console-driven rung is judged by its own approach only. Codex's second round
+found the last gap: the control's distance came from its start line, so an
+actor that wandered from 20 m to 8 m before its go and stayed there passed as
+a commanded arrival. The distance that counts is now the go line's, the
+control must be found 15 to 30 m out by its go, and a judged rung's route
+length is its go's distance too. Details are in
 docs/spikes/combined-core-probes.md.

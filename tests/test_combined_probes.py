@@ -1171,12 +1171,17 @@ class P9Tests(unittest.TestCase):
         console's PathToRef never brought the actor 17 m to the player). Its FAIL needs a scripted control."""
         calls = iter(range(100, 200))
 
-        def go(rung, target, after=None, at=None):
-            """The rung with a `p9 go` right after its start (the card's order), or at line index `at`."""
+        def go(rung, target, after=None, at=None, dist=None):
+            """The rung with a `p9 go` right after its start (the card's order), or at line index `at`; the go's rt=
+            is the line before it's (P9Track's first sample shares the start's instant in these fixtures) and its dist=
+            is the start's unless given (the distance the command found)."""
             k = next(i for i, l in enumerate(rung) if " p9 start " in l) if at is None else at - 1
             call = next(calls)
-            out = rung[:k + 1] + [f"FOCC rt=1.5 p9 go actor=-16711680 call={call}.000000 target={target} id=20 "
-                                  f"dist=20.000000"] + rung[k + 1:]
+            rt = float(re.search(r"rt=([\d.]+)", rung[k]).group(1))
+            if dist is None:
+                dist = float(re.search(r"dist=([\d.]+)", next(l for l in rung if " p9 start " in l)).group(1))
+            out = rung[:k + 1] + [f"FOCC rt={rt:.1f} p9 go actor=-16711680 call={call}.000000 target={target} "
+                                  f"id=20 dist={dist:.6f}"] + rung[k + 1:]
             if after is not None:
                 out.append(f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call}.000000 target={target} "
                            f"after={after:.6f} dist=3.000000")
@@ -1209,8 +1214,29 @@ class P9Tests(unittest.TestCase):
         late_go = go(never, "dest", at=4)                             # two samples (t=0, 2) before the command
         v = probes.check_p9(col(log=BASE + go(came, "player") + late_go))
         self.assertEqual(v.verdict, FAIL, v.reasons)                  # still stuck for 120 s after the go
-        self.assertTrue(any("timed" not in r for r in v.reasons))
         self.assertEqual(v.extra["attempts"][-1]["samples"], len([l for l in never if " p9 sample " in l]) - 2)
+        self.assertEqual((v.extra["start_dist_m"], v.extra["start_dist_from"]), (450.0, "p9 go"))
+        # Codex review of #560, second round: the control's distance is the one its go found, not its start line's.
+        # An actor that wandered from 20 m to 8 m before the go and stayed there arrived on its own.
+        walked_in = [l for l in came if " p9 done " not in l]        # start 20, samples 20, 16, 12, 8
+        k = len(walked_in)
+        settled = walked_in + [f"FOCC rt={14.0 + t:.1f} p9 sample t={12 + t:.6f} actor=-16711680 pos=12.000000 0.000000 "
+                               f"0.000000 cell=50333000 loaded=True dist=8.000000" for t in (2, 4, 6, 8)] \
+            + ["FOCC rt=23.0 p9 done t=20.000000 dist=8.000000"]
+        prearrived = go(settled, "player", at=k + 1, dist=8.0)       # the go lands after the 8 m sample
+        v = probes.check_p9(col(log=BASE + prearrived + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), v.reasons)
+        ctl = v.extra["attempts"][1]
+        self.assertEqual((ctl["driver"], ctl["go_dist_m"], ctl["start_dist_m"], ctl["arrived"], ctl["approach_m"]),
+                         ("script", 8.0, 20.0, True, 0.0))
+        # a go that found the actor under 15 m leaves the command too little to show (placeholder p9_control_min_m)
+        v = probes.check_p9(col(log=BASE + go(came, "player", dist=12.0) + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        # a judged rung's go dist is its route length: a go that found the actor at 300 m is too short a route
+        v = probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest", dist=300.0)))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("disagrees with the first sample" in r for r in v.reasons), v.reasons)
         for label, log in (("a console control does not stand for the script", LADDER + go(never, "dest", 0.0)),
                            ("a scripted control does not stand for the console", BASE + go(came, "player") + never),
                            ("a baseline with a go is no baseline", go(BASE[:1] + BASE[1:], "player")

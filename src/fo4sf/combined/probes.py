@@ -68,6 +68,9 @@ PLACEHOLDERS = {
                                               # uncommanded drift reached 14.06 m) ...
     "p9_control_m": 30.0,                     # ... or a ladder rung started this close that arrived after the baseline
                                               # rung (the first such start) had not
+    "p9_control_min_m": 15.0,                 # P9: a scripted control's `p9 go` must find the actor at least this far
+                                              # out, so the command has 5 m or more to close (an actor already under
+                                              # 10 m at the go has arrived on its own; Codex review of #560)
     "p10_start_window_s": 10.0,               # P10: the quest must start within 10 s (rt) of the send
     "float_eq": 1e-3,                         # readback equals value within this
 }
@@ -1313,12 +1316,17 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
         ps = [p for p in (pos(e) for e in samples) if p is not None]
         dest = [e for e in evs if e.kind == "p9 dest" and e.line < s.line][-1:]
         start = s.num("dist")
+        # The distance the command found the actor at: the go line's dist= when the script sent it (what the actor
+        # did between the start and the go was not the command's doing; Codex review of #560), else the start's.
+        cmd = go.num("dist") if go is not None else None
+        base = cmd if cmd is not None else start
         closest = min(dists, default=None)
         out.append({"line": s.line, "rt": s.rt, "actor": s.form("actor"), "start_dist_m": start,
+                    "go_dist_m": cmd,
                     "seconds": s.num("seconds"), "samples": len(samples), "done": bool(done),
                     "dest_ok": bool(dest) and _local(dest[-1], "id") == LOCAL["p9_dest"],
                     "closest_m": closest,
-                    "approach_m": round(start - closest, 1) if None not in (start, closest) else None,
+                    "approach_m": round(base - closest, 1) if None not in (base, closest) else None,
                     "moved_m": round(max(sum((a - b) ** 2 for a, b in zip(ps[0], p)) ** 0.5 for p in ps), 1) if ps else None,
                     "cells": len({e.form("cell") for e in samples if e.form("cell")}),
                     "arrived": closest is not None and closest < P["p9_arrive_m"],
@@ -1335,21 +1343,24 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     Only the scripted driver can show it: a `p9 go` inside a rung's track is the command's receipt and the samples after
     it the answer. A console command leaves no line, so a rung without a go may be the actor's own wander (N1c drifted
     14 m) and neither stands as the control nor is judged against one (Codex review of #560). The first rung started
-    within p9_control_m is the baseline (no go): it must have samples and not have arrived; a later short scripted rung
-    must have arrived after its go. Each a finished track of the same actor to FOCC_P9_Dest."""
+    within p9_control_m is the baseline (no go): it must have samples and not have arrived. The control is a later
+    scripted rung whose go found the actor between p9_control_min_m and p9_control_m out and that arrived after the go:
+    an actor already under the arrival distance when commanded arrived on its own, whatever its start line said (Codex
+    review of #560). Each a finished track of the same actor to FOCC_P9_Dest."""
     P = PLACEHOLDERS
     if driver != "script":
         return None
-    short = [a for a in attempts[:-1] if a["done"] and a["dest_ok"] and a["start_dist_m"] is not None
-             and a["start_dist_m"] <= P["p9_control_m"] and a["actor"] == actor]
-    if not short or short[0]["closest_m"] is None or short[0]["arrived"] or short[0]["driver"] is not None:
+    cands = [a for a in attempts[:-1] if a["done"] and a["dest_ok"] and a["actor"] == actor]
+    base = next((a for a in cands if a["start_dist_m"] is not None and a["start_dist_m"] <= P["p9_control_m"]), None)
+    if base is None or base["closest_m"] is None or base["arrived"] or base["driver"] is not None:
         return None
-    ctl = next((a for a in short[1:] if a["arrived"] and a["driver"] == "script"), None)
+    ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == "script" and a["go_dist_m"] is not None
+                and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]), None)
     if ctl is None:
         return None
-    return (f"the baseline rung (line {short[0]['line']}) stayed {short[0]['closest_m']:.1f} m or more away and the "
-            f"scripted commanded rung (line {ctl['line']}) came from {ctl['start_dist_m']:.1f} m to "
-            f"{ctl['closest_m']:.1f} m after its `p9 go`")
+    return (f"the baseline rung (line {base['line']}) stayed {base['closest_m']:.1f} m or more away and the scripted "
+            f"commanded rung (line {ctl['line']}) came from {ctl['go_dist_m']:.1f} m at its `p9 go` to "
+            f"{ctl['closest_m']:.1f} m after it")
 
 
 def check_p9(c: Collection) -> Verdict:
@@ -1423,13 +1434,16 @@ def check_p9(c: Collection) -> Verdict:
     if not done:
         v.reasons.append("no `p9 done` line: the tracker did not finish")
         return v
-    start = starts[-1].num("dist")              # P9Track logs it just before its first sample (Codex review of #431)
+    # The route's length is the distance at the command: the go's dist= when the script sent the actor, else the
+    # start's (P9Track logs it just before its first sample; Codex reviews of #431 and #560).
+    start = latest["go_dist_m"] if go_line is not None else starts[-1].num("dist")
     if start is None or abs(start - rows[0][1]) > P["p9_stuck_m"]:
         v.cite(starts[-1], rows[0][5])
-        v.reasons.append(f"p9 start dist={starts[-1].fields.get('dist')} is missing or disagrees with the first "
-                         f"sample's {rows[0][1]} m")
+        v.reasons.append(f"p9 {'go' if go_line is not None else 'start'} dist={start} is missing or disagrees with the "
+                         f"first sample's {rows[0][1]} m")
         return v
     v.extra["start_dist_m"] = start
+    v.extra["start_dist_from"] = "p9 go" if go_line is not None else "p9 start"
     if start < P["p9_start_m"]:
         v.reasons.append(f"start dist {start} m < {P['p9_start_m']} (the card asked for 450)")
         return v
@@ -1490,8 +1504,9 @@ def check_p9(c: Collection) -> Verdict:
             v.reasons.append(f"but the actor came at most {approach:.1f} m closer (moved {moved:.1f} m at most) and no "
                              f"ladder rung in this log shows the command walking it (a baseline rung within "
                              f"{P['p9_control_m']:g} m with no `p9 go` that stayed away, then a scripted one, its "
-                             f"`p9 go` inside its track, that arrived after that go; a console command leaves no line "
-                             f"and never stands as the control): the command cannot be told from the navmesh")
+                             f"`p9 go` inside its track finding it {P['p9_control_min_m']:g} m or more out, that "
+                             f"arrived after that go; a console command leaves no line and never stands as the "
+                             f"control): the command cannot be told from the navmesh")
         return v
     if not arrived:
         v.reasons.append(f"dist never fell below {P['p9_arrive_m']} m within {P['p9_seconds']} s (last {rows[-1][1]} m)")

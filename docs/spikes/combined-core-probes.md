@@ -480,15 +480,17 @@ The verdict is the latest rung's: dist from >= 400 to < 10 within 600 s through 
 line's `rt=` from the start's (real seconds; late timers do not stretch the deadline). When the script sent the actor, the walk and its clock start at its `p9 go`
 (samples before it show an actor not yet commanded). FAIL = stuck (dist within 2 m for 120 s while loaded) or never
 leaving the first cell, and only when the log shows the command moving this actor: it came at least 20 m closer on
-that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away and a later short rung that the
-script sent (its `p9 go` inside its track, after the start and before its `p9 done`) came under 10 m after that go. A
-console command leaves no line in the log, so a rung without a go never stands as the control and a rung without a go
-is judged by its own approach only: an actor that arrived without a logged command may have wandered (N1c drifted 14 m;
-Codex review of #560). Otherwise those cases are INCONCLUSIVE: a still actor cannot tell a command that did nothing
-from a navmesh with no path. Every rung is summarised in the verdict's `extra.attempts` (start and closest distance,
-how far the actor moved, cells, whether it arrived, its driver and target, the line of its go, and after how many
-seconds its PathToReference returned, paired by `call=`). Send back: the log, the verdict, the dx dy used and the actor
-id.
+that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away and a later rung that the script
+sent (its `p9 go` inside its track, after the start and before its `p9 done`) was found by that go 15 to 30 m out and
+came under 10 m after it. The distance that counts is the go line's `dist=`, not the start line's: what the actor did
+between P9Track and the go was not the command's doing, and an actor already under 10 m when commanded arrived on its
+own. A console command leaves no line in the log, so a rung without a go never stands as the control and a rung without
+a go is judged by its own approach only: an actor that arrived without a logged command may have wandered (N1c drifted
+14 m; Codex review of #560). Otherwise those cases are INCONCLUSIVE: a still actor cannot tell a command that did nothing
+from a navmesh with no path. Every rung is summarised in the verdict's `extra.attempts` (start, go and closest
+distance, how far the actor moved, cells, whether it arrived, its driver and target, the line of its go, and after how
+many seconds its PathToReference returned, paired by `call=`). Send back: the log, the verdict, the dx dy used and the
+actor id.
 
 ## P1: SFSE sidecar on save and load (last)
 
