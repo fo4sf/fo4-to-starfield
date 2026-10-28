@@ -1,3 +1,14 @@
+# Fourteenth delivery: Nuka transport and Institute divisions
+
+52 new game entries, allunchecked. Total360:320game38guide1dependent1cutHOLD; one guide rejected remains historical. Folders127/140/93. Next8446; gaps8406..8419 unused. Prior41 third-folder bytes and firsttwofolders unchanged.
+
+Nuka timetable is expected15minute service, not proved postwar operation. Power menu has emergencyON but railwayOFF; activation responses are authored state text, not evidence of permanent automatic supply. Maintenance reports and dates retained;10/15 Protectron programming and10/16 childinjury/investigation do not establish causation. Management's dismissal/secrecy rules not actual enforcement claims. Parent initial snippet assertion expected wiki markup around company name; corrected plain source before entries were written; failure note preserved.
+
+Institute statements retain speaker/loading-text attribution. Compound security/history/BioScience/staff/training drafts split into single claims. Enrico's described prewar reactor is not automatically the PhaseThree unit. Recharging/navigation instructions and Ayo's recall/repair/disposal descriptions are source statements, not validated mechanics or new gameplay requirements. Mapmarker0002B7CC is an exterior location anchor, not an underground room coordinate. Eighteen totalanchors; no verified DLC transitanchor and none invented.
+
+Three requested pages fetchedonce,allPARTIAL.34unique sources/39ledgerrows,1FULL33PARTIAL; five oldcontinuations requireIDunion. Unextracted sources/sections named in ledger. No FULL refetch, canonical edits/fold-in, merge, writer or game/deployactions. All93 thirdfolder rows pass originalvalidator; canonical/priorfolders/validator preserved. Old17+1 policy errors notrerun. StopA remains incomplete pending exact64queue/currentrawsnapshot response.
+
+
 # General Atomics source delivery
 
 41 new entries (38 game/3 guide), all unchecked for Claude/Grok. Total308 across127/140/41. Next8380; IDs8345..8359/8370/8378 remainunused. Prior folders unchanged.
