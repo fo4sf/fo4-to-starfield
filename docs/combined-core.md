@@ -233,6 +233,68 @@ the same start, so most settle near 13 to 15 people); real variation needs per-s
 draft has no data for. The model has no "runs no caravans" flag, so a settlement a wild faction takes trades like
 any other. `caravans_raided_share` 0.35 at scale is high for a world with no player.
 
+### Real pack, all DLC (owner's PC, 2026-10-28)
+
+The rerun card below, run by the Install thread at main `de91d6d0` into `D:\Modding\research\combined_seed3` (the
+21 Oct folders untouched). The Fallout 4 data is the owner's **Steam install, the newer build**, not 1.10.163: the
+1.10.163 depot copy has no `DLCCoast`, `DLCworkshop02`, `DLCworkshop03` or `DLCNukaWorld`. First 16 hex of each sha256:
+`Fallout4.esm` a3fa1e66d75f80f3, `DLCRobot` 465b904603caf18c, `DLCworkshop01` 9e645faa8620b5e2, `DLCCoast`
+b8817779595f3576, `DLCworkshop02` 9e907c7429da3d7c, `DLCworkshop03` 08ece321cc224a48, `DLCNukaWorld` 8adb27458d10b1f0.
+
+- `seed`: 7 plugins, 487 locations, 46 settlement and 87 base candidates, 233 markers found and none missing, 58
+  regions, no problems or unresolved references.
+- `seed-pack`: 243 of 487 places kept (244 dropped for no marker position), 42 settlements, 111 bases, 90
+  landmarks, 455 routes, 9 isolated places, 7 factions holding places (settlers 42, raiders 29, ghouls 21,
+  supermutants 18, creatures 17, gunners 12, robots 8), 96 unheld, 20 story-locked, no validation problems.
+  Worlds: fallout4 226, dlccoast 5, dlcnukaworld 2.
+- `simulate --seed 1 --days 30`: 36 of the 42 settlements end at stage 3 with population 14, below their 20 beds.
+- `balance --seeds 10 --days 30`, judged on the command's default bounds (the 11-place fixtures' `DEFAULT_BOUNDS`):
+  exit 1, with `attacks_per_day` 3.91 above 3.0 and `changes_per_30_days` 80.1 above 30. Aggregate:
+  `settlements_at_cap_share` 0.0, `mean_population_share` 0.644, `mean_morale` 99.0, `settlement_captures` 10.4,
+  `enemy_takes` 77.0, `caravans_raided_share` 0.227, no empty settlements, no story-lock violations.
+
+Reading. The saturation fix holds on real data. On 21 Oct, 36 of 38 settlements sat at the 20-bed cap. Now none
+do: they stop at the food edge the farm-slot rule sets (`beds // 4` farmers, so 15 food a tick for 20 beds).
+
+The two broken lines come from the wrong yardstick. `DEFAULT_BOUNDS` holds absolute counts for 11 places. A
+Commonwealth pack is judged by `SCALE_BOUNDS`, now `balance --bounds scale`. On that yardstick, churn is 80.1 / 243
+= 0.33 per place per 30 days (bound 0.02 to 0.6; the synthetic baseline's column D: 0.27). Attacks are 3.91 / 7 =
+0.56 per faction per day (bound 0.1 to 2.0; column D: 0.55).
+
+At 30 days the one miss on the scale bounds is `mean_morale` 99 (bound 40 to 95). At 90 days, which is column D's
+length, that is gone. The run was `balance --seeds 5 --days 90` on the same pack (Install thread, main `de91d6d0`,
+saved as `balance_5x90.json` beside the pack). It passes `check(agg, SCALE_BOUNDS)` with nothing broken. Column D
+(synthetic) is beside it:
+
+| Metric | Real pack, 5 seeds x 90 days | Column D |
+|---|---|---|
+| settlements_at_cap_share | 0.11 | 0.14 |
+| mean_population_share | 0.73 | 0.75 |
+| mean_morale | 76.3 | 80.8 |
+| settlement_captures_per_30_days | 5.13 | 6.5 |
+| enemy_takes / enemy_losses per 30 days | 56.7 / 30.0 | 59 / 28 |
+| changes_per_30_days_per_place | 0.25 | 0.27 |
+| attacks_per_day_per_faction | 0.56 | 0.55 |
+| caravans_raided_share | 0.16 | 0.35 |
+| empty_settlements, empty_share | 0, 0.0 | 0, - |
+| story_lock_violations, home_violations | 0, 0 | 0, 0 |
+
+Every faction both takes and loses ground. Places taken / lost per 90 days:
+- creatures 25.2 / 29.6
+- ghouls 30 / 11.2
+- gunners 33.2 / 4.4
+- raiders 29.2 / 13.4
+- robots 22.6 / 23.4
+- settlers 11.4 / 22.4
+- supermutants 30 / 8
+
+`frozen_region_count` is 10.8 of 58 regions. No rule changes follow from this run. Still open:
+- the plateau is uniform because the data is (per-settlement beds would vary it);
+- settlers lose about twice what they take;
+- about 11 regions see no change of holder in 90 days.
+
+These are tuning questions for the lead, not failures.
+
 ## From draft to a pack that runs (`seedpack.py`)
 
 The first real `seed` run (owner's PC, 2026-10-21, `Fallout4.esm` + `DLCRobot.esm` + `DLCworkshop01.esm`; the other
@@ -308,9 +370,11 @@ python -m fo4sf.combined seed-pack D:\Modding\research\combined_seed\commonwealt
 python -m fo4sf.combined simulate --pack D:\Modding\research\combined_seed\commonwealth.pack.json --seed 1 --days 30
 ```
 
-Add the other DLC `.esm` files to the first line when they are installed. What to send back: `seed_report.json`
-(now with `markers_found` and `markers_missing`), `seedpack_report.json`, the one-line `seed-pack` summary and the
-`simulate` summary; the drafts and packs themselves stay on the PC.
+Add the other DLC `.esm` files to the first line when they are installed (the 28 Oct run read all seven: see "Real
+pack, all DLC"; each run gets a new output folder). Judge a sweep of the real pack on the scale bounds:
+`python -m fo4sf.combined balance --seeds 5 --days 90 --pack <out>\commonwealth.pack.json --bounds scale`. What to
+send back: `seed_report.json` (now with `markers_found` and `markers_missing`), `seedpack_report.json`, the one-line
+`seed-pack` summary, the `simulate` summary and the `balance` output; the drafts and packs themselves stay on the PC.
 
 ## Next after the current phase (owner, 2026-10-22)
 
