@@ -2428,3 +2428,23 @@ at least half of them), and the judged rung's go must name the tracked
 destination, since the tracker measures the distance to FOCC_P9_Dest and a long
 rung sent to the player by mistake is a different walk than the samples
 describe. Details are in docs/spikes/combined-core-probes.md.
+
+## 2026-10-28: The runner finds a batch stage's cell exports
+
+The first T6 door runs on the animated doors port (doors_anim_b00, with
+`--port installed`) tested nothing: cycle.ps1 asked coc.ps1 for the launch
+cell's export next to FO4Port.esm, as a slice stage lays it out, but an
+interior batch stage keeps its exports in base_exports, so r01 exited 4 after
+the launch and r02 to r04 never reached a cell (no FO4SF line in the game's
+log). The plan now records where the exports are (the staging, the stage's
+base_exports when the staging is its port folder, or `--cell-exports`), pins
+each export the queue launches into or travels to when they lie outside the
+staging, and says so when none can be found; the runner checks the export
+before any launch or coc and stops with the reason. The later runs of that
+batch hit the focus guard instead: the Claude desktop window was in front
+after a Remote Control restart, and Install now minimises its own window
+before each launch. Codex on the PR: the runner launches into a test's own
+cell, so only a test without a cell needs the launch cell's export, and the
+plan asks for just the exports the runner reads; the export is checked after
+the staged experiment, so a changed experiment is still the first reason
+given. Details: docs/ai/test-queue.md, "SFSE launch and the installed port".

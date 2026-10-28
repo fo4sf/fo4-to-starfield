@@ -156,6 +156,7 @@ def make_queue(d, n=3, kind="fall"):
               "point": [0.0, 0.0, 0.0], "heading": 0} for k in range(n)]
     jdump({"build_id": "abcd1234", "commit": "0" * 40, "staging": d, "plugin_sha256": "x", "save": "fo4sf_test_abcd1234",
            "plugin_index": "02", "hours": [[0, 24]], "tests": tests}, os.path.join(d, "queue.json"))
+    writef(os.path.join(d, "C.json"), b"{}")              # the cell's export: the runner launches nowhere without it
 
 
 def args(**kw):
@@ -867,6 +868,102 @@ class PreLaunchTests(unittest.TestCase):
         launched, log = self.run_with([sys.executable, "-c", "import sys; sys.exit(3)"])
         self.assertEqual(launched, [])
         self.assertIn("pre-launch exit 3", log)
+
+
+class CellExportTests(unittest.TestCase):
+    """Install, 2026-10-28 (T6 door runs on doors_anim_b00, --port installed): cycle.ps1 asked coc.ps1 for
+    <staging>\Vault111Cryo.json, which an interior batch stage keeps in base_exports, so r01 exited 4 after the launch
+    and r02 to r04 never reached a cell. The plan finds the exports and the runner stops before such a launch."""
+
+    def launch(self, d, q):
+        jdump(q, os.path.join(d, "queue.json"))
+        ctl = FakeControls()
+        ctl.pid = None                                    # no game yet: the runner has to launch
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, args, *a, **k: launched.append((script, list(args))) or (1, "launch refused in the test")
+        r.run()
+        return launched, readf(os.path.join(d, "run.log"))
+
+    def test_the_runner_launches_nowhere_without_the_cells_export(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = jload(os.path.join(d, "queue.json"))
+        os.remove(os.path.join(d, "C.json"))
+        launched, log = self.launch(d, q)
+        self.assertEqual(launched, [])
+        self.assertIn("no cell export", log)
+        self.assertIn("--cell-exports", log)
+        # the queue's exports folder is used for the launch, and its pin checked
+        ex = os.path.join(d, "exports")
+        os.makedirs(ex)
+        writef(os.path.join(ex, "C.json"), b'{"refs": []}')
+        q["cell_exports"], q["cell_export_sha256"] = ex, {"C": hashlib.sha256(b'{"refs": []}').hexdigest()}
+        launched, log = self.launch(d, q)
+        self.assertEqual({sc for sc, _ in launched}, {"cycle.ps1"})   # the refused launch is retried: every call a launch
+        self.assertTrue(all(os.path.join(ex, "C.json") in a for _, a in launched), launched)
+        writef(os.path.join(ex, "C.json"), b'{"refs": [1]}')
+        for f in ("state.json", "results.jsonl"):           # the test above used up its attempts: a fresh run
+            os.remove(os.path.join(d, f))
+        launched, log = self.launch(d, q)
+        self.assertEqual(launched, [])
+        self.assertIn("changed since the plan", log)
+
+    def test_the_plan_finds_the_exports_of_a_batch_stage(self):
+        d = tempfile.mkdtemp()
+        port, base = os.path.join(d, "port"), os.path.join(d, "base_exports")
+        os.makedirs(port)
+        os.makedirs(base)
+        writef(os.path.join(port, "FO4Port.esm"), b"TES4")
+        writef(os.path.join(base, "Vault111Cryo.json"), b'{"refs": []}')
+        jdump([{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0,
+                "spot": [-3.0, 4.0, 0.0]}], os.path.join(d, "plan.json"))
+        with mock.patch("builtins.print") as pr:
+            tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q")])
+            q = jload(os.path.join(d, "q", "queue.json"))
+            self.assertEqual(q["cell_exports"], base)      # the stage's base_exports when --staging is its port folder
+            self.assertEqual(q["cell_export_sha256"], {"Vault111Cryo": hashlib.sha256(b'{"refs": []}').hexdigest()})
+            self.assertFalse(any("warning" in str(c) for c in pr.call_args_list))
+            # the export next to FO4Port.esm, as before: nothing recorded
+            writef(os.path.join(port, "Vault111Cryo.json"), b'{"refs": []}')
+            tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q2")])
+            self.assertFalse({"cell_exports", "cell_export_sha256"} & set(jload(os.path.join(d, "q2", "queue.json"))))
+            # --cell-exports names the folder; one without the launch cell's export is refused
+            tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q3"),
+                     "--cell-exports", base])
+            self.assertEqual(jload(os.path.join(d, "q3", "queue.json"))["cell_exports"], base)
+            with self.assertRaisesRegex(SystemExit, "--cell-exports: no cell export Vault111Cryo.json"):
+                tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q4"),
+                         "--cell-exports", d])
+            # nowhere: the plan says so and the runner stops before the launch (above)
+            os.remove(os.path.join(port, "Vault111Cryo.json"))
+            os.remove(os.path.join(base, "Vault111Cryo.json"))
+            tq.main(["plan-movable", "--staging", port, "--exp-dir", d, "--out", os.path.join(d, "q5")])
+            self.assertTrue(any("warning: no cell export Vault111Cryo.json" in str(c) for c in pr.call_args_list))
+
+    def test_the_plan_needs_only_the_exports_the_runner_reads(self):
+        # Codex on #564: the runner launches into a test's own cell, so a queue whose tests all name another cell never
+        # reads the launch cell's export; only a test without a cell needs it
+        d = tempfile.mkdtemp()
+        port, base = os.path.join(d, "port"), os.path.join(d, "base_exports")
+        os.makedirs(port)
+        os.makedirs(base)
+        writef(os.path.join(base, "BostonPublicLibrary02.json"), b'{"refs": []}')
+        named = [{"id": "0000_fall", "cell": "BostonPublicLibrary02"}]
+        given = SimpleNamespace(staging=port, launch_cell="", cell_exports=base)
+        pin = {"BostonPublicLibrary02": hashlib.sha256(b'{"refs": []}').hexdigest()}
+        self.assertEqual(tq.cell_exports(named, given), {"cell_exports": base, "cell_export_sha256": pin})
+        found = SimpleNamespace(staging=port, launch_cell="", cell_exports="")   # the batch stage's folder, from that cell
+        self.assertEqual(tq.cell_exports(named, found), {"cell_exports": base, "cell_export_sha256": pin})
+        with self.assertRaisesRegex(SystemExit, "--cell-exports: no cell export Vault111Cryo.json"):
+            tq.cell_exports(named + [{"id": "0001_terrain"}], given)
+        with self.assertRaisesRegex(SystemExit, "--cell-exports: no cell export Hub.json"):
+            tq.cell_exports(named + [{"id": "0001_terrain"}], SimpleNamespace(staging=port, launch_cell="Hub",
+                                                                               cell_exports=base))
+        with mock.patch("builtins.print") as pr:                                 # nowhere: named, no fields recorded
+            self.assertEqual(tq.cell_exports([{"id": "0000_fall", "cell": "Hub"}], found), {})
+            self.assertTrue(any("warning: no cell export Hub.json" in str(c) for c in pr.call_args_list))
 
 
 class PlanJsonTests(unittest.TestCase):
