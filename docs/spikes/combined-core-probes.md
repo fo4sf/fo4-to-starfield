@@ -426,6 +426,8 @@ PASSes as wander (docs/actors/npc-navigation.md section 5); and on the PC's ladd
 console's `PathToRef player` left the actor about 22 m from the player after starting 16.7 m away. So the driver is
 now `FOCC_P9Drive.Go`: `Actor.PathToReference` called from Papyrus, which `cf` never reached (N0_cf). It is compiled
 on its own (`compile_p9_drive.txt`): if Starfield's Actor.psc does not declare it, only P9 waits, and the stage says so.
+The PC's first compile (main c0c3c96c, 28 Oct) refused FO4's two-argument call: Starfield's Actor.psc wants a third,
+`afNormalizedRotationSpeed`, with no default, so the script passes `PathToReference(target, 1.0, 1.0)`.
 If the scripted control does not bring the actor either, the next driver is a package on a quest alias (a Travel
 package, the way the game moves its own actors); its PACK record needs Mutagen's Starfield API checked first.
 The card is a ladder in one launch: a baseline with no command, a short scripted control, then longer routes. The

@@ -332,7 +332,9 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("Scriptname FOCC_P9Drive Hidden", DRIVE)
         self.assertIn('FOCC_ProbeQuest q = FOCC_Probe.Q("p9")', body)          # the quest, or a logged refusal
         self.assertEqual(DRIVE.count("PathToReference("), 1)                  # the one call
-        self.assertIn("\n    a.PathToReference(target, 1.0)\n", body)           # a statement: its return type is unknown
+        # a statement (its return type is unknown) with Starfield's three arguments: the PC's compile at c0c3c96c refused
+        # the two-argument call, "argument afnormalizedrotationspeed is not specified and has no default value"
+        self.assertIn("\n    a.PathToReference(target, 1.0, 1.0)\n", body)
         go, call, back = body.index('"p9 go actor="'), body.index("a.PathToReference("), body.index('"p9 path returned actor="')
         self.assertLess(go, call)
         self.assertLess(call, back)

@@ -25,7 +25,7 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertIsNotNone(guarded)
         self.assertIn("akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)", guarded[1])
         self.assertEqual(self.activate.count(".SetPosition("), 1)
-        self.assertEqual(self.code.count(".SetPosition("), 2)
+        self.assertEqual(self.code.count(".SetPosition("), 1)
         # In particular there is no coordinate-truthiness condition rejecting 0.
         self.assertNotRegex(guarded[1], r"\bif\b")
 
@@ -45,7 +45,6 @@ class ArrivalContractTests(unittest.TestCase):
         steps = [
             "Moving = True",
             'TracePosition("marker", destination)',
-            "PlaceDestination(destination)",
             'TracePosition("before_move", akActionRef)',
             "akActionRef.MoveTo(destination, 0.0, 0.0, 0.0, True, False)",
             'TracePosition("after_move", akActionRef)',
@@ -93,18 +92,15 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertEqual(before_position.count("Utility.Wait(SettleSeconds)"), 1)
         self.assertEqual(before_position.count('TracePosition("settled", akActionRef)'), 1)
 
-    def test_the_marker_is_put_at_the_requested_spot_before_the_move(self):
-        place = self.code.split("Function PlaceDestination(", 1)[1].split("EndFunction", 1)[0]
-        steps = ["if !UseDestinationPosition", "return",
-                 "destination.SetPosition(DestinationX, DestinationY, DestinationZ)",
-                 'TracePosition("marker_placed", destination)']
-        indices = [place.index(step) for step in steps]
-        self.assertEqual(indices, sorted(indices))
-        # only the destination moves here, and only when it is not already there
-        self.assertNotIn("akActionRef", place)
-        self.assertIn("if dx * dx + dy * dy + dz * dz > 0.0001", place)
-        self.assertLess(self.activate.index("PlaceDestination(destination)"), self.activate.index(".MoveTo("))
-        self.assertLess(self.activate.index("Moving = True"), self.activate.index("PlaceDestination(destination)"))
+    def test_the_destination_marker_is_never_moved(self):
+        # bridge t6 (#512) set the marker's position before the MoveTo; on the PC (28 Oct 2026, 20 Vault 95 exits) the
+        # MoveTo then left the player in the interior every time, so the only SetPosition is the player's, after the move
+        self.assertNotIn("PlaceDestination", self.code)
+        self.assertNotIn("destination.SetPosition(", self.code)
+        self.assertNotIn("marker_placed", self.code)
+        self.assertEqual(self.code.count(".SetPosition("), 1)
+        self.assertIn("akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)", self.activate)
+        self.assertLess(self.activate.index(".MoveTo("), self.activate.index("akActionRef.SetPosition("))
 
     def test_logs_identify_reference_frame_and_do_not_assert_success(self):
         trace = self.code.split("Function TracePosition(", 1)[1]

@@ -2477,3 +2477,32 @@ request and was cancelled by its 15-minute limit right after printing OK;
 the run before it, on the runner fix, took 14 min 47 s. The limit is now
 30 minutes. The suite itself is unchanged; a faster split of the job is a
 later choice, not a fix for a green suite cut off at the line.
+
+## 2026-10-28: P9's driver gets Starfield's third PathToReference argument
+
+The PC's restage of the probe kit from main c0c3c96c compiled everything but
+FOCC_P9Drive: "argument afnormalizedrotationspeed is not specified and has no
+default value". That line settles what the spike left open: Starfield's
+Actor.psc declares PathToReference with three arguments, the target, the
+walk-run percent and a normalized rotation speed, the third without a default.
+The driver now passes 1.0 for it; the compile on the next stage is the check,
+and the P9 ladder shows what the value does to the walk. P3b runs on the stage
+as it is, since only this script was left out.
+
+## 2026-10-28: Bridge t6's marker move undone: the Vault 95 exit never left the interior
+
+The first bridge t6 runs (#512's PlaceDestination, with the animated doors
+port): 20 Vault 95 exits, 19 FAIL STAYED, 1 not run, 0 landings, with the
+border switch off and on alike. The trace of every failure is the door
+script's own: marker_placed (the exterior marker set to the merged spot with
+SetPosition, 2.9 km from its cell, while unloaded), then MoveTo returned with
+the player still in the interior cell, then the retry's MoveTo the same. The
+runner makes no such move on the OUT leg (its moves are the coc into the
+interior and the drop onto its marker), and without the marker move (t4, t5)
+every traced MoveTo of this door landed outside, including the owner's exits
+of 23 and 24 Oct. So the marker move is withdrawn from FO4SF_LoadDoor.psc; the
+settle trace and the player's SetPosition to the merged spot after the move
+stay as they were. Why the engine ignores a MoveTo onto a marker moved that
+way is open. A quick check that needs no new build: bridge t5 (retry, no
+marker move) on the same port and queue; if it lands, the marker move alone
+was the cause, and if not, the animated door wrapper is next.
