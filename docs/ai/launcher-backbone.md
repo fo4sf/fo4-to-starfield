@@ -151,11 +151,11 @@ process id, armed ProcDump with `-e 1 -f 80000003 -t` together, caught a 0xC0000
 145 MB mini dumps. Not yet run on Windows: `play`'s own game start (Steam or exe) and its bridge and Papyrus changes.
 
 Before the start, `play` also puts our plugins in one target order (`load_order`, default `fix`; `check` refuses a
-different order, `off` leaves Plugins.txt alone) through `scripts/game/load_order.py`. Lines that are not ours stay
-first in their own order. Ours follow in five groups: the cores (FO4Terrain*, FO4Actor*), the other FO4SF* plugins
-(the experiments), FO4Port, FO4SFMapMarkers, then FO4SFBridge last. A plugin always follows its masters, and an
-unticked line stays unticked. That is the order the game itself wrote on the owner's PC on 2026-10-22, so a rewrite
-by the game should change nothing; the start and exit comparison in crashwatch.log shows whether it does. Since
+different order, `off` leaves Plugins.txt alone) through `scripts/game/load_order.py`. Since 2026-10-28 the target is
+the order the test runner's own tools leave (file order kept, every plugin after its masters, FO4SFMapMarkers after
+everything else and FO4SFBridge last), so play changes nothing on a file they just wrote; an unticked line stays
+unticked. The order the game itself wrote on the owner's PC on 2026-10-22 is in the target too, so a rewrite by the
+game should change nothing; the start and exit comparison in crashwatch.log shows whether it does. Since
 2026-10-22 the default `route` is `sfse` (SFSE is required, NG-1), and Starfield.exe 1.16.244.0 with SFSE 0.2.21 is
 the listed runtime.
 
