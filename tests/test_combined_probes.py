@@ -1230,6 +1230,20 @@ class P9Tests(unittest.TestCase):
         ctl = v.extra["attempts"][1]
         self.assertEqual((ctl["driver"], ctl["go_dist_m"], ctl["start_dist_m"], ctl["arrived"], ctl["approach_m"]),
                          ("script", 8.0, 20.0, True, 0.0))
+        # Codex bot on d46de7eb: a control that teleported to the destination, or whose readings are incomplete, is a
+        # setup fault, not the command walking; its samples must pass the walk's own continuity checks
+        head = [l for l in came if " p9 sample " not in l and " p9 done " not in l]       # INIT-less: dest, start
+        jumped = head + ["FOCC rt=1.5 p9 sample t=0.000000 actor=-16711680 pos=0.000000 0.000000 0.000000 cell=50333000 loaded=True dist=20.000000",
+                         "FOCC rt=3.5 p9 sample t=2.000000 actor=-16711680 pos=38.000000 0.000000 0.000000 cell=50333000 loaded=True dist=2.000000",
+                         "FOCC rt=4.0 p9 done t=2.000000 dist=2.000000"]                      # 38 m in 2 s: 19 m/s
+        v = probes.check_p9(col(log=BASE + go(jumped, "player") + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        blind = [l.replace(" pos=0.000000 0.000000 0.000000", "") if " t=0.000000 " in l else l for l in came]
+        v = probes.check_p9(col(log=BASE + go(blind, "player") + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        self.assertIs(probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest"))).extra["attempts"][1]["continuous"], True)
         # a go that found the actor under 15 m leaves the command too little to show (placeholder p9_control_min_m)
         v = probes.check_p9(col(log=BASE + go(came, "player", dist=12.0) + go(never, "dest")))
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)

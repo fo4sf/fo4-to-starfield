@@ -1292,6 +1292,21 @@ def _p9_returned(evs: list[Event], go: Event) -> Event | None:
                  and e.form("actor") == go.form("actor")), None)
 
 
+def _p9_continuous(samples: list[Event]) -> bool | None:
+    """Whether a rung's samples read as one continuous walk: each with rt=, pos= and dist=, real time strictly
+    increasing, no step faster than p9_jump_m_per_s (the latest rung's own checks, applied to a control before it may
+    stand as proof that the command walks the actor; Codex review of #560). None with fewer than 2 samples."""
+    if len(samples) < 2:
+        return None
+    rows = [(e.rt, pos(e), e.num("dist")) for e in samples]
+    if any(None in r for r in rows):
+        return False
+    for (t0, p0, _), (t1, p1, _) in zip(rows, rows[1:]):
+        if t1 <= t0 or sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5 / (t1 - t0) > PLACEHOLDERS["p9_jump_m_per_s"]:
+            return False
+    return True
+
+
 def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
     """One summary per `p9 start` in the log, oldest first: the ladder's rungs. A start's track is the started actor's
     samples up to its own `p9 done` or the next start. driver "script" when FOCC_P9Drive.Go sent this actor inside the
@@ -1330,6 +1345,7 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "moved_m": round(max(sum((a - b) ** 2 for a, b in zip(ps[0], p)) ** 0.5 for p in ps), 1) if ps else None,
                     "cells": len({e.form("cell") for e in samples if e.form("cell")}),
                     "arrived": closest is not None and closest < P["p9_arrive_m"],
+                    "continuous": _p9_continuous(samples),
                     "driver": "script" if go is not None else None,
                     "go_line": go.line if go is not None else None,
                     "go_rt": go.rt if go is not None else None,
@@ -1344,9 +1360,11 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     it the answer. A console command leaves no line, so a rung without a go may be the actor's own wander (N1c drifted
     14 m) and neither stands as the control nor is judged against one (Codex review of #560). The first rung started
     within p9_control_m is the baseline (no go): it must have samples and not have arrived. The control is a later
-    scripted rung whose go found the actor between p9_control_min_m and p9_control_m out and that arrived after the go:
-    an actor already under the arrival distance when commanded arrived on its own, whatever its start line said (Codex
-    review of #560). Each a finished track of the same actor to FOCC_P9_Dest."""
+    scripted rung whose go found the actor between p9_control_min_m and p9_control_m out and that arrived after the go
+    through continuous samples (`continuous`: readings complete, time increasing, no teleport-fast step): an actor
+    already under the arrival distance when commanded arrived on its own, whatever its start line said, and a jump to
+    the destination is a setup fault, not the command walking (Codex review of #560). Each a finished track of the same
+    actor to FOCC_P9_Dest."""
     P = PLACEHOLDERS
     if driver != "script":
         return None
@@ -1355,7 +1373,8 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     if base is None or base["closest_m"] is None or base["arrived"] or base["driver"] is not None:
         return None
     ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == "script" and a["go_dist_m"] is not None
-                and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]), None)
+                and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]
+                and a["continuous"] is True), None)
     if ctl is None:
         return None
     return (f"the baseline rung (line {base['line']}) stayed {base['closest_m']:.1f} m or more away and the scripted "
@@ -1508,8 +1527,8 @@ def check_p9(c: Collection) -> Verdict:
                              f"ladder rung in this log shows the command walking it (a baseline rung within "
                              f"{P['p9_control_m']:g} m with no `p9 go` that stayed away, then a scripted one, its "
                              f"`p9 go` inside its track finding it {P['p9_control_min_m']:g} m or more out, that "
-                             f"arrived after that go; a console command leaves no line and never stands as the "
-                             f"control): the command cannot be told from the navmesh")
+                             f"arrived after that go through continuous samples; a console command leaves no line "
+                             f"and never stands as the control): the command cannot be told from the navmesh")
         return v
     if not arrived:
         v.reasons.append(f"dist never fell below {P['p9_arrive_m']} m within {P['p9_seconds']} s (last {rows[-1][1]} m)")

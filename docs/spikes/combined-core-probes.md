@@ -482,7 +482,8 @@ line's `rt=` from the start's (real seconds; late timers do not stretch the dead
 leaving the first cell, and only when the log shows the command moving this actor: it came at least 20 m closer on
 that route, or the first rung within 30 m (the baseline, with no `p9 go`) stayed away and a later rung that the script
 sent (its `p9 go` inside its track, after the start and before its `p9 done`) was found by that go 15 to 30 m out and
-came under 10 m after it. The distance that counts is the go line's `dist=`, not the start line's: what the actor did
+came under 10 m after it through continuous samples (the walk's own checks: readings complete, time increasing, no
+step faster than 15 m/s; a jump to the destination is a setup fault, not the command). The distance that counts is the go line's `dist=`, not the start line's: what the actor did
 between P9Track and the go was not the command's doing, and an actor already under 10 m when commanded arrived on its
 own. A console command leaves no line in the log, so a rung without a go never stands as the control and a rung without
 a go is judged by its own approach only: an actor that arrived without a logged command may have wandered (N1c drifted
