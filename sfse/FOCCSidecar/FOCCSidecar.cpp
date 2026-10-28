@@ -56,7 +56,7 @@ constexpr const wchar_t* kLogName = L"focc_sidecar.log";
 constexpr const wchar_t* kSidecarDir = L"sidecars";
 
 HMODULE g_module = nullptr;
-PluginHandle g_handle = kPluginHandle_Invalid;
+PluginHandle g_handle = static_cast<PluginHandle>(kPluginHandle_Invalid);   // the enumerator is an int: C4245 without the cast
 std::wstring g_dir;          // <dll folder>\FOCCSidecar
 std::wstring g_sidecars;     // <dll folder>\FOCCSidecar\sidecars
 std::mutex g_mutex;

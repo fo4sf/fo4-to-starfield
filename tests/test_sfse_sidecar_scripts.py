@@ -1,6 +1,7 @@
 """FOCCSidecar's PC scripts (sfse/FOCCSidecar): the compiler route contract. check_toolchain.ps1 and build.ps1 take a
 loaded MSVC environment (cl.exe on PATH with INCLUDE and LIB set, the PC's portable toolchain under D:\\Modding\\tools
 since 28 Oct 2026) before they look for Visual Studio with vswhere, and the runbook passes it with -Env."""
+import re
 import unittest
 from pathlib import Path
 
@@ -50,6 +51,20 @@ class CompilerRouteTests(unittest.TestCase):
         # the script still never deletes or overwrites
         self.assertNotIn("Remove-Item", self.build)
         self.assertIn("this script never overwrites", self.build)
+
+    def test_the_compiler_line_and_its_link_flags_are_one_batch_line(self):
+        # Install, 28 Oct 2026: inside the @( ) array the comma bound tighter than +, so the "/link ..." half of the cl
+        # line became its own batch line (cl linked without /PDB and /IMPLIB; cmd ran "/link", exit 9009). The
+        # concatenation lives in its own statement now, and the array holds the one variable.
+        cl = re.search(r'^\$cl = "cl\.exe /nologo [^\n]*" \+\n\s+"/link /PDB:[^\n]*"$', self.build, re.M)
+        self.assertIsNotNone(cl, "the cl line and its /link flags must be one $cl assignment")
+        self.assertIn('@("cd /d `"$src`" || exit /b 91", $cl, "exit /b %ERRORLEVEL%") | Set-Content', self.build)
+        array = self.build[self.build.index('@("@echo off") + $enter + @("cd /d'):]
+        array = array[:array.index("Set-Content")]
+        self.assertFalse(any(line.rstrip().endswith("+") for line in array.splitlines()), array)
+        # the C4245 Install saw at FOCCSidecar.cpp(59): the enumerator is an int, the handle an unsigned 32-bit
+        cpp = (PLUGIN / "FOCCSidecar.cpp").read_text(encoding="utf-8")
+        self.assertIn("PluginHandle g_handle = static_cast<PluginHandle>(kPluginHandle_Invalid);", cpp)
 
     def test_the_runbook_and_readme_pass_the_environment(self):
         self.assertEqual(self.runbook.count("-Env D:\\Modding\\tools\\msvc_env.ps1"), 2)

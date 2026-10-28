@@ -1,5 +1,12 @@
 # Full test cycle: close Starfield, redeploy staging, launch, load the last save, clear dialogs, coc into a cell, screenshot.
 # usage: cycle.ps1 -Staging <staging dir> -Starfield <game dir> -Cell FO4Port_Vault111Cryo -Shot <out.png> [-CellJson <cell.json>]
+# -Save <name>: load that save by name from the main menu's console (`load <name>`, the line qstep.ps1's load step types
+# in game) instead of Continue, which loads the NEWEST save: the owner's own play (new-game autosaves, 2026-10-28) then
+# took every save-based run into ship combat, where the HUD guard never passed (door check (a) INCONCLUSIVE
+# NOT_ACTIVATED, a cockpit in end_state.png; Install). testqueue.py passes the session's dedicated save
+# fo4sf_test_<build> once it exists. <name>.sfs must be in the Saves folder (FO4SF_SAVES_DIR, else
+# OneDrive\Documents\My Games\Starfield\Saves, else Documents\My Games\Starfield\Saves) before anything is closed,
+# deployed or launched, and the save must load (the HUD seen) or the run stops: exit 11 either way.
 # -CellJson: enter the cell with coc.ps1, which verifies the arrival at the cell's COC marker (needs FO4SF_PYTHON = a Python
 # with Pillow); exit 4 if the jump did not happen. Without it, coc is typed blind as before.
 # Starfield's "Use of certain console commands will disable achievements." popup (2026-10-10, observed step by step):
@@ -19,10 +26,14 @@
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
 # nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe, or sfse_loader.exe, FO4SF_LAUNCH=sfse) was asked to start the game and no Starfield process was alive 20 s
-# after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
+# after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks),
+# 11 -Save names a save that is not in the Saves folder (nothing closed, deployed or launched), or that save did not
+# load (no HUD within the wait after the console load; the screen is saved to -Shot; nothing tested; the game is left
+# running for the runner to close).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
-      [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
+      [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '', [string]$Save = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
+if ($Save -and $Save -notmatch '^[A-Za-z0-9_]+$') { "save name must be letters, digits and underscores (it is typed into the game): $Save"; exit 1 }
 $repo = Split-Path (Split-Path $PSScriptRoot); $sf = $Starfield
 $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
 # Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with FO4SF_LEASE_DIR set, the game is only
@@ -47,6 +58,31 @@ if ($env:FO4SF_LEASE_DIR) {
 # and its archives, no loose meshes or textures. deploy_starfield.py install --staging would pack new archives from
 # nothing after the uninstall below had removed the installed port. Such a port goes in with install --batch, and the
 # runs test it with FO4SF_PORT=installed. Checked before anything is closed or touched.
+if ($Save) {
+  # the named save must exist before anything is touched (the runner's dedicated_save() reads the same folder; a save
+  # set aside as <name>.sfs.bak or a <name>_s100 does not count, 2026-10-17)
+  $savesDir = $env:FO4SF_SAVES_DIR
+  if (-not $savesDir) {
+    $savesDir = Join-Path $env:USERPROFILE 'OneDrive\Documents\My Games\Starfield\Saves'
+    if (-not (Test-Path $savesDir)) { $savesDir = Join-Path $env:USERPROFILE 'Documents\My Games\Starfield\Saves' }
+  }
+  $sfs = @(Get-ChildItem -Path $savesDir -Filter '*.sfs' -File -ErrorAction SilentlyContinue)
+  $saveFile = $sfs | Where-Object { $_.Name -ieq "$Save.sfs" } | Select-Object -First 1
+  if (-not $saveFile) { "-Save ${Save}: no $Save.sfs in $savesDir (nothing closed, deployed or launched)"; exit 11 }
+  $newest = $sfs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  "save to load by name: $($saveFile.Name) ($($saveFile.Length) bytes, $($saveFile.LastWriteTime.ToString('s')))" +
+    $(if ($newest.Name -ine $saveFile.Name) { "; the newest save is $($newest.Name), which Continue would have loaded" } else { '; it is the newest save' })
+  # the named route stops on "no HUD", so the HUD check itself must be able to run (Prompt-Visible's rule: a Python
+  # without Pillow read as "no HUD" would blame the save): a shot of whatever is on screen now must read yes or no
+  $probe = Join-Path $env:TEMP 'fo4sf_hudprobe.png'
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $probe | Out-Null
+  $hudPy = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
+  $global:LASTEXITCODE = $null
+  $hudAns = & $hudPy (Join-Path $PSScriptRoot 'hud_visible.py') $probe 2>$null
+  if ($LASTEXITCODE -ne 0 -or @('yes', 'no') -notcontains "$hudAns") {
+    "the HUD check cannot run (python exit $LASTEXITCODE; set FO4SF_PYTHON to a Python with Pillow): a load by name could not be judged; nothing closed, deployed or launched"; exit 5
+  }
+}
 if ($env:FO4SF_PORT -ne 'installed') {
   $stg = $Staging.TrimEnd('\', '/')
   $stageRoot = if ((Split-Path -Leaf $stg) -eq 'port') { Split-Path $stg } else { $stg }
@@ -110,12 +146,14 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
   $bord | Select-Object -Last 1
   if ($bordCode -ne 0) { "bridge plugin order refused (exit $bordCode): not launching"; exit 7 }
 }
-function Wait-Screen($label, $maxSec, $check) {
+function Wait-Screen($label, $maxSec, $check, $each = $null) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
   # false after $maxSec: the caller goes on as the old fixed timer would have (docs/ai/optimization.md 2026-10-10).
+  # $each (script block, optional) runs before every poll: the named load's load order probe.
   $t0 = Get-Date
   $png = Join-Path $env:TEMP 'fo4sf_wait.png'
   while (((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
+    if ($each) { & $each }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $png | Out-Null
     if (& $check $png) { Write-Host ("{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds); return $true }
     Start-Sleep 3
@@ -197,25 +235,54 @@ function Clear-AchievementsPopup {
 # Order" dialog with "Current" (loadorder.ps1), clear load-time notices, wait for the save to load. 2026-10-13 (launch
 # frames 23:20): the second E picked the preselected "Save", Starfield deactivated every experiment plugin and each later
 # coc into our worldspaces froze.
-Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500'
+if ($Save) {
+  # the console works at the main menu (the probe sessions coc from there); `load <name>` is the line qstep.ps1's load step
+  # types in game, and no Continue confirmation follows. The achievements popup opens with this first console opening of
+  # the session, and keys still go to the console line while it is open; after the load, Clear-AchievementsPopup reads
+  # the screen before it presses anything, as on the Continue route
+  Send "click:768,432|wait:6000|key:grave|wait:1500|type:load $Save|wait:400|key:enter|wait:3000"
+} else {
+  Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500'
+}
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'loadorder.ps1')
 $lo = $LASTEXITCODE
 if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
 if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+# On the named route the dialog can open later than this one probe 3 s after Enter, and an unanswered dialog would end
+# in exit 11 ("did not load"): as qstep.ps1's load step does, probe again before every HUD poll until the dialog has
+# been seen (loadorder.ps1 exit 0 = no dialog, 10 = answered with Current, 5 = check could not run: again next pass)
+$ProbeLoadOrder = {
+  if ($script:lo -ne 0) { return }
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'loadorder.ps1') | Out-Null
+  $script:lo = $LASTEXITCODE
+  # Write-Host for every line here: the block runs inside Wait-Screen, whose result is assigned, so a string on the
+  # output stream would be collected for that assignment and lost when exit unwinds the script
+  if ($script:lo -eq 2) { Write-Host "input guard stopped the sequence (someone else has focus)"; exit 2 }
+  if ($script:lo -eq 9) { Write-Host "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+  if ($script:lo -eq 10) { Write-Host 'load order dialog answered: Current (the experiment plugins stay active)' }
+  if ($script:lo -eq 5) { $script:lo = 0 }
+}
 # No blind E here: Continue loads the newest save, and on the owner's vanilla save the player faces Vasco. An E sent
 # after the load most likely opened his dialogue and hid the HUD for the whole 300 s wait (v6e retry 4, 2026-10-21:
 # "save loaded: not seen within 300 s", then the runner's recover got the HUD back with one Escape; supported, not
 # seen on screen). E now only closes the achievements popup, when its text is read.
 Clear-AchievementsPopup | Out-Null
-if (-not (Wait-Screen 'save loaded' 300 $HudShown)) {
+$hudSeen = Wait-Screen 'save loaded' 300 $HudShown $(if ($Save) { $ProbeLoadOrder } else { $null })
+if (-not $hudSeen) {
   # a dialogue, menu or popup hides the HUD: up to two Escapes, each followed by a check. Two, not recover's three: if
   # the HUD check itself missed, the first Escape opens the pause menu and the second closes it again
   $n = 0
   while ($n -lt 2) {
     Send 'key:esc|wait:2000'; $n++
-    if (Wait-Screen "save loaded after $n Escape(s)" 15 $HudShown) { break }
+    if (Wait-Screen "save loaded after $n Escape(s)" 15 $HudShown) { $hudSeen = $true; break }
   }
+}
+if ($Save -and -not $hudSeen) {
+  # the Continue route goes on without the HUD, as the old fixed timer did; a named load that shows no HUD loaded
+  # something else or nothing, and a run on it would test the wrong state
+  powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
+  "the save $Save did not load: no HUD within the wait (screen: $Shot): nothing tested; the game is left running for the runner to close"; exit 11
 }
 # Starfield can still have switched the load order. Either record: a bridge held off by itself (a bridge-only crash
 # split) the game ticked again must stop the run too (Codex on #407)

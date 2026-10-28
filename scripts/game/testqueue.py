@@ -2237,6 +2237,18 @@ def report_verdict(qdir, q, test, r):
     return r
 
 
+def saves_dir():
+    """Starfield's Saves folder as qstep.ps1 and cycle.ps1 read it: FO4SF_SAVES_DIR, else OneDrive\\Documents\\My
+    Games\\Starfield\\Saves when it exists, else Documents\\My Games\\Starfield\\Saves."""
+    if os.environ.get("FO4SF_SAVES_DIR"):
+        return os.environ["FO4SF_SAVES_DIR"]
+    home = os.path.expanduser("~")
+    saves = os.path.join(home, "OneDrive", "Documents", "My Games", "Starfield", "Saves")
+    if not os.path.isdir(saves):
+        saves = os.path.join(home, "Documents", "My Games", "Starfield", "Saves")
+    return saves
+
+
 def dedicated_save(saves, name):
     """The dedicated save's file (the console's `save <name>` writes <name>.sfs), matched by its exact name, any case;
     None when there is none. The old glob *<name>* also took fo4sf_test_<id>.sfs.bak (a save set aside by hand,
@@ -3286,9 +3298,18 @@ class Runner:
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}"
                      + (" (the installed port)" if port.get("mode") == "installed" else "")
                      + (f" through {self.q['launch']}" if self.q.get("launch") else ""))
+            # the dedicated save by name once it exists (cycle.ps1 -Save: `load <name>` at the main menu's console).
+            # Continue loads the NEWEST save, and the owner's own play (new-game autosaves, 2026-10-28) took every
+            # save-based run into ship combat, where the HUD guard never passed and this session's named load never
+            # ran (Install). A build's first session has no dedicated save yet: Continue, then setup_session makes it
+            self.cycle_loaded = None
+            named = dedicated_save(saves_dir(), self.q["save"]) is not None
+            self.log(f"loading the dedicated save {self.q['save']} by name at the main menu" if named else
+                     f"no dedicated save {self.q['save']} yet: Continue loads the newest save and this session creates it")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
-                                               "-Shot", os.path.join(self.qdir, "cycle.png")], CYCLE_TIMEOUT_S, steal=True)
+                                               "-Shot", os.path.join(self.qdir, "cycle.png")]
+                                 + (["-Save", self.q["save"]] if named else []), CYCLE_TIMEOUT_S, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
             # the whole output goes to cycle.log: its main menu, load order and "save loaded" lines say where a launch
             # that never became playable stopped (v6e doors_out, 2026-10-21: only the last line was kept)
@@ -3311,9 +3332,14 @@ class Runner:
                 return (f"the game did not start (cycle.ps1 exit 10 on {LAUNCH_TRIES} launches: no Starfield process "
                         f"stayed up; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
             self.launch_tries = 0
+            if code == 11:                                # -Save: the save is not in the Saves folder, or did not load
+                self.ctl.close_game()                     # cycle.ps1 leaves the game up; a later run must not reuse it
+                return (f"the dedicated save {self.q['save']} was not loaded by name (cycle.ps1 exit 11: "
+                        f"{out.strip().splitlines()[-1] if out.strip() else ''}); nothing tested")   # stop, resumable
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
+            self.cycle_loaded = self.q["save"] if named else None
             self.session, self.cell = False, launch
             self.live_pid = self.ctl.game_pid()
             self.launched = True                          # through cycle.ps1, with the queue's route and port check
@@ -3350,14 +3376,16 @@ class Runner:
         return None
 
     def setup_session(self, cell):
-        """Dedicated test save (created once per pinned build), then god mode, so falls never kill the player."""
-        saves = os.path.join(os.path.expanduser("~"), "OneDrive", "Documents", "My Games", "Starfield", "Saves")
-        if not os.path.isdir(saves):
-            saves = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Saves")
+        """Dedicated test save (created once per pinned build; loaded by cycle.ps1 -Save at the main menu since
+        2026-10-28, else here by name), then god mode, so falls never kill the player."""
+        saves = saves_dir()
         name = self.q["save"]
         sd = os.path.join(self.qdir, "_session")
         os.makedirs(sd, exist_ok=True)
-        if dedicated_save(saves, name):
+        if getattr(self, "cycle_loaded", None) == name:
+            self.log(f"the dedicated save {name} was loaded by name at the main menu (cycle.ps1 -Save): not loading it again")
+            self.cell = None                              # the save's cell; coc follows
+        elif dedicated_save(saves, name):
             code = self.step({"kind": "load", "name": name}, sd)
             self.log(f"loaded the dedicated save {name}: exit {code}")
             self.cell = None                              # the save's cell; coc follows
@@ -3707,7 +3735,8 @@ class Runner:
                 self.live_pid = None                      # closed on purpose: not a crash
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g and g.startswith(("the game did not start", "limit:")):   # no waiting fixes Steam or a full disk
+            if g and g.startswith(("the game did not start", "limit:", "the dedicated save")):
+                # no waiting fixes Steam, a full disk or a save that is not there or did not load (cycle.ps1 exit 11)
                 self.log(f"stopped: {g}")
                 self.checkpoint(f"stopped: {g}")
                 return 3
