@@ -515,8 +515,9 @@ Starfield's start, `coc FO4Core_RedRocketSpawn` from the main menu, mapmarkers `
   to d 0.8 to 2.9 km within about 10 s of arrival, and the landing marker was marked discovered 6 s before it moved.
 - **verified:** after 60 s outdoors, Mars's surface map showed the player and one hexagon to the south-east. Mars's
   planet view showed Starfield's Fracking Station, Cydonia and Mars Mech Factory, a place by the player named "Dark
-  Hollow Pond" (not a name in this repository) with a small cyan hexagon beside it, and no "Commonwealth Landing
-  Area" label.
+  Hollow Pond" with a small cyan hexagon beside it, and no "Commonwealth Landing Area" label. Dark Hollow Pond is one
+  of our markers (FO4's, in the `--fo4-map-markers` export `cw_markers.json` on the PC), so the planet view drew our
+  places as one labelled icon.
 - **the owner's assumption, 2026-10-28 (watching the run; they asked for research):** the hexagon is all our icons
   layered over each other, the way Starfield draws a city: one icon, and clicking it lists the places inside to fast
   travel to. If so, the icons register on the first arrival, and the world-entry limit above does not hold here.
