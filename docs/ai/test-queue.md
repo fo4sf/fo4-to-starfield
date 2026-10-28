@@ -69,8 +69,14 @@ live game, and restart it after; Windows LocalDumps still captures crashes.
   with `FO4SF_PORT_SHA256`, the plugin is the one pinned. Otherwise exit 7, nothing launched. A queue planned with
   `--port installed --starfield <game dir>` pins the installed FO4Port.esm at plan time (the plan refuses when the
   install fails the same check), sets both variables for its launches, and needs `installed_port`. The shell's
-  `FO4SF_PORT` is never used: the mode is the queue's. The staging still pins what the plan reads (formids.json,
-  routes); the preflight deploy check compares the install with the port pin.
+  `FO4SF_PORT` is never used: the mode is the queue's. The installed port is then the queue's build: its hash is
+  `plugin_sha256` and `build_id` (the report, the ledger pins and the dedicated save name it), and the staging's own
+  FO4Port.esm keeps its pin as `staging_plugin_sha256`, still checked before every launch with the staging's other
+  files, since the plan read them (formids.json, routes). The preflight deploy check compares the install with the port
+  pin.
+- A queue with `--launch` or `--port` never reuses a game this run did not launch: the runner's game left by an
+  earlier queue may have come up through Steam or on another port, so it is closed and launched again through
+  cycle.ps1 (an intended relaunch, not counted against `--max-relaunch`).
 - So a port goes into the game folder through `deploy_starfield.py`, never by copying files over it: for an interior
   batch stage such as `doors_anim_b00`, `uninstall`, then `install --batch <stage>`. A file copied over a recorded
   install fails `verify` as "changed since the install". Without `FO4SF_PORT=installed`, cycle.ps1 refuses a `-Staging`

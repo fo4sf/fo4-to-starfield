@@ -981,14 +981,21 @@ class PlanJsonTests(unittest.TestCase):
             self.assertEqual((q["tests"][0]["launch"], q["tests"][0]["port"]), ("sfse", "installed"))
             self.assertTrue({"sfse_launch", "installed_port"} <= set(q["needs"]))
             self.assertIn("sfse_launch,", " ".join(q["pre_launch"]) + ",")      # an older runner refuses the queue
-            self.assertEqual(q["plugin_sha256"], hashlib.sha256(b"TES4").hexdigest())   # the staging's pin stays
+            # Codex on #558: the results belong to the installed build (report, ledger pins, the dedicated save);
+            # the staging's plugin keeps its own pin for the planned inputs
+            self.assertEqual((q["plugin_sha256"], q["build_id"], q["save"]), (want, want[:8], f"fo4sf_test_{want[:8]}"))
+            self.assertEqual(q["staging_plugin_sha256"], hashlib.sha256(b"TES4").hexdigest())
+            self.assertEqual(tq.staging_pin(q), hashlib.sha256(b"TES4").hexdigest())
+            r = tq.Runner(out, args(), ctl=FakeControls(), step=lambda t, o: 0)
+            self.assertTrue(r.pinned_ok())                                     # checked against the staging's pin
             writef(pt, b"FO4Port.esm\n")                                      # the installed port is off: no plan
             with self.assertRaisesRegex(SystemExit, "--port installed: FO4Port.esm not active"):
                 tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q2"),
                          "--port", "installed", "--starfield", game])
             tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", os.path.join(d, "q3")])
         plain = jload(os.path.join(d, "q3", "queue.json"))                   # without the options: as before
-        self.assertFalse({"launch", "port"} & set(plain))
+        self.assertFalse({"launch", "port", "staging_plugin_sha256"} & set(plain))
+        self.assertEqual(tq.staging_pin(plain), plain["plugin_sha256"])
         self.assertFalse({"launch", "port"} & set(plain["tests"][0]))
         self.assertEqual(tq.runner_features.missing(["sfse_launch", "installed_port"]), [])
 

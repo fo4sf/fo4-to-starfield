@@ -300,6 +300,31 @@ class RunnerLeaseTests(unittest.TestCase):
         block = src[src.index("if ($env:FO4SF_PORT -ne 'installed') {"):guard + 300]
         self.assertIn("exit 7", block)
 
+    def test_a_queue_with_its_own_route_never_reuses_a_game_this_run_did_not_launch(self):
+        # Codex on #558: the runner's game left by an earlier queue (a Steam launch, another port) was reused, so the
+        # SFSE route and the installed-port check never ran
+        for q in ({"launch": "sfse"}, {"port": {"mode": "installed", "plugin_sha256": "cd" * 32}}, {}):
+            ctl = tt.FakeControls()                                            # the runner's own game (pid 42) is up
+            r = tq.Runner(self.d, tt.args(), ctl=ctl, step=lambda t, o: 0)
+            r.log = lambda msg, r=r: quiet_log(r, msg)
+            r.q.update(q)
+            calls = []
+
+            def ps(script, args, timeout, steal=False, ctl=ctl):
+                calls.append(script)
+                ctl.pid = 42                                                   # the new game is up
+                return 0, ""
+            r._ps = ps
+            with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                    mock.patch.object(tq.Runner, "setup_session", lambda self, cell: setattr(self, "session", True)):
+                self.assertIsNone(r.ensure_game("C"))
+                self.assertIsNone(r.ensure_game("C"))                          # the game this run launched is kept
+            self.assertEqual(getattr(ctl, "closed", 0), 1 if q else 0, q)
+            self.assertEqual(calls.count("cycle.ps1"), 1 if q else 0, q)       # without the options: reused, as before
+            if q:
+                self.assertEqual(r.state["relaunches"], 0)                     # an intended relaunch, not a crash's
+                self.assertIn("was not launched by this run", read(r.log_p))
+
     def test_the_queue_sets_the_launch_route_and_the_port_mode_for_cycle_ps1(self):
         r = self.runner()
         with mock.patch.dict(os.environ, {"FO4SF_LAUNCH": "exe", "FO4SF_PORT": "installed",

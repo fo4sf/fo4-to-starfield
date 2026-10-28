@@ -114,7 +114,8 @@ def papyrus_logging_on(texts):
 
 # ---------------------------------------------------------------------------------------------------- the checks
 def check_pin(p):
-    want = (p.queue or {}).get("plugin_sha256")
+    # a queue that tests the installed port pins the staging's own plugin apart (testqueue.py apply_launch)
+    want = (p.queue or {}).get("staging_plugin_sha256") or (p.queue or {}).get("plugin_sha256")
     if not want:
         return Check("pin", UNKNOWN, "the queue pins no plugin_sha256")
     got = p.staged_plugin_sha256()

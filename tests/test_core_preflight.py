@@ -164,6 +164,10 @@ class CheckTests(unittest.TestCase):
         c = one("deploy", queue=q, manifest=None)
         self.assertEqual(c.status, pf.FAIL)                                   # nothing to test, nothing deployed later
         self.assertIn("--port installed", c.detail)
+        # the pin check reads the staging's own pin there (plugin_sha256 is the installed build's)
+        q = dict(q, plugin_sha256=OTHER, staging_plugin_sha256=SHA)
+        self.assertEqual(one("pin", queue=q).status, pf.PASS)
+        self.assertEqual(one("pin", queue=q, staged=OTHER).status, pf.FAIL)
         c = one("deploy", manifest=dict(FakeProbe().manifest, files=[]), data_files={})   # the files gone, the manifest not
         self.assertEqual((c.status, "nothing kept" in c.detail), (pf.FAIL, True))
         self.assertEqual(one("deploy", manifest=dict(FakeProbe().manifest, cleanup_pending=True)).status, pf.FAIL)

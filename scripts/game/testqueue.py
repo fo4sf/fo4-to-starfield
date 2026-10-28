@@ -1224,7 +1224,8 @@ def plan_movable(a):
     # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
     q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", ""),
                                                         launch=getattr(a, "launch", ""), port=getattr(a, "port", ""),
-                                                        starfield=getattr(a, "starfield", "")), a.exp_dir))
+                                                        starfield=getattr(a, "starfield", ""), staging=a.staging),
+                            a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
@@ -2731,6 +2732,12 @@ def apply_bridge(tests, a):
     return {"bridge": {"dir": d, "plugin": BRIDGE_PLUGIN, "sha256": {k: sha256(p) for k, p in files.items()}}}
 
 
+def staging_pin(q):
+    """The staging FO4Port.esm the plan pinned: plugin_sha256, unless the queue tests the installed port (apply_launch),
+    whose own hash then holds plugin_sha256 and build_id."""
+    return q.get("staging_plugin_sha256") or q.get("plugin_sha256")
+
+
 def deploy_starfield():
     """scripts/deploy_starfield.py as a module (it lives one folder up, outside this script's import path)."""
     import importlib.util
@@ -2757,6 +2764,11 @@ def apply_launch(tests, a):
         if problem:
             sys.exit(f"--port installed: {problem}")
         out["port"] = {"mode": "installed", "plugin_sha256": sha}
+        # the installed port is the build the results belong to (report, ledger pins, the dedicated save); the
+        # staging's FO4Port.esm keeps its own pin for the planned inputs (Codex on #558: results were credited to the
+        # staging's build)
+        out.update({"staging_plugin_sha256": sha256(os.path.join(os.path.abspath(a.staging), "FO4Port.esm")),
+                    "plugin_sha256": sha, "build_id": sha[:8], "save": f"fo4sf_test_{sha[:8]}"})
     for t in tests:
         if launch:
             t["launch"] = launch
@@ -3105,7 +3117,7 @@ class Runner:
 
     def pinned_ok(self):
         esm = os.path.join(self.q["staging"], "FO4Port.esm")
-        return os.path.exists(esm) and sha256(esm) == self.q["plugin_sha256"]
+        return os.path.exists(esm) and sha256(esm) == staging_pin(self.q)
 
     def staging_mismatch(self):
         """Why the staging no longer matches the full fingerprint the queue pinned (staging_files: every file's sha256,
@@ -3159,6 +3171,18 @@ class Runner:
         if why:
             self.log(f"{why}: stopping")
             return "stop"
+        if gp and (self.q.get("launch") or self.q.get("port")) and not getattr(self, "launched", False):
+            # plan --launch / --port (Codex on #558): the runner's game from before this run may have come up through
+            # Steam or on another port, and reusing it would skip cycle.ps1's route and check; close it, launch anew
+            self.log("the runner's game was not launched by this run with the queue's launch route and port: closing "
+                     "it for a new launch")
+            self.ctl.close_game()
+            self.session, self.cell, self.live_pid = False, None, None    # closed on purpose: not a crash
+            self.fresh_launch = True                      # an intended relaunch: not counted against --max-relaunch
+            gp = self.ctl.game_pid()
+            if gp:
+                self.log("the runner's game did not close: stopping")
+                return "stop"
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
@@ -3210,8 +3234,8 @@ class Runner:
             self.checkpoint()
             port = self.q.get("port") or {}
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}"
-                     + (f" on the installed port {(port.get('plugin_sha256') or '')[:8]}" if port.get("mode") == "installed"
-                        else "") + (f" through {self.q['launch']}" if self.q.get("launch") else ""))
+                     + (" (the installed port)" if port.get("mode") == "installed" else "")
+                     + (f" through {self.q['launch']}" if self.q.get("launch") else ""))
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], CYCLE_TIMEOUT_S, steal=True)
@@ -3242,6 +3266,7 @@ class Runner:
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
             self.session, self.cell = False, launch
             self.live_pid = self.ctl.game_pid()
+            self.launched = True                          # through cycle.ps1, with the queue's route and port check
         if not self.session:
             self.setup_session(launch)
         if cell and self.cell != cell:
