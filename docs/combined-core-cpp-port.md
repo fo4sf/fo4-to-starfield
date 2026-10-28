@@ -175,6 +175,21 @@ B0-1 (`FOCC_B0.Gmst`, Papyrus reads the probe plugin's game setting `iFOCC_Pong`
 probe session and also proves B's return leg) and B0-2 (`FOCC_B0.Ping`, the native, before and after a save and a
 load); `python -m fo4sf.combined.probes b0` judges both.
 
+**Checked 28 October 2026, evening, after the first PC build:** `FOCCPing.dll` compiled against `9caec20` on the first
+try, and the Address Library check before its install found the break: the v22 `versionlib-1-16-244-0.bin` is format
+5 (header `05 00 00 00`, then 1, 16, 244, 0), and `9caec20` (like the archived upstream main) reads format 2 only, so
+the dll would have stopped the game at `SFSE::Init` with "Unsupported address library format: 5". It was not installed.
+Option C's question answered itself: the original repository is archived and points to **libxse/commonlibsf**
+(`9d090c4`, 6 October 2026), whose shared layer reads formats 1, 2 and 5 (`lib/commonlib-shared/src/REL/IDDB.cpp`,
+`load_v5`: a flat table of offsets indexed by id), sets the version-data bit SFSE 0.2.21 counts as address independence
+(`kAddressIndependence_AddressLibraryV2`; `9caec20` set the v1 bit, which `PluginManager.cpp` no longer counts), and
+carries the 1.15.216+ ids (`include/RE/IDs.h`, `ID::GameVM::Singleton` 937585). It builds with xmake 3.0+, not cmake.
+libxse has no `SFSE::SetPapyrusCallback`; `sfse/FOCCPing` now binds the native on SFSE's `kPostDataLoad` message
+through `RE::GameVM::GetSingleton()->GetVM()->BindNativeMethod`, with no hook of its own. So stack A stands, with the
+library changed under it: B0 runs on libxse/commonlibsf, and "fix it where 1.16.244 breaks it" cost no patch of ours.
+Still unverified until the first launch: that the GameVM singleton is set by `kPostDataLoad`, and that a native bound
+after the VM's own `BindEverythingToScript` is callable from `FOCC.pex`.
+
 **If B0 fails, or the licence does not fit:**
 - The 20-place slice runs in Papyrus, if P5 shows a Papyrus tick over 20 places is fast enough. P5 on the owner's
   PC (28 Oct) measured 2.42 ms per place for its tick of one global per place, so about 50 ms for 20 places of
