@@ -496,8 +496,9 @@ What the script does now (`FO4SF_MapMarkers.psc`):
 - A reference that stays where it was, in its own world, after `MoveTo` (the pad) is not tried again that session
   or build.
 - The move budget starts over at every game session as well as at every build, so markers a session left wrong are
-  put right in the next one. A session is told by the real-time clock going back, as for the border signal, so a
-  save loaded later in real time than its last pass keeps its budget.
+  put right in the next one. A session starts at every save load (the player's `OnPlayerLoadGame`, which each quest
+  registers for) and whenever the real-time clock goes back; the border signal starts over the same way. The clock
+  alone missed a launch whose first pass reads a later time than the save's last one (Codex on #570).
 - Once per session it marks the landing marker discovered and visible on the star map: the pad (`LandingPadID`
   0x7145) is fourth from its quest's end and the marker two places after it, because dotnet/MapMarkers keeps the
   landing spot's four pieces last and in one quest.

@@ -82,7 +82,17 @@ bool landingShown = False
 Event OnInit()
     Debug.OpenUserLog(LogName)
     Trace("init markers=" + Markers.Length)
+    RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
     StartTimer(Interval, 1)
+EndEvent
+
+; Every save load starts a new session, for Place (the move budget, the refused list, the landing) and for Border (the
+; log opened again, the signal written again). The clocks alone miss a launch whose first pass reads a later real time
+; than the save's last one (Codex on #570: saved 20 s, first pass at 90 s), so the load clears them. OnPlayerLoadGame
+; is declared on Actor (PC read, 19 Oct: docs/newgame/vault111-start.md); the mission's keeper registers the same way.
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    placeRealTime = 0.0                                       ; NewSession: unset, so a new session
+    lastRealTime = 1000000000.0                               ; Border: any clock is below it, so a new session
 EndEvent
 
 Function ResetBudget()
@@ -97,11 +107,13 @@ EndFunction
 
 ; A new game session (the real-time clock starts over at every launch, as Border reads it): the move budget starts over,
 ; and so does the list of references the game refused to move. A save from before this script had these variables
-; brings them in unset (0.0 or the initial -1.0), so either one counts as a new session and the list is made.
+; brings them in unset (0.0 or the initial -1.0), so either one counts as a new session and the list is made; a save
+; load sets 0.0 (OnPlayerLoadGame).
 bool Function NewSession()
     float rt = Utility.GetCurrentRealTime()
     bool fresh = placeRealTime <= 0.0 || rt < placeRealTime
     if fresh
+        RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")  ; a save from before the registration ran OnInit
         if moves > 0
             Trace("session: move budget starts over (was moves=" + moves + ")")
         endif

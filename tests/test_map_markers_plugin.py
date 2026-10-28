@@ -761,6 +761,49 @@ class ScriptContractTests(unittest.TestCase):
         reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function NewSession")]
         self.assertIn(f"refused = new bool[{size}]", reset)
 
+    def test_every_save_load_is_a_new_session(self):
+        # Codex on #570: the clock alone misses a launch whose first pass reads a later real time than the save's last
+        # one (saved 20 s, first pass at 90 s), keeping that session's spent budget. The player's load event clears
+        # both clocks. Replayed here from the script's own predicates and the values the event writes
+        on_init = self.text[self.text.index("Event OnInit"):self.text.index("EndEvent")]
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', on_init)
+        load = self.text[self.text.index("Event Actor.OnPlayerLoadGame(Actor akSender)"):]
+        load = load[:load.index("EndEvent")]
+        written = dict(re.findall(r"^\s+(placeRealTime|lastRealTime) = ([0-9.]+)", load, re.M))
+        self.assertEqual(set(written), {"placeRealTime", "lastRealTime"})
+        session = self.text[self.text.index("bool Function NewSession"):self.text.index("Function SessionLine")]
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', session)   # older saves
+        place_new = re.search(r"bool fresh = (.+)$", session, re.M).group(1)
+        border = self.text[self.text.index("Function Border"):self.text.index("Function Trace")]
+        border_new = re.search(r"if (rt < lastRealTime)\s", border).group(1)
+
+        def py(expr):
+            return expr.replace("||", " or ").replace("&&", " and ")
+
+        def replay(name, expr, initial, events):
+            """The variable as saved, then each event: ("load",) or ("tick", rt); the ticks that start a session."""
+            var, out = initial, []
+            for e in events:
+                if e[0] == "load":
+                    var = float(written[name])
+                else:
+                    out.append(eval(py(expr), {}, {name: var, "rt": e[1]}))   # noqa: S307 - the script's own text
+                    var = e[1]
+            return out
+
+        for name, expr, initial in (("placeRealTime", place_new, -1.0), ("lastRealTime", border_new, -1.0)):
+            same = [("tick", 2.0), ("tick", 4.0), ("tick", 6.0)]
+            self.assertEqual(replay(name, expr, initial, same)[1:], [False, False], name)             # one session
+            later = [("tick", 18.0), ("tick", 20.0), ("load",), ("tick", 90.0), ("tick", 92.0)]
+            self.assertEqual(replay(name, expr, initial, later)[2:], [True, False], name)            # a later clock
+            earlier = [("tick", 600.0), ("load",), ("tick", 40.0), ("tick", 42.0)]
+            self.assertEqual(replay(name, expr, initial, earlier)[1:], [True, False], name)          # an earlier one
+            reload = [("tick", 300.0), ("load",), ("tick", 310.0)]
+            self.assertEqual(replay(name, expr, initial, reload)[1:], [True], name)                  # same launch
+            unset = [("tick", 90.0)]                                   # a save from before NewSession: 0.0
+            if name == "placeRealTime":
+                self.assertEqual(replay(name, expr, 0.0, unset), [True])
+
     def test_each_quest_says_once_per_session_what_the_border_guards_read(self):
         # a coc session from the main menu at Red Rocket wrote no border line in 240 s while "moved 9" lines kept
         # coming (Review, 2026-10-28): every line names its quest, and each quest's first pass of a session logs
