@@ -2607,3 +2607,34 @@ anything, opens the console at the main menu and types `load <name>` (the
 line qstep.ps1's load step types in game), and stops with exit 11 when no
 HUD follows; the session skips its second load. A build's first session,
 with no dedicated save yet, still enters through Continue and creates it.
+
+## 2026-10-28: the Address Library for 1.16.244 is format 5; FOCCPing moves to libxse/commonlibsf
+
+The first PC build of FOCCPing against CommonLibSF 9caec20 compiled on the
+first try (570,368 bytes), and Install's header check of the Address Library
+before the install found the break: the v22 versionlib-1-16-244-0.bin starts
+with 05 00 00 00 01 00 00 00 10 00 00 00 F4 00 00 00, format 5 for game
+1.16.244, while 9caec20 (and the archived upstream main) read format 2 only
+(src/REL/ID.cpp, kDatabaseVersion = 2). The dll would have stopped the game
+at SFSE::Init with "Unsupported address library format: 5"; it was not
+installed. The original Starfield-Reverse-Engineering/CommonLibSF repository
+is archived and points to libxse/commonlibsf (9d090c4, 6 Oct 2026), whose
+shared layer (libxse/commonlib-shared 9fbb74d) reads formats 1, 2 and 5
+(IDDB.cpp load_v5: the header, then a flat uint32 offset table indexed by id),
+sets SFSE's AddressLibraryV2 version-data bit (the only library bit SFSE
+0.2.21's PluginManager counts as address independence; 9caec20 set the v1
+bit) and carries the 1.15.216+ ids. It builds with xmake 3.0+, not cmake,
+and has no SFSE::SetPapyrusCallback. sfse/FOCCPing is now an xmake project in
+the shape of libxse/commonlibsf-template (the library's commonlibsf.plugin
+rule writes the version data); main.cpp binds FOCC.Ping on SFSE's
+kPostDataLoad message through RE::GameVM::GetSingleton()->GetVM()
+->BindNativeMethod, no hook, no trampoline; build.ps1 drives xmake in the
+PC's portable MSVC environment, making xmake's Visual Studio-shaped root
+(VC and Windows Kits as directory junctions in the staging folder) from
+VCToolsInstallDir and WindowsSdkDir, and junctions the library checkout
+(D:\Modding\tools\libxse-commonlibsf, with xmake 3.1.2 beside it) into the
+staging copy of the project. The runbook's B0-2 card and the port plan
+record the finding; the format check now expects 05 00 00 00. Unverified
+until the first launch: that the GameVM singleton is set by kPostDataLoad,
+and that a native bound after BindEverythingToScript is callable from
+FOCC.pex.

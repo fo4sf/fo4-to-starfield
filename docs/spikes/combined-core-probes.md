@@ -621,27 +621,28 @@ log. This job rides along with any probe session on the kit.
 
 **Job focc-B0-2 (the native route, stack A). Game: CLOSED for the installs, then launched through the loader.**
 Prerequisites, in this order, each a game-folder or build step for the owner's line:
-1. The Address Library for SFSE Plugins (Nexus 3256; v22 covers 1.16.244; already on the PC since 24 Oct, pinned in
-   Install's STATE_2026-10-24.md: `SFSE/Plugins/versionlib-1-16-244-0.bin`, 5,099,968 bytes, inside the archive). The
-   `.bin` goes to `<Starfield>\Data\SFSE\Plugins\`. CommonLibSF opens
-   `versionlib-1-16-244-0.bin` there on Steam (`src/REL/ID.cpp`: `versionlib-<version with dashes>`, no platform
-   suffix for Steam, `.bin`); the archive's file is kept under its own name and that name goes on the card. A missing
-   file stops the game with a message box naming the path. Before the launch, the first row of
-   `Format-Hex <the .bin> | Select-Object -First 1` (Windows PowerShell 5.1 has no `-Count`) must open with
-   `02 00 00 00`: CommonLibSF `9caec20` reads address library format 2 only (`src/REL/ID.cpp`), and SFSE's
-   `PluginAPI.h` names a second library generation ("Address Library for 1.15.216+") beside Nexus 3256's v1; another
-   first word is a library-generation finding ("Unsupported address library format" box), not a hook finding.
-2. CommonLibSF `9caec20`, built and installed on the PC on 28 Oct (preset `release-msvc-ninja`, exit 0,
-   CommonLibSF.lib; the install prefix `D:\Modding\tools\CommonLibSF-install`; the library's vcpkg folder
-   `D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release`).
+1. The Address Library for SFSE Plugins (Nexus 3256; v22 covers 1.16.244; on the PC since 24 Oct, extracted on 28 Oct
+   to `D:\Modding\staging\addresslib_v22`: `versionlib-1-16-244-0.bin`, 5,099,968 bytes). The `.bin` goes to
+   `<Starfield>\Data\SFSE\Plugins\`, together with the dll. The library opens `versionlib-<exe version with
+   dashes>.bin` in the plugin's folder (libxse `lib/commonlib-shared/src/REL/IDDB.cpp`) on the first id lookup; a
+   missing file or another game version in its header stops the game with a message box. Before the launch, the first
+   row of `Format-Hex <the .bin> | Select-Object -First 1` (Windows PowerShell 5.1 has no `-Count`) must open with
+   `05 00 00 00`: the file is address library format 5 (Install's header check, 28 Oct), the generation SFSE's
+   `PluginAPI.h` calls "Address Library for 1.15.216+"; libxse reads formats 1, 2 and 5, and the old CommonLibSF
+   `9caec20` read 2 only, which is why the first dll of 28 Oct was never installed. Another first word is a
+   library-generation finding ("Unsupported Address Library format" box), not a bind finding.
+2. libxse/commonlibsf at `9d090c4` with its submodule `lib\commonlib-shared` at `9fbb74d`, cloned on the PC on 28 Oct
+   (`D:\Modding\tools\libxse-commonlibsf`), and xmake 3.1.2 (`D:\Modding\tools\xmake-3.1.2`, on PATH through
+   `msvc_env.ps1`). The original CommonLibSF is archived and points to libxse; the PC's `CommonLibSF-install` prefix of
+   the morning is no longer used.
 3. `FOCCPing.dll` built from `sfse/FOCCPing` (its README) with `build.ps1 -Out D:\Modding\staging\focc_ping_<date>
-   -CommonLibSF D:\Modding\tools\CommonLibSF-install -Vcpkg
-   D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release -Env
-   D:\Modding\tools\msvc_env.ps1` (`build.json` records every sha256), and copied by hand to
-   `<Starfield>\Data\SFSE\Plugins\`.
+   -Env D:\Modding\tools\msvc_env.ps1` (`-Lib` defaults to the checkout; the script makes xmake's MSVC root from
+   `VCToolsInstallDir` and `WindowsSdkDir`; `build.json` records every sha256 and both library commits), and copied by
+   hand to `<Starfield>\Data\SFSE\Plugins\`.
 Then launch through `sfse_loader.exe`. The kit's rule holds: a dll that keeps the game from the main menu is deleted
-at once (an id the Address Library lacks stops the game with a message box; a wrong hook offset is a crash; either is
-stack A's finding on 1.16.244, and per the owner the fix goes into the library before B comes in). At the main menu,
+at once (an id the Address Library lacks stops the game with a message box; the plugin has no hook, so a wrong offset
+cannot crash it; `FOCCPing.log` reading "no script VM at PostDataLoad" means the GameVM singleton was not set when the
+native was to be bound, a timing finding for the plugin, not the library). At the main menu,
 load a save and, the `Gmst` first (this launch's `focc.0.log` is new, and the judge reads its first `b0 gmst` as B0-1):
 
 ```

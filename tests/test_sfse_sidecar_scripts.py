@@ -67,7 +67,8 @@ class CompilerRouteTests(unittest.TestCase):
         self.assertIn("PluginHandle g_handle = static_cast<PluginHandle>(kPluginHandle_Invalid);", cpp)
 
     def test_the_runbook_and_readme_pass_the_environment(self):
-        self.assertEqual(self.runbook.count("-Env D:\\Modding\\tools\\msvc_env.ps1"), 2)
+        # the two sidecar lines (check_toolchain.ps1, build.ps1) and, since the libxse port, the B0-2 card's FOCCPing build line
+        self.assertEqual(self.runbook.count("-Env D:\\Modding\\tools\\msvc_env.ps1"), 3)
         self.assertIn("-Env D:\\Modding\\tools\\msvc_env.ps1", self.readme)
 
 
