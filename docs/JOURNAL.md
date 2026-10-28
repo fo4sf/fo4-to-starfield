@@ -2607,3 +2607,23 @@ anything, opens the console at the main menu and types `load <name>` (the
 line qstep.ps1's load step types in game), and stops with exit 11 when no
 HUD follows; the session skips its second load. A build's first session,
 with no dedicated save yet, still enters through Continue and creates it.
+
+## 2026-10-28: Map markers: a door mid-pass, a pad that will not move, a landing marker to discover
+
+The owner's report on 28 Oct: no map icons after `coc FO4Core_RedRocketSpawn`,
+and no Commonwealth location on Mars's map to fast travel to. The 24 Oct Card
+B logs show two faults in FO4SF_MapMarkers. The landing pad refuses every
+MoveTo ("cannot be moved", Papyrus.0.log), so the fourth quest spent its whole
+budget on it and the pad never reached the world the player walks in. And a
+Vault 95 door trip during a pass put about 300 markers at their target plus
+the trip's offset, because Place read the player once, and the spent budgets
+kept them there for that save. The script now reads the player before every
+move and stops the pass indoors or in another world, skips a reference the
+game refused for the rest of the session, starts the budget over every game
+session, and marks the landing marker discovered and visible on the star map
+once per session. dotnet/MapMarkers keeps the landing spot's four pieces in
+one quest, so the marker is always two places after the pad. Icons on the
+first arrival are a separate limit: Skyrim modders find the map takes markers
+only on entering a world, so moving them cannot show them at once
+(docs/terrain/map-markers.md, "Icons, the pad and the planet map"). A save and
+load, and Mars's map, are the PC test.

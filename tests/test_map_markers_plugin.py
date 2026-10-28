@@ -24,6 +24,7 @@ import test_terrain_reference_identity as tri  # noqa: E402
 import test_terrain_lights_writer as tlw  # noqa: E402
 
 SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
+PROGRAM = ROOT / "dotnet/MapMarkers/Program.cs"
 Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
 Z_LIFT_STEP = 0.1                # dotnet/MapMarkers ZLiftStep: the build takes a lift on this grid only
 USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
@@ -509,6 +510,31 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 1, missing.stdout)
         self.assertIn("SyntheticWorldLandingPadRedRocketNorth (--landing) is missing", missing.stdout)
 
+    def test_the_landing_spot_stays_in_one_quest(self):
+        # the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding): 3 core
+        # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in a third quest, so that
+        # quest takes the other two from the one before it (100, 98, 4), and the check wants the same split
+        many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+                for k in range(195)]
+        extra, landing = self.extra_file("extra-split", many), self.landing_file("landing-split", self.landing())
+        out = self.root / "plugin-landing-split"
+        built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--landing", landing)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        check = self.tool_run("check", out / "FO4SFMapMarkers.esm", self.core, "--extra", extra, "--landing", landing)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
+        vmads = [tlw.field(recs[0x02000000 | q][1], b"VMAD") for q in (0x800, 0x801, 0x802)]
+        lists = [self.object_list(v) for v in vmads]
+        self.assertEqual([len(x) for x in lists], [100, 98, 4])
+        self.assertEqual(lists[2], [0x020008F0, 0x020008F1, 0x020008F2, 0x020008F3])     # pad, trigger, marker, heading
+        flat = [f for x in lists for f in x]
+        self.assertEqual([f & 0xFFFFFF for f in flat[3:-4]], list(range(0x900, 0x900 + 195)))   # the order kept
+        name = b"\x08\x00MaxMoves"
+        at = vmads[1].index(name) + len(name)
+        self.assertEqual(struct.unpack_from("<BBi", vmads[1], at), (3, 1, 196))      # its own count's budget
+        self.assertNotIn(b"MaxMoves", vmads[2])                                       # 4: the script's 40
+
     def test_build_refuses_a_bad_landing_file(self):
         spot = self.landing()
         for name, bad, want in [
@@ -643,7 +669,7 @@ class ScriptContractTests(unittest.TestCase):
         # the next lift (Codex on #483): the budget is keyed to the build (marker count, LocalZ[0]) and starts over
         self.assertIn("int budgetN = -1", self.text)
         self.assertIn("float budgetZ = 0.0", self.text)
-        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function Place")]
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function NewSession")]
         self.assertIn("budgetN != Markers.Length || budgetZ != LocalZ[0]", reset)
         for line in ("budgetN = Markers.Length", "budgetZ = LocalZ[0]", "moves = 0"):
             self.assertIn(line, reset)
@@ -690,6 +716,144 @@ class ScriptContractTests(unittest.TestCase):
         self.assertRegex(place, r"m\.MoveTo\(player, x - px, y - py, z - pz, False, False\)")
         self.assertIn('Trace("moved "', place)
         self.assertNotIn("Math.", self.text)               # only the base scripts the bridge already imports
+
+    def test_a_pass_reads_the_player_before_every_move(self):
+        # a load door can take the player away while a pass runs: a pass that read them once put about 300 markers
+        # into Vault 95 at the target plus the trip and spent every budget (PC, 2026-10-24 10:24, fo4sf_map.0.log).
+        # Inside the move branch, just before MoveTo, the player is read again and the pass stops once they are
+        # indoors or in another world; a marker already in place costs no player reads (fresh review on #570)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        loop = place.index("while i < Markers.Length && moves < MaxMoves")
+        self.assertLess(place.index("WorldSpace w = player.GetWorldSpace()"), loop)
+        branch = place.index("if before > SameWorld", loop)
+        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w", loop)
+        read = place.index("px = player.GetPositionX()", loop)
+        self.assertLess(branch, stop)
+        self.assertLess(stop, read)
+        self.assertLess(read, place.index("m.Enable", loop))
+        self.assertLess(place.index("m.Enable"), place.index("m.MoveTo("))
+        self.assertIn('Trace("pass stopped at "', place)
+        self.assertEqual(place.count("player.GetPositionX()"), 2)     # once for the extent, once before the move
+        self.assertEqual(place[loop:branch].count("player.Get"), 1)   # only the distance before a move is needed
+
+    def test_a_reference_the_game_will_not_move_is_left_alone_for_the_session(self):
+        # the landing pad: "cannot be moved" on every pass, and its quest spent its whole budget retrying it
+        # (Papyrus.0.log, 2026-10-24); a refused reference is skipped until the next game session
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertIn("if m != None && !refused[i]", place)
+        self.assertLess(place.index("!refused[i]"), place.index("m.Enable"))
+        self.assertLess(place.index("m.MoveTo("), place.index("refused[i] = True"))
+        self.assertIn("if d > SameWorld && sx * sx + sy * sy < 0.0001", place)    # still in its own world, unmoved
+        self.assertLess(place.index("NewSession()"), place.index("IsInInterior"))
+        session = self.text[self.text.index("Function NewSession"):self.text.index("Function ShowLanding")]
+        size = int(re.search(r"refused = new bool\[(\d+)\]", session).group(1))
+        per_quest = int(re.search(r"const int PerQuest = (\d+)", PROGRAM.read_text(encoding="utf-8")).group(1))
+        self.assertGreaterEqual(size, per_quest)                          # every index a quest can hold
+        self.assertLessEqual(size, 128)                                   # a script-made array's limit
+        # every game session: the budget starts over, so markers a session left wrong are put right in the next
+        for line in ("moves = 0", "landingShown = False"):
+            self.assertIn(line, session)
+        # a save from before these variables brings them in unset: 0.0 counts as a new session too, so the list is made
+        self.assertIn("bool fresh = placeRealTime <= 0.0 || rt < placeRealTime", session)
+        self.assertIn("return fresh", session)
+        self.assertIn("float placeRealTime = -1.0", self.text)
+        # a new build can list other references at the same places, so the list starts over with its budget
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function NewSession")]
+        self.assertIn(f"refused = new bool[{size}]", reset)
+
+    def test_every_save_load_is_a_new_session(self):
+        # Codex on #570: the clock alone misses a launch whose first pass reads a later real time than the save's last
+        # one (saved 20 s, first pass at 90 s), keeping that session's spent budget. The player's load event clears
+        # both clocks. Replayed here from the script's own predicates and the values the event writes
+        on_init = self.text[self.text.index("Event OnInit"):self.text.index("EndEvent")]
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', on_init)
+        load = self.text[self.text.index("Event Actor.OnPlayerLoadGame(Actor akSender)"):]
+        load = load[:load.index("EndEvent")]
+        written = dict(re.findall(r"^\s+(placeRealTime|lastRealTime) = ([0-9.]+)", load, re.M))
+        self.assertEqual(set(written), {"placeRealTime", "lastRealTime"})
+        session = self.text[self.text.index("bool Function NewSession"):self.text.index("Function SessionLine")]
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', session)   # older saves
+        # an old save's first load brings no event (it was not registered yet): a new session for Place is one for
+        # Border too, with the value the event writes
+        self.assertIn(f"lastRealTime = {written['lastRealTime']}", session)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("NewSession()"), place.index("ResetBudget()"))          # the log open first
+        place_new = re.search(r"bool fresh = (.+)$", session, re.M).group(1)
+        border = self.text[self.text.index("Function Border"):self.text.index("Function Trace")]
+        border_new = re.search(r"if (rt < lastRealTime)\s", border).group(1)
+
+        def py(expr):
+            return expr.replace("||", " or ").replace("&&", " and ")
+
+        def replay(name, expr, initial, events):
+            """The variable as saved, then each event: ("load",) or ("tick", rt); the ticks that start a session."""
+            var, out = initial, []
+            for e in events:
+                if e[0] == "load":
+                    var = float(written[name])
+                else:
+                    out.append(eval(py(expr), {}, {name: var, "rt": e[1]}))   # noqa: S307 - the script's own text
+                    var = e[1]
+            return out
+
+        for name, expr, initial in (("placeRealTime", place_new, -1.0), ("lastRealTime", border_new, -1.0)):
+            same = [("tick", 2.0), ("tick", 4.0), ("tick", 6.0)]
+            self.assertEqual(replay(name, expr, initial, same)[1:], [False, False], name)             # one session
+            later = [("tick", 18.0), ("tick", 20.0), ("load",), ("tick", 90.0), ("tick", 92.0)]
+            self.assertEqual(replay(name, expr, initial, later)[2:], [True, False], name)            # a later clock
+            earlier = [("tick", 600.0), ("load",), ("tick", 40.0), ("tick", 42.0)]
+            self.assertEqual(replay(name, expr, initial, earlier)[1:], [True, False], name)          # an earlier one
+            reload = [("tick", 300.0), ("load",), ("tick", 310.0)]
+            self.assertEqual(replay(name, expr, initial, reload)[1:], [True], name)                  # same launch
+            unset = [("tick", 90.0)]                                   # a save from before NewSession: 0.0
+            if name == "placeRealTime":
+                self.assertEqual(replay(name, expr, 0.0, unset), [True])
+
+    def test_each_quest_says_once_per_session_what_the_border_guards_read(self):
+        # a coc session from the main menu at Red Rocket wrote no border line in 240 s while "moved 9" lines kept
+        # coming (Review, 2026-10-28): every line names its quest, and each quest's first pass of a session logs
+        # what Border's guards read, so the log tells whether 0x800 ticked or its Markers[0] was None
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("if NewSession()"), place.index("SessionLine(player)"))
+        self.assertLess(place.index("SessionLine(player)"), place.index("Border(player)"))
+        line = self.text[self.text.index("Function SessionLine"):self.text.index("Function ShowLanding")]
+        for field in ('"session id=" + GetFormID()', '" signal=" + SignalQuest()', '" enabled=" + BorderSignal',
+                      '" markers=" + Markers.Length', '" first=" + first', '" interior=" + player.IsInInterior()'):
+            self.assertIn(field, line)
+        self.assertIn("if Markers.Length > 0", line)                     # no index into an empty list
+        # FO4SFBorder takes the newest border= token in the log: only Border's own two lines may carry one
+        traces = re.findall(r"Trace\((.*)\)\s*$", self.text, re.M)
+        self.assertEqual([t for t in traces if "border=" in t],
+                         ['"border=off cell=" + c + " world=" + w', '"border=on cell=" + c + " world=" + w'])
+        self.assertGreaterEqual(len(traces), 10)
+        # a load in a new launch runs no OnInit: the session opens the log before its first line
+        session = self.text[self.text.index("bool Function NewSession"):self.text.index("Function SessionLine")]
+        self.assertLess(session.index("Debug.OpenUserLog(LogName)"), session.index("Trace("))
+        trace = self.text[self.text.index("Function Trace"):]
+        self.assertIn('" q=" + QuestLow() + " " + msg', trace)
+
+    def test_the_landing_marker_is_found_after_its_pad_and_shown_once_per_session(self):
+        # Mars's map had no Commonwealth location (owner, 2026-10-28): the landing marker is marked discovered and
+        # shown on the star map. dotnet/MapMarkers lists the landing spot pad, trigger, marker, heading, in one quest
+        program = PROGRAM.read_text(encoding="utf-8")
+        pad = int(re.search(r"LandingPad = 0x([0-9A-F]+)", program).group(1), 16)
+        self.assertEqual(int(re.search(r"int Property LandingPadID = 0x([0-9A-Fa-f]+) Auto Const", self.text).group(1), 16), pad)
+        self.assertIn("new List<PlacedObject> { pad, trigger, marker, heading }", program)
+        self.assertIn("static List<T[]> QuestChunks<T>(", program)
+        self.assertEqual(program.count("QuestChunks("), 2)                # build and check split the same way
+        self.assertIn("var chunks = all.Chunk(PerQuest).ToList();", program)    # (test_the_landing_spot_stays_in_one_quest)
+        show = self.text[self.text.index("Function ShowLanding"):self.text.index("Event OnTimer")]
+        self.assertIn("int i = Markers.Length - 4", show)                      # the pad, fourth from the end
+        self.assertIn("ObjectReference marker = Markers[i + 2]", show)
+        self.assertIn("pad.GetBaseObject() == Game.GetForm(LandingPadID)", show)
+        self.assertIn("marker.SetMarkerDiscovered()", show)
+        self.assertIn("marker.SetMarkerVisibleOnStarMap(True)", show)
+        self.assertNotIn("while", show)                                       # one read per quest
+        self.assertLess(show.index("landingShown = True"), show.index("Game.GetForm"))   # once, found or not
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertLess(place.index("Border(player)"), place.index("ShowLanding()"))   # the border signal first
+        self.assertLess(place.index("ShowLanding()"), place.index("IsInInterior"))     # wherever the player is
+
 
 
 class StageTests(unittest.TestCase):

@@ -464,3 +464,44 @@ locations or the merge probe; they belong to the doors, lighting and terrain wor
 `FO4SF_MapMarkers` also writes `border=off` / `border=on` lines to fo4sf_map.0.log for the SFSE plugin FO4SFBorder
 (docs/terrain/border.md, "Per-world switch"). `BorderSignal = False` turns the lines off. They are written before the
 marker pass; indoors the last state is kept. The lines change nothing in the game by themselves.
+Since 2026-10-28 every line carries `q=<quest>` (the quest's FormID, low 12 bits: 2048 is 0x800, the only quest that
+writes the signal), and each quest's first pass of a game session writes `session id=... signal=... enabled=...
+markers=... first=... interior=...`, what Border's guards read. A coc session from the main menu at Red Rocket wrote no
+border line in 240 s while `moved 9` lines kept coming (Review, 2026-10-28); that line says which guard returned.
+
+## Icons, the pad and the planet map (Claude-cloud, 2026-10-28)
+The owner, 2026-10-28: "Map icons don't show up when you teleport me to the red rocket and there's no map location on
+the surface of Mars, too fast travel to." Setup: a new game in Starfield's own start, landed on Mars, then `coc
+FO4Core_RedRocketSpawn`, with the installed mapmarkers build `landing_border2` on core v6i. Read offline from the
+24 Oct Card B logs (fo4sf_map.0-3.log, Papyrus.0.log, staged from `C:\Modding\scratch\a3_1017\cardB_border\logs`):
+- **verified: the landing pad never moves.** Papyrus.0.log has `FO4Core_CommonwealthLandingPadRedRocketNorth
+  (080008F0): cannot be moved.` on every pass. The fourth quest retried it until its budget (40) was spent; the
+  trigger, the marker and the heading moved. So no pad is in the world the player walks in, and nothing is there to
+  land at.
+- **verified: a load door during a pass misplaced every marker after it.** At 10:24:13 a FO4SF_LoadDoor trip into
+  Vault 95 happened while a pass ran. `Place` had read the player once, so about 300 markers went to their target
+  plus the trip's offset (1905.1, 3920.4, -72.4), and every budget was spent (moves=200), so that save kept them there.
+- **supported hypothesis: the map takes markers only when the player enters a world.** A marker moved into the
+  current world shows only after a world change or a save and load. Skyrim modders report the same, and that
+  `AddToMap` does not help ([8993053](https://forums.nexusmods.com/topic/8993053-moving-mapmarkers-across-worldspaces),
+  [8512658](https://forums.nexusmods.com/topic/8512658-help-needed-with-placing-a-dynamic-mapmarker)). Our markers
+  are moved a few seconds after arrival, so the first arrival has no icons. Moving them cannot fix that on its own;
+  the routes left are markers the map already knows (records in the runtime world, the merge question) or a map of
+  our own on the Pip-Boy (owner, 2026-10-24).
+- **hypothesis: the planet map lists only discovered landing markers.** A vanilla landing site is discovered when the
+  player lands there; ours never was.
+
+What the script does now (`FO4SF_MapMarkers.psc`):
+- Just before each move it reads the player again and stops the pass once they are indoors or in another world.
+- A reference that stays where it was, in its own world, after `MoveTo` (the pad) is not tried again that session
+  or build.
+- The move budget starts over at every game session as well as at every build, so markers a session left wrong are
+  put right in the next one. A session starts at every save load (the player's `OnPlayerLoadGame`, which each quest
+  registers for) and whenever the real-time clock goes back; the border signal starts over the same way. The clock
+  alone missed a launch whose first pass reads a later time than the save's last one (Codex on #570).
+- Once per session it marks the landing marker discovered and visible on the star map: the pad (`LandingPadID`
+  0x7145) is fourth from its quest's end and the marker two places after it, because dotnet/MapMarkers keeps the
+  landing spot's four pieces last and in one quest.
+
+Unverified until a play test: whether a save and load brings the icons; whether Mars's map then lists "Commonwealth
+Landing Area"; and whether the ship can land with no pad (if not, the pad needs to be a record of the runtime world).
