@@ -2592,3 +2592,18 @@ cast: PluginAPI.h's kPluginHandle_Invalid is an int enumerator, PluginHandle
 a std::uint32_t. CommonLibSF is built and installed on the PC (prefix
 D:\Modding\tools\CommonLibSF-install), so the FOCCPing README and the B0-2
 card name the real paths.
+
+## 2026-10-28: the runner loads the dedicated save by name
+
+Install's find, 28 Oct: cycle.ps1 entered the game with the main menu's
+Continue, which loads the newest save. The owner's new-game autosaves of
+the morning were newer than fo4sf_test_<build>, so every save-based run
+landed in ship combat, the HUD guard never passed, and the session's own
+named load (setup_session) never ran: door check (a) came out INCONCLUSIVE
+NOT_ACTIVATED from a cockpit. The stopgap was touching the dedicated
+save's mtime. Now testqueue.py passes -Save fo4sf_test_<build> once that
+save exists, cycle.ps1 checks the file before it closes or deploys
+anything, opens the console at the main menu and types `load <name>` (the
+line qstep.ps1's load step types in game), and stops with exit 11 when no
+HUD follows; the session skips its second load. A build's first session,
+with no dedicated save yet, still enters through Continue and creates it.
