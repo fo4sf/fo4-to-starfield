@@ -1,3 +1,15 @@
+# Thirty-eighth delivery: Prydwen history and operational intent
+
+22new game entries, allunchecked. Folder9=129;1199local versus1152published until next batchpush. Read only previously absent Prydwen5709993 sections16/18/20/21/37/38/40/41, not the whole page or earlier sections. Three initially compound draft claims were split before delivery; original19 IDs retained in order, three additional IDs appended; draft evidence retained.
+
+Sections18/20 now directly supply Sarah’s succession/death and Maxson’s age16appointment, which were absent from previously inspected17/19. This resolves that narrow source gap rather than invalidating the whole overview. Quinlan’s biography is openly admiring and intended for future publication; named judgments/cult reports remain attributed. The surrounding enhancement wording does not identify implants or a procedure.
+
+Hudson’s volunteering/support preparations do not establish mission execution or outcome. Artemis memo preserves Malden starting area, seven-soldier wording, contact loss and Kells’s alternatives; no inferred eighth soldier, exact year, Gunners ambush or full casualty sequence. Later evidence does not change what this memo knew. Cade’s field qualification and six-month design work do not prove deployment or a functioning converted mobility system.
+
+Teagan completed plating, but the jacket was still to be retrieved/modified and tried on. Protection and comfort claims are expectations/testimony, not numeric damage resistance, invulnerability or successful installation. Prior sources/IDs retained.32siteanchors unchanged; no historical/person positions invented.
+
+82sourceidentities/100rows:2FULL80PARTIAL,18continuations. Original folder validator still has the same4known cut-tier mismatches; the22new entries are game source_kind and add none. In-memory ownerG policy passes; validator unchanged. Canonical data/build and previous entries untouched. Independent secondread/rawsnapshot/exact64queue remain pending. No game/deploy/merge or automationresume.
+
 # Thirty-seventh delivery: Brotherhood sources, Boston design and cut material
 
 25new entries:16game,3guide,2developer,4cutHOLD; allunchecked. Folder9=107, total1177local. Source terms and uncertainty preserved, not every wiki summary promoted to fact.

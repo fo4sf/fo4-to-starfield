@@ -16,3 +16,5 @@
 2026-10-28: queued MakingOfFallout4 developer transcript, FO4Brotherhood, RedMenace and cutDepartmentofLabor checked againstALLledgers/namedcaches. Cacheonce; extract only source-supported additions and scope existing entries, retain developer/cut tier2 distinctions. Exact64queue still pending.
 
 2026-10-28: request cited Maja's Message primary cut transcript and only Prydwen terminal Background/Accomplishments/Ingram concerns sections. ExistingALLledgers/namedcaches checked; no whole Prydwen page fetch. Inspect cited RedMenace starting-screen image only if not cached, no gameplay assertions inferred from it.
+
+2026-10-28: continue partialPrydwen5709993 only unread sections16/18/20/21/37/38/40/41 afterALLledger/cache check. Preserve prior17/19/39; no parentpage fetch. Scope Brotherhood authorship, leadership chronology, recon orders and Ingram accommodation.
