@@ -1252,6 +1252,16 @@ class P9Tests(unittest.TestCase):
         v = probes.check_p9(col(log=BASE + go(warped, "player", dist=30.0) + go(never, "dest")))
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
         self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        # Codex on 23443bea: a control that could not pass the judged rung's own checks (a go without rt=, samples
+        # without a readable loaded=, an unloaded majority) cannot decide that the judged rung failed
+        ctl = go(came, "player")
+        g = next(i for i, l in enumerate(ctl) if " p9 go " in l)
+        for label, variant in (("the go carries no rt=", ctl[:g] + [ctl[g].replace("FOCC rt=1.5 ", "FOCC ")] + ctl[g + 1:]),
+                               ("loaded= missing", [l.replace(" loaded=True", "") for l in ctl]),
+                               ("unloaded", [l.replace(" loaded=True", " loaded=False") for l in ctl])):
+            v = probes.check_p9(col(log=BASE + variant + go(never, "dest")))
+            self.assertEqual(v.verdict, INCONCLUSIVE, (label, v.reasons))
+            self.assertIs(v.extra["attempts"][1]["continuous"], False, label)
         # a go that found the actor under 15 m leaves the command too little to show (placeholder p9_control_min_m)
         v = probes.check_p9(col(log=BASE + go(came, "player", dist=12.0) + go(never, "dest")))
         self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)

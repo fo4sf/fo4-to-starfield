@@ -1292,26 +1292,29 @@ def _p9_returned(evs: list[Event], go: Event) -> Event | None:
                  and e.form("actor") == go.form("actor")), None)
 
 
-def _p9_continuous(samples: list[Event], origin: Event | None = None) -> bool | None:
-    """Whether a rung's samples read as one continuous walk from its origin (the `p9 go` when the script sent the actor,
-    else the `p9 start`): each sample with rt=, pos= and dist=, the first no earlier than the origin and no closer than
-    a walk gets in the time since it (p9_stuck_m plus p9_jump_m_per_s per second), real time strictly increasing, no
-    step faster than p9_jump_m_per_s. The latest rung's own checks, applied to a control before it may stand as proof
-    that the command walks the actor (Codex review of #560). None with fewer than 2 samples."""
+def _p9_continuous(samples: list[Event], origin: Event) -> bool | None:
+    """Whether a rung's samples read as one continuous, loaded walk from its origin (the `p9 go` when the script sent
+    the actor, else the `p9 start`), by the latest rung's own checks: the origin carries rt= and dist=; each sample
+    carries rt=, pos=, dist= and a readable loaded=; the first sample is no earlier than the origin and no closer than
+    a walk gets in the time since it (p9_stuck_m plus p9_jump_m_per_s per second); real time strictly increasing; no
+    step faster than p9_jump_m_per_s; loaded=True in at least half the samples. Applied to a control before it may
+    stand as proof that the command walks the actor: a control that could not pass the judged rung's own checks cannot
+    decide that the judged rung failed (Codex review of #560). None with fewer than 2 samples."""
     P = PLACEHOLDERS
     if len(samples) < 2:
         return None
-    rows = [(e.rt, pos(e), e.num("dist")) for e in samples]
+    if origin.rt is None or origin.num("dist") is None:
+        return False
+    rows = [(e.rt, pos(e), e.num("dist"), e.flag("loaded")) for e in samples]
     if any(None in r for r in rows):
         return False
-    if origin is not None and origin.rt is not None and origin.num("dist") is not None:
-        t0, _, d0 = rows[0]
-        if t0 < origin.rt or abs(origin.num("dist") - d0) > P["p9_stuck_m"] + P["p9_jump_m_per_s"] * (t0 - origin.rt):
-            return False
-    for (t0, p0, _), (t1, p1, _) in zip(rows, rows[1:]):
+    t0, _, d0, _ = rows[0]
+    if t0 < origin.rt or abs(origin.num("dist") - d0) > P["p9_stuck_m"] + P["p9_jump_m_per_s"] * (t0 - origin.rt):
+        return False
+    for (t0, p0, _, _), (t1, p1, _, _) in zip(rows, rows[1:]):
         if t1 <= t0 or sum((a - b) ** 2 for a, b in zip(p0, p1)) ** 0.5 / (t1 - t0) > P["p9_jump_m_per_s"]:
             return False
-    return True
+    return sum(1 for r in rows if r[3] is True) / len(rows) >= 0.5
 
 
 def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
@@ -1368,7 +1371,7 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     14 m) and neither stands as the control nor is judged against one (Codex review of #560). The first rung started
     within p9_control_m is the baseline (no go): it must have samples and not have arrived. The control is a later
     scripted rung whose go found the actor between p9_control_min_m and p9_control_m out and that arrived after the go
-    through continuous samples (`continuous`: readings complete, time increasing, no teleport-fast step): an actor
+    through continuous samples (`continuous`: readings complete, time increasing, no teleport-fast step, loaded): an actor
     already under the arrival distance when commanded arrived on its own, whatever its start line said, and a jump to
     the destination is a setup fault, not the command walking (Codex review of #560). Each a finished track of the same
     actor to FOCC_P9_Dest."""
