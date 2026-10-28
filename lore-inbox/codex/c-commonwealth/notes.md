@@ -1,3 +1,17 @@
+## Sixth delivery: Boston placards and Mass Fusion
+
+94 new entries total, all unchecked for Claude/Grok. This delivery adds17 (7placard,10terminal) while preserving the previous77 byte-for-byte. IDs8086..8092 and8096..8105;8093..8095unused. NextnumericID8106. All17 are game-source claims, explicitly attributed where historical/commercial/memo assertions require it. No literal screenshot, rawgameasset or private operating evidence is included.
+
+BostonPlacards5130898 and MassFusionBuildingTerminalEntries5284075 were canonicalTODO and uncached; each was retrieved once. Whole transcripts are privately cached for future narrow checks. These two rows remainPARTIAL because omitted details/image checks are listed, not silently cleared. CleanpowerInitiative5361374 was read completely and only points back to the inspected terminal text; its row is FULL, zero duplicate entries. Sourceledger16rows (13pages/3images),1FULL/15PARTIAL. Do not refetch the FULL page.
+
+Two canonical reconciliation notes for Claude (canonical files unchanged): TL-0013's 1969 claim names OldStateHouse, but the inscription is NewStateHouse. CU-0034's final never-finished assertion needs reconciliation with the August29terminal report of stable reaction; this is not an automatic declaration that every reactor/project goal was completed. Existing founding/provider/health-denial claims were not duplicated.
+
+Seven additional named base-master map anchors were verified from the unchanged cached310-marker export plus independent raw-record/source-hash checks. Fourteen anchors total. OldStateHouse has no matching distinct marker in this checked export, so its position remainsnull. Placard dates are not verified real-world history; promises/training/technical claims are not proof of delivery or native behavior.
+
+Parent review narrowed helper date/superlative combinations and corrected its invalid place-history kind. Helper's initial dedup explanation wrongly includedST-MA-0004 and was corrected separately. Two later helper flags were false readings: June20 explicitly mentions alloy, and July15Facilities explicitly identifies Niles/Jenny/Victor/puppy; parent checked the exact sections and retained the supported claims. Original suggestions and corrections remain private evidence. Allnewentries remainunchecked for independentClaude/Grok review.
+
+Validation:17new rows pass the unmodified schema. Whole94-row CLI still reports exactly the prior CU8081cut-in-tier2 policy mismatch; owner-policy validation in memory passes. Previous318priorityrows retain17known mismatches and are not retested. Canonicaldata/export and validator source unchanged; guard/diff/inboxscope pass. Exact64page queue/currentrawsnapshot remain requested, StopA incomplete. No game/deploy/merge.
+
 ## Fifth delivery: Boston rationing and checkpoint terminals
 
 77 total new entries, all unchecked for Claude/Grok. This delivery adds17: six checkpoint policies, four dated log accounts, six ration-site/menu facts and one unused police case. Earlier60 records remain unchanged. Allocated8067..8072 and8075..8085;8073..8074unused. Orders are not proved compliance, complaints are not established thefts, and an inspector's suspicions/language guesses are not adopted as facts. The unused case is tier2cut with rulingHOLD, not a released-game event.
