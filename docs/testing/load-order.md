@@ -66,21 +66,22 @@ verified beyond what each line says.
 
 ## Target order
 
-`scripts/game/load_order.py` (module doc) is the one definition. Lines that are not ours keep their own order and
-come first; ours follow in five groups, each keeping its current order:
+`scripts/game/load_order.py` (module doc) is the one definition, and since 28 Oct it is the order the runner's own
+tools leave behind (`cycle.ps1` runs `exp_install.py order`, `map_markers_install.py order` and `bridge_install.py
+order` before every launch), so a file those tools just wrote is already in it and `play` changes nothing on a test
+install, with two exceptions: an unticked markers or bridge line (held off by `plugin_toggle.py`) still moves to the
+end, where the runner leaves it, and a plugin that masters the markers or the bridge loads after them:
 
-1. the cores (`FO4Terrain*`, `FO4Actor*`),
-2. the other `FO4SF*` plugins (experiments such as FO4SFMission),
-3. FO4Port,
-4. FO4SFMapMarkers,
-5. FO4SFBridge, last.
+1. every line keeps its place, in file order, except that
+2. a plugin loads after each of its masters that has a line (a patch for one of ours comes right after it), and
+3. FO4SFMapMarkers goes after everything else and FO4SFBridge last of all.
 
-Over the groups, every plugin loads after each of its masters that has a line, and a plugin that is not ours but
-masters one of ours (a patch) comes right after that master. On the owner's PC this gives FO4TerrainCore,
-FO4TerrainCore_Mars, FO4ActorRaider, FO4SFMission, FO4Port, FO4SFMapMarkers, FO4SFBridge: the order the game wrote at
-11:26 on 22 Oct, so a game that writes that order again changes nothing. A morning file with FO4Port first is moved
-by `fix` (Port from line 1 to after the mission; `tests/test_load_order.py`). `fix` copies the old file to
-`Plugins.txt.bak-<time>` before writing and never ticks or unticks a line; both `check` and `fix` refuse (exit 6) a
-missing or inactive master, a master cycle or a duplicated line. In the launcher, `load_order=fix` (the default)
-runs it before each start, `check` refuses to start on a different order, and `off` leaves the file alone; `play
---dry-run` only reports what `fix` would move.
+The cores, FO4Port and the experiments stay in the order their installs appended them. The order the game wrote at
+11:26 on 22 Oct (TerrainCore, TerrainCore_Mars, ActorRaider, Mission, Port, MapMarkers, Bridge) is in the target, so
+a game that writes it again changes nothing. Until 28 Oct the target also sorted the cores, the experiments and
+FO4Port into fixed groups: on the full install of 28 Oct (Install thread) that would have moved 7 lines the install
+tools had just placed, so the groups went and the runner's rules are the target (`tests/test_load_order.py` holds
+that file). `fix` copies the old file to `Plugins.txt.bak-<time>` before writing and never ticks or unticks a line;
+both `check` and `fix` refuse (exit 6) a missing or inactive master, a master cycle or a duplicated line. In the
+launcher, `load_order=fix` (the default) runs it before each start, `check` refuses to start on a different order, and
+`off` leaves the file alone; `play --dry-run` only reports what `fix` would move.
