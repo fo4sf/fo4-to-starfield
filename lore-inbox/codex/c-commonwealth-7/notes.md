@@ -1,3 +1,13 @@
+# Twenty-eighth delivery: checkpoint records and source-reference repair
+
+Added17 game claims: MIL-8021..8034 and FA-8001..8003, unused full IDs checked against current stores and relevant Git history. Commonwealth total939:841game/61guide/1dependent/36cutHOLD. Folder7now150; start the next folder for later additions. All new entries unchecked.
+
+CurrentOrders/log caches were reused. Only previously unread SouthBoston sections8/9/10 were fetched at pinned revision5287615; no whole-page or cached-section request. Section10 contains no primary transcript, only wiki location/lock metadata, so no game claim was manufactured. The source remainsPARTIAL: incidental assessments/article-only conditions are not exhausted. Wu-family language is the log writer’s guess, not established language/ethnicity. Military orders and recorded assessments are not independent implementation proof. ONLINE screen ownership and three DELETED labels do not prove territory control, database erasure or verified quest timing. Existing site marker0002BD1E reused;27anchors unchanged.
+
+Scope correction: the earlier ledger audit checked canonical and Commonwealth continuation rows, not every other inbox. A wider check found four reference IDs held in the separate military-review inbox. Latest continuation rows now retain MIL-0081 for FortStrong, MIL-0011 for BostonPolice, and MIL-0003/MIL-0010 for SouthBoston. Lore entries themselves were intact and are not relabeled. SouthBoston row contains12prior+17new IDs; FortStrong13 and BostonPolice8. No source refetch was needed for those reference repairs.
+
+Totals55sourceidentities/69rows,1FULL/54PARTIAL,14extra continuation rows to consolidate while preserving provenance. Original validator passes150folder7entries; previous claims/folders/canonical/validator unchanged. Current raw snapshot/exact64queue still pendingClaude; StopA incomplete. No canonical fold, merge, game action or automation resume.
+
 # Twenty-seventh delivery: cached Mass Fusion policy records
 
 Added14 game-transcript claims, ORG-8001..8014, from cached revision5284075 without web requests. Full IDs were checked against canonical/all inbox entries and relevant published Git history before using the ORG namespace within8001–8999. No existing ID was reused or changed. Commonwealth total922:824game/61guide/1dependent/36cutHOLD; folder7has133. All new entries unchecked.

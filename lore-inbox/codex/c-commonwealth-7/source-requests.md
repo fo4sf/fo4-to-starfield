@@ -29,3 +29,9 @@
 2026-10-28: queued Saugus Ironworks Terminal Entries from the canonical TODO ledger before first fetch. Check all cached/inbox sources; verify primary Forged recruitment/discipline and industrial records. Exact64queue membership unknown.
 
 2026-10-28: continue cached Mass Fusion Building Terminal Entries revision5284075, selected unextracted memo claims only. Canonical TODO is superseded by inbox PARTIAL evidence. No refetch of this transcript, FULL company page or FULL Cleanpower page. Exact64queue membership unknown.
+
+2026-10-28: continue only previously unread South Boston checkpoint terminal section8 at pinned revision5287615. Cached CurrentOrders/logs reused; no whole-page or cached-section fetch. Exact64queue membership unknown.
+
+2026-10-28: continue only previously unread South Boston checkpoint terminal section9 at pinned revision5287615. Cached CurrentOrders/logs reused; no whole-page or cached-section fetch. Exact64queue membership unknown.
+
+2026-10-28: continue only previously unread South Boston checkpoint terminal section10 at pinned revision5287615. Cached CurrentOrders/logs reused; no whole-page or cached-section fetch. Exact64queue membership unknown.
