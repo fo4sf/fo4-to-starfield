@@ -109,18 +109,30 @@
   "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete.",
   "twelfth_delivery_note": "Priority second reads complete318/318:146primary172asreported. States102,military86,vault130. Canonical data untouched;17 original validator tier-policy errors remain, in-memory owner-policy0. StopA incomplete: Commonwealth queue work remains. Exact raw snapshot/queue pending recovery, known explicitly assigned TODO sources can proceed.",
   "new_commonwealth": {
-    "entries": 60,
-    "ids": "8045..8048,8055..8066 added; prior44retained;8049..8054unused",
-    "sources": 11,
+    "entries": 77,
+    "ids": "8067..8072,8075..8085 added;old60retained",
+    "sources": 13,
     "coverage": "partial",
     "all_unchecked": true,
-    "validator_exit": 0,
+    "original_validator_exit": 1,
+    "known_original_policy_mismatches": 1,
+    "in_memory_owner_policy_errors": 0,
     "canonical_unchanged": true,
     "exact_queue_recovered": false,
-    "markers_verified": 5,
+    "markers_verified": 7,
+    "game_tier1_count": 66,
     "guide_tier2_count": 9,
     "dependent_tier2_count": 1,
-    "game_tier1_count": 50,
+    "cut_tier2_hold_count": 1,
     "roadway_images_inspected": 3
+  },
+  "mil_source_followup": {
+    "id": "MIL-0011",
+    "change": "check_note only; newly inspected ShiftScheduling establishes ReiseReserve/duties, not whole division",
+    "other85rows_identical": true,
+    "all86ids_order_preserved": true,
+    "original_validator_exit": 1,
+    "unchanged_known_policy_mismatches": 4,
+    "owner_policy_errors": 0
   }
 }

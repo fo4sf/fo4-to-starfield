@@ -1,3 +1,15 @@
+## Fifth delivery: Boston rationing and checkpoint terminals
+
+77 total new entries, all unchecked for Claude/Grok. This delivery adds17: six checkpoint policies, four dated log accounts, six ration-site/menu facts and one unused police case. Earlier60 records remain unchanged. Allocated8067..8072 and8075..8085;8073..8074unused. Orders are not proved compliance, complaints are not established thefts, and an inspector's suspicions/language guesses are not adopted as facts. The unused case is tier2cut with rulingHOLD, not a released-game event.
+
+The authoritative sources were already PARTIAL in the military inbox despite canonicalTODO rows. Cached CurrentOrders and earlier police/manifest excerpts were reused; only unread Boston sections5/15/20 and SouthBoston log section3 were fetched at their pinned old revisions. No full-page/cached-section refetch. New ShiftScheduling text identifies Sgt.Reise as ArmyReserves and assigns joint scheduling/distribution duties. MIL-0011's previous narrowed claim remains correct; only its verification note now records this additional evidence. All86 military rows/IDs/order and other fields remain unchanged.
+
+Two base-master map anchors (BostonPoliceRationingSite0002C64D and SouthBostonCheckpoint0002BD1E) match the cached310-marker export and a fresh independent raw-record read. Exporter/reader source hashes and master hash are unchanged. These are map anchors, not exact incident or interior coordinates. The unused RationSite6 entry has no invented anchor.
+
+Validation: original validator reports exactly one new policy mismatch, CU-8081 cut-in-tier2; the same stale rule already affects17 priority entries. Owner-policy validation applied in memory passes all77new/86mil rows. Validator source, canonical data and build are untouched. The original military CLI still reports its four previously known cut/cancelled tier mismatches. No errors are relabeled green. Helper corrections were reconciled and its original drafts retained.
+
+Stopping point: this delivery complete; StopA/exact64page queue still incomplete. Both terminal rows remain PARTIAL with omissions; current raw snapshot/exactqueue request to Claude remains pending. NextnumericID8086;8049..8054 and8073..8074 remain unused. Continue other CommonwealthTODO or omitted cached primary material without whole-page refetch. No game action, canonical fold-in or merge.
+
 ## Fourth delivery: Nuka-Cola and photographed roadway signs
 
 60 total new entries, all unchecked for Claude/Grok. This delivery adds16: four sign observations (ST-MA-8045..8048) and twelve Nuka-Cola claims (8055..8066). Earlier44 records remain unchanged;8049..8054 were reserved but not allocated. Nuka-Cola contributes11game-text claims and1guide claim. HelperQA corrected the draft's claim that experimentation began in2042: the PA only explicitly places Bradberton as a budding chemist then. Original draft and review are preserved privately. Label claims are not health evidence, and game-specific bottle descriptions do not override other versions.

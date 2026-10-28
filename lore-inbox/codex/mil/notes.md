@@ -1,3 +1,7 @@
+## Primary-source follow-up: MIL-0011
+
+The newly inspected Shift Scheduling transcript at5280709 explicitly identifies Reise as Army Reserves and assigns joint scheduling and distribution duties. The prior warehouse-access text remains unchanged; only the verification note now records this additional evidence and links new MIL-8075..8077/CU-8078. No claim about the whole708th Division was restored. All86rows/IDs/order retained; canonicaldata unchanged.
+
 ## Current sixth-pass checkpoint
 
 86/86 checked/corrected; 51 primary, 35 as-reported. Prior counts below are historical. No rows removed. StopA incomplete; current raw snapshot comparison required before fold-in.
