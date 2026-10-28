@@ -445,6 +445,57 @@ class P3Tests(unittest.TestCase):
         self.assertEqual(probes.check_p3(col(log=labelled)).verdict, FAIL)    # the label alone never passes
         self.assertEqual(probes.check_p3(col(log=[INIT] + CELLS[1:])).verdict, INCONCLUSIVE)   # default variant: no cell half
 
+    def test_cell_half_by_form_id_when_the_game_logs_no_cellname(self):
+        """The PC's p3cells run (28 Oct 2026, focc_P3cells_20261028): both `where` lines came back with `cellname=`
+        empty. The stage's offline_check.txt names the two cells by FormKey; the ids below are the PC's logged ones,
+        with the stage's ids assumed to match them (synthetic)."""
+        pc = ["FOCC init variant=p3cells",
+              "FOCC rt=40.0 where cell=117449528 loc=167774215 local=2055 cellname= port=True",    # 07002338, 0A000807
+              "FOCC rt=80.0 where cell=117468230 loc=167774216 local=2056 cellname= port=True"]    # 07006C46, 0A000808
+
+        def offline(rr="002338:FO4Port.esm", sdm="006C46:FO4Port.esm", variant="p3cells", extra=""):
+            return (f"wrote FO4SFCombinedProbe.esm (9,999 bytes): ...; CELL overrides FO4Port_RedRocket01 {rr} -> 0x807, "
+                    f"FO4Port_SuperDuperMart01 {sdm} -> 0x808; variant={variant}\n"
+                    f"  CELL FO4Port_RedRocket01 {rr}: location 000807:FO4SFCombinedProbe.esm, 0+0 refs\n"
+                    f"  CELL FO4Port_SuperDuperMart01 {sdm}: location 000808:FO4SFCombinedProbe.esm, 0+0 refs\n{extra}")
+
+        def judge(lines, text=None):
+            c = col(log=lines)
+            if text is not None:
+                c.files["offline_check.txt"] = text
+            return probes.check_p3(c)
+        v = judge(pc)
+        self.assertEqual((v.verdict, v.extra["cell_half"]), (INCONCLUSIVE, INCONCLUSIVE))
+        self.assertTrue(any("no offline_check.txt" in r and "copy it from the stage folder" in r for r in v.reasons),
+                        v.reasons)
+        v = judge(pc, offline())
+        self.assertEqual((v.verdict, v.extra["cell_half"]), (PASS, PASS))
+        self.assertIn("form id", v.extra["cells_named_by"])
+        # Codex review of #560: the stage's file proves the source FormKeys, not which plugin holds that load slot in
+        # this run, so an unnamed cell also needs the game's own word (`port=True`, Game.GetFormFromFile on FO4Port.esm
+        # returned this cell). The PC's 28 Oct lines (no port=) and a slot the game disowns stay INCONCLUSIVE.
+        for label, lines in (("the 28 Oct log, before the script logged port=", [l.replace(" port=True", "") for l in pc]),
+                             ("the game disowns the id", [pc[0], pc[1], pc[2].replace("port=True", "port=False")]),
+                             ("port=none: a negative local id", [pc[0], pc[1], pc[2].replace("port=True", "port=none")])):
+            v = judge(lines, offline())
+            self.assertEqual((v.verdict, v.extra["cell_half"]), (INCONCLUSIVE, INCONCLUSIVE), label)
+            self.assertTrue(any("not `port=True`" in r and "restaged kit" in r for r in v.reasons), (label, v.reasons))
+        self.assertEqual(judge(pc, offline().replace("002338:FO4Port.esm", "002339:FO4Port.esm")).verdict,
+                         INCONCLUSIVE)                                 # the stage's cell is not the one logged
+        for text in (offline(variant="default"),                      # another stage's record
+                     offline(extra="  CELL FO4Port_RedRocket01 002339:FO4Port.esm\n"),     # two ids for one cell
+                     offline(rr="002338:Other.esm", sdm="006C46:Other.esm")):                # not FO4Port.esm's
+            self.assertEqual(judge(pc, text).verdict, INCONCLUSIVE, text)
+        wrong = pc[:2] + ["FOCC rt=80.0 where cell=117468230 loc=none local=none cellname= port=True"]
+        self.assertEqual(judge(wrong, offline()).verdict, FAIL)        # identified cell, no current location
+        split = pc[:2] + [pc[2].replace("117468230", str(0x08006C46)).replace("port=True", "port=False")]
+        v = judge(split, offline())                                   # the same local id in another plugin's slot
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("not `port=True`" in r for r in v.reasons), v.reasons)
+        self.assertEqual(judge([pc[0], pc[2], pc[1]], offline()).verdict, INCONCLUSIVE)   # Super Duper Mart first
+        named = [pc[0], pc[1], CELLS[2].replace("cell=50333001", "cell=117468230")]
+        self.assertEqual(judge(named, offline()).verdict, PASS)        # a cellname, where logged, still names it
+
     def test_cell_half_retry_does_not_borrow_the_older_second_cell(self):
         # Codex P1 on #431: a retry interrupted after the new Red Rocket `where` stays inconclusive.
         v = probes.check_p3(col(log=CELLS + [CELLS[1]]))
@@ -983,6 +1034,10 @@ def p9_log(start=450.0, speed=2.0, seconds=600, cells_every_m=100.0, stuck_from=
     return lines
 
 
+BASE = p9_log(start=20.0, speed=0.0, seconds=60)             # ladder rung a: 20 m, no command, it stays away
+LADDER = BASE + p9_log(start=20.0, speed=2.0, seconds=60)[1:]   # rung b: the command walks it from 20 m to under 10 m
+
+
 class P9Tests(unittest.TestCase):
     def test_a_start_line_is_required(self):
         # Codex review of #431: samples without a `p9 start` are not tied to one walk.
@@ -1063,8 +1118,209 @@ class P9Tests(unittest.TestCase):
         v = probes.check_p9(col(log=p9_log(stuck_from=100)))
         self.assertEqual(v.verdict, FAIL)
         self.assertTrue(any("stuck" in r for r in v.reasons))
-        never = p9_log(speed=0.0, seconds=600)                # never leaves the first cell
-        self.assertEqual(probes.check_p9(col(log=never)).verdict, FAIL)
+        self.assertTrue(any("came 196.0 m closer on this route" in r for r in v.reasons), v.reasons)
+        # Codex review of #560: a console control leaves no line, so a short rung that arrived without a `p9 go` may be
+        # the actor's own wander (N1c drifted 14 m) and never shows the command moving it; the scripted driver's test
+        # below has the FAIL.
+        never = p9_log(speed=0.0, seconds=600)                # never leaves the first cell, after an unlogged control
+        v = probes.check_p9(col(log=LADDER + never[1:]))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("never left its first cell" in r for r in v.reasons))
+        self.assertTrue(any("never stands as the control" in r for r in v.reasons), v.reasons)
+
+    def test_a_still_actor_without_a_control_is_not_a_navmesh_fail(self):
+        # 28 Oct: the citizen stayed within about 3 m for 600 s after PathToRef, and no console command had ever walked
+        # a calm citizen beyond its own wander (docs/actors/npc-navigation.md section 5): the command may be what failed
+        for log in (p9_log(speed=0.0, seconds=600), p9_log(speed=0.0, seconds=200)):     # first cell, or stuck
+            v = probes.check_p9(col(log=log))
+            self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+            self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), v.reasons)
+            self.assertEqual((v.extra["approach_m"], v.extra["moved_m"]), (0.0, 0.0))
+        never = p9_log(speed=0.0, seconds=600)[1:]
+        came = p9_log(start=20.0, speed=2.0, seconds=60)[1:]
+        for label, log in (("the baseline arrived too: wander", p9_log(start=20.0, speed=2.0, seconds=60) + came + never),
+                           ("one short rung is only a baseline", p9_log(start=20.0, speed=2.0, seconds=60) + never),
+                           ("the control never arrived", p9_log(start=20.0, speed=0.0, seconds=60)
+                            + p9_log(start=20.0, speed=0.1, seconds=60)[1:] + never),
+                           ("another actor's control", LADDER[:len(BASE)] + [l.replace("-16711680", "-16711679")
+                                                                             for l in came] + never),
+                           ("the control's track never finished", BASE + [l for l in came if " p9 done " not in l]
+                            + never)):
+            self.assertEqual(probes.check_p9(col(log=log)).verdict, INCONCLUSIVE, label)
+
+    def test_every_rung_of_the_ladder_is_summarised(self):
+        log = LADDER + p9_log(start=120.0, speed=2.0, seconds=180, cells_every_m=50.0)[1:] + p9_log(speed=0.0)[1:]
+        v = probes.check_p9(col(log=log))
+        rungs = v.extra["attempts"]
+        self.assertEqual([a["start_dist_m"] for a in rungs], [20.0, 20.0, 120.0, 450.0])
+        self.assertEqual([a["arrived"] for a in rungs], [False, True, True, False])
+        self.assertEqual([a["moved_m"] for a in rungs], [0.0, 12.0, 112.0, 0.0])
+        self.assertEqual(rungs[1]["approach_m"], 12.0)
+        self.assertEqual(rungs[2]["cells"], 3)
+        self.assertTrue(all(a["done"] and a["dest_ok"] and a["actor"] == "FF010000" for a in rungs))
+        self.assertEqual(v.verdict, INCONCLUSIVE)             # the 450 m rung: no rung has a `p9 go`, so the control that
+        self.assertEqual([a["driver"] for a in rungs], [None] * 4)   # walked may be wander (Codex review of #560)
+        # a ladder stopped after its control (the command did not walk the actor): judged, never a PASS or FAIL
+        v = probes.check_p9(col(log=BASE + p9_log(start=20.0, speed=0.0, seconds=60)[1:]))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertEqual(len(v.extra["attempts"]), 2)
+        self.assertTrue(any("start dist 20.0 m < 400.0" in r for r in v.reasons), v.reasons)
+
+    def test_the_scripted_driver_is_matched_rung_for_rung(self):
+        """FOCC_P9Drive.Go logs `p9 go` before its PathToReference and `p9 path returned` after (PC ladder, 28 Oct: the
+        console's PathToRef never brought the actor 17 m to the player). Its FAIL needs a scripted control."""
+        calls = iter(range(100, 200))
+
+        def go(rung, target, after=None, at=None, dist=None):
+            """The rung with a `p9 go` right after its start (the card's order), or at line index `at`; the go's rt=
+            is the line before it's (P9Track's first sample shares the start's instant in these fixtures) and its dist=
+            is the start's unless given (the distance the command found)."""
+            k = next(i for i, l in enumerate(rung) if " p9 start " in l) if at is None else at - 1
+            call = next(calls)
+            rt = float(re.search(r"rt=([\d.]+)", rung[k]).group(1))
+            if dist is None:
+                dist = float(re.search(r"dist=([\d.]+)", next(l for l in rung if " p9 start " in l)).group(1))
+            out = rung[:k + 1] + [f"FOCC rt={rt:.1f} p9 go actor=-16711680 call={call}.000000 target={target} "
+                                  f"id={0x0300081B if target == 'dest' else 20} dist={dist:.6f}"] + rung[k + 1:]
+            if after is not None:
+                out.append(f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call}.000000 target={target} "
+                           f"after={after:.6f} dist=3.000000")
+            return out
+        came = p9_log(start=20.0, speed=2.0, seconds=60)[1:]
+        never = p9_log(speed=0.0, seconds=600)[1:]
+        v = probes.check_p9(col(log=BASE + go(came, "player", 12.0) + go(never, "dest", 0.0)))
+        self.assertEqual(v.verdict, FAIL, v.reasons)
+        self.assertTrue(any("scripted commanded rung" in r for r in v.reasons), v.reasons)
+        self.assertTrue(any("PathToReference returned after 0.0 s" in r for r in v.reasons), v.reasons)
+        self.assertIn("FOCC_P9Drive.Go", v.extra["driver"])
+        rungs = v.extra["attempts"]
+        self.assertEqual([(a["driver"], a["target"], a["path_returned_s"]) for a in rungs],
+                         [(None, None, None), ("script", "player", 12.0), ("script", "dest", 0.0)])
+        self.assertEqual([a["go_line"] is not None for a in rungs], [False, True, True])
+        self.assertEqual([(a["go_id"], a["to_dest"]) for a in rungs], [(None, None), ("00000014", False), ("0300081B", True)])
+        # Codex bot on 8dbfef8d: P9Sample measures the distance to FOCC_P9_Dest, so a judged rung whose go went to the
+        # player (`Go <id> 1` left in from the control) or to another reference is not the route the samples describe:
+        # an actor walking away to the player and stopping there must not be read as stuck on the destination's navmesh
+        away = p9_log(speed=-2.0, seconds=600, stuck_from=300)[1:]  # dist grows 450 -> 1050 m, then still for 300 s
+        self.assertEqual(probes.check_p9(col(log=BASE + go(came, "player") + go(away, "dest"))).verdict, FAIL)
+        for label, judged in (("the judged go went to the player", go(away, "player")),
+                              ("the judged go went to another reference",
+                               [l.replace(f"id={0x0300081B}", f"id={0x0300081C}") if " p9 go " in l else l
+                                for l in go(away, "dest")]),
+                              ("a still actor commanded to the player", go(never, "player"))):
+            v = probes.check_p9(col(log=BASE + go(came, "player") + judged))
+            self.assertEqual(v.verdict, INCONCLUSIVE, (label, v.reasons))
+            self.assertTrue(any("not the tracked FOCC_P9_Dest" in r for r in v.reasons), (label, v.reasons))
+            self.assertIs(v.extra["attempts"][-1]["to_dest"], False, label)
+            self.assertNotIn("start_dist_m", v.extra, label)      # its distance and clock were not used
+        # the control may be aimed at the player (standing at the destination) or at the destination itself, not elsewhere
+        self.assertEqual(probes.check_p9(col(log=BASE + go(came, "dest") + go(never, "dest"))).verdict, FAIL)
+        v = probes.check_p9(col(log=BASE + [l.replace(f"id={0x0300081B}", f"id={0x0300081C}") if " p9 go " in l else l
+                                            for l in go(came, "dest")] + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), v.reasons)
+        self.assertIs(v.extra["attempts"][1]["to_dest"], False)
+        # Codex review of #560: the command's receipt is a go INSIDE the track, and only what follows it answers.
+        arrived_first = go(came, "player", at=len(came) - 1)         # the go lands after the last sample, before done
+        after_done = go(came, "player", at=len(came))                # the go lands after `p9 done`
+        for label, log in (("a control that arrived before its go", BASE + arrived_first + go(never, "dest")),
+                           ("a control commanded after its done", BASE + after_done + go(never, "dest")),
+                           ("a judged rung commanded after its done", BASE + go(came, "player") + go(never, "dest", at=len(never)))):
+            v = probes.check_p9(col(log=log))
+            self.assertEqual(v.verdict, INCONCLUSIVE, (label, v.reasons))
+            self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), (label, v.reasons))
+        rungs = probes.check_p9(col(log=BASE + arrived_first + go(never, "dest"))).extra["attempts"]
+        self.assertEqual((rungs[1]["driver"], rungs[1]["samples"], rungs[1]["arrived"]), ("script", 0, False))
+        rungs = probes.check_p9(col(log=BASE + after_done + go(never, "dest"))).extra["attempts"]
+        self.assertEqual((rungs[1]["driver"], rungs[1]["arrived"]), (None, True))
+        # the judged rung's clock runs from its go: samples before it are not the commanded walk
+        late_go = go(never, "dest", at=4)                             # two samples (t=0, 2) before the command
+        v = probes.check_p9(col(log=BASE + go(came, "player") + late_go))
+        self.assertEqual(v.verdict, FAIL, v.reasons)                  # still stuck for 120 s after the go
+        self.assertEqual(v.extra["attempts"][-1]["samples"], len([l for l in never if " p9 sample " in l]) - 2)
+        self.assertEqual((v.extra["start_dist_m"], v.extra["start_dist_from"]), (450.0, "p9 go"))
+        # Codex review of #560, second round: the control's distance is the one its go found, not its start line's.
+        # An actor that wandered from 20 m to 8 m before the go and stayed there arrived on its own.
+        walked_in = [l for l in came if " p9 done " not in l]        # start 20, samples 20, 16, 12, 8
+        k = len(walked_in)
+        settled = walked_in + [f"FOCC rt={14.0 + t:.1f} p9 sample t={12 + t:.6f} actor=-16711680 pos=12.000000 0.000000 "
+                               f"0.000000 cell=50333000 loaded=True dist=8.000000" for t in (2, 4, 6, 8)] \
+            + ["FOCC rt=23.0 p9 done t=20.000000 dist=8.000000"]
+        prearrived = go(settled, "player", at=k + 1, dist=8.0)       # the go lands after the 8 m sample
+        v = probes.check_p9(col(log=BASE + prearrived + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), v.reasons)
+        ctl = v.extra["attempts"][1]
+        self.assertEqual((ctl["driver"], ctl["go_dist_m"], ctl["start_dist_m"], ctl["arrived"], ctl["approach_m"]),
+                         ("script", 8.0, 20.0, True, 0.0))
+        # Codex bot on d46de7eb: a control that teleported to the destination, or whose readings are incomplete, is a
+        # setup fault, not the command walking; its samples must pass the walk's own continuity checks
+        head = [l for l in came if " p9 sample " not in l and " p9 done " not in l]       # INIT-less: dest, start
+        jumped = head + ["FOCC rt=1.5 p9 sample t=0.000000 actor=-16711680 pos=0.000000 0.000000 0.000000 cell=50333000 loaded=True dist=20.000000",
+                         "FOCC rt=3.5 p9 sample t=2.000000 actor=-16711680 pos=38.000000 0.000000 0.000000 cell=50333000 loaded=True dist=2.000000",
+                         "FOCC rt=4.0 p9 done t=2.000000 dist=2.000000"]                      # 38 m in 2 s: 19 m/s
+        v = probes.check_p9(col(log=BASE + go(jumped, "player") + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        blind = [l.replace(" pos=0.000000 0.000000 0.000000", "") if " t=0.000000 " in l else l for l in came]
+        v = probes.check_p9(col(log=BASE + go(blind, "player") + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        self.assertIs(probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest"))).extra["attempts"][1]["continuous"], True)
+        # ... and from its go: a control found 30 m out whose first counted sample, 0.01 s later, reads 12 m teleported
+        # (Codex bot on e8a9c186); the judged rung's own slack check applies to the control
+        warped = head + ["FOCC rt=1.51 p9 sample t=0.000000 actor=-16711680 pos=18.000000 0.000000 0.000000 cell=50333000 loaded=True dist=12.000000",
+                         "FOCC rt=3.5 p9 sample t=2.000000 actor=-16711680 pos=22.000000 0.000000 0.000000 cell=50333000 loaded=True dist=8.000000",
+                         "FOCC rt=4.0 p9 done t=2.000000 dist=8.000000"]
+        v = probes.check_p9(col(log=BASE + go(warped, "player", dist=30.0) + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertIs(v.extra["attempts"][1]["continuous"], False)
+        # Codex on 23443bea: a control that could not pass the judged rung's own checks (a go without rt=, samples
+        # without a readable loaded=, an unloaded majority) cannot decide that the judged rung failed
+        ctl = go(came, "player")
+        g = next(i for i, l in enumerate(ctl) if " p9 go " in l)
+        for label, variant in (("the go carries no rt=", ctl[:g] + [ctl[g].replace("FOCC rt=1.5 ", "FOCC ")] + ctl[g + 1:]),
+                               ("loaded= missing", [l.replace(" loaded=True", "") for l in ctl]),
+                               ("unloaded", [l.replace(" loaded=True", " loaded=False") for l in ctl])):
+            v = probes.check_p9(col(log=BASE + variant + go(never, "dest")))
+            self.assertEqual(v.verdict, INCONCLUSIVE, (label, v.reasons))
+            self.assertIs(v.extra["attempts"][1]["continuous"], False, label)
+        # a go that found the actor under 15 m leaves the command too little to show (placeholder p9_control_min_m)
+        v = probes.check_p9(col(log=BASE + go(came, "player", dist=12.0) + go(never, "dest")))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        # a judged rung's go dist is its route length: a go that found the actor at 300 m is too short a route
+        v = probes.check_p9(col(log=BASE + go(came, "player") + go(never, "dest", dist=300.0)))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("disagrees with the first sample" in r for r in v.reasons), v.reasons)
+        # the game's order (Codex bot on 3f507a14): P9Track logs its first sample before the Go, so the first counted
+        # sample comes about 2 s after the go and a walking actor is already closer; a good walk still passes
+        walk = go(p9_log(), "dest", at=4)                             # the go after the t=0 sample; next at t=2, 446 m
+        v = probes.check_p9(col(log=walk))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertEqual(v.extra["start_dist_m"], 450.0)
+        far = go(p9_log(jump_at=2), "dest", at=4)                     # 200 m closer 2 s after the go: not a walk
+        v = probes.check_p9(col(log=far))
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertTrue(any("disagrees with the first sample" in r for r in v.reasons), v.reasons)
+        for label, log in (("a console control does not stand for the script", LADDER + go(never, "dest", 0.0)),
+                           ("a scripted control does not stand for the console", BASE + go(came, "player") + never),
+                           ("a baseline with a go is no baseline", go(BASE[:1] + BASE[1:], "player")
+                            + go(came, "player") + go(never, "dest"))):
+            v = probes.check_p9(col(log=log))
+            self.assertEqual(v.verdict, INCONCLUSIVE, label)
+            self.assertTrue(any("cannot be told from the navmesh" in r for r in v.reasons), (label, v.reasons))
+        # a latent return that lands after the next rung's go still belongs to its own call
+        late = go(came, "player")
+        call = re.search(r"call=(\S+)", late[2]).group(1)
+        nxt = go(never, "dest")
+        log = BASE + late + nxt[:3] + [f"FOCC rt=9.0 p9 path returned actor=-16711680 call={call} target=player "
+                                       "after=40.000000 dist=3.000000"] + nxt[3:]
+        rungs = probes.check_p9(col(log=log)).extra["attempts"]
+        self.assertEqual([a["path_returned_s"] for a in rungs], [None, 40.0, None])
+        unpaired = [l.replace(" call=", " was=") for l in log]    # no call= on either line: no pairing at all
+        self.assertEqual([a["path_returned_s"] for a in probes.check_p9(col(log=unpaired)).extra["attempts"]],
+                         [None, None, None])
+        self.assertEqual(probes.check_p9(col(log=p9_log())).extra["driver"], "none logged (a console command, or none)")
 
     def test_inconclusive_branches(self):
         self.assertEqual(probes.check_p9(col(log=p9_log(done=False))).verdict, INCONCLUSIVE)

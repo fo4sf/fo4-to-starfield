@@ -2286,6 +2286,26 @@ locations on the Pip-Boy. Also next phase: the owner's Steam Fallout 4 is the
 newer update, not 1.10.163, so the launcher's version check needs it added. The
 entries above stand as written.
 
+## 2026-10-25: Codex connected-travel risk research
+
+Owner-requested exploratory note in research/framework/travel-and-runtime-risks-oct25.md reconciles Claude's combined-core/world plans with current Warfare/Survival and reusable-support direction. Separates connected regions from continuous terrain, preserves boundary-test limitations, and lists travel/save/AI/vehicle/UI/suit risks and small future experiments. Primary SFSE, Bethesda and framework sources checked; document links/guard checked. No engine-limit verdict, native tests, source implementation, installation or merge. Owner route-preference questions remain pending.
+
+## 2026-10-25: Codex reuse decision brief for Claude
+
+Added a documentation-only owner-requested brief comparing pattern reuse, the existing simulation baseline and optional native/Rust components. No technology or performance result selected. Proposed save/identity/generation contracts and bounded phase gates await owner + Claude decisions. Reconciled the travel note with one-time persistent areas, limited outskirts/corridor/map-selected travel and full walking deferred until all planned locations exist. References/guard/diff checked; no source changes, native tests, installs or agent wake. Scheduled follow-up remains paused.
+
+## 2026-10-25: Codex focused reuse search
+
+Added five ranked research candidates to the Claude decision brief: event scheduling, owned-code profiling, interruptible behavior patterns, navigation diagnostics and bounded noise generation. Checked primary docs and existing prototype/tooling notes; no measured speedup, library selection, implementation or native test. Guard/diff checked; automation stays paused.
+
+## 2026-10-25: Codex practical modding-tool research
+
+Owner-requested follow-up maps the seven suggested tools and additional API, asset, record, editor and native-analysis candidates to existing project gaps. Upstream Caprica has guard generation with unresolved verification TODOs, correcting the older categorical absence claim without changing the official-compiler decision. Cassiopeia API/permission checks, independent asset validation and bounded workflow proposals documented with sources. Decision brief now carries current mode, no-runtime-model, FO76/ghoul and Warfare succession direction. Documentation only; no tools installed, source implementation, proprietary data publication, native execution, merge or agent wake. Automated follow-up remains paused; independent document review pending.
+
+## 2026-10-25: Codex scope and lore coverage audit
+
+Owner requested a broader review of research depth. Audited the available 1176-row lore ledger (206 full/371 partial/599 todo), submitted170 geography records and selected framework coverage/uncertainty sections. Full3844-entry store unavailable in this mirror; no comprehensive lore verification claimed. Documented section exclusions, an84-entry handoff count discrepancy requiring reconciliation, and reproduced two held entries printing adopted without their ruling through the existing formatter. Three fresh wiki opens returned403, not verified. Added scope matrix and prioritized research packets; no store/source edits, game actions, merge, peer wake or automation resume. Private audit evidence preserved separately; independent document review pending.
+
 ## 2026-10-28: The combined core's seed, rerun with all seven Fallout 4 plugins
 
 Offline on the owner's PC, read-only on game files, run by the Install thread at
@@ -2365,3 +2385,46 @@ the bridge carries, still applies to these doors. The stager now checks either
 script, the animated one with its `OpenSeconds` too, and records which one each
 door has. The judge did not need a change. Details are in
 docs/terrain/door-rounds.md.
+
+## 2026-10-28: Probe session 2, the P3 cell judge and a scripted driver for P9
+
+P8 ran again with the console closed for about 4 s after each stage call, and
+passed: every child followed its parent in each stage's layout, and the save
+did not grow. After #557's restage, P10 passed: the story event started our
+quest only once it was sent. P3's cell half logged both cells with our two
+locations, but the game wrote no editor id for either cell, and the judge
+named cells only by editor id, so it said INCONCLUSIVE. The judge now names
+them by the form ids the stage recorded for them, and the existing log can be
+judged again. P9's first run (600 s with `PathToRef` to a marker 450 m away,
+the actor within about 3 m of its start) is INCONCLUSIVE, not FAIL: this
+repo's NPC tests never showed `PathToRef` moving a calm citizen beyond its own
+wander. The ladder's control then settled the console route: from 16.7 m,
+`PathToRef player` left the actor about 22 m from the player. The next driver
+is `Actor.PathToReference` called from Papyrus (FOCC_P9Drive), which the
+console's `cf` never reached. It is compiled on its own, so if Starfield does
+not declare it only P9 waits. The P9 card is the same ladder with that driver,
+and the judge gives FAIL only after a scripted control that arrived. Codex's
+independent review of that change found three holes in the judges, each shown
+through the judge's own command line, and the fixes are in the same PR. The
+stage's file proves which source records the two cells are, not which plugin
+holds their load slot in a given run, so the probe script now asks the game
+(`Game.GetFormFromFile` on FO4Port.esm) whether the cell the player stands in
+is that record and logs `port=True`; an unnamed cell counts only with it, and
+the 28 Oct log, which has no `port=`, is run again after the restage instead
+of judged again. A `p9 go` counts only inside its rung's track, and only the
+samples after it answer it, so an actor that arrived before it was commanded
+is no control. And a rung with no go may be the actor's own wander, since a
+console command leaves no line, so it never stands as the control and a
+console-driven rung is judged by its own approach only. Codex's second round
+found the last gap: the control's distance came from its start line, so an
+actor that wandered from 20 m to 8 m before its go and stayed there passed as
+a commanded arrival. The distance that counts is now the go line's, the
+control must be found 15 to 30 m out by its go, and a judged rung's route
+length is its go's distance too. Four more rounds, from Codex's bot and desktop
+reviews, tightened the control: its walk must pass the judged rung's own checks
+(a timed go, every sample timed, placed and with a readable loaded flag, the
+first sample within a walk's reach of the go, no teleport-fast step, loaded in
+at least half of them), and the judged rung's go must name the tracked
+destination, since the tracker measures the distance to FOCC_P9_Dest and a long
+rung sent to the player by mistake is a different walk than the samples
+describe. Details are in docs/spikes/combined-core-probes.md.
