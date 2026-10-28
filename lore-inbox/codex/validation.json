@@ -1,6 +1,5 @@
 {
   "date": "2026-10-28",
-  "baseline_head": "70b147242754021256ed220e4b2af1d35be3c714",
   "progress": {
     "vt": {
       "rows": 130,
@@ -197,51 +196,19 @@
     },
     "st3": {
       "rows": 102,
-      "checked_or_corrected": 58,
-      "newly_reviewed": 18,
-      "verified_source_among_reviewed": 15,
-      "as_reported_among_reviewed": 43,
+      "checked_or_corrected": 66,
+      "newly_reviewed": 8,
+      "verified_source_among_reviewed": 18,
+      "as_reported_among_reviewed": 48,
       "changed_ids": [
-        "ST-NJ-0003",
-        "ST-NJ-0004",
-        "ST-NJ-0005",
-        "ST-NM-0001",
-        "ST-NM-0002",
-        "ST-NM-0003",
-        "ST-NM-0004",
-        "ST-NM-0005",
-        "ST-NM-0006",
-        "ST-NY-0001",
-        "ST-NY-0002",
-        "ST-NY-0003",
-        "ST-NY-0004",
-        "ST-NY-0005",
-        "ST-NY-0006",
-        "ST-NY-0007",
-        "ST-NY-0008",
-        "ST-NY-0009",
-        "ST-NY-0010",
-        "ST-NY-0011"
-      ],
-      "newly_completed_ids": [
-        "ST-NJ-0003",
-        "ST-NJ-0004",
-        "ST-NJ-0005",
-        "ST-NM-0001",
-        "ST-NM-0002",
-        "ST-NM-0003",
-        "ST-NM-0006",
-        "ST-NY-0001",
-        "ST-NY-0002",
-        "ST-NY-0003",
-        "ST-NY-0004",
-        "ST-NY-0005",
-        "ST-NY-0006",
-        "ST-NY-0007",
-        "ST-NY-0008",
-        "ST-NY-0009",
-        "ST-NY-0010",
-        "ST-NY-0011"
+        "ST-NY-0012",
+        "ST-NY-0013",
+        "ST-NY-0014",
+        "ST-NY-0015",
+        "ST-NY-0016",
+        "ST-NY-0017",
+        "ST-NY-0018",
+        "ST-NY-0019"
       ],
       "remaining_ids": [
         "ST-MT-0007",
@@ -258,14 +225,6 @@
         "ST-NV-0038",
         "ST-NM-0004",
         "ST-NM-0005",
-        "ST-NY-0012",
-        "ST-NY-0013",
-        "ST-NY-0014",
-        "ST-NY-0015",
-        "ST-NY-0016",
-        "ST-NY-0017",
-        "ST-NY-0018",
-        "ST-NY-0019",
         "ST-NC-0001",
         "ST-NC-0002",
         "ST-NC-0003",
@@ -289,7 +248,7 @@
         "ST-OK-0001",
         "ST-OK-0002"
       ],
-      "unchanged_other_rows": 82,
+      "unchanged_other_rows": 94,
       "ids_and_order_retained": true
     }
   },
@@ -304,7 +263,7 @@
     },
     "st3": {
       "exit_code": 1,
-      "output": "inbox/codex/st3/verified-1.jsonl:8 ST-MT-0008: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/st3/verified-1.jsonl:9 ST-MT-0009: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/st3/verified-1.jsonl:59 ST-NM-0004: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\n3 problem(s)\n"
+      "output": "inbox/codex/st3/verified-1.jsonl:8 ST-MT-0008: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/st3/verified-1.jsonl:9 ST-MT-0009: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/st3/verified-1.jsonl:59 ST-NM-0004: source_kind 'cancelled' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\ninbox/codex/st3/verified-1.jsonl:78 ST-NY-0017: source_kind 'cut' does not fit tier 2 (['artbook', 'bible', 'dependent', 'dev', 'guide', 'manual'])\n4 problem(s)\n"
     }
   },
   "in_memory_owner_policy_errors": {
@@ -316,5 +275,11 @@
   "canonical_export_unchanged": true,
   "no_rows_removed": true,
   "stop_A_complete": false,
-  "method_exception": "Eight FULL-ledger pages were refetched by st3 helper; parent disclosed and preserved the failure. Helper networking disabled for future passes."
+  "method_exception": "Eight FULL-ledger pages were refetched by st3 helper; parent disclosed and preserved the failure. Helper networking disabled for future passes.",
+  "fifth_pass_note": "Parent-only eight NY entries;193/318 total,91primary102asreported; targeted sections/caches only. Fourth-pass method failure remains disclosed.",
+  "baseline_heads": {
+    "vt": "70b147242754021256ed220e4b2af1d35be3c714",
+    "mil": "70b147242754021256ed220e4b2af1d35be3c714",
+    "st3": "839a04d69c3be007619bfe1acb28326a6a0f5b3f"
+  }
 }
