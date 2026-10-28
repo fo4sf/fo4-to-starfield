@@ -1,1 +1,3 @@
 2026-10-28: read previously queued, unread South Boston Military Checkpoint location page. All canonical and inbox ledgers checked; its terminal is a separate cached PARTIAL source and will not be fetched. Extract supported game/guide claims, preserve wiki-only uncertainty. Exact64 queue membership remains unconfirmed. Unqueued BostonPolice location and already-PARTIAL Roadways candidates were refused before network access.
+
+2026-10-28: begin queued Railroad HQ Terminal Entries using revision-pinned section reads. All canonical/inbox ledgers and named caches checked; no FULL or previously read section refetch. Prioritize PAM recorded faction history, preserve narrator uncertainty and dates. Exact64 queue membership remains unconfirmed.
