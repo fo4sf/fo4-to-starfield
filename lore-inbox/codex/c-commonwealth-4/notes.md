@@ -1,3 +1,15 @@
+# Seventeenth delivery: Robotics operations and SRB case files
+
+69 entries added (FA8573..8642 except excluded draft8635); total556:516game38guide1dependent1cutHOLD, allunchecked. Folders127/140/139/150; startc-commonwealth-5 next. Next8643. Prior81fourth-folder rows and all other folders/canonical unchanged. Sourcecounts35unique/43rows,1FULL34PARTIAL; eight continuations requireIDunion. Latestterminalrow retains115prior+69new IDs.
+
+Cached5666803 only, no network fetch. Robotics reports recurring child-prototype flaws despite fixes; specific maintenance responses are not universal correctness. Work-crew status/abduction/possibleclosure remain reports. Production numbers are scheduled allocations; project visual/reflex/accuracy percentages are goals. The reflex goal literally increases reaction time; no unverified conversion to faster responses. Blood77-01/90-10 are explicit FO4 project terminology, distinct from the earlier FO3 excerpt’s wording.
+
+SRB last sightings are not current positions, suspected custody/brain damage/attackers not facts, pending recovery not completed. Parent removed duplicate8635 (samevisitoraccessas8465), splitcompoundclaims, replaced nonliteral/ellipsized snippets with exactcachedtext. HelperoriginalvalidationFAILED and its notes incorrectly said duplicates/snippets were clear; originalfiles/failureaudit retained. Finalparent source/schema checks do not constitute independent loresecondread. No discardedpublishedIDs or renumbering.
+
+BostonAirportmapmarker00084BEB verifiedraw againstunchangedmaster/exporter/reader; distinctfromAirportRuins00019C6F. Twenty verifiedanchors total. Initialthree-name selection failed becauseGoodneighbor/Libertalia were absentfromavailableexport; retainedfailure then narrowedexactmatch. Their positionsremainnull; ambiguousCorvega staysunspecified. Instituteanchorusedonlyasdocumentlocation forotherreports, notunit/worksitecoordinate.
+
+CanonicalFA0084 blankethealth/sleep wording still needs source-context review: a proposed infection-resistance upgrade does not alone prove all synths get sick or refute a character’s claims. No new policy or physiology chosen. Existing canonical/supportreconciliationnotes and cuttierdiscrepancies remain. StopA stillawaitsClaude currentrawsnapshot/exact64queue. No canonicalfold/merge, game/deploy/nativeactions or resumingpausedautomation.
+
 # Sixteenth delivery: Institute BioScience and FEV records
 
 81 new FO4 entries (FA8492..8572), allunchecked; total487:447game38guide1dependent1cutHOLD. Folder counts127/140/139/81. Next8573. The first three Commonwealth folders and all canonical files remain unchanged. This new folder holds the continuation because the third already has139 entries.
