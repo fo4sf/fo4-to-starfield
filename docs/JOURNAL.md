@@ -2468,3 +2468,12 @@ with 4 hook cells left out (docs/terrain/interior-batches.md); the new game is
 staged against the installed core and, by the record, not yet run in game
 (docs/ROADMAP.md, the owner's test sheet); and the test count needed this
 entry as its source.
+
+## 2026-10-28: CI's checks job given 30 minutes
+
+The checks job (guard, then the whole unittest suite with the .NET SDK
+present, 3,688 tests) took 886 s on the GitHub runner for the README pull
+request and was cancelled by its 15-minute limit right after printing OK;
+the run before it, on the runner fix, took 14 min 47 s. The limit is now
+30 minutes. The suite itself is unchanged; a faster split of the job is a
+later choice, not a fix for a green suite cut off at the line.
