@@ -7,3 +7,7 @@
 2026-10-28: continue Railroad HQ Terminal Entries5608766, unread TinkerTom section1 (includes2-5) only. Previously read9/13/18 remaincached, notrefetched. Keep hypotheses,disprovedtheories,testlogs attributed;no speculative worldfact or nativeimplementation.
 
 2026-10-28: read only previously unread PAM sections7/8/29 at5608766. Do not request parent6 because it would repeat cachedhistory. Displayed predictions/template outcomes are not actual events; do not store projections as facts.
+
+2026-10-28: read queued TheCastle and RedRocketTruckStop location pages after canonical+ALLinbox ledger and named-cache checks. Cacheonce; prioritize quoted game/guide evidence, preserve conditional quest claims and narrator limits. Existing terminal pages not implicitly authorized for refetch; check separately if needed.
+
+2026-10-28: request primary CastleTerminalEntries and RedRocketTruckStopTerminalEntries cited by the queued location pages. Not listed/read in canonical or any inbox ledger; named cache check also empty. Cache once, inspect game transcripts and distinguish firsthand accounts from article inference. No canonical queue edit.

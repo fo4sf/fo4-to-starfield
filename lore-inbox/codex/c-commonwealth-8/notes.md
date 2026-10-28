@@ -1,3 +1,17 @@
+# Thirty-third delivery: Castle and Red Rocket
+
+46 new entries, all unchecked: 35 game and 11 guide. Folder 8 now 131; combined inbox 1070. This batch and the preceding 46 locally committed entries are intended for one combined push, not separate PRs. Entry counts do not measure mutually unique facts.
+
+Castle/Red Rocket location pages and their cited terminal pages were cached once after canonical and ALL-inbox checks. New site anchors are Castle 0002BCA5 and Red Rocket 00024FBE in Commonwealth 0000003C, independently read from the base master; 29 anchors total. These are not interior arrivals, precise event positions or installed/native evidence. Rosa's Sanctuary restoration has no Red Rocket coordinate.
+
+McGann's logs distinguish reported breach/collapse from a guessed Behemoth and feared Super Mutant artillery capture. The rendered text says huge creature; its wiki target is not his identification. The final toast is intent, not proof of drinking or exact death cause. Logs remain undated. FA-0062 gains supporting first-person context, not a canonical rewrite. Existing fort naming, 2240 destruction and Radio Freedom history were not duplicated.
+
+Preston/SRB/Watcher statements remain attributed, time-limited assessments. The guide's Old Guns access sentence follows an interior-corridor map description: no global Castle access lock is inferred. Guide inventory is not verified loot, spawn, build-boundary or quest behavior.
+
+Red Rocket's clerk distinguishes repair reports from future work and concealed-barrel orders. The terminal does not identify barrel contents; the guide's hazardous-dumping account remains tier2. Rosa's son is unnamed in rendered dialogue; Chris cannot be derived solely from a wiki target. Vehicle model years are not log years. Canonical ORG-0151/TL-0119 already cover the award; ORG-0152 concerns Pittsburgh, not this dumping account. No inflation estimate adopted.
+
+All four source rows remain PARTIAL; earlier canonical/ALL-inbox references are retained. Claims supported by exact private spans, quotes omitted from the public inbox. Canonical data, prior entries, validator and other folders unchanged. Raw current batches/exact 64-page queue remain requested; no repeated request or assumed loss. Claude must reconcile and independently review before fold-in. No merge, game action or automation resume.
+
 # Thirty-second delivery: Tinker Tom and PAM screens
 
 22newgame entries: FA-8065, FA-8066, FA-8067, FA-8068, FA-8069, FA-8070, FA-8071, FA-8072, FA-8073, FA-8074, FA-8075, FA-8076, FA-8077, FA-8078, FA-8079, FA-8080, FA-8081, FA-8082, FA-8083, FA-8084, FA-8085, FA-8086. Localtotal1024:917game/70guide/1dependent/36cutHOLD;folder8now85. Allunchecked. PublishedPR still has978 until the next combined push.
