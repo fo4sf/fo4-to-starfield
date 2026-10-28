@@ -1,24 +1,66 @@
 {
- "schema": 1,
  "note": "Fallout 4 master hashes of known-good installs. Filled from a real install with launcher.py sources-add --manifest <build manifest> --label <text>; never typed in.",
+ "schema": 1,
  "sources": [
   {
    "file": "Fallout4.esm",
-   "size": 330745373,
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)",
    "sha256": "ae7be31a59052f926474a767d9dbfbcc7f19af4ad2070491f7f40d821b2520eb",
-   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+   "size": 330745373
   },
   {
    "file": "DLCRobot.esm",
-   "size": 8012051,
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)",
    "sha256": "e71e04ac3f283332712c70ed23912b33972c3845eeb58b1a1c7c432d62651638",
-   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+   "size": 8012051
   },
   {
    "file": "DLCworkshop01.esm",
-   "size": 633592,
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)",
    "sha256": "82914c20d3cf975472afbd96dac4d3fd30cf00a7e97dbf054286afafac4ac6da",
-   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+   "size": 633592
+  },
+  {
+   "file": "DLCCoast.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "b8817779595f3576f6268e46b8295c85bc682d1c60c199191b5600cf5941680a",
+   "size": 74565260
+  },
+  {
+   "file": "DLCNukaWorld.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "8adb27458d10b1f09c5cd5c564af995a9d5a2e45b664418445b8063d3c8f7fb9",
+   "size": 64313805
+  },
+  {
+   "file": "DLCRobot.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "465b904603caf18cdde9f721f82cd82b6414f2d33b4f5275f19e7ea455bf641e",
+   "size": 8011568
+  },
+  {
+   "file": "DLCworkshop01.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "9e645faa8620b5e2dd642ef9a3d9415c8e441e0dc4387af5ba597c8a85aa99b0",
+   "size": 633612
+  },
+  {
+   "file": "DLCworkshop02.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "9e907c7429da3d7c04403cf2d48bb920526d072b1e135ab2e8a4cdddde42e518",
+   "size": 677786
+  },
+  {
+   "file": "DLCworkshop03.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "08ece321cc224a48164342d258edf14e4640444efe56de900f4f932282368b06",
+   "size": 2971385
+  },
+  {
+   "file": "Fallout4.esm",
+   "label": "Steam full install on D:, owner's PC, 2026-10-28 (post next-gen build; version not read from the file; hashes from Install's manifest D:\\Modding\\staging\\fo4_steam_full_20261028.json)",
+   "sha256": "a3fa1e66d75f80f33f864bf471d25b27f48c1cdbb97acb55c4df83b64ccee1d9",
+   "size": 330776576
   }
  ]
 }

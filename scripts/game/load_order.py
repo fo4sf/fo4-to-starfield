@@ -2,25 +2,27 @@
 
 usage: python load_order.py check|fix --starfield <game dir>
 
-The target keeps every line that is not ours in its own order, and puts our lines after them in five groups, each
-group in its current order:
-  1. the cores (FO4Terrain*.esm, FO4Actor*.esm),
-  2. other FO4SF*.esm plugins (the experiments: FO4SFMission.esm and the like),
-  3. FO4Port.esm,
-  4. FO4SFMapMarkers.esm,
-  5. FO4SFBridge.esm, last.
-That is the order the game itself wrote on the owner's PC on 2026-10-22, 25 s after a start (TerrainCore,
-TerrainCore_Mars, ActorRaider, Mission, Port, MapMarkers, Bridge), so a game that writes its own order again should
-find nothing to change; that the game keeps this order is inferred, not traced. A plugin always loads after every
-master it names that is on a line, whatever its group. Inactive lines keep their place in their group and stay
-inactive: a plugin held off by plugin_toggle.py is never ticked here. A plugin that is not ours but has one of ours
-among its masters (a patch for our plugins) comes right after that master; masters come first across ours and other
-plugins alike.
+The target is the order the test runner's own tools leave behind (cycle.ps1 before every launch: exp_install.py
+order, map_markers_install.py order, bridge_install.py order), so a file those tools just wrote is already in it and
+play changes nothing on a test install (two exceptions below):
+  1. every line keeps its place, in file order, except that
+  2. a plugin loads after every master it names that is on a line (exp_install order moves an experiment that stands
+     before a master to just after it; here the same holds for any plugin), and
+  3. FO4SFMapMarkers.esm goes after everything else and FO4SFBridge.esm last of all (map_markers_install order, then
+     bridge_install order: nothing depends on their indexes, and every planned test addresses the experiment's
+     records by load index, so a line above them would shift every index).
+So the cores, FO4Port and the experiments stay in the order their installs appended them. The order the game itself
+wrote on the owner's PC on 2026-10-22 (TerrainCore, TerrainCore_Mars, ActorRaider, Mission, Port, MapMarkers,
+Bridge) is in the target too. Until 2026-10-28 the target also sorted the cores, the experiments and FO4Port into fixed
+groups; on the full install of 2026-10-28 that would have moved 7 lines the install tools had just placed (Install
+thread), so the groups went. Inactive lines keep their place and stay inactive: a plugin held off by plugin_toggle.py
+is never ticked here. A plugin that is not ours but has one of ours among its masters (a patch) comes right after that
+master.
 
 check exits 0 when the order is the target, 9 when it is not (the changes are printed), 6 when it cannot be judged
 (an active plugin of ours missing from Data, an active plugin whose master is neither active nor loaded by the game,
 a master cycle, a duplicated line). fix writes the target with the same BOM and line ending, after copying the old
-file to Plugins.txt.bak-<time>, and refuses (6) as check does. Lines that are not ours move only as described above.
+file to Plugins.txt.bak-<time>, and refuses (6) as check does.
 """
 import argparse
 import datetime
@@ -30,38 +32,34 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # isolated Python omits the script's directory
 import exp_install  # noqa: E402
 
-CORE_PREFIXES = ("fo4terrain", "fo4actor")
-PORT, MARKERS, BRIDGE = "fo4port.esm", "fo4sfmapmarkers.esm", "fo4sfbridge.esm"
+OUR_PREFIXES = ("fo4terrain", "fo4actor", "fo4sf", "fo4port")
+MARKERS, BRIDGE = "fo4sfmapmarkers.esm", "fo4sfbridge.esm"
 
 
 def name(line):
     return line.strip().lstrip("*").strip()
 
 
+def ours(plugin):
+    """True for a plugin of ours (the cores, FO4Port, FO4SF* experiments, markers, bridge): active, it must be in Data."""
+    low = plugin.casefold()
+    return low.endswith((".esm", ".esp", ".esl")) and low.startswith(OUR_PREFIXES)
+
+
 def group(plugin):
-    """0-4 for our plugins (module doc), None for any other line."""
+    """0 for any plugin line, 1 for the map markers, 2 for the bridge (module doc); None for a line that is no plugin."""
     low = plugin.casefold()
     if not low.endswith((".esm", ".esp", ".esl")):
         return None
-    if low.startswith(CORE_PREFIXES):
-        return 0
-    if low == PORT:
-        return 2
-    if low == MARKERS:
-        return 3
-    if low == BRIDGE:
-        return 4
-    if low.startswith("fo4sf"):
-        return 1
-    return None
+    return {MARKERS: 1, BRIDGE: 2}.get(low, 0)
 
 
 def target(lines, masters):
     """(new lines, problems). masters: {plugin casefold: [master, ...]} for the plugins whose headers were read.
     One stable sort over every line: a plugin is placed only after each of its masters that is on a line, and among
-    the plugins ready to place the next is a line that is not ours (in file order) before one of ours (by group,
-    then file order). So lines that are not ours come first, a patch for one of ours comes right after it, and any
-    chain across ours and other plugins keeps every master first (Codex, #487)."""
+    the lines ready to place the next is the earliest in file order, the markers and the bridge waiting until nothing
+    else is left (by group). So file order holds, a patch comes right after its master, and any chain of masters keeps
+    every master first (Codex, #487)."""
     problems, seen, nodes = [], set(), []
     for k, ln in enumerate(lines):
         p = name(ln)
@@ -71,7 +69,7 @@ def target(lines, masters):
                 problems.append(f"{p} is listed more than once")
             seen.add(p.casefold())
         g = group(p) if plug else None
-        nodes.append(((0, 0, k) if g is None else (1, g, k), p.casefold() if plug else None, ln))
+        nodes.append(((g or 0, k), p.casefold() if plug else None, ln))
     active = {name(ln).casefold() for ln in lines if ln.strip().startswith("*")}
     for ln in lines:
         p = name(ln)
@@ -101,7 +99,7 @@ def target(lines, masters):
 
 
 def changes(old, new):
-    """Our plugins, in their new order, that moved: [(plugin, old position, new position)] (1-based)."""
+    """The lines that moved: [(plugin, old position, new position)] (1-based)."""
     pos = {name(ln).casefold(): k for k, ln in enumerate(old)}
     return [(name(ln), pos[name(ln).casefold()] + 1, k + 1) for k, ln in enumerate(new)
             if pos.get(name(ln).casefold()) != k]
@@ -115,7 +113,7 @@ def read_masters(data, lines):
         p = name(ln)
         if not p or ln.strip().startswith("#"):
             continue
-        mine = group(p) is not None
+        mine = ours(p)
         f = os.path.join(data, p)
         if not os.path.isfile(f):
             if mine and ln.strip().startswith("*"):
