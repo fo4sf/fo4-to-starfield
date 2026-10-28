@@ -33,7 +33,9 @@ New-Item -ItemType Directory -Path $Out -Force | Out-Null
 $build = Join-Path $Out 'build'
 $log = Join-Path $Out 'cmake_output.txt'
 $bat = Join-Path $Out 'build.cmd'
-$prefix = "$CommonLibSF;$Vcpkg"
+# TrimEnd: a trailing backslash before the closing quote of the batch argument would reach cmake as a literal quote
+# (the CRT's argv rules; the same pitfall cycle.ps1 notes for a drive root)
+$prefix = "$($CommonLibSF.TrimEnd('\', '/'));$($Vcpkg.TrimEnd('\', '/'))"
 # cmake writes its warnings to stderr; merged inside cmd.exe so the Stop preference above does not read them as errors
 @("@echo off",
   "cmake.exe -S `"$src`" -B `"$build`" -G Ninja -DCMAKE_BUILD_TYPE=Release `"-DCMAKE_PREFIX_PATH=$prefix`" 2>&1 || exit /b 90",

@@ -29,7 +29,13 @@ compiler here).
 - `SFSE::Init` loads the Address Library before anything else: `Data\SFSE\Plugins\versionlib-1-16-244-0.bin` on
   Steam (`src/REL/ID.cpp`: `versionlib-<version with dashes>`, no platform suffix for Steam). A missing file stops
   the game with a message box naming the path. v22 of the Address Library for SFSE Plugins (Nexus 3256) covers
-  1.16.244; the owner downloads it (login) and it is installed by hand.
+  1.16.244; the archive is on the PC (Install's state note, 24 Oct) and the file is installed by hand. One check
+  before the launch: CommonLibSF `9caec20` reads address library format 2 only (`src/REL/ID.cpp`, `kDatabaseVersion`
+  in `include/REL/ID.h`; another first word stops the game with "Unsupported address library format"), and SFSE's
+  own `PluginAPI.h` names two libraries, "Address Library v1 (Nexus 3256)" and an "Address Library for 1.15.216+"
+  (`kAddressIndependence_AddressLibraryV2`). So the `.bin`'s first four bytes must read `02 00 00 00`
+  (`Format-Hex <path> -Count 4` in PowerShell); anything else is the other generation, a library finding before the
+  hook is even reached, and goes on the card as such.
 - `SFSE::SetPapyrusCallback` hooks the call inside `GameVM::GameVM` that binds everything to the script VM
   (`REL::ID(169912) + 0x514`, a trampoline call hook). The callback runs there with the VM and binds the native:
   `BindNativeMethod("FOCC", "Ping", &Ping, true, false)` (callable from tasklets, not latent). A global native takes
@@ -54,14 +60,15 @@ powershell -File sfse\FOCCPing\build.ps1 -Out D:\Modding\staging\focc_ping_<date
   -Env D:\Modding\tools\msvc_env.ps1
 ```
 
-Writes `FOCCPing.dll` (and `.pdb`), `cmake_output.txt`, `build.cmd`, `build.json`. It refuses an `-Out` that already
+Writes `FOCCPing.dll` and `FOCCPing.pdb` (`/Zi` and `/DEBUG`, so a crash dump names our frames), `cmake_output.txt`,
+`build.cmd`, `build.json`. It refuses an `-Out` that already
 holds a dll, a non-x64 compiler, a prefix without `CommonLibSFConfig.cmake` and a triplet folder without spdlog.
 Compile errors on the first build are expected and cheap: this source has never met the installed library.
 
 ## Install and run (the owner's line; game closed for the copies)
 
 1. The Address Library's `.bin` into `<Starfield>\Data\SFSE\Plugins\` (its own name; `versionlib-1-16-244-0.bin` is
-   what the library opens).
+   what the library opens), after the format check above (`Format-Hex <path> -Count 4` reads `02 00 00 00`).
 2. `FOCCPing.dll` into the same folder.
 3. Launch through `sfse_loader.exe`. The kit's rule: a dll that keeps the game from the main menu is deleted at once.
 4. Runbook job B0-2: `cgf "FOCC_B0.Ping" 41`, `save focc_b0_a`, load it, `cgf "FOCC_B0.Ping" 43`,

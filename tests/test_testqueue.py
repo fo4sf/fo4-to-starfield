@@ -1435,6 +1435,7 @@ class NamedLoadTests(RunnerTests):
         cycle, kinds, log = self.launch(saves, code=11)
         self.assertEqual(len(cycle), 1)                   # no retry per test
         self.assertEqual(kinds, [])                       # nothing tested
+        self.assertEqual(getattr(self.ctl, "closed", 0), 1)   # the game cycle.ps1 left up is closed, not reused
         self.assertTrue(self.status().startswith(f"stopped: the dedicated save {self.NAME} was not loaded by name (cycle.ps1 exit 11"),
                         self.status())
 
@@ -1458,4 +1459,18 @@ class NamedLoadTests(RunnerTests):
         self.assertIn("if ($Save -and -not $hudSeen) {", cyc)
         self.assertIn("did not load: no HUD within the wait", cyc)
         self.assertEqual(cyc.count("; exit 11"), 2)                                   # the file check and the HUD check
+        # fresh review of #571: the HUD check must be able to run before a named load is judged by it (fail closed, before
+        # anything is touched), and the load order dialog is probed on every HUD poll of the named route, as qstep's load
+        # step does, since one probe 3 s after Enter can miss a dialog that opens later
+        hud = cyc.index("the HUD check cannot run (python exit $LASTEXITCODE")
+        self.assertLess(hud, cyc.index("Starfield is running but was not started by cycle.ps1"))
+        self.assertIn("if ($LASTEXITCODE -ne 0 -or @('yes', 'no') -notcontains \"$hudAns\")", cyc)
+        self.assertIn("function Wait-Screen($label, $maxSec, $check, $each = $null)", cyc)
+        self.assertIn("if ($each) { & $each }", cyc)
+        self.assertIn("$hudSeen = Wait-Screen 'save loaded' 300 $HudShown $(if ($Save) { $ProbeLoadOrder } else { $null })", cyc)
+        probe = cyc[cyc.index("$ProbeLoadOrder = {"):]
+        probe = probe[:probe.index("\n}\n")]
+        self.assertIn("if ($script:lo -ne 0) { return }", probe)                      # until the dialog has been seen
+        self.assertIn("if ($script:lo -eq 5) { $script:lo = 0 }", probe)              # a failed check: again next pass
+        self.assertIn("if ($script:lo -eq 9) {", probe)
 

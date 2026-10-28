@@ -72,6 +72,16 @@ if ($Save) {
   $newest = $sfs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   "save to load by name: $($saveFile.Name) ($($saveFile.Length) bytes, $($saveFile.LastWriteTime.ToString('s')))" +
     $(if ($newest.Name -ine $saveFile.Name) { "; the newest save is $($newest.Name), which Continue would have loaded" } else { '; it is the newest save' })
+  # the named route stops on "no HUD", so the HUD check itself must be able to run (Prompt-Visible's rule: a Python
+  # without Pillow read as "no HUD" would blame the save): a shot of whatever is on screen now must read yes or no
+  $probe = Join-Path $env:TEMP 'fo4sf_hudprobe.png'
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $probe | Out-Null
+  $hudPy = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
+  $global:LASTEXITCODE = $null
+  $hudAns = & $hudPy (Join-Path $PSScriptRoot 'hud_visible.py') $probe 2>$null
+  if ($LASTEXITCODE -ne 0 -or @('yes', 'no') -notcontains "$hudAns") {
+    "the HUD check cannot run (python exit $LASTEXITCODE; set FO4SF_PYTHON to a Python with Pillow): a load by name could not be judged; nothing closed, deployed or launched"; exit 5
+  }
 }
 if ($env:FO4SF_PORT -ne 'installed') {
   $stg = $Staging.TrimEnd('\', '/')
@@ -136,12 +146,14 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
   $bord | Select-Object -Last 1
   if ($bordCode -ne 0) { "bridge plugin order refused (exit $bordCode): not launching"; exit 7 }
 }
-function Wait-Screen($label, $maxSec, $check) {
+function Wait-Screen($label, $maxSec, $check, $each = $null) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
   # false after $maxSec: the caller goes on as the old fixed timer would have (docs/ai/optimization.md 2026-10-10).
+  # $each (script block, optional) runs before every poll: the named load's load order probe.
   $t0 = Get-Date
   $png = Join-Path $env:TEMP 'fo4sf_wait.png'
   while (((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
+    if ($each) { & $each }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $png | Out-Null
     if (& $check $png) { Write-Host ("{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds); return $true }
     Start-Sleep 3
@@ -237,12 +249,24 @@ $lo = $LASTEXITCODE
 if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
 if ($lo -eq 5) { exit 5 }
 if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+# On the named route the dialog can open later than this one probe 3 s after Enter, and an unanswered dialog would end
+# in exit 11 ("did not load"): as qstep.ps1's load step does, probe again before every HUD poll until the dialog has
+# been seen (loadorder.ps1 exit 0 = no dialog, 10 = answered with Current, 5 = check could not run: again next pass)
+$ProbeLoadOrder = {
+  if ($script:lo -ne 0) { return }
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'loadorder.ps1') | Out-Null
+  $script:lo = $LASTEXITCODE
+  if ($script:lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
+  if ($script:lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+  if ($script:lo -eq 10) { Write-Host 'load order dialog answered: Current (the experiment plugins stay active)' }
+  if ($script:lo -eq 5) { $script:lo = 0 }
+}
 # No blind E here: Continue loads the newest save, and on the owner's vanilla save the player faces Vasco. An E sent
 # after the load most likely opened his dialogue and hid the HUD for the whole 300 s wait (v6e retry 4, 2026-10-21:
 # "save loaded: not seen within 300 s", then the runner's recover got the HUD back with one Escape; supported, not
 # seen on screen). E now only closes the achievements popup, when its text is read.
 Clear-AchievementsPopup | Out-Null
-$hudSeen = Wait-Screen 'save loaded' 300 $HudShown
+$hudSeen = Wait-Screen 'save loaded' 300 $HudShown $(if ($Save) { $ProbeLoadOrder } else { $null })
 if (-not $hudSeen) {
   # a dialogue, menu or popup hides the HUD: up to two Escapes, each followed by a check. Two, not recover's three: if
   # the HUD check itself missed, the first Escape opens the pause menu and the second closes it again

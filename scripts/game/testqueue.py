@@ -3333,6 +3333,7 @@ class Runner:
                         f"stayed up; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
             self.launch_tries = 0
             if code == 11:                                # -Save: the save is not in the Saves folder, or did not load
+                self.ctl.close_game()                     # cycle.ps1 leaves the game up; a later run must not reuse it
                 return (f"the dedicated save {self.q['save']} was not loaded by name (cycle.ps1 exit 11: "
                         f"{out.strip().splitlines()[-1] if out.strip() else ''}); nothing tested")   # stop, resumable
             if code != 0:

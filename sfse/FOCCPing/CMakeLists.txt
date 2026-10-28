@@ -18,5 +18,7 @@ add_library(FOCCPing SHARED src/main.cpp src/Plugin.h)
 # CommonLibSF::CommonLibSF carries its PUBLIC definitions (WINVER, WIN32_LEAN_AND_MEAN, NOMINMAX, _ITERATOR_DEBUG_LEVEL=0)
 # and options (/bigobj and the warning filters), so the plugin compiles the way the library was compiled
 target_link_libraries(FOCCPing PRIVATE CommonLibSF::CommonLibSF)
-target_compile_options(FOCCPing PRIVATE /W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc)
+target_compile_options(FOCCPing PRIVATE /W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc /Zi)
+# a PDB beside the Release dll: a crash in the game (minidump_read.py) then names our frames
+target_link_options(FOCCPing PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 set_target_properties(FOCCPing PROPERTIES OUTPUT_NAME "FOCCPing" PREFIX "")
