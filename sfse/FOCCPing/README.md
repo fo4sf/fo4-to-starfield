@@ -43,12 +43,14 @@ compiler here).
 ## Building on the owner's PC (runbook section B0, job B0-2)
 
 Prerequisites: the portable MSVC (`D:\Modding\tools\msvc_env.ps1`, with cmake and ninja), CommonLibSF `9caec20`
-built from its configured tree and installed (`cmake --install <build> --prefix <prefix>`), and the library's
-`vcpkg_installed\x64-windows-static-md-release` folder (spdlog, fmt).
+built from its configured tree and installed (on the PC since 28 Oct: preset `release-msvc-ninja`, prefix
+`D:\Modding\tools\CommonLibSF-install`), and the library's `vcpkg_installed\x64-windows-static-md-release` folder (spdlog,
+fmt; on the PC `D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release`).
 
 ```powershell
 powershell -File sfse\FOCCPing\build.ps1 -Out D:\Modding\staging\focc_ping_<date> `
-  -CommonLibSF <prefix> -Vcpkg <CommonLibSF build>\vcpkg_installed\x64-windows-static-md-release `
+  -CommonLibSF D:\Modding\tools\CommonLibSF-install `
+  -Vcpkg D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release `
   -Env D:\Modding\tools\msvc_env.ps1
 ```
 

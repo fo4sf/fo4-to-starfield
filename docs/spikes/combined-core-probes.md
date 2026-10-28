@@ -627,10 +627,12 @@ Prerequisites, in this order, each a game-folder or build step for the owner's l
    `versionlib-1-16-244-0.bin` there on Steam (`src/REL/ID.cpp`: `versionlib-<version with dashes>`, no platform
    suffix for Steam, `.bin`); the archive's file is kept under its own name and that name goes on the card. A missing
    file stops the game with a message box naming the path.
-2. CommonLibSF `9caec20`, configured on the PC on 28 Oct, built and installed (`cmake --build` then `cmake --install`
-   into a prefix under `D:\Modding\tools`).
+2. CommonLibSF `9caec20`, built and installed on the PC on 28 Oct (preset `release-msvc-ninja`, exit 0,
+   CommonLibSF.lib; the install prefix `D:\Modding\tools\CommonLibSF-install`; the library's vcpkg folder
+   `D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release`).
 3. `FOCCPing.dll` built from `sfse/FOCCPing` (its README) with `build.ps1 -Out D:\Modding\staging\focc_ping_<date>
-   -CommonLibSF <prefix> -Vcpkg <CommonLibSF build>\vcpkg_installed\x64-windows-static-md-release -Env
+   -CommonLibSF D:\Modding\tools\CommonLibSF-install -Vcpkg
+   D:\Modding\tools\CommonLibSF\build\release-msvc-ninja\vcpkg_installed\x64-windows-static-md-release -Env
    D:\Modding\tools\msvc_env.ps1` (`build.json` records every sha256), and copied by hand to
    `<Starfield>\Data\SFSE\Plugins\`.
 Then launch through `sfse_loader.exe`. The kit's rule holds: a dll that keeps the game from the main menu is deleted

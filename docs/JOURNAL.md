@@ -2577,3 +2577,18 @@ Address Library archive turned out to be on the PC already (Install's state
 note, 24 Oct), so the runbook's B0-2 card names it there. Not compiled here:
 the PC build is the check, and the kit's rule (a dll that keeps the game from
 the main menu is deleted at once) stands.
+
+## 2026-10-28: FOCCSidecar build.ps1, the /link half was its own batch line
+
+Install's find on the PC (P1-1, 28 Oct): inside the `@( )` array that
+becomes build.cmd, the comma bound tighter than `+`, so the concatenated
+`"/link /PDB:... /IMPLIB:..."` half of the cl line became a line of its own.
+cl linked without the pdb and import library, cmd then ran `/link` (9009),
+and the script reported failure although FOCCSidecar.dll was there. Install
+patched it by hand and built (D:\Modding\staging\focc_sfse_20261028c, exit
+0). The fix here builds the line in a `$cl` statement and puts the variable
+in the array; a test pins the shape. The C4245 at FOCCSidecar.cpp(59) is a
+cast: PluginAPI.h's kPluginHandle_Invalid is an int enumerator, PluginHandle
+a std::uint32_t. CommonLibSF is built and installed on the PC (prefix
+D:\Modding\tools\CommonLibSF-install), so the FOCCPing README and the B0-2
+card name the real paths.

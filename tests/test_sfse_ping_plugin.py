@@ -74,8 +74,10 @@ class PingPluginTests(unittest.TestCase):
         self.assertIn("this script never overwrites", self.build)
         self.assertNotIn("Remove-Item", self.build)
         self.assertNotIn("Data\\SFSE\\Plugins\\'", self.build)                            # it installs nothing
-        self.assertIn("-CommonLibSF <prefix> -Vcpkg", self.readme)
-        self.assertIn("-CommonLibSF <prefix> -Vcpkg", self.runbook)
+        for text in (self.readme, self.runbook):                                        # the PC's paths, Install 28 Oct
+            self.assertIn("-CommonLibSF D:\\Modding\\tools\\CommonLibSF-install", text)
+            self.assertIn("-Vcpkg", text)
+            self.assertIn("D:\\Modding\\tools\\CommonLibSF\\build\\release-msvc-ninja\\vcpkg_installed\\x64-windows-static-md-release", text)
 
 
 if __name__ == "__main__":
