@@ -9,3 +9,7 @@
 2026-10-28: queued Jared before first fetch. Purpose: Commonwealth gang relationships and primary-source discovery; ledger/cache checked. Exact64queue membership unknown.
 
 2026-10-28: queued Corvega Assembly Plant Terminal Entries before first fetch. Purpose: Commonwealth gang relationships and primary-source discovery; ledger/cache checked. Exact64queue membership unknown.
+
+2026-10-28: queued Beantown Brewery from observed Commonwealth gang/source links before first fetch. All ledger/cache checks clear; verify primary supply/rivalry records, not wiki inference. Exact64queue membership unknown.
+
+2026-10-28: queued Beantown Brewery Terminal Entries from observed Commonwealth gang/source links before first fetch. All ledger/cache checks clear; verify primary supply/rivalry records, not wiki inference. Exact64queue membership unknown.

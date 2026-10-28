@@ -1,3 +1,15 @@
+# Twenty-fourth delivery: Beantown Brewery
+
+Added35 entries, FA-8919 through FA-8953:31 game-transcript claims from revision5540167 and4 guide claims quoted in location revision5702268. Both fetched once after ledger/cache checks. Commonwealth total862:770 game,55 guide,1 dependent,36 cut-content HOLD; all new entries unchecked. Folder7 now73; next8954.
+
+Keep the tour’s complimentary-tasting wording alongside its separate$5 price-list entry; no assumption that it is free. Q4 text names Bunker Hill Brew in a planned marketing push, not Beantown Brown. The latter’s price/alcohol/popularity description is guide-tier2. No brand equivalence, implemented recipe, financial estimate or sales result invented.
+
+Tom’s food shortage, hostage leverage, incoming crates and recruits, Lily’s death and concealed body remain his account. His claim to have aimed at her leg does not independently establish accident. Continued letters are his declared plan, not proof of specific forgeries. Sparta’s ambiguous out-of BADTFL wording is not converted into a definite route. Conditional reports of Red, Jared and Bosco are not fixed history; scout, looting and weapon plans are not verified spawns or a running faction-economy system.
+
+Marker0002B7DC was independently read from the base master and matched the existing export:25 verified site anchors. Generic safety/temperature terms, forecast material, unexpanded companion comments and the remaining article gameplay details keep both pages PARTIAL. Totals48 ledger identities (47 content-page identities plus1redirect),58 rows,1FULL/47PARTIAL. The corrected Raider continuation retains6prior IDs+8new; older10inbox continuations still need union.
+
+Original validator passes the changed folder; previous entries/folders, canonical store and validator remain unchanged. New entries await independent second read. StopA still awaits Claude’s current raw snapshot and exact64-page queue. No canonical fold-in, merge, game action or automation resume.
+
 # Twenty-third delivery: Corvega and raider equipment
 
 Added38 entries, FA-8881 through FA-8918:30 game-transcript claims and8 guide claims. Commonwealth total827:739 game,51 guide,1 dependent and36 cut-content HOLD; all new entries unchecked. This coherent batch starts folder7 (38 rows), leaving folder6 unchanged at136. Next8919, within the assigned8001–8999 range.
