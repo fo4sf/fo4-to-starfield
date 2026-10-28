@@ -1,3 +1,13 @@
+## Third delivery: Diamond City and Glowing Sea
+
+44 total new Commonwealth entries, all unchecked for Claude/Grok. This delivery adds12 (8033..8044): nine game-text claims, two guide claims and one dependent tabletop population. Earlier32 rows remain byte-equivalent as parsed records. Personal testimony stays attributed; tabletop population is not promoted to a definitive game census. The loading-screen school claim does not establish exclusivity, and Nick's personal admission does not establish a general synth policy.
+
+Glowing Sea supplied no new IDs: the two displayed primary excerpts overlap ST-MA-0007 and GW-0008. Its ground-zero account remains local legend; the source does not establish the wiki's cross-series largest-single-device comparison. Other wiki narration and the linked E3 video were not promoted to primary evidence. The low-cost helper worked only from cached text; parent checked the quoted overlap.
+
+Both pages were TODO and fetched once, revisions Diamond City5709745 and Glowing Sea5682839. Cached source bodies are retained privately. Both ledger rows are PARTIAL with omissions. Diamond City's later layout/inhabitant/loot/notes/companion sections are not claimed complete. The available Commonwealth-world map-marker export did not yield a verified Diamond City marker; no unrelated marker or region-center coordinate was invented. All these new positions remain null.
+
+Stopping point:12new entries delivered, not completion of the missing exact64-page queue. Current raw batch snapshot and queue remain requested from Claude. Next unused numericID8045; helper reserved8050..8059 but allocated none, so those remain unused. Continue known TODO sources or cached omitted primary sections; do not refetch these pages. Canonical data/build unchanged. Inbox PR stays draft and must not be merged.
+
 ## Second delivery: Fort Strong and Quincy
 
 32 total new entries, all unchecked for Claude/Grok: previous MIL-8001..8012 plus20 entries numbered8013..8032. Six new guide entries remain tier2;14 new game-text claims retain their speakers and conditions. Source overlaps were checked before allocation. No IDs dropped or canonical rows changed.
