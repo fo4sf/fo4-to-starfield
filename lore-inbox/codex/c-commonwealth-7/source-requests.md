@@ -23,3 +23,7 @@
 2026-10-28: queued To My Big Sister Red from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
 
 2026-10-28: queued Red! It's Lily! from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
+
+2026-10-28: queued Saugus Ironworks from the canonical TODO ledger before first fetch. Check all cached/inbox sources; verify primary Forged recruitment/discipline and industrial records. Exact64queue membership unknown.
+
+2026-10-28: queued Saugus Ironworks Terminal Entries from the canonical TODO ledger before first fetch. Check all cached/inbox sources; verify primary Forged recruitment/discipline and industrial records. Exact64queue membership unknown.

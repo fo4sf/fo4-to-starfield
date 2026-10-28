@@ -1,3 +1,13 @@
+# Twenty-sixth delivery: Saugus and the Forged
+
+Added16 entries, FA-8984..8999:14 game-terminal claims and2 guide history claims. Location5684725 and terminals5287602 fetched once after ledger/cache checks; both PARTIAL. Commonwealth total908:810game/61guide/1dependent/36cutHOLD; folder7has119. All new entries remain unchecked. The monotonic numeric counter has reached8999; future IDs must use an unused FULL ID with an appropriate existing prefix within8001–8999, never9001+. This is namespace bookkeeping, not new permission to change the format or reuse an ID.
+
+Slag’s accounts distinguish recruitment disappointment, accepted Gunner recruits, negotiation, reputation, staying, halted scrap shipments and Bedlam’s dispatch. They do not prove an operational faction economy or AI system. The named offenses are terminal records; they do not define all trial stages or independently prove punishments were carried out. Jake’s surname is not imported from a wiki link. Conditional Libertalia/Jared reports are not fixed chronology.
+
+Guide history remains tier2. The article’s claim that Saugus caused lake contamination is stronger than the primary report it quotes: dumping is a suspected cause, with inquiry recommended into several industries. No definite causal attribution or invented date entered the store. Marker0002C07B independently matches the raw base-master record and existing export, bringing site anchors to27.
+
+Original validator passes119folder7rows; prior claims/folders/canonical/validator unchanged. Totals55sourceidentities (54content+1redirect),65rows,1FULL/54PARTIAL. Read-only continuity audit confirmed the latest cumulative rows already retain all prior IDs:10extra continuation rows need consolidation/provenance retention, not ID repair. Earlier notes using needs-union shorthand are historical and superseded by this clarification. Missing current raw snapshot/exact64queue still prevents StopA; no canonical fold, merge, game action or automation resume.
+
 # Twenty-fifth delivery: stockpile records and hostage letters
 
 Added30 entries: MIL-8954..8960, FA-8961..8979 and GW-8980..8983. Seventeen game-terminal claims, nine letter claims and four guide claims; five sources fetched once after ledger/cache checks, all PARTIAL. Commonwealth total892:796 game,59 guide,1 dependent,36 cut-content HOLD. Folder7 now103; next8984. All new entries remain unchecked.
