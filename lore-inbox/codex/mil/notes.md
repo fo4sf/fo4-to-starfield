@@ -1,3 +1,7 @@
+## Current sixth-pass checkpoint
+
+86/86 checked/corrected; 51 primary, 35 as-reported. Prior counts below are historical. No rows removed. StopA incomplete; current raw snapshot comparison required before fold-in.
+
 # `mil` second-read pass 1
 
 ## Scope and provenance
@@ -133,3 +137,9 @@ Current raw batch and exact Commonwealth queue still await recovery from Claude;
 14 further checks:63/86. Cache-only helper proposed11 completions and3 unresolved rows; parent verified all35 quotations and resolved the three missing primary citations with exact terminal sections. Corrected all-power-armor-at-Fort-Strong to a T51B shipment report, plural prototypes/exhibition to one planned T45d acquisition, and sole-designer language to team work. Simulation dialogue stays explicitly simulation; cancelled VanBuren is tier2/HOLD. Five new checks remain guide-attributed/as-reported; nine have inspected primary transcriptions. Parent rejected unnecessary removal of context-only era bounds/inherited anchors; proposed changes were not bulk-applied. Earlier whole-page-fetch mistake is still disclosed in prior notes.
 
 Remaining unchecked IDs: MIL-0001, MIL-0002, MIL-0003, MIL-0006, MIL-0007, MIL-0008, MIL-0009, MIL-0010, MIL-0011, MIL-0012, MIL-0036, MIL-0053, MIL-0055, MIL-0056, MIL-0057, MIL-0059, MIL-0060, MIL-0061, MIL-0062, MIL-0063, MIL-0064, MIL-0065, MIL-0067. All rows retained; none dropped. Exact current canonical batches and64-pageCommonwealthqueue recovery still await Claude; not fold-in ready, StopA incomplete.
+
+## Sixth pass, parent reconciliation
+
+All86 military entries now checked/corrected. Parent verified24 helper excerpts and independently read actual Whitespring terminal/recording text. Corrected en-route versus arrival, ongoing purge versus universal completed execution, and suspected hardline damage versus confirmed severance. Other corrections scope Army orders to their effective procedure, distinguish newspaper/spokesman statements, and remove unproved Reserve/police-cooperation and three-jet details. Wiki-only map/image/guide claims remain as-reported; cached revision associations retain their earlier provenance limitation. Two attempted images403; no visual claim. Adams child Publications was redundantly captured and is disclosed. No game/deployment/merge.
+
+Remaining unchecked IDs: none.

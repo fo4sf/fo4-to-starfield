@@ -30,27 +30,11 @@
     },
     "mil": {
       "rows": 86,
-      "checked_or_corrected": 63,
-      "newly_reviewed": 14,
-      "verified_source_among_reviewed": 39,
-      "as_reported_among_reviewed": 24,
+      "checked_or_corrected": 86,
+      "newly_reviewed": 23,
+      "verified_source_among_reviewed": 51,
+      "as_reported_among_reviewed": 35,
       "changed_ids": [
-        "MIL-0073",
-        "MIL-0074",
-        "MIL-0075",
-        "MIL-0076",
-        "MIL-0077",
-        "MIL-0078",
-        "MIL-0079",
-        "MIL-0080",
-        "MIL-0081",
-        "MIL-0082",
-        "MIL-0083",
-        "MIL-0084",
-        "MIL-0085",
-        "MIL-0086"
-      ],
-      "remaining_ids": [
         "MIL-0001",
         "MIL-0002",
         "MIL-0003",
@@ -75,24 +59,22 @@
         "MIL-0065",
         "MIL-0067"
       ],
-      "unchanged_other_rows": 72,
+      "remaining_ids": [],
+      "unchanged_other_rows": 63,
       "ids_and_order_retained": true
     },
     "st3": {
       "rows": 102,
-      "checked_or_corrected": 66,
-      "newly_reviewed": 8,
-      "verified_source_among_reviewed": 18,
-      "as_reported_among_reviewed": 48,
+      "checked_or_corrected": 71,
+      "newly_reviewed": 5,
+      "verified_source_among_reviewed": 20,
+      "as_reported_among_reviewed": 51,
       "changed_ids": [
-        "ST-NY-0012",
-        "ST-NY-0013",
-        "ST-NY-0014",
-        "ST-NY-0015",
-        "ST-NY-0016",
-        "ST-NY-0017",
-        "ST-NY-0018",
-        "ST-NY-0019"
+        "ST-NC-0001",
+        "ST-NC-0002",
+        "ST-NC-0003",
+        "ST-NC-0004",
+        "ST-NC-0005"
       ],
       "remaining_ids": [
         "ST-MT-0007",
@@ -109,11 +91,6 @@
         "ST-NV-0038",
         "ST-NM-0004",
         "ST-NM-0005",
-        "ST-NC-0001",
-        "ST-NC-0002",
-        "ST-NC-0003",
-        "ST-NC-0004",
-        "ST-NC-0005",
         "ST-NC-0006",
         "ST-OH-0001",
         "ST-OH-0002",
@@ -132,7 +109,7 @@
         "ST-OK-0001",
         "ST-OK-0002"
       ],
-      "unchanged_other_rows": 94,
+      "unchanged_other_rows": 97,
       "ids_and_order_retained": true
     }
   },
@@ -163,10 +140,11 @@
   "fifth_pass_note": "Historical preceding delivery: eight NY entries brought totals to193/318,91primary102asreported; preserved in prior commits. See sixth_delivery_note for current totals.",
   "baseline_heads": {
     "vt": "c20e1981750048f4e13f82b0bb03fa75ec7e78d5",
-    "mil": "5ac49e8a82e365e3336159b952e37bfd41361d4a",
-    "st3": "839a04d69c3be007619bfe1acb28326a6a0f5b3f"
+    "mil": "1d29e94fa5133dadb3e9e8d1bacbc5ce0cfeb401",
+    "st3": "1d29e94fa5133dadb3e9e8d1bacbc5ce0cfeb401"
   },
   "sixth_delivery_note": "220/318 completed:102primary118asreported;27new checks in vt/mil. Helper cache-only; parent verified proposals and fetched exact missing transcripts. Current-store recovery pending; no canonical edits.",
   "seventh_delivery_note": "246/318 reviewed:104primary142asreported;26new vt completions,VT0112 remainsunchecked with disputed ratio.17original-validator stale-policy errors; in-memory ownerpolicy passes. Helpers closed, current-store recovery pending.",
-  "eighth_delivery_note": "258/318 reviewed:108primary150as-reported;12new vault completions. VT0112 remains unchecked/HOLD for missing primary panel. Original validator17 stale-policy errors across318; owner-policy in-memory validation passes. No canonical edit; exact Commonwealth queue still awaits recovery."
+  "eighth_delivery_note": "258/318 reviewed:108primary150as-reported;12new vault completions. VT0112 remains unchecked/HOLD for missing primary panel. Original validator17 stale-policy errors across318; owner-policy in-memory validation passes. No canonical edit; exact Commonwealth queue still awaits recovery.",
+  "ninth_delivery_note": "286/318 priority checks:122primary164asreported. Military86/86, states71/102, vault129/130.28new completions.17stale original-validator policy errors remain; in-memory owner policy0. StopA notcomplete, no canonical writes."
 }

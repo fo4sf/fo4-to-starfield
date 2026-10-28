@@ -1,3 +1,7 @@
+## Current sixth-pass checkpoint
+
+71/102 checked/corrected; 20 primary, 51 as-reported. Prior counts below are historical. No rows removed. StopA incomplete; current raw snapshot comparison required before fold-in.
+
 # st3 second read — first 12 unchecked entries
 
 ## Scope and provenance
@@ -106,3 +110,9 @@ Eight further checks complete; cumulative66/102. Three newly inspected primary t
 Used existing city/state caches and parent-controlled exact sections only; no new whole-page fetch. Five fresh transcript/background sources returned their revisions; the full-ledger Adirondacks page was accessed only for the existing cited Background claim. Metadata-only section discovery and original request hashes are retained privately. Current old validator has three prior st3 cut/cancelled-policy errors plus ST-NY-0017; no validator code was changed.
 
 Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0004, ST-NM-0005, ST-NC-0001, ST-NC-0002, ST-NC-0003, ST-NC-0004, ST-NC-0005, ST-NC-0006, ST-OH-0001, ST-OH-0002, ST-OH-0003, ST-OH-0004, ST-OH-0005, ST-OH-0006, ST-OH-0007, ST-OH-0008, ST-OH-0009, ST-OH-0010, ST-OH-0011, ST-OH-0012, ST-OH-0013, ST-OH-0014, ST-OK-0001, ST-OK-0002. Next untouched row ST-NC-0001; earlier skipped rows still need review. Current raw batches/64-page queue recovery remains pending; no fold-in or StopA completion.
+
+## Sixth pass, parent reconciliation
+
+Five North Carolina checks completed. Museum placard and Penelope terminal inspected as primary text. Charlotte expulsion and manufacturing-facility inferences narrowed. Poster/sign and company-artwork associations remain as-reported. ST-NC-0006 has only section metadata in cache: the cited Sawyer answer itself was not re-read, so it remains unchecked. Initial metadata cache was mistakenly treated as wikitext, raising KeyError; no content or source edit resulted.
+
+Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0004, ST-NM-0005, ST-NC-0006, ST-OH-0001, ST-OH-0002, ST-OH-0003, ST-OH-0004, ST-OH-0005, ST-OH-0006, ST-OH-0007, ST-OH-0008, ST-OH-0009, ST-OH-0010, ST-OH-0011, ST-OH-0012, ST-OH-0013, ST-OH-0014, ST-OK-0001, ST-OK-0002.
