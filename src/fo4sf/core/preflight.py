@@ -126,9 +126,13 @@ def check_pin(p):
 
 
 def check_deploy(p):
-    want = (p.queue or {}).get("plugin_sha256") or ""
+    port = (p.queue or {}).get("port") or {}
+    installed = port.get("mode") == "installed"           # plan --port installed: the run tests the install, no redeploy
+    want = (port.get("plugin_sha256") if installed else (p.queue or {}).get("plugin_sha256")) or ""
     man = p.deploy_manifest()
     if man is None:
+        if installed:
+            return Check("deploy", FAIL, "the queue tests the installed port (--port installed) but nothing is deployed")
         return Check("deploy", PASS, "nothing deployed: cycle.ps1 deploys the pinned staging at the launch")
     if man.get("complete") is not True or man.get("cleanup_pending"):
         return Check("deploy", FAIL, "an interrupted install sits in the game folder (deploy_starfield.py uninstall first)")

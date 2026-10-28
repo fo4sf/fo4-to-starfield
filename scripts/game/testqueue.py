@@ -36,6 +36,10 @@ usage:
                              experiment's staged inputs are pinned (queue.json experiment_identity) and checked before
                              a launch and, against the install record, when a result is recorded: a PASS or FAIL on
                              another install is INCONCLUSIVE INSTALL and stops the run
+  every plan-* also takes [--launch sfse] (cycle.ps1 starts sfse_loader.exe, so SFSE plugins such as FO4SFBorder load)
+                             and [--port installed --starfield <game dir>] (the launch tests the port installed now,
+                             checked against its deploy record and the FO4Port.esm pinned at plan time, instead of
+                             redeploying --staging); runner features sfse_launch / installed_port
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -486,6 +490,7 @@ def plan(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests,
          **({"routes_dir": routes_dir} if routes_dir else {}), **({"routes_sha256": routes_sha} if routes_sha else {})}
     q.update(apply_bridge(tests, a))
+    q.update(apply_launch(tests, a))
     need = runner_features.needs(tests)
     if need:                                              # e.g. "impulse": an older runner refuses the queue
         q["needs"] = need
@@ -1217,7 +1222,9 @@ def plan_movable(a):
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
     # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
-    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", ""),
+                                                        launch=getattr(a, "launch", ""), port=getattr(a, "port", ""),
+                                                        starfield=getattr(a, "starfield", "")), a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
@@ -2724,6 +2731,40 @@ def apply_bridge(tests, a):
     return {"bridge": {"dir": d, "plugin": BRIDGE_PLUGIN, "sha256": {k: sha256(p) for k, p in files.items()}}}
 
 
+def deploy_starfield():
+    """scripts/deploy_starfield.py as a module (it lives one folder up, outside this script's import path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("deploy_starfield", os.path.join(REPO, "scripts", "deploy_starfield.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def apply_launch(tests, a):
+    """plan-* --launch sfse / --port installed (2026-10-28). sfse: cycle.ps1 starts sfse_loader.exe (FO4SF_LAUNCH=sfse),
+    so SFSE plugins such as FO4SFBorder load; a Steam launch loads none, and a T6 border comparison through it compared
+    nothing (Install, 2026-10-28). installed: cycle.ps1 tests the port installed now instead of redeploying --staging,
+    which would put the staging's port back over an installed one such as doors_anim_b00 (FO4SF_PORT=installed); the
+    install must match its deploy record now, and its FO4Port.esm is pinned here for every launch. Marks the tests
+    (runner features sfse_launch / installed_port, so an older runner refuses the queue); returns the queue fields."""
+    out = {}
+    launch = getattr(a, "launch", "") or ""
+    if launch:
+        out["launch"] = launch
+    if (getattr(a, "port", "") or "") == "installed":
+        ds = deploy_starfield()
+        problem, sha = ds.installed_port(os.path.join(a.starfield, "Data"), ds.plugins_txt_path())
+        if problem:
+            sys.exit(f"--port installed: {problem}")
+        out["port"] = {"mode": "installed", "plugin_sha256": sha}
+    for t in tests:
+        if launch:
+            t["launch"] = launch
+        if "port" in out:
+            t["port"] = "installed"
+    return out
+
+
 def bridge_mismatch(br):
     """Why the staged bridge is not the one the queue pinned (apply_bridge), else None: a missing file or a changed
     hash (a re-staged bridge after the plan is another bridge)."""
@@ -2742,6 +2783,7 @@ def queue_extras(tests, a, exp_dir):
     with --needs it refuses when that runner lacks the features (an exp_install.py from before --needs refuses the
     option itself); without plugins, runner_features.py check does the same. With --bridge, "bridge" (apply_bridge)."""
     out = apply_bridge(tests, a)
+    out.update(apply_launch(tests, a))
     need = runner_features.needs(tests)
     if a.plugins and plugin_order_needed(exp_dir, [p.strip() for p in a.plugins.split(",") if p.strip()]):
         need = sorted(set(need) | {"plugin_order"})
@@ -3016,6 +3058,13 @@ class Runner:
         invisible to it, and it would launch unchecked, or check another owner's lease)."""
         env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
         env.setdefault("FO4SF_PYTHON", sys.executable)
+        if self.q.get("launch"):                          # plan --launch: the queue's route wins over the shell's
+            env["FO4SF_LAUNCH"] = self.q["launch"]
+        env.pop("FO4SF_PORT", None)                       # the port mode is the queue's alone, never the shell's
+        env.pop("FO4SF_PORT_SHA256", None)
+        port = self.q.get("port") or {}
+        if port.get("mode") == "installed":               # plan --port installed: no redeploy, the pinned install
+            env["FO4SF_PORT"], env["FO4SF_PORT_SHA256"] = "installed", port.get("plugin_sha256") or ""
         if self.lease:
             env["FO4SF_LEASE_DIR"], env["FO4SF_LEASE_OWNER"] = self.lease.dir, self.lease.owner
         return env
@@ -3159,7 +3208,10 @@ class Runner:
             else:
                 self.state["relaunches"] += 1              # crash or first launch: bounded by --max-relaunch
             self.checkpoint()
-            self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
+            port = self.q.get("port") or {}
+            self.log(f"launching the pinned build {self.q['build_id']} into {launch}"
+                     + (f" on the installed port {(port.get('plugin_sha256') or '')[:8]}" if port.get("mode") == "installed"
+                        else "") + (f" through {self.q['launch']}" if self.q.get("launch") else ""))
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], CYCLE_TIMEOUT_S, steal=True)
@@ -3914,6 +3966,14 @@ def main(argv=None):
     pw.add_argument("--speedmult", action="store_true",
                     help="read the player's speedmult, set it to 100 and read it again before every test's travel; a "
                          "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
+    for sp in (p, pm):                                    # --port installed reads the game folder's deploy record
+        sp.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    for sp in (p, pt, pn, pd, pw, pm):                    # launch route and port mode (apply_launch, 2026-10-28)
+        sp.add_argument("--launch", default="", choices=("", "sfse"),
+                        help="sfse: cycle.ps1 starts sfse_loader.exe, so SFSE plugins load (runner feature sfse_launch)")
+        sp.add_argument("--port", default="", choices=("", "installed"),
+                        help="installed: test the port installed in --starfield now, checked against its deploy record "
+                             "and pinned here, instead of redeploying --staging (runner feature installed_port)")
     for sp in (p, pt, pn, pd, pw, pm):                    # the observation bridge for every kind (docs/ai/test-queue.md)
         sp.add_argument("--bridge", default="", help="staged bridge folder (make_bridge.py stage): positions from the "
                                                      "game's own log instead of console captures; runner feature bridge")

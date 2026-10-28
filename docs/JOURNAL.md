@@ -2333,3 +2333,20 @@ could start it; the builder now copies the keyword filter of Starfield.esm's
 own Script Event nodes, and P10 waits on a restage. Details are in
 docs/spikes/combined-core-probes.md, "Results on the owner's PC".
 
+
+## 2026-10-28: The runner's SFSE launch and the installed port
+
+Before T6 and the animated doors checks, the Install thread found two gaps in
+the test runner. It launched the game through Steam, which loads no SFSE
+plugin, so T6's comparison of the two FO4SFBorder modes compared nothing. And
+every launch redeployed the queue's staging, so the animated doors port, once
+installed, would have been replaced by the older port without a word. Passing
+the doors build's port folder as the staging would have been worse: the
+deploy packs archives from loose files that folder does not have, after the
+installed port was already removed. Queues can now be planned with
+`--launch sfse` (cycle.ps1 starts sfse_loader.exe) and `--port installed`
+(cycle.ps1 deploys nothing and checks the installed port against its deploy
+record and the plugin pinned at plan time, stopping before launch on any
+difference). An older runner refuses such a queue, and cycle.ps1 refuses an
+interior batch stage as `-Staging` before it touches anything. Details are in
+docs/ai/test-queue.md, "SFSE launch and the installed port".

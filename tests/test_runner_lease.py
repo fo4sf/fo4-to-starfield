@@ -249,16 +249,62 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
 
-    def test_cycle_ps1_starts_starfield_exe_only_on_the_opt_in(self):
+    def test_cycle_ps1_starts_starfield_exe_or_sfse_loader_only_on_the_opt_in(self):
         src = read(os.path.join(GAME, "cycle.ps1"))
         start = src.index("$launch = 'steam://rungameid/1716740'")
         block = src[start:src.index("$q = $null", start)]
-        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'exe') {", block)             # opt-in only; steam:// otherwise
-        self.assertIn("$launch = Join-Path $sf 'Starfield.exe'", block)
+        # opt-in only; steam:// otherwise. sfse (2026-10-28): a Steam launch loads no SFSE plugin (FO4SFBorder, T6)
+        self.assertIn("$exe = if ($env:FO4SF_LAUNCH -eq 'exe') { 'Starfield.exe' } elseif ($env:FO4SF_LAUNCH -eq 'sfse') "
+                      "{ 'sfse_loader.exe' } else { '' }", block)
+        self.assertIn("$launch = Join-Path $sf $exe", block)
         self.assertLess(block.index("Test-Path -LiteralPath $launch"), block.index("Start-Process -FilePath $launch"))
-        self.assertIn("exit 10", block)                                       # a missing exe is a dead start
+        self.assertIn("exit 10", block)                                       # a missing exe or loader is a dead start
         self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
+        self.assertIn("} else {\n  Start-Process $launch\n}", block)
         self.assertIn("after $launch (screen: $Shot)", src)
+
+    def test_cycle_ps1_tests_the_installed_port_without_redeploying_on_the_opt_in(self):
+        # Install, 2026-10-28: every runner launch redeployed its -Staging, so an installed port (doors_anim_b00) would
+        # be put back to the staging's without a word
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        start = src.index("if ($env:FO4SF_PORT -eq 'installed') {")
+        block = src[start:src.index("if (Test-Path (Join-Path $sf 'Data\\FO4SFExp.install.json'))", start)]
+        installed, redeploy = block.split("} else {", 1)
+        self.assertNotIn("uninstall", installed)
+        self.assertNotIn("install --staging", installed)
+        self.assertIn("$verArgs = @('verify', '--starfield', $sf)", installed)
+        self.assertIn("$verArgs += @('--plugin-sha256', $env:FO4SF_PORT_SHA256)", installed)
+        self.assertIn('python -I "$repo\\scripts\\deploy_starfield.py" @verArgs', installed)
+        self.assertIn("if ($verCode -ne 0) {", installed)
+        self.assertIn("exit 7", installed)                                    # nothing launched on a mismatch
+        self.assertIn("uninstall --starfield $sf | Out-Null", redeploy)       # unchanged without the opt-in
+        self.assertIn("install --staging $Staging --starfield $sf", redeploy)
+        self.assertEqual(src.count("install --staging $Staging"), 1)
+        self.assertLess(start, src.index("Start-Process"))
+
+    def test_cycle_ps1_refuses_an_interior_batch_stage_before_touching_anything(self):
+        # deploy_starfield.py install --staging packs archives from loose files; a batch's port has none, and the
+        # uninstall before it would already have removed the installed port
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        guard = src.index("Test-Path -LiteralPath (Join-Path $stageRoot 'result.json')")
+        self.assertLess(guard, src.index("$p = Get-Process Starfield"))       # before the game is closed
+        self.assertLess(guard, src.index("deploy_starfield.py\" uninstall"))
+        self.assertIn("(Split-Path -Leaf $stg) -eq 'port'", src)               # the stage root or its port folder
+        block = src[src.index("if ($env:FO4SF_PORT -ne 'installed') {"):guard + 300]
+        self.assertIn("exit 7", block)
+
+    def test_the_queue_sets_the_launch_route_and_the_port_mode_for_cycle_ps1(self):
+        r = self.runner()
+        with mock.patch.dict(os.environ, {"FO4SF_LAUNCH": "exe", "FO4SF_PORT": "installed",
+                                          "FO4SF_PORT_SHA256": "ab" * 32}, clear=False):
+            env = r.ps_env(steal=True)
+        self.assertEqual(env["FO4SF_LAUNCH"], "exe")                          # the shell's route without a queue route
+        self.assertNotIn("FO4SF_PORT", env)                                   # the port mode is the queue's alone
+        self.assertNotIn("FO4SF_PORT_SHA256", env)
+        r.q["launch"], r.q["port"] = "sfse", {"mode": "installed", "plugin_sha256": "cd" * 32}
+        with mock.patch.dict(os.environ, {"FO4SF_LAUNCH": "exe"}, clear=False):
+            env = r.ps_env(steal=True)
+        self.assertEqual((env["FO4SF_LAUNCH"], env["FO4SF_PORT"], env["FO4SF_PORT_SHA256"]), ("sfse", "installed", "cd" * 32))
 
     def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
         # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD
