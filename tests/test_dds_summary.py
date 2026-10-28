@@ -46,11 +46,16 @@ def _make_minimal_dds(width=4, height=4, fourcc=b"DXT1"):
 
 
 def _run_without_numpy(*args: str) -> subprocess.CompletedProcess[str]:
-    """Child process whose site packages cannot provide numpy."""
+    """Child process whose site packages cannot provide numpy.
+
+    UTF-8 on both ends: the CLI description has a non-ASCII arrow, and on Windows a captured child otherwise writes
+    cp1252 and --help fails before numpy matters. -I ignores PYTHONUTF8, so the child needs -X utf8 itself.
+    """
     return subprocess.run(
-        [sys.executable, "-I", "-S", "-B", "-c", _NO_NUMPY, str(SRC), *args],
+        [sys.executable, "-I", "-S", "-B", "-X", "utf8", "-c", _NO_NUMPY, str(SRC), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=os.getcwd(),
     )
 
