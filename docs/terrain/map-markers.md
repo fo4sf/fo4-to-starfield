@@ -481,8 +481,9 @@ FO4Core_RedRocketSpawn`, with the installed mapmarkers build `landing_border2` o
 - **verified: a load door during a pass misplaced every marker after it.** At 10:24:13 a FO4SF_LoadDoor trip into
   Vault 95 happened while a pass ran. `Place` had read the player once, so about 300 markers went to their target
   plus the trip's offset (1905.1, 3920.4, -72.4), and every budget was spent (moves=200), so that save kept them there.
-- **supported hypothesis: the map takes markers only when the player enters a world.** A marker moved into the
-  current world shows only after a world change or a save and load. Skyrim modders report the same, and that
+- **supported hypothesis (questioned by the 2026-10-28 PC runs below): the map takes markers only when the player
+  enters a world.** A marker moved into the current world shows only after a world change or a save and load.
+  Skyrim modders report the same, and that
   `AddToMap` does not help ([8993053](https://forums.nexusmods.com/topic/8993053-moving-mapmarkers-across-worldspaces),
   [8512658](https://forums.nexusmods.com/topic/8512658-help-needed-with-placing-a-dynamic-mapmarker)). Our markers
   are moved a few seconds after arrival, so the first arrival has no icons. Moving them cannot fix that on its own;
@@ -516,10 +517,10 @@ Starfield's start, `coc FO4Core_RedRocketSpawn` from the main menu, mapmarkers `
   planet view showed Starfield's Fracking Station, Cydonia and Mars Mech Factory, a place by the player named "Dark
   Hollow Pond" (not a name in this repository) with a small cyan hexagon beside it, and no "Commonwealth Landing
   Area" label.
-- **the owner, 2026-10-28 (watching the run):** the hexagon is all our icons layered over each other, and that is how
-  Starfield draws it: a city shows one icon, and clicking it lists the places inside to fast travel to. If so, the
-  icons register on the first arrival, and the world-entry limit above does not hold here. Open: whether clicking it
-  lists our places and fast travel reaches them, and how Starfield decides the grouping.
+- **the owner's assumption, 2026-10-28 (watching the run; they asked for research):** the hexagon is all our icons
+  layered over each other, the way Starfield draws a city: one icon, and clicking it lists the places inside to fast
+  travel to. If so, the icons register on the first arrival, and the world-entry limit above does not hold here.
+  Open: whether clicking it lists our places and fast travel reaches them, and how Starfield decides the grouping.
 - **verified:** a save load closes the user logs. fo4sf_map.0.log ends `Log closed` at the load (16:46:38); the
   bridge's next line went to a new fo4sf.0.log with its own `log opened` header, though the bridge opens its log only
   in OnInit. The map script reopens its log on the first pass after a load (`NewSession`); attempt 4 has no pass

@@ -2670,8 +2670,9 @@ held. The rule now refuses a reference still in another world after the move
 while the player stayed in theirs (a move that works lands at d 0.8 to 2.9 km
 at once), stops the pass instead when the player left, and logs where the
 reference was before. Every marker reached the player's world within about
-10 s of arrival. Mars's surface map showed one hexagon, which the owner, who
-watched the run, read as all our icons layered under one, the way Starfield
-draws a city; whether it lists our places for fast travel is the next check.
+10 s of arrival. Mars's surface map showed one hexagon; the owner, who
+watched the run, assumes it is all our icons layered under one, the way
+Starfield draws a city, and asked for research; whether it lists our places
+for fast travel is the next check.
 A save load closes the user logs (`Log closed` in fo4sf_map.0.log); attempt 4
 had no map pass after its load because the console stayed open.

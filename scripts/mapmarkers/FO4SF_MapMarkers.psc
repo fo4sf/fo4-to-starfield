@@ -223,7 +223,7 @@ Function Place(Actor player)
                     ; the PC, 2026-10-28); asking for an unchanged position too never held for the pad there (18 and 27
                     ; "cannot be moved" in two runs, no refused line), so the line says where it was before
                     if player.IsInInterior() || player.GetWorldSpace() != w
-                        Trace("pass stopped at " + i + ": the player went indoors or to another world")
+                        Trace("pass stopped after moving " + i + ": the player went indoors or to another world")
                         return
                     endif
                     refused[i] = True

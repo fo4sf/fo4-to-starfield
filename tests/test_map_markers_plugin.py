@@ -747,12 +747,19 @@ class ScriptContractTests(unittest.TestCase):
         # and after "cannot be moved" did not match on the PC (2026-10-28: 18 and 27 errors, no refused line), so the
         # position is not asked for; the line logs where it was
         after = place.index("float d = player.GetDistance(m)")
-        refuse = place.index("if d > SameWorld", after)
-        stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w", refuse)
-        self.assertLess(stop, place.index("refused[i] = True"))
-        self.assertLess(place.index("return", stop), place.index("refused[i] = True"))
+        # each line without its ; comment (a ; inside a string stays) and indentation, blank lines dropped
+        code = "\n".join(re.sub(r'^((?:[^";]|"[^"]*")*);.*$', r"\1", line).strip()
+                         for line in place[after:].splitlines())
+        code = re.sub(r"\n+", "\n", code)
+        self.assertRegex(code, r"\nif d > SameWorld\n"
+                               r"if player\.IsInInterior\(\) \|\| player\.GetWorldSpace\(\) != w\n"
+                               r'Trace\("pass stopped after moving " \+ i \+ "[^"\n]*"\)\n'
+                               r"return\n"
+                               r"endif\n"
+                               r"refused\[i\] = True\n"
+                               r'Trace\("refused " \+ i \+ ": still in its own world, was at " \+ bx \+ " " \+ by \+ "[^"\n]*"\)\n'
+                               r"endif\n")
         self.assertNotIn("sx * sx", place)
-        self.assertIn('Trace("refused " + i + ": still in its own world, was at " + bx + " " + by', place)
         self.assertLess(place.index("NewSession()"), place.index("IsInInterior"))
         session = self.text[self.text.index("Function NewSession"):self.text.index("Function ShowLanding")]
         size = int(re.search(r"refused = new bool\[(\d+)\]", session).group(1))
