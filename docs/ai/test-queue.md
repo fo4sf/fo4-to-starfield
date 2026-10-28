@@ -305,7 +305,9 @@ below are built on the stack, so they were read from their initialiser bytes), t
   `ReleaseWeatherOverride` / `rwo` (0x1158, none). `PassTime` is not in the ladder: it moves the universal clock by whole
   hours, and which local hour that reaches depends on the local time, which the step cannot read yet.
 - `Starfield.esm` globals (raw scan, FLTV): `GameYear` 00000035 = 330, `GameMonth` 00000036 = 5, `GameDay` 00000037 = 7,
-  `GameHour` 00000038 = 8.0, `GameDaysPassed` 00000039 = 0, `TimeScale` 0000003A = 20 (**verified**). The exe also has the
+  `GameHour` 00000038 = 8.0, `GameDaysPassed` 00000039 = 0, `TimeScale` 0000003A = 20 (**verified** as the records'
+  values; in game `GameDaysPassed` carries the hour and reads about 0.3335 a second into a new game, the new game's logs
+  of 28 Oct, so a "new game" test on it needs a limit above that). The exe also has the
   settings `fCalendarTimeScaleGround` / `fCalendarTimeScaleSpace`. `set gamehour to <h>` writes the universal clock, not
   the planet's rotation; whether the sky follows it is **unresolved** and it is not in the ladder. Community guides
   give only waiting, sleeping and the time scale: [dexerto](https://www.dexerto.com/starfield/starfield-how-to-change-the-time-of-day-2275088/)
