@@ -7,6 +7,7 @@ usage:
                                                      [--z-lift <m>] [--world control|nosmall|city]
                                                      [--fo4-map-markers <export.json>] [--landing <x> <y>]
                                                      [--landing-name <name>] [--core-stage <folder>]
+                                                     [--star-map <name> ... | --star-map-all]
       0. with --fo4-map-markers (the owner's "more location markers", 2026-10-23): the rest of FO4's named
          Commonwealth markers, picked as make_core64c.py stage --fo4-map-markers picks them for a core
          (fo4sf.map_markers.load_fo4_markers and extra_markers: 200 m inside the land, none on a same-named fixed or
@@ -26,6 +27,11 @@ usage:
          SmallWorld, city without SmallWorld and HNAM 5; with step 0, --extra adds those markers as this plugin's
          own REFRs, with one LCSR row each in an override of the core's Location, after the core's in the quests,
          and --landing adds the landing spot's four REFRs and its three LCSR rows, after those in the quests;
+         --star-map (<out>/star_map.json, the owner's pick A, 2026-10-28) keeps "Visible on Star Map" on the named
+         markers only (default STAR_MAP: the core's four and a few major places; not strict, so a stage without
+         those markers still builds), so Mars's planet view lists those and the landing area under its one icon,
+         while the surface map keeps every marker; names given here are strict (each must name a marker);
+         --star-map-all leaves every marker on the star map, as before;
       2. the Papyrus compile of FO4SF_MapMarkers.psc (base sources from the Creation Kit's ContentResources.zip, as
          scripts/bridge/make_bridge.py), the .pex into <out>/Data/Scripts;
       3. dotnet/MapMarkers check: the plugin read back against the core (offline_check.txt); core.json (the core's
@@ -65,6 +71,11 @@ def compile_script(compiler, src_dir, out_dir):
 
 PLUGIN = "FO4SFMapMarkers.esm"   # the one name scripts/game/map_markers_install.py installs
 DEFAULT_Z_LIFT = 2.5             # dotnet/MapMarkers DefaultZLift: the landing heading's lift when --z-lift is not given
+# the markers Mars's planet view lists under the Commonwealth's one icon (the owner's pick A, 2026-10-28: "go with a"):
+# the core's four and a few major places of FO4's export (Diamond City and Goodneighbor have no marker in it); the
+# landing marker is always on it (dotnet/MapMarkers LandingMarkerFlags 0x33)
+STAR_MAP = ("Red Rocket Truck Stop", "Sanctuary Hills", "Vault 111", "Concord",
+            "Lexington", "The Castle", "Vault 81", "Bunker Hill")
 PIN = "core.json"                # {"masters": {core file name: sha256}}: the core this plugin's FormIDs belong to
 WORLDS = {"control": ", as the core's record (SmallWorld kept, HNAM the core's)",
           "nosmall": " (dotnet/BorderProbe's: SmallWorld cleared, HNAM the core's)",
@@ -166,6 +177,16 @@ def stage(a):
         extra_note += (f"\n  Plus a ship landing spot \"{spot['name']}\" (landing.json): a pad at getpos {a.landing[0]} {a.landing[1]} "
                        f"(local {pad[0]} {pad[1]}, z {pad[2]}),\n  its landing zone, map marker and heading as LandingOverlay01 "
                        "places them, and its three LCSR rows.")
+    if not a.star_map_all:
+        names = list(a.star_map) if a.star_map else list(STAR_MAP)
+        if len(set(names)) != len(names) or not all(names):
+            sys.exit(f"--star-map {names}: names must be non-empty and not repeat")
+        path = os.path.join(out, "star_map.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"names": names, "strict": bool(a.star_map)}, f, indent=1)
+        lift += ["--star-map", path]                                  # build and check take the same names
+        extra_note += (f"\n  Visible on Star Map (star_map.json) only for: {', '.join(names)}"
+                       + (", and the landing marker" if a.landing else "") + ";\n  every marker stays on the surface map.")
     built = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "build", "--core", a.core,
                              "--out", out, "--plugin", a.plugin] + lift)
     src = make_bridge.extract_sources(a.content_resources, os.path.join(out, "work"))
@@ -194,7 +215,7 @@ Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game
 """)
     print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, {PIN}, offline_check.txt, README.txt"
           + (", extra_markers.json, map_markers_left_out.json" if a.fo4_map_markers else "")
-          + (", landing.json" if a.landing else ""))
+          + (", landing.json" if a.landing else "") + ("" if a.star_map_all else ", star_map.json"))
 
 
 def main(argv=None):
@@ -216,6 +237,10 @@ def main(argv=None):
     s.add_argument("--landing-name", default="Commonwealth Landing Area", help="the landing spot's name on the map")
     s.add_argument("--core-stage", default="",
                    help="with --fo4-map-markers or --landing: the folder that staged --core (overlays_params.json and the BTD)")
+    star = s.add_mutually_exclusive_group()
+    star.add_argument("--star-map", nargs="+", metavar="NAME", default=None,
+                      help="the markers Mars's planet view lists (default: STAR_MAP); each must name a marker")
+    star.add_argument("--star-map-all", action="store_true", help="leave every marker on the star map (as before)")
     a = ap.parse_args(argv)
     stage(a)
 

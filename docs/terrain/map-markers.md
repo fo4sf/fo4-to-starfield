@@ -302,8 +302,8 @@ border fix of 2026-10-22 makes) needs a new stage, or the plugin would put the o
 settling test (Interiors, 2026-10-22) `--world nosmall|city` takes that WRLD copy from `dotnet/BorderProbe`'s
 variant instead (nosmall: SmallWorld cleared; city: SmallWorld cleared and `HNAM` 5; `control`, the default, the
 core's record), with the marker overrides unchanged, so the variant is the last `WRLD` override whatever the load
-order; `check` wants the same `--world` and fails the copy under any other. The icon (`TNAM 0x17`, a plain diamond) stays **unresolved**: which Starfield type values
-draw which icons needs a survey of the vanilla markers on the PC.
+order; `check` wants the same `--world` and fails the copy under any other. The icon type `TNAM 0x17` is "NASA" in xEdit's SF1
+definitions (corrected 2026-10-28; see Star map below); how each type draws in game is still **unresolved**.
 
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
@@ -527,3 +527,29 @@ Starfield's start, `coc FO4Core_RedRocketSpawn` from the main menu, mapmarkers `
   in OnInit. The map script reopens its log on the first pass after a load (`NewSession`); attempt 4 has no pass
   after the load: the console stayed open after it (after_load_console_open_1650.png), and every log ends within 2 s
   of it, though quest 4 still had budget to retry the pad every 4 s.
+
+## Star map (Claude-cloud, 2026-10-28)
+Research (`/mnt/project-files/map/starfield-map-icon-grouping.md`, web and Creation Kit sources, not tested in game):
+- **supported:** the planet view stacks every marker flagged Visible on Star Map (`FNAM` bit 4, 0x10) that sits at
+  about the same spot on the globe under one icon, and selecting it lists them. That is how a city shows its
+  districts. All our markers had the bit (`FNAM` 0x13, the landing marker 0x33) and sit a few km apart, so they made
+  one stack of about 309 entries. The surface map does not collapse them.
+- **supported (xEdit's SF1 definitions):** the `FNAM` bits are 0 Visible, 1 Can Travel To, 2 "Show All" Hidden,
+  3 Use Location Name, 4 Visible on Star Map, 5 Discovered, 6 Requires Scanning, 7 Allow Grav Jump, 9 Suppress
+  Discovery, 10 Use Accurate Z-Height, 11 Limit Map Visibility To Compass Range, 12 Must Cruise to First.
+
+The owner's pick, 2026-10-28 (option A, of A: a short star map list, or B: also distinct surface map icons): "Both are
+gonna need to get adjusted because most locations on the surface map are not something on the fallout map in your
+pipboy, for right now go with a". So:
+- `dotnet/MapMarkers build|check --star-map <json>` (`{"names": [...], "strict": bool}`) keeps bit 4 on the markers
+  the list names and clears it on every other override and extra; the landing marker keeps 0x33. Every marker keeps
+  Visible, so the surface map still shows all of them. A name that matches no marker fails the build when `strict`
+  and is only reported otherwise; `check` wants the same list.
+- `make_map_markers.py stage` writes `star_map.json` and passes it to both. Its default list is Red Rocket Truck Stop,
+  Sanctuary Hills, Vault 111, Concord, Lexington, The Castle, Vault 81 and Bunker Hill (lenient, since the FO4 export
+  can differ by PC; Diamond City and Goodneighbor have no marker in it). `--star-map NAME ...` gives a strict list
+  instead, and `--star-map-all` keeps the bit on every marker, as before.
+
+Unverified until a play test: that Mars's planet view then lists only those places plus the landing area, and that
+fast travel from the list reaches them. B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is
+for later.
