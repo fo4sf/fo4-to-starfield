@@ -85,6 +85,15 @@ live game, and restart it after; Windows LocalDumps still captures crashes.
   had already removed the installed port.
 - In this mode the port's Plugins.txt line keeps its place (no uninstall and append), so a queue that addresses
   records by load index is planned against the installed order.
+- *The cell exports of a batch stage.* coc.ps1 verifies an arrival against the cell's export (`<Cell>.json`, its
+  `COCMarkerHeading`), which a slice stage keeps next to FO4Port.esm and an interior batch stage in its `base_exports`
+  folder. The first T6 door runs (28 Oct, `--port installed` with `--staging <doors_anim_b00>\port`) launched into
+  Vault111Cryo and cycle.ps1 asked for `<port>\Vault111Cryo.json`: r01 exited 4 after the launch, r02 to r04 never
+  reached a cell. Every `plan-*` now records where the exports are (`cell_exports`: the staging when the launch cell's
+  export is there, else the stage's `base_exports` when `--staging` is its `port` folder, else `--cell-exports
+  <folder>`) and pins each export the queue launches into or travels to (`cell_export_sha256`) when they lie outside the
+  staging; a plan whose exports are nowhere says so, and `--cell-exports` without them is refused. The runner checks the
+  export before a launch or a coc and stops with the reason instead of launching into a cell it cannot verify.
 
 A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
 `test_crashes`, across runs of the same queue, derived from the results.jsonl CRASH rows). The crash repeats there, so the test goes on the bugs list instead of

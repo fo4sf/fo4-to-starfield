@@ -491,6 +491,7 @@ def plan(a):
          **({"routes_dir": routes_dir} if routes_dir else {}), **({"routes_sha256": routes_sha} if routes_sha else {})}
     q.update(apply_bridge(tests, a))
     q.update(apply_launch(tests, a))
+    q.update(cell_exports(tests, a))
     need = runner_features.needs(tests)
     if need:                                              # e.g. "impulse": an older runner refuses the queue
         q["needs"] = need
@@ -1224,7 +1225,9 @@ def plan_movable(a):
     # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
     q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", ""),
                                                         launch=getattr(a, "launch", ""), port=getattr(a, "port", ""),
-                                                        starfield=getattr(a, "starfield", ""), staging=a.staging),
+                                                        starfield=getattr(a, "starfield", ""), staging=a.staging,
+                                                        launch_cell=getattr(a, "launch_cell", ""),
+                                                        cell_exports=getattr(a, "cell_exports", "")),
                             a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
@@ -2777,6 +2780,41 @@ def apply_launch(tests, a):
     return out
 
 
+def cell_exports(tests, a):
+    """Where the runner reads the cell exports (<Cell>.json, whose COCMarkerHeading coc.ps1 checks the arrival against):
+    next to FO4Port.esm in --staging, as a slice stage is laid out; else the stage's base_exports folder when --staging
+    is an interior batch stage's port folder; else --cell-exports. Install, 2026-10-28 (T6 door runs on doors_anim_b00
+    with --port installed): the queue launched into Vault111Cryo and cycle.ps1 asked coc.ps1 for <port>\Vault111Cryo.json,
+    which a batch stage keeps in base_exports, so r01 exited 4 after the launch and r02 to r04 never reached a cell.
+    Returns the queue fields when the exports are outside the staging: `cell_exports` and `cell_export_sha256` per cell
+    the queue launches into or travels to (the staging's own files are pinned by its fingerprint); the runner checks the
+    export before a launch. Exports missing everywhere are named here, and refused with --cell-exports."""
+    staging = os.path.abspath(a.staging)
+    launch = getattr(a, "launch_cell", "") or "Vault111Cryo"
+    cells = sorted({launch} | {str(t["cell"]) for t in tests if t.get("cell")})
+    given = getattr(a, "cell_exports", "") or ""
+    batch = os.path.join(os.path.dirname(staging), "base_exports")
+    if given:
+        where = os.path.abspath(given)
+    elif os.path.isfile(os.path.join(staging, launch + ".json")):
+        where = staging
+    elif os.path.basename(staging).lower() == "port" and os.path.isfile(os.path.join(batch, launch + ".json")):
+        where = batch
+    else:
+        where = staging
+    missing = [c for c in cells if not os.path.isfile(os.path.join(where, c + ".json"))]
+    if missing:
+        msg = (f"no cell export {', '.join(c + '.json' for c in missing)} in {where} (coc.ps1 reads the arrival marker "
+               f"from it; an interior batch stage keeps them in its base_exports folder: pass --cell-exports)")
+        if given:
+            sys.exit(f"--cell-exports: {msg}")
+        print(f"warning: {msg}; the runner stops before such a launch")
+    if os.path.normcase(where) == os.path.normcase(staging):
+        return {}
+    return {"cell_exports": where,
+            "cell_export_sha256": {c: sha256(os.path.join(where, c + ".json")) for c in cells if c not in missing}}
+
+
 def bridge_mismatch(br):
     """Why the staged bridge is not the one the queue pinned (apply_bridge), else None: a missing file or a changed
     hash (a re-staged bridge after the plan is another bridge)."""
@@ -2796,6 +2834,7 @@ def queue_extras(tests, a, exp_dir):
     option itself); without plugins, runner_features.py check does the same. With --bridge, "bridge" (apply_bridge)."""
     out = apply_bridge(tests, a)
     out.update(apply_launch(tests, a))
+    out.update(cell_exports(tests, a))
     need = runner_features.needs(tests)
     if a.plugins and plugin_order_needed(exp_dir, [p.strip() for p in a.plugins.split(",") if p.strip()]):
         need = sorted(set(need) | {"plugin_order"})
@@ -3185,7 +3224,11 @@ class Runner:
                 return "stop"
         # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
-        cell_json = os.path.join(self.q["staging"], launch + ".json")
+        cell_json = os.path.join(self.q.get("cell_exports") or self.q["staging"], launch + ".json")
+        why = self.cell_export_mismatch(launch, cell_json)
+        if why:                                           # before any launch: cycle.ps1 would exit 4 after it (T6, 28 Oct)
+            self.log(f"{why}: stopping")
+            return "stop"
         if gp:
             self.live_pid = gp                            # the runner's own game (a resumed run finds it running)
         elif self.game_gone():
@@ -3281,6 +3324,18 @@ class Runner:
                 self.cell = None
                 return "nocell"
             self.cell = cell
+        return None
+
+    def cell_export_mismatch(self, cell, path):
+        """Why the cell's export is not the one the queue planned with, else None: missing (an interior batch stage keeps
+        them in base_exports; the plan records `cell_exports`, see cell_exports()), or changed since the plan when it
+        lies outside the staging and was pinned."""
+        if not os.path.isfile(path):
+            return (f"no cell export {path} (coc.ps1 reads the arrival marker from it; plan again with --cell-exports "
+                    f"<folder>, an interior batch stage's base_exports)")
+        want = (self.q.get("cell_export_sha256") or {}).get(cell)
+        if want and sha256(path) != want:
+            return f"cell export {path} changed since the plan"
         return None
 
     def setup_session(self, cell):
@@ -3993,6 +4048,11 @@ def main(argv=None):
                          "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
     for sp in (p, pm):                                    # --port installed reads the game folder's deploy record
         sp.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    for sp in (p, pt, pn, pd, pw, pm):                    # the cell exports coc.ps1 reads (cell_exports, 2026-10-28)
+        sp.add_argument("--cell-exports", default="",
+                        help="folder of the <Cell>.json exports (the COC marker coc.ps1 checks the arrival against); "
+                             "default: next to FO4Port.esm in --staging, else the batch stage's base_exports when "
+                             "--staging is its port folder")
     for sp in (p, pt, pn, pd, pw, pm):                    # launch route and port mode (apply_launch, 2026-10-28)
         sp.add_argument("--launch", default="", choices=("", "sfse"),
                         help="sfse: cycle.ps1 starts sfse_loader.exe, so SFSE plugins load (runner feature sfse_launch)")
