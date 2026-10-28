@@ -2784,7 +2784,7 @@ def cell_exports(tests, a):
     """Where the runner reads the cell exports (<Cell>.json, whose COCMarkerHeading coc.ps1 checks the arrival against):
     next to FO4Port.esm in --staging, as a slice stage is laid out; else the stage's base_exports folder when --staging
     is an interior batch stage's port folder; else --cell-exports. Install, 2026-10-28 (T6 door runs on doors_anim_b00
-    with --port installed): the queue launched into Vault111Cryo and cycle.ps1 asked coc.ps1 for <port>\Vault111Cryo.json,
+    with --port installed): the queue launched into Vault111Cryo and cycle.ps1 asked coc.ps1 for <port>\\Vault111Cryo.json,
     which a batch stage keeps in base_exports, so r01 exited 4 after the launch and r02 to r04 never reached a cell.
     Returns the queue fields when the exports are outside the staging: `cell_exports` and `cell_export_sha256` per cell
     the queue launches into or travels to (the staging's own files are pinned by its fingerprint); the runner checks the
