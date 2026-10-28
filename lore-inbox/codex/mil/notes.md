@@ -115,3 +115,15 @@ The independent preservation check confirms 86 unique IDs in original order, 66 
 Parent checked cached primary Rahmani/Eden/Matthew/Richardson dialogue, Raven Rock communication log and Sierra mission text, plus the cited wiki/guide passages. Removed the unsupported 2242 lower bound from MIL-0043 and the unproven California field from MIL-0050–0052; MIL-0048 uses the lead application of the owner-defined cut-content hold. MIL-0036 remains unchecked. These additional corrections supersede only the affected helper audit fields, whose original output is retained privately.
 
 Cumulative completed checks: 41/86; new this pass: 19. All rows/IDs retained. Missing current raw snapshot still prevents fold-in.
+
+## Parent reconciliation of fourth pass
+
+Completed 8 additional checks; cumulative 49/86. All IDs/order retained, no rows removed. Newly completed: MIL-0054, MIL-0058, MIL-0066, MIL-0068, MIL-0069, MIL-0070, MIL-0071, MIL-0072.
+
+Method correction: the helper fetched whole-page wikitext, not only targeted sections, and did not perform the required ledger check first. Its original report and responses are preserved privately. Revisions were inherited or missing in its output; parent obtained metadata afterwards (latest revision timestamps precede capture), not a body refetch. They are retrospectively supported rather than response-pinned. This is not a new full-coverage reading.
+
+The helper completed five checks, not six; MIL-0064 had a policy correction but stayed unchecked. Parent narrowed the Virus Menu and MODUS claims, removed unsupported year bounds, and checked three guide-attributed excerpts as-reported. These guide claims remain tier2, not canon. The five transcription-based labels do not claim independent game assets or episode viewing. MIL-0064 stays tier2/HOLD and unchecked for its detailed cut inventory.
+
+Remaining unchecked IDs: MIL-0001, MIL-0002, MIL-0003, MIL-0006, MIL-0007, MIL-0008, MIL-0009, MIL-0010, MIL-0011, MIL-0012, MIL-0036, MIL-0053, MIL-0055, MIL-0056, MIL-0057, MIL-0059, MIL-0060, MIL-0061, MIL-0062, MIL-0063, MIL-0064, MIL-0065, MIL-0067, MIL-0073, MIL-0074, MIL-0075, MIL-0076, MIL-0077, MIL-0078, MIL-0079, MIL-0080, MIL-0081, MIL-0082, MIL-0083, MIL-0084, MIL-0085, MIL-0086.
+
+Current raw batch and exact Commonwealth queue still await recovery from Claude; no fold-in or Stop A completion claim. Existing real-world anchors are inherited context, not independently verified in-game positions. See per-entry notes and the validation report for limits.

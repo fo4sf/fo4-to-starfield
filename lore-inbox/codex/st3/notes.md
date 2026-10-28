@@ -86,3 +86,15 @@ Stopped at **ST-NJ-0002**, the 20th assigned row; next untouched row **ST-NJ-000
 Parent checked the cached Kimball transcript and Unaccounted Blood note, state/Jean/NH&M/Hoboken sections and exact already-cached Nevada bullets. ST-NV-0031–0038 remain unchecked; no full developer-compilation reread. All 12 newly completed checks retain the recorded evidence limits; inherited real-world anchors are not new in-game positions or independently verified coordinates.
 
 Cumulative completed checks: 40/102; new this pass: 12. All rows/IDs retained. Missing current raw snapshot still prevents fold-in.
+
+## Parent reconciliation of fourth pass
+
+Completed 18 additional checks; cumulative 58/102. All IDs/order retained, no rows removed. Newly completed: ST-NJ-0003, ST-NJ-0004, ST-NJ-0005, ST-NM-0001, ST-NM-0002, ST-NM-0003, ST-NM-0006, ST-NY-0001, ST-NY-0002, ST-NY-0003, ST-NY-0004, ST-NY-0005, ST-NY-0006, ST-NY-0007, ST-NY-0008, ST-NY-0009, ST-NY-0010, ST-NY-0011.
+
+Method correction: the helper fetched whole-page wikitext, not only targeted sections, and did not perform the required ledger check first. Its original report and responses are preserved privately. Revisions were inherited or missing in its output; parent obtained metadata afterwards (latest revision timestamps precede capture), not a body refetch. They are retrospectively supported rather than response-pinned. This is not a new full-coverage reading.
+
+Eight of those pages were already marked FULL: Albany, Albuquerque, Federal Reserve, New Jersey, New Mexico, New York, Niagara Sabotage and Rochester. That refetch violated the owner read-once rule; the earlier unsubmitted claim of no wholesale reread was wrong. Future helpers are cache-only, with any needed targeted fetch controlled by the parent. Corrected note-versus-wiki-link attribution, guessed dates, exact Federal Reserve coordinates, speaker inference and the cancelled Van Buren tier2/HOLD classification. ST-NM-0004/0005 remain unchecked.
+
+Remaining unchecked IDs: ST-MT-0007, ST-NE-0001, ST-NV-0001, ST-NV-0002, ST-NV-0031, ST-NV-0032, ST-NV-0033, ST-NV-0034, ST-NV-0035, ST-NV-0036, ST-NV-0037, ST-NV-0038, ST-NM-0004, ST-NM-0005, ST-NY-0012, ST-NY-0013, ST-NY-0014, ST-NY-0015, ST-NY-0016, ST-NY-0017, ST-NY-0018, ST-NY-0019, ST-NC-0001, ST-NC-0002, ST-NC-0003, ST-NC-0004, ST-NC-0005, ST-NC-0006, ST-OH-0001, ST-OH-0002, ST-OH-0003, ST-OH-0004, ST-OH-0005, ST-OH-0006, ST-OH-0007, ST-OH-0008, ST-OH-0009, ST-OH-0010, ST-OH-0011, ST-OH-0012, ST-OH-0013, ST-OH-0014, ST-OK-0001, ST-OK-0002.
+
+Current raw batch and exact Commonwealth queue still await recovery from Claude; no fold-in or Stop A completion claim. Existing real-world anchors are inherited context, not independently verified in-game positions. See per-entry notes and the validation report for limits.

@@ -13,3 +13,5 @@ Canon: released games/show/Bethesda tier1; newer tier1wins but preserve conflict
 Delivery: ONE draft PR titled Lore inbox (Codex, not for merge), branch codex/lore-inbox, only lore-inbox/codex/**. Parent coordinates Git. Two bounded low-cost helpers were owner-authorized; they are closed after each bounded pass. No automation resume/game actions/merge authorized.
 
 Owner follow-up28Oct: ask Claude for the current complete store/queue; if neither side can recover it, reconstruct missing material with Codex and Claude review. Preserve all existing records/caches. Request posted on PR562 comment6463282442; recovery outcome pending. This does not authorize discarding/re-reading recoverable material.
+
+Parent enforcement after fourth-pass audit: helpers are cache-only and may not fetch web pages. Parent checks canonical coverage and existing caches before any necessary narrowly scoped request; FULL pages are never refetched wholesale. A partial second check never downgrades canonical FULL coverage. A helper completion count is provisional until parent compares actual rows and source evidence. Original mistakes and corrected results are both preserved.
