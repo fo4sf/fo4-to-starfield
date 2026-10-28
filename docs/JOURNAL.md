@@ -2286,6 +2286,26 @@ locations on the Pip-Boy. Also next phase: the owner's Steam Fallout 4 is the
 newer update, not 1.10.163, so the launcher's version check needs it added. The
 entries above stand as written.
 
+## 2026-10-25: Codex connected-travel risk research
+
+Owner-requested exploratory note in research/framework/travel-and-runtime-risks-oct25.md reconciles Claude's combined-core/world plans with current Warfare/Survival and reusable-support direction. Separates connected regions from continuous terrain, preserves boundary-test limitations, and lists travel/save/AI/vehicle/UI/suit risks and small future experiments. Primary SFSE, Bethesda and framework sources checked; document links/guard checked. No engine-limit verdict, native tests, source implementation, installation or merge. Owner route-preference questions remain pending.
+
+## 2026-10-25: Codex reuse decision brief for Claude
+
+Added a documentation-only owner-requested brief comparing pattern reuse, the existing simulation baseline and optional native/Rust components. No technology or performance result selected. Proposed save/identity/generation contracts and bounded phase gates await owner + Claude decisions. Reconciled the travel note with one-time persistent areas, limited outskirts/corridor/map-selected travel and full walking deferred until all planned locations exist. References/guard/diff checked; no source changes, native tests, installs or agent wake. Scheduled follow-up remains paused.
+
+## 2026-10-25: Codex focused reuse search
+
+Added five ranked research candidates to the Claude decision brief: event scheduling, owned-code profiling, interruptible behavior patterns, navigation diagnostics and bounded noise generation. Checked primary docs and existing prototype/tooling notes; no measured speedup, library selection, implementation or native test. Guard/diff checked; automation stays paused.
+
+## 2026-10-25: Codex practical modding-tool research
+
+Owner-requested follow-up maps the seven suggested tools and additional API, asset, record, editor and native-analysis candidates to existing project gaps. Upstream Caprica has guard generation with unresolved verification TODOs, correcting the older categorical absence claim without changing the official-compiler decision. Cassiopeia API/permission checks, independent asset validation and bounded workflow proposals documented with sources. Decision brief now carries current mode, no-runtime-model, FO76/ghoul and Warfare succession direction. Documentation only; no tools installed, source implementation, proprietary data publication, native execution, merge or agent wake. Automated follow-up remains paused; independent document review pending.
+
+## 2026-10-25: Codex scope and lore coverage audit
+
+Owner requested a broader review of research depth. Audited the available 1176-row lore ledger (206 full/371 partial/599 todo), submitted170 geography records and selected framework coverage/uncertainty sections. Full3844-entry store unavailable in this mirror; no comprehensive lore verification claimed. Documented section exclusions, an84-entry handoff count discrepancy requiring reconciliation, and reproduced two held entries printing adopted without their ruling through the existing formatter. Three fresh wiki opens returned403, not verified. Added scope matrix and prioritized research packets; no store/source edits, game actions, merge, peer wake or automation resume. Private audit evidence preserved separately; independent document review pending.
+
 ## 2026-10-28: The combined core's seed, rerun with all seven Fallout 4 plugins
 
 Offline on the owner's PC, read-only on game files, run by the Install thread at
