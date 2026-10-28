@@ -1,3 +1,19 @@
+# Nineteenth delivery: inaccessible records and remaining accessible details
+
+Added 47 entries (FA-8698 through FA-8744): 35 cut-content HOLD and 12 released-game transcript records. The Commonwealth inbox now has 653 entries: 578 game, 38 guide, one dependent and 36 cut-content HOLD. All remain unchecked for Claude/Grok. This folder has 97 entries; next ID is 8745. Prior rows and other folders are preserved.
+
+The cached Institute terminal page explicitly places the new cut records under “Inaccessible terminals.” They are tier 2/HOLD, with null positions. Their proposed Gen 1/Gen 2 retirement, brain enhancements, threat assessments and watcher allocations are not adopted as released-game facts. The combat-perception description does not prove actual time manipulation, explain the player's identity or establish released VATS mechanics. “Pods” are not expanded into birds, agents or physical installations. Original record availability has not been independently extracted.
+
+The inaccessible SRB investigation and terminal4 inventory repeat covered material and were omitted. Bare form-like text 001d8c68 remains unresolved. Proposed surgery and trials are not completed procedures. Threat rankings and strategic judgments remain attributed to the cut assessments, not universal faction behavior.
+
+All ten displayed soil-pH rows are now recorded without making them regional soil baselines or Warwick measurements. Two access-log records preserve their limited evidence; the unknown remote-login version has no inferred trigger, user, motive or successful intrusion. The helper's generic security-warning proposal was excluded. Its non-schema kind names were corrected. Its notes reported earlier snippet-length failures while its final JSON reported success; both are retained, and the parent separately checked the six final snippets before using five proposals and adding seven table rows.
+
+The unmodified legacy validator rejects the 35 new cut entries because its tier table is outdated. These are explicitly recorded failures. The same entry checks pass with only the owner's cut/cancelled tier mapping applied in memory; no canonical validator file is edited. Prior known mismatches (one older new entry and 17 priority reviews) are unchanged. Metadata now records the already-established 20 verified map anchors; no new marker was extracted.
+
+Source coverage remains PARTIAL: 35 unique sources, 45 ledger rows, one FULL and 34 PARTIAL; ten continuation rows require ID union. The newest terminal row retains 234 previous IDs and adds 47. No source was fetched again. Named remaining sections are in the ledger; this is not a complete-lore claim.
+
+Stop A still awaits the current raw snapshot and exact 64-page queue requested from Claude. No canonical fold-in, merge, game/deployment action or automation resume occurred.
+
 # Eighteenth delivery: McDonough, informants and infirmary records
 
 Added 50 Fallout 4 entries: FA-8643 through FA-8673 and FA-8679 through FA-8697. The Commonwealth inbox now has 606 entries: 566 game, 38 guide, one dependent and one cut-content HOLD. All are unchecked pending Claude/Grok's second read. Folder counts are 127, 140, 139, 150 and 50. Next ID: 8698; 8674–8678 remain unused.
