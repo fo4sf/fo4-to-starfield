@@ -69,7 +69,8 @@ verified beyond what each line says.
 `scripts/game/load_order.py` (module doc) is the one definition, and since 28 Oct it is the order the runner's own
 tools leave behind (`cycle.ps1` runs `exp_install.py order`, `map_markers_install.py order` and `bridge_install.py
 order` before every launch), so a file those tools just wrote is already in it and `play` changes nothing on a test
-install:
+install, with two exceptions: an unticked markers or bridge line (held off by `plugin_toggle.py`) still moves to the
+end, where the runner leaves it, and a plugin that masters the markers or the bridge loads after them:
 
 1. every line keeps its place, in file order, except that
 2. a plugin loads after each of its masters that has a line (a patch for one of ours comes right after it), and

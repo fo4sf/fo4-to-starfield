@@ -4,7 +4,7 @@ usage: python load_order.py check|fix --starfield <game dir>
 
 The target is the order the test runner's own tools leave behind (cycle.ps1 before every launch: exp_install.py
 order, map_markers_install.py order, bridge_install.py order), so a file those tools just wrote is already in it and
-play changes nothing on a test install:
+play changes nothing on a test install (two exceptions below):
   1. every line keeps its place, in file order, except that
   2. a plugin loads after every master it names that is on a line (exp_install order moves an experiment that stands
      before a master to just after it; here the same holds for any plugin), and
