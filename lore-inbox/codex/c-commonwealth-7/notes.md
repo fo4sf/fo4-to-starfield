@@ -1,3 +1,13 @@
+# Twenty-fifth delivery: stockpile records and hostage letters
+
+Added30 entries: MIL-8954..8960, FA-8961..8979 and GW-8980..8983. Seventeen game-terminal claims, nine letter claims and four guide claims; five sources fetched once after ledger/cache checks, all PARTIAL. Commonwealth total892:796 game,59 guide,1 dependent,36 cut-content HOLD. Folder7 now103; next8984. All new entries remain unchecked.
+
+Red’s suspicion about the name Red and the letters’ salutations support a discrepancy, not independently proven authorship of each note. Her belief that Lil was moved and remained alive is retained as belief alongside Tom’s earlier death account. No completed forgery, survival, relocation, exact chronological sequence or engine trigger is established. Visible snack-cake/deviled-egg wording does not identify the linked brands. Note FormIDs are citation metadata, not raw binary readback.
+
+The pre-war memo orders a minimum of three guards at the hatch; it does not show their deployment or death. Delivery is scheduled for October23,3:30pm with Thomas Malkinson named, without an inferred year or actual arrival. Guide mutiny remains a question, not an established event. Marker0002B969 was independently read in the base master and matched the existing export, bringing verified site anchors to26; not an interior/event coordinate.
+
+Original validator passes all103 folder7 rows; prior rows/folders, canonical store and validator remain unchanged. Totals53 ledger identities (52content pages plus1redirect),63rows,1FULL/52PARTIAL. Raider continuation retains its6canonical+8newIDs; older10continuations still need union at fold-in. StopA still awaits the current raw snapshot and exact64-page queue; no loss assumed or repeated source fetch. No canonical edit, merge, game action or automation resume.
+
 # Twenty-fourth delivery: Beantown Brewery
 
 Added35 entries, FA-8919 through FA-8953:31 game-transcript claims from revision5540167 and4 guide claims quoted in location revision5702268. Both fetched once after ledger/cache checks. Commonwealth total862:770 game,55 guide,1 dependent,36 cut-content HOLD; all new entries unchecked. Folder7 now73; next8954.

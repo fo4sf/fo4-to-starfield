@@ -13,3 +13,13 @@
 2026-10-28: queued Beantown Brewery from observed Commonwealth gang/source links before first fetch. All ledger/cache checks clear; verify primary supply/rivalry records, not wiki inference. Exact64queue membership unknown.
 
 2026-10-28: queued Beantown Brewery Terminal Entries from observed Commonwealth gang/source links before first fetch. All ledger/cache checks clear; verify primary supply/rivalry records, not wiki inference. Exact64queue membership unknown.
+
+2026-10-28: queued Federal Ration Stockpile from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
+
+2026-10-28: queued Federal Ration Stockpile Terminal Entries from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
+
+2026-10-28: queued Don't Worry, Sis from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
+
+2026-10-28: queued To My Big Sister Red from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
+
+2026-10-28: queued Red! It's Lily! from observed Beantown links before first fetch. All ledger/cache checks clear; verify Red’s account and primary hostage/supply records. Exact64queue membership unknown.
