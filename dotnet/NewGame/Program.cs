@@ -19,8 +19,12 @@
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
 //        their properties, MESG FO4SF_NewGameElevator and MESG FO4SF_NewGameStart (two buttons each: the elevator
 //        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
-//        an override of Starfield's GLOB MQ101Debug set to 10 (what MQ00 writes before it starts MQ101; the owner's
-//        decision NG-2 is that we set it ourselves) unless --no-mq101debug, or --mq101debug <n> for another value.
+//        an override of Starfield's GLOB MQ101Debug set to 2 (the value that starts MQ101 inert: its stage 0 picks the
+//        normal intro at 0, a developer start at 1 and 3 to 10, and runs only its conditionless last entry at any
+//        other value; 2 is what MQ102 to MQ305 write once the intro is over, and the owner's decision NG-2 is that we
+//        set it ourselves) unless --no-mq101debug, or --mq101debug <n> for another value. The first build's 10 was the
+//        developer start at the pirate fight (the owner's run, 28 Oct). The quest script reads the global back
+//        (DebugGlobal, DebugValue) and logs it.
 //        Unless --no-version: GLOB FO4SF_NewGameVersion (constant, the build's version number, --build-version <n>,
 //        default 1) and a player alias on the quest carrying FO4SF_NewGameVersion, which compares that GLOB to the
 //        version the save was started with on every load (NG-15 / NG-L2).
@@ -143,10 +147,16 @@ static class NewGame
     // preferred mode and returns by itself once the port marks its COC markers persistent (same form id, another thread);
     // --require-persistent-anchor restores the refusal for a build that must not rely on the fallback.
     public const bool DefaultRequirePersistentAnchor = false;
-    // GLOB MQ101Debug: MQ00's stage 10 sets it to 10 and starts MQ101 (verified, QF_MQ00_00005790.psc). We stop MQ00,
-    // which may leave it at 0 (sustenance off, NG-M1), so the default build writes 10 ourselves (NG-2); which value
-    // gives the cleanest start is unverified until the PC run (NG-M4), hence --mq101debug <n> and --no-mq101debug.
-    public const float DefaultMQ101Debug = 10f;
+    // GLOB MQ101Debug (Starfield.esm 0A7D31): MQ101's stage 0 has 12 log entries conditioned on it (records report, PC
+    // 21 Oct): 0 the normal intro, 1 and 3 to 10 developer starts, and entry 11 with no condition (it only ghosts Lin,
+    // Heller and Barrett; fragment sources, PC 19 Oct). MQ00's stage 10 writes 10 and starts MQ101, but it is not a
+    // start-up stage, so vanilla never writes 10: the first build's override of 10 was the developer start at the
+    // pirate fight (Item_10: SetStage 210 and 250), where the owner landed on 28 Oct (fo4sf_newgame.0.log:
+    // opening_stage=250). 2 is what MQ102 to MQ305 write once the intro is over, matches no start, and keeps
+    // PEO_SustenanceAllowed's "MQ101Debug != 0" open (NG-2, NG-M1), so the default build overrides it to 2 and MQ101
+    // starts inert for the hold-off; --mq101debug <n> and --no-mq101debug remain.
+    public const float DefaultMQ101Debug = 2f;
+    public const string DebugGlobEdid = "MQ101Debug";
     // Starfield.esm, verified: QuestTypeSideQuest (the mission, Missions tab), GameDaysPassed (FLTV 0 on a new game,
     // docs/ai/test-queue.md), COCMarkerHeading (the port places each cell's COC marker on it, WP10)
     public const uint QuestTypeSideId = 0x047600, GameDaysPassedId = 0x000039, CocMarkerId = 0x000032;
@@ -451,6 +461,7 @@ static class NewGame
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
+            ("DebugValue", o.MQ101Debug ?? 0f),             // the override's value, logged by the guard beside the read
         };
     }
 
@@ -504,6 +515,8 @@ static class NewGame
         var hold = o.Hold.Select(e => sf.Quests.FirstOrDefault(q => q.EditorID == e) ?? throw new Refusal($"Starfield.esm has no quest {e}")).ToList();
         // the new-game guard's fresh-start test reads the opening quest's stage (21 Oct review on #393)
         var opening = sf.Quests.FirstOrDefault(q => q.EditorID == OpeningEdid) ?? throw new Refusal($"Starfield.esm has no quest {OpeningEdid}");
+        // the debug global the script reads back into its log, overridden below unless --no-mq101debug
+        var debugGlob = sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid) ?? throw new Refusal($"Starfield.esm has no GLOB {DebugGlobEdid}");
 
         var msg = new SF.Message(new FormKey(modKey, MessageId), SF.StarfieldRelease.Starfield)
         {
@@ -568,6 +581,7 @@ static class NewGame
         };
         script.Properties.Add(Obj("GameDaysPassed", days.FormKey));
         script.Properties.Add(Obj("Opening", opening.FormKey));
+        script.Properties.Add(Obj("DebugGlobal", debugGlob.FormKey));
         var list = new SF.ScriptObjectListProperty { Name = "HoldOff", Flags = SF.ScriptProperty.Flag.Edited };
         foreach (var q in hold) list.Objects.Add(Obj("", q.FormKey));
         script.Properties.Add(list);
@@ -622,8 +636,7 @@ static class NewGame
 
         if (o.MQ101Debug is { } dbg)
         {
-            var g = sf.Globals.FirstOrDefault(x => x.EditorID == "MQ101Debug") ?? throw new Refusal("Starfield.esm has no GLOB MQ101Debug");
-            var over = (SF.Global)g.DeepCopy();
+            var over = (SF.Global)debugGlob.DeepCopy();
             over.Data = dbg;
             mod.Globals.Add(over);
         }
@@ -721,7 +734,7 @@ static class NewGame
         var own = plug.Globals.Where(g => g.FormKey.ModKey == key).ToList();
         if (o.MQ101Debug is { } dbg)
         {
-            var src = sf.Globals.FirstOrDefault(g => g.EditorID == "MQ101Debug");
+            var src = sf.Globals.FirstOrDefault(g => g.EditorID == DebugGlobEdid);
             Need(overrides.Count == 1 && src is not null && overrides[0].FormKey == src.FormKey && overrides[0].Data == dbg,
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
@@ -782,6 +795,8 @@ static class NewGame
                      "property GameDaysPassed");
                 Need(props.TryGetValue("Opening", out var op) && op is SF.IScriptObjectPropertyGetter oq &&
                      oq.Object.FormKey == sf.Quests.FirstOrDefault(x => x.EditorID == OpeningEdid)?.FormKey, $"property Opening is not {OpeningEdid}");
+                Need(props.TryGetValue("DebugGlobal", out var dg) && dg is SF.IScriptObjectPropertyGetter dgo &&
+                     dgo.Object.FormKey == sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid)?.FormKey, $"property DebugGlobal is not {DebugGlobEdid}");
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
@@ -789,7 +804,7 @@ static class NewGame
                 var expected = Properties(pts, places, o);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 4, $"{props.Count} properties, expected {expected.Count + 4}");
+                Need(props.Count == expected.Count + 5, $"{props.Count} properties, expected {expected.Count + 5}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}");
@@ -872,7 +887,7 @@ static class NewGame
         sf.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, QuestTypeSideId), rel) { EditorID = QuestTypeSideEdid });
         sf.Globals.Add(new SF.Global(new FormKey(SfEsm, GameDaysPassedId), rel) { EditorID = GameDaysPassedEdid, Data = 0 });
-        sf.Globals.Add(new SF.Global(new FormKey(SfEsm, 0x900), rel) { EditorID = "MQ101Debug", Data = 0 });
+        sf.Globals.Add(new SF.Global(new FormKey(SfEsm, 0x900), rel) { EditorID = DebugGlobEdid, Data = 0 });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x901), rel) { EditorID = "MQ00" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x902), rel) { EditorID = "MQ101" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x903), rel) { EditorID = "MQ101PostQuest" });
@@ -977,6 +992,7 @@ static class NewGame
             ("clear", idsPath, clear), ("suit", idsPath, suit),
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("nodebug", idsPath, plain with { MQ101Debug = null }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
+            ("debug10", idsPath, plain with { MQ101Debug = 10 }),   // the first build's value, still buildable on purpose
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
             ("mode1", idsPath, plain with { RaceMenuMode = 1 }), ("nospecial", idsPath, plain with { Special = false }),
             ("nearterm", nearTermIds, plain),
@@ -994,10 +1010,11 @@ static class NewGame
         {
             ("default", plain with { Looks = false }, idsPath, "a looks build as a no-looks one"),
             ("nolooks", plain, idsPath, "a no-looks build as a looks one"),
-            ("default", plain with { MQ101Debug = null }, idsPath, "the default (MQ101Debug 10) build as a --no-mq101debug one"),
+            ("default", plain with { MQ101Debug = null }, idsPath, "the default (MQ101Debug 2) build as a --no-mq101debug one"),
             ("nodebug", plain, idsPath, "a --no-mq101debug build as the default one"),
             ("default", plain with { MQ101Debug = 8 }, idsPath, "the default build as an MQ101Debug 8 one"),
             ("debug8", plain, idsPath, "an MQ101Debug 8 build as the default one"),
+            ("debug10", plain, idsPath, "the first build's MQ101Debug 10 as the default one"),
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
             ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
@@ -1033,10 +1050,14 @@ static class NewGame
             ("the merge offset changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "MergeOffsetY")).Data = 0),
             ("a property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PodHeading")),
             ("the Opening property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Opening")),
+            ("the DebugGlobal property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugGlobal")),
+            ("the DebugGlobal property on another global", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "DebugGlobal")).Object.SetTo(new FormKey(SfEsm, GameDaysPassedId))),
+            ("the DebugValue property reads the first build's 10", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "DebugValue")).Data = 10),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
-            ("the MQ101Debug override reads 0", m => m.Globals.First(g => g.EditorID == "MQ101Debug").Data = 0),
-            ("the MQ101Debug override removed", m => m.Globals.Remove(m.Globals.First(g => g.EditorID == "MQ101Debug").FormKey)),
+            ("the MQ101Debug override reads 0", m => m.Globals.First(g => g.EditorID == DebugGlobEdid).Data = 0),
+            ("the MQ101Debug override reads the first build's 10", m => m.Globals.First(g => g.EditorID == DebugGlobEdid).Data = 10),
+            ("the MQ101Debug override removed", m => m.Globals.Remove(m.Globals.First(g => g.EditorID == DebugGlobEdid).FormKey)),
             ("the version GLOB reads another value", m => m.Globals.First(g => g.EditorID == VersionGlobEdid).Data = 7),
             ("the version GLOB not constant", m => m.Globals.First(g => g.EditorID == VersionGlobEdid).MajorFlags = 0),
             ("the version GLOB removed", m => m.Globals.Remove(m.Globals.First(g => g.EditorID == VersionGlobEdid).FormKey)),

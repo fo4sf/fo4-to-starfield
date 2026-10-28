@@ -388,7 +388,7 @@ class ContractTests(unittest.TestCase):
             self.assertIn(f"| {n} | {what} |", doc)
 
     def test_the_writer_defaults_match_the_python_ones(self):
-        """NG-2: the default build sets GLOB MQ101Debug to 10 (what MQ00 writes), off under --no-mq101debug. NG-19 /
+        """NG-2: the default build overrides GLOB MQ101Debug to 2 (the inert start), off under --no-mq101debug. NG-19 /
         NG-N1: the default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
         self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
@@ -396,7 +396,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
         p = namespace()
         self.assertEqual(ng.tool_options(p), [])
-        self.assertEqual(ng.mq101debug_option(p), 10)
+        self.assertEqual(ng.mq101debug_option(p), 2)
         p.no_mq101debug = True
         self.assertEqual(ng.tool_options(p), ["--no-mq101debug"])
         self.assertIsNone(ng.mq101debug_option(p))
@@ -441,12 +441,47 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f"MergeOffsetY = {y}", read(PSC))
 
     def test_the_guard_rule_matches_the_script(self):
-        self.assertIn("return days < MaxNewGameDays && level <= MaxNewGameLevel", read(PSC))
+        """The day limit is one game day (28 Oct): Starfield's clock starts at 8:00, so GameDaysPassed reads about
+        0.3335 a second into a new game (two in-game runs), and the first build's 0.25 stood every new game down."""
+        psc = read(PSC)
+        self.assertIn("return days < MaxNewGameDays && level <= MaxNewGameLevel", psc)
+        self.assertIn(f"float Property MaxNewGameDays = {ng.MAX_NEW_GAME_DAYS} Auto Const", psc)
+        self.assertEqual(ng.MAX_NEW_GAME_DAYS, 1.0)
         self.assertTrue(ng.is_new_game(0.0, 1))
-        self.assertTrue(ng.is_new_game(0.2, 1))
-        self.assertFalse(ng.is_new_game(0.25, 1))            # six game hours in: not a fresh start
+        self.assertTrue(ng.is_new_game(ng.NEW_GAME_DAYS_MEASURED, 1))   # what a Starfield new game reads (28 Oct)
+        self.assertTrue(ng.is_new_game(0.333537, 1))
+        self.assertFalse(ng.is_new_game(0.333537, 1, max_days=0.25))   # the first build's limit: stood down
+        self.assertFalse(ng.is_new_game(1.0, 1))             # a game day in: not a fresh start
         self.assertFalse(ng.is_new_game(0.0, 2))
         self.assertFalse(ng.is_new_game(12.5, 30))           # the owner's test saves
+
+    def test_the_debug_global_starts_the_opening_inert(self):
+        """28 Oct, the owner's first new game: the plugin's MQ101Debug = 10 was the developer start at the pirate fight
+        (MQ101 stage 0 entry 10, Item_10: SetStage 210 and 250), not what vanilla writes (MQ00's stage 10 is no
+        start-up stage), so the opening ran and our guard stood down at opening_stage=250. The default is now 2: the
+        value MQ102 to MQ305 write once the intro is over, which matches no start entry (0 the intro, 1 and 3 to 10 the
+        developer starts) and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open. The script reads the global back
+        into its guard line, so the next log shows what the game saw."""
+        self.assertEqual(ng.DEFAULT_MQ101DEBUG, 2)
+        self.assertEqual(ng.DEBUG_START_PIRATES, 10)
+        self.assertNotIn(ng.DEFAULT_MQ101DEBUG, (0, 1, 3, 4, 5, 6, 7, 8, 9, 10))
+        psc, cs = read(PSC), read(CS)
+        self.assertIn("GlobalVariable Property DebugGlobal Auto Const Mandatory", psc)
+        self.assertIn(f"float Property DebugValue = {ng.DEFAULT_MQ101DEBUG}.0 Auto Const", psc)
+        self.assertIn('Obj("DebugGlobal", debugGlob.FormKey)', cs)
+        self.assertIn('("DebugValue", o.MQ101Debug ?? 0f)', cs)
+        self.assertIn('DebugGlobEdid = "MQ101Debug"', cs)
+        # the guard's readings line comes before the verdict, inside the once-only guard, and names the global
+        guard = psc.index('Trace("guard days=')
+        self.assertLess(psc.rindex("if holdPasses == 0", 0, guard), guard)
+        self.assertLess(guard, psc.index("if !fresh || !IsNewGame(days, level)"))
+        line = psc[guard:psc.index("\n", guard)]
+        for literal in ("days=", " level=", " opening_stage=", " opening_running=", " fresh=", " mq101debug=", " expected="):
+            self.assertIn(literal, line)
+        self.assertIn("DebugGlobal.GetValue()", line)
+        self.assertIn("GetValue", ng.NATIVES[ng.SCRIPT]["GlobalVariable"])
+        # the first build's value stays buildable on purpose (--mq101debug 10) but is never the default
+        self.assertIn('("debug10", idsPath, plain with { MQ101Debug = 10 })', cs)
 
     def test_an_early_existing_save_is_not_a_fresh_start(self):
         """21 Oct review on #393: days and level alone let an early level-1 save under six hours through."""
@@ -697,6 +732,7 @@ class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 guard days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=2.000000 expected=2.000000",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
@@ -734,6 +770,7 @@ class LogTests(unittest.TestCase):
         self.assertTrue(s["landed"])
         self.assertFalse(s["fell"])
         self.assertFalse(s["stood_down"])
+        self.assertEqual(s["guard"], "days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=2.000000 expected=2.000000")
         self.assertIn("stage=20", s["last_status"])
         self.assertEqual(s["version_saved"], "1.000000")
         self.assertIsNone(s["version_load"])                 # no save was loaded in this run
@@ -825,7 +862,31 @@ class LogTests(unittest.TestCase):
                 self.assertIn(literal, rest, line)
                 rest = rest[rest.index(literal) + len(literal):]
             self.assertRegex(rest, r"^\d+$", line)             # the exit anchor's id ends the line
-            self.assertRegex(line, r" anchor_temporary=(True|False) ", line)
+            self.assertRegex(line, r" anchor_temporary=(True|False|true|false) ", line)   # Starfield prints bools lowercase (28 Oct log)
+
+    def test_the_owners_run_of_28_oct_reads_as_stood_down(self):
+        """The first in-game run (fo4sf_newgame.0.log, PC 28 Oct 11:24, build 3fb78b14): the version script saw a new
+        game, the quest initialised, and the guard stood down with the opening at 250 (the developer start the
+        MQ101Debug 10 override picked) and 0.3335 days passed (Starfield's 8:00 clock). An older build's log has no
+        guard line, so "guard" is None."""
+        text = ("[11:24:50] FO4SF_NEWGAME rt=597.945007 version saved=1.000000 (new game)\n"
+                "[11:24:57] FO4SF_NEWGAME rt=605.252014 init holdoff=4 vault=fo4port.esm:4920 anchor_temporary=true core=fo4terraincore.esm:685915\n"
+                "[11:24:58] FO4SF_NEWGAME rt=606.619019 not a new game: days=0.333537 level=1 opening_stage=250 fresh=false: standing down\n"
+                "[11:24:58] FO4SF_NEWGAME rt=606.672058 stage 1\n")
+        code, s = self.run_log(text)
+        self.assertEqual(code, 1)
+        self.assertTrue(s["stood_down"])
+        self.assertEqual(s["stages"], [1])
+        # Starfield prints bools lowercase (anchor_temporary=true, fresh=false above): the reader takes both spellings
+        lower = self.run_log("[x] FO4SF_NEWGAME rt=7.0 enter vault ok=true pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]\n")[1]
+        self.assertTrue(lower["entered_vault"])
+        self.assertFalse(self.run_log("[x] FO4SF_NEWGAME rt=7.0 enter vault ok=false pos=1 2 3 target=11 20 1 cell=None\n")[1]["entered_vault"])
+        self.assertEqual(s["version_saved"], "1.000000")
+        self.assertIsNone(s["guard"])
+        # the 10:43 run of the same day stood down with the opening still at stage 0: the day limit alone did it
+        self.assertFalse(ng.is_new_game(0.333530, 1, max_days=0.25))
+        self.assertTrue(ng.is_fresh_start(0, False, False))
+        self.assertTrue(ng.is_new_game(0.333530, 1))
 
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()

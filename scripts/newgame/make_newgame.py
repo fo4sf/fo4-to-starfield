@@ -71,10 +71,16 @@ STAGE_CONTRACT = {
 }
 STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage records (Program.cs Stages)
 # the writer's defaults (Program.cs DefaultHold and DefaultMQ101Debug, held equal by tests/test_newgame.py): the opening
-# quests, the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1), and GLOB MQ101Debug set to 10 ourselves,
-# the value MQ00 writes before starting MQ101 (NG-2)
+# quests, the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1), and GLOB MQ101Debug overridden to 2
+# (NG-2, we set it ourselves). MQ101's stage 0 picks its start by that global (records report, PC 21 Oct; fragment
+# sources, PC 19 Oct): 0 the normal intro, 1 and 3 to 10 developer starts, any other value only its conditionless last
+# entry (ghosts three NPCs), so MQ101 starts inert and the hold-off stops it. 2 is what MQ102 to MQ305 write once the
+# intro is over and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open. The first build's 10 was the developer start
+# at the pirate fight (the owner's run, 28 Oct: opening_stage=250, our quest stood down); MQ00's stage 10 writes 10 but
+# is not a start-up stage, so vanilla never does.
 DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
-DEFAULT_MQ101DEBUG = 10
+DEFAULT_MQ101DEBUG = 2
+DEBUG_START_PIRATES = 10      # the first build's value: Fragment_Stage_0000_Item_10, SetStage 210 and 250
 # Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
 # which mode is looks-only is unverified until the in-game C1 test
 DEFAULT_RACE_MENU_MODE = 0
@@ -214,9 +220,18 @@ def special_press(values, left, button, base=SPECIAL_BASE, points=SPECIAL_POINTS
     return values, left, "left"
 
 
-def is_new_game(days, level, max_days=0.25, max_level=1):
+# the guard's day limit (FO4SF_NewGameQuest MaxNewGameDays, held equal by tests/test_newgame.py). Starfield's clock
+# starts at GameHour 8 (the record's value, docs/ai/test-queue.md) and GameDaysPassed carries the hour, so a new game
+# reads about 0.3335 one second in: verified in game 28 Oct, two runs (0.333530 with MQ101 at stage 0, 0.333537 at
+# 250). The first build's 0.25 stood every new game down on this test alone; a player's save is kept out by
+# is_fresh_start, so one game day is the bound here.
+MAX_NEW_GAME_DAYS = 1.0
+NEW_GAME_DAYS_MEASURED = 0.3335
+
+
+def is_new_game(days, level, max_days=MAX_NEW_GAME_DAYS, max_level=1):
     """FO4SF_NewGameQuest.IsNewGame: fewer than max_days game days passed and the player at most max_level. An
-    existing save that gains the plugin stands down."""
+    existing save that gains the plugin stands down (with is_fresh_start, which does the real work)."""
     return days < max_days and level <= max_level
 
 
@@ -581,7 +596,9 @@ def split_runs(lines, line_re, start="init ", carry=()):
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
-    "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "entered_vault", "surfaced", "landed", "fell", "stood_down", "guard", "last_status", "runs", "earlier_completed"}.
+    "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> fresh=<bool>
+    mq101debug=<n> expected=<n>", written before the verdict since 28 Oct; None in an older build's log).
     "inventory_cleared" is the reset's line ("removed=<n> left=<n> ..."; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
@@ -598,8 +615,8 @@ def summarize(lines):
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
          "inventory_cleared": None, "vault_suit": None, "centered": None,
-         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
-         "runs": 0, "earlier_completed": False}
+         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None,
+         "last_status": None, "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -634,7 +651,9 @@ def summarize(lines):
             if s["centered"] is None:                        # the first centering; a second one is the bound's retry
                 s["centered"] = msg[len("centered on "):]
         elif msg.startswith("enter vault ok="):
-            s["entered_vault"] = msg.split()[2] == "ok=True"
+            # Starfield's Papyrus prints a bool as "true" / "false" (the 28 Oct log: anchor_temporary=true), FO4's
+            # tests wrote "True"; both read
+            s["entered_vault"] = msg.split()[2].lower() == "ok=true"
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
@@ -643,6 +662,8 @@ def summarize(lines):
             s["fell"] = True
         elif msg.startswith("not a new game"):
             s["stood_down"] = True
+        elif msg.startswith("guard "):
+            s["guard"] = msg[len("guard "):]
         elif msg.startswith("status "):
             s["last_status"] = msg
     return s
@@ -682,8 +703,10 @@ def main(argv=None):
     s.add_argument("--build-version", type=int, default=None,
                    help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
-    s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
-    s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")
+    s.add_argument("--mq101debug", type=float, default=None,
+                   help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG}, the inert start; 0 is Starfield's "
+                        f"intro, {DEBUG_START_PIRATES} the pirate-fight developer start the first build shipped)")
+    s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override (Starfield's intro then starts and is stopped)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--clear-inventory", action="store_true",
                    help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")
