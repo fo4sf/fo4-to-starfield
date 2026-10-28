@@ -112,7 +112,7 @@ mod.ModHeader.Stats.NextFormID = 0x3807C7;
 // Optional map-marker template (args[1] == "map-marker"): persistent REFR 003E5E12 on the template world so the
 // writer can Duplicate it. STAT 00000010 is a FormLink only (Mutagen refuses writing that low FormKey). Default
 // fixture omits this so identity / lights / doors tests keep their FormIDs (writer skips when 003E5E12 is missing).
-if (args.Length > 1 && args[1] == "map-marker")
+if (args.Skip(1).Contains("map-marker"))
 {
     var top = new Cell(new FormKey(key, 0x3807C7), release) { Flags = Cell.Flag.HasWater };
     world.TopCell = top;
@@ -126,6 +126,45 @@ if (args.Length > 1 && args[1] == "map-marker")
     marker.MajorRecordFlagsRaw |= 0xC00;
     top.Persistent.Add(marker);
     mod.ModHeader.Stats.NextFormID = 0x3807C8;
+}
+// Optional Story Manager template ("story-manager" or "story-manager-open"; dotnet/CombinedProbe's P10 branch): a
+// Script Event SMEN with branches A and B (B after A) and a quest node under A, plus a root branch outside the event
+// node. "story-manager" gives each a GetEventData filter on a keyword of this master: A and its quest node GetIsID /
+// Keyword1, B GetIsID / Keyword2, the root branch IsInList / Keyword1 (not under the event node, so never counted).
+// "story-manager-open" writes the same nodes with no condition, which CombinedProbe must refuse.
+var sm = args.Skip(1).FirstOrDefault(x => x is "story-manager" or "story-manager-open");
+if (sm is not null)
+{
+    var eventKw = Kw(0x3807E0, "SyntheticStoryEventKeyword");
+    var smen = new StoryManagerEventNode(new FormKey(key, 0x3807E1), release)
+    {
+        EditorID = "SyntheticScriptEventNode", Type = StoryManagerEventNode.Types.ScriptEvent,
+    };
+    mod.StoryManagerEventNodes.Add(smen);
+    void Filter(AStoryManagerNode n, GetEventDataConditionData.EventFunction fn, GetEventDataConditionData.EventMember member)
+    {
+        if (sm != "story-manager") return;
+        var data = new GetEventDataConditionData { Function = fn, Member = member };
+        data.Record.SetTo(eventKw.FormKey);
+        n.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = data });
+    }
+    var a = new StoryManagerBranchNode(new FormKey(key, 0x3807E2), release) { EditorID = "SyntheticScriptEventBranchA" };
+    a.Parent.SetTo(smen.FormKey);
+    Filter(a, GetEventDataConditionData.EventFunction.GetIsID, GetEventDataConditionData.EventMember.Keyword1);
+    mod.StoryManagerBranchNodes.Add(a);
+    var q = new StoryManagerQuestNode(new FormKey(key, 0x3807E3), release) { EditorID = "SyntheticScriptEventQuestNode" };
+    q.Parent.SetTo(a.FormKey);
+    Filter(q, GetEventDataConditionData.EventFunction.GetIsID, GetEventDataConditionData.EventMember.Keyword1);
+    mod.StoryManagerQuestNodes.Add(q);
+    var b = new StoryManagerBranchNode(new FormKey(key, 0x3807E4), release) { EditorID = "SyntheticScriptEventBranchB" };
+    b.Parent.SetTo(smen.FormKey);
+    b.PreviousSibling.SetTo(a.FormKey);
+    Filter(b, GetEventDataConditionData.EventFunction.GetIsID, GetEventDataConditionData.EventMember.Keyword2);
+    mod.StoryManagerBranchNodes.Add(b);
+    var root = new StoryManagerBranchNode(new FormKey(key, 0x3807E5), release) { EditorID = "SyntheticRootBranch" };
+    Filter(root, GetEventDataConditionData.EventFunction.IsInList, GetEventDataConditionData.EventMember.Keyword1);
+    mod.StoryManagerBranchNodes.Add(root);
+    mod.ModHeader.Stats.NextFormID = 0x3807E6;
 }
 var path = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);

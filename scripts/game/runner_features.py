@@ -71,7 +71,13 @@ import console_plan
 # speedmult:    console lines player.getav speedmult / player.setav speedmult 100 (2026-10-17) and the run condition
 #               judged on them (console_plan.speedmult_condition: a test that does not start at speedmult 100 is
 #               INCONCLUSIVE RUNCOND). An older qstep.ps1 refuses the line (exit 4) only after the game was launched
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult")
+# sfse_launch:  plan --launch sfse (2026-10-28): cycle.ps1 starts sfse_loader.exe (FO4SF_LAUNCH=sfse) for the queue, so
+#               SFSE plugins such as FO4SFBorder load. An older runner launches through Steam, where none loads, and a
+#               border comparison (T6) would compare nothing without a word
+# installed_port: plan --port installed (2026-10-28): cycle.ps1 tests the port installed now (FO4SF_PORT=installed),
+#               checked against its deploy record and the FO4Port.esm the plan pinned, instead of redeploying --staging.
+#               An older runner redeploys the staging's port over the installed one (doors_anim_b00) and tests that
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult", "sfse_launch", "installed_port")
 
 
 def needs(tests):
@@ -94,6 +100,10 @@ def needs(tests):
             out.add("bridge")
         if t.get("activate"):
             out.add("activate")
+        if t.get("launch") == "sfse":
+            out.add("sfse_launch")
+        if t.get("port") == "installed":
+            out.add("installed_port")
         if t.get("kind") == "door_trip":
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:

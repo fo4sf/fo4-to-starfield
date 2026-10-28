@@ -426,7 +426,7 @@ def check_queue(entry, camp, release):
         esm = os.path.join(q["staging"], "FO4Port.esm")
         if not os.path.exists(esm):
             why.append(f"{esm} is missing")
-        elif tq.sha256(esm) != q.get("plugin_sha256"):
+        elif tq.sha256(esm) != tq.staging_pin(q):
             why.append(f"{esm} changed since the plan (build {q.get('build_id')})")
     # Codex on #391: the runner's own checks before its first test, so an armed chain is not stopped by them
     from types import SimpleNamespace

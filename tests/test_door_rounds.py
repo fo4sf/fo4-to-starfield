@@ -48,18 +48,22 @@ def plugin(path, door_base, cell_id, cell_edid, refs, exterior, base_sig=b"DOOR"
         f.write(tes4.serialize() + vp.Group(base_sig, 0, bytes(8), [door]).serialize() + top.serialize())
 
 
-def build(d, port_marker_target=0x900, ext_base=0x700, back=None):
-    """core dir (objects / formids / plan / overlays_params + FO4TerrainCore.esm) and port dir (FO4Port.esm)."""
+def build(d, port_marker_target=0x900, ext_base=0x700, back=None, animated=None, inner_vmad=None):
+    """core dir (objects / formids / plan / overlays_params + FO4TerrainCore.esm) and port dir (FO4Port.esm).
+    animated: the interior door carries FO4SF_AnimatedLoadDoor with these OpenSeconds (the animated doors port)."""
     core, port = os.path.join(d, "core"), os.path.join(d, "port")
     os.makedirs(core)
     os.makedirs(port)
     out_arrival = [-469.444, 636.074, 42.356]
     back = back or vp.merged(out_arrival, MERGE)
+    if inner_vmad is None:
+        inner_vmad = (vp.load_door_vmad("FO4TerrainCore.esm", 0x702, back) if animated is None else
+                      vp.encode(vp.animated_load_door_scripts("FO4TerrainCore.esm", 0x702, back, animated)))
     plugin(os.path.join(core, "FO4TerrainCore.esm"), 0x700, 0x7FF, "FO4Core_Cell", [
         refr(OWN | 0x701, OWN | ext_base, [-470.0, 650.0, 42.0], vp.load_door_vmad("FO4Port.esm", port_marker_target)),
         refr(OWN | 0x702, 0x000034, out_arrival)], exterior=True, base_sig=b"ACTI")
     plugin(os.path.join(port, "FO4Port.esm"), 0x800, 0x801, "FO4Port_SuperDuperMart01", [
-        refr(OWN | 0x802, OWN | 0x800, [6.4, 17.37, -3.66], vp.load_door_vmad("FO4TerrainCore.esm", 0x702, back)),
+        refr(OWN | 0x802, OWN | 0x800, [6.4, 17.37, -3.66], inner_vmad),
         refr(OWN | 0x900, 0x000034, [5.449, 17.291, -3.654])], exterior=False)
     entry = {"src": "0EE661:Fallout4.esm", "destination": {"plugin": "FO4Port.esm", "id": 0x900, "ref": "000802",
                                                            "cell": "000801", "arrival": {"pos": [5.449, 17.291, -3.654]}},
@@ -108,6 +112,41 @@ class StageTests(unittest.TestCase):
         with open(os.path.join(d, "out", "plan.json"), "rb") as f:   # one rounds digest covers both files (Codex on #401)
             self.assertEqual(rounds["plan_sha256"], hashlib.sha256(f.read()).hexdigest())
         self.assertEqual(rounds["core_worlds"], [])           # the synthetic core has no WRLD record
+
+    def test_an_animated_interior_door_is_planned_like_a_plain_one(self):
+        """The animated doors port puts FO4SF_AnimatedLoadDoor on the interior doors (PC, 28 Oct: every Fallout4.esm
+        door of doors_anim_b00 was skipped as "script 'FO4SF_AnimatedLoadDoor' status 0"). It extends FO4SF_LoadDoor
+        and runs the parent's trip after the open, so the door is checked and planned as before."""
+        d = tempfile.mkdtemp()
+        core, port, _ = build(os.path.join(d, "plain"))
+        _rounds, plain = stage(core, port, os.path.join(d, "plain", "out"))
+        core, port, _ = build(os.path.join(d, "anim"), animated=1.5)
+        rounds, plan = stage(core, port, os.path.join(d, "anim", "out"))
+        self.assertEqual(rounds["skipped"], [])
+        self.assertEqual(plan, plain)
+        door = rounds["doors"][0]
+        self.assertEqual(door["interior"]["script"], {"name": "FO4SF_AnimatedLoadDoor", "open_seconds": 1.5})
+        self.assertEqual(door["exterior"]["script"], {"name": "FO4SF_LoadDoor"})
+        self.assertTrue(door["exterior"]["return_position_in_vmad"])
+
+    def test_an_animated_door_keeps_every_check(self):
+        d = tempfile.mkdtemp()                         # it leads elsewhere: skipped with why, as a plain door
+        core, port, back = build(os.path.join(d, "a"), animated=1.5)
+        bad = vp.encode(vp.animated_load_door_scripts("FO4TerrainCore.esm", 0x703, back, 1.5))
+        core, port, _ = build(os.path.join(d, "b"), inner_vmad=bad)
+        with self.assertRaises(SystemExit) as cm:
+            stage(core, port, os.path.join(d, "b", "out"))
+        self.assertIn("leads to FO4TerrainCore.esm:000703", str(cm.exception))
+        core, port, _ = build(os.path.join(d, "c"), animated=1.5, back=[12345.0, 23456.0, 34567.0])
+        with self.assertRaises(SystemExit) as cm:
+            stage(core, port, os.path.join(d, "c", "out"))
+        self.assertIn("is not its marker's merged position", str(cm.exception))
+        (script,) = vp.animated_load_door_scripts("FO4TerrainCore.esm", 0x702, back, 1.5)
+        moved = dict(script, properties=script["properties"][-1:] + script["properties"][:-1])
+        core, port, _ = build(os.path.join(d, "d"), inner_vmad=vp.encode([moved]))
+        with self.assertRaises(SystemExit) as cm:      # OpenSeconds not last: not the animated contract
+            stage(core, port, os.path.join(d, "d", "out"))
+        self.assertIn("OpenSeconds (float, edited) is not the last property", str(cm.exception))
 
     def test_out_legs_alone_and_the_border_switch(self):
         d = tempfile.mkdtemp()

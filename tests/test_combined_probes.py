@@ -305,7 +305,32 @@ class P2Tests(unittest.TestCase):
         self.assertEqual(v.verdict, INCONCLUSIVE)
         self.assertTrue(any("same launch" in r for r in v.reasons), v.reasons)
         self.assertEqual(probes.check_p2(col(session1=S1_P2 + S2_P2[1:])).verdict, INCONCLUSIVE)   # read in the same session
-        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2[1:])).verdict, INCONCLUSIVE)  # no init: no relaunch proven
+        later = [ln.replace("rt=4.", "rt=6.") for ln in S2_P2[1:]]        # no init, and rt never went back: same process
+        v = probes.check_p2(col(session1=S1_P2, session2=later))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("relaunch is not proven" in r for r in v.reasons), v.reasons)
+        no_rt = [re.sub(r"rt=\S+ ", "", ln) for ln in S2_P2[1:]]
+        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=no_rt)).verdict, INCONCLUSIVE)
+
+    def test_a_loaded_save_proves_the_relaunch_by_its_clock(self):
+        # Owner's PC, 28 Oct 2026: loading a save made after the quest started does not run OnInit again, so session2
+        # has no init line. rt counts seconds since the process started; a lower one means a new process.
+        stamp = "[10/28/2026 - 04:41:12AM] "
+        s1, s2 = [stamp + ln for ln in S1_P2], [stamp.replace("04:41", "04:44") + ln for ln in S2_P2[1:]]
+        v = probes.check_p2(col(session1=s1, session2=s2))
+        self.assertEqual(v.verdict, PASS, v.reasons)
+        self.assertIn({"file": "focc_session2.log", "line": 1, "text": s2[0]}, v.evidence)
+        self.assertEqual(probes.check_p2(col(session1=S1_P2, session2=S2_P2[1:])).verdict, PASS)
+
+    def test_a_later_copy_of_the_same_log_is_no_relaunch(self):
+        # A copy of focc.0.log taken later in the same launch repeats session1's lines, whatever its last rt.
+        note = "FOCC p5 start ticks=10"                                     # a FOCC line without rt
+        s1 = probes.parse_log(S1_P2 + [note])
+        self.assertIsNone(probes._relaunch(s1, probes.parse_log([note] + S2_P2[1:])))
+        self.assertIsNotNone(probes._relaunch(s1, probes.parse_log(S2_P2[1:])))
+        self.assertIsNone(probes._relaunch(probes.parse_log([INIT]), probes.parse_log(S2_P2[1:])))   # session1 has no clock to compare
+        init = probes._relaunch(s1, probes.parse_log(S2_P2))
+        self.assertEqual((init[0].kind, init[1]), ("init", 2))
 
     def test_fail_branches(self):
         lost = [f"FOCC init", f"FOCC rt=4.0 p2 read loc={P2_LOC} local=2054 value=0.000000 holder={HOLDER}", f"FOCC rt=4.1 p2 linkread a={P2_LOC} b={P3_CHAINED} linked=True route={ROUTE}"]
@@ -385,7 +410,9 @@ class P3Tests(unittest.TestCase):
         half = ["FOCC init", f"FOCC p3 read a={P3_NOPARENT} ra=0.000000 b={P3_CHAINED} rb=6.000000 holder={HOLDER}"]      # unparented one lost its datum
         self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=half)).verdict, FAIL)
         self.assertEqual(probes.check_p3(col(session1=S1_P3)).verdict, INCONCLUSIVE)
-        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, INCONCLUSIVE)
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=S2_P3[1:])).verdict, PASS)   # rt went back: relaunch
+        later = [S2_P3[1].replace("rt=4.0", "rt=7.0")]
+        self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=later)).verdict, INCONCLUSIVE)
         for gone in (" ra=5.000000", " rb=6.000000"):        # Codex review of #431: a missing read-back is no FAIL
             cut = [S2_P3[0], S2_P3[1].replace(gone, "")]
             self.assertEqual(probes.check_p3(col(session1=S1_P3, session2=cut)).verdict, INCONCLUSIVE)
@@ -887,6 +914,28 @@ class P8Tests(unittest.TestCase):
         c.saves = saves(focc_p8_before=1_000_000, focc_p8_after=9_000_000)
         self.assertEqual(probes.check_p8(c).verdict, FAIL)
 
+    def test_overlapping_stage_calls_measure_nothing(self):
+        # Owner's PC, 28 Oct 2026: P8Stage 1, 2, 0 typed in one console session; all three readouts saw stage 0.
+        log = p8_log()
+        heads = [i for i, l in enumerate(log) if " p8 stage=" in l]
+        last = log[heads[2] + 1:heads[2] + 13]                 # stage 0's twelve rows, as read at every readout
+        c = col(log=log[:heads[0] + 1] + last + [log[heads[1]]] + last + [log[heads[2]]] + last)
+        c.saves = saves(focc_p8_before=890_416, focc_p8_after=891_520)
+        v = probes.check_p8(c)
+        self.assertEqual(v.verdict, INCONCLUSIVE, v.reasons)
+        self.assertEqual(len(v.extra["overlapping_stage_calls"]), 2)
+        self.assertTrue(any("overlapped" in r for r in v.reasons), v.reasons)
+        detached = [l.replace("disabled=False parent", "disabled=True parent", 1) if i == heads[0] + 1 else l
+                    for i, l in enumerate(c.logs["focc.0.log"])]   # in an overlapped readout, a child off its parent
+        c = col(log=detached)
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        self.assertEqual(probes.check_p8(c).verdict, FAIL)
+        # a parent in a layout no later call asked for is the parent not following the script: still FAIL
+        first = log[heads[0] + 1:heads[0] + 13]
+        c = col(log=log[:heads[2] + 1] + first)                # stage 0 read in stage 1's layout, nothing after it
+        c.saves = saves(focc_p8_before=1, focc_p8_after=1)
+        self.assertEqual(probes.check_p8(c).verdict, FAIL)
+
     def test_inconclusive_branches(self):
         c = col(log=p8_log()[:1] + p8_log()[4:])            # no move line
         c.saves = saves(focc_p8_before=1, focc_p8_after=1)
@@ -1104,6 +1153,43 @@ class P10Tests(unittest.TestCase):
         c = col(log=P10)
         c.plan = {"skip": ["lvln"], "sm_nodes_written": True}
         self.assertEqual(probes.check_p10(c).verdict, PASS)
+
+    def test_a_quest_already_running_before_the_send_settles_nothing(self):
+        # Owner's PC, 28 Oct 2026: OnQuestInit at game start (rt 59.137), the send at rt 103.490, running=True after.
+        q = 0x03000820
+        real = [INIT, f"[22:50:35] FOCC rt=59.137 p10 quest started id={q} local=2080",
+                f"[22:51:19] FOCC rt=103.490 p10 sent event={0x0300081F}",
+                f"[22:51:49] FOCC rt=132.827 p10 state id={q} local=2080 running=true"]
+        v = probes.check_p10(col(log=real))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 59.137})
+        self.assertTrue(any("already running before the send" in r for r in v.reasons), v.reasons)
+        stopped = real[:3] + [f"FOCC rt=140.0 p10 state id={q} local=2080 running=False"]
+        self.assertEqual(probes.check_p10(col(log=stopped)).verdict, INCONCLUSIVE)    # it was running before the send, so not a FAIL
+        pre = [INIT, f"FOCC rt=9.0 p10 state id={q} local=2080 running=True", *P10[1:2], P10[3]]   # from a loaded save
+        v = probes.check_p10(col(log=pre))
+        self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 9.0})
+        self.assertEqual(probes.check_p10(col(log=[INIT, f"FOCC rt=9.0 p10 state id={q} local=2080 running=False", *P10[1:]])).verdict,
+                         PASS)                                                              # not running before: the send started it
+        restarted = [INIT, real[1]] + P10[1:]           # started at game start, stopped, started again by the send
+        self.assertEqual(probes.check_p10(col(log=restarted)).verdict, PASS)
+        # Codex review of #557: a running=False read after the last start supersedes that start.
+        stopped_first = [INIT, f"FOCC rt=1.0 p10 quest started id={q} local=2080",
+                         f"FOCC rt=9.0 p10 state id={q} local=2080 running=False", P10[1]]
+        v = probes.check_p10(col(log=stopped_first + [f"FOCC rt=25.0 p10 state id={q} local=2080 running=False"]))
+        self.assertEqual(v.verdict, FAIL, v.reasons)                                        # eligible, and the send did not start it
+        self.assertNotIn("running_before_send", v.extra)
+        self.assertEqual(probes.check_p10(col(log=stopped_first + P10[2:])).verdict, PASS)
+        restarted_before = stopped_first[:3] + [f"FOCC rt=9.5 p10 quest started id={q} local=2080", P10[1], P10[3]]
+        v = probes.check_p10(col(log=restarted_before))                                     # stopped, then started again before the send
+        self.assertEqual(v.extra["running_before_send"], {"line": 4, "rt": 9.5})
+
+    def test_reasons_say_what_the_log_holds(self):
+        v = probes.check_p10(col(log=P10[:2] + [P10[3]]))         # running after the send, no start line anywhere
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("is running, but no `p10 quest started`" in r for r in v.reasons), v.reasons)
+        v = probes.check_p10(col(log=P10[:2]))
+        self.assertTrue(any("no `p10 state` line follow" in r for r in v.reasons), v.reasons)
 
 
 # ----------------------------------------------------------------------------------------------- folder + CLI

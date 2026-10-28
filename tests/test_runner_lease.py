@@ -249,16 +249,94 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
 
-    def test_cycle_ps1_starts_starfield_exe_only_on_the_opt_in(self):
+    def test_cycle_ps1_starts_starfield_exe_or_sfse_loader_only_on_the_opt_in(self):
         src = read(os.path.join(GAME, "cycle.ps1"))
         start = src.index("$launch = 'steam://rungameid/1716740'")
         block = src[start:src.index("$q = $null", start)]
-        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'exe') {", block)             # opt-in only; steam:// otherwise
-        self.assertIn("$launch = Join-Path $sf 'Starfield.exe'", block)
+        # opt-in only; steam:// otherwise. sfse (2026-10-28): a Steam launch loads no SFSE plugin (FO4SFBorder, T6)
+        self.assertIn("$exe = if ($env:FO4SF_LAUNCH -eq 'exe') { 'Starfield.exe' } elseif ($env:FO4SF_LAUNCH -eq 'sfse') "
+                      "{ 'sfse_loader.exe' } else { '' }", block)
+        self.assertIn("$launch = Join-Path $sf $exe", block)
         self.assertLess(block.index("Test-Path -LiteralPath $launch"), block.index("Start-Process -FilePath $launch"))
-        self.assertIn("exit 10", block)                                       # a missing exe is a dead start
+        self.assertIn("exit 10", block)                                       # a missing exe or loader is a dead start
         self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
+        self.assertIn("} else {\n  Start-Process $launch\n}", block)
         self.assertIn("after $launch (screen: $Shot)", src)
+
+    def test_cycle_ps1_tests_the_installed_port_without_redeploying_on_the_opt_in(self):
+        # Install, 2026-10-28: every runner launch redeployed its -Staging, so an installed port (doors_anim_b00) would
+        # be put back to the staging's without a word
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        start = src.index("if ($env:FO4SF_PORT -eq 'installed') {")
+        block = src[start:src.index("if (Test-Path (Join-Path $sf 'Data\\FO4SFExp.install.json'))", start)]
+        installed, redeploy = block.split("} else {", 1)
+        self.assertNotIn("uninstall", installed)
+        self.assertNotIn("install --staging", installed)
+        self.assertIn("$verArgs = @('verify', '--starfield', $sfArg)", installed)
+        self.assertIn("$verArgs += @('--plugin-sha256', $env:FO4SF_PORT_SHA256)", installed)
+        self.assertIn('python -I "$repo\\scripts\\deploy_starfield.py" @verArgs', installed)
+        self.assertIn("exit 7", installed)                                    # nothing launched on a mismatch
+        # Codex on #558: fail closed as the lease gate does (a reused host's stale 0, python missing), and no trailing
+        # backslash on the game folder (PowerShell 5.1 would escape the closing quote and swallow the pin after it)
+        self.assertLess(installed.index("Get-Command python"), installed.index("@verArgs"))
+        self.assertLess(installed.index("$global:LASTEXITCODE = $null"), installed.index("try { $ver = python"))
+        self.assertIn("catch { $ver =", installed)
+        self.assertIn("if ($null -eq $verCode -or $verCode -ne 0) {", installed)
+        self.assertIn("$sfArg = $sf.TrimEnd('\\', '/')", installed)
+        self.assertLess(installed.index("$sfArg = $sf.TrimEnd"), installed.index("$verArgs = @("))
+        self.assertIn("uninstall --starfield $sf | Out-Null", redeploy)       # unchanged without the opt-in
+        self.assertIn("install --staging $Staging --starfield $sf", redeploy)
+        self.assertEqual(src.count("install --staging $Staging"), 1)
+        self.assertLess(start, src.index("Start-Process"))
+
+    def test_cycle_ps1_refuses_an_interior_batch_stage_before_touching_anything(self):
+        # deploy_starfield.py install --staging packs archives from loose files; a batch's port has none, and the
+        # uninstall before it would already have removed the installed port
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        guard = src.index("Test-Path -LiteralPath (Join-Path $stageRoot 'result.json')")
+        self.assertLess(guard, src.index("$p = Get-Process Starfield"))       # before the game is closed
+        self.assertLess(guard, src.index("deploy_starfield.py\" uninstall"))
+        self.assertIn("(Split-Path -Leaf $stg) -eq 'port'", src)               # the stage root or its port folder
+        block = src[src.index("if ($env:FO4SF_PORT -ne 'installed') {"):guard + 300]
+        self.assertIn("exit 7", block)
+
+    def test_a_queue_with_its_own_route_never_reuses_a_game_this_run_did_not_launch(self):
+        # Codex on #558: the runner's game left by an earlier queue (a Steam launch, another port) was reused, so the
+        # SFSE route and the installed-port check never ran
+        for q in ({"launch": "sfse"}, {"port": {"mode": "installed", "plugin_sha256": "cd" * 32}}, {}):
+            ctl = tt.FakeControls()                                            # the runner's own game (pid 42) is up
+            r = tq.Runner(self.d, tt.args(), ctl=ctl, step=lambda t, o: 0)
+            r.log = lambda msg, r=r: quiet_log(r, msg)
+            r.q.update(q)
+            calls = []
+
+            def ps(script, args, timeout, steal=False, ctl=ctl):
+                calls.append(script)
+                ctl.pid = 42                                                   # the new game is up
+                return 0, ""
+            r._ps = ps
+            with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                    mock.patch.object(tq.Runner, "setup_session", lambda self, cell: setattr(self, "session", True)):
+                self.assertIsNone(r.ensure_game("C"))
+                self.assertIsNone(r.ensure_game("C"))                          # the game this run launched is kept
+            self.assertEqual(getattr(ctl, "closed", 0), 1 if q else 0, q)
+            self.assertEqual(calls.count("cycle.ps1"), 1 if q else 0, q)       # without the options: reused, as before
+            if q:
+                self.assertEqual(r.state["relaunches"], 0)                     # an intended relaunch, not a crash's
+                self.assertIn("was not launched by this run", read(r.log_p))
+
+    def test_the_queue_sets_the_launch_route_and_the_port_mode_for_cycle_ps1(self):
+        r = self.runner()
+        with mock.patch.dict(os.environ, {"FO4SF_LAUNCH": "exe", "FO4SF_PORT": "installed",
+                                          "FO4SF_PORT_SHA256": "ab" * 32}, clear=False):
+            env = r.ps_env(steal=True)
+        self.assertEqual(env["FO4SF_LAUNCH"], "exe")                          # the shell's route without a queue route
+        self.assertNotIn("FO4SF_PORT", env)                                   # the port mode is the queue's alone
+        self.assertNotIn("FO4SF_PORT_SHA256", env)
+        r.q["launch"], r.q["port"] = "sfse", {"mode": "installed", "plugin_sha256": "cd" * 32}
+        with mock.patch.dict(os.environ, {"FO4SF_LAUNCH": "exe"}, clear=False):
+            env = r.ps_env(steal=True)
+        self.assertEqual((env["FO4SF_LAUNCH"], env["FO4SF_PORT"], env["FO4SF_PORT_SHA256"]), ("sfse", "installed", "cd" * 32))
 
     def test_cycle_ps1_waits_long_enough_for_the_first_v6e_load(self):
         # 2026-10-21: the first v6e launch reached gameplay after both 120 s waits ran out, so coc.ps1 saw no HUD

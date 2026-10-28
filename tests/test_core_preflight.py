@@ -153,6 +153,21 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("half-finished uninstall: FO4Port.esm removed", c.detail)
         self.assertEqual((c.expected, c.observed), (["FO4Port - Main.ba2", "FO4Port.esm"], ["FO4Port - Main.ba2"]))
+
+    def test_deploy_of_a_queue_that_tests_the_installed_port(self):
+        # plan --port installed (2026-10-28): the run tests the install as it is, pinned at plan time, not the staging
+        q = dict(FakeProbe().queue, port={"mode": "installed", "plugin_sha256": OTHER})
+        installed = {"complete": True, "files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {"sha256": OTHER}}}
+        c = one("deploy", queue=q, manifest=installed, data_files={"FO4Port.esm": OTHER})
+        self.assertEqual(c.status, pf.PASS, c.detail)                         # another build than the staging's
+        self.assertEqual(one("deploy", queue=q).status, pf.FAIL)              # the staging's build is not the pin
+        c = one("deploy", queue=q, manifest=None)
+        self.assertEqual(c.status, pf.FAIL)                                   # nothing to test, nothing deployed later
+        self.assertIn("--port installed", c.detail)
+        # the pin check reads the staging's own pin there (plugin_sha256 is the installed build's)
+        q = dict(q, plugin_sha256=OTHER, staging_plugin_sha256=SHA)
+        self.assertEqual(one("pin", queue=q).status, pf.PASS)
+        self.assertEqual(one("pin", queue=q, staged=OTHER).status, pf.FAIL)
         c = one("deploy", manifest=dict(FakeProbe().manifest, files=[]), data_files={})   # the files gone, the manifest not
         self.assertEqual((c.status, "nothing kept" in c.detail), (pf.FAIL, True))
         self.assertEqual(one("deploy", manifest=dict(FakeProbe().manifest, cleanup_pending=True)).status, pf.FAIL)

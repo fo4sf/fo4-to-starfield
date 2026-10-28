@@ -195,6 +195,57 @@ class CombinedProbePluginTests(unittest.TestCase):
         self.assertFalse((self.root / "loc" / "FO4SFCombinedProbe.esm").exists())
 
 
+    # --- P10's Story Manager branch on a master with a Script Event node (TerrainIdentityFixture "story-manager") ---
+
+    SM_KEYWORD, SM_BRANCH_A, SM_BRANCH_B = 0x3807E0, 0x3807E2, 0x3807E4      # the fixture's ids
+
+    def sm_opts(self, mode):
+        """self.opts with --sf on a master that adds a Script Event SMEN and its nodes ("story-manager": keyword
+        filters; "story-manager-open": none)."""
+        master = self.root / f"sm-{mode}/Starfield.esm"
+        if not master.exists():
+            fixture = build(self.dotnet, "TerrainIdentityFixture")
+            subprocess.run([self.dotnet, str(fixture), str(master), "map-marker", mode], capture_output=True, check=True)
+        opts = list(self.opts)
+        opts[opts.index("--sf") + 1] = master
+        return master, opts
+
+    def test_the_p10_branch_copies_the_vanilla_keyword_filter(self):
+        # Owner's PC, 28 Oct 2026: an unconditioned branch let FOCC_P10_Quest start at game start (Codex review of #557).
+        master, opts = self.sm_opts("story-manager")
+        out = self.root / "sm"
+        proc = self.tool_run("build", "--out", out, *opts)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # two of the three filters under the node are GetIsID/Keyword1; the root branch's decoy is not under it
+        self.assertIn(f"after {self.SM_BRANCH_B:06X}:Starfield.esm, condition GetEventData GetIsID/Keyword1 EqualTo 1 "
+                      "(shape of 2 of 3 vanilla keyword filters, e.g. SyntheticScriptEventBranchA", proc.stdout)
+        plugin = out / "FO4SFCombinedProbe.esm"
+        check = self.tool_run("check", plugin, *opts)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertIn("SMBN condition GetEventData GetIsID/Keyword1 record", check.stdout)
+        self.assertIn("vanilla keyword filter GetIsID/Keyword1 EqualTo 1, 2 of 3", check.stdout)
+        # binary round trip: our CTDA is branch A's, with FOCC_P10_Event in place of the fixture's keyword
+        ours = tlw.field(records(plugin)[OWN | 0x821][1], b"CTDA")
+        theirs = tlw.field(records(master)[self.SM_BRANCH_A][1], b"CTDA")
+        self.assertIn(struct.pack("<I", self.SM_KEYWORD), theirs)
+        self.assertEqual(ours, theirs.replace(struct.pack("<I", self.SM_KEYWORD), struct.pack("<I", OWN | 0x81F)))
+        # the check reads the condition back: the default master's root-node plugin has none, which this master refuses
+        plain, _ = self.built("sm-plain")
+        check = self.tool_run("check", plain, *opts)
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("FAIL  FOCC_P10_Branch has no single GetEventData condition naming FOCC_P10_Event", check.stdout)
+
+    def test_a_script_event_node_without_keyword_filters_is_refused(self):
+        _, opts = self.sm_opts("story-manager-open")
+        proc = self.tool_run("build", "--out", self.root / "sm-open", *opts)
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("refused: no node under SyntheticScriptEventNode", proc.stderr)
+        self.assertIn("--skip sm", proc.stderr)
+        self.assertFalse((self.root / "sm-open" / "FO4SFCombinedProbe.esm").exists())
+        proc = self.tool_run("build", "--out", self.root / "sm-open-skip", *opts, "--skip", "sm")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
 class ScriptContractTests(unittest.TestCase):
     def test_entry_points_resolve_the_quest_and_log_the_same_prefix(self):
         for name in mcp.ENTRY_POINTS:

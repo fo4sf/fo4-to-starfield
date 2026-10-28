@@ -2272,6 +2272,20 @@ stays a defect in the switch. The phase is not called done yet: Interiors' fix
 for the flicker (#542, in review) and #512's t6 Vault 95 runs come first, and
 calling it done is the owner's word. The entries above stand as written.
 
+## 2026-10-24: Phase 0 done (the owner's word)
+
+Interiors' first-load fix (#542) merged and was installed on the PC at 17:20
+UTC on the owner's line. At 18:45 UTC the owner loaded fresh at the Red Rocket
+spawn, walked west and south past Vault 95, and reported "no walls"; Install's
+log read agrees: the border switched off once at Red Rocket, came back on only
+in Cydonia, and switched off again on return. At 18:58 UTC the owner said
+"phase 0 is done", with all four exit gates ticked; #512's t6 runs did not run
+and no longer hold anything. For the next phase the owner named the map icons
+that don't load as the real map issue, possibly a map mod, and likely FO4's map
+locations on the Pip-Boy. Also next phase: the owner's Steam Fallout 4 is the
+newer update, not 1.10.163, so the launcher's version check needs it added. The
+entries above stand as written.
+
 ## 2026-10-25: Codex connected-travel risk research
 
 Owner-requested exploratory note in research/framework/travel-and-runtime-risks-oct25.md reconciles Claude's combined-core/world plans with current Warfare/Survival and reusable-support direction. Separates connected regions from continuous terrain, preserves boundary-test limitations, and lists travel/save/AI/vehicle/UI/suit risks and small future experiments. Primary SFSE, Bethesda and framework sources checked; document links/guard checked. No engine-limit verdict, native tests, source implementation, installation or merge. Owner route-preference questions remain pending.
@@ -2291,3 +2305,83 @@ Owner-requested follow-up maps the seven suggested tools and additional API, ass
 ## 2026-10-25: Codex scope and lore coverage audit
 
 Owner requested a broader review of research depth. Audited the available 1176-row lore ledger (206 full/371 partial/599 todo), submitted170 geography records and selected framework coverage/uncertainty sections. Full3844-entry store unavailable in this mirror; no comprehensive lore verification claimed. Documented section exclusions, an84-entry handoff count discrepancy requiring reconciliation, and reproduced two held entries printing adopted without their ruling through the existing formatter. Three fresh wiki opens returned403, not verified. Added scope matrix and prioritized research packets; no store/source edits, game actions, merge, peer wake or automation resume. Private audit evidence preserved separately; independent document review pending.
+
+## 2026-10-28: The combined core's seed, rerun with all seven Fallout 4 plugins
+
+Offline on the owner's PC, read-only on game files, run by the Install thread at
+main de91d6d0 into D:\Modding\research\combined_seed3. The data was the owner's
+Steam Fallout 4, the newer build, because the 1.10.163 depot copy lacks
+DLCCoast, DLCworkshop02, DLCworkshop03 and DLCNukaWorld; the sha256s are in
+docs/combined-core.md, "Real pack, all DLC". The seed read 487 locations, and
+the generated pack kept 243 places, 42 settlements and 7 holding factions. In
+`simulate --seed 1 --days 30`, 36 of 42 settlements ended at stage 3 with 14
+people, below their 20 beds; on 21 Oct, 36 of 38 sat at the bed cap. A 10-seed,
+30-day `balance` showed no settlement at its cap, population share 0.64 and
+morale 99. The command exited 1 on the fixtures' absolute bounds (attacks 3.91
+a day, 80.1 holder changes per 30 days). Per place and per faction, the scale
+bounds' terms, those are 0.33 and 0.56, inside the bounds and close to the
+synthetic baseline. At 30 days, morale above the scale bound's 95 was the one
+miss. A 5-seed, 90-day sweep of the same pack passes every scale bound (morale
+76.3, 11% of settlements at the cap, 5.1 settlement captures per 30 days) and
+sits close to the synthetic column D, so no rule changes. `balance --bounds
+scale` now picks that yardstick. Nothing here ran in game.
+
+## 2026-10-28: The combined core's first in-game probes
+
+The Install thread ran the probe plugin on the owner's PC with the stage and
+judges at main de91d6d0, each probe from the main menu with FO4SFMission.esm
+off. The first P2 attempt failed with "Cannot open store for class FOCC_Probe":
+the owner's 24 Oct save had been made with Mission on, and loading it silently
+switched Starfield back to that save's load order, probe plugin off, with no
+dialog. Started from the main menu instead, P2 and P3 persisted their keyword
+data across a relaunch and a load (37 read back as 37, linked locations still
+linked, 5 and 6 read back as 5 and 6). The judges first said INCONCLUSIVE,
+because OnInit does not run again on loading such a save and the second log
+had no init line; since #556 they accept a restarted real-time clock instead,
+and both folders then judged PASS. P4 passed: 20 cycles placed and deleted
+three actors each, and the save shrank by 1,776 bytes. P6 and P7 passed: the
+leveled lists picked base A or B from location keyword data and from our
+reputation global. P5 recorded 10 ticks over 50 globals at a median 121 ms,
+2.42 ms per place, and the compiler's 128-entry array cap. The P8 judge said
+FAIL, wrongly: every child matched its parent, but the three stage calls ran
+in one console session, where Utility.Wait does not count down, so all three
+readouts saw the last stage. It now says INCONCLUSIVE for that, and P8 is to
+be rerun with the console closed between calls. P10 is INCONCLUSIVE: its quest
+started at game start, 44 s before the story event was sent. The likely cause
+is that our Story Manager branch had no condition, so any vanilla script event
+could start it; the builder now copies the keyword filter of Starfield.esm's
+own Script Event nodes, and P10 waits on a restage. Details are in
+docs/spikes/combined-core-probes.md, "Results on the owner's PC".
+
+
+## 2026-10-28: The runner's SFSE launch and the installed port
+
+Before T6 and the animated doors checks, the Install thread found two gaps in
+the test runner. It launched the game through Steam, which loads no SFSE
+plugin, so T6's comparison of the two FO4SFBorder modes compared nothing. And
+every launch redeployed the queue's staging, so the animated doors port, once
+installed, would have been replaced by the older port without a word. Passing
+the doors build's port folder as the staging would have been worse: the
+deploy packs archives from loose files that folder does not have, after the
+installed port was already removed. Queues can now be planned with
+`--launch sfse` (cycle.ps1 starts sfse_loader.exe) and `--port installed`
+(cycle.ps1 deploys nothing and checks the installed port against its deploy
+record and the plugin pinned at plan time, stopping before launch on any
+difference). An older runner refuses such a queue, and cycle.ps1 refuses an
+interior batch stage as `-Staging` before it touches anything. Details are in
+docs/ai/test-queue.md, "SFSE launch and the installed port".
+
+
+## 2026-10-28: Door rounds accept the animated doors
+
+T6 stopped at its stage on the PC before touching the game. The door rounds
+stager skipped all 13 doors of the installed animated doors port, because it
+accepted only `FO4SF_LoadDoor` on a door and the port puts
+`FO4SF_AnimatedLoadDoor` on its interior doors. The animated script extends
+`FO4SF_LoadDoor`: it waits for the door's open animation, then runs the
+parent's own trip, with the same properties and the same trace lines. So T6's
+`PlaceDestination` and `SettleSeconds` work, which lives in the parent script
+the bridge carries, still applies to these doors. The stager now checks either
+script, the animated one with its `OpenSeconds` too, and records which one each
+door has. The judge did not need a change. Details are in
+docs/terrain/door-rounds.md.

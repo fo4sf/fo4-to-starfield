@@ -34,6 +34,13 @@ these queues leave it off.
 Every check the stage makes is against the installed plugins: the door REFR exists, its base is the one the build
 names (a DOOR, or an ACTI as the core writes its exterior load doors), its `FO4SF_LoadDoor` VMAD leads to the other
 side's marker, and both markers exist. A door that fails a check is listed under `skipped` in rounds.json, with the reason, and is not planned.
+The VMAD may instead carry `FO4SF_AnimatedLoadDoor`, which the animated doors port (`doors_anim_b00`) puts on the
+interior doors. That script extends `FO4SF_LoadDoor`, waits for the open animation, then runs the parent's own trip, so
+its properties, its `FO4SF_LoadDoor phase=...` trace and the judge are unchanged. The stage checks it the same way plus
+its `OpenSeconds` property, and rounds.json records each door's script. Until 2026-10-28 the stage skipped every
+animated door ("script 'FO4SF_AnimatedLoadDoor' status 0"). Plan the queue for such a port with
+`--port installed --starfield <game folder>`, since cycle.ps1 must not redeploy over a batch install
+(docs/ai/test-queue.md, "SFSE launch and the installed port").
 
 ## How to run (PC, game closed)
 

@@ -22,7 +22,8 @@
 //   0x81F  KYWD FOCC_P10_Event        the story event keyword
 //   0x820  QUST FOCC_P10_Quest        not start game enabled, event Script Event (SCPT: xEdit common.pas
 //                                     wbQuestEventEnum, listed for SF1), script FOCC_P10Quest
-//   0x821  SMBN FOCC_P10_Branch       parent = Starfield.esm's Script Event SMEN, previous sibling = that node's last child
+//   0x821  SMBN FOCC_P10_Branch       parent = Starfield.esm's Script Event SMEN, previous sibling = that node's last child;
+//                                     one condition GetEventData(FOCC_P10_Event), copied from a vanilla Script Event node
 //   0x822  SMQN FOCC_P10_QuestNode    parent = the branch, quests = [FOCC_P10_Quest]
 //   0x823..0x854  GLOB FOCC_P5_G00..G49
 //   --p3-cells: CELL overrides of FO4Port.esm's FO4Port_RedRocket01 (XLCN -> 0x807) and FO4Port_SuperDuperMart01
@@ -305,7 +306,7 @@ static class CombinedProbe
         if (o.Sm)
         {
             p10.Event = ScriptEvent;
-            smNote = StoryManager(mod, m, modKey, p10.FormKey, warnings);
+            smNote = StoryManager(mod, m, modKey, p10.FormKey, p10Event.FormKey, warnings);
         }
         mod.Quests.Add(p10);
 
@@ -450,17 +451,58 @@ static class CombinedProbe
         return (smen, tail?.FormKey ?? FormKey.Null);
     }
 
+    /// The keyword filter Starfield.esm's own Script Event nodes use: conditions on any branch or quest node under the
+    /// Script Event SMEN whose data is GetEventData naming one of Starfield.esm's keywords. Returns the most common
+    /// (function, member) shape, one example of it with its node, and how many conditions share it; null when none.
+    static (IConditionFloatGetter Cond, string Node, int Count, int Total)? EventKeywordFilter(IStarfieldModGetter sf, FormKey smen)
+    {
+        var nodes = sf.StoryManagerBranchNodes.Cast<IAStoryManagerNodeGetter>().Concat(sf.StoryManagerQuestNodes).ToList();
+        var parent = nodes.ToDictionary(n => n.FormKey, n => n.Parent.FormKeyNullable ?? FormKey.Null);
+        bool Under(FormKey k)
+        {
+            for (var i = 0; i < 64 && !k.IsNull; i++)
+            {
+                if (k == smen) return true;
+                k = parent.TryGetValue(k, out var up) ? up : FormKey.Null;
+            }
+            return false;
+        }
+        var keywords = sf.Keywords.Select(k => k.FormKey).ToHashSet();
+        var found = nodes.Where(n => Under(n.FormKey))
+            .SelectMany(n => n.Conditions.OfType<IConditionFloatGetter>().Select(c => (Node: n, Cond: c)))
+            .Where(x => x.Cond.Data is IGetEventDataConditionDataGetter d && keywords.Contains(d.Record.FormKey))
+            .ToList();
+        if (found.Count == 0) return null;
+        var shape = found.GroupBy(x => { var d = (IGetEventDataConditionDataGetter)x.Cond.Data; return (d.Function, d.Member); })
+            .OrderByDescending(g => g.Count()).First();
+        var ex = shape.First();
+        return (ex.Cond, $"{ex.Node.EditorID} {ex.Node.FormKey}", shape.Count(), found.Count);
+    }
+
     /// SMBN FOCC_P10_Branch under the vanilla Script Event node (appended after its last child) and SMQN
     /// FOCC_P10_QuestNode under the branch, listing the P10 quest. Without a Script Event node in the Starfield.esm
     /// read (the synthetic master of the offline test) the branch is written as a root node, with a warning.
-    static string StoryManager(StarfieldMod mod, Masters m, ModKey modKey, FormKey quest, List<string> warnings)
+    /// The branch carries one condition, GetEventData naming FOCC_P10_Event, copied in shape (function, member,
+    /// comparison) from Starfield.esm's own Script Event nodes. Owner's PC, 28 Oct 2026: without it, FOCC_P10_Quest
+    /// started at game start, 44 s before our send, most likely from a vanilla script event no earlier node took.
+    static string StoryManager(StarfieldMod mod, Masters m, ModKey modKey, FormKey quest, FormKey eventKeyword, List<string> warnings)
     {
         var (smen, tail) = ScriptEventNode(m.Sf);
         var branch = new StoryManagerBranchNode(new FormKey(modKey, P10BranchId), Release) { EditorID = "FOCC_P10_Branch" };
+        var filterNote = "no condition";
         if (smen is not null)
         {
             branch.Parent.SetTo(smen.FormKey);
             if (!tail.IsNull) branch.PreviousSibling.SetTo(tail);
+            var filter = EventKeywordFilter(m.Sf, smen.FormKey)
+                ?? throw new Refusal($"no node under {smen.EditorID} {smen.FormKey} filters on a keyword with GetEventData: " +
+                                                       "FOCC_P10_Branch would take every script event (rebuild with --skip sm to leave P10 out)");
+            var src = (IGetEventDataConditionDataGetter)filter.Cond.Data;
+            var data = new GetEventDataConditionData { Function = src.Function, Member = src.Member };
+            data.Record.SetTo(eventKeyword);
+            branch.Conditions.Add(new ConditionFloat { CompareOperator = filter.Cond.CompareOperator, ComparisonValue = filter.Cond.ComparisonValue, Data = data });
+            filterNote = $"condition GetEventData {src.Function}/{src.Member} {filter.Cond.CompareOperator} {filter.Cond.ComparisonValue} " +
+                         $"(shape of {filter.Count} of {filter.Total} vanilla keyword filters, e.g. {filter.Node})";
         }
         else warnings.Add($"{m.Sf.ModKey} has no Script Event SMEN: FOCC_P10_Branch written as a root node (synthetic masters only)");
         mod.StoryManagerBranchNodes.Add(branch);
@@ -470,7 +512,7 @@ static class CombinedProbe
         sq.Quest.SetTo(quest);
         node.Quests.Add(sq);
         mod.StoryManagerQuestNodes.Add(node);
-        return smen is null ? "SMBN root, SMQN" : $"SMBN under {smen.EditorID} {smen.FormKey} after {(tail.IsNull ? "none" : tail.ToString())}, SMQN";
+        return smen is null ? "SMBN root, SMQN" : $"SMBN under {smen.EditorID} {smen.FormKey} after {(tail.IsNull ? "none" : tail.ToString())}, {filterNote}, SMQN";
     }
 
     /// --p3-cells: FO4Port.esm's two interiors overridden without children, each given one probe location (XLCN).
@@ -644,6 +686,23 @@ static class CombinedProbe
                 {
                     Need(branch.Parent.FormKeyNullable == smen.FormKey, $"SMBN parent is not the Script Event node {smen.FormKey}");
                     Need((branch.PreviousSibling.FormKeyNullable ?? FormKey.Null) == tail, $"SMBN previous sibling is not that node's last child {(tail.IsNull ? "none" : tail.ToString())}");
+                    var cond = branch.Conditions.Count == 1 ? branch.Conditions[0] as IConditionFloatGetter : null;
+                    var ev = cond?.Data as IGetEventDataConditionDataGetter;
+                    var filter = EventKeywordFilter(m.Sf, smen.FormKey);
+                    var ours = ev is null || cond is null ? $"none ({branch.Conditions.Count} conditions)"
+                        : $"GetEventData {ev.Function}/{ev.Member} record {ev.Record.FormKey} {cond.CompareOperator} {cond.ComparisonValue}";
+                    var vanilla = "none";
+                    if (filter.HasValue)
+                    {
+                        var vf = filter.Value;
+                        var vd = (IGetEventDataConditionDataGetter)vf.Cond.Data;
+                        vanilla = $"{vd.Function}/{vd.Member} {vf.Cond.CompareOperator} {vf.Cond.ComparisonValue}, {vf.Count} of {vf.Total}, e.g. {vf.Node}";
+                        if (ev is not null && cond is not null)
+                            Need(ev.Function == vd.Function && ev.Member == vd.Member && cond.CompareOperator == vf.Cond.CompareOperator && cond.ComparisonValue == vf.Cond.ComparisonValue,
+                                 "FOCC_P10_Branch's condition is not the vanilla keyword filter's shape");
+                    }
+                    Console.WriteLine($"  SMBN condition {ours}; vanilla keyword filter {vanilla}");
+                    Need(ev is not null && ev.Record.FormKey == K(P10EventId), "FOCC_P10_Branch has no single GetEventData condition naming FOCC_P10_Event: any script event would start FOCC_P10_Quest");
                 }
             }
             Need(node is not null && node.EditorID == "FOCC_P10_QuestNode" && node.Parent.FormKeyNullable == K(P10BranchId) &&
