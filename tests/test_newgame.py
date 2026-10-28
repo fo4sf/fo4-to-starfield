@@ -26,7 +26,7 @@ CS = os.path.join(ROOT, "dotnet", "NewGame", "Program.cs")
 RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
-DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, looks=True, race_menu_mode=None, special=True,
+DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, clear_inventory=False, vault_suit=None, require_persistent_anchor=False)
 
 
@@ -388,21 +388,28 @@ class ContractTests(unittest.TestCase):
             self.assertIn(f"| {n} | {what} |", doc)
 
     def test_the_writer_defaults_match_the_python_ones(self):
-        """NG-2: the default build overrides GLOB MQ101Debug to 2 (the inert start), off under --no-mq101debug. NG-19 /
-        NG-N1: the default hold list has the two quests MQ101's stage 9000 starts on stop."""
+        """NG-2: the default build writes NO GLOB MQ101Debug override (28 Oct run 2) and the quest writes 2 right after the
+        hold-off (--debug-after-hold); --mq101debug <n> overrides the record for an experiment. NG-19 / NG-N1: the
+        default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
         self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
-        self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
+        self.assertNotIn("DefaultMQ101Debug", cs)
+        self.assertIn(f"DefaultDebugAfterHold = {ng.DEBUG_AFTER_HOLD};", cs)
+        self.assertIn('ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : null', cs)
         self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
         p = namespace()
         self.assertEqual(ng.tool_options(p), [])
-        self.assertEqual(ng.mq101debug_option(p), 2)
+        self.assertIsNone(ng.mq101debug_option(p))
+        self.assertEqual(ng.debug_after_hold_option(p), 2)
         p.no_mq101debug = True
         self.assertEqual(ng.tool_options(p), ["--no-mq101debug"])
         self.assertIsNone(ng.mq101debug_option(p))
         p.no_mq101debug, p.mq101debug, p.looks = False, 8.0, False
         self.assertEqual(ng.tool_options(p), ["--mq101debug", "8.0", "--no-looks"])
         self.assertEqual(ng.mq101debug_option(p), 8.0)
+        p.mq101debug, p.debug_after_hold = None, 0
+        self.assertEqual(ng.tool_options(p), ["--debug-after-hold", "0", "--no-looks"])
+        self.assertEqual(ng.debug_after_hold_option(p), 0)
 
     def test_the_hold_off_runs_twice(self):
         """Stopping MQ101 runs its stage 9000, which starts MQ101PostQuest and MQ_TutorialQuest_Misc04 (PC read 19 Oct,
@@ -455,38 +462,56 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(ng.is_new_game(0.0, 2))
         self.assertFalse(ng.is_new_game(12.5, 30))           # the owner's test saves
 
-    def test_the_debug_global_starts_the_opening_inert(self):
-        """28 Oct, the owner's first new game: the plugin's MQ101Debug = 10 was the developer start at the pirate fight
-        (MQ101 stage 0 entry 10, Item_10: SetStage 210 and 250), not what vanilla writes (MQ00's stage 10 is no
-        start-up stage), so the opening ran and our guard stood down at opening_stage=250. The default is now 2: the
-        value MQ102 to MQ305 write once the intro is over, which matches no start entry (0 the intro, 1 and 3 to 10 the
-        developer starts) and keeps PEO_SustenanceAllowed's "MQ101Debug != 0" open. The script reads the global back
-        into its guard line, so the next log shows what the game saw."""
-        self.assertEqual(ng.DEFAULT_MQ101DEBUG, 2)
-        self.assertEqual(ng.DEBUG_START_PIRATES, 10)
-        self.assertNotIn(ng.DEFAULT_MQ101DEBUG, (0, 1, 3, 4, 5, 6, 7, 8, 9, 10))
+    def test_the_debug_global_is_written_after_the_hold_off(self):
+        """28 Oct, two in-game runs. Run 1: the plugin's MQ101Debug = 10 was the developer start at the pirate fight
+        (MQ101 stage 0 entry 10, Item_10: SetStage 210 and 250), so the opening ran and our guard stood down at
+        opening_stage=250. Run 2: the override of 2 matched no stage-0 entry, and since each matching entry's fragment
+        is what moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, WaitFor3dLoad), the
+        new game never left its loading screen and our quest never started. So the build overrides nothing at the
+        start (Starfield's intro places the player, the hold-off stops it) and the quest writes 2 into the global right
+        after hold-off pass 1, with SetValueInt as MQ102's own fragment does; the guard line still reads the global."""
+        self.assertIsNone(ng.DEFAULT_MQ101DEBUG)
+        self.assertEqual((ng.DEBUG_INTRO, ng.DEBUG_START_PIRATES, ng.DEBUG_UNMATCHED, ng.DEBUG_AFTER_HOLD), (0, 10, 2, 2))
         psc, cs = read(PSC), read(CS)
         self.assertIn("GlobalVariable Property DebugGlobal Auto Const Mandatory", psc)
-        self.assertIn(f"float Property DebugValue = {ng.DEFAULT_MQ101DEBUG}.0 Auto Const", psc)
+        self.assertIn(f"int Property DebugAfterHold = {ng.DEBUG_AFTER_HOLD} Auto Const", psc)
+        self.assertNotIn("DebugValue", psc)
         self.assertIn('Obj("DebugGlobal", debugGlob.FormKey)', cs)
-        self.assertIn('("DebugValue", o.MQ101Debug ?? 0f)', cs)
+        self.assertIn('("DebugAfterHold", o.DebugAfterHold)', cs)
         self.assertIn('DebugGlobEdid = "MQ101Debug"', cs)
         # the guard's readings line comes before the verdict, inside the once-only guard, and names the global
         guard = psc.index('Trace("guard days=')
         self.assertLess(psc.rindex("if holdPasses == 0", 0, guard), guard)
         self.assertLess(guard, psc.index("if !fresh || !IsNewGame(days, level)"))
         line = psc[guard:psc.index("\n", guard)]
-        for literal in ("days=", " level=", " opening_stage=", " opening_running=", " fresh=", " mq101debug=", " expected="):
+        for literal in ("days=", " level=", " opening_stage=", " opening_running=", " fresh=", " mq101debug=", " write_after_hold="):
             self.assertIn(literal, line)
         self.assertIn("DebugGlobal.GetValue()", line)
-        self.assertIn("GetValue", ng.NATIVES[ng.SCRIPT]["GlobalVariable"])
-        # the first build's value stays buildable on purpose (--mq101debug 10) but is never the default
+        # the write comes right after hold-off pass 1 (MQ101 stopped), before the chargen restore and the move
+        write = psc.index("DebugGlobal.SetValueInt(DebugAfterHold)")
+        self.assertLess(psc.index("HoldOffPass(1)"), write)
+        self.assertLess(write, psc.index("Game.SetInChargen(false, false, false)"))
+        # inside the once-only guard block (a retried move must not write again) and inside its own if (0 writes nothing)
+        gate = psc.rindex("if holdPasses == 0", 0, write)
+        body = psc[gate:psc.index("\n        endif\n", gate)]
+        self.assertIn("DebugGlobal.SetValueInt(DebugAfterHold)", body)
+        self.assertLess(body.index("HoldOffPass(1)"), body.index("if DebugAfterHold != 0"))
+        self.assertNotIn("endif", body[body.index("if DebugAfterHold != 0"):body.index("DebugGlobal.SetValueInt(DebugAfterHold)")])
+        self.assertEqual(psc.count("SetValueInt("), 1)
+        self.assertIn('Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)', psc)
+        self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt"])
+        # the two values of 28 Oct stay buildable on purpose (--mq101debug) for experiments, never as the default
         self.assertIn('("debug10", idsPath, plain with { MQ101Debug = 10 })', cs)
+        self.assertIn('("debug0", idsPath, plain with { MQ101Debug = 0 })', cs)
+        self.assertIn('("nowrite", idsPath, plain with { DebugAfterHold = 0 })', cs)
+        self.assertIn("a MQ101Debug override added at the second build's 2", cs)
 
     def test_an_early_existing_save_is_not_a_fresh_start(self):
         """21 Oct review on #393: days and level alone let an early level-1 save under six hours through."""
         psc = read(PSC)
-        self.assertIn("return openingStage < SaveableStage && !openingCompleted && !(openingStopped && openingStage > 0)", psc)
+        self.assertIn("return openingRunning && openingStage < SaveableStage && !openingCompleted", psc)
+        self.assertIn("bool fresh = IsFreshStart(openingStage, openingRunning, Opening.IsCompleted())", psc)
+        self.assertIn("bool openingRunning = Opening.IsRunning()", psc)
         self.assertIn(f"int Property SaveableStage = {ng.SAVEABLE_STAGE} Auto Const", psc)
         self.assertIn("if !fresh || !IsNewGame(days, level)", psc)
         # the guard runs only before the hold-off, so a retried move never re-judges the opening it stopped
@@ -494,12 +519,13 @@ class ContractTests(unittest.TestCase):
         gate = psc.rindex("if holdPasses == 0", 0, guard)
         self.assertNotIn("endif", psc[gate:psc.index("bool fresh", gate)])
         self.assertLess(guard, psc.index("HoldOffPass(1)", gate))
-        self.assertTrue(ng.is_fresh_start(0, False, True))     # MQ101 not started yet
-        self.assertTrue(ng.is_fresh_start(0, False, False))    # MQ101 at its stage 0, saving still off
-        self.assertFalse(ng.is_fresh_start(105, False, False))  # saving is back on: a save could exist
-        self.assertFalse(ng.is_fresh_start(300, False, False))
+        self.assertTrue(ng.is_fresh_start(0, True, False))     # MQ101 running at its stage 0 (a New Game), saving off
+        self.assertTrue(ng.is_fresh_start(104, True, False))
+        self.assertFalse(ng.is_fresh_start(0, False, False))   # never started: coc from the main menu (map test, 28 Oct)
+        self.assertFalse(ng.is_fresh_start(105, True, False))  # saving is back on: a save could exist
+        self.assertFalse(ng.is_fresh_start(300, True, False))
         self.assertFalse(ng.is_fresh_start(0, True, True))     # completed
-        self.assertFalse(ng.is_fresh_start(30, False, True))   # stopped after it began
+        self.assertFalse(ng.is_fresh_start(30, False, False))  # stopped after it began
         self.assertIn('Obj("Opening", opening.FormKey)', read(CS))
 
     def test_every_native_the_script_calls_is_prechecked(self):
@@ -560,7 +586,8 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
               "bool Function IsEquipped(Form akItem) native\n")
 
 
-def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None):
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
+             objectreference=None):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -576,9 +603,10 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN,
-        "GlobalVariable": "float Function GetValue() native\n",
+        "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
-        "ObjectReference": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
+        "ObjectReference": objectreference if objectreference is not None else
+                           "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
         "Quest": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["Quest"]),
         # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
         "ScriptObject": scriptobject if scriptobject is not None else
@@ -614,6 +642,30 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(r["drop"], [])
         self.assertEqual(len(r["mq101debug"]), 1)
         self.assertIn("QF_MQ101_00003448.psc:1:", r["mq101debug"][0])
+
+    def test_an_inherited_declaration_counts(self):
+        """28 Oct: Starfield's Actor.psc declares neither SetValue nor GetValue (Install's precheck), yet the Papyrus
+        compiler built FO4SF_NewGameSpecial for newgame_v7, so the two are declared on a parent of Actor. The precheck
+        follows "Scriptname X extends Y" the way the compiler resolves the call; a declaration nowhere in the chain still
+        drops the script, and a chain that loops ends."""
+        z = os.path.join(self.tmp, "cr.zip")
+        objref = ("Scriptname ObjectReference extends Form\n"
+                  + "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"])
+                  + "\nFunction SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE, objectreference=objref)
+        r = ng.precheck_zip(z)
+        self.assertTrue(r["natives"][ng.SPECIAL]["Actor.SetValue"])
+        self.assertTrue(r["natives"][ng.SPECIAL]["Actor.GetValue"])
+        self.assertEqual(r["drop"], [])
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE)
+        r = ng.precheck_zip(z)
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
+        self.assertEqual(r["drop"], ["--no-special"])
+        self.assertEqual(r["missing_core"], [])              # the quest script's Actor natives are in Actor.psc itself
+        loop = {"actor": "Scriptname Actor extends ObjectReference\n", "objectreference": "Scriptname ObjectReference extends Actor\n"}
+        self.assertFalse(ng.declares(loop, "Actor", "SetValue"))
+        self.assertEqual(ng.parent_of("Scriptname Actor extends ObjectReference\n"), "ObjectReference")
+        self.assertIsNone(ng.parent_of("Scriptname ScriptObject\n"))
 
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
@@ -732,10 +784,11 @@ class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
-        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 guard days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=2.000000 expected=2.000000",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 guard days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=0.000000 write_after_hold=2",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 mq101debug written=2.000000 was=0.000000",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2 (quest items kept)",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
@@ -770,7 +823,8 @@ class LogTests(unittest.TestCase):
         self.assertTrue(s["landed"])
         self.assertFalse(s["fell"])
         self.assertFalse(s["stood_down"])
-        self.assertEqual(s["guard"], "days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=2.000000 expected=2.000000")
+        self.assertEqual(s["guard"], "days=0.333530 level=1 opening_stage=0 opening_running=True fresh=True mq101debug=0.000000 write_after_hold=2")
+        self.assertEqual(s["mq101debug_written"], "2.000000 was=0.000000")
         self.assertIn("stage=20", s["last_status"])
         self.assertEqual(s["version_saved"], "1.000000")
         self.assertIsNone(s["version_load"])                 # no save was loaded in this run
@@ -885,8 +939,25 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(s["guard"])
         # the 10:43 run of the same day stood down with the opening still at stage 0: the day limit alone did it
         self.assertFalse(ng.is_new_game(0.333530, 1, max_days=0.25))
-        self.assertTrue(ng.is_fresh_start(0, False, False))
+        self.assertTrue(ng.is_fresh_start(0, True, False))
         self.assertTrue(ng.is_new_game(0.333530, 1))
+
+    def test_the_owners_run_2_of_28_oct_never_started(self):
+        """The second in-game run (fo4sf_newgame.0.log, PC 28 Oct 13:35, build 5167f6aa, MQ101Debug overridden to 2):
+        the version script's alias filled ("version saved") and nothing else ever ran, no init, no guard, because
+        Starfield's first load never completed (no stage-0 entry of MQ101 matched 2, so nothing moved the player; the
+        intro's own fragment is what does, Item_02: moveto CharGenStartMarker). The reader shows an unstarted run, not a
+        stand-down, and exit 1; the build overrides nothing at the start since."""
+        code, s = self.run_log("[13:35:28] FO4SF_NEWGAME rt=64.002007 version saved=1.000000 (new game)\n")
+        self.assertEqual(code, 1)
+        self.assertFalse(s["stood_down"])
+        self.assertEqual(s["stages"], [])
+        self.assertIsNone(s["guard"])
+        self.assertIsNone(s["mq101debug_written"])
+        self.assertEqual(s["version_saved"], "1.000000")
+        self.assertEqual(s["runs"], 1)
+        self.assertIsNone(ng.DEFAULT_MQ101DEBUG)
+        self.assertEqual(ng.DEBUG_UNMATCHED, 2)
 
     def test_stood_down_and_exit_code(self):
         tmp = tempfile.mkdtemp()
