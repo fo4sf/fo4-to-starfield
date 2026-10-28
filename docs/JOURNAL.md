@@ -2305,3 +2305,26 @@ miss. A 5-seed, 90-day sweep of the same pack passes every scale bound (morale
 76.3, 11% of settlements at the cap, 5.1 settlement captures per 30 days) and
 sits close to the synthetic column D, so no rule changes. `balance --bounds
 scale` now picks that yardstick. Nothing here ran in game.
+
+## 2026-10-28: The combined core's first in-game probes
+
+The Install thread ran the probe plugin on the owner's PC with the stage and
+judges at main de91d6d0, each probe from the main menu with FO4SFMission.esm
+off. The first P2 attempt failed with "Cannot open store for class FOCC_Probe":
+the owner's 24 Oct save had been made with Mission on, and loading it silently
+switched Starfield back to that save's load order, probe plugin off, with no
+dialog. Started from the main menu instead, P2 and P3 persisted their keyword
+data across a relaunch and a load (37 read back as 37, linked locations still
+linked, 5 and 6 read back as 5 and 6). The judges still said INCONCLUSIVE,
+because OnInit does not run again on loading such a save and the second log
+had no init line; they now accept a restarted real-time clock instead (#556),
+and the two folders are to be judged again. P6 and P7 passed: the leveled
+lists picked base A or B from location keyword data and from our reputation
+global. P5 recorded 10 ticks over 50 globals at a median 121 ms, 2.42 ms per
+place, and the compiler's 128-entry array cap. P10 is INCONCLUSIVE: its quest
+started at game start, 44 s before the story event was sent. The likely cause
+is that our Story Manager branch had no condition, so any vanilla script event
+could start it; the builder now copies the keyword filter of Starfield.esm's
+own Script Event nodes, and P10 waits on a restage. Details are in
+docs/spikes/combined-core-probes.md, "Results on the owner's PC".
+

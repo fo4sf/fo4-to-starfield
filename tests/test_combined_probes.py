@@ -1132,6 +1132,33 @@ class P10Tests(unittest.TestCase):
         c.plan = {"skip": ["lvln"], "sm_nodes_written": True}
         self.assertEqual(probes.check_p10(c).verdict, PASS)
 
+    def test_a_quest_already_running_before_the_send_settles_nothing(self):
+        # Owner's PC, 28 Oct 2026: OnQuestInit at game start (rt 59.137), the send at rt 103.490, running=True after.
+        q = 0x03000820
+        real = [INIT, f"[22:50:35] FOCC rt=59.137 p10 quest started id={q} local=2080",
+                f"[22:51:19] FOCC rt=103.490 p10 sent event={0x0300081F}",
+                f"[22:51:49] FOCC rt=132.827 p10 state id={q} local=2080 running=true"]
+        v = probes.check_p10(col(log=real))
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 59.137})
+        self.assertTrue(any("already running before the send" in r for r in v.reasons), v.reasons)
+        stopped = real[:3] + [f"FOCC rt=140.0 p10 state id={q} local=2080 running=False"]
+        self.assertEqual(probes.check_p10(col(log=stopped)).verdict, INCONCLUSIVE)    # not "never started": it had
+        pre = [INIT, f"FOCC rt=9.0 p10 state id={q} local=2080 running=True", *P10[1:2], P10[3]]   # from a loaded save
+        v = probes.check_p10(col(log=pre))
+        self.assertEqual(v.extra["running_before_send"], {"line": 2, "rt": 9.0})
+        self.assertEqual(probes.check_p10(col(log=[INIT, f"FOCC rt=9.0 p10 state id={q} local=2080 running=False", *P10[1:]])).verdict,
+                         PASS)                                                              # not running before: the send started it
+        restarted = [INIT, real[1]] + P10[1:]           # started at game start, stopped, started again by the send
+        self.assertEqual(probes.check_p10(col(log=restarted)).verdict, PASS)
+
+    def test_reasons_say_what_the_log_holds(self):
+        v = probes.check_p10(col(log=P10[:2] + [P10[3]]))         # running after the send, no start line anywhere
+        self.assertEqual(v.verdict, INCONCLUSIVE)
+        self.assertTrue(any("is running, but no `p10 quest started`" in r for r in v.reasons), v.reasons)
+        v = probes.check_p10(col(log=P10[:2]))
+        self.assertTrue(any("no `p10 state` line follow" in r for r in v.reasons), v.reasons)
+
 
 # ----------------------------------------------------------------------------------------------- folder + CLI
 

@@ -127,7 +127,9 @@ for a named job", and this is that job. Its costs:
 - Setup: it needs CommonLibSF's build tools on the PC. Installing those is the owner's call.
 
 **If B0 fails, or the licence does not fit:**
-- The 20-place slice runs in Papyrus, if P5 shows a Papyrus tick over 20 places is fast enough.
+- The 20-place slice runs in Papyrus, if P5 shows a Papyrus tick over 20 places is fast enough. P5 on the owner's
+  PC (28 Oct) measured 2.42 ms per place for its tick of one global per place, so about 50 ms for 20 places of
+  that shape. A real tick does more per place, so measure the slice's own tick before relying on it.
 - The full Commonwealth (about 230 places) stays offline until a bridge exists.
 - A Papyrus port cannot match the Python rolls, because Papyrus floats are 32-bit. The three rolls would become
   integer rolls in the reference model first, with a new balance baseline.

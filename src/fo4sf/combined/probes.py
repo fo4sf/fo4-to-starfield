@@ -1375,9 +1375,12 @@ def check_p10(c: Collection) -> Verdict:
         v.verdict = FAIL
         return v
     # Only lines whose logged id is FOCC_P10_Quest count: local=2080 is a literal the scripts print (Codex, #431).
-    after = [e for e in started if e.line > s.line and _local(e, "id") == LOCAL["p10_quest"]]
+    ours = [e for e in started if _local(e, "id") == LOCAL["p10_quest"]]
+    after = [e for e in ours if e.line > s.line]
+    before = [e for e in ours if e.line < s.line]
     state = [e for e in state if _local(e, "id") == LOCAL["p10_quest"]]
     running = state[-1].flag("running") if state and state[-1].line > s.line else None
+    pre = [e for e in state if e.line < s.line]
     if after:
         e = after[0]
         # IsRunning counts only when read after that OnQuestInit; an earlier read says nothing (Codex review of #431).
@@ -1401,11 +1404,24 @@ def check_p10(c: Collection) -> Verdict:
         v.reasons.append("SendStoryEvent ran, FOCC_P10_Quest's OnQuestInit fired and IsRunning is True")
         v.verdict = PASS
         return v
+    if before or (pre and pre[-1].flag("running") is True):
+        # Owner's PC, 28 Oct 2026: OnQuestInit logged at rt 59.1, the send at rt 103.5. A quest already running
+        # cannot be started by the send, so the run says nothing about our branch.
+        e = before[-1] if before else pre[-1]
+        v.extra["running_before_send"] = {"line": e.line, "rt": e.rt}
+        v.reasons.append(f"FOCC_P10_Quest was already running before the send (line {e.line}, rt {e.rt}; the send "
+                         f"is line {s.line}, rt {s.rt}): something else started it, so this run cannot show what the "
+                         "send does")
+        return v
     if running is False:
         v.reasons.append("SendStoryEvent ran but the quest never started and IsRunning is False")
         v.verdict = FAIL
         return v
-    v.reasons.append("SendStoryEvent ran; no `p10 quest started` line and no state line")
+    if running is True:
+        v.reasons.append("SendStoryEvent ran and FOCC_P10_Quest is running, but no `p10 quest started` line follows "
+                         "the send: what started it is not shown")
+        return v
+    v.reasons.append("SendStoryEvent ran; no `p10 quest started` line and no `p10 state` line follow it")
     return v
 
 
