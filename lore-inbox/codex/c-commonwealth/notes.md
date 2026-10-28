@@ -1,3 +1,15 @@
+## Seventh delivery: Jamaica Plain primary records
+
+127 new entries total, allunchecked forClaude/Grok.33new claims:13terminal,10inventory,8Carlroster/log,1Nickdialogue,1guide. Previous94bytesunchanged. Allocated8106..8118,8120..8139;8119rejected/unused. NextnumericID8140. Totals115game,10guide,1dependent,1cutHOLD. No duplicatedUS0067flag orTL0165opening-date claim.
+
+The canonicalTODO JamaicaPlain5574822 page was cached once. Its cited primary followups were first queued in this inbox's source-requests.md, checked absent from priorledgers/cache, then read once: terminals5283989,inventory5658355,Carl5700129. Allfour remainPARTIAL with explicit omissions; sourceledger20rows17pages3images=1FULL19PARTIAL. Exact64queue/currentrawsnapshot remain pending; this doesnotreplace thatqueue or completeStopA.
+
+Important qualifications: FY2077 runs10/1/2076–10/1/2077. Listedbudget totals addcorrectly; exhibit allocation isnotverified finalconstructioncost. Janitoranniversary has8/22heading and9/20body; unresolved. Threevisitors isone-dayreport. October23closure/escape isintention. Carl's month/day logs omit year; rosterroles areassignments, Hadrian tentative, Sal's murderousintent isCarl's fear. No mayor-death/exhibitoutcome/wholeteam-betrayal claim adopted fromwiki summary.
+
+Parent rejectedhelperCU8119 becausewikiLocationsentence isnotinventorytext. Donorname expansions hidden inwikilinks were removed. Originalhelperdraft/QA andcorrectedactualwordcount retainedprivately. NewMStahlmanmemoriallisting isqualified; no inferreddeathdate. Wiki-listedholotapeIDs arecited but not raw-IDvalidated. PriorJamaicaPlainmapanchor0005E630 reused aftermaster/reader/exporterhash continuity; no repeatwriter/nativejob. Mapanchor isnotobject/body/interior/eventcoordinates;14distinctanchors remain.
+
+Validation:33newrows passunmodifiedschema; whole127CLI hasonlypriorCU8081cut-tiermismatch, owner-policyinmemory0. Prior318checks/mismatches unchangedandnotrerun. Canonicaldata/build andvalidator unchanged; guard/diff/inboxscope pass. No game/install/deploy/merge.
+
 ## Sixth delivery: Boston placards and Mass Fusion
 
 94 new entries total, all unchecked for Claude/Grok. This delivery adds17 (7placard,10terminal) while preserving the previous77 byte-for-byte. IDs8086..8092 and8096..8105;8093..8095unused. NextnumericID8106. All17 are game-source claims, explicitly attributed where historical/commercial/memo assertions require it. No literal screenshot, rawgameasset or private operating evidence is included.

@@ -109,10 +109,10 @@
   "eleventh_delivery_note": "308/318 checks:136primary172reported;states93,military86,vault129. Three sourcegaps closed;original17tier-policy errors retained, in-memory owner-policy0. Canonicaldataunchanged;StopAincomplete.",
   "twelfth_delivery_note": "Priority second reads complete318/318:146primary172asreported. States102,military86,vault130. Canonical data untouched;17 original validator tier-policy errors remain, in-memory owner-policy0. StopA incomplete: Commonwealth queue work remains. Exact raw snapshot/queue pending recovery, known explicitly assigned TODO sources can proceed.",
   "new_commonwealth": {
-    "entries": 94,
-    "ids": "8086..8092,8096..8105 added;old77retained",
-    "sources": 16,
-    "coverage": "1full/15partial",
+    "entries": 127,
+    "ids": "8106..8118,8120..8139 added;old94retained;8119unused",
+    "sources": 20,
+    "coverage": "1full/19partial",
     "all_unchecked": true,
     "original_validator_exit": 1,
     "known_original_policy_mismatches": 1,
@@ -120,12 +120,12 @@
     "canonical_unchanged": true,
     "exact_queue_recovered": false,
     "markers_verified": 14,
-    "game_tier1_count": 83,
-    "guide_tier2_count": 9,
+    "game_tier1_count": 115,
+    "guide_tier2_count": 10,
     "dependent_tier2_count": 1,
     "cut_tier2_hold_count": 1,
     "roadway_images_inspected": 3,
-    "new17_original_validator_errors": 0
+    "new33_original_validator_errors": 0
   },
   "mil_source_followup": {
     "id": "MIL-0011",
