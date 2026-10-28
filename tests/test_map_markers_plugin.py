@@ -669,7 +669,7 @@ class ScriptContractTests(unittest.TestCase):
         # the next lift (Codex on #483): the budget is keyed to the build (marker count, LocalZ[0]) and starts over
         self.assertIn("int budgetN = -1", self.text)
         self.assertIn("float budgetZ = 0.0", self.text)
-        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function Place")]
+        reset = self.text[self.text.index("Function ResetBudget"):self.text.index("Function NewSession")]
         self.assertIn("budgetN != Markers.Length || budgetZ != LocalZ[0]", reset)
         for line in ("budgetN = Markers.Length", "budgetZ = LocalZ[0]", "moves = 0"):
             self.assertIn(line, reset)
@@ -816,7 +816,14 @@ class ScriptContractTests(unittest.TestCase):
                       '" markers=" + Markers.Length', '" first=" + first', '" interior=" + player.IsInInterior()'):
             self.assertIn(field, line)
         self.assertIn("if Markers.Length > 0", line)                     # no index into an empty list
-        self.assertNotIn("border=", line)                                # FO4SFBorder takes the newest border= token
+        # FO4SFBorder takes the newest border= token in the log: only Border's own two lines may carry one
+        traces = re.findall(r"Trace\((.*)\)\s*$", self.text, re.M)
+        self.assertEqual([t for t in traces if "border=" in t],
+                         ['"border=off cell=" + c + " world=" + w', '"border=on cell=" + c + " world=" + w'])
+        self.assertGreaterEqual(len(traces), 10)
+        # a load in a new launch runs no OnInit: the session opens the log before its first line
+        session = self.text[self.text.index("bool Function NewSession"):self.text.index("Function SessionLine")]
+        self.assertLess(session.index("Debug.OpenUserLog(LogName)"), session.index("Trace("))
         trace = self.text[self.text.index("Function Trace"):]
         self.assertIn('" q=" + QuestLow() + " " + msg', trace)
 
@@ -829,7 +836,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("new List<PlacedObject> { pad, trigger, marker, heading }", program)
         self.assertIn("static List<T[]> QuestChunks<T>(", program)
         self.assertEqual(program.count("QuestChunks("), 2)                # build and check split the same way
-        self.assertIn("var chunks = all.Chunk(PerQuest).ToList();", program)    # the landing is the list's last four
+        self.assertIn("var chunks = all.Chunk(PerQuest).ToList();", program)    # (test_the_landing_spot_stays_in_one_quest)
         show = self.text[self.text.index("Function ShowLanding"):self.text.index("Event OnTimer")]
         self.assertIn("int i = Markers.Length - 4", show)                      # the pad, fourth from the end
         self.assertIn("ObjectReference marker = Markers[i + 2]", show)

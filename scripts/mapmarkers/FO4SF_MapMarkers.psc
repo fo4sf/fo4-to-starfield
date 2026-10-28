@@ -102,6 +102,7 @@ Function ResetBudget()
         budgetZ = LocalZ[0]
         moves = 0
         refused = new bool[128]                                 ; a new build can list other references at those places
+        landingShown = False
     endif
 EndFunction
 
@@ -113,6 +114,7 @@ bool Function NewSession()
     float rt = Utility.GetCurrentRealTime()
     bool fresh = placeRealTime <= 0.0 || rt < placeRealTime
     if fresh
+        Debug.OpenUserLog(LogName)                              ; a load in a new launch runs no OnInit to open it
         RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")  ; a save from before the registration ran OnInit
         if moves > 0
             Trace("session: move budget starts over (was moves=" + moves + ")")
