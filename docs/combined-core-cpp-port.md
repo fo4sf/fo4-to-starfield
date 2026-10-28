@@ -124,7 +124,49 @@ for a named job", and this is that job. Its costs:
 - One native, `FOCC_Ping(int) -> int`, registered through CommonLibSF on 1.16.244 and called from a test quest
   script.
 - Pass: the value comes back, and the native still works after a save and a load.
-- Setup: it needs CommonLibSF's build tools on the PC. Installing those is the owner's call.
+- Setup: CommonLibSF's build tools on the PC. The owner approved them on 28 October 2026 and Install put them under
+  `D:\Modding\tools`, nothing elevated: MSVC 14.44, Windows SDK 10.0.26100, cmake 4.4.5, ninja 1.13.2, vcpkg
+  (baseline `15b12b99`); CommonLibSF `9caec20` configured with the preset `build-release-msvc-ninja`, spdlog from
+  vcpkg's builtin registry (upstream's spdlog registry is gone), an overlay triplet pointing vcpkg at the portable
+  toolchain. No plugin has been built yet.
+
+**Checked 28 October 2026, offline, against CommonLibSF `9caec20` (the commit on the PC) and that setup:**
+- **spdlog.** Upstream's `vcpkg.json` pins no spdlog version: it names `spdlog` from a git registry
+  (ThirdEyeSqueegee/vcpkg-ports, baseline `6e8f58e0`) that no longer resolves, and its builtin baseline `89dc8be6`
+  would give spdlog 1.15.3 with fmt 11.0.2. CommonLibSF touches spdlog in four places: `include/SFSE/Logger.h`
+  (`spdlog::format_string_t`, `spdlog::log`, `spdlog::source_loc`), `src/SFSE/Logger.cpp` (`basic_file_sink_mt`,
+  `msvc_sink_mt`, `spdlog::logger`, `set_default_logger`, `set_pattern`, `flush_on`), `include/SFSE/Impl/PCH.h`
+  (`<spdlog/spdlog.h>`, `spdlog::log`) and `find_package(spdlog CONFIG REQUIRED)`. All of it is in 1.17.0, and the
+  format-string type follows whichever variant the package was built as (fmt here, 12.2.0), so Install's spdlog
+  1.17.0 fits. Building the library is the check; nothing else to pin.
+- **Address Library.** `SFSE::Init` loads the address database before anything else (`src/SFSE/API.cpp`,
+  `REL::IDDatabase::get()`), from `Data\SFSE\Plugins\versionlib-<runtime>.bin` (`src/REL/ID.cpp`); a missing file
+  is `report_and_fail` ("failed to open address library file"). So every CommonLibSF plugin, B0's included, needs the
+  Address Library for SFSE Plugins installed. v22 covers 1.16.244
+  (`docs/research/framework/engine-mechanics-notes/wave2-rechecks.md`, section 3); its download is a Nexus login,
+  so the owner's, and it is the second player dependency named above.
+- **Runtime.** `9caec20` dates from 15 September 2025. `include/SFSE/Version.h` ends at `RUNTIME_SF_1_14_74` and
+  nothing in the library names 1.15 or 1.16. The Papyrus registration B0 needs (`SFSE::SetPapyrusCallback`) is a
+  trampoline call hook at `REL::ID(169912) + 0x514` inside `GameVM::GameVM`, so B0 stands on that id resolving on
+  1.16.244 and on that offset still being the `BindEverythingToScript` call. Neither is verified; 1.15.216 and
+  1.16.236 each broke the address-based plugins once already, and the research note has CommonLibSF moving on to
+  libxse (`tools-and-scripting.md`, "Precedents and lessons" and row 5.2; libxse itself is unchecked). A missing
+  id stops the game with a message box; a wrong offset is a crash. One launch tells, and the kit's rule holds: a
+  dll that keeps the game from the main menu is deleted at once.
+- **A bridge with no game addresses.** Two mechanisms are already verified on this PC without an address or a
+  game structure: Papyrus to plugin through a traced log line the plugin tails, and plugin to game memory through a
+  setting found by its name (`sfse/FO4SFBorder`, 24 October). A bridge on those survives game updates but is
+  narrow (one value per setting per poll); whether Papyrus can read a setting back (`Utility.GetINI*`) is
+  unverified and is the one check it needs (Starfield's `Utility.psc` stub on the PC).
+
+**The owner's call, put on 28 October:**
+- A. The Address Library as a dependency, and B0 as written: one build, one launch; it may fail on 1.16.244 for
+  the reasons above.
+- B. A bridge with no game addresses. B0 becomes: a quest script traces `ping 41`, the plugin writes 42 into a
+  named setting, the script reads it back and traces it; after a save and a load the same. No new dependency.
+- C. Check libxse first (does it track 1.16.244, and on what addresses), then choose between A and B.
+
+Until the call: P1 runs (it needs none of this), and CommonLibSF is built on the PC as the compile check only.
 
 **If B0 fails, or the licence does not fit:**
 - The 20-place slice runs in Papyrus, if P5 shows a Papyrus tick over 20 places is fast enough. P5 on the owner's
@@ -144,7 +186,7 @@ Each step is one PR, with green CI and an independent review.
    state with its JSON reader and writer, and the tick. Plus the parity harness and its unittest.
 3. **Offline, C2 to C4:** each step with its parity tests.
 4. **PC:** probes P2 to P10, then P1 (restaged from main and queued on 28 Oct).
-5. **PC:** bridge spike B0, after the owner's OK for the build tools.
+5. **PC:** bridge spike B0, on the stack the owner picks (A, B or C in section 4). The build tools are in (28 October).
 6. **PC:** the 20-place slice.
    - Python slices the real pack to the 20 places nearest the Commonwealth slice.
    - The plugin keeps the state in the save's sidecar (P1) and ticks every 6 game hours.
@@ -157,6 +199,6 @@ Each step is one PR, with green CI and an independent review.
 ## 6. What the owner decides, and when
 
 - Nothing for steps 1 to 4.
-- Before step 5: installing CommonLibSF's build tools on the PC.
+- Before step 5: the bridge stack, A, B or C in section 4 (the build tools are in since 28 October).
 - Before shipping anything built on it: the Address Library as a player dependency, and the CommonLibSF licence
   check.

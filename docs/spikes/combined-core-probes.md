@@ -511,18 +511,22 @@ what the Nexus archive ships and are unverified here; the first card confirms th
 **Job focc-P1-0 (toolchain, read-only). Game: CLOSED.**
 
 ```powershell
-powershell -File sfse\FOCCSidecar\check_toolchain.ps1 -Starfield $sf
+powershell -File sfse\FOCCSidecar\check_toolchain.ps1 -Starfield $sf -Env D:\Modding\tools\msvc_env.ps1
 $LASTEXITCODE
 ```
 
 Expect a JSON of findings (cl.exe, Windows SDK, `sfse_loader.exe` beside Starfield.exe, the SFSE dll version) and `0`.
 `1` = stop; nothing else in P1 proceeds until the owner decides on the Build Tools install.
+(28 Oct 2026: the owner approved, and Install put a portable MSVC 14.44 with the Windows SDK 10.0.26100 under
+`D:\Modding\tools`, loaded by dot-sourcing `msvc_env.ps1`; no Visual Studio, so nothing for vswhere to find. Both scripts
+take that environment with `-Env`, and the JSON's `toolchain` reads `environment`; both refuse a loaded environment
+whose `cl.exe` banner does not say x64, so an x86 developer prompt cannot produce a dll the 64-bit game cannot load.)
 
 **Job focc-P1-1 (header and build). Game: any.**
 
 ```powershell
 powershell -File sfse\FOCCSidecar\fetch_pluginapi.ps1 -Commit <pinned sfse commit> -Sha256 <hash from the README>
-powershell -File sfse\FOCCSidecar\build.ps1 -Out "D:\Modding\staging\focc_sfse_$date"
+powershell -File sfse\FOCCSidecar\build.ps1 -Out "D:\Modding\staging\focc_sfse_$date" -Env D:\Modding\tools\msvc_env.ps1
 $LASTEXITCODE
 Get-Content "D:\Modding\staging\focc_sfse_$date\build.json"
 Get-FileHash -Algorithm SHA256 "D:\Modding\staging\focc_sfse_$date\FOCCSidecar.dll"

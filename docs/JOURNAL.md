@@ -2506,3 +2506,31 @@ stay as they were. Why the engine ignores a MoveTo onto a marker moved that
 way is open. A quick check that needs no new build: bridge t5 (retry, no
 marker move) on the same port and queue; if it lands, the marker move alone
 was the cause, and if not, the animated door wrapper is next.
+
+## 2026-10-28: P1's build scripts learn the portable MSVC; B0's stack checked against 1.16.244
+
+The owner approved C++ build tools on 28 Oct and Install put a portable MSVC
+14.44 with the Windows SDK 10.0.26100 under D:\Modding\tools, loaded by
+dot-sourcing msvc_env.ps1: no Visual Studio, so nothing for vswhere to find.
+FOCCSidecar's check_toolchain.ps1 and build.ps1, the P1 probe's scripts, only
+knew vswhere and vcvars64. Both now take a loaded environment first (cl.exe on
+PATH with INCLUDE and LIB set, or the script passed as -Env, which they
+dot-source), fall back to vswhere, and record which route in toolchain.json
+and build.json; the SDK is read from INCLUDE before the registry. The compiler
+line is unchanged. Codex's one finding on the PR: an x86 developer prompt
+also sets cl.exe, INCLUDE and LIB, so the environment route now reads cl.exe's
+banner and refuses anything but x64. tests/test_sfse_sidecar_scripts.py pins
+the contract. P1 can run on the PC without CommonLibSF.
+
+For B0 (docs/combined-core-cpp-port.md, section 4) CommonLibSF 9caec20 was
+read offline. spdlog: upstream pins no version and names spdlog from a
+registry that is gone; its four spdlog surfaces are all in Install's 1.17.0,
+so building the library is the whole check. Address Library: SFSE::Init loads
+versionlib-<runtime>.bin before anything else and fails the game without it;
+v22 covers 1.16.244, a Nexus download. Runtime: the commit is from September
+2025, knows runtimes up to 1.14.74, and registers Papyrus natives through a
+call hook at REL::ID(169912)+0x514, unverified on 1.16.244. The plan now puts
+three stacks to the owner: A, the Address Library and B0 as written; B, a
+bridge with no game addresses on the two mechanisms FO4SFBorder already
+proved (log tail in, named setting out), with Utility.GetINI* to verify; C,
+check libxse first.
