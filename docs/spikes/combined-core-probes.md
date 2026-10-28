@@ -640,9 +640,12 @@ Prerequisites, in this order, each a game-folder or build step for the owner's l
    `VCToolsInstallDir` and `WindowsSdkDir`; `build.json` records every sha256 and both library commits), and copied by
    hand to `<Starfield>\Data\SFSE\Plugins\`.
 Then launch through `sfse_loader.exe`. The kit's rule holds: a dll that keeps the game from the main menu is deleted
-at once (an id the Address Library lacks stops the game with a message box; the plugin has no hook, so a wrong offset
-cannot crash it; `FOCCPing.log` reading "no script VM at PostDataLoad" means the GameVM singleton was not set when the
-native was to be bound, a timing finding for the plugin, not the library). At the main menu,
+at once. Three readings of a stop: an id whose slot in the Address Library is empty stops the game with a message
+box ("Failed to find offset for Address Library ID"); an id that resolves to a wrong offset faults at the bind
+(`GameVM::GetSingleton`, `GetVM` or the virtual call) with no message box, a crash dump and `FOCCPing.log` ending at
+"listening for PostDataLoad" (the plugin hooks nothing, so nothing of ours runs before that message); and a log that
+reads "no script VM at PostDataLoad" with the game running means the GameVM singleton was not set when the native was
+to be bound, a timing finding for the plugin, not the library. At the main menu,
 load a save and, the `Gmst` first (this launch's `focc.0.log` is new, and the judge reads its first `b0 gmst` as B0-1):
 
 ```

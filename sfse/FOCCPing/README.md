@@ -43,8 +43,9 @@ compiler here).
 - **Version data.** The `commonlibsf.plugin` rule generates `SFSEPlugin_Version` from `xmake.lua`
   (`res/commonlibsf-plugin.cpp.in`): `UsesAddressLibrary(true)` sets `kAddressIndependence_AddressLibraryV2`
   (`include/SFSE/Interfaces.h`), `IsLayoutDependent(true)` the 1.14.70+ layout bit, `CompatibleVersions` the
-  library's `RUNTIME_LATEST` (1.16.236). SFSE 0.2.21's `PluginManager.cpp` treats a plugin with the V2 bit and a
-  layout bit as version independent and skips the compatible-versions list, so the 1.16.236 there does not matter;
+  library's `RUNTIME_LATEST` (1.16.244 at `9d090c4`, `include/SFSE/Version.h`: the running game). SFSE 0.2.21's
+  `PluginManager.cpp` treats a plugin with the V2 bit and a layout bit as version independent and skips the
+  compatible-versions list, so that number does not gate the load;
   the old library's v1 bit was not counted, and a v1 plugin loads only through that list.
 - **Binding the native.** libxse has no `SFSE::SetPapyrusCallback` (the old trampoline hook at
   `REL::ID(169912) + 0x514`, an id of the pre-1.15.216 space). `main.cpp` registers an SFSE messaging listener and,
@@ -58,8 +59,10 @@ compiler here).
   after the VM's own `BindEverythingToScript` is callable (the library's `IVirtualMachine::BindNativeMethod` is the
   same virtual that call uses).
 - **Log:** `Documents\My Games\Starfield\SFSE\Logs\FOCCPing.log` (`SFSE::Init` opens it, named after the plugin).
-  Lines: `FOCCPing loaded on runtime 1.16.244.0`, `listening for PostDataLoad; FOCC.Ping binds then`,
-  `bound FOCC.Ping` (or the two error lines above), then one `ping N -> N+1` per call.
+  Lines: `FOCCPing v0.2.0.0` (the library's own, from `SFSE::Init`), `FOCCPing loaded on runtime 1.16.244.0`,
+  `listening for PostDataLoad; FOCC.Ping binds then`, `bound FOCC.Ping` (or the two error lines above), then one
+  `ping N -> N+1` per call. A log that stops after "listening for PostDataLoad" with the game gone is a fault in
+  the bind itself (a wrong offset behind `ID::GameVM::Singleton`; no message box, a crash dump), not a timing finding.
 
 ## Building on the owner's PC (runbook section B0, job B0-2)
 
@@ -81,9 +84,10 @@ It copies `xmake.lua` and `src\` to `<Out>\proj`, junctions `proj\lib\commonlibs
 runs `xmake f -y -p windows -a x64 -m releasedbg --toolchain=msvc --sdk=...` and `xmake build -y FOCCPing` with
 stderr merged into `xmake_output.txt`, and copies `build\windows\x64\releasedbg\FOCCPing.dll` (and `.pdb`) to `-Out`.
 The first configure fetches and builds spdlog through xmake's package manager (internet, a few minutes). It refuses an
-`-Out` that already holds a dll. `build.json` records xmake's version, the compiler banner, the two library commits
-against the pinned ones, and every sha256. Compile errors on the first build are expected and cheap: this source has
-never met the library.
+`-Out` that already holds a dll; after a failed configure or build (exit 90 or 91) the same `-Out` runs again, keeping
+the first run's junctions, project copy and xmake state, so the library is not rebuilt. `build.json` records xmake's
+version, the compiler banner, the two library commits against the pinned ones, and every sha256. Compile errors on a
+first build against a new library are expected and cheap.
 
 ## Install and run (the owner's line; game closed for the copies)
 

@@ -84,8 +84,18 @@ class PingPluginTests(unittest.TestCase):
         # xmake's MSVC root from the PC's environment: VC and Windows Kits junctions in the staging folder
         self.assertIn("$vcRoot = Split-Path (Split-Path (Split-Path $env:VCToolsInstallDir.TrimEnd('\\', '/')))", self.build)
         self.assertIn("$kits = Split-Path $env:WindowsSdkDir.TrimEnd('\\', '/')", self.build)
-        self.assertIn("New-Item -ItemType Junction -Path (Join-Path $Sdk 'Windows Kits') -Target $kits", self.build)
-        self.assertIn("New-Item -ItemType Junction -Path (Join-Path $proj 'lib\\commonlibsf') -Target (Resolve-Path $Lib).Path", self.build)
+        self.assertIn("New-Junction (Join-Path $Sdk 'Windows Kits') $kits", self.build)
+        self.assertIn("New-Junction (Join-Path $proj 'lib\\commonlibsf') (Resolve-Path $Lib).Path", self.build)
+        # a re-run into the same -Out after exit 90/91 keeps a junction with the same target, refuses another
+        self.assertIn("function New-Junction([string]$Path, [string]$Target) {", self.build)
+        self.assertIn("if (-not $have -or $have.TrimEnd('\\', '/') -ieq $Target.TrimEnd('\\', '/')) { \"reusing $Path\"; return }", self.build)
+        self.assertEqual(self.build.count("New-Item -ItemType Junction"), 1)              # only through the helper
+        # git's stderr under the Stop preference is terminating on PowerShell 5.1: the two reads run under SilentlyContinue
+        self.assertIn("$eap = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'\n"
+                      "  $libCommit = (& git.exe -C $Lib rev-parse HEAD 2>$null) -join ''\n"
+                      "  $sharedCommit = (& git.exe -C (Join-Path $Lib 'lib\\commonlib-shared') rev-parse HEAD 2>$null) -join ''\n"
+                      "  $ErrorActionPreference = $eap\n", self.build)
+        self.assertIn('if (-not $libCommit) { $libCommit = $null; "note: -Lib $Lib is not a git checkout', self.build)
         self.assertIn("Remove-Item Env:XSE_SF_MODS_PATH -ErrorAction SilentlyContinue", self.build)
         self.assertIn("Remove-Item Env:XSE_SF_GAME_PATH -ErrorAction SilentlyContinue", self.build)
         self.assertIn('"xmake.exe f -y -p windows -a x64 -m releasedbg --toolchain=msvc$sdkArg 2>&1 || exit /b 90",', self.build)
@@ -105,6 +115,14 @@ class PingPluginTests(unittest.TestCase):
             self.assertIn("| Select-Object -First 1", text)                            # runs on Windows PowerShell 5.1
             self.assertNotIn("-Count 4", text)                                         # Format-Hex -Count is PowerShell 6.2+
             self.assertIn("05 00 00 00", text)                                         # format 5, the file on the PC
+        self.assertIn("RUNTIME_LATEST` (1.16.244 at `9d090c4`", self.readme)                 # include/SFSE/Version.h at the pin
+        self.assertNotIn("1.16.236", self.readme)
+        self.assertIn("`FOCCPing v0.2.0.0` (the library's own, from `SFSE::Init`)", self.readme)   # the log's first line
+        self.assertIn("the same `-Out` runs again", self.readme)
+        # a wrong offset is a crash with no message box, not "cannot crash"
+        self.assertIn('"Failed to find offset for Address Library ID"', self.runbook)
+        self.assertIn("faults at the bind", self.runbook)
+        self.assertNotIn("cannot crash", self.runbook)
         self.assertIn("libxse/commonlibsf", self.port)
         self.assertIn("Unsupported address library format: 5", self.port)
 

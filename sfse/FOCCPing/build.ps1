@@ -10,12 +10,23 @@
 # a VS root (<root>\VC\Tools\MSVC\<ver> and <root>\Windows Kits\10; xmake's find_build_tools). The PC has no VS install
 # and keeps the SDK under msvc\sdk\, so with no -Sdk this script makes that root in the staging folder from the two
 # environment variables: two directory junctions, VC and Windows Kits. Refuses an -Out that already holds a
-# FOCCPing.dll (never overwrites, never deletes). xmake runs from a batch file with stderr merged, as the other sfse
-# build scripts do, into xmake_output.txt (90 = configure, 91 = build).
+# FOCCPing.dll (never overwrites, never deletes); after a failed configure or build the same -Out runs again, keeping
+# the first run's junctions, project copy and xmake state. xmake runs from a batch file with stderr merged, as the
+# other sfse build scripts do, into xmake_output.txt (90 = configure, 91 = build).
 param([Parameter(Mandatory)][string]$Out, [string]$Lib = 'D:\Modding\tools\libxse-commonlibsf', [string]$Env = '', [string]$Sdk = '')
 $ErrorActionPreference = 'Stop'
 $PinnedLib = '9d090c4c521f4f2c1aa00bb05923c380d47ae596'
 $PinnedShared = '9fbb74d628134ab4ea3a3cf5c0ed3f7eeabbd01d'
+function New-Junction([string]$Path, [string]$Target) {
+  # a re-run into the same -Out after exit 90/91 finds the first run's junction: kept when it points at the same
+  # target (Get-Item's Target on a junction, PowerShell 5.1), refused when it points elsewhere (a different -Lib)
+  if (Test-Path $Path) {
+    $have = @((Get-Item $Path -Force).Target) -join ''
+    if (-not $have -or $have.TrimEnd('\', '/') -ieq $Target.TrimEnd('\', '/')) { "reusing $Path"; return }
+    "$Path exists and points at '$have', not ${Target}: pick a new -Out folder (this script never overwrites)"; exit 1
+  }
+  New-Item -ItemType Junction -Path $Path -Target $Target | Out-Null
+}
 if ($Env) {
   if (-not (Test-Path $Env)) { "-Env $Env not found"; exit 1 }
   . $Env
@@ -33,10 +44,17 @@ foreach ($need in 'xmake.lua', 'include\SFSE\SFSE.h', 'lib\commonlib-shared\xmak
 }
 $libCommit = $null; $sharedCommit = $null
 if (Get-Command git.exe -ErrorAction SilentlyContinue) {
+  # under the Stop preference above, anything git writes to stderr (a -Lib that is a zip extract, not a clone) is a
+  # terminating NativeCommandError in Windows PowerShell 5.1 even with 2>$null; the preference is lowered for the
+  # two reads so the notes below are reached instead
+  $eap = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
   $libCommit = (& git.exe -C $Lib rev-parse HEAD 2>$null) -join ''
   $sharedCommit = (& git.exe -C (Join-Path $Lib 'lib\commonlib-shared') rev-parse HEAD 2>$null) -join ''
-  if ($libCommit -ne $PinnedLib) { "note: -Lib is at $libCommit, not the pinned $PinnedLib (recorded in build.json)" }
-  if ($sharedCommit -ne $PinnedShared) { "note: lib\commonlib-shared is at $sharedCommit, not the pinned $PinnedShared (recorded in build.json)" }
+  $ErrorActionPreference = $eap
+  if (-not $libCommit) { $libCommit = $null; "note: -Lib $Lib is not a git checkout; no library commit goes into build.json" }
+  elseif ($libCommit -ne $PinnedLib) { "note: -Lib is at $libCommit, not the pinned $PinnedLib (recorded in build.json)" }
+  if (-not $sharedCommit) { $sharedCommit = $null }
+  elseif ($sharedCommit -ne $PinnedShared) { "note: lib\commonlib-shared is at $sharedCommit, not the pinned $PinnedShared (recorded in build.json)" }
 }
 $src = $PSScriptRoot
 $sources = @('xmake.lua', 'src\main.cpp', 'src\pch.h')
@@ -53,8 +71,8 @@ if (-not $Sdk -and $env:VCToolsInstallDir -and $env:WindowsSdkDir) {
   if ((Split-Path $vcRoot -Leaf) -eq 'VC' -and (Split-Path $kits -Leaf) -eq 'Windows Kits' -and (Test-Path $vcRoot) -and (Test-Path $kits)) {
     $Sdk = Join-Path $Out 'vsroot'
     New-Item -ItemType Directory -Path $Sdk -Force | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $Sdk 'VC') -Target $vcRoot | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $Sdk 'Windows Kits') -Target $kits | Out-Null
+    New-Junction (Join-Path $Sdk 'VC') $vcRoot
+    New-Junction (Join-Path $Sdk 'Windows Kits') $kits
     "MSVC root for xmake: $Sdk (VC -> $vcRoot; Windows Kits -> $kits)"
   } else {
     "note: VCToolsInstallDir ($env:VCToolsInstallDir) and WindowsSdkDir ($env:WindowsSdkDir) do not give a VC and a Windows Kits folder; xmake looks for Visual Studio on its own"
@@ -66,7 +84,7 @@ $proj = Join-Path $Out 'proj'
 New-Item -ItemType Directory -Path (Join-Path $proj 'src') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $proj 'lib') -Force | Out-Null
 foreach ($s in $sources) { Copy-Item (Join-Path $src $s) (Join-Path $proj $s) }
-New-Item -ItemType Junction -Path (Join-Path $proj 'lib\commonlibsf') -Target (Resolve-Path $Lib).Path | Out-Null
+New-Junction (Join-Path $proj 'lib\commonlibsf') (Resolve-Path $Lib).Path
 # the commonlibsf.plugin rule would copy the dll into a folder named by these; none here, nothing is installed
 Remove-Item Env:XSE_SF_MODS_PATH -ErrorAction SilentlyContinue
 Remove-Item Env:XSE_SF_GAME_PATH -ErrorAction SilentlyContinue
