@@ -18,6 +18,7 @@ Scriptname FOCC_Probe Hidden
    cgf "FOCC_Probe.P7" 3.0 3                   reputation tier 3, 3 spawns                 (P7)
    cgf "FOCC_Probe.P8Move" / "FOCC_Probe.P8Stage" 1                                       (P8)
    cgf "FOCC_Probe.P9Dest" 450.0 0.0 / "FOCC_Probe.P9Track" <actor id, signed decimal> 600 (P9)
+   cgf "FOCC_P9Drive.Go" <actor id, signed decimal> 0      P9's scripted driver (FOCC_P9Drive.psc, its own compile)
    cgf "FOCC_Probe.P10Send" / "FOCC_Probe.P10State"                                       (P10)
  Form ids typed into cgf are ints: a runtime id FFxxxxxx is typed as the negative decimal Papyrus prints
  (src/fo4sf/combined/probes.py hex2dec).}

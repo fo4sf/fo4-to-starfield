@@ -30,6 +30,7 @@ QUEST = (SCRIPTS / "FOCC_ProbeQuest.psc").read_text(encoding="utf-8")
 PROBE = (SCRIPTS / "FOCC_Probe.psc").read_text(encoding="utf-8")
 P10 = (SCRIPTS / "FOCC_P10Quest.psc").read_text(encoding="utf-8")
 ARRAY = (SCRIPTS / "FOCC_P5_Array129.psc").read_text(encoding="utf-8")
+DRIVE = (SCRIPTS / "FOCC_P9Drive.psc").read_text(encoding="utf-8")
 
 # the plugin-local ids the plan fixes (dotnet/CombinedProbe/Program.cs header); the scripts quote some as decimals
 IDS = {"QuestId": 0x804, "HolderId": 0x805, "P2LocId": 0x806, "P3NoParentId": 0x807, "P3ChainedId": 0x808, "RouteId": 0x809,
@@ -288,6 +289,10 @@ class ScriptContractTests(unittest.TestCase):
                      '"p9 sample t="', '"p9 done t="', '"p10 state id="'):
             self.assertIn(line, QUEST, line)
         self.assertIn('" p10 sent event="', PROBE)
+        # Codex review of #560: an unnamed cell is bound to FO4Port.esm by the game itself, not by the stage's record
+        self.assertIn('Game.GetFormFromFile(local, "FO4Port.esm") == (c as Form)', QUEST)
+        self.assertIn('" port=" + port', QUEST)
+        self.assertIn("int local = c.GetFormID() % 16777216", QUEST)
         self.assertNotRegex(PROBE, r"bool \w+ = k\.SendStoryEvent")     # PC compile 2d53642: its return is not a bool
         self.assertIn('" p10 quest started id="', P10)
         self.assertIn('Event OnQuestInit()', P10)
@@ -303,12 +308,14 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn('refused quest=none', q)
 
     def test_only_imported_base_types_and_no_unverified_calls(self):
-        for text in (QUEST, PROBE, P10, ARRAY):
+        for text in (QUEST, PROBE, P10, ARRAY, DRIVE):
             words = set(re.findall(r"\b([A-Z][A-Za-z]+)\b", text))
             used = words & set(PAPYRUS_TYPES)
             self.assertTrue(used <= set(mcp.IMPORTS), used - set(mcp.IMPORTS))
-            for banned in ("Math.", "PathToReference", "LeveledActor", "ActorBase", "Faction", "Debug.Trace(", "Debug.Notification"):
+            for banned in ("Math.", "LeveledActor", "ActorBase", "Faction", "Debug.Trace(", "Debug.Notification"):
                 self.assertNotIn(banned, text, banned)
+            if text is not DRIVE:                    # unverified in Starfield: only the driver, compiled on its own, calls it
+                self.assertNotIn("PathToReference(", text)
         self.assertEqual(set(mcp.IMPORTS) - set(PAPYRUS_TYPES), set())     # nothing imported that no script uses
         # the kit's own scripts are not base scripts
         self.assertFalse({"FOCC_ProbeQuest", "FOCC_Probe", "FOCC_P10Quest", "FOCC_P5_Array129"} & set(mcp.IMPORTS))
@@ -320,13 +327,28 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("new float[129]", ARRAY)
         self.assertIn("SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)", PROBE)
 
-    def test_sources_are_the_four_scripts(self):
-        self.assertEqual(mcp.sources(), ["FOCC_P10Quest.psc", "FOCC_P5_Array129.psc", "FOCC_Probe.psc", "FOCC_ProbeQuest.psc"])
-        self.assertEqual(set(mcp.PACKED) | {mcp.COMPILE_ONLY}, {s[:-4] for s in mcp.sources()})
+    def test_p9_driver_calls_path_to_reference_as_a_statement_between_two_lines(self):
+        body = DRIVE[DRIVE.index("Function Go(int actorId, int toPlayer) global"):]
+        self.assertIn("Scriptname FOCC_P9Drive Hidden", DRIVE)
+        self.assertIn('FOCC_ProbeQuest q = FOCC_Probe.Q("p9")', body)          # the quest, or a logged refusal
+        self.assertEqual(DRIVE.count("PathToReference("), 1)                  # the one call
+        self.assertIn("\n    a.PathToReference(target, 1.0)\n", body)           # a statement: its return type is unknown
+        go, call, back = body.index('"p9 go actor="'), body.index("a.PathToReference("), body.index('"p9 path returned actor="')
+        self.assertLess(go, call)
+        self.assertLess(call, back)
+        self.assertIn('q.Trace("p9 go refused actor="', body)
+        self.assertIn('" after=" + (Utility.GetCurrentRealTime() - t0)', body)
+        self.assertEqual(body.count('" call=" + t0'), 2)                    # the return names its own call
+        self.assertNotIn("Debug.TraceUser", DRIVE)                             # every line through the quest's Trace
+
+    def test_sources_are_the_five_scripts(self):
+        self.assertEqual(mcp.sources(), ["FOCC_P10Quest.psc", "FOCC_P5_Array129.psc", "FOCC_P9Drive.psc", "FOCC_Probe.psc",
+                                         "FOCC_ProbeQuest.psc"])
+        self.assertEqual(set(mcp.PACKED) | {mcp.COMPILE_ONLY, mcp.DRIVE}, {s[:-4] for s in mcp.sources()})
 
 
 class StageTests(unittest.TestCase):
-    def fake_tools(self, calls, array_ok):
+    def fake_tools(self, calls, array_ok, drive_ok=True):
         def fake_run(cmd, cwd=None):
             calls.append((cmd, cwd))
             if cmd[0].endswith("PapyrusCompiler.exe"):
@@ -338,15 +360,21 @@ class StageTests(unittest.TestCase):
 
         def fake_capture(cmd, cwd=None):
             calls.append((cmd, cwd))
+            if cmd[1] == "FOCC_P9Drive.psc":
+                if drive_ok:
+                    with open(os.path.join(cmd[-1][3:], "FOCC_P9Drive.pex"), "wb") as f:
+                        f.write(b"drive")
+                    return 0, "Compilation succeeded.\n"
+                return 1, "FOCC_P9Drive.psc(30,6): PathToReference is not a function or does not exist\nNo output generated\n"
             if array_ok:
                 open(os.path.join(cmd[-1][3:], "FOCC_P5_Array129.pex"), "wb").close()
                 return 0, "Compilation succeeded.\n"
             return 1, "FOCC_P5_Array129.psc(8,15): arrays cannot have more than 128 elements\nNo output generated\n"
         return fake_run, fake_capture
 
-    def stage(self, d, array_ok=True, *extra):
+    def stage(self, d, array_ok=True, *extra, drive_ok=False):
         calls = []
-        fake_run, fake_capture = self.fake_tools(calls, array_ok)
+        fake_run, fake_capture = self.fake_tools(calls, array_ok, drive_ok)
         out = os.path.join(d, "stage")
         core = os.path.join(d, "FO4TerrainCore.esm")
         with open(core, "wb") as f:
@@ -397,7 +425,16 @@ class StageTests(unittest.TestCase):
             self.assertIn("refused:", report)
             # the order of the tool calls: build, three compiles, the array compile, check
             kinds = [("build" if "build" in c[0] else "check" if "check" in c[0] else c[0][1]) for c in calls]
-            self.assertEqual(kinds, ["build", "FOCC_ProbeQuest.psc", "FOCC_Probe.psc", "FOCC_P10Quest.psc", "FOCC_P5_Array129.psc", "check"])
+            self.assertEqual(kinds, ["build", "FOCC_ProbeQuest.psc", "FOCC_Probe.psc", "FOCC_P10Quest.psc", "FOCC_P5_Array129.psc",
+                                     "FOCC_P9Drive.psc", "check"])
+            # the driver refused: only it is missing, and the stage says so
+            self.assertEqual(plan["p9_drive"], {"script": "FOCC_P9Drive", "compiled": False, "exit_code": 1,
+                                                "output": "compile_p9_drive.txt"})
+            self.assertIsNone(plan["scripts"]["p9_drive"])
+            self.assertFalse(os.path.exists(os.path.join(out, "Data", "Scripts", "FOCC_P9Drive.pex")))
+            self.assertIn("refused: this stage has no P9 scripted driver",
+                          open(os.path.join(out, "compile_p9_drive.txt"), encoding="utf-8").read())
+            self.assertIn("no scripted P9", open(os.path.join(out, "README.txt"), encoding="utf-8").read())
             build_cmd, check_cmd = calls[0][0], calls[-1][0]
             self.assertIn("--out", build_cmd)
             for opt in ("--sf", "--core", "--stat", "--lvln-b", "--npc", "--lvln-a", "--plugin", "--world", "--location"):
@@ -409,6 +446,17 @@ class StageTests(unittest.TestCase):
             self.assertIn("FOCC rt=", open(os.path.join(out, "README.txt"), encoding="utf-8").read())
             with self.assertRaises(SystemExit):                              # never into a used folder
                 self.stage(d)
+
+    def test_a_compiled_driver_is_packed_and_pinned(self):
+        with tempfile.TemporaryDirectory() as d:
+            out, _calls = self.stage(d, True, drive_ok=True)
+            plan = json.load(open(os.path.join(out, "plan.json"), encoding="utf-8"))
+            self.assertTrue(plan["p9_drive"]["compiled"])
+            self.assertEqual(plan["scripts"]["p9_drive"], "FOCC_P9Drive")
+            pex = os.path.join(out, "Data", "Scripts", "FOCC_P9Drive.pex")
+            self.assertEqual(plan["outputs"]["Data/Scripts/FOCC_P9Drive.pex"], mcp.sha256(pex))   # probe_install packs it
+            self.assertIn("compiled: Actor.PathToReference", open(os.path.join(out, "compile_p9_drive.txt"), encoding="utf-8").read())
+            self.assertIn("Data\\Scripts\\FOCC_P9Drive.pex", open(os.path.join(out, "README.txt"), encoding="utf-8").read())
 
     def test_variant_and_skip_reach_the_tool_and_the_plan(self):
         with tempfile.TemporaryDirectory() as d:
