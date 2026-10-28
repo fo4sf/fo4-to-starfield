@@ -2350,3 +2350,18 @@ record and the plugin pinned at plan time, stopping before launch on any
 difference). An older runner refuses such a queue, and cycle.ps1 refuses an
 interior batch stage as `-Staging` before it touches anything. Details are in
 docs/ai/test-queue.md, "SFSE launch and the installed port".
+
+
+## 2026-10-28: Door rounds accept the animated doors
+
+T6 stopped at its stage on the PC before touching the game. The door rounds
+stager skipped all 13 doors of the installed animated doors port, because it
+accepted only `FO4SF_LoadDoor` on a door and the port puts
+`FO4SF_AnimatedLoadDoor` on its interior doors. The animated script extends
+`FO4SF_LoadDoor`: it waits for the door's open animation, then runs the
+parent's own trip, with the same properties and the same trace lines. So T6's
+`PlaceDestination` and `SettleSeconds` work, which lives in the parent script
+the bridge carries, still applies to these doors. The stager now checks either
+script, the animated one with its `OpenSeconds` too, and records which one each
+door has. The judge did not need a change. Details are in
+docs/terrain/door-rounds.md.
