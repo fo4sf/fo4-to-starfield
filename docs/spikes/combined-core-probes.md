@@ -144,8 +144,10 @@ session1's highest.
 ## Order
 
 P2, P3, P5, P10, P6, P7, P8, P4, P9, then P1 (P1 needs a toolchain decision and an SFSE launch; it goes last so a
-mistaken dll cannot cost the other sessions). P2 and P3 can share two launches; P5, P10, P6, P7 can share one launch
-after P2's commands; P8, P4 and P9 each get their own saves.
+mistaken dll cannot cost the other sessions), then B0 (section B0: its first half, `FOCC_B0.Gmst`, needs no SFSE plugin
+and can ride along with any probe session; its second needs the plugin dll and comes after P1 for the same reason).
+P2 and P3 can share two launches; P5, P10, P6, P7 can share one launch after P2's commands; P8, P4 and P9 each get
+their own saves.
 
 Every judged line names the probe records it used (`holder=`, `route=`, `list=`, `rep=`, P4's `base=`, P5's
 `first=`/`last=`, P8's `parent=`/`id=`, P9's dest `id=`, P10's `event=`/`id=`). A missing or foreign id (a stale or
@@ -176,6 +178,7 @@ Second session (28 Oct, after #557's restage; `focc_probe_20261028b`, plugin e2e
 | P10 | PASS | the check printed the branch's new condition (GetEventData GetIsID Keyword1, record 00081F, equal to 1, the shape of 80 of the 82 vanilla keyword filters); `SendStoryEvent` ran, FOCC_P10_Quest's OnQuestInit came after it, `running=True` |
 | P3 (cell half) | INCONCLUSIVE; run again after the restage | both `where` lines are in the log (Red Rocket cell 117449528, loc 167774215 = local 0x807; Super Duper Mart cell 117468230, loc 167774216 = local 0x808), but `cellname=` came back empty on both, and the judge named cells only by cellname. It now names them by the stage's form ids in offline_check.txt, bound to FO4Port.esm by the script's `port=True` (P3b card); the 28 Oct log has no `port=`, so P3b runs again with the restaged kit |
 | P9 (ladder) | INCONCLUSIVE | rung b (`PathToRef player`, start 16.7 m): the actor ended about 22 m away, so the ladder stopped there as the card says. Next: the scripted driver (P9 card) |
+| P9 (scripted ladder, kit d after #566; evidence `focc_P9_20261028_1043`) | INCONCLUSIVE | rung a (baseline, 60 s): 16.7 m to 21.7 m. Rung b (`FOCC_P9Drive.Go <actor> 1`, 24.43 m): `PathToReference(player, 1.0, 1.0)` returned after 2.89 s with the actor 24 to 28 m away (26.70 m at the end), so the ladder stopped. The driver did not log the return then; Starfield's Actor.psc (line 490) declares it `int`, latent, with PathingResult_Success 0, Failure 1, Stopped 2, Cleared 3, Timeout 4, and the driver now logs it as `result=` (1 = no path, the navmesh; 2 or 4 = the walk stopped or ran out of time). Next: rung b again with the code, before any new driver (a Travel package on a quest alias, or Cassiopeia's PathToPoint) |
 
 **The load order trap.** Loading a save made while FO4SFMission.esm was active silently switched Starfield to that
 save's load order: Mission came back on and the probe plugin went off, with no dialog. The cgf calls then failed with
@@ -460,8 +463,12 @@ cgf "FOCC_P9Drive.Go" <actor id as signed decimal> 1
 ```
 
 The log then has `p9 go actor=<id> call=<t> target=player ...` and, when the call returns, `p9 path returned ...
-after=<s> dist=<m>`. If the actor did not come within 10 m of you, stop here and send the log: the scripted command
-does not walk this actor either, and the longer rungs would only repeat that. Otherwise go on.
+result=<code> after=<s> dist=<m>`. The code is Starfield's `PathingResult` (Actor.psc lines 476 to 480: 0 Success,
+1 Failure, 2 Stopped, 3 Cleared, 4 Timeout; the judge names it). If the actor did not come within 10 m of you, stop
+here and send the log: `result=1` says the navmesh carries no path from the actor to you (the next rung is then this
+driver in a vanilla exterior as the control, and the converted NAVM at Red Rocket looked at offline, not a new
+driver); `2` or `4` says the walk was commanded and cut short, which points at the actor's AI and makes a Travel
+package on a quest alias (or Cassiopeia's PathToPoint) the next driver. Otherwise go on.
 
 **Rungs c, d and e (20 m for 120 s, 120 m for 180 s, 450 m for 600 s).** Start each only after the previous rung's
 `p9 done` and its `p9 path returned` (or 30 s after `p9 done` if no return came: note that). For each, with the dx
@@ -580,6 +587,79 @@ save name SFSE passes does not equal any `.sfs` stem (display name vs file stem 
 lists and leaves the orphan question open rather than guessing). Send back: `focc_sidecar.log`, the `.focc` files,
 `saves.json`, the verdict, the loader output, and which file names the archive used.
 
+## B0: the plugin bridge, Papyrus to the SFSE plugin and back (after P1)
+
+Settles: whether a value crosses from a quest script into our SFSE plugin and back on 1.16.244, the link the C++ port
+stands on (docs/combined-core-cpp-port.md, section 4). The owner's call of 28 Oct 2026: stack A first (the Address
+Library as a dependency and CommonLibSF as it is, fixed where 1.16.244 breaks it), B as the backup (a bridge with no
+game addresses: a traced line in, a game setting written by its name out), C (Cassiopeia) when needed. Kit: `FOCC.psc`
+(the native stub the plugin binds) and `FOCC_B0.psc` (the console entry points), compiled on their own
+(`compile_b0.txt`; a refusal leaves only B0 out of the stage), and GMST `iFOCC_Pong` = 7 (0x855) in the probe
+plugin. Judge: `python -m fo4sf.combined.probes b0 <folder>`: PASS = the setting read back as 7 and one route
+answered; INCONCLUSIVE = the first half alone, a setting answer that is not fresh, or an unbound native beside an
+unchanged setting (nothing happened; the plugin's own log says whether the dll loaded); FAIL = Papyrus read something
+other than 7 first, or the native answered wrong and the setting changed to a wrong value too. A ping's pong and
+setting reads are taken from the window up to the next ping, and any read of N + 1 in it is the answer. Two rules for the
+commands, both from the Codex review of #568: every launch rewrites `focc.0.log`, so each launch starts with
+`cgf "FOCC_B0.Gmst"` before any ping (the judge wants the launch's first read to be the stage's 7, and a first read
+after a ping is INCONCLUSIVE, not FAIL); and a setting answer counts only when it differs from the value the setting
+held before the ping, so no ping value repeats within a launch and no ping expects the value already there (a ping of
+6 expects 7; a second `Ping 41` after a 42 reads the stale 42; neither settles anything). Two jobs.
+
+**Job focc-B0-1 (Papyrus reads our game setting; no SFSE plugin). Game: running, the default stage from this main
+installed, any save.** The stage's `compile_b0.txt` must say `compiled`. Then:
+
+```
+cgf "FOCC_B0.Gmst"
+```
+
+Expect `FOCC rt=<s> b0 gmst name=iFOCC_Pong value=7`. Collect `focc.0.log` into `D:\Modding\testqueue\focc_B0_<date>\`
+and judge `b0`: INCONCLUSIVE with the reason "B0-1: Papyrus read the plugin's game setting" is this half's pass (the
+bridge is not yet tried). `value=0` is this half's FAIL: a setting new to the game does not reach
+`Game.GetGameSettingInt` from a plugin, so stack B's return leg (plugin to script) is dead and only A remains; send the
+log. This job rides along with any probe session on the kit.
+
+**Job focc-B0-2 (the native route, stack A). Game: CLOSED for the installs, then launched through the loader.**
+Prerequisites, in this order, each a game-folder or build step for the owner's line:
+1. The Address Library for SFSE Plugins (Nexus 3256; v22 covers 1.16.244; the owner's download, in Downloads). The
+   `.bin` inside the archive goes to `<Starfield>\Data\SFSE\Plugins\`. CommonLibSF opens
+   `versionlib-1-16-244-0.bin` there on Steam (`src/REL/ID.cpp`: `versionlib-<version with dashes>`, no platform
+   suffix for Steam, `.bin`); the archive's file is kept under its own name and that name goes on the card. A missing
+   file stops the game with a message box naming the path.
+2. CommonLibSF `9caec20`, configured on the PC on 28 Oct, built and installed (`cmake --build` then `cmake --install`
+   into a prefix under `D:\Modding\tools`).
+3. `FOCCPing.dll` built from `sfse/FOCCPing` (its own PR, after this one) with its `build.ps1 -Env
+   D:\Modding\tools\msvc_env.ps1`, and copied by hand to `<Starfield>\Data\SFSE\Plugins\`.
+Then launch through `sfse_loader.exe`. The kit's rule holds: a dll that keeps the game from the main menu is deleted
+at once (an id the Address Library lacks stops the game with a message box; a wrong hook offset is a crash; either is
+stack A's finding on 1.16.244, and per the owner the fix goes into the library before B comes in). At the main menu,
+load a save and, the `Gmst` first (this launch's `focc.0.log` is new, and the judge reads its first `b0 gmst` as B0-1):
+
+```
+cgf "FOCC_B0.Gmst"
+cgf "FOCC_B0.Ping" 41
+save focc_b0_a
+```
+
+Load `focc_b0_a` from the menu, then `cgf "FOCC_B0.Ping" 43` and `cgf "FOCC_B0.Gmst"`. Expect `b0 gmst name=iFOCC_Pong
+value=7` first, then `b0 pong sent=41 got=42`
+and `b0 pong sent=43 got=44`: the native bound, and still bound after a save and a load (section 4's pass). `got=0` is
+an unbound native (no plugin registered `FOCC.Ping`; `Papyrus.0.log` names it); with the closing read still 7 the
+verdict is INCONCLUSIVE, since nothing writes the setting on stack A, and `FOCCPing.log` (present = the dll loaded;
+absent = the loader never ran it) is the next thing to look at. Collect `focc.0.log`, the plugin's own
+log `Documents\My Games\Starfield\SFSE\Logs\FOCCPing.log` (CommonLibSF's logger path; as `sfse\FOCCPing.log` in the
+folder), the loader's console output and, on `got=0`, `Papyrus.0.log`; judge `b0`. Uninstall the dll (game closed)
+before any other experiment.
+
+**Job focc-B0-2b (the setting route, stack B), only if B0-2 fails on 1.16.244 and the library fix does not come.**
+The plugin variant tails the `focc` log for `b0 ping sent=N` and writes N + 1 into `iFOCC_Pong` by its name (the
+`sfse/FO4SFBorder` mechanism of 24 Oct). Same commands as B0-2 (the `Gmst` first in each launch), with
+`cgf "FOCC_B0.Gmst"` a few seconds after each ping: the judge takes every `b0 gmst` between the ping and the next ping
+and any read of N + 1 among them is the answer (`value=42`, then `44`; a read that came too early still shows the old
+value and does no harm, read again), and only when that answer differs from the value the setting held before the ping (7 before
+the 41, 42 before the 43). A repeated ping value, or one whose answer is the value already there, reads the stale
+value and is INCONCLUSIVE, never a PASS; on a rerun in the same launch pick a new value (45, 47, ...).
+
 ## What each answer settles (for the design)
 
 | Probe | Question | Decided by |
@@ -594,6 +674,7 @@ lists and leaves the orphan question open rather than guessing). Send back: `foc
 | P8 | Settlement build stages by enable parent, and their save cost | FAIL = stage swaps by script-placed refs |
 | P9 | Long-route pathing on the converted navmesh | FAIL = caravans move abstractly and materialize near the player only |
 | P10 | SendStoryEvent + our SM branch for radiant quests | FAIL = quests started from script directly |
+| B0 | Can Papyrus call our SFSE plugin and read its answer on 1.16.244 (the C++ port's bridge)? | PASS on stack A = CommonLibSF natives; PASS on B only = the setting bridge; FAIL of B0-1 = no return leg for B |
 
 ## What to send back, always
 

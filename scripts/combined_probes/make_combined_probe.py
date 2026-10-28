@@ -15,7 +15,8 @@ usage:
       3. the separate, allowed-to-fail compile of FOCC_P5_Array129.psc (the 128-entry array cap, P5): the compiler's
          full output goes to compile_p5_array129.txt and its .pex, if any, stays in work/ and is never packed;
          and of FOCC_P9Drive.psc (P9's scripted driver, Actor.PathToReference): compile_p9_drive.txt, and its .pex
-         joins Data/Scripts (packed) only when it compiled;
+         joins Data/Scripts (packed) only when it compiled; and of FOCC.psc with FOCC_B0.psc (B0, the plugin bridge:
+         the native stub and its console entry points): compile_b0.txt, both .pex packed only when both compiled;
       4. dotnet/CombinedProbe check: the plugin read back against the masters (offline_check.txt, with the build output);
       5. the .psc sources beside the stage, plan.json (sha256 of every input and output, the build id, the variant,
          the skips, the compile results), README.txt.
@@ -47,6 +48,7 @@ IMPORTS = ("Actor", "Cell", "Debug", "Form", "Game", "GlobalVariable", "Keyword"
 PACKED = ("FOCC_ProbeQuest", "FOCC_Probe", "FOCC_P10Quest")       # compiled into Data/Scripts and packed
 COMPILE_ONLY = "FOCC_P5_Array129"                                  # compiled on its own; its result is the finding
 DRIVE = "FOCC_P9Drive"                                             # compiled on its own; packed only when it compiles
+B0 = ("FOCC", "FOCC_B0")                                           # B0's native stub, then its entry points; packed only when both compile
 ENTRY_POINTS = ("Hello", "P2Set", "P2Link", "P2Read", "P2LinkRead", "P3Set", "P3Read", "Where", "P4Run", "P5Tick", "P6",
                 "P7", "P8Move", "P8Stage", "P9Dest", "P9Track", "P10Send", "P10State")
 
@@ -79,7 +81,7 @@ def extract_sources(zip_path, work, imports=IMPORTS):
 
 
 def sources():
-    """Every .psc of this folder, sorted (the three packed scripts, the compile-only one and P9's driver)."""
+    """Every .psc of this folder, sorted (the three packed scripts, the compile-only one, P9's driver and B0's two)."""
     return sorted(f for f in os.listdir(HERE) if f.lower().endswith(".psc"))
 
 
@@ -124,25 +126,52 @@ def compile_array129(compiler, src_dir, work, out):
     return {"script": COMPILE_ONLY, "compiled": compiled, "exit_code": code, "output": "compile_p5_array129.txt"}
 
 
+def compile_apart(compiler, src_dir, work, out, sub, names):
+    """Scripts compiled on their own, in order, into work/<sub>: a refusal of any one stops the group (its output is the
+    finding) and nothing of the group is packed; all compiled, every .pex is copied into <out>/Data/Scripts. Returns
+    (exit code, the compiler output of every script run, the packed .pex paths or None)."""
+    sub_out = os.path.join(work, sub)
+    os.makedirs(sub_out, exist_ok=True)
+    texts, pexes = [], []
+    for name in names:
+        code, text = run_capture(compile_cmd(compiler, name, src_dir, sub_out), cwd=HERE)
+        texts.append(f"--- {name}.psc\nexit code {code}\n{text}")
+        pex = os.path.join(sub_out, name + ".pex")
+        if not (code == 0 and "Compilation succeeded" in text and os.path.exists(pex)):
+            return code, "\n".join(texts), None
+        pexes.append(pex)
+    packed = []
+    for pex in pexes:
+        dst = os.path.join(out, "Data", "Scripts", os.path.basename(pex))
+        shutil.copyfile(pex, dst)
+        packed.append(dst)
+    return 0, "\n".join(texts), packed
+
+
 def compile_drive(compiler, src_dir, work, out):
     """P9's scripted driver, FOCC_P9Drive.psc (Actor.PathToReference from Papyrus), compiled on its own into work/p9: a
     Starfield Actor.psc without that function, or with another signature, refuses only this script, and the stage goes
     on without it. Compiled, its .pex joins <out>/Data/Scripts and is packed. The compiler's output and the verdict go to
     <out>/compile_p9_drive.txt. Returns (the plan entry, the packed .pex path or None)."""
-    p9_out = os.path.join(work, "p9")
-    os.makedirs(p9_out, exist_ok=True)
-    code, text = run_capture(compile_cmd(compiler, DRIVE, src_dir, p9_out), cwd=HERE)
-    pex = os.path.join(p9_out, DRIVE + ".pex")
-    compiled = code == 0 and "Compilation succeeded" in text and os.path.exists(pex)
-    packed = None
-    if compiled:
-        packed = os.path.join(out, "Data", "Scripts", DRIVE + ".pex")
-        shutil.copyfile(pex, packed)
-    verdict = ("compiled: Actor.PathToReference(ObjectReference, float, float) is callable from Papyrus; packed" if compiled
+    code, text, packed = compile_apart(compiler, src_dir, work, out, "p9", (DRIVE,))
+    verdict = ("compiled: Actor.PathToReference(ObjectReference, float, float) is callable from Papyrus; packed" if packed
                else "refused: this stage has no P9 scripted driver (see the output above); the other probes are unaffected")
     with open(os.path.join(out, "compile_p9_drive.txt"), "w", encoding="utf-8") as f:
-        f.write(f"{DRIVE}.psc: Actor.PathToReference from Papyrus (P9's scripted driver)\nexit code {code}\n{text}\n{verdict}\n")
-    return {"script": DRIVE, "compiled": compiled, "exit_code": code, "output": "compile_p9_drive.txt"}, packed
+        f.write(f"{DRIVE}.psc: Actor.PathToReference from Papyrus (P9's scripted driver)\n{text}\n{verdict}\n")
+    return {"script": DRIVE, "compiled": bool(packed), "exit_code": code, "output": "compile_p9_drive.txt"}, (packed or [None])[0]
+
+
+def compile_b0(compiler, src_dir, work, out):
+    """B0's two scripts (docs/combined-core-cpp-port.md section 4): FOCC.psc, the native stub the SFSE plugin binds, then
+    FOCC_B0.psc, its console entry points (Game.GetGameSettingInt and FOCC.Ping), compiled on their own into work/b0 and
+    packed only when both compiled, so a refusal leaves only B0 out of the stage. The output and the verdict go to
+    <out>/compile_b0.txt. Returns (the plan entry, the packed .pex paths)."""
+    code, text, packed = compile_apart(compiler, src_dir, work, out, "b0", B0)
+    verdict = ("compiled: FOCC.Ping is declared and FOCC_B0 calls it and Game.GetGameSettingInt; both packed" if packed
+               else "refused: this stage has no B0 scripts (see the output above); the probes are unaffected")
+    with open(os.path.join(out, "compile_b0.txt"), "w", encoding="utf-8") as f:
+        f.write(f"{' and '.join(n + '.psc' for n in B0)}: B0's plugin bridge (native stub and entry points)\n{text}\n{verdict}\n")
+    return {"scripts": list(B0), "compiled": bool(packed), "exit_code": code, "output": "compile_b0.txt"}, (packed or [])
 
 
 def stage(a):
@@ -170,6 +199,8 @@ def stage(a):
     drive, drive_pex = compile_drive(a.compiler, src, work, out)
     if drive_pex:
         pexes.append(drive_pex)
+    b0, b0_pexes = compile_b0(a.compiler, src, work, out)
+    pexes += b0_pexes
     check = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "check", os.path.join(out, PLUGIN)] + opts)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(built + check)
@@ -196,21 +227,23 @@ def stage(a):
             "lvln_conditions_written": "lvln" not in skips, "sm_nodes_written": "sm" not in skips,
             "bases": {"npc": a.npc, "lvln_a": a.lvln_a, "lvln_b": a.lvln_b or None, "stat": a.stat},
             "scripts": {"quest": PACKED[0], "console": PACKED[1], "p10": PACKED[2],
-                        "p9_drive": DRIVE if drive_pex else None}, "entry_points": list(ENTRY_POINTS),
+                        "p9_drive": DRIVE if drive_pex else None, "b0": B0[1] if b0_pexes else None},
+            "entry_points": list(ENTRY_POINTS),
             "log": LOG, "log_prefix": "FOCC rt=", "imports": list(IMPORTS),
             "ids": {"quest": 0x804, "p2_loc": 0x806, "p3_no_parent": 0x807, "p3_chained": 0x808, "p10_quest": 0x820},
-            "inputs": inputs, "outputs": outputs, "array129": array129, "p9_drive": drive,
+            "inputs": inputs, "outputs": outputs, "array129": array129, "p9_drive": drive, "b0": b0,
             "sendstoryevent_compiles": True,                     # FOCC_Probe.psc (which calls it) compiled, or the stage stopped
             "offline_check": "offline_check.txt"}   # no date: same inputs, same bytes (CONTRIBUTING.md)
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
-    scripts = ", ".join(f"Data\\Scripts\\{n}.pex" for n in PACKED + ((DRIVE,) if drive_pex else ()))
+    scripts = ", ".join(f"Data\\Scripts\\{n}.pex" for n in PACKED + ((DRIVE,) if drive_pex else ()) + (B0 if b0_pexes else ()))
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Combined core engine probes P2 to P10 (Claude-cloud). docs/spikes/combined-core-probes.md.
 {PLUGIN} (build {plugin_sha[:8]}, variant {variant}{', skip ' + a.skip if a.skip else ''}): the records listed in dotnet/CombinedProbe/Program.cs,
   built against {os.path.abspath(a.core)} (its {a.location} and {a.world} by FormID: rebuild with every core build).
 {scripts}: compiled from the .psc files here. compile_p5_array129.txt: the array-cap compile (never packed).
 compile_p9_drive.txt: P9's scripted driver ({'compiled and packed' if drive_pex else 'refused, not packed: no scripted P9'}).
+compile_b0.txt: B0's bridge scripts FOCC and FOCC_B0 ({'compiled and packed' if b0_pexes else 'refused, not packed: no B0'}); cgf "FOCC_B0.Gmst" needs no SFSE plugin.
 Install (game closed), after the core, one probe plugin at a time, never beside FO4SFMission.esm (both override the core's persistent cell):
   python scripts\\combined_probes\\probe_install.py install --dir "{out}" --starfield <game>
 In game, after loading a save: cgf "FOCC_Probe.Hello" then the probe's commands (FOCC_Probe.psc lists them); every answer is a line
@@ -220,7 +253,8 @@ Uninstall (game closed) before any core swap or another experiment: python scrip
 """)
     print(f"staged {out}: {PLUGIN} ({plugin_sha[:8]}), {', '.join(os.path.relpath(p, out) for p in pexes)}, "
           f"compile_p5_array129.txt ({'compiled' if array129['compiled'] else 'refused'}), "
-          f"compile_p9_drive.txt ({'compiled, packed' if drive_pex else 'refused'}), offline_check.txt, plan.json, README.txt")
+          f"compile_p9_drive.txt ({'compiled, packed' if drive_pex else 'refused'}), "
+          f"compile_b0.txt ({'compiled, packed' if b0_pexes else 'refused'}), offline_check.txt, plan.json, README.txt")
 
 
 def main(argv=None):

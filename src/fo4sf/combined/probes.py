@@ -28,7 +28,9 @@ Collection folder (`python -m fo4sf.combined.probes pN DIR`, or `pN --collect DI
 `focc_session2.log` for the two-launch probes P2 and P3, `focc.0.log` (or `focc_session1.log`) for the one-launch probes,
 `saves.json` for P1, P4 and P8, `compile_p5_array129.txt` for P5, `offline_check.txt`, `plan.json` and `FOCC_Probe.psc`
 (copied from the stage) for P10, the p3cells stage's `offline_check.txt` for P3's cell half (its cell form ids), and `sfse/focc_sidecar.log` plus `sfse/sidecars/` for P1. `pN FILE` with a single
-log file works for the one-launch probes; a two-launch probe given one file is INCONCLUSIVE by construction.
+log file works for the one-launch probes; a two-launch probe given one file is INCONCLUSIVE by construction. B0, the
+plugin bridge spike (docs/combined-core-cpp-port.md section 4), is judged from its `b0 gmst`, `b0 ping` and `b0 pong`
+lines in the same logs (`b0`).
 
 Exit codes: 0 PASS, 1 FAIL, 2 INCONCLUSIVE (for `all`: the worst of the probes that had any input).
 """
@@ -48,7 +50,7 @@ from . import sidecar
 
 PASS, FAIL, INCONCLUSIVE = "PASS", "FAIL", "INCONCLUSIVE"
 _RANK = {PASS: 0, FAIL: 1, INCONCLUSIVE: 2}
-PROBES = ("p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10")
+PROBES = ("p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "b0")
 
 # Placeholder thresholds (plan item 8): labelled in every verdict that uses them, never design numbers.
 PLACEHOLDERS = {
@@ -1282,6 +1284,19 @@ def check_p8(c: Collection) -> Verdict:
 
 # ----------------------------------------------------------------------------------------------- P9
 
+P9_RESULTS = {0: "Success", 1: "Failure", 2: "Stopped", 3: "Cleared", 4: "Timeout"}   # Actor.psc PathingResult_* (PC, 28 Oct 2026)
+
+
+def _p9_result_note(attempt: dict) -> str:
+    """The return code FOCC_P9Drive logs as result= since 28 Oct 2026 (Starfield's Actor.psc, line 490: PathToReference
+    returns an int, latent; 1 Failure is no path, 2 Stopped and 4 Timeout a walk that did not finish), or a note that
+    the line predates it."""
+    r = attempt.get("path_result")
+    if r is None:
+        return " (no result= on the line: a driver from before 28 Oct 2026)"
+    return f" with result {r} ({P9_RESULTS.get(r, 'unknown code')})"
+
+
 def _p9_returned(evs: list[Event], go: Event) -> Event | None:
     """The `p9 path returned` of a `p9 go`: the same actor and call= (the call's start time) after it, or None.
     FOCC_P9Drive.Go's call is latent, so its return may land after the rung's `p9 done`, the next start or the next go."""
@@ -1366,7 +1381,8 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     # reference) is not the route the samples describe (Codex bot on 8dbfef8d)
                     "to_dest": (go.fields.get("target") == "dest" and bool(dest) and go.form("id") is not None
                                 and go.form("id") == dest[-1].form("id")) if go is not None else None,
-                    "path_returned_s": back.num("after") if back is not None else None})
+                    "path_returned_s": back.num("after") if back is not None else None,
+                    "path_result": back.count("result") if back is not None else None})
     return out
 
 
@@ -1449,6 +1465,8 @@ def check_p9(c: Collection) -> Verdict:
                          f"{latest['go_id'] or 'none'}), not the tracked FOCC_P9_Dest (id {dest[-1].form('id')}): "
                          f"P9Track measures the distance to the destination, so this command's walk is not the route "
                          f"judged here (the long rungs take `FOCC_P9Drive.Go <actor> 0`)")
+        if latest["path_returned_s"] is not None:
+            v.reasons.append(f"its PathToReference returned after {latest['path_returned_s']:.1f} s{_p9_result_note(latest)}")
         return v
     others = [e for e in samples if e.form("actor") != actor]
     if others:                                  # every sample is the started actor's (Codex review of #431)
@@ -1546,7 +1564,7 @@ def check_p9(c: Collection) -> Verdict:
         v.cite(*failed[0])
         v.reasons.append(failed[1])
         if returned is not None:
-            v.reasons.append(f"FOCC_P9Drive's PathToReference returned after {returned:.1f} s")
+            v.reasons.append(f"FOCC_P9Drive's PathToReference returned after {returned:.1f} s{_p9_result_note(attempts[-1])}")
         if shown:
             v.reasons.append(f"the command does move this actor: {shown}")
             v.verdict = FAIL
@@ -1681,8 +1699,142 @@ def check_p10(c: Collection) -> Verdict:
     return v
 
 
+# ----------------------------------------------------------------------------------------------- B0
+
+B0_PONG = 7                 # dotnet/CombinedProbe: GMST iFOCC_Pong (0x855), int 7, as the stage writes it
+
+
+def check_b0(c: Collection) -> Verdict:
+    """B0, the plugin bridge spike (docs/combined-core-cpp-port.md section 4; runbook section B0), from the `b0` lines of
+    the one-launch log (focc_session1.log, else focc.0.log, else any log holding `b0` lines). B0-1: Papyrus reads the probe plugin's own game setting (`b0 gmst name=iFOCC_Pong
+    value=7`, FOCC_B0.Gmst; no SFSE plugin). B0-2: a value crosses into the plugin and back, on the native route as a
+    `b0 pong sent=N got=N+1` after the `b0 ping sent=N` (FOCC.Ping bound by FOCCPing.dll, stack A) or on the setting
+    route as a `b0 gmst` after the ping reading N+1 (the plugin wrote the setting by its name, stack B). The last ping
+    is judged (a save and a load between pings is the card's persistence check; every ping's answer is in `extra`).
+    A ping's window runs to the next ping (or the log's end): its pong and its setting reads are taken from there, any
+    read of N+1 in the window is the answer (a read that came too early shows the old value and is harmless), and a
+    window whose reads all show the value held before the ping is "unchanged" (nothing wrote the setting: nothing does
+    on stack A, and on stack B the bridge did not answer), which settles nothing rather than counting as a wrong answer.
+    A setting answer counts only when it is fresh: N+1 must differ from the value the setting held before the ping
+    (the last `b0 gmst` before it), or the read after the ping is the stale value and settles nothing (Codex review of
+    #568: `gmst 7, ping 6, gmst 7` and a repeated `Ping 41` after a 42 are not answers). The first gmst read must come
+    before the first ping of the launch, since B0-1 reads the stage's 7 and a read after a ping on stack B is the
+    plugin's answer. PASS = B0-1 and one route. INCONCLUSIVE = B0-1 alone, a ping with neither answer readable, a stale
+    setting answer, an unchanged setting, or a first read after a ping. FAIL = the first gmst read is not 7 (0 = the
+    setting is unknown to the game), or the native answered wrong and the setting changed to a wrong value too."""
+    v = Verdict("b0", INCONCLUSIVE)
+    v.extra["settles"] = "a value crosses from Papyrus into the SFSE plugin and back on 1.16.244 (B0)"
+    evs = c.session(1)
+    if evs is None or not any(e.kind.split()[:1] == ["b0"] for e in evs):
+        evs = next((log for log in c.any_logs() if any(e.kind.split()[:1] == ["b0"] for e in log)), None)
+    if evs is None:
+        v.reasons.append("no `b0` line in any log: FOCC_B0 was not run")
+        return v
+    gmst, pings, pongs = _by_kind(evs, "b0 gmst"), _by_kind(evs, "b0 ping"), _by_kind(evs, "b0 pong")
+    refused = _by_kind(evs, "b0 refused")
+    if not gmst and not pings:
+        v.cite(*refused[:1])
+        v.reasons.append("FOCC_B0 found no probe quest (refused quest=none): the probe plugin is not loaded" if refused
+                         else "no `b0 gmst` or `b0 ping` line")
+        return v
+    if not gmst:
+        v.reasons.append("no `b0 gmst` line before the ping: run FOCC_B0.Gmst first (B0-1)")
+        return v
+    first = gmst[0]
+    if pings and first.line > pings[0].line:
+        v.cite(pings[0], first)
+        v.reasons.append(f"the first `b0 gmst` read (line {first.line}) comes after the first `b0 ping` (line "
+                         f"{pings[0].line}): run FOCC_B0.Gmst before the first ping of each launch (every launch rewrites "
+                         "focc.0.log), since B0-1 reads the stage's 7 and a read after a ping on stack B is the plugin's answer")
+        return v
+    value = first.count("value")
+    v.cite(first)
+    v.extra["gmst_first"] = value
+    if value is None:
+        v.reasons.append("the first `b0 gmst` line has no readable value=, so B0-1 cannot be read (a torn line): run "
+                         "FOCC_B0.Gmst again")
+        return v
+    if value != B0_PONG:
+        v.verdict = FAIL
+        v.reasons.append(f"Papyrus read iFOCC_Pong as {first.fields.get('value')}, not {B0_PONG}: the probe plugin's game "
+                         f"setting did not reach Game.GetGameSettingInt (0 = a name the game does not know)")
+        return v
+    v.reasons.append(f"B0-1: Papyrus read the plugin's game setting iFOCC_Pong = {B0_PONG}")
+    if not pings:
+        v.reasons.append("no `b0 ping` line: the bridge itself was not tried (B0-2 waits for the SFSE plugin)")
+        return v
+    rounds = []
+    for i, ping in enumerate(pings):
+        sent = ping.count("sent")
+        end = pings[i + 1].line if i + 1 < len(pings) else float("inf")     # this ping's window ends at the next ping
+        pong = next((e for e in pongs if ping.line < e.line < end and e.count("sent") == sent), None)
+        before = [e for e in gmst if e.line < ping.line][-1]          # exists: the first read precedes the first ping
+        values = [e.count("value") for e in gmst if ping.line < e.line < end]
+        got = pong.count("got") if pong is not None else None
+        held = before.count("value")
+        expect = sent + 1 if sent is not None else None
+        fresh = (expect != held) if None not in (expect, held) else None
+        readable = [x for x in values if x is not None]
+        if expect is not None and expect in readable:
+            read = expect                                           # the answer, wherever it is in the window
+            setting_ok = True if fresh is True else None            # the stale value, or an unreadable one before: no answer
+        elif not readable or expect is None:
+            read, setting_ok = (readable[-1] if readable else None), None
+        else:
+            read = readable[-1]                                     # the setting's last state in the window
+            setting_ok = None if held is None or read == held else False   # unchanged (or no held value to compare): no answer
+        rounds.append({"line": ping.line, "sent": sent, "native_got": got, "gmst_before": held, "gmst_after": read,
+                       "gmst_reads": values, "fresh": fresh,
+                       "native_ok": (got == expect) if None not in (got, expect) else None, "setting_ok": setting_ok})
+    v.extra["pings"] = rounds
+    last = rounds[-1]
+    ping = pings[-1]
+    v.cite(ping, *[e for e in pongs if e.line > ping.line][:1],
+           *([e for e in gmst if e.line > ping.line and e.count("value") == last["gmst_after"]] or
+             [e for e in gmst if e.line > ping.line])[:1])
+    if last["sent"] is None:
+        v.reasons.append("the last `b0 ping` has no readable sent=")
+        return v
+    if last["native_ok"] is True:
+        v.reasons.append(f"B0-2, native route: FOCC.Ping({last['sent']}) answered {last['native_got']} "
+                         f"({sum(1 for r in rounds if r['native_ok'])} of {len(rounds)} pings answered sent + 1)")
+        v.verdict = PASS
+    if last["setting_ok"] is True:
+        v.reasons.append(f"B0-2, setting route: iFOCC_Pong read {last['gmst_after']} after the ping of {last['sent']}")
+        v.verdict = PASS
+    if v.verdict == PASS:
+        return v
+    if last["native_ok"] is False:
+        v.reasons.append(f"FOCC.Ping({last['sent']}) answered {last['native_got']}, not {last['sent'] + 1}"
+                         + (": no plugin bound the native (Papyrus.0.log names it) or it answered wrong"
+                            if last["native_got"] == 0 else ""))
+    else:
+        v.reasons.append("no `b0 pong` with a readable got= after the last ping")
+    if last["setting_ok"] is False:
+        v.reasons.append(f"iFOCC_Pong read {last['gmst_after']} after the ping of {last['sent']}, not {last['sent'] + 1} and "
+                         f"not the {last['gmst_before']} it held before the ping: something wrote a wrong value")
+        v.verdict = FAIL if last["native_ok"] is False else INCONCLUSIVE
+    elif last["gmst_after"] is None:
+        v.reasons.append("no `b0 gmst` read after the last ping: the setting route was not read (run FOCC_B0.Gmst after "
+                         "the ping on stack B); on stack A the native answer above is the finding once the plugin's log "
+                         "shows it loaded")
+    elif last["gmst_after"] == last["gmst_before"] and last["gmst_after"] != last["sent"] + 1:
+        v.reasons.append(f"iFOCC_Pong still reads {last['gmst_after']} after the ping of {last['sent']}, the value it held "
+                         f"before the ping: nothing wrote the setting (nothing does on stack A; on stack B the bridge did "
+                         f"not answer), so the setting route settles nothing; on stack A the plugin's own log says whether "
+                         f"the dll loaded at all")
+    elif last["fresh"] is None:
+        v.reasons.append(f"the `b0 gmst` read before the last ping has no readable value=, so whether the read of "
+                         f"{last['gmst_after']} after it is a fresh answer cannot be told")
+    else:
+        v.reasons.append(f"iFOCC_Pong read {last['gmst_after']} after the ping of {last['sent']}, the value it already "
+                         f"held before the ping: a stale read is no answer; ping a value whose answer differs from the "
+                         f"setting's current value (the judge counts a setting answer only when it is fresh)")
+    return v
+
+
 CHECKS = {"p1": check_p1, "p2": check_p2, "p3": check_p3, "p4": check_p4, "p5": check_p5,
-          "p6": check_p6, "p7": check_p7, "p8": check_p8, "p9": check_p9, "p10": check_p10}
+          "p6": check_p6, "p7": check_p7, "p8": check_p8, "p9": check_p9, "p10": check_p10, "b0": check_b0}
 
 
 def check(probe: str, c: Collection) -> Verdict:
@@ -1723,7 +1875,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m fo4sf.combined.probes",
                                  description="judge a combined-core probe from its collected text; exit 0 PASS, "
                                              "1 FAIL, 2 INCONCLUSIVE")
-    ap.add_argument("check", help="p1..p10, all, hex2dec, dec2hex")
+    ap.add_argument("check", help="p1..p10, b0, all, hex2dec, dec2hex")
     ap.add_argument("path", nargs="?", help="collection folder or a single log file (or the id to convert)")
     ap.add_argument("--collect", help="collection folder (same as the positional path)")
     a = ap.parse_args(argv)
