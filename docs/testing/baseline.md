@@ -123,6 +123,8 @@ for it to finish, then run it again.
   be read.
 - Starfield was started while `prepare` read the game folder (hashing the built-in plugins takes a while).
 - The open-baseline note could not be written. The record is removed.
+- Starfield was started after that read, before Plugins.txt is written: `prepare` checks once more, last. The record
+  and the note are removed, and Plugins.txt is as it was.
 - Plugins.txt changed between the read and the write. The record and the note are removed, and Plugins.txt keeps the
   other writer's version.
 - Plugins.txt could not be written (on Windows, a read-only file or one another program holds open). The record and
@@ -160,13 +162,15 @@ A restore removes the open-baseline note when it names this baseline. Nothing he
 an INI.
 
 Before it writes Plugins.txt, `restore` checks the record's copy against the sha256 `prepare` recorded, and refuses a
-record that was changed or damaged since. Then it notes in the record what it found. When it stops after Plugins.txt
-is back and before the record is updated (the record cannot be written), `status` says so, `collect` refuses, and the
-open-baseline note stays, so the runner still launches nothing. Running `restore` again finishes the record with what
-the first run found and its time, so the baseline's time still ends when Plugins.txt was put back, not at the rerun.
+record that was changed or damaged since. Then it notes in the record what it found and when. When it stops after
+that note and before the record is updated (Ctrl+C, a closed window, a power cut, or a record that cannot be
+written), whether Plugins.txt is back yet or not, `status` says so and when, `collect` refuses, and the open-baseline
+note stays, so the runner still launches nothing. Running `restore` again finishes the record with what the first run
+found and its time, so the baseline's time still ends at the restore that stopped, not at the rerun.
 
-- When the game has rewritten Plugins.txt since (a start drops the plugins that load on their own), and the same
-  plugins are on, the rerun writes nothing and finishes the record.
+- When Plugins.txt has the same plugins on in other bytes since (the game's rewrite at startup drops the plugins that
+  load on their own; another program can write them in another order), the rerun keeps that file as
+  `Plugins.txt.at-restore` (or the next free number), writes the recorded bytes back, and finishes the record.
 - When other plugins are on now, it refuses and names the restore that stopped. `--force` keeps the current file and
   writes the recorded one back. Either way, the baseline's time ended at the restore that stopped, with what it found
   then.

@@ -14,9 +14,13 @@ The format (verified: Install's copy of the 28 Oct new game run 3 log, Starfield
   innermost call first. A native call ends - "<native>" Line ?; an object can have no name ("[ (0016E1D6)]") or be an
   alias ("[alias DerelictShips on quest SFFL_SE_EC08 (01058CDB)]").
 * Form ids print as 8 hex digits. An FF id is made while the game runs, so the same thing gets another id in another
-  run: the comparison reads every FF id as FF??????. Other ids are kept: Bethesda's own plugins load first, in a
-  fixed order, so their ids are the same in two runs on the same built-in plugin set (scripts/game/baseline.py
-  compare says when the built-in plugins' names or sizes differ from the baseline's).
+  run: the comparison reads every FF id as FF??????. Other ids are kept.
+Which ids match in two runs follows from the load order (docs/research/framework/launcher-sources/sfstack.md: the
+plugins that load on their own and the Starfield.ccc ones load first). A plugin that loads before every one of ours
+has the same index in our run as in the baseline on the same built-in plugin set, so its ids match
+(scripts/game/baseline.py compare says when the built-in plugins' names or sizes differ from the baseline's). One
+that Plugins.txt lists after one of ours (a Creation enabled there) has another index in our run than in the
+baseline, where ours are off, so a kind that names it is "both_place" at best, not "both"; the counts still add up.
 
 A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in the
 first group that fits: "both" (the baseline has the same kind), "ours" (it names one of our records or scripts:

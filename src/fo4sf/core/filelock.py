@@ -2,10 +2,10 @@
 
 os.open with O_EXCL creates the lock file atomically; the holder writes its pid and time into it and removes it on
 exit. A lock older than stale_s (a crashed holder) is removed and taken; one that cannot be removed (on Windows, a
-holder that still runs keeps it open) is waited for like any other. Waiting longer than timeout_s raises TimeoutError
-(an OSError), so a caller refuses rather than hangs. Every writer of the ledger and of the lease file
-takes the lock around its read-decide-write, so two processes (the runner, lease.py from a PowerShell script, the
-importer) never interleave inside one of them.
+holder that still runs keeps it open) is waited for like any other, and so is one whose age cannot be read. Waiting
+longer than timeout_s raises TimeoutError (an OSError), so a caller refuses rather than hangs. Every writer of the
+ledger and of the lease file takes the lock around its read-decide-write, so two processes (the runner, lease.py from
+a PowerShell script, the importer) never interleave inside one of them.
 """
 import contextlib
 import os
@@ -22,7 +22,10 @@ def locked(path, timeout_s=5.0, stale_s=30.0, poll_s=0.02):
         except FileExistsError:
             try:
                 age = time.time() - os.stat(path).st_mtime
-            except OSError:                                # released between the two calls
+            except OSError:                                # released between the two calls, or not readable
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"{path}: taken, and its age cannot be read") from None
+                time.sleep(poll_s)
                 continue
             if age > stale_s:
                 try:

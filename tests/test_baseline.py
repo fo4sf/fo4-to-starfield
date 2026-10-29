@@ -175,6 +175,9 @@ class BaselineTests(unittest.TestCase):
             ("running", lambda: mock.patch.object(bl, "game_running", return_value=True), "Starfield is running"),
             ("started meanwhile", lambda: mock.patch.object(bl, "game_running", side_effect=[False, True]),
              "started while prepare read the game folder"),             # the hashing takes a while
+            ("started last", lambda: mock.patch.object(bl, "game_running",   # after the record and its note
+                                                       side_effect=lambda: os.path.exists(self.note)),
+             "started while prepare ran, so nothing changed and the record is removed"),
             ("logging", lambda: mock.patch.object(bl.preflight, "papyrus_logging_on", return_value=False),
              "would write no log"),
         ]
@@ -616,7 +619,8 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual((rec["restored_at"], found["ticked"], found["how"], found["sfse"]),
                          (None, [], "byte for byte", []))
         self.assertTrue(os.path.exists(self.note))                      # still open: the runner launches nothing
-        self.assertIn("back, but the restore stopped before it updated the record",
+        self.assertIn(f"Plugins.txt: back. A restore at {found['at']} stopped before it updated the record, and the "
+                      f"baseline's time ended then; collect waits for the record: restore again finishes the record",
                       self.run_bl("status", "--out", self.out)[1])
         first = self.log(BASE_LOG, 5, "Papyrus.1.log")                  # the baseline session's
         later = write(os.path.join(self.mg, "Logs", "Script", "Papyrus.0.log"), RUN_LOG.replace("FO4SF", "Other"))
@@ -656,13 +660,45 @@ class BaselineTests(unittest.TestCase):
         found = self.stop_restore()
         rewrite = ORIGINAL.replace(b"*SFBGS003.esm\r\n", b"")          # a start drops the implicit plugin
         write(self.pt, rewrite)
+        out = self.run_bl("status", "--out", self.out)[1]               # not "ours ticked again"
+        self.assertIn(f"Plugins.txt: the same plugins on in other bytes (the game's rewrite at startup?). A restore "
+                      f"at {found['at']} stopped before it updated the record", out)
+        self.assertIn("restore again writes the recorded one back, keeping this file, and finishes the record", out)
         code, out = self.run_bl("restore", "--out", self.out)          # not "since prepare, ours were ticked"
         self.assertEqual(code, 0, out)
         rec = self.record()
-        self.assertIn("written back by the restore that stopped", rec["restore"])
+        self.assertEqual(rec["restore"], f"written back over a file with the same plugins on in other bytes (kept as "
+                                         f"{bl.KEPT_AT_RESTORE}), after a restore that stopped at {found['at']}")
         self.assertEqual((rec["restored_epoch"], rec["ticked_at_restore"]), (found["epoch"], []))
-        self.assertEqual(read(self.pt), rewrite)                       # ours are on: nothing to write
+        self.assertEqual(read(self.pt), ORIGINAL)                       # byte for byte again
+        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), rewrite)
         self.assertFalse(os.path.exists(self.note))
+        self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
+        self.assertEqual([x["path"] for x in self.record()["log"]["sources"]], [first])
+
+    def test_a_restore_stopped_before_its_write_puts_back_another_programs_order(self):
+        write(self.pt, ORIGINAL + b"*SomeMod.esp\r\n")
+        self.prepare()                                                  # turns ours and SomeMod off
+        first = self.log(BASE_LOG, 5)
+
+        def closed(*a):                                                 # the window closed after the note of it
+            raise KeyboardInterrupt
+
+        with mock.patch.object(bl.launcher_restore, "write_plugins_txt", closed), self.assertRaises(KeyboardInterrupt):
+            self.run_bl("restore", "--out", self.out)
+        found = self.record()["restoring"]
+        self.assertEqual(read(self.pt), PREPARED + b"SomeMod.esp\r\n")  # nothing was written back
+        reordered = PREPARED.replace(b"\r\nFO4Port.esm\r\nFO4SFNewGame.esm", b"") + \
+            b"*SomeMod.esp\r\n*FO4SFNewGame.esm\r\n*FO4Port.esm\r\n"      # a deploy ticks the same ones, in its order
+        write(self.pt, reordered)
+        self.assertIn("Plugins.txt: the same plugins on in other bytes", self.run_bl("status", "--out", self.out)[1])
+        code, out = self.run_bl("restore", "--out", self.out)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(read(self.pt), ORIGINAL + b"*SomeMod.esp\r\n")  # the owner's order, byte for byte
+        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), reordered)
+        rec = self.record()
+        self.assertEqual((rec["restored_epoch"], rec["restored_at"], rec["ticked_at_restore"]),
+                         (found["epoch"], found["at"], []))           # its time and findings, not the deploy's
         self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
         self.assertEqual([x["path"] for x in self.record()["log"]["sources"]], [first])
 
@@ -710,6 +746,18 @@ class BaselineTests(unittest.TestCase):
         write(os.path.join(self.out, bl.RECORD), b'{"schema": 1, "prepared')   # and its record damaged
         with self.assertRaisesRegex(SystemExit, "whose record cannot be read"):
             self.prepare(later)
+
+    def test_a_note_or_record_that_cannot_be_looked_up_counts_as_open(self):
+        self.prepare()
+        real = os.lstat
+        for blocked in (self.note, os.path.join(self.out, bl.RECORD)):
+            def denied(path, *a, blocked=blocked, **k):                 # no permission, a drive that does not answer
+                if os.path.abspath(path) == blocked:
+                    raise PermissionError(13, "Access is denied", path)
+                return real(path, *a, **k)
+
+            with self.subTest(blocked), mock.patch.object(bl.os, "lstat", denied):
+                self.assertEqual((bl.noted(os.path.dirname(self.note)) or [None])[0], self.out)   # not "absent"
 
     def test_restore_refuses_a_damaged_record(self):
         self.prepare()

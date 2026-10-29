@@ -128,6 +128,27 @@ class LedgerTests(unittest.TestCase):
         self.assertLess(len(tries), 100)                                     # it slept between tries
         os.unlink(lock)
 
+    def test_a_lock_whose_age_cannot_be_read_is_waited_for(self):
+        lock = self.path + ".lock"
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        with open(lock, "w") as f:
+            f.write("4244 0\n")
+        real, tries = os.stat, []
+
+        def unreadable(path, *a, **k):                                       # a dangling link, a denied lookup
+            if path != lock:
+                return real(path, *a, **k)
+            tries.append(path)
+            if len(tries) > 1000:
+                raise RuntimeError("spun on the lock without waiting")
+            raise PermissionError(13, "Access is denied", path)
+
+        with mock.patch.object(filelock.os, "stat", unreadable), self.assertRaises(TimeoutError):
+            with filelock.locked(lock, timeout_s=0.2, poll_s=0.02):
+                pass
+        self.assertLess(len(tries), 100)                                     # it slept between tries
+        os.unlink(lock)
+
     def test_corrupt_middle_line_raises(self):
         for bad in ("not json", '{"t": "2026-10-15T12:00:00+00:00", "by": "x"}', "[]", '"ev"'):   # not an event
             led = Ledger(self.path + bad[:2].encode("ascii").hex())
