@@ -1,6 +1,8 @@
 // NewGame: a Fallout 4 new game in Starfield (docs/newgame/vault111-start.md): one plugin, FO4SFNewGame.esm, whose
-// start-game-enabled quest holds off Starfield's opening, puts the player at their cryo pod in the converted Vault 111
-// (FO4Port.esm) and takes them up the elevator onto the Commonwealth (FO4TerrainCore.esm). Claude's project.
+// quest is Starfield's startup quest (the DefaultObject StartupQuest_DO overridden to it: our own start, the owner's
+// pick F, 29 Oct), so a New Game starts it instead of Starfield's opening. It puts the player at their cryo pod in the
+// converted Vault 111 (FO4Port.esm) during the first load and takes them up the elevator onto the Commonwealth
+// (FO4TerrainCore.esm). Claude's project.
 //
 //   points <Fallout4.esm> <out points.json> [--pod-ref <hex>] [--pod-step 1.0] [--terminal-ref <hex>]
 //        reads Fallout 4 only: in Vault111Cryo (000016D8) the player's cryo pod (the one placed reference whose
@@ -14,8 +16,11 @@
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--debug-after-hold <n>] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
 //         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]] [--require-persistent-anchor]
-//        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
-//        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
+//        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (run once, NOT start game enabled; stages 1 /
+//        10 / 20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10), the
+//        override of Starfield's DFOB StartupQuest_DO naming it (the writer refuses a Starfield.esm whose
+//        StartupQuest_DO is missing or names another quest than MQ101: the start it replaces must be the one it was
+//        written for), the quest carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
 //        their properties, MESG FO4SF_NewGameElevator and MESG FO4SF_NewGameStart (two buttons each: the elevator
 //        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
@@ -23,8 +28,8 @@
 //        game; the first build's 10 was the pirate-fight developer start, the second build's 2 matched no entry and left
 //        the new game on its loading screen, 28 Oct), or --mq101debug <n> to override it for an experiment. The quest
 //        script reads the global (DebugGlobal) for its guard line and writes DebugAfterHold (default 2, what MQ102 to
-//        MQ305 write once the intro is over; --debug-after-hold <n>, 0 writes nothing) right after the hold-off stopped
-//        MQ101 (the owner's decision NG-2: we set it ourselves).
+//        MQ305 write once the intro is over; --debug-after-hold <n>, 0 writes nothing) right after the hold-off's
+//        first pass, once the player has been moved (the owner's decision NG-2: we set it ourselves).
 //        Unless --no-version: GLOB FO4SF_NewGameVersion (constant, the build's version number, --build-version <n>,
 //        default 1) and a player alias on the quest carrying FO4SF_NewGameVersion, which compares that GLOB to the
 //        version the save was started with on every load (NG-15 / NG-L2).
@@ -100,7 +105,14 @@ static class NewGame
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks", SpecialScript = "FO4SF_NewGameSpecial";
     public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
     public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialAvifPrefix = "FO4SF_Special_";
-    public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the GLOB override keeps Starfield's id
+    public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
+    // Our own start (the owner's pick F, 29 Oct): Starfield's DefaultObject StartupQuest_DO (Starfield.esm 00562D, verified:
+    // the 21 Oct records report, it names MQ101) is the quest the engine starts on a New Game; the plugin overrides it to
+    // name FO4SF_NewGame, which is therefore NOT start game enabled (an existing save never starts it). Shipped precedent:
+    // Roleplayers' Alternate Start and No Ship Fast Start override the same record (research, 28 Oct). The deployment
+    // gate's start check (fo4sf.core.preflight check_start, OWN_START) passes exactly one plugin of ours overriding it.
+    public const string StartupEdid = "StartupQuest_DO";
+    public const uint StartupId = 0x00562D;
     public const uint SpecialAvifBase = 0x810;                  // the seven AVIF: 0x810 Strength to 0x816 Luck
     // The save version check (NG-15 / NG-L2, the owner's decision 2026-10-19: a save version from v1). GLOB
     // FO4SF_NewGameVersion holds the build's version number (--build-version <n>, default DefaultBuildVersion;
@@ -153,11 +165,11 @@ static class NewGame
     // PlayerREF.moveto(CharGenStartMarker) then WaitFor3dLoad; entry 10: SetStage 210 and 250, the pirate fight the
     // first build's override of 10 sent the owner to, run 1 of 28 Oct). A value no entry matches moves nobody: the
     // second build's 2 left the new game on its loading screen for ever: the quest started (its version alias logged)
-    // but its OnQuestInit never fired (run 2 of 28 Oct). So the default build writes NO override (vanilla 0 runs the
-    // intro, which the hold-off then stops) and the quest script writes DefaultDebugAfterHold into the global right after
-    // that stop: 2 is the value the main quests' developer skip-start stages write (a normal intro leaves 0), matches no
-    // start, and opens PEO_SustenanceAllowed's "MQ101Debug != 0", whose normal route (MQ101 stage 310) a held-off intro
-    // never reaches (NG-2, NG-M1).
+    // but its OnQuestInit never fired (run 2 of 28 Oct). With our own start MQ101 never runs, so the default build still
+    // writes NO override and the quest script writes DefaultDebugAfterHold into the global after the hold-off's first
+    // pass: 2 is the value the main quests' developer skip-start stages write (a normal intro leaves 0), matches no
+    // start, and opens PEO_SustenanceAllowed's "MQ101Debug != 0", whose normal route (MQ101 stage 310) is never reached
+    // (NG-2, NG-M1).
     // --mq101debug <n> overrides the record for an experiment; --debug-after-hold <n> changes the write (0: none).
     public const int DefaultDebugAfterHold = 2;
     public const string DebugGlobEdid = "MQ101Debug";
@@ -520,8 +532,9 @@ static class NewGame
         var days = sf.Globals.FirstOrDefault(g => g.FormKey == new FormKey(SfEsm, GameDaysPassedId) && g.EditorID == GameDaysPassedEdid)
                    ?? throw new Refusal($"Starfield.esm {GameDaysPassedId:X6} is not the GLOB {GameDaysPassedEdid}");
         var hold = o.Hold.Select(e => sf.Quests.FirstOrDefault(q => q.EditorID == e) ?? throw new Refusal($"Starfield.esm has no quest {e}")).ToList();
-        // the new-game guard's fresh-start test reads the opening quest's stage (21 Oct review on #393)
+        // the opening: the guard line reads its stage, and the script starts it when our start stands down during the load
         var opening = sf.Quests.FirstOrDefault(q => q.EditorID == OpeningEdid) ?? throw new Refusal($"Starfield.esm has no quest {OpeningEdid}");
+        var startup = Startup(sf, opening);
         // the debug global the script reads for its guard line and writes after the hold-off; overridden below only under --mq101debug
         var debugGlob = sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid) ?? throw new Refusal($"Starfield.esm has no GLOB {DebugGlobEdid}");
 
@@ -571,7 +584,8 @@ static class NewGame
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
             EditorID = QuestEdid, Name = pts.GetProperty("quest_name").GetString(), FormVersion = 581, Version2 = 12,
-            Data = new SF.QuestData { Flags = SF.Quest.Flag.StartGameEnabled | SF.Quest.Flag.RunOnce | SF.Quest.Flag.DisplaysInHud, Priority = 70 },
+            // not start game enabled: the engine starts it as the startup quest on a New Game, and nothing starts it on a save
+            Data = new SF.QuestData { Flags = SF.Quest.Flag.RunOnce | SF.Quest.Flag.DisplaysInHud, Priority = 70 },
         };
         quest.QuestType.SetTo(qtyp.FormKey);
         foreach (var s in Stages)
@@ -640,6 +654,10 @@ static class NewGame
             quest.VirtualMachineAdapter.Aliases.Add(bound);
         }
         mod.Quests.Add(quest);
+        // our own start: Starfield's StartupQuest_DO, its id and EditorID kept, names our quest
+        var startupOver = (SF.DefaultObject)startup.DeepCopy();
+        startupOver.Object.SetTo(quest.FormKey);
+        mod.DefaultObjects.Add(startupOver);
 
         if (o.MQ101Debug is { } dbg)
         {
@@ -651,7 +669,8 @@ static class NewGame
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
-        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\" " +
+        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\", " +
+                          $"the startup quest: DFOB {StartupEdid} {startup.FormKey} -> {quest.FormKey} (was {OpeningEdid}); " +
                           $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode} at {Show(places.AnchorPos)}, " +
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
@@ -661,6 +680,17 @@ static class NewGame
                           (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off") +
                           $"; inventory reset {InventoryText(o, places)}");
         return 0;
+    }
+
+    /// Starfield.esm's DefaultObject StartupQuest_DO, which must name the opening (MQ101) as vanilla does: a Starfield.esm
+    /// whose start is another quest (an update, or a start already replaced) is not the start this plugin was written to
+    /// replace.
+    public static SF.IDefaultObjectGetter Startup(SF.IStarfieldModGetter sf, SF.IQuestGetter opening)
+    {
+        var dobj = sf.DefaultObjects.FirstOrDefault(d => d.EditorID == StartupEdid) ?? throw new Refusal($"Starfield.esm has no DFOB {StartupEdid}");
+        if (dobj.Object.FormKey != opening.FormKey)
+            throw new Refusal($"Starfield.esm's {StartupEdid} {dobj.FormKey} names {dobj.Object.FormKey}, not {OpeningEdid} {opening.FormKey}: not the start this plugin replaces");
+        return dobj;
     }
 
     static string InventoryText(Options o, Places p) => !o.ClearInventory ? "off" :
@@ -702,7 +732,7 @@ static class NewGame
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], {plug.Quests.Count} QUST, " +
                           $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB, {plug.ActorValueInformation.Count} AVIF, " +
-                          $"{plug.Quests.Sum(q => q.Aliases?.Count ?? 0)} alias(es)");
+                          $"{plug.DefaultObjects.Count} DFOB, {plug.Quests.Sum(q => q.Aliases?.Count ?? 0)} alias(es)");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { "Starfield.esm" }), "masters are not Starfield.esm alone (the port and the core are resolved at run time)");
         Need(plug.Npcs.Count == 0 && plug.Worldspaces.Count == 0 && plug.Cells.Count == 0, "the plugin carries NPC_, WRLD or CELL records (it places nothing)");
@@ -756,14 +786,28 @@ static class NewGame
         }
         else Need(own.Count == 0, "a --no-version build carries a GLOB of its own");
 
+        // our own start: exactly one DFOB, Starfield's StartupQuest_DO overridden (same id and EditorID) to name our quest
+        var opening = sf.Quests.FirstOrDefault(x => x.EditorID == OpeningEdid);
+        SF.IDefaultObjectGetter? vanilla = null;
+        try { vanilla = opening is null ? null : Startup(sf, opening); }
+        catch (Refusal e) { problems.Add(e.Message); }
+        var dobjs = plug.DefaultObjects.ToList();
+        Need(dobjs.Count == 1 && vanilla is not null && dobjs[0].FormKey == vanilla.FormKey && dobjs[0].EditorID == StartupEdid &&
+             dobjs[0].Object.FormKey == new FormKey(key, QuestId),
+             $"the plugin's DFOB are not one override of Starfield's {StartupEdid} naming QUST 0x{QuestId:X} (our own start)");
+        Console.WriteLine($"  start: {string.Join("; ", dobjs.Select(d => $"DFOB {d.EditorID} {d.FormKey} -> {d.Object.FormKey}"))}" +
+                          (vanilla is null ? "" : $" (vanilla: {vanilla.Object.FormKey})"));
+
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
         if (q is null) problems.Add("no QUST 0x800");
         else
         {
             Console.WriteLine($"  QUST {q.EditorID} \"{q.Name?.String}\" flags {q.Data?.Flags} stages [{string.Join(",", q.Stages.Select(s => s.Index))}] " +
                               $"objectives [{string.Join("; ", q.Objectives.Select(x => $"{x.Index} \"{x.DisplayText?.String}\""))}]");
-            Need(q.EditorID == QuestEdid && q.Data is not null && q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) && q.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce),
-                 "the quest is not FO4SF_NewGame, start game enabled and run once");
+            // the startup quest is started by the engine on a New Game only: start game enabled would start it on every
+            // save that gains the plugin, too
+            Need(q.EditorID == QuestEdid && q.Data is not null && !q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) && q.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce),
+                 "the quest is not FO4SF_NewGame, run once and NOT start game enabled (the startup quest)");
             Need(q.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"the quest's QuestType is not {QuestTypeSideEdid}");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
@@ -890,7 +934,8 @@ static class NewGame
         f4.Quests.Add(new F4.Quest(new FormKey(f4Key, Fo4MQ102), F4.Fallout4Release.Fallout4) { EditorID = "MQ102", Name = "Out of Time" });
         var f4Path = Path.Combine(dir, "Fallout4.esm");
         f4.BeginWrite.ToPath(f4Path).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
-        // a stand-in Starfield.esm: the quest type, GameDaysPassed, MQ101Debug, the opening quests, the COC marker
+        // a stand-in Starfield.esm: the quest type, GameDaysPassed, MQ101Debug, the opening quests, StartupQuest_DO naming
+        // MQ101 (at its real id), the COC marker
         var sf = new SF.StarfieldMod(SfEsm, rel);
         sf.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, QuestTypeSideId), rel) { EditorID = QuestTypeSideEdid });
@@ -901,9 +946,26 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x903), rel) { EditorID = "MQ101PostQuest" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x904), rel) { EditorID = "MQ_TutorialQuest_Misc04" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
+        var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
+        startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
+        sf.DefaultObjects.Add(startupDo);
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
+        // two Starfield.esm the writer refuses: one without StartupQuest_DO, one whose StartupQuest_DO names MQ00 (a start
+        // already replaced, or an update)
+        string SfVariant(string name, Action<SF.StarfieldMod> edit)
+        {
+            var m = SF.StarfieldMod.CreateFromBinary(sfPath, rel);
+            edit(m);
+            var d = Path.Combine(dir, name);
+            Directory.CreateDirectory(d);
+            var path = Path.Combine(d, "Starfield.esm");
+            m.BeginWrite.ToPath(path).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
+            return path;
+        }
+        var sfNoStartup = SfVariant("sf_nostartup", m => m.DefaultObjects.Clear());
+        var sfOtherStartup = SfVariant("sf_otherstartup", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901)));
         // a port with FO4Port_Vault111Cryo: its COC marker and the cog door, and formids.json as PluginSpike writes it
         var portKey = ModKey.FromFileName("FO4Port.esm");
         var port = new SF.StarfieldMod(portKey, rel);
@@ -1056,7 +1118,12 @@ static class NewGame
         var good = Path.Combine(outDir, "default", Plugin);
         var mutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
         {
-            ("not start game enabled", m => m.Quests.First().Data!.Flags &= ~SF.Quest.Flag.StartGameEnabled),
+            ("start game enabled again", m => m.Quests.First().Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("the startup override removed", m => m.DefaultObjects.Clear()),
+            ("the startup override names Starfield's opening again", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x902))),
+            ("the startup override names MQ00", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901))),
+            ("the startup override renamed", m => m.DefaultObjects.First().EditorID = "StartupQuest_DO2"),
+            ("a second DFOB override", m => m.DefaultObjects.Add(new SF.DefaultObject(new FormKey(SfEsm, StartupId + 1), rel) { EditorID = "OtherDO" })),
             ("not run once", m => m.Quests.First().Data!.Flags &= ~SF.Quest.Flag.RunOnce),
             ("a stage missing", m => m.Quests.First().Stages.RemoveAt(0)),
             ("the vault anchor id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultAnchorId")).Data = 0x999),
@@ -1233,6 +1300,15 @@ static class NewGame
             var ns = plain with { Special = false };
             if (Write(sfPath, portPath, idsPath, corePath, noTermPath, od, ns) != 0 || Check(Path.Combine(od, Plugin), sfPath, portPath, idsPath, corePath, noTermPath, ns) != 0) { Console.WriteLine("FAIL  a --no-special build without a terminal"); return 1; }
         }
+        // refusals: a Starfield.esm without StartupQuest_DO, or with one naming another quest than MQ101; check refuses the
+        // default build against the second too
+        foreach (var (why, sfp) in new[] { ("a Starfield.esm without StartupQuest_DO", sfNoStartup), ("a Starfield.esm whose StartupQuest_DO names MQ00", sfOtherStartup) })
+        {
+            try { Write(sfp, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine($"FAIL  write accepted {why}"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
+        }
+        if (Check(good, sfOtherStartup, portPath, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine("FAIL  check passed against a Starfield.esm whose StartupQuest_DO names MQ00"); return 1; }
+        Console.WriteLine("rejected: the default build against a Starfield.esm whose StartupQuest_DO names MQ00");
         // refusals: a hold quest Starfield lacks, an exit anchor the core lacks
         foreach (var (why, o) in new[] { ("an unknown hold quest", plain with { Hold = new[] { "MQ999" } }), ("an unknown exit anchor", plain with { ExitAnchor = "NoSuchMarker" }) })
         {

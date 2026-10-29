@@ -44,8 +44,12 @@ int Property MaxPresses = 300 Auto Const
 bool asked = false
 bool done = false
 
+Event OnQuestStarted()
+    StartTimer(1.0, 3)                                       ; the startup quest's start (FO4SF_NewGameQuest.Begin)
+EndEvent
+
 Event OnQuestInit()
-    StartTimer(1.0, 3)
+    StartTimer(1.0, 3)                                       ; whichever start event comes, the timer runs; a second call restarts it
 EndEvent
 
 Event OnTimer(int aiTimerID)

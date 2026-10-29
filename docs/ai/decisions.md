@@ -788,3 +788,26 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: a retry MoveTo when the settle check fails (rejected for now: a second sink would show the owner two
   falls, and the game's reset to the marker already leaves them standing); the COC marker itself as the start (8 m
   from the pod; kept as what the game does on a sink).
+
+## 2026-10-29: our own start: the new game's quest is Starfield's startup quest (Claude-cloud)
+- Decision: newgame_v11 overrides the DefaultObject `StartupQuest_DO` (Starfield.esm 00562D, MQ101 in vanilla) to
+  name FO4SF_NewGame, which is no longer start-game enabled. The quest moves the player into the vault itself during
+  the first load (from `OnQuestStarted`, or `OnQuestInit` if that comes first, once), fades the screen in once the
+  player's 3D has loaded, and keeps the hold-off (both passes, after the move) and the MQ101Debug write of 2 (after
+  pass 1). A start that is not a new game (a New Game+) or cannot move the player stands down and, while the game is
+  still loading, starts MQ101, so the first load ends. The guard is days and level alone. This replaces the 28 Oct
+  entry's "overrides no record" for the start record only; MQ101 and MQ101Debug stay untouched
+  (docs/newgame/vault111-start.md sections 1, 2 and 13).
+- Why: the owner, 29 Oct (typos fixed): "too many things are breaking because we are forcing ourselves into the
+  Starfield system", and their pick F (our own start) for the strip-down. v9 and v10 let MQ101's stage 0 run and then
+  undid it: they stopped the opening, restored saving and the HUD, and left the miner suit on. Owning the start removes
+  all of that, and no save ever starts our quest. Shipped precedent: Roleplayers' Alternate Start (its startup quest
+  moves the player from `OnQuestStarted` and fades in once its start cell has loaded) and No Ship Fast Start override
+  the same record.
+- Alternatives: keep stopping MQ101 (newgame_v10; the way back if run 4 fails, by restaging main d9958261); a stage 0
+  fragment on our quest, the way MQ101 moves its player (held: a fragment script and more records, for if neither
+  start event fires during the load); `Game.FastTravel` instead of MoveTo (the precedent's call; not taken: MoveTo with
+  the pod's offset is what run 3 and the map test verified, and MQ101's own intro moves its player with MoveTo during
+  this load); overriding MQ101 or MQ00 (option C: rejected, it edits Starfield's quests).
+- Boundary: not run in game. Which start events fire during the load, whether the fade call ends the loading screen on
+  1.16.244 and what the player wears without MQ101 stay open until run 4 (section 13).
