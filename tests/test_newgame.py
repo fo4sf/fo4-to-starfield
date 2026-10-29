@@ -223,9 +223,11 @@ class ContractTests(unittest.TestCase):
 
     def test_the_starting_inventory_reset(self):
         """NG-K8: the reset is one default (off) in the writer and Python; --clear-inventory makes the quest script
-        empty the inventory (quest items kept) once the player is confirmed in the vault and before stage 10, logging the count;
-        --vault-suit names the port's ARMO the writer resolves by EditorID (refused without --clear-inventory) and the
-        script adds and equips after the reset, logging it. Every native of it is prechecked, and the plan records both."""
+        empty the inventory once the player is confirmed in the vault and before stage 10, logging the count (whether
+        quest items stay is unverified: Starfield's third parameter is abRespectTargetCapacity, so neither the doc nor
+        the line claims it); --vault-suit names the port's ARMO the writer resolves by EditorID (refused without
+        --clear-inventory) and the script adds and equips after the reset, logging it. Every native of it is
+        prechecked, and the plan records both."""
         cs, psc = read(CS), read(PSC)
         self.assertIn(f"DefaultClearInventory = {str(ng.DEFAULT_CLEAR_INVENTORY).lower()};", cs)
         self.assertFalse(ng.DEFAULT_CLEAR_INVENTORY)
@@ -244,9 +246,10 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("ResetInventory(", psc[psc.index("Function Begin"):psc.index("Function StandDown")])   # never during the first load
         reset = psc[psc.index("Function ResetInventory"):psc.index("Function InVault")]
         self.assertEqual(reset.count("player.RemoveAllItems("), 1)   # once; the doc comment names the call too
-        self.assertIn("player.RemoveAllItems(None, false, false)", reset)   # quest items kept (the third argument)
+        self.assertIn("player.RemoveAllItems(None, false, false)", reset)   # FO4's arguments
+        self.assertIn("whether quest items stay is unverified", reset)
         self.assertIn("int before = player.GetItemCount(None)", reset)
-        self.assertIn('Trace("inventory cleared removed=" + (before - after) + " left=" + after', reset)
+        self.assertIn('Trace("inventory cleared removed=" + (before - after) + " left=" + after)\n', reset)
         self.assertIn("if VaultSuitId > 0", reset)
         self.assertIn("Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor", reset)
         self.assertLess(reset.index("player.AddItem(suit, 1, true)"), reset.index("player.EquipItem(suit, false, true)"))
@@ -544,8 +547,9 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.debug_after_hold_option(p), 0)
 
     def test_the_hold_off_runs_twice(self):
-        """Our own start (newgame_v11) never starts MQ101, but MQ00 is start-game enabled and may start after our start
-        (unverified), and stopping MQ101, if something started it, runs its stage 9000, which starts MQ101PostQuest and
+        """Our own start (newgame_v11) never starts MQ101 when it goes on (only a stand-down's hand back asks it to,
+        and that holds nothing off), but MQ00 is start-game enabled and may start after our start (unverified), and
+        stopping MQ101, if something started it, runs its stage 9000, which starts MQ101PostQuest and
         MQ_TutorialQuest_Misc04 (PC read 19 Oct, NG-N1). Pass 1 runs in the start right after the move into the vault
         (never before it: a hand back must find Starfield's start as the game left it); pass 2 once the vault has loaded,
         before stage 10, so once. Each stop is logged with its pass."""
@@ -985,9 +989,9 @@ class PrecheckTests(unittest.TestCase):
         self.assertIn("MISSING  FO4SF_NewGameQuest: Debug.CenterOnCell", o.getvalue())
 
     def test_missing_start_natives_fail_the_core_script(self):
-        """Our own start's natives: Game.FadeOutGame (the fade in that ends the first load) and the start event
-        OnQuestStarted. A Game.psc without the first is a core miss; a Quest.psc without the second is too, and it
-        drops the looks and SPECIAL scripts as well, which start their timers on it."""
+        """Our own start's natives: Game.FadeOutGame (the fade in once the 3D is in; what ends the first load is open,
+        docs section 13) and the start event OnQuestStarted. A Game.psc without the first is a core miss; a Quest.psc
+        without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
                          "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN)
@@ -1030,6 +1034,15 @@ class PrecheckTests(unittest.TestCase):
 # the guard's stand-down line as the quest script writes it since our own start (days, level, and whether the game was
 # still loading: a New Game+ here, which hands back); test_the_stand_down_line_is_the_scripts holds the fixture to the script
 STOOD_DOWN = "not a new game: days=0.333530 level=12 loading=true: standing down"
+# a New Game+ in our own start's log after its init line: the route, the guard, the stand-down while the game loads, the
+# hand back's two lines, then our stage 1 (test_our_own_start_lines_are_the_scripts reads this log and holds the lines
+# to the script's traces)
+NG_PLUS = ("start route=OnQuestStarted player_loaded=false cell=None loading=true",
+           "guard days=0.333530 level=12 opening_stage=0 opening_running=false mq101debug=0.000000 write_after_hold=2",
+           STOOD_DOWN,
+           "handing back to Starfield's start: not a new game; mq101debug=0.000000",
+           "handed back: requested=true opening starting=true running=false stage=0",
+           "stage 1")
 
 
 class LogTests(unittest.TestCase):
@@ -1041,15 +1054,20 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00013579)>] pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00024680)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 mq101debug written=2.000000 was=0.000000",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.1 start event OnQuestInit came after the start: nothing to do",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 3d wait over loaded=true",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 fade in by=start loaded=true cell=[Cell <FO4Port_Vault111Cryo>]; saving and HUD on",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault confirmed after the load pos=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 not running [Quest < (00012345)>] pass=2",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 not running [Quest < (00054321)>] pass=2",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 held off [Quest < (00013579)>] running_after=False pass=2",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 not running [Quest < (00024680)>] pass=2",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 hold-off pass 2 stopped=1 of 4",
-        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2 (quest items kept)",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
@@ -1062,8 +1080,9 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:59AM] FO4SF_NEWGAME rt=59.0 special set S=10 P=2 E=2 C=2 I=2 A=2 L=8 readback=10.000000 8.000000",
         "[10/20/2026 - 09:01:00AM] FO4SF_NEWGAME rt=60.0 status stage=20 pos=50 10 0 cell=x world=None",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
-        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface setposition pos=-2450 -1410 110 target=-2450 -1410 110",
-        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 stage 40",
+        "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface moveto pos=-1250 1290 110 world=[WorldSpace <x>] moves=1",
+        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 surface setposition ok=true set=1 pos=-2450 -1410 110 target=-2450 -1410 110",
+        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40",
         "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 landed z=110.0",
         "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 stage 200",
     ]
@@ -1077,6 +1096,7 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["held_off"], ["[Quest < (00012345)>]", "[Quest < (00013579)>]"])
         self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
         self.assertTrue(s["entered_vault"])                 # the move's own check said no; the timer confirmed it after the load
+        self.assertTrue(s["surfaced"].startswith("surface setposition ok=true set=1 "))
         self.assertTrue(s["landed"])
         self.assertFalse(s["fell"])
         self.assertFalse(s["stood_down"])
@@ -1094,7 +1114,7 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["version_saved"], "1.000000")
         self.assertIsNone(s["version_load"])                 # no save was loaded in this run
         self.assertFalse(s["version_mismatch"])
-        self.assertEqual(s["inventory_cleared"], "removed=14 left=2 (quest items kept)")
+        self.assertEqual(s["inventory_cleared"], "removed=14 left=2")
         self.assertEqual(s["vault_suit"], "equipped [Armor < (0A000820)>] worn=True")
         self.assertIsNone(s["centered"])                     # a persistent-anchor run never centers
 
@@ -1142,9 +1162,9 @@ class LogTests(unittest.TestCase):
         head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=x\n")[1]
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
-        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0 (quest items kept)\n")[1]
-        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0 (quest items kept)", None))
-        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1 (quest items kept)\n"
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0\n")[1]
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0", None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1\n"
                                 "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
         self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")
 
@@ -1239,6 +1259,9 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["handed_back"], "requested=true opening starting=true running=false stage=0")
         self.assertEqual(s["stages"], [1])
         self.assertIsNone(s["mq101debug_written"])           # a hand back follows no write
+        # the other tests' New Game+ (NG_PLUS) is this log
+        self.assertEqual(NG_PLUS, ("start route=OnQuestStarted player_loaded=false cell=None loading=true",
+                                   guard.format(12), STOOD_DOWN, handing.format("not a new game"), handed, "stage 1"))
         # no move into the vault: the same stand-down and hand back
         no_move = "no move into the vault: anchor FO4Port.esm:4920 does not resolve; standing down"
         no_move_log = (head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=None loading=true\n"
@@ -1385,8 +1408,8 @@ class LogTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         path = os.path.join(tmp, "fo4sf_newgame.0.log")
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"[x] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
-                    "[x] FO4SF_NEWGAME rt=3.0 stage 1\n")
+            f.write("[x] FO4SF_NEWGAME rt=3.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=false core=FO4TerrainCore.esm:685915\n"
+                    + "".join(f"[x] FO4SF_NEWGAME rt=3.0 {ln}\n" for ln in NG_PLUS))
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             self.assertEqual(ng.main(["log", "--file", path]), 1)
         self.assertTrue(json.loads(o.getvalue())["stood_down"])
@@ -1412,8 +1435,7 @@ class LogTests(unittest.TestCase):
         init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
         cases = {
             "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
-            "stood down": init + f"[y] FO4SF_NEWGAME rt=3.0 {STOOD_DOWN}\n"
-                                 "[y] FO4SF_NEWGAME rt=3.0 stage 1\n",
+            "stood down": init + "".join(f"[y] FO4SF_NEWGAME rt=3.0 {ln}\n" for ln in NG_PLUS),
             "init only": init,
         }
         for name, newer in cases.items():

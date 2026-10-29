@@ -35,29 +35,30 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    made should never start ours, nor an existing save that gains the plugin: the owner's test saves are safe. A session
    started with `coc` from the main menu does not start the startup quest either (**supported hypothesis**: Install's
    map test of 28 Oct found MQ101, the startup quest then, not running). The opening-stage test of newgame_v9 and v10
-   (MQ101 running and below stage 105, the 21 Oct review) is gone: MQ101 never runs now. A New Game+ keeps the player's
-   level, so it stands down (stage 1); when either reading of the start says the game is still loading (the player's 3D
-   not in, or no parent cell yet: `loading=true` on the `start route` line), the quest first asks MQ101 to start
-   (`Opening.StartNoWait()`, which waits for nothing; logged `handing back ...`, then `handed back: ...`), whose stage 0
-   entry 0 is the NG+ start; whether MQ101 started by a script during the first load starts up then and moves the player
-   is **unverified** (section 13). The guard now reads days and level during the first load; the readings of section 10
-   were taken a second later, so an NG+ whose level still read 1 then would get our start instead (**unverified**; not a
-   hang). A console start on a played save (a game day or more, or above level 1) stands down and moves nothing; one in
-   a session under a day at level 1 (a `coc` session from the main menu: Install's map test read `days=0.333532
-   level=1`, section 11) passes the guard and runs the whole start, as a New Game does. The day limit was 0.25 in the
-   first build, which stood every new game down: Starfield's clock starts at 8:00 and `GameDaysPassed` carries the hour,
-   so a new game reads about 0.3335 a second in (**verified** in game 28 Oct, two runs; section 10). The guard logs
-   every reading it judges (the `guard` line).
-3. **Starfield's opening never runs, and its start quests are held off:** nothing starts MQ101 any more. The quest
-   still stops `MQ00` (the main-quest start, start-game enabled), `MQ101` (the opening), `MQ101PostQuest` and
-   `MQ_TutorialQuest_Misc04` if they run, and logs each stop: once in the start right after the move, and once more
-   when the vault has loaded, for a quest that started meanwhile and for the two that MQ101's stage 9000 starts if
-   something had started MQ101 and the first pass stopped it (section 2). The plugin overrides no other Starfield
-   record: `MQ101Debug` keeps its value (section 2, B). Right after the hold-off's first pass the quest writes 2 into
-   that global itself (`SetValueInt`), logged as `mq101debug written=2.000000 was=0.000000`. 2 is the value the main
-   quests' developer skip-start stages write; a normally finished intro leaves 0. It opens the sustenance condition
-   (`MQ101Debug != 0`), whose normal route (MQ101 stage 310) is never reached. A hand back never follows the write or
-   the hold-off: both come after the move, and both stand-downs return before them.
+   (MQ101 running and below stage 105, the 21 Oct review) is gone: MQ101 no longer runs before ours. A New Game+ keeps
+   the player's level, so it stands down (stage 1); when either reading of the start says the game is still loading (the
+   player's 3D not in, or no parent cell yet: `loading=true` on the `start route` line), the quest first asks MQ101 to
+   start (`Opening.StartNoWait()`, which waits for nothing; logged `handing back ...`, then `handed back: ...`), whose
+   stage 0 entry 0 is the NG+ start; whether MQ101 started by a script during the first load starts up then and moves
+   the player is **unverified** (section 13). The guard now reads days and level during the first load; the readings of
+   section 10 were taken a second later, so an NG+ whose level still read 1 then would get our start instead
+   (**unverified**; not a hang). A console start on a played save (a game day or more, or above level 1) stands down and
+   moves nothing; one in a session under a day at level 1 (a `coc` session from the main menu: Install's map test read
+   `days=0.333532 level=1`, section 11) passes the guard and runs the whole start, as a New Game does. The day limit was
+   0.25 in the first build, which stood every new game down: Starfield's clock starts at 8:00 and `GameDaysPassed`
+   carries the hour, so a new game reads about 0.3335 a second in (**verified** in game 28 Oct, two runs; section 10).
+   The guard logs every reading it judges (the `guard` line).
+3. **Starfield's opening never runs, and its start quests are held off:** on a start that goes on, nothing starts MQ101
+   any more (only a stand-down during the first load asks it to start, step 2). The quest still stops `MQ00` (the
+   main-quest start, start-game enabled), `MQ101` (the opening), `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they
+   run, and logs each stop: once in the start right after the move, and once more when the vault has loaded, for a quest
+   that started meanwhile and for the two that MQ101's stage 9000 starts if something had started MQ101 and the first
+   pass stopped it (section 2). The plugin overrides no other Starfield record: `MQ101Debug` keeps its value (section 2,
+   B). Right after the hold-off's first pass the quest writes 2 into that global itself (`SetValueInt`), logged as
+   `mq101debug written=2.000000 was=0.000000`. 2 is the value the main quests' developer skip-start stages write; a
+   normally finished intro leaves 0. It opens the sustenance condition (`MQ101Debug != 0`), whose normal route (MQ101
+   stage 310) is never reached. A hand back never follows the write or the hold-off: both come after the move, and both
+   stand-downs return before them.
    Without MQ101's stage 0 nothing empties the inventory or puts on Starfield's miner spacesuit (newgame_v9 and v10
    left the player in it at the pod): what the player wears and carries now is **unresolved** until run 4 (section 13;
    the inventory reset, section 4c, stays off until then).
@@ -90,10 +91,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
     it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
     changes (optional script).
-11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory`
-    build empties the inventory (quest items kept) once the player is confirmed in the vault and logs the count; with
-    `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8; section 4c). Off until the first
-    in-game run of our own start shows what a game whose MQ101 never ran leaves in the inventory.
+11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory` build
+    empties the inventory (whether quest items stay is **unverified**, section 4c) once the player is confirmed in the
+    vault and logs the count; with `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8;
+    section 4c). Off until the first in-game run of our own start shows what a game whose MQ101 never ran leaves in the
+    inventory.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -310,14 +312,14 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
   the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
   setting.
-- When on: once the player is confirmed in the vault (the timer's first tick after the 3D has loaded) and before
-  stage 10, `ResetInventory` calls
-  `player.RemoveAllItems(None, false, false)` (the third argument false keeps quest items), reads
-  `GetItemCount(None)` before and after and logs `inventory cleared removed=<n> left=<n> (quest items kept)`. Both
-  natives are written with FO4's signatures; Starfield's `ObjectReference.psc` is what the precheck reads, and a miss
-  fails the core script (there is no `--no-...` for it: the property is off, but the script must compile). Whether
-  Starfield's `GetItemCount(None)` counts every item, as FO4's does, is **unverified**: both numbers are logged so the
-  proof can say.
+- When on: once the player is confirmed in the vault (the timer's first tick after the 3D has loaded) and before stage
+  10, `ResetInventory` calls `player.RemoveAllItems(None, false, false)`, reads `GetItemCount(None)` before and after
+  and logs `inventory cleared removed=<n> left=<n>`. Both natives are written with FO4's signatures; Starfield's
+  `ObjectReference.psc` is what the precheck reads, and a miss fails the core script (there is no `--no-...` for it: the
+  property is off, but the script must compile). Starfield's third parameter of `RemoveAllItems` is
+  `abRespectTargetCapacity` (`ObjectReference.psc`, ContentResources.zip, read 29 Oct), so whether quest items stay is
+  **unverified**; the `left=` count is the evidence. Whether Starfield's `GetItemCount(None)` counts every item, as
+  FO4's does, is **unverified**: both numbers are logged so the proof can say.
 - The suit: `--vault-suit <EditorID>` (only with `--clear-inventory`; refused alone) names an ARMO of FO4Port.esm. The
   writer resolves it offline exactly as it does the anchors and the terminal: exactly one ARMO of that EditorID (any
   case) in the port, the port's own record, else refused (none, two, or another plugin's record). The script resolves it
@@ -352,8 +354,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    compiler resolves it); a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
    (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) belong to the quest script, so a miss there
    is a core miss (section 4c). So do our own start's (section 13): `Game.FadeOutGame`, `ObjectReference.WaitFor3DLoad`,
-   `Quest.Start` and the start events `OnQuestStarted` and `OnQuestInit`, which the looks and SPECIAL scripts start on
-   too.
+   `Quest.StartNoWait` and `Quest.IsStarting` (the hand back) and the start events `OnQuestStarted` and `OnQuestInit`,
+   which the looks and SPECIAL scripts start on too.
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is

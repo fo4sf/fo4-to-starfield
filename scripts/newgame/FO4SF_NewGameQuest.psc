@@ -150,10 +150,10 @@ float Property MaxNewGameDays = 1.0 Auto Const
  test alone. A save the player made should never start this quest at all (supported hypothesis: only a New Game starts
  the startup quest, and the quest is not start-game enabled)...}
 int Property MaxNewGameLevel = 1 Auto Const
-{...and the player is at most this level: a New Game+ keeps the player's level, so its start stands down (stage 1) and
- hands the start back to MQ101, whose entry 0 is the NG+ start (supported hypothesis: that a New Game+ starts the
- startup quest, and that the kept level already reads during the first load; MQ101's own NG+ test is
- PlayerUnityTimesEntered >= 1).}
+{...and the player is at most this level: a New Game+ keeps the player's level, so its start stands down (stage 1)
+ and, during the first load, asks MQ101 to start, whose entry 0 is the NG+ start (HandBack; that this moves the player
+ is unverified). Supported hypothesis: that a New Game+ starts the startup quest, and that the kept level already reads
+ during the first load; MQ101's own NG+ test is PlayerUnityTimesEntered >= 1.}
 float Property ConsoleRadius = 2.5 Auto Const
 float Property PlatformRadius = 2.5 Auto Const
 float Property FallDrop = 3.0 Auto Const
@@ -170,8 +170,9 @@ float Property LooksWait = 120.0 Auto Const
 
 bool Property ClearInventory = false Auto Const
 {The starting inventory reset (NG-K8, the writer's --clear-inventory; off until an in-game run shows what Starfield
- leaves the player with when MQ101 never runs). True: once the player is in the vault, RemoveAllItems
- (quest items kept) and the count removed logged as "inventory cleared removed=<n> left=<n>"; then VaultSuitId.}
+ leaves the player with when MQ101 never runs). True: once the player is in the vault, RemoveAllItems (whether
+ quest items stay is unverified, ResetInventory) and the count removed logged as "inventory cleared removed=<n>
+ left=<n>"; then VaultSuitId.}
 int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
@@ -269,9 +270,10 @@ Function StandDown(bool loading, string why)
 {While the game is still loading (either reading of the start: the player's 3D not in, or no parent cell yet),
  Starfield's opening is asked to start first (HandBack), since nothing else would move the player: before our own
  stage, whose SetStage is latent (Quest.psc: it waits for the quest to start up if it needed to be started) while Begin
- may run from OnQuestInit, our quest still starting up. Then stage 1 and the quest stops. A stand-down on a running
- game (startquest from the console on a played save: a game day or more, or above level 1) moves nothing and hands
- nothing back.}
+ may run from OnQuestInit, our quest still starting up. That this SetStage returns is a supported hypothesis:
+ MQ101Script, the startup quest's own script in vanilla, sets stage 400 from its OnQuestInit when MQ101Debug is 1
+ (ContentResources.zip, read 29 Oct). Then stage 1 and the quest stops. A stand-down on a running game (startquest from
+ the console on a played save: a game day or more, or above level 1) moves nothing and hands nothing back.}
     if loading
         HandBack(why)
     endif
@@ -505,14 +507,15 @@ bool Function CenterOnVault()
 EndFunction
 
 Function ResetInventory(Actor player)
-{The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: every item but quest items goes
- (RemoveAllItems(None, false, false), FO4's signature; Starfield's is what the precheck reads), the count before and
- after is logged (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers are logged), then
- the vault suit, when the build names one, is added and equipped.}
+{The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: RemoveAllItems(None, false,
+ false), written with FO4's arguments. Starfield's third parameter is abRespectTargetCapacity (ObjectReference.psc,
+ ContentResources.zip, read 29 Oct), so whether quest items stay is unverified, and the count left is the evidence. The
+ count before and after is logged (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers
+ are logged), then the vault suit, when the build names one, is added and equipped.}
     int before = player.GetItemCount(None)
     player.RemoveAllItems(None, false, false)
     int after = player.GetItemCount(None)
-    Trace("inventory cleared removed=" + (before - after) + " left=" + after + " (quest items kept)")
+    Trace("inventory cleared removed=" + (before - after) + " left=" + after)
     if VaultSuitId > 0
         Armor suit = Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor
         if suit == None

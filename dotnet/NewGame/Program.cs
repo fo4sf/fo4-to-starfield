@@ -47,11 +47,11 @@
 //        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
 //        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
 //        and the exit anchor (the core's Vault 111 map marker).
-//        --clear-inventory (default off, NG-K8): the quest script empties the player's inventory (quest items kept)
-//        once the player is confirmed in the vault (before stage 10) and logs the count removed; --vault-suit
-//        <EditorID> (only with it) names an ARMO of FO4Port.esm the script then adds and equips, resolved here by
-//        EditorID with the same owner check as the other ids (refused when the port lacks it, has two, or it is
-//        another plugin's record).
+//        --clear-inventory (default off, NG-K8): the quest script empties the player's inventory (whether quest
+//        items stay is unverified) once the player is confirmed in the vault (before stage 10) and logs the count
+//        removed; --vault-suit <EditorID> (only with it) names an ARMO of FO4Port.esm the script then adds and
+//        equips, resolved here by EditorID with the same owner check as the other ids (refused when the port lacks
+//        it, has two, or it is another plugin's record).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -151,8 +151,9 @@ static class NewGame
     // removes items too is unverified (NG-N3). What a game started with MQ101 held off leaves
     // in the player's inventory is unverified until the first in-game proof, so the reset is OFF by default: the quest
     // script's ClearInventory property (false) and VaultSuitId (0, none). With --clear-inventory the script calls
-    // ObjectReference.RemoveAllItems(None, false, false) (quest items kept; FO4's signature, Starfield's is read by the
-    // precheck, unverified) after the move into the pod, and with --vault-suit it adds and equips the port's ARMO.
+    // ObjectReference.RemoveAllItems(None, false, false) (written with FO4's arguments; Starfield's third parameter is
+    // abRespectTargetCapacity, so whether quest items stay is unverified) after the move into the pod, and with
+    // --vault-suit it adds and equips the port's ARMO.
     public const bool DefaultClearInventory = false;
     // The vault anchor's mode (PC result 21 Oct, the port installed then: FO4Port_Vault111Cryo had 0 persistent
     // references of 1,166, its COC marker 001338 and every terminal temporary, so the persistent-only resolver refused
@@ -541,7 +542,8 @@ static class NewGame
         var days = sf.Globals.FirstOrDefault(g => g.FormKey == new FormKey(SfEsm, GameDaysPassedId) && g.EditorID == GameDaysPassedEdid)
                    ?? throw new Refusal($"Starfield.esm {GameDaysPassedId:X6} is not the GLOB {GameDaysPassedEdid}");
         var hold = o.Hold.Select(e => sf.Quests.FirstOrDefault(q => q.EditorID == e) ?? throw new Refusal($"Starfield.esm has no quest {e}")).ToList();
-        // the opening: the guard line reads its stage, and the script starts it when our start stands down during the load
+        // the opening: the guard line reads its stage, and the script asks it to start (StartNoWait) when our start
+        // stands down during the load (unverified that it then moves the player)
         var opening = sf.Quests.FirstOrDefault(q => q.EditorID == OpeningEdid) ?? throw new Refusal($"Starfield.esm has no quest {OpeningEdid}");
         var startup = Startup(sf, opening);
         // the debug global the script reads for its guard line and writes after the hold-off; overridden below only under --mq101debug
@@ -705,7 +707,7 @@ static class NewGame
     }
 
     static string InventoryText(Options o, Places p) => !o.ClearInventory ? "off" :
-        $"on (quest items kept), vault suit {(o.VaultSuit is null ? "none" : $"{o.VaultSuit} FO4Port.esm:{p.VaultSuit:X6}")}";
+        $"on (quest items unverified), vault suit {(o.VaultSuit is null ? "none" : $"{o.VaultSuit} FO4Port.esm:{p.VaultSuit:X6}")}";
 
     /// The build's version number as our own constant GLOB (see the constants' note: Constant so the save does not
     /// carry the value; unverified until the PC run).

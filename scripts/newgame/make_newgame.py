@@ -111,9 +111,10 @@ SPECIAL_MAX_PRESSES = 300
 DEFAULT_BUILD_VERSION = 1
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
 # OFF until an in-game run shows what Starfield leaves the player with when MQ101 never runs. --clear-inventory
-# makes the quest script call RemoveAllItems (quest items kept) once the player is in the vault and log "inventory
-# cleared removed=<n> left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and
-# equips ("vault suit equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
+# makes the quest script call RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity,
+# so whether quest items stay is unverified) once the player is in the vault and log "inventory cleared removed=<n>
+# left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and equips ("vault suit
+# equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
 DEFAULT_CLEAR_INVENTORY = False
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
@@ -480,7 +481,7 @@ MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and F
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
-Inventory reset at the pod: {('ON (quest items kept), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
+Inventory reset at the pod: {('ON (whether quest items stay is unverified: the left= count says), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -804,8 +805,8 @@ def main(argv=None):
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--clear-inventory", action="store_true",
-                   help="empty the player's inventory (quest items kept) once the player is confirmed in the vault, before "
-                        "stage 10 (NG-K8; off by default)")
+                   help="empty the player's inventory once the player is confirmed in the vault, before stage 10 "
+                        "(NG-K8; off by default; whether quest items stay is unverified)")
     s.add_argument("--vault-suit", default=None, metavar="EDITORID",
                    help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
     s.add_argument("--allow-temporary-anchor", action="store_true",
