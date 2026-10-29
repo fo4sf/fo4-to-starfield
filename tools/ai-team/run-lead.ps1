@@ -30,8 +30,9 @@ $g = Join-Path $repo 'tools\ai-team\guardian\guardian.py'
 # npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
 $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'
 $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS.md). Do at most one task, then stop. " +
-          "Good tasks for this team: QA review of open PRs labelled needs-qa (use fo4-qa; post the verdict with " +
-          "gh pr review <n> --comment, prefixed 'QA (local):'); research questions from docs/ai/known-unknowns.md " +
+          "No QA reviews: do not review or comment on pull requests, and do not send other agents' PRs to fo4-qa " +
+          "(off for the 35B until its reviews are validated, owner 2026-10-29). Good tasks for this team: " +
+          "research questions from docs/ai/known-unknowns.md " +
           "(fo4-research, findings into docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
 $wait = $Interval; $cycle = 0

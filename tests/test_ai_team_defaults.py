@@ -34,6 +34,14 @@ class TeamModelTests(unittest.TestCase):
     def test_start_team_does_not_advise_the_old_16k_context(self):
         self.assertNotIn("16384", read("start-team.ps1"))
 
+    def test_the_lead_does_not_review_pull_requests(self):
+        prompt = re.search(r'\$prompt = (.*?)\n\$wait', read("run-lead.ps1"), re.S).group(1)
+        self.assertNotIn("needs-qa", prompt)
+        self.assertNotIn("gh pr review", prompt)
+        self.assertIn("No QA reviews", prompt)
+        lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
+        self.assertRegex(lead, r'"gh pr review \* --comment\*": deny')
+
     def test_the_configured_ram_levels_keep_the_35b_idle_level_admitted(self):
         sys.path.insert(0, os.path.join(TEAM, "guardian"))
         import policy

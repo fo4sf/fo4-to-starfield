@@ -22,7 +22,7 @@ permission:
     "gh pr diff*": allow
     "gh issue comment*": ask
     "gh issue comment 32 *": allow
-    "gh pr review * --comment*": allow
+    "gh pr review * --comment*": deny
     "gh issue edit*": ask
     "gh pr create*": deny
     "gh pr merge*": deny

@@ -109,6 +109,10 @@ with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned
 on the same short prompt). LM Studio's own idle TTL (1 h on this PC) can
 unload the model between cycles; `run-lead.ps1` reloads it.
 
+QA reviews of pull requests are off for this model (owner, 2026-10-29): `run-lead.ps1`'s prompt no longer offers them
+and `fo4-lead.md` denies `gh pr review`. In the 29 Oct tests the 35B's review of PR #578's log reader reported three
+findings, none real, and missed the known bug. The team's own check of its diffs (`fo4-qa`, step 6) stays.
+
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 
 | # | Test | Result |

@@ -817,3 +817,14 @@ decided the import path); keeping the order as a parameter (two orders in the co
   keep 85% (local work runs only when RAM dips under it).
 - Boundary: 88% leaves two points before the 90% block. A request that is already running is not stopped when RAM rises
   (README); only new admissions are held. With no model resident, the same 88% also sets the VRAM restrict level (policy.py:53).
+
+## 2026-10-29: no QA reviews of pull requests from the local team on the 35B (Claude)
+- Decision: `run-lead.ps1`'s prompt no longer offers "QA review of open PRs labelled needs-qa" and tells the Lead not
+  to review or comment on PRs; `.opencode/agents/fo4-lead.md` denies `gh pr review * --comment*` (was allow). The
+  team's own check of its diffs (`fo4-qa`, Lead step 6) is unchanged.
+- Why: the owner's choice ("drop QA"). In the 29 Oct tests Qwen3.6's review of PR #578's round-1 log reader reported
+  three findings, all checked false by independent reviewers (one from a trimmed prompt, two misreadings of the data
+  flow), and it missed the known lower-case true/false bug.
+- Alternatives: keep the reviews but mark them advisory (rejected: a confident wrong review costs a reviewer's time);
+  remove `fo4-qa` entirely (not asked; its internal check posts nothing).
+- Boundary: re-enable once a review test on known bugs passes.
