@@ -248,6 +248,8 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(reset.count("player.RemoveAllItems("), 1)   # once; the doc comment names the call too
         self.assertIn("player.RemoveAllItems(None, false, false)", reset)   # FO4's arguments
         self.assertIn("whether quest items stay is unverified", reset)
+        for text in (psc, cs, read(ng.__file__), read(DOC)):
+            self.assertNotIn("quest items kept", text)       # Starfield's third parameter is no quest-item flag
         self.assertIn("int before = player.GetItemCount(None)", reset)
         self.assertIn('Trace("inventory cleared removed=" + (before - after) + " left=" + after)\n', reset)
         self.assertIn("if VaultSuitId > 0", reset)
@@ -547,12 +549,12 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.debug_after_hold_option(p), 0)
 
     def test_the_hold_off_runs_twice(self):
-        """Our own start (newgame_v11) never starts MQ101 when it goes on (only a stand-down's hand back asks it to,
-        and that holds nothing off), but MQ00 is start-game enabled and may start after our start (unverified), and
-        stopping MQ101, if something started it, runs its stage 9000, which starts MQ101PostQuest and
-        MQ_TutorialQuest_Misc04 (PC read 19 Oct, NG-N1). Pass 1 runs in the start right after the move into the vault
-        (never before it: a hand back must find Starfield's start as the game left it); pass 2 once the vault has loaded,
-        before stage 10, so once. Each stop is logged with its pass."""
+        """Our own start (newgame_v11) never starts MQ101 when it goes on (only a stand-down's hand back asks it to, and
+        each stand-down returns before the hold-off: test_our_quest_is_the_startup_quest), but MQ00 is start-game
+        enabled and may start after our start (unverified), and stopping MQ101, if something started it, runs its stage
+        9000, which starts MQ101PostQuest and MQ_TutorialQuest_Misc04 (PC read 19 Oct, NG-N1). Pass 1 runs in the start
+        right after the move into the vault (never before it: a hand back must find Starfield's start as the game left
+        it); pass 2 once the vault has loaded, before stage 10, so once. Each stop is logged with its pass."""
         psc = read(PSC)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("HoldOffPass(1)"))
@@ -707,6 +709,9 @@ class ContractTests(unittest.TestCase):
         self.assertLess(code.index('StandDown(loading, "not a new game")'), code.index("entered = EnterVault(player)"))
         self.assertLess(code.index('StandDown(loading, "no move into the vault")'), code.index("HoldOffPass(1)"))
         self.assertLess(code.index("HoldOffPass(1)"), code.index("DebugGlobal.SetValueInt(DebugAfterHold)"))
+        self.assertEqual(code.count("StandDown("), 2)
+        for why in ("not a new game", "no move into the vault"):      # each returns: nothing held off or written after
+            self.assertIn(f'StandDown(loading, "{why}")\n        return\n    endif\n', code)
         self.assertNotIn("StandDown(loaded", psc)
         stand = psc[psc.index("Function StandDown"):psc.index("Function HandBack")]
         self.assertIn("Function StandDown(bool loading, string why)", stand)
@@ -1046,6 +1051,9 @@ NG_PLUS = ("start route=OnQuestStarted player_loaded=false cell=None loading=tru
 
 
 class LogTests(unittest.TestCase):
+    # a shortened run: the lines the reader takes, in the order and at the times the scripts write them, but only one
+    # of the status lines the quest writes every 5 ticks; of the lines the reader ignores, some are kept and the rest
+    # left out (the looks menu's, the terminal's position)
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
@@ -1071,6 +1079,7 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
+        "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 pod settle ok=true pos=11 20 1 dx=0.0 dy=0.0 drop=0.0",
         "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
         "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
         "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",             # the looks script's Done, in its order
@@ -1083,8 +1092,8 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface moveto pos=-1250 1290 110 world=[WorldSpace <x>] moves=1",
         "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 surface setposition ok=true set=1 pos=-2450 -1410 110 target=-2450 -1410 110",
         "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40",
-        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 landed z=110.0",
-        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.0 stage 200",
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 landed z=110.0",          # CheckLanding: 3 s after the arrival
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 stage 200",
     ]
 
     def test_summary(self):
@@ -1097,6 +1106,7 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
         self.assertTrue(s["entered_vault"])                 # the move's own check said no; the timer confirmed it after the load
         self.assertTrue(s["surfaced"].startswith("surface setposition ok=true set=1 "))
+        self.assertEqual(s["pod_settle"], "ok=true pos=11 20 1 dx=0.0 dy=0.0 drop=0.0")
         self.assertTrue(s["landed"])
         self.assertFalse(s["fell"])
         self.assertFalse(s["stood_down"])

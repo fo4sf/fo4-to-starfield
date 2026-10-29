@@ -48,17 +48,17 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    0.25 in the first build, which stood every new game down: Starfield's clock starts at 8:00 and `GameDaysPassed`
    carries the hour, so a new game reads about 0.3335 a second in (**verified** in game 28 Oct, two runs; section 10).
    The guard logs every reading it judges (the `guard` line).
-3. **Starfield's opening never runs, and its start quests are held off:** on a start that goes on, nothing starts MQ101
-   any more (only a stand-down during the first load asks it to start, step 2). The quest still stops `MQ00` (the
-   main-quest start, start-game enabled), `MQ101` (the opening), `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they
-   run, and logs each stop: once in the start right after the move, and once more when the vault has loaded, for a quest
-   that started meanwhile and for the two that MQ101's stage 9000 starts if something had started MQ101 and the first
-   pass stopped it (section 2). The plugin overrides no other Starfield record: `MQ101Debug` keeps its value (section 2,
-   B). Right after the hold-off's first pass the quest writes 2 into that global itself (`SetValueInt`), logged as
-   `mq101debug written=2.000000 was=0.000000`. 2 is the value the main quests' developer skip-start stages write; a
-   normally finished intro leaves 0. It opens the sustenance condition (`MQ101Debug != 0`), whose normal route (MQ101
-   stage 310) is never reached. A hand back never follows the write or the hold-off: both come after the move, and both
-   stand-downs return before them.
+3. **Our start replaces Starfield's opening, and its start quests are held off:** on a start that goes on, nothing
+   starts MQ101 any more (only a stand-down during the first load asks it to start, step 2). The quest still stops
+   `MQ00` (the main-quest start, start-game enabled), `MQ101` (the opening), `MQ101PostQuest` and
+   `MQ_TutorialQuest_Misc04` if they run, and logs each stop: once in the start right after the move, and once more when
+   the vault has loaded, for a quest that started meanwhile and for the two that MQ101's stage 9000 starts if something
+   had started MQ101 and the first pass stopped it (section 2). The plugin overrides no other Starfield record:
+   `MQ101Debug` keeps its value (section 2, B). Right after the hold-off's first pass the quest writes 2 into that
+   global itself (`SetValueInt`), logged as `mq101debug written=2.000000 was=0.000000`. 2 is the value the main quests'
+   developer skip-start stages write; a normally finished intro leaves 0. It opens the sustenance condition (`MQ101Debug
+   != 0`), whose normal route (MQ101 stage 310) is never reached. A hand back never follows the write or the hold-off:
+   both come after the move, and both stand-downs return before them.
    Without MQ101's stage 0 nothing empties the inventory or puts on Starfield's miner spacesuit (newgame_v9 and v10
    left the player in it at the pod): what the player wears and carries now is **unresolved** until run 4 (section 13;
    the inventory reset, section 4c, stays off until then).
@@ -318,8 +318,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   `ObjectReference.psc` is what the precheck reads, and a miss fails the core script (there is no `--no-...` for it: the
   property is off, but the script must compile). Starfield's third parameter of `RemoveAllItems` is
   `abRespectTargetCapacity` (`ObjectReference.psc`, ContentResources.zip, read 29 Oct), so whether quest items stay is
-  **unverified**; the `left=` count is the evidence. Whether Starfield's `GetItemCount(None)` counts every item, as
-  FO4's does, is **unverified**: both numbers are logged so the proof can say.
+  **unverified**: `left=` says how many items stayed, not which. Whether Starfield's `GetItemCount(None)` counts every
+  item, as FO4's does, is **unverified**: both numbers are logged so the proof can say.
 - The suit: `--vault-suit <EditorID>` (only with `--clear-inventory`; refused alone) names an ARMO of FO4Port.esm. The
   writer resolves it offline exactly as it does the anchors and the terminal: exactly one ARMO of that EditorID (any
   case) in the port, the port's own record, else refused (none, two, or another plugin's record). The script resolves it

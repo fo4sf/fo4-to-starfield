@@ -509,9 +509,9 @@ EndFunction
 Function ResetInventory(Actor player)
 {The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: RemoveAllItems(None, false,
  false), written with FO4's arguments. Starfield's third parameter is abRespectTargetCapacity (ObjectReference.psc,
- ContentResources.zip, read 29 Oct), so whether quest items stay is unverified, and the count left is the evidence. The
- count before and after is logged (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers
- are logged), then the vault suit, when the build names one, is added and equipped.}
+ ContentResources.zip, read 29 Oct), so whether quest items stay is unverified: the count left says how many items
+ stayed, not which. The count before and after is logged (GetItemCount(None) counts every item in FO4; unverified in
+ Starfield, so both numbers are logged), then the vault suit, when the build names one, is added and equipped.}
     int before = player.GetItemCount(None)
     player.RemoveAllItems(None, false, false)
     int after = player.GetItemCount(None)
