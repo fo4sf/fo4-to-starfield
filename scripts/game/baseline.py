@@ -42,11 +42,12 @@ restore  refuses while Starfield runs; puts Plugins.txt back byte for byte, and 
          unless --force. Either way the file restore writes over is kept in <out> first (Plugins.txt.at-restore, then
          .2, .3: a copy an earlier restore kept is never written over). It records the plugins that were ticked and
          the SFSE logs of the baseline's time, and collect after it takes no log as the baseline when there were any.
-         Before it writes Plugins.txt, it checks the record's copy against its sha256 and notes in the record what it
-         found and when. A restore that stops before its record ended the baseline's time: the next one finishes the
-         record with the first one's findings and time, and writes the recorded bytes back (keeping the file) also
-         when Plugins.txt has the same plugins on in other bytes since (the game's rewrite at startup, or another
-         program's order); other plugins on refuse unless --force.
+         When Plugins.txt is not the recorded original, it first checks the record's copy against its sha256 (a
+         changed or damaged one refuses, --force too); before it writes Plugins.txt, it notes in the record what it
+         found and when (a note in another shape counts as none). A restore that stops before its record ended the
+         baseline's time: the next one finishes the record with the first one's findings and time, and writes the
+         recorded bytes back (keeping the file) also when Plugins.txt has the same plugins on in other bytes since
+         (the game's rewrite at startup, or another program's order); other plugins on refuse unless --force.
 status   what the record holds and where Plugins.txt stands, a restore that stopped before its record included.
 compare  a run's Papyrus log against the baseline's: the groups of fo4sf.core.papyrus_log (only ours, only the run's
          Starfield scripts, the same message at the same script line in both, the same kind in both, only the
@@ -69,6 +70,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -638,10 +640,17 @@ def recorded_bytes(rec):
 
 
 def stopped(rec):
-    """The note a restore that stopped before its record left there ({ticked, how, sfse, epoch, at}), None when there
-    is none. restore, status and collect read it alike: an empty or hand-edited one counts as none."""
+    """The note a restore that stopped before its record left there, None when there is none. restore, status and
+    collect read it alike, and only in the shape restore writes it (ticked and sfse lists of names, epoch a time, at
+    and how text): any other one counts as none, so restore reads what is ticked from Plugins.txt itself."""
     done = rec.get("restoring")
-    return done if isinstance(done, dict) and done and rec.get("prepared_sha256") is not None else None
+    if not isinstance(done, dict) or rec.get("prepared_sha256") is None:
+        return None
+    names = all(isinstance(done.get(k), list) and all(isinstance(n, str) for n in done[k]) for k in ("ticked", "sfse"))
+    text = all(isinstance(done.get(k), str) and done[k] for k in ("at", "how"))
+    epoch = done.get("epoch")
+    when = isinstance(epoch, (int, float)) and not isinstance(epoch, bool) and math.isfinite(epoch)
+    return done if names and text and when else None
 
 
 def unmark(record, rec):
@@ -675,22 +684,26 @@ def restore(a):
     pt = rec["plugins_txt"]
     cur = read_bytes(pt)
     now = sha256_bytes(cur)
+    record, wrote = os.path.join(out, RECORD), False
+    if rec.get("prepared_sha256") is not None and now != rec["plugins_txt_sha256"] and recorded_bytes(rec) is None:
+        raise SystemExit(f"restore: refused, nothing written: the record's copy of Plugins.txt does not match its "
+                         f"sha256, so {record} was changed or damaged since prepare")   # first: --force cannot help
     ticked = turned_on(cur, tolerant=True)                # the game may write a name in another encoding
     done = stopped(rec)
     if done:                                              # a restore that stopped before its record ended the time
-        at, at_iso = done.get("epoch") or at, done.get("at") or at_iso
+        at, at_iso = done["epoch"], done["at"]
     sfse = sfse_logs(rec.get("my_games") or [], rec["prepared_epoch"], at)   # before a later start rewrites one
     found = ticked                                        # the plugins ticked in the baseline's time
     if done:                                              # what the stopped one found then; later changes came after
-        found = done.get("ticked") or []
-        sfse = list(dict.fromkeys((done.get("sfse") or []) + sfse))
+        found = done["ticked"]
+        sfse = list(dict.fromkeys(done["sfse"] + sfse))
     # since the stopped one, the same plugins on in other bytes: the game's rewrite at startup, another program's order
     rewritten = bool(done) and cur is not None and now != rec["plugins_txt_sha256"] and same_on(rec, ticked)
     kept = None
     if rec.get("prepared_sha256") is None:
         how = "nothing to put back (prepare turned nothing off)"
     elif done and now == rec["plugins_txt_sha256"]:
-        how = done.get("how") or "written back (by the restore that stopped)"
+        how = done["how"]
     elif rewritten:                                       # what the stopped one found counts, not this: written back
         kept = kept_name(out)
         how = (f"written back over a file with the same plugins on in other bytes (kept as {kept}), after a restore "
@@ -715,11 +728,7 @@ def restore(a):
                              f"file as {kept} in {out} and writes the recorded one back")
         how = (f"forced over a file with {', '.join(ticked)} ticked (kept as {kept})" if ticked else
                f"over the game's own rewrite (it ticked no plugin; kept as {kept})")
-    record, wrote = os.path.join(out, RECORD), False
     if rec.get("prepared_sha256") is not None and now != rec["plugins_txt_sha256"]:
-        if recorded_bytes(rec) is None:
-            raise SystemExit(f"restore: refused, nothing written: the record's copy of Plugins.txt does not match its "
-                             f"sha256, so {record} was changed or damaged since prepare")
         if kept:
             with open(os.path.join(out, kept), "xb") as f:
                 f.write(cur)
@@ -781,16 +790,20 @@ def status(a):
         print("log: not collected yet")
     cur = read_bytes(rec["plugins_txt"])
     now = sha256_bytes(cur)
+    done = stopped(rec)
     if rec.get("prepared_sha256") is None:
-        done = f"; restore ran {rec['restored_at']}" if rec.get("restored_at") else ""
-        print(f"Plugins.txt: never changed (nothing was turned off){done}")
+        ran = f"; restore ran {rec['restored_at']}" if rec.get("restored_at") else ""
+        print(f"Plugins.txt: never changed (nothing was turned off){ran}")
     elif rec.get("restored_at"):
         where = "the recorded one" if now == rec["plugins_txt_sha256"] else "changed since the restore"
         print(f"Plugins.txt: restored {rec['restored_at']} ({rec['restore']}); now {where}")
-    elif now != rec["plugins_txt_sha256"] and recorded_bytes(rec) is None:   # restore checks it before any write
-        print("Plugins.txt: not the recorded original, and the record's copy of it does not match its sha256 (the "
-              "record was changed or damaged since prepare): restore refuses to write it")
-    elif stopped(rec):                                    # what restore will do, as its own branches read it
+    elif now != rec["plugins_txt_sha256"] and recorded_bytes(rec) is None:   # restore checks it first
+        then = (f". A restore at {done['at']} stopped before it updated the record, and the baseline's time ended "
+                f"then; collect waits for the record, which restore finishes only once Plugins.txt is the recorded "
+                f"original again" if done else "")
+        print(f"Plugins.txt: not the recorded original, and the record's copy of it does not match its sha256 (the "
+              f"record was changed or damaged since prepare): restore refuses to write it{then}")
+    elif done:                                            # what restore will do, as its own branches read it
         on = turned_on(cur, tolerant=True) if cur is not None else []
         if now == rec["plugins_txt_sha256"]:
             state, then = "back", "finishes the record"
@@ -807,9 +820,8 @@ def status(a):
         else:
             state, then = ("rewritten, with no plugin the game does not ship ticked",
                            "writes the recorded one back, keeping this file, and finishes the record")
-        print(f"Plugins.txt: {state}. A restore at {stopped(rec).get('at') or 'an unknown time'} stopped before it "
-              f"updated the record, and the baseline's time ended then; collect waits for the record: restore again "
-              f"{then}")
+        print(f"Plugins.txt: {state}. A restore at {done['at']} stopped before it updated the record, and the "
+              f"baseline's time ended then; collect waits for the record: restore again {then}")
     elif now == rec["plugins_txt_sha256"]:
         print("Plugins.txt: the recorded original already (nothing is off); restore records that")
     elif now == rec["prepared_sha256"]:

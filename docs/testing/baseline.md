@@ -161,12 +161,15 @@ Plugins.txt changes during `restore`, or cannot be written, nothing is written, 
 A restore removes the open-baseline note when it names this baseline. Nothing here touches a plugin, an archive or
 an INI.
 
-Before it writes Plugins.txt, `restore` checks the record's copy against the sha256 `prepare` recorded, and refuses a
-record that was changed or damaged since. Then it notes in the record what it found and when. When it stops after
-that note and before the record is updated (Ctrl+C, a closed window, a power cut, or a record that cannot be
-written), whether Plugins.txt is back yet or not, `status` says so and when, `collect` refuses, and the open-baseline
-note stays, so the runner still launches nothing. Running `restore` again finishes the record with what the first run
-found and its time, so the baseline's time still ends at the restore that stopped, not at the rerun.
+When Plugins.txt is not the recorded original, `restore` first checks the record's copy against the sha256 `prepare`
+recorded, and refuses a record that was changed or damaged since, with `--force` too (`status` says so as well).
+Then it notes in the record what it found and when. When it stops after that note and before the record is updated
+(Ctrl+C, a closed window, a power cut, or a record that cannot be written), whether Plugins.txt is back yet or not,
+`status` says so and when, `collect` refuses, and the open-baseline note stays, so the runner still launches nothing.
+Running `restore` again finishes the record with what the first run found and its time, so the baseline's time still
+ends at the restore that stopped, not at the rerun. The note counts only in the shape `restore` writes it; one in any
+other shape (an empty one, or one edited by hand) counts as none, and `restore` then reads what is ticked from
+Plugins.txt itself.
 
 - When Plugins.txt has the same plugins on in other bytes since (the game's rewrite at startup drops the plugins that
   load on their own; another program can write them in another order), the rerun keeps that file as

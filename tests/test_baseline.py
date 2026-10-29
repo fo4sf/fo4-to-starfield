@@ -681,52 +681,69 @@ class BaselineTests(unittest.TestCase):
         rewrite = ORIGINAL.replace(b"*SFBGS003.esm\r\n", b"")         # the game's rewrite of the original
         prepared_rewrite = PREPARED.replace(b"*SFBGS003.esm\r\n", b"")
         one = PREPARED.replace(b"\r\nFO4Port.esm", b"\r\n*FO4Port.esm")  # one of ours ticked again
-        cases = [   # (what, a restore stopped first, Plugins.txt then (None: gone), status says, restore does)
-            ("back", True, ORIGINAL, "Plugins.txt: back. A restore at", "finishes"),
-            ("as prepared", True, PREPARED, "Plugins.txt: as prepared, the plugins off. A restore at", "writes"),
-            ("gone", True, None, "Plugins.txt: gone. A restore at", "writes"),
-            ("same plugins", True, rewrite, "restore again writes the recorded one back, keeping this file", "writes"),
+        keeps = "writes the recorded one back, keeping this file, and finishes the record"
+        refuses = "refuses unless --force (which keeps this file and writes the recorded one back)"
+        cases = [   # (what, a restore stopped first, Plugins.txt then (None: gone), status: its state, what restore
+            # then does, which restore does)
+            ("back", True, ORIGINAL, "back", "finishes the record", "finishes"),
+            ("as prepared", True, PREPARED, "as prepared, the plugins off", "puts it back and finishes the record",
+             "writes"),
+            ("gone", True, None, "gone", "writes the recorded one back and finishes the record", "writes"),
+            ("same plugins", True, rewrite, "the same plugins on in other bytes (the game's rewrite at startup?)",
+             keeps, "writes"),
             ("another mod", True, ORIGINAL + b"*SomeMod.esp\r\n",
-             "SomeMod.esp ticked, not the same set as the plugins prepare turned off", "refuses"),
-            ("one of ours", True, one, "FO4Port.esm ticked, not the same set as the plugins prepare", "refuses"),
-            ("prepared, rewritten", True, prepared_rewrite,
-             "rewritten, with no plugin the game does not ship ticked. A restore at", "writes"),
-            ("put back by hand", False, ORIGINAL,
-             "the recorded original already (nothing is off); restore records that", "finishes"),
-            ("open, as prepared", False, PREPARED, "as prepared, the plugins off; restore puts it back", "writes"),
-            ("open, gone", False, None, "Plugins.txt: gone; restore writes the recorded one back", "writes"),
-            ("ticked again", False, one, "(FO4Port.esm ticked again); restore refuses unless --force", "refuses"),
-            ("the game's rewrite", False, prepared_rewrite, "restore puts it back, keeping this file", "writes"),
+             "FO4Port.esm, FO4SFNewGame.esm, SomeMod.esp ticked, not the same set as the plugins prepare turned off",
+             refuses, "refuses"),
+            ("one of ours", True, one, "FO4Port.esm ticked, not the same set as the plugins prepare turned off",
+             refuses, "refuses"),
+            ("prepared, rewritten", True, prepared_rewrite, "rewritten, with no plugin the game does not ship ticked",
+             keeps, "writes"),
+            ("put back by hand", False, ORIGINAL, "the recorded original already (nothing is off)", "records that",
+             "finishes"),
+            ("open, as prepared", False, PREPARED, "as prepared, the plugins off", "puts it back", "writes"),
+            ("open, gone", False, None, "gone", "writes the recorded one back", "writes"),
+            ("ticked again", False, one, "changed since prepare (FO4Port.esm ticked again)", refuses, "refuses"),
+            ("the game's rewrite", False, prepared_rewrite,
+             "changed since prepare (the game's rewrite at startup, or another tool)",
+             "puts it back, keeping this file", "writes"),
         ]
-        for n, (what, stop, now, says, does) in enumerate(cases):
-            with self.subTest(what):
+        for n, (what, stop, now, state, then, does) in enumerate(cases):
+            row = os.path.join(self.d, f"row{n}")                       # its own: one that fails leaves the rest be
+            with self.subTest(what), mock.patch.dict(os.environ, {"FO4_AI_TEAM_STATE": os.path.join(row, "state")}):
                 write(self.pt, ORIGINAL)
-                self.out = os.path.join(self.d, f"baseline_s{n}")
+                self.out, self.note = os.path.join(row, "baseline"), os.path.join(row, "state", bl.OPEN_NOTE)
                 self.assertEqual(self.prepare()[0], 0)
-                if stop:
-                    self.stop_restore()
+                found = self.stop_restore() if stop else None
                 if now is None:
                     os.remove(self.pt)
                 else:
                     write(self.pt, now)
+                says = (f"Plugins.txt: {state}. A restore at {found['at']} stopped before it updated the record, and "
+                        f"the baseline's time ended then; collect waits for the record: restore again {then}\n" if stop
+                        else f"Plugins.txt: {state}; restore {then}\n")
                 self.assertIn(says, self.run_bl("status", "--out", self.out)[1])
                 if does == "refuses":
                     with self.assertRaisesRegex(SystemExit, "refused, nothing written"):
                         self.run_bl("restore", "--out", self.out)
                     self.assertEqual(read(self.pt), now)
-                    self.run_bl("restore", "--out", self.out, "--force")      # closed, for the next case
+                    self.assertEqual(self.run_bl("restore", "--out", self.out, "--force")[0], 0)
                 else:
                     code, out = self.run_bl("restore", "--out", self.out)
                     self.assertEqual(code, 0, out)
-                    kept = os.path.exists(os.path.join(self.out, bl.KEPT_AT_RESTORE))
-                    self.assertEqual(kept, does == "writes" and now not in (None, PREPARED))   # what it wrote over
+                kept = os.path.join(self.out, bl.KEPT_AT_RESTORE)
+                self.assertEqual(os.path.exists(kept), "keep" in then)   # as status said, the file written over
+                if "keep" in then:
+                    self.assertEqual(read(kept), now)
                 self.assertEqual(read(self.pt), ORIGINAL)
                 self.assertFalse(os.path.exists(self.note))
 
     def test_an_empty_or_hand_edited_restore_note_counts_as_none(self):
         self.prepare()
         self.log(BASE_LOG, 5)
-        for marker in ({}, "by hand"):                                  # restore, status and collect read it alike
+        full = {"ticked": [], "how": "by hand", "sfse": [], "epoch": 1.0, "at": "by hand"}   # restore's own shape
+        for marker in ({}, "by hand", {"how": "by hand"}, dict(full, ticked="FO4Port.esm"), dict(full, sfse=[1]),
+                       dict(full, epoch="1.0"), dict(full, epoch=True), dict(full, epoch=float("nan")),
+                       dict(full, at=""), dict(full, how=None)):     # restore, status and collect read it alike
             bl.write_json(os.path.join(self.out, bl.RECORD), dict(self.record(), restoring=marker))
             with self.subTest(marker):
                 self.assertIn("Plugins.txt: as prepared, the plugins off; restore puts it back",
@@ -738,6 +755,19 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual((read(self.pt), rec["restore"]), (ORIGINAL, "byte for byte"))
         self.assertNotIn("restoring", rec)
         self.out = os.path.join(self.d, "baseline_2")
+        self.prepare()
+        self.log(SECOND_LOG, 5)                                         # a session that does not name ours
+        bl.write_json(os.path.join(self.out, bl.RECORD), dict(self.record(), restoring={"how": "by hand"}))
+        write(self.pt, ORIGINAL)                                        # and ours ticked again since (a deploy)
+        code, out = self.run_bl("restore", "--out", self.out)
+        self.assertEqual(code, 0, out)
+        rec = self.record()                                             # what Plugins.txt says, not the edit
+        self.assertEqual((rec["restore"], rec["ticked_at_restore"]),
+                         ("already the recorded one (nothing written)", ["FO4Port.esm", "FO4SFNewGame.esm"]))
+        self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 1)   # so the session is no baseline
+        rec = self.record()
+        self.assertEqual((rec["log"], rec["not_vanilla"]["ticked"]), (None, ["FO4Port.esm", "FO4SFNewGame.esm"]))
+        self.out = os.path.join(self.d, "baseline_3")
         write(self.pt, b"*SFBGS003.esm\n")
         self.prepare()                                                  # nothing turned off: no restore wrote
         bl.write_json(os.path.join(self.out, bl.RECORD),
@@ -847,14 +877,30 @@ class BaselineTests(unittest.TestCase):
     def test_restore_refuses_a_damaged_record(self):
         self.prepare()
         rec = self.record()
-        for copy in (bl.b64(b"*SFBGS003.esm\r\n"), "not base64!"):     # edited by hand, or damaged
-            bl.write_json(os.path.join(self.out, bl.RECORD), dict(rec, plugins_txt_b64=copy))
-            with self.subTest(copy), self.assertRaisesRegex(SystemExit, "does not match its sha256.*changed or damaged"):
-                self.run_bl("restore", "--out", self.out)
-            self.assertEqual(read(self.pt), PREPARED)
-            self.assertIsNone(self.record()["restored_at"])
-            self.assertIn("the record's copy of it does not match its sha256 (the record was changed or damaged since "
-                          "prepare): restore refuses to write it", self.run_bl("status", "--out", self.out)[1])
+        with mock.patch.object(bl.launcher_restore, "write_plugins_txt", side_effect=KeyboardInterrupt), \
+                self.assertRaises(KeyboardInterrupt):
+            self.run_bl("restore", "--out", self.out)                   # one that stopped before its write
+        held = self.record()
+        one = PREPARED.replace(b"\r\nFO4Port.esm", b"\r\n*FO4Port.esm")  # one of ours ticked again
+        damaged = ("Plugins.txt: not the recorded original, and the record's copy of it does not match its sha256 (the "
+                   "record was changed or damaged since prepare): restore refuses to write it")
+        for base in (rec, held):
+            for copy in (bl.b64(b"*SFBGS003.esm\r\n"), "not base64!"):     # edited by hand, or damaged
+                for now in (PREPARED, one):
+                    bl.write_json(os.path.join(self.out, bl.RECORD), dict(base, plugins_txt_b64=copy))
+                    write(self.pt, now)
+                    for force in ((), ("--force",)):                    # the first refusal names it: --force is no help
+                        with self.subTest(stopped=base is held, copy=copy, now=now, force=force), \
+                                self.assertRaisesRegex(SystemExit, "^restore: refused, nothing written: the record's "
+                                                                   "copy of Plugins.txt does not match its sha256"):
+                            self.run_bl("restore", "--out", self.out, *force)
+                    self.assertEqual(read(self.pt), now)
+                    self.assertIsNone(self.record()["restored_at"])
+                    out = self.run_bl("status", "--out", self.out)[1]
+                    self.assertIn(damaged + (f". A restore at {held['restoring']['at']} stopped before it updated the "
+                                             f"record, and the baseline's time ended then; collect waits for the "
+                                             f"record, which restore finishes only once Plugins.txt is the recorded "
+                                             f"original again\n" if base is held else "\n"), out)
 
     def test_restore_when_already_back_or_gone(self):
         self.prepare()
