@@ -867,13 +867,14 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Decision: the planet probe builds route B by default (`stage --system sol`; route A stays as `--system own`).
   FO4SFPlanet.esm adds our planet (a Jemison clone) to Sol with Sol's system id (its star's DNAM, read at stage time)
   and the first planet id free in Sol: one more than the largest body id, location YNAM and overlay world planet id
-  there, across Starfield.esm and every other plugin in Data, overrides too (an id that reads negative is not
-  counted), held to Data again by `check --data` before the install. Its planet location names Sol's own system
-  location as its parent. No star, no system location and no override of a Starfield record. Version 2 of the probe
-  script asks IsChild both ways round and lists the parents of each of our three locations (GetParentLocations, with
-  no keyword and the keyword lookups SQ_ParentScript uses); the reader calls a link broken only when every reading of
-  it says so, notes readings that disagree and that a version 1 line settles nothing, and leaves the 3.4e38 distance
-  of another worldspace out of the table (docs/planet/planet-probe.md sections 3a, 5 and 8).
+  there, across Starfield.esm and every other plugin in Data, overrides too (an id that reads negative is taken for
+  unset and not counted: our convention), held to Data again by `check --data` and by the install. Its planet
+  location names Sol's own system location as its parent. No star, no system location and no override of a
+  Starfield record. Version 2 of the probe script asks IsChild both ways round and lists the parents of each of our
+  three locations (GetParentLocations, with no keyword and the keyword lookups SQ_ParentScript uses), ending the line
+  with `end=true`; the reader calls a link broken only when every reading of it says so, notes readings that
+  disagree, a cut line and that a version 1 line settles nothing, and leaves the 3.4e38 distance of another
+  worldspace out of the table (docs/planet/planet-probe.md sections 3a, 5 and 8).
 - Why: the owner's pick B, 29 Oct (typos fixed): "B, but in the end there should be no other planets". Run 1 (route
   A) showed that our planet loads from our records, so the open question is Sol, not the planet record. Run 1's chain
   line read false and false, but version 1 asked IsChild one way only, on the child, and which way IsChild reads is

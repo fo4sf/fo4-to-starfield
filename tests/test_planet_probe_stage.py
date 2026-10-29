@@ -260,6 +260,24 @@ class StageTests(unittest.TestCase):
                           bodies=[("LatePlanetData", "Late", (pf.SOL_SYSTEM, 0, pf.SOL_FREE_ID + 1))])
         self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)  # above ours: no clash
 
+    def test_check_catches_a_plugin_that_cannot_be_read_now(self):
+        self.assertEqual(self.stage()[0], 0)
+        junk = os.path.join(self.data, "Junk.esm")
+        with open(junk, "wb") as f:
+            f.write(b"junk")
+        self.addCleanup(os.remove, junk)
+        code, text = self.main("check", "--stage", self.out, "--data", self.data)
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"cannot be read now, so a body they add to Sol is not checked against planet id "
+                      f"{pf.SOL_FREE_ID}: ['Junk.esm: ", text)
+        census_path = os.path.join(self.out, "census.json")      # one the stage could not read either: noted then
+        with open(census_path, encoding="utf-8") as f:
+            rep = json.load(f)
+        rep["plugin_stars"]["unreadable"] = ["Junk.esm: not a plugin"]
+        with open(census_path, "w", encoding="utf-8") as f:
+            json.dump(rep, f)
+        self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)
+
     def test_the_scripts_keyword_ids_must_be_this_starfields(self):
         with mock.patch.dict(probe.SCRIPT_IDS, {"MajorOrbitalKwId": 0x70A55}):
             code, text = self.stage()

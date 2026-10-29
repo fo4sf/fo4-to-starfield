@@ -47,7 +47,7 @@ CHAIN = (f"chain surface_ischild_probe=true probe_ischild_surface=false planet_i
          f"surface_ischild_planet=false probe_parents={PROBE_UP} probe_planet={sid(PLANET)} "
          f"probe_orbitals={sid(PLANET_LOC)} probe_systems={sid(SOL_LOC)} surface_parents={SURFACE_UP} "
          f"surface_planet={sid(PLANET)} planet_parents={PLANET_UP} planet_systems={sid(SOL_LOC)} "
-         f"planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")       # in the script's order
+         f"planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0 end=true")   # in the script's order
 CHAIN_V1 = (f"chain probe_child_of_surface=false surface_child_of_planet=false probe_planet={sid(PLANET)} "
             f"surface_planet={sid(PLANET)} planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")
 FLT_MAX = "340282346638528859811704183484516925440.000000"           # as probe run 1's log printed it
@@ -223,7 +223,9 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual((r["ischild_reads"], {k: v["holds"] for k, v in r["links"].items()}, s["problems"]),
                          ("child asks", dict.fromkeys(r["links"], True), []))
         self.assertEqual(len(s["notes"]), 1)
-        self.assertIn("IsChild answered true when the child asks", s["notes"][0])
+        self.assertEqual(s["notes"], ["chain: IsChild answered true when the child asks (the caller is the child), "
+                                      "as MQ204's and UC04's scripts call it, the other way round from Location.psc's "
+                                      "comment"])
         s = self.chain(flip[1])                                   # one link each way
         self.assertEqual(s["chain_reading"]["ischild_reads"], "mixed")
         self.assertEqual(s["notes"], ["chain: IsChild answered differently for the two links (the probe location "
@@ -233,10 +235,26 @@ class SummaryTests(unittest.TestCase):
                        ("surface_ischild_planet=false", "surface_ischild_planet=true"))
         self.assertEqual((s["chain_reading"]["ischild_reads"], s["notes"], s["problems"]),
                          ("both", ["chain: IsChild answered true both ways round"], []))
-        cut = probe_log.summarize(log_lines(chain="chain surface_ischild_probe=true"), PLAN)
-        self.assertEqual(cut["chain_reading"]["links"], {"the probe location under our surface": {
+        one_way = probe_log.summarize(log_lines(chain="chain surface_ischild_probe=true end=true"), PLAN)
+        self.assertEqual(one_way["chain_reading"]["links"], {"the probe location under our surface": {
             "holds": True, "readings": {"IsChild": True}}})
-        self.assertEqual((cut["chain_reading"]["ischild_reads"], cut["notes"]), (None, []))
+        self.assertEqual((one_way["chain_reading"]["ischild_reads"], one_way["notes"]), (None, []))
+        one_way = probe_log.summarize(log_lines(chain="chain surface_ischild_probe=false end=true"), PLAN)
+        self.assertEqual((one_way["chain_reading"]["links"], one_way["problems"]), ({}, []))   # one way says nothing
+
+    def test_a_cut_chain_line_drops_its_last_value(self):
+        # the game reads IsChild child first, the chain holds, and the line is cut: no problem from what is left
+        for line, gone in (("chain surface_ischild_probe=false probe_ischild_surface=", "probe_ischild_surface"),
+                           (CHAIN.split(" planet_parents=")[0] + f" planet_parents={sid(UNIVERSE)}", "planet_parents"),
+                           (CHAIN.split(" planet_parents=")[0] + " planet_parents=", "planet_parents")):
+            s = probe_log.summarize(log_lines(chain=line), PLAN)
+            self.assertEqual(s["problems"], [], line)
+            self.assertIn(f"chain: the line is cut (no end=true): its last value, {gone}, is left out", s["notes"])
+            self.assertNotIn("our planet location under the system location", s["chain_reading"]["links"])
+        self.assertEqual(probe_log.summarize(log_lines(chain="chain"), PLAN)["notes"],
+                         ["chain: the line is cut (no end=true)"])
+        self.assertIsNone(probe_log.parse_line("FO4SFPP rt=1 chain planet_parents= end=true")["planet_parents"])
+        self.assertEqual(probe_log.parse_line("FO4SFPP rt=1 chain planet_parents=none end=true")["planet_parents"], [])
 
     def test_a_link_is_broken_only_when_every_reading_says_so(self):
         no = ("planet_ischild_surface=true", "planet_ischild_surface=false")
@@ -257,17 +275,28 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(s["notes"], [])                          # the probe location's own lookup still finds Sol
 
     def test_lists_of_the_direct_parent_only(self):
+        # a game that lists direct parents only: the keyword lookups from the probe location come back empty (its
+        # parent, our surface, is neither a planet nor a star system), our planet location's finds Sol's location
         s = self.chain((f"probe_parents={PROBE_UP}", f"probe_parents={sid(SURFACE)}"),
+                       (f"probe_orbitals={sid(PLANET_LOC)}", "probe_orbitals=none"),
+                       (f"probe_systems={sid(SOL_LOC)}", "probe_systems=none"),
                        (f"surface_parents={SURFACE_UP}", f"surface_parents={sid(PLANET_LOC)}"),
                        (f"planet_parents={PLANET_UP}", f"planet_parents={sid(SOL_LOC)}"))
         r = s["chain_reading"]
-        self.assertEqual((s["problems"], s["notes"], r["ancestors"]), ([], [], False))
+        self.assertEqual((s["problems"], r["ancestors"]), ([], False))
         self.assertEqual({v["holds"] for v in r["links"].values()}, {True})
+        self.assertEqual(s["notes"], [
+            "chain: the planet lookup from the probe location does not find our planet location",
+            "chain: the star system lookup from the probe location does not find the system location"])
 
     def test_empty_lists_and_the_lookups(self):
         s = self.chain((f"probe_parents={PROBE_UP}", "probe_parents=none"))
         r = s["chain_reading"]
         self.assertEqual((r["parents"]["the probe location's parents"], r["ancestors"]), ([], None))
+        s = self.chain((f"probe_parents={PROBE_UP}", f"probe_parents={sid(UNIVERSE)}"))     # its parent missing:
+        self.assertIsNone(s["chain_reading"]["ancestors"])                                  # nothing to go past
+        s = self.chain((f"probe_parents={PROBE_UP}", "probe_parents=none"))
+        r = s["chain_reading"]
         self.assertEqual(r["links"]["the probe location under our surface"]["holds"], None)       # IsChild yes
         self.assertIn("chain: the probe location under our surface: the readings disagree (IsChild yes, the probe "
                       "location's parents no)", s["notes"])

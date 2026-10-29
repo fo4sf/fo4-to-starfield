@@ -510,14 +510,15 @@ def verify_stage(stage_dir, plan, data=None):
         if h != plan["inputs"]["Starfield.esm"]["sha256"]:
             problems.append(f"Starfield.esm changed since the stage (sha256 {h}): re-stage")
         elif route_b:
-            problems += sol_now(data, plan)
+            problems += sol_now(data, plan, stage_dir)
     return problems
 
 
-def sol_now(data, plan):
+def sol_now(data, plan, stage_dir):
     """Route B's planet id against Data as it is now ([] = still free): a plugin installed or updated after the stage
-    can take it, so every other plugin is read again (census.plugin_bodies and sol_section; our own are skipped).
-    Starfield.esm itself, and so Sol's system location, is held to the stage by its sha256 first."""
+    can take it, so every other plugin is read again (census.plugin_bodies and sol_section; our own are skipped), and
+    one that cannot be read now but could at the stage (the stage's census.json) is a problem too: its bodies are not
+    checked. Starfield.esm itself, and so Sol's system location, is held to the stage by its sha256 first."""
     try:
         bodies = census.plugin_bodies(data)
         with esm.Plugin(os.path.join(data, "Starfield.esm")) as sf:
@@ -530,7 +531,18 @@ def sol_now(data, plan):
     users += [f"{src} overlay world {e}" for src, e, _, p in sol["overlay_worlds"] if p == pid]
     if pid in sol["location_ynams"]:
         users.append("a location's YNAM")
-    return [f"planet id {pid} is in use in Sol now ({', '.join(users)}): re-stage"] if users else []
+    problems = [f"planet id {pid} is in use in Sol now ({', '.join(users)}): re-stage"] if users else []
+    try:
+        with open(os.path.join(stage_dir, "census.json"), encoding="utf-8") as f:
+            before = (json.load(f).get("plugin_stars") or {}).get("unreadable") or []
+    except (OSError, ValueError):
+        before = []
+    known = {u.split(":")[0].lower() for u in before}
+    new = [u for u in bodies["unreadable"] if u.split(":")[0].lower() not in known]
+    if new:
+        problems.append(f"cannot be read now, so a body they add to Sol is not checked against planet id {pid}: "
+                        f"{new} (take them out of Data, or re-stage: the stage notes them and goes on)")
+    return problems
 
 
 def check(a):
@@ -572,7 +584,7 @@ def log(a):
     print(f"runs {s['runs']}, this run's probe load index {s.get('load_index')}")
     if s.get("chain"):
         shown = {k: probe_log.hexid(v) if k in probe_log.ID_KEYS and type(v) is int else v
-                 for k, v in s["chain"].items() if k not in ("rt", "event") and k not in probe_log.LIST_KEYS}
+                 for k, v in s["chain"].items() if k not in ("rt", "event", "end") and k not in probe_log.LIST_KEYS}
         print("chain " + " ".join(f"{k}={v}" for k, v in shown.items()))
         reading = s.get("chain_reading") or {}
         word = {True: "yes", False: "NO", None: "not known"}

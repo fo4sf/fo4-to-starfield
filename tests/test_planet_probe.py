@@ -185,6 +185,7 @@ class ScriptTests(unittest.TestCase):
                       self.src)
         self.assertEqual({k: probe.SCRIPT_IDS[k] for k in probe.SCRIPT_KEYWORDS},
                          {k: records.KEYWORDS[n] for k, n in probe.SCRIPT_KEYWORDS.items()})
+        self.assertIn('Trace(line + " end=true")', self.src)     # so the reader can tell a cut line
         for key in probe_log.CHAIN_V1:                          # version 1's keys are gone from the script
             self.assertNotIn(key, self.src)
 

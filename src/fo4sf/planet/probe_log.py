@@ -19,7 +19,8 @@ and asks the way SQ_ParentScript finds a planet location's star system and a sit
 (planet_systems, probe_orbitals, probe_systems: with LocTypeStarSystem or LocTypeMajorOrbital). The reader looks
 for each location's own parent in our records in that location's own lists, so the answer does not depend on how far
 a list goes. A link is broken (a problem) only when every reading of it says so; readings that disagree are a note.
-The lookups from the probe location (reach) and the way IsChild answered are notes too. Version 1 (probe run 1,
+The lookups from the probe location (reach) and the way IsChild answered are notes too. Version 2 ends the line with
+end=true; a line without it was cut, so its last value (perhaps a list cut short) is left out. Version 1 (probe run 1,
 29 Oct) asked IsChild one way only, the child about its parent (probe_child_of_surface, surface_child_of_planet):
 those two values settle nothing until a version 2 log shows which way IsChild reads, and the reader says so instead
 of judging them.
@@ -75,8 +76,11 @@ def u32(v):
 
 def id_list(text):
     """A list of form ids as the script joins them ("<id>,<id>,...", signed decimal; "none" for an empty list),
-    unsigned; a "none" entry is None and an entry that is no number stays text."""
-    if text.lower() in ("none", ""):
+    unsigned; a "none" entry is None and an entry that is no number stays text. An empty value is None, not a list:
+    the script never writes one, so the line was cut there."""
+    if text == "":
+        return None
+    if text.lower() == "none":
         return []
     out = []
     for v in text.split(","):
@@ -207,14 +211,15 @@ def list_reading(chain, key, want):
 
 
 def ischild_reading(chain, pair):
-    """(the link by IsChild: True when either way answered true, False when both answered false, else None; the way
-    it answered: "parent asks" as Location.psc's comment reads, "child asks", "both", or None)."""
+    """(the link by IsChild: True when either way answered true, False only when both ways answered false (one way
+    alone settles nothing), else None; the way it answered: "parent asks" as Location.psc's comment reads, "child
+    asks", "both", or None)."""
     asked = tuple(chain.get(k) if isinstance(chain.get(k), bool) else None for k in pair or ())
-    if all(v is None for v in asked):
-        return None, None
     if True in asked:
         return True, {(True, False): "parent asks", (False, True): "child asks", (True, True): "both"}.get(asked)
-    return False, None
+    if asked and all(v is False for v in asked):
+        return False, None
+    return None, None
 
 
 def chain_reading(chain, names):
@@ -223,15 +228,23 @@ def chain_reading(chain, names):
     known) and whether it holds (True / False only when every known reading agrees, else None); the way IsChild
     answered (ischild_reads: "parent asks", "child asks", "both", "mixed" or None); the lookups from the probe
     location the way SQ_ParentScript does them (reach); whether the probe location's own list goes past its parent
-    (ancestors, None when unknown); and (problems, notes)."""
+    (ancestors: None when unknown, or when that list lacks its parent); and (problems, notes). A version 2 line without
+    end=true was cut, so its last value is left out (a note)."""
     if chain is None:
         return None, [], []
     problems, notes = [], []
-    out = {"ischild": {k: chain[k] for pair in ISCHILD for k in pair if k in chain}}
     if any(k in chain for k in CHAIN_V1):
         notes.append("chain: this log's script (version 1) asked IsChild one way only, the child about its parent, "
                      "so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " settle nothing until a version 2 "
                      "log shows which way IsChild reads")
+    elif "end" not in chain:                         # version 2 ends the line with end=true: the last value may be cut
+        chain = dict(chain)
+        last = [k for k in chain if k not in ("rt", "event")][-1:]
+        for k in last:
+            del chain[k]
+        notes.append("chain: the line is cut (no end=true)" + (f": its last value, {last[0]}, is left out" if last
+                                                             else ""))
+    out = {"ischild": {k: chain[k] for pair in ISCHILD for k in pair if k in chain}}
     out["parents"] = {LISTS[k]: [p if isinstance(p, str) else name_of(p, names) for p in chain[k]]
                       for k in LISTS if isinstance(chain.get(k), list)}
     out["links"], ways = {}, {}
@@ -260,8 +273,8 @@ def chain_reading(chain, names):
     kinds = set(ways.values())
     out["ischild_reads"] = next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else None
     if out["ischild_reads"] == "child asks":
-        notes.append("chain: IsChild answered true when the child asks (the caller is the child), the other way round "
-                     "from Location.psc's comment and the way MQ204's and UC04's scripts call it")
+        notes.append("chain: IsChild answered true when the child asks (the caller is the child), as MQ204's and "
+                     "UC04's scripts call it, the other way round from Location.psc's comment")
     elif out["ischild_reads"] == "both":
         notes.append("chain: IsChild answered true both ways round")
     elif out["ischild_reads"] == "mixed":
@@ -275,7 +288,8 @@ def chain_reading(chain, names):
                 notes.append(f"chain: {label} does not find {target}")
     probe = chain.get("probe_parents")
     above = ids_named(names, "our planet location") + ids_named(names, "the system location")
-    out["ancestors"] = any(f in probe for f in above) if isinstance(probe, list) and probe and above else None
+    has_parent = isinstance(probe, list) and any(f in probe for f in ids_named(names, "our surface"))
+    out["ancestors"] = any(f in probe for f in above) if has_parent and above else None
     return out, problems, notes
 
 

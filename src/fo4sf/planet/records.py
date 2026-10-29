@@ -492,7 +492,8 @@ def star_system_location(plugin, system_id, kw):
     return hits[0]
 
 
-ID_UNSET = 0x80000000                  # a planet id at or above it reads negative as a signed number: not one in use
+ID_UNSET = 0x80000000      # a planet id at or above it reads negative as a signed number: taken for unset and not
+                           # counted (our convention, a hypothesis about the game; our own id stays below it anyway)
 
 
 def free_planet_id(bodies, ynams, overlays=()):
@@ -501,7 +502,8 @@ def free_planet_id(bodies, ynams, overlays=()):
     the largest planet id an overlay world names there (the game merges an overlay world into the planet whose id it
     names). bodies: [(source, EditorID, name, (system, parent, planet))]; ynams: [(source, EditorID, YNAM)];
     overlays: [(source, EditorID, planet id)]. An id that reads negative as a signed number (ID_UNSET or more) is
-    not one in use (sol_facts lists such bodies). Raises PlanetError when the next id would not fit."""
+    taken for unset and not counted (sol_facts lists such bodies). Raises PlanetError when the next id would not
+    fit."""
     best, why = 0, "no body or location id in use"
     for source, edid, name, g in bodies:
         if best < g[2] < ID_UNSET:

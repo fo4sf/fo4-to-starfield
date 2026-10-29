@@ -134,7 +134,8 @@ Function Chain()
      asked the child only. probe_parents, surface_parents and planet_parents list every parent the game gives each
      of our three locations (GetParentLocations with no keyword, in the order it returns them; every vanilla call
      passes a keyword, so this form is untried). planet_systems, probe_orbitals and probe_systems ask the way
-     SQ_ParentScript does for a planet's and a site's location (with LocTypeStarSystem or LocTypeMajorOrbital).}
+     SQ_ParentScript does for a planet's and a site's location (with LocTypeStarSystem or LocTypeMajorOrbital). The
+     line ends with end=true, so the reader can tell a whole line from a cut one.}
     string line = "chain"
     if ProbeLoc != None && SurfaceLoc != None
         line += " surface_ischild_probe=" + SurfaceLoc.IsChild(ProbeLoc) + " probe_ischild_surface=" + ProbeLoc.IsChild(SurfaceLoc)
@@ -165,7 +166,7 @@ Function Chain()
     if ProbePlanet != None
         line += " planet_location=" + Id(ProbePlanet.GetLocation()) + " gravity=" + ProbePlanet.GetGravity() + " day=" + ProbePlanet.GetDayLength() + " temp=" + ProbePlanet.GetTemperature()
     endif
-    Trace(line)
+    Trace(line + " end=true")
 EndFunction
 
 ; ---------------------------------------------------------------- the watch

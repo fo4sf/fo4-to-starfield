@@ -6,8 +6,9 @@ usage: python scripts/planet/planet_probe_install.py install --dir <stage> --sta
 
 exp_install.py keeps exactly one experiment record (Data\\FO4SFExp.install.json, today the core set); this tool runs
 the same installer code against a record of its own, Data\\FO4SFPlanetProbe.install.json, so the probe rides along
-and the installed experiment is never read or changed. install first checks the stage against its plan.json
-(make_planet_probe.py check: every file pinned, the three plugins' raw checks), then installs the plan's plugins in
+and the installed experiment is never read or changed. install first checks the stage against its plan.json and
+the game's Data (make_planet_probe.py check --data: every file pinned, the three plugins' raw checks, Starfield.esm
+unchanged since the stage and, in route B, our planet id still free in Sol), then installs the plan's plugins in
 its order (FO4SFPlanet.esm, FO4SFPlanetProbe.esm, FO4SFPlanetProbe_Reg.esm, FO4SFMergeProbe.esm), their Data tree
 packed into "FO4SFPlanet - Main.ba2" (loose files are not read on this install), each "*<plugin>" line appended to
 the end of Plugins.txt. Everything else is exp_install.py's behaviour: no existing game file is overwritten, every
@@ -43,9 +44,10 @@ def installer(argv):
 def install(a):
     d = os.path.abspath(a.dir)
     plan = make_planet_probe.load_plan(d)
-    problems = make_planet_probe.verify_stage(d, plan)
-    if problems:
-        sys.exit("planet probe not installed: the stage does not match its plan.json (re-stage): " + "; ".join(problems))
+    problems = make_planet_probe.verify_stage(d, plan, os.path.join(a.starfield, "Data"))     # Data: Starfield.esm,
+    if problems:                                                                               # and Sol in route B
+        sys.exit("planet probe not installed: the stage does not match its plan.json or Data (re-stage): "
+                 + "; ".join(problems))
     names = sorted(n for n in os.listdir(d) if n.lower().endswith(".esm"))
     if sorted(plan["plugins"]) != names:
         sys.exit(f"planet probe not installed: the stage holds {names}, plan.json lists {plan['plugins']}")
