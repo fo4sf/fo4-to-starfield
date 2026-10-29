@@ -427,7 +427,6 @@ class MovablePlanTests(unittest.TestCase):
 
 class FakeControls:
     last_sent_tick = None
-    state_dir = None                                      # no runner state folder: no open vanilla baseline
 
     def stop_file(self):
         return None

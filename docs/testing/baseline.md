@@ -21,7 +21,8 @@ in a vanilla game too.
 | `src/fo4sf/core/papyrus_log.py` | Reads a Papyrus log into messages with their stacks, and compares two logs (section 5). |
 | `src/fo4sf/core/loadset.py` | The rules, which read nothing: the plugins the game ships, which plugins and names are ours (they start with FO4 or FOCC), and the start records. |
 | `src/fo4sf/launcher/loadprobe.py` | Reads what Starfield will load on the PC: the built-in plugins, `Starfield.ccc`, `sTestFile`, plugin copies in `My Games\Starfield\Data`, and the plugins that override the start records. |
-| The open-baseline note | `baseline-open.json` in the test runner's state folder (`FO4_AI_TEAM_STATE`, else `%LOCALAPPDATA%\fo4-ai-team\state`). `prepare` writes it when it turns plugins off, and `restore` removes it, so a baseline that was never restored is found wherever its folder is. While it names a baseline whose restore has not run, `testqueue.py run` installs and launches nothing. |
+| The open-baseline note | `baseline-open.json` in the test runner's state folder (`FO4_AI_TEAM_STATE`, else `%LOCALAPPDATA%\fo4-ai-team\state`). `prepare` writes it when it turns plugins off, and `restore` removes it, so a baseline that was never restored is found wherever its folder is. While it names a baseline whose restore has not run, `testqueue.py run` installs and launches nothing (section 3). |
+| The lock | `baseline.lock` in the same state folder. `prepare`, `collect` and `restore` run one at a time, whatever their out folders: one that finds another running waits 2 seconds, then refuses and changes nothing. The lock of one that stopped (a crash, a closed window) is taken over after 15 minutes. `check`, `status` and `compare` take no lock. |
 | The gate's `loaders` and `start` checks | `src/fo4sf/core/preflight.py`; the table in docs/ai/leader-core.md section 7. `prepare` runs both, and so does `testqueue.py run --preflight` before every test run. |
 
 ## 2. The owner's line for the Install thread
@@ -67,9 +68,21 @@ While a baseline is open (step 2 done, step 6 not yet), the test runner installs
 run` stops with `a vanilla baseline is open in <folder>`. A launch would install our plugins and load them into the
 baseline's session.
 
+- The runner also stops when it cannot read the note, or the record the note names (a drive that is not there, or a
+  damaged `baseline.json`): a baseline may be open. Restore it, or remove the note once you know none is open.
+- It reads a note as stale, and runs, only when the note's baseline folder is there without a record, or the record
+  says it was restored.
+- When `prepare` turned nothing off (only the game's own plugins were on), it writes no note, and nothing stops the
+  runner. A session the runner starts then still shows in `collect`'s checks: our names in the log, a plugin ticked
+  again, or an SFSE log.
+
+`prepare`, `collect` and `restore` run one at a time (the lock, section 1). When one says another is running, wait
+for it to finish, then run it again.
+
 ### What `prepare` refuses (nothing is changed)
 
 - Starfield is running, or its state is unknown.
+- Another `prepare`, `collect` or `restore` is running (the lock), or the lock cannot be made in the state folder.
 - The out folder already holds a baseline. When that one was never restored, its record holds the only copy of
   Plugins.txt as it was, so `prepare` says to run `restore` on it first.
 - The out folder is in the game folder, a My Games folder or Plugins.txt's folder.
@@ -110,14 +123,18 @@ plugins (verified: docs/research/framework/launcher-sources/sfstack.md, from Ort
 | Anything, when `prepare` turned nothing off | Writes nothing, and records the restore. |
 | As `prepare` wrote it | Writes the recorded bytes back. |
 | Already the recorded bytes | Writes nothing, and records the restore. |
-| Rewritten, with no plugin the game does not ship ticked | Keeps the rewrite as `Plugins.txt.at-restore` in the out folder (it can hold the owner's own edits), then writes the recorded bytes over it. |
+| Rewritten, with no plugin the game does not ship ticked | Keeps the rewrite as `Plugins.txt.at-restore` in the out folder (it can hold the owner's own edits), then writes the recorded bytes over it. When a copy is there already (an earlier restore that did not finish), the new one is `Plugins.txt.at-restore.2`, then `.3`: no copy is written over. |
 | Gone | Writes the recorded bytes, and makes its folder again when that is gone too. |
-| With such a plugin ticked again | Refuses and names it (the session may not have been vanilla). `--force` keeps the current file as `Plugins.txt.at-restore`, then writes the recorded bytes. |
+| With such a plugin ticked again | Refuses and names it (the session may not have been vanilla). `--force` keeps the current file as `Plugins.txt.at-restore` (or the next free number), then writes the recorded bytes. |
 
 Every restore records its time, which ends the time `collect` takes logs from, and the plugins the game does not
 ship that were ticked in the file it found. When there were any (the recorded bytes count too: someone put them
 back before `restore` ran, and nobody knows when), `collect` after it keeps no log as the baseline. A log collected
 before `restore` was checked against Plugins.txt then.
+
+It also records the SFSE logs written in the baseline's time (after `prepare`, up to the restore). A later start
+through `sfse_loader.exe` can write over SFSE's log, so `collect` after a restore counts what the restore found as
+well as what it finds itself.
 
 A Plugins.txt that is not UTF-8 (the game may write a name in another encoding) is read with the odd bytes
 replaced, so a ticked plugin is still found and `--force` still works.
@@ -131,7 +148,7 @@ Before it writes Plugins.txt, `restore` checks the record's copy against the sha
 record that was changed or damaged since. Then it notes in the record what it found. When it stops after Plugins.txt
 is back and before the record is updated (the record cannot be written), `status` says so, `collect` refuses, and the
 open-baseline note stays, so the runner still launches nothing. Running `restore` again finishes the record with what
-the first run found.
+the first run found and its time, so the baseline's time still ends when Plugins.txt was put back, not at the rerun.
 
 ## 5. Reading `compare`
 
@@ -154,8 +171,10 @@ and all the baseline's lines at that script line for `both_place`. A kind that c
 baseline, or more, is marked `10x or more`: a Starfield error that comes far more often in our run is still ours to
 look at.
 
-`ours` goes by name. A reference of ours with no EditorID prints with no name (`[ (0A001234)]`), so its kind is not
-found as ours: it is `both_place` at a script line where vanilla errors too, and `starfield` elsewhere.
+`ours` goes by name. A reference of ours can print with no name (`[ (0A001234)]`), and then its kind is not found as
+ours: it is `both_place` at a script line where vanilla errors too, and `starfield` elsewhere. That it can is a
+supported hypothesis: in the verified log sample (the `fo4sf.core.papyrus_log` module doc), the quests print their
+EditorIDs and one object prints none.
 
 A group says where a message came from, not why. A Starfield error that comes only in our run can still be one that
 Starfield makes later in its own opening, if the baseline stopped before that point. That is why step 4 notes where
@@ -168,7 +187,8 @@ on, their errors count as Starfield's own.
 
 `compare` refuses a run log that is not there. Its `--report` must be a `.json` file of its own: never one of the
 baseline's own files (the record, the kept logs, `Plugins.txt.at-restore`), the run's log, Plugins.txt or the
-open-baseline note, and never in the game folder, a My Games folder or Plugins.txt's folder.
+open-baseline note, and never in the game folder, a My Games folder or Plugins.txt's folder. It writes over no file
+but an earlier compare report, so it never writes over another baseline's record or a queue's file.
 
 ## 6. Assumptions
 
@@ -182,6 +202,11 @@ open-baseline note, and never in the game folder, a My Games folder or Plugins.t
     Plugins.txt.
   - The start records. In Starfield.esm, `StartupQuest_DO` is 00562D (DFOB), `MQ101` is 003448 and `MQ101Debug` is
     0A7D31 (`fo4sf.core.loadset` module doc).
+  - Loose files in `Data` do not load on the PC, so the loose files an experiment left there stay out of the baseline.
+    Its `Starfield.ini` sets `sResourceDataDirsFinal=STRINGS\` (read on 11 Oct 2026, docs/JOURNAL.md), and the 16 Oct
+    playtest's loose install loaded none of its meshes or terrain (docs/owner/playtest-issues.md, row 9). `check`
+    does not read that setting: an INI that lets loose files load (the loose-file recipe in `sfstack.md`, an empty
+    `sResourceDataDirsFinal=`) would let them into the baseline too.
 - **Supported hypothesis:**
   - A plugin copy in `My Games\Starfield\Data` stands in for the one in `Data`. The loader rule implies it, so the
     `loaders` check refuses either way.
@@ -191,6 +216,9 @@ open-baseline note, and never in the game folder, a My Games folder or Plugins.t
 - **Hypothesis:**
   - Plugins.txt is UTF-8, as the game writes it. `prepare` refuses a file that is not, and `restore` reads one with
     the odd bytes replaced.
+  - An archive of ours left in `Data` (`<plugin> - Main.ba2`) stays out while its plugin is unticked. That it loads
+    with its plugin is verified (docs/spikes/S2-S4-S9-plugin-units-loading.md). `check` does not read the INI archive
+    lists (`sResourceIndexFileList`, `sfstack.md`), which could load one by its name.
   - None of Starfield's EditorIDs or script names starts with FO4 or FOCC (none of its plugins does). The first
     baseline tests it: `collect` keeps no log that names one as the baseline.
 - **Unknown:**

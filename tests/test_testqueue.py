@@ -114,8 +114,6 @@ class JudgeTests(unittest.TestCase):
 
 
 class FakeControls:
-    state_dir = None                                      # no runner state folder: no open vanilla baseline
-
     def __init__(self):
         self.stop, self.mode, self.idle, self.foreign, self.fg, self.pid = None, "running", 10 ** 6, False, "starfield.exe", 42
         self.last_sent_tick = None
@@ -908,6 +906,42 @@ class OpenBaselineTests(unittest.TestCase):
         run()                                             # restored: the note is stale, the launch goes ahead
         self.assertEqual(launched[:1], ["cycle.ps1"])
         self.assertTrue(os.path.exists(marker))
+
+    def test_controls_without_a_state_folder_never_read_the_machines(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        for folder in (out, state):
+            os.makedirs(folder)
+        jdump({"schema": 1, "prepared_sha256": "ab" * 32, "restored_at": None}, os.path.join(out, "baseline.json"))
+        jdump({"schema": 1, "out": out}, os.path.join(state, "baseline-open.json"))
+        ctl = FakeControls()                              # a test's controls name no state folder
+        ctl.pid = None
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+        with mock.patch.object(tq.Controls, "state_dir", state):   # the machine's state folder holds an open note
+            r.run()
+        self.assertEqual(launched[:1], ["cycle.ps1"])
+        self.assertNotIn("a vanilla baseline is open", readf(os.path.join(d, "run.log")))
+
+    def test_a_note_or_record_that_cannot_be_read_refuses(self):
+        d = tempfile.mkdtemp()
+        state, note = os.path.join(d, "state"), os.path.join(d, "state", "baseline-open.json")
+        os.makedirs(state)
+        self.assertIsNone(tq.open_baseline(state))                       # no note: nothing open
+        self.assertIsNone(tq.open_baseline(None))                        # no state folder (a test's controls)
+        writef(note, b"{not json")
+        self.assertIn("cannot be read, so a vanilla baseline may be open", tq.open_baseline(state))
+        jdump({"schema": 1, "out": os.path.join(d, "unplugged", "baseline_1")}, note)   # its drive not there
+        self.assertIn("whose record cannot be read", tq.open_baseline(state))
+        out = os.path.join(d, "baseline_1")
+        os.makedirs(out)
+        jdump({"schema": 1, "out": out}, note)
+        self.assertIsNone(tq.open_baseline(state))                       # the folder there, emptied: nothing open
+        writef(os.path.join(out, "baseline.json"), b'{"schema": 1, "prepared_sha')     # cut short
+        self.assertIn("whose record cannot be read", tq.open_baseline(state))
 
 
 class CellExportTests(unittest.TestCase):

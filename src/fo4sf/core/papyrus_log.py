@@ -26,9 +26,10 @@ we change). A kind of ours keeps how many baseline lines came at its script line
 does not have, at a script line no "both_place" kind of the run has, are "baseline". Every baseline line is counted
 in one group only. A group says where a message came, not why: a Starfield error only in our run can still be one
 Starfield makes later in its own intro, which the baseline did not reach. "ours" goes by name: a reference of ours
-with no EditorID prints with no name ("[ (0A001234)]"), so its kind is not found as ours: it is "both_place" at a
-vanilla script line, "starfield" elsewhere. The report gives the baseline's count beside each "both" and "both_place"
-kind, and marks one the run has far more often.
+can print with no name ("[ (0A001234)]"; a supported hypothesis: in the verified sample the quests print their
+EditorIDs and one object prints none), and then its kind is not found as ours: it is "both_place" at a vanilla script
+line, "starfield" elsewhere. The report gives the baseline's count beside each "both" and "both_place" kind, and marks
+one the run has far more often.
 """
 import json
 import re

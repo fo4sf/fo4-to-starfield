@@ -391,6 +391,8 @@ def write_plugins_txt(path, target_b64, expected_sha256):
     try:
         with open(tmp, "wb") as f:
             f.write(base64.b64decode(target_b64))
+            f.flush()
+            os.fsync(f.fileno())                          # on disk before it takes the name (a power cut)
         os.replace(tmp, path)
     except BaseException:
         try:

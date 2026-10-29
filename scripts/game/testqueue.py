@@ -2686,18 +2686,32 @@ def launch_limit(a, state):
 def open_baseline(state_dir):
     """Why no game may be launched now, else None: a vanilla baseline is open (scripts/game/baseline.py prepare turned
     our plugins off for one plain session and its restore has not run; prepare's note in the state folder names it).
-    A launch would deploy our plugins into that session. No state folder (a test's controls): None."""
+    A launch would deploy our plugins into that session. A note or record that cannot be read refuses too (any unknown
+    refuses); a note is stale only when its baseline folder is there without a record, or its record is restored. No
+    state folder (a test's controls): None."""
     if not state_dir:
         return None
     import baseline                                       # beside this file (scripts/game)
-    note = baseline.read_json(os.path.join(state_dir, baseline.OPEN_NOTE))
-    if not note or not isinstance(note.get("out"), str):
+    path = os.path.join(state_dir, baseline.OPEN_NOTE)
+    if not os.path.lexists(path):
         return None
-    rec = baseline.read_json(os.path.join(note["out"], baseline.RECORD))
-    if not rec or not baseline.unrestored(rec):
+    note = baseline.read_json(path)
+    out = note.get("out") if note else None
+    if not isinstance(out, str):
+        return (f"the open-baseline note {path} cannot be read, so a vanilla baseline may be open "
+                f"(docs/testing/baseline.md): remove the note once you know none is")
+    record = os.path.join(out, baseline.RECORD)
+    if os.path.isdir(out) and not os.path.lexists(record):
+        return None                                       # the baseline folder was emptied: nothing open there
+    rec = baseline.read_json(record)
+    if rec is None:
+        return (f"the open-baseline note {path} names {out}, whose record cannot be read (a drive not there, or a "
+                f"damaged {baseline.RECORD}?), so a vanilla baseline may be open (docs/testing/baseline.md): restore it, "
+                f"or remove the note once you know none is")
+    if not baseline.unrestored(rec):
         return None
-    return (f"a vanilla baseline is open in {note['out']} (docs/testing/baseline.md), and a launch would load our "
-            f"plugins into its session: restore it first (baseline.py restore --out {note['out']})")
+    return (f"a vanilla baseline is open in {out} (docs/testing/baseline.md), and a launch would load our plugins into "
+            f"its session: restore it first (baseline.py restore --out {out})")
 
 
 def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
@@ -3316,7 +3330,7 @@ class Runner:
             why = launch_limit(self.a, self.state)
             if why:
                 return why
-            why = open_baseline(getattr(self.ctl, "state_dir", Controls.state_dir))
+            why = open_baseline(getattr(self.ctl, "state_dir", None))
             if why:
                 self.log(f"{why}: stopping")
                 return "stop"

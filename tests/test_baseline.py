@@ -92,14 +92,15 @@ class BaselineTests(unittest.TestCase):
         self.out = os.path.join(d, "baseline_1")
         self.note = os.path.join(d, "state", bl.OPEN_NOTE)
         env = {"LOCALAPPDATA": os.path.join(d, "local"), "FO4_AI_TEAM_STATE": os.path.join(d, "state")}
-        clock = [time.time()]
+        clock = self.clock = [time.time()]
 
         def tick():
             clock[0] += 10
             return clock[0]
 
         for patch in (mock.patch.dict(os.environ, env), mock.patch.object(bl, "game_running", return_value=False),
-                      mock.patch.object(bl, "time", SimpleNamespace(time=tick))):
+                      mock.patch.object(bl, "time", SimpleNamespace(time=tick)),
+                      mock.patch.object(bl, "LOCK_WAIT_S", 0.05)):
             patch.start()
             self.addCleanup(patch.stop)
 
@@ -208,10 +209,60 @@ class BaselineTests(unittest.TestCase):
             return real(path, b64, sha)
 
         with mock.patch.object(bl.launcher_restore, "write_plugins_txt", changed_meanwhile), \
-                self.assertRaisesRegex(SystemExit, "changed while restoring; nothing written"):
+                self.assertRaisesRegex(SystemExit, "changed after prepare read it .*nothing changed and the record is removed"):
             self.prepare()
         self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)) or os.path.exists(self.note))
         self.assertEqual(read(self.pt), ORIGINAL + b"*Late.esm\r\n")
+
+    def test_prepare_collect_and_restore_never_overlap(self):
+        inner = []
+
+        def running():                                                  # a second prepare while this one reads
+            if not inner:
+                try:
+                    inner.append(self.prepare(os.path.join(self.d, "baseline_2")))
+                except SystemExit as e:
+                    inner.append(str(e))
+            return False
+
+        with mock.patch.object(bl, "game_running", side_effect=running):
+            self.assertEqual(self.prepare()[0], 0)
+        self.assertRegex(inner[0], "another baseline.py prepare, collect or restore is running .*nothing changed")
+        self.assertEqual(read(self.pt), PREPARED)
+        self.assertEqual(self.record()["turned_off"], ["FO4Port.esm", "FO4SFNewGame.esm"])   # the record survives
+        self.assertEqual(bl.read_json(self.note)["out"], self.out)       # and so does its note
+        self.assertFalse(os.path.exists(os.path.join(self.d, "baseline_2")))
+        lock = os.path.join(self.d, "state", bl.LOCK)
+        self.assertFalse(os.path.exists(lock))                          # let go when the command ends
+        with bl.filelock.locked(lock):                                  # another command holds it
+            for cmd in ("collect", "restore"):
+                with self.subTest(cmd), self.assertRaisesRegex(SystemExit, f"{cmd}: another baseline.py prepare"):
+                    self.run_bl(cmd, "--out", self.out)
+            self.assertIn("as prepared", self.run_bl("status", "--out", self.out)[1])   # reading takes no lock
+        self.assertEqual(read(self.pt), PREPARED)
+        write(lock, b"1 0\n")                                           # left by a command that stopped
+        old = time.time() - bl.LOCK_STALE_S - 60
+        os.utime(lock, (old, old))
+        self.assertEqual(self.run_bl("restore", "--out", self.out)[0], 0)
+        self.assertEqual(read(self.pt), ORIGINAL)
+
+    def test_a_log_from_while_prepare_hashed_is_not_the_baselines(self):
+        start = self.clock[0]                                           # prepare reads the clock, hashes, reads again
+        p = write(os.path.join(self.mg, "Logs", "Script", "Papyrus.0.log"), RUN_LOG)
+        os.utime(p, (start + 15, start + 15))                           # a session that ended while it hashed
+        self.prepare()
+        with self.assertRaisesRegex(SystemExit, "last written before prepare"):
+            self.run_bl("collect", "--out", self.out)
+
+    def test_a_baseline_next_to_the_new_one_is_found_without_the_note(self):
+        self.prepare()                                                  # never restored
+        write(self.pt, PREPARED.replace(b"\r\nFO4Port.esm", b"\r\n*FO4Port.esm"))   # ours ticked again
+        later = os.path.join(self.d, "baseline_2")                      # next to baseline_1
+        with mock.patch.dict(os.environ, {"FO4_AI_TEAM_STATE": os.path.join(self.d, "state2")}), \
+                self.assertRaisesRegex(SystemExit, "baseline_1 holds a baseline of this Plugins.txt that was never "
+                                                   "restored"):
+            self.prepare(later)                                         # the note lost
+        self.assertFalse(os.path.exists(later))
 
     def test_an_unrestored_baseline_is_never_taken_for_the_original(self):
         self.prepare()                                                  # the session ended before restore
@@ -254,10 +305,15 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(bl.read_json(self.note)["out"], later)
         self.run_bl("restore", "--out", later)
         self.assertFalse(os.path.exists(self.note))
-        blocked = write(os.path.join(self.d, "blocked"), b"a file, not a folder")   # the note cannot be written
         os.remove(os.path.join(self.out, bl.RECORD))
+        os.makedirs(self.note)                                          # the note cannot be written: a folder there
+        with self.assertRaisesRegex(SystemExit, "open-baseline note .* could not be written"):
+            self.prepare()
+        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)))
+        self.assertEqual(read(self.pt), ORIGINAL)
+        blocked = write(os.path.join(self.d, "blocked"), b"a file, not a folder")   # no state folder, so no lock
         with mock.patch.dict(os.environ, {"FO4_AI_TEAM_STATE": os.path.join(blocked, "state")}), \
-                self.assertRaisesRegex(SystemExit, "open-baseline note .* could not be written"):
+                self.assertRaisesRegex(SystemExit, "the baseline lock .* could not be made .*nothing changed"):
             self.prepare()
         self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)))
         self.assertEqual(read(self.pt), ORIGINAL)
@@ -423,6 +479,23 @@ class BaselineTests(unittest.TestCase):
         os.utime(sfse, (t, t))
         self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
 
+    def test_an_sfse_session_restore_saw_stays_seen(self):
+        self.prepare()
+        sfse = write(os.path.join(self.mg, "SFSE", "Logs", "sfse.log"), "SFSE runtime: initialize\n")
+        t = self.record()["prepared_epoch"] + 5
+        os.utime(sfse, (t, t))                                          # a start through sfse_loader.exe
+        code, out = self.run_bl("restore", "--out", self.out)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"restore: SFSE wrote {sfse} during the baseline's time", out)
+        self.assertEqual(self.record()["sfse_at_restore"], [sfse])
+        t = self.record()["restored_epoch"] + 60
+        os.utime(sfse, (t, t))                                          # a later SFSE start writes it again
+        self.between(self.log(BASE_LOG, 0))
+        code, out = self.run_bl("collect", "--out", self.out)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"SFSE wrote {sfse} (a start through sfse_loader.exe)", out)
+        self.assertIn("restore found SFSE logs of the baseline's time", self.run_bl("status", "--out", self.out)[1])
+
     def test_restore_puts_the_bytes_back(self):
         self.prepare()
         code, out = self.run_bl("restore", "--out", self.out)
@@ -473,7 +546,9 @@ class BaselineTests(unittest.TestCase):
             self.run_bl("restore", "--out", self.out)
         self.run_bl("restore", "--out", self.out, "--force")            # the documented way out works
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), b"*Mod\xe9.esm\n")
+        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE + ".2")), b"*Mod\xe9.esm\n")
+        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), b"*SFBGS003.esm\nMod\xe9.esm\n")   # kept
+        self.assertTrue(self.record()["restore"].endswith("(kept as Plugins.txt.at-restore.2)"))
 
     def test_restore_that_cannot_write_says_so(self):
         self.prepare()
@@ -519,21 +594,27 @@ class BaselineTests(unittest.TestCase):
             self.run_bl("restore", "--out", self.out)
         self.assertEqual(read(self.pt), ORIGINAL)
         rec = self.record()
-        self.assertEqual((rec["restored_at"], rec["restoring"]), (None, {"ticked": [], "how": "byte for byte"}))
+        found = rec["restoring"]
+        self.assertEqual((rec["restored_at"], found["ticked"], found["how"], found["sfse"]),
+                         (None, [], "byte for byte", []))
         self.assertTrue(os.path.exists(self.note))                      # still open: the runner launches nothing
         self.assertIn("back, but the restore stopped before it updated the record",
                       self.run_bl("status", "--out", self.out)[1])
-        self.log(BASE_LOG, 5)                                           # the baseline session's
+        first = self.log(BASE_LOG, 5, "Papyrus.1.log")                  # the baseline session's
+        later = write(os.path.join(self.mg, "Logs", "Script", "Papyrus.0.log"), RUN_LOG.replace("FO4SF", "Other"))
+        os.utime(later, (found["epoch"] + 5, found["epoch"] + 5))       # a session with the plugins back on
         with self.assertRaisesRegex(SystemExit, "stopped before it updated the record: run restore again first"):
             self.run_bl("collect", "--out", self.out)                   # it would read our plugins as ticked again
         code, out = self.run_bl("restore", "--out", self.out)
         self.assertEqual(code, 0, out)
         rec = self.record()
         self.assertEqual((rec["restore"], rec["ticked_at_restore"]), ("byte for byte", []))   # not ours, back on
+        self.assertEqual((rec["restored_epoch"], rec["restored_at"]), (found["epoch"], found["at"]))   # its time
         self.assertNotIn("restoring", rec)
         self.assertNotIn("collect will not take", out)
         self.assertFalse(os.path.exists(self.note))
         self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
+        self.assertEqual([x["path"] for x in self.record()["log"]["sources"]], [first])   # not the later session
 
     def test_restore_refuses_a_damaged_record(self):
         self.prepare()
@@ -661,9 +742,16 @@ class BaselineTests(unittest.TestCase):
             with self.subTest(why), self.assertRaisesRegex(SystemExit, re.escape(why)):
                 self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", target)
         self.assertFalse(os.path.exists(os.path.join(self.out, "compare.txt")))
+        others = [write(os.path.join(self.d, "old", bl.RECORD), json.dumps({"schema": 1})),   # another baseline's
+                  write(os.path.join(self.d, "queue", "queue.json"), b"{}")]                  # a test queue's
+        kept.update({p: read(p) for p in others})
+        for target in others:
+            with self.subTest(target), self.assertRaisesRegex(SystemExit, "a file that is not a compare report"):
+                self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", target)
         self.assertEqual({p: read(p) for p in kept}, kept)
         mine = os.path.join(self.out, "compare_run.json")                # the runbook's place for it
         self.assertEqual(self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", mine)[0], 0)
+        self.assertEqual(self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", mine)[0], 0)  # again
         self.assertEqual(self.run_bl("restore", "--out", self.out)[0], 0)  # the record still restores
 
     def test_compare_names_the_plugins_not_ours_the_baseline_turned_off(self):
@@ -677,6 +765,32 @@ class BaselineTests(unittest.TestCase):
         out = self.run_bl("compare", "--out", self.out, "--run-log", run)[1]
         self.assertIn("the baseline also turned off plugins not ours (SomeMod.esp): in a run with any of them on, "
                       "their errors count as Starfield's own", out)
+
+    def test_a_link_leads_where_it_points(self):
+        self.prepare()
+        self.log(BASE_LOG, 60)
+        self.run_bl("collect", "--out", self.out)
+        run = write(os.path.join(self.d, "run", "Papyrus.0.log"), RUN_LOG)
+        try:
+            os.symlink(self.game, os.path.join(self.d, "gamelink"), target_is_directory=True)
+            os.symlink(self.out, os.path.join(self.d, "outlink"), target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no directory links here: {e}")
+        for target, why in ((os.path.join(self.d, "outlink", bl.RECORD),
+                             "would write over the baseline's baseline.json"),
+                            (os.path.join(self.d, "gamelink", "Data", "x.json"),
+                             f"it is in the game folder, {self.game}")):
+            with self.subTest(why), self.assertRaisesRegex(SystemExit, re.escape(why)):
+                self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", target)
+        with self.assertRaisesRegex(SystemExit, re.escape(f"is in the game folder, {self.game}")):
+            self.prepare(os.path.join(self.d, "gamelink", "baseline"))
+
+    def test_every_write_is_on_disk_before_it_takes_its_name(self):
+        order, real_sync, real_replace = [], os.fsync, os.replace
+        with mock.patch.object(os, "fsync", lambda fd: order.append("fsync") or real_sync(fd)), \
+                mock.patch.object(os, "replace", lambda a, b: order.append(os.path.basename(b)) or real_replace(a, b)):
+            self.prepare()
+        self.assertEqual(order, ["fsync", bl.RECORD, "fsync", bl.OPEN_NOTE, "fsync", "Plugins.txt"])
 
     def test_the_record_is_written_before_plugins_txt(self):
         order = []
