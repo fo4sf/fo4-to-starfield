@@ -904,3 +904,17 @@ decided the import path); keeping the order as a parameter (two orders in the co
   owner's line. The orbit stays Jemison's (next to Mars) for the probe; for the final planet the owner picked Earth's
   orbit (29 Oct, "A").
   Hiding the other planets (the owner's X) is separate work.
+
+## 2026-10-29: the local provider's header timeout goes to 900 s (Claude-cloud)
+- Decision: `provider.guardian.options.headerTimeout` in `opencode.json` goes from OpenCode's default 300000 ms to
+  900000 ms. It sits above Guardian's `queue_wait_s` (600), so a request that Guardian holds can wait out the hold
+  instead of the session dying at 5 minutes. `chunkTimeout` (300000 ms between streamed chunks) stays the default.
+- Why: the first unattended Lead cycle on the 128K load failed at 16:42 local. A model call sat in Guardian's queue
+  while RAM read 88.4 to 88.9% against the 88% restrict line, and OpenCode gave up after 300 s ("Provider response
+  headers timed out after 300000ms"). The session ended with nothing written.
+- Alternatives: 64K, which the PC reads as the only lever that moves RAM materially (about 78%). Not taken: the owner
+  chose 128K with longer waits on the decision card. Shorter Guardian holds (fail fast) were not taken: they end
+  sessions sooner and give no request a chance to clear.
+- Boundary: at 128K RAM still sits above the 88% line, so a hold can still outlast 600 s. If the next unattended cycles
+  stall, the fallback is 64K. The 88% restrict, the 95% VRAM block and Guardian's queue wait are unchanged. The test
+  `test_provider_header_timeout_outlasts_guardians_queue_wait` keeps the two in order.

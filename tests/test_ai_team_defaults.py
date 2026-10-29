@@ -63,6 +63,13 @@ class TeamModelTests(unittest.TestCase):
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
             self.assertEqual(model["limit"]["output"], 32768, name)
 
+    def test_provider_header_timeout_outlasts_guardians_queue_wait(self):
+        # OpenCode gives up when response headers take longer than headerTimeout. Guardian holds a queued request
+        # for queue_wait_s. The hold has to end first, or the Lead's session dies inside the hold.
+        header_ms = json.loads(read("opencode.json", ROOT))["provider"]["guardian"]["options"]["headerTimeout"]
+        queue_wait_s = json.loads(read("config.json"))["guardian"]["queue_wait_s"]
+        self.assertGreater(header_ms, queue_wait_s * 1000)
+
 
 class LoadConfigTests(unittest.TestCase):
     def test_defaults_are_128k_unquantized_and_unmapped(self):
