@@ -42,12 +42,13 @@ restore  refuses while Starfield runs; puts Plugins.txt back byte for byte, and 
          unless --force. Either way the file restore writes over is kept in <out> first (Plugins.txt.at-restore, then
          .2, .3: a copy an earlier restore kept is never written over). It records the plugins that were ticked and
          the SFSE logs of the baseline's time, and collect after it takes no log as the baseline when there were any.
-         When Plugins.txt is not the recorded original, it first checks the record's copy against its sha256 (a
-         changed or damaged one refuses, --force too); before it writes Plugins.txt, it notes in the record what it
-         found and when (a note in another shape counts as none). A restore that stops before its record ended the
-         baseline's time: the next one finishes the record with the first one's findings and time, and writes the
-         recorded bytes back (keeping the file) also when Plugins.txt has the same plugins on in other bytes since
-         (the game's rewrite at startup, or another program's order); other plugins on refuse unless --force.
+         When prepare turned something off and Plugins.txt is not the recorded original, it first checks the record's
+         copy against its sha256 (a changed or damaged one refuses, --force too); before it writes Plugins.txt, it
+         notes in the record what it found and when (a note in another shape counts as none). A restore that stops
+         before its record ended the baseline's time: the next one finishes the record with the first one's findings
+         and time, and writes the recorded bytes back (keeping the file) also when Plugins.txt has the same plugins on
+         in other bytes since (the game's rewrite at startup, or another program's order); other plugins on refuse
+         unless --force.
 status   what the record holds and where Plugins.txt stands, a restore that stopped before its record included.
 compare  a run's Papyrus log against the baseline's: the groups of fo4sf.core.papyrus_log (only ours, only the run's
          Starfield scripts, the same message at the same script line in both, the same kind in both, only the
@@ -641,15 +642,16 @@ def recorded_bytes(rec):
 
 def stopped(rec):
     """The note a restore that stopped before its record left there, None when there is none. restore, status and
-    collect read it alike, and only in the shape restore writes it (ticked and sfse lists of names, epoch a time, at
-    and how text): any other one counts as none, so restore reads what is ticked from Plugins.txt itself."""
+    collect read it alike, and only in the shape restore writes it (ticked and sfse lists of names, epoch a finite
+    float as time.time() gives, at and how text): any other one counts as none, so restore reads what is ticked from
+    Plugins.txt itself. A hand edit in that shape cannot be told from restore's own."""
     done = rec.get("restoring")
     if not isinstance(done, dict) or rec.get("prepared_sha256") is None:
         return None
     names = all(isinstance(done.get(k), list) and all(isinstance(n, str) for n in done[k]) for k in ("ticked", "sfse"))
     text = all(isinstance(done.get(k), str) and done[k] for k in ("at", "how"))
     epoch = done.get("epoch")
-    when = isinstance(epoch, (int, float)) and not isinstance(epoch, bool) and math.isfinite(epoch)
+    when = isinstance(epoch, float) and math.isfinite(epoch)  # an int of 400 digits is no float, and never overflows
     return done if names and text and when else None
 
 

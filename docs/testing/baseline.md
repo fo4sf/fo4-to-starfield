@@ -161,15 +161,15 @@ Plugins.txt changes during `restore`, or cannot be written, nothing is written, 
 A restore removes the open-baseline note when it names this baseline. Nothing here touches a plugin, an archive or
 an INI.
 
-When Plugins.txt is not the recorded original, `restore` first checks the record's copy against the sha256 `prepare`
-recorded, and refuses a record that was changed or damaged since, with `--force` too (`status` says so as well).
-Then it notes in the record what it found and when. When it stops after that note and before the record is updated
-(Ctrl+C, a closed window, a power cut, or a record that cannot be written), whether Plugins.txt is back yet or not,
-`status` says so and when, `collect` refuses, and the open-baseline note stays, so the runner still launches nothing.
-Running `restore` again finishes the record with what the first run found and its time, so the baseline's time still
-ends at the restore that stopped, not at the rerun. The note counts only in the shape `restore` writes it; one in any
-other shape (an empty one, or one edited by hand) counts as none, and `restore` then reads what is ticked from
-Plugins.txt itself.
+When `prepare` turned something off and Plugins.txt is not the recorded original, `restore` first checks the record's
+copy against the sha256 `prepare` recorded, and refuses a record that was changed or damaged since, with `--force` too
+(`status` says so as well). Then it notes in the record what it found and when. When it stops after that note and
+before the record is updated (Ctrl+C, a closed window, a power cut, or a record that cannot be written), whether
+Plugins.txt is back yet or not, `status` says so and when, `collect` refuses, and the open-baseline note stays, so the
+runner still launches nothing. Running `restore` again finishes the record with what the first run found and its time,
+so the baseline's time still ends at the restore that stopped, not at the rerun. The note counts only in the shape
+`restore` writes it; one in any other shape (an empty one, or one edited by hand out of that shape) counts as none, and
+`restore` then reads what is ticked from Plugins.txt itself.
 
 - When Plugins.txt has the same plugins on in other bytes since (the game's rewrite at startup drops the plugins that
   load on their own; another program can write them in another order), the rerun keeps that file as
@@ -177,6 +177,11 @@ Plugins.txt itself.
 - When other plugins are on now, it refuses and names the restore that stopped. `--force` keeps the current file and
   writes the recorded one back. Either way, the baseline's time ended at the restore that stopped, with what it found
   then.
+
+A record that was changed or damaged holds no copy of the original to write back. Put Plugins.txt back from a copy of
+your own whose sha256 is the record's `plugins_txt_sha256`, and run `restore` again, which finishes the record. Without
+one, tick your plugins again by hand, remove the open-baseline note once you know no baseline is open, and prepare a
+new baseline.
 
 `restore` also closes the note of a baseline whose folder was moved since `prepare`: the note names the same
 Plugins.txt and prepare time. The copy `restore` keeps of the file it writes over is on disk before Plugins.txt is

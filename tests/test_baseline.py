@@ -518,6 +518,21 @@ class BaselineTests(unittest.TestCase):
         self.assertIn(f"SFSE wrote {sfse} (a start through sfse_loader.exe)", out)
         self.assertIn("restore found SFSE logs of the baseline's time", self.run_bl("status", "--out", self.out)[1])
 
+    def test_a_stopped_restores_sfse_finding_outlives_a_later_sfse_start(self):
+        self.prepare()
+        self.log(BASE_LOG, 5)
+        sfse = write(os.path.join(self.mg, "SFSE", "Logs", "sfse.log"), "SFSE runtime: initialize\n")
+        t = self.record()["prepared_epoch"] + 5
+        os.utime(sfse, (t, t))                                          # the baseline session started through SFSE
+        found = self.stop_restore()
+        self.assertEqual(found["sfse"], [sfse])
+        t = found["epoch"] + 50
+        os.utime(sfse, (t, t))                                          # a later SFSE start wrote it again
+        self.assertEqual(self.run_bl("restore", "--out", self.out)[0], 0)
+        self.assertEqual(self.record()["sfse_at_restore"], [sfse])      # the rerun's own look no longer finds it
+        self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 1)
+        self.assertEqual(self.record()["not_vanilla"]["sfse"], [sfse])
+
     def test_restore_puts_the_bytes_back(self):
         self.prepare()
         code, out = self.run_bl("restore", "--out", self.out)
@@ -703,6 +718,8 @@ class BaselineTests(unittest.TestCase):
             ("open, as prepared", False, PREPARED, "as prepared, the plugins off", "puts it back", "writes"),
             ("open, gone", False, None, "gone", "writes the recorded one back", "writes"),
             ("ticked again", False, one, "changed since prepare (FO4Port.esm ticked again)", refuses, "refuses"),
+            ("open, same plugins", False, rewrite, "changed since prepare (FO4Port.esm, FO4SFNewGame.esm ticked again)",
+             refuses, "refuses"),                                       # no restore stopped: the session had them on
             ("the game's rewrite", False, prepared_rewrite,
              "changed since prepare (the game's rewrite at startup, or another tool)",
              "puts it back, keeping this file", "writes"),
@@ -737,13 +754,14 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(read(self.pt), ORIGINAL)
                 self.assertFalse(os.path.exists(self.note))
 
-    def test_an_empty_or_hand_edited_restore_note_counts_as_none(self):
+    def test_a_restore_note_out_of_restores_own_shape_counts_as_none(self):
         self.prepare()
         self.log(BASE_LOG, 5)
         full = {"ticked": [], "how": "by hand", "sfse": [], "epoch": 1.0, "at": "by hand"}   # restore's own shape
         for marker in ({}, "by hand", {"how": "by hand"}, dict(full, ticked="FO4Port.esm"), dict(full, sfse=[1]),
                        dict(full, epoch="1.0"), dict(full, epoch=True), dict(full, epoch=float("nan")),
-                       dict(full, at=""), dict(full, how=None)):     # restore, status and collect read it alike
+                       dict(full, epoch=1793000000), dict(full, epoch=10 ** 400), dict(full, at=""), dict(full, at=5),
+                       dict(full, how=None)):                           # restore, status and collect read it alike
             bl.write_json(os.path.join(self.out, bl.RECORD), dict(self.record(), restoring=marker))
             with self.subTest(marker):
                 self.assertIn("Plugins.txt: as prepared, the plugins off; restore puts it back",
@@ -886,9 +904,24 @@ class BaselineTests(unittest.TestCase):
                    "record was changed or damaged since prepare): restore refuses to write it")
         for base in (rec, held):
             for copy in (bl.b64(b"*SFBGS003.esm\r\n"), "not base64!"):     # edited by hand, or damaged
-                for now in (PREPARED, one):
+                for now in (ORIGINAL, PREPARED, one):
                     bl.write_json(os.path.join(self.out, bl.RECORD), dict(base, plugins_txt_b64=copy))
                     write(self.pt, now)
+                    if now == ORIGINAL:                                 # nothing to write, so no copy is needed
+                        stop = held["restoring"]
+                        self.assertIn(f"Plugins.txt: back. A restore at {stop['at']} stopped before it updated the "
+                                      f"record, and the baseline's time ended then; collect waits for the record: "
+                                      f"restore again finishes the record\n" if base is held else
+                                      "Plugins.txt: the recorded original already (nothing is off); restore records "
+                                      "that\n", self.run_bl("status", "--out", self.out)[1])
+                        code, out = self.run_bl("restore", "--out", self.out)
+                        self.assertEqual(code, 0, out)
+                        done = self.record()
+                        self.assertEqual(done["restore"], stop["how"] if base is held else
+                                         "already the recorded one (nothing written)")
+                        if base is held:
+                            self.assertEqual(done["restored_epoch"], stop["epoch"])
+                        continue
                     for force in ((), ("--force",)):                    # the first refusal names it: --force is no help
                         with self.subTest(stopped=base is held, copy=copy, now=now, force=force), \
                                 self.assertRaisesRegex(SystemExit, "^restore: refused, nothing written: the record's "
@@ -925,7 +958,9 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("turned off: nothing", out)
         self.assertEqual(read(self.pt), b"*SFBGS003.esm\n")
         self.assertIn("never changed (nothing was turned off)", self.run_bl("status", "--out", self.out)[1])
-        self.assertIn("nothing to put back", self.run_bl("restore", "--out", self.out)[1])
+        bl.write_json(os.path.join(self.out, bl.RECORD), dict(self.record(), plugins_txt_b64="not base64!"))
+        write(self.pt, b"*SFBGS003.esm\n*SomeMod.esp\n")              # changed since, and the copy damaged:
+        self.assertIn("nothing to put back", self.run_bl("restore", "--out", self.out)[1])   # neither matters
         self.assertIsNotNone(self.record()["restored_epoch"])          # it still ends the baseline's time
         self.assertIn("restore ran", self.run_bl("status", "--out", self.out)[1])
         self.log(BASE_LOG, 7200)                                        # a modded session days later
