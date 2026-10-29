@@ -8,7 +8,8 @@
 //   LCTN     the probe location: a copy of LC172WorldLocation without its references, keyword LocTypeOverlay, parent =
 //            our planet's surface location (FO4SFPlanet.esm), one LCPR row per linked test reference
 //   WRLD     a copy of LC172World (the Mars landing world the terrain experiments copied) without its cells, offset
-//            tables, large references and parent; the overlay component names OUR system id, planet id and block;
+//            tables, large references and parent; the overlay component names our planet's system id (Sol's in
+//            route B, ours in route A), planet id and block;
 //            the climate stays LC172's (the sky then tells whether the world record or the planet decides it)
 //   CELL     the persistent cell and the exterior cells (cell_min..cell_max on both axes), spawn cell EditorID
 //   QUST     start game enabled, no stages, script FO4SF_PlanetProbeQuest with no properties (the script finds every
@@ -16,7 +17,8 @@
 // Record shapes proven in game elsewhere: dotnet/TerrainExp1 (overlay WRLD + SFBK + cells + COC marker, exp1d/exp2b),
 // dotnet/MapMarkers and dotnet/TerrainOverlays (LCTN rows), dotnet/Mission (persistent ACHR), dotnet/CombinedProbe
 // (QUST + VMAD). New here and unverified in game: LCPR rows (Location.MasterPersistLocationReferences), XLCN on a
-// placed reference (PersistentLocation), a temporary ACHR, an overlay component naming a star system of a plugin.
+// placed reference (PersistentLocation), a temporary ACHR, an overlay component naming a plugin's planet (in Sol, or
+// in a star system of a plugin).
 //
 // usage: PlanetProbe build <template plugin (Starfield.esm)> <probe_params.json> <out dir>
 //        PlanetProbe check <written plugin> <template plugin> <probe_params.json>     exit 1 on a mismatch

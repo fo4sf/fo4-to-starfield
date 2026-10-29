@@ -14,7 +14,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "planet"))
 import planet_fixture as pf  # noqa: E402
-from fo4sf.planet import esm, probe, records  # noqa: E402
+from fo4sf.planet import esm, probe, probe_log, records  # noqa: E402
 import make_planet_probe  # noqa: E402
 
 PSC = os.path.join(ROOT, "scripts", "planet", probe.SCRIPT + ".psc")
@@ -167,6 +167,27 @@ class ScriptTests(unittest.TestCase):
                                    "PlanetPlugin": records.MASTER, "MergePlugin": make_planet_probe.MERGE_PLUGIN})
         self.assertIn(f'"{probe.LOG_PREFIX} rt="', self.src)
         self.assertRegex(self.src, rf"^Scriptname {probe.SCRIPT} extends Quest", )
+
+    def test_the_chain_line_writes_what_the_reader_reads(self):
+        loc = {"probe": "ProbeLoc", "surface": "SurfaceLoc", "planet": "PlanetLoc"}
+        for pair in probe_log.ISCHILD:                          # <caller>_ischild_<argument>, the parent first
+            for key in pair:
+                caller, arg = key.split("_ischild_")
+                self.assertIn(f'" {key}=" + {loc[caller]}.IsChild({loc[arg]})', self.src)
+        for key in probe_log.LIST_KEYS:
+            self.assertIn(f'" {key}="', self.src)
+        kw = {"parents": "", "systems": "starSystem", "orbitals": "majorOrbital"}
+        for key in probe_log.LIST_KEYS:
+            whose, what = key.split("_")
+            self.assertIn(f'" {key}=" + IdList({loc[whose]}.GetParentLocations({kw[what]}))', self.src)
+        self.assertIn('Keyword starSystem = Game.GetFormFromFile(StarSystemKwId, "Starfield.esm") as Keyword', self.src)
+        self.assertIn('Keyword majorOrbital = Game.GetFormFromFile(MajorOrbitalKwId, "Starfield.esm") as Keyword',
+                      self.src)
+        self.assertEqual({k: probe.SCRIPT_IDS[k] for k in probe.SCRIPT_KEYWORDS},
+                         {k: records.KEYWORDS[n] for k, n in probe.SCRIPT_KEYWORDS.items()})
+        self.assertIn('Trace(line + " end=true")', self.src)     # so the reader can tell a cut line
+        for key in probe_log.CHAIN_V1:                          # version 1's keys are gone from the script
+            self.assertNotIn(key, self.src)
 
     def test_no_properties(self):
         self.assertNotRegex(self.src, r"(?im)^\s*[\w\[\]]+\s+Property\s")

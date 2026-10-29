@@ -875,3 +875,32 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Boundary: the 95% block still refuses new work above 95%, so this lets the 128K load in without removing the limit.
   Applying it restarts Guardian, which drops its queued and running jobs. Restart run-lead after, since its failure
   backoff resets on restart.
+
+## 2026-10-29: our planet goes in Sol, under Sol's own system location; the probe asks the location chain both ways round (Claude-cloud)
+- Decision: the planet probe builds route B by default (`stage --system sol`; route A stays as `--system own`).
+  FO4SFPlanet.esm adds our planet (a Jemison clone) to Sol with Sol's system id (its star's DNAM, read at stage time)
+  and the first planet id free in Sol: one more than the largest body id, location YNAM and overlay world planet id
+  there, across Starfield.esm and every other plugin in Data, overrides too (an id that reads negative is taken for
+  unset and not counted: our convention), held to Data again by `check --data` and by the install. Its planet
+  location names Sol's own system location as its parent. No star, no system location and no override of a
+  Starfield record. Version 2 of the probe script asks IsChild both ways round and lists the parents of each of our
+  three locations (GetParentLocations, with no keyword and the keyword lookups SQ_ParentScript uses), ending the line
+  with `end=true`; the reader calls a link broken only when every reading of it says so, notes readings that
+  disagree, a cut line and that a version 1 line settles nothing, and leaves the 3.4e38 distance of another
+  worldspace out of the table (docs/planet/planet-probe.md sections 3a, 5 and 8).
+- Why: the owner's pick B, 29 Oct (typos fixed): "B, but in the end there should be no other planets". Run 1 (route
+  A) showed that our planet loads from our records, so the open question is Sol, not the planet record. Run 1's chain
+  line read false and false, but version 1 asked IsChild one way only, on the child, and which way IsChild reads is
+  unresolved: Starfield's Location.psc says it "Returns whether the other location is a child of this one" (the
+  parent asks), while some vanilla quest scripts (MQ204's, UC04's) call it on the child. Taking the planet id at stage
+  time keeps a Creation or mod that adds a body to Sol from colliding with ours.
+- Alternatives: a fixed planet id (rejected: a plugin that adds a body to Sol would collide); taking over Starfield's
+  Earth (the plan's option C, not picked); our own star system (route A, run 1's: kept as the fallback); a system
+  location of our own in Sol (rejected: it would give Sol two system locations).
+  The first 29 Oct entry's "Bethesda precedent" for route B is softer than it read: the Creations add bodies to
+  vanilla systems, but all four are body type 4 and none is a planet with a surface.
+- Boundary: offline only (synthetic masters and the Creations' records, in the cloud). Whether the game takes a
+  plugin's planet in Sol, whether the free id is what it expects, and what the chain really is wait for run 2 on the
+  owner's line. The orbit stays Jemison's (next to Mars) for the probe; for the final planet the owner picked Earth's
+  orbit (29 Oct, "A").
+  Hiding the other planets (the owner's X) is separate work.

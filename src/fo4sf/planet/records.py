@@ -1,20 +1,26 @@
-"""The planet master (our own star system with one planet) and the registration override, cloned from the user's own
-Starfield.esm at stage time, plus the census of the vanilla records they come from (docs/planet/planet-probe.md).
+"""The planet master (our planet, in Sol or in a star system of our own) and the registration override, cloned from
+the user's own Starfield.esm at stage time, plus the census of the vanilla records they come from
+(docs/planet/planet-probe.md).
 
-FO4SFPlanet.esm (master Starfield.esm only; adds records, overrides none):
-  0x800 STDT  a clone of Sol's star: our EditorID and name, our own system id (DNAM) and map position (BNAM),
-              "Starts Hidden" cleared; every other subrecord (sun preset, time of day data, sound, ...) kept as is
-  0x801 LCTN  the system location   LocTypeStarSystem               parent Universe        XNAM system, YNAM 0
-  0x802 LCTN  the planet location   LocTypePlanet, LocTypeMajorOrbital  parent 0x801       XNAM system, YNAM planet
+FO4SFPlanet.esm (master Starfield.esm only; adds records, overrides none). Two routes (the plan of 29 Oct): "sol"
+(route B, the owner's pick and the default) puts our planet in Sol; "own" (route A) gives it a star system of its own.
+  0x800 STDT  own only: a clone of Sol's star: our EditorID and name, our own system id (DNAM) and map position
+              (BNAM), "Starts Hidden" cleared; every other subrecord (sun preset, time of day data, sound, ...) kept
+  0x801 LCTN  own only: the system location   LocTypeStarSystem     parent Universe        XNAM system, YNAM 0
+  0x802 LCTN  the planet location   LocTypePlanet, LocTypeMajorOrbital  parent: the system location (sol: Sol's own,
+                                                                    a Starfield.esm record; own: 0x801)
+                                                                                           XNAM system, YNAM planet
   0x803 LCTN  the orbit location    LocTypeOrbit                    parent 0x802           XNAM system, YNAM planet
   0x804 LCTN  the surface location  LocTypeSurface                  parent 0x802           XNAM system, YNAM planet
   0x805 PNDT  a clone of Jemison (selected by its body name): our EditorID and name (FULL and body ANAM), GNAM =
-              (our system, parent 0, our planet), no master worldspaces (Jemison's CNAM registers New Atlantis), no
+              (the system, parent 0, our planet), no master worldspaces (Jemison's CNAM registers New Atlantis), no
               edited worldspaces, no unique space cell, and (by default) no fauna or flora in its biomes; the
               physical values (gravity, orbit, day length, atmosphere, temperature) stay Jemison's
-The location records follow the layout of SFStarEditor's star and planet locations (EDID, FULL, KSIZ/KWDA, DATA,
-PNAM, XNAM, YNAM; CC BY-NC-SA source read as a layout reference only, no code copied); their keywords and the
-Universe location are Starfield.esm form ids that the build checks by EditorID.
+In Sol the system id is Sol's star's DNAM (0 on 1.16.244: probe run 1's census) and the planet id is the first free
+one there: one more than every body's id and every location's YNAM in Sol, in Starfield.esm and every other plugin in
+Data (sol_facts). The location records follow the layout of SFStarEditor's star and planet locations (EDID, FULL,
+KSIZ/KWDA, DATA, PNAM, XNAM, YNAM; CC BY-NC-SA source read as a layout reference only, no code copied); their
+keywords and the Universe location are Starfield.esm form ids that the build checks by EditorID.
 FO4SFPlanetProbe_Reg.esm (masters Starfield.esm, FO4SFPlanet.esm, the world's plugin): the planet record again with
 one master worldspace (CNAM: f64 latitude, f64 longitude, world form id; the layout of FO4TerrainCore_Mars.esm's
 Mars override, which loads in game): the separate registration plugin the terrain core also uses.
@@ -43,8 +49,10 @@ STARTS_HIDDEN = 1 << 28            # STDT record flag (xEdit SF1)
 STAR, SYSTEM_LOC, PLANET_LOC, ORBIT_LOC, SURFACE_LOC, PLANET = 0x800, 0x801, 0x802, 0x803, 0x804, 0x805
 MASTER = "FO4SFPlanet.esm"
 REGISTRATION = "FO4SFPlanetProbe_Reg.esm"
-DEFAULT_SYSTEM_ID = 0x000F04F1     # above every vanilla system id seen (largest about 0x1D1B9); checked at stage time
-DEFAULT_PLANET_ID = 1
+SYSTEMS = ("sol", "own")           # route B (our planet in Sol: the owner's pick, 29 Oct) and route A (our own star)
+DEFAULT_SYSTEM = "sol"
+DEFAULT_SYSTEM_ID = 0x000F04F1     # route A: above every vanilla system id seen (largest about 0x1D1B9); checked
+DEFAULT_PLANET_ID = 1              # route A's planet id (in Sol the first free id is taken: sol_facts)
 DEFAULT_STAR = "Sol"
 DEFAULT_PLANET = "Jemison"
 DEFAULT_STAR_NAME = "FO4SF Probe Star"
@@ -471,6 +479,71 @@ def system_locations(plugin, system_id):
     return out
 
 
+def star_system_location(plugin, system_id, kw):
+    """A star system's own location: the LCTN with the LocTypeStarSystem keyword and XNAM = the system id (the layout
+    of Algorab's SAlgorab: XNAM 60776, YNAM 0, parent Universe; verified on SFBGS00D.esm's copy of it), the one whose
+    parent is Universe when there are several. Raises PlanetError unless exactly one is found."""
+    hits = [r for _, _, _, kws, _, _, r in system_locations(plugin, system_id) if kw["LocTypeStarSystem"] in kws]
+    if len(hits) > 1:
+        hits = [r for r in hits if r.get(b"PNAM") and len(r.get(b"PNAM")) >= 4 and u32(r.get(b"PNAM")) == UNIVERSE]
+    if len(hits) != 1:
+        raise PlanetError(f"{len(hits)} star system locations with XNAM {system_id} under Universe in {plugin.path} "
+                          "(exactly one expected)")
+    return hits[0]
+
+
+ID_UNSET = 0x80000000      # a planet id at or above it reads negative as a signed number: taken for unset and not
+                           # counted (our convention, a hypothesis about the game; our own id stays below it anyway)
+
+
+def free_planet_id(bodies, ynams, overlays=()):
+    """(the first planet id after every one in use, why): one more than the largest body id in the system (planets
+    and moons share the numbering: a moon's GNAM names its planet as the parent), the largest location YNAM there and
+    the largest planet id an overlay world names there (the game merges an overlay world into the planet whose id it
+    names). bodies: [(source, EditorID, name, (system, parent, planet))]; ynams: [(source, EditorID, YNAM)];
+    overlays: [(source, EditorID, planet id)]. An id that reads negative as a signed number (ID_UNSET or more) is
+    taken for unset and not counted (sol_facts lists such bodies). Raises PlanetError when the next id would not
+    fit."""
+    best, why = 0, "no body or location id in use"
+    for source, edid, name, g in bodies:
+        if best < g[2] < ID_UNSET:
+            best, why = g[2], f"{source} {edid or name} has planet id {g[2]}"
+    for source, edid, y in ynams:
+        if best < y < ID_UNSET:
+            best, why = y, f"{source} location {edid} has YNAM {y}"
+    for source, edid, pid in overlays:
+        if best < pid < ID_UNSET:
+            best, why = pid, f"{source} overlay world {edid} names planet id {pid}"
+    if best + 1 >= ID_UNSET:
+        raise PlanetError(f"no free planet id after {best} ({why})")
+    return best + 1, why
+
+
+def sol_facts(sf, kw, star=DEFAULT_STAR, other_planets=(), other_locations=(), other_overlays=()):
+    """What route B builds on: Sol's star and system id (its DNAM), Sol's system location (star_system_location),
+    every body, location and overlay world id in use in Sol, and the first free planet id. sf: Starfield.esm;
+    other_planets [(source, EditorID, name, (system, parent, planet), new)] and other_locations [(source, EditorID,
+    XNAM, YNAM, keywords, form id, new)]: every other plugin in Data (census.plugin_bodies; overrides count too: a
+    plugin that renumbers a body must not clash with ours); other_overlays [(source, EditorID, system, planet)]: the
+    overlay worlds of every plugin, Starfield.esm's included (census.overlay_worlds). unset: Sol's bodies whose id
+    reads negative (not counted); no_gnam: Starfield.esm's bodies without a readable GNAM (not counted). Raises
+    PlanetError when the star or its system location is not found exactly once."""
+    star_rec = find_star(sf, star)
+    sid = star_system_id(star_rec)
+    loc = star_system_location(sf, sid, kw)
+    sf_planets = planets(sf)
+    bodies = [("Starfield.esm", e, n, g) for _, e, n, g in sf_planets if g and g[0] == sid]
+    bodies += [(s, e, n, tuple(g)) for s, e, n, g, _ in other_planets if g and g[0] == sid]
+    ynams = [("Starfield.esm", e, y) for _, e, y, *_ in system_locations(sf, sid) if y is not None]
+    ynams += [(s, e, y) for s, e, x, y, *_ in other_locations if x == sid and y is not None]
+    overlays = [(s, e, p) for s, e, x, p in other_overlays if x == sid and p is not None and p > 0]
+    pid, why = free_planet_id(bodies, ynams, overlays)
+    return {"star": star_rec, "system_id": sid, "location": loc, "bodies": bodies, "ynams": ynams,
+            "overlays": overlays, "free_planet_id": pid, "why": why,
+            "unset": [(s, e or n, g[2]) for s, e, n, g in bodies if g[2] >= ID_UNSET],
+            "no_gnam": [("Starfield.esm", e) for _, e, _, g in sf_planets if g is None]}
+
+
 def subrecord_list(rec):
     return [(s.decode("latin1"), len(d)) for s, d in rec.subs]
 
@@ -529,15 +602,21 @@ def free_position(base, taken, offset=STAR_OFFSET_PC, gap=MIN_STAR_GAP_PC):
     return pos, closest
 
 
-def build_master(sf, opts=None, other_stars=()):
-    """FO4SFPlanet.esm's records from Starfield.esm (an esm.Plugin). opts: star, planet (template names), star_name,
-    planet_name, system_id, planet_id, no_fauna, no_flora, star_offset. other_stars: [(source, system id,
-    position)] of the other plugins in Data (census.plugin_stars), checked for clashes too.
-    Returns (esm.PluginWriter, report dict). Raises PlanetError on anything unexpected."""
-    o = {"star": DEFAULT_STAR, "planet": DEFAULT_PLANET, "star_name": DEFAULT_STAR_NAME,
-         "planet_name": DEFAULT_PLANET_NAME, "system_id": DEFAULT_SYSTEM_ID, "planet_id": DEFAULT_PLANET_ID,
+def build_master(sf, opts=None, other_stars=(), other_planets=(), other_locations=(), other_overlays=()):
+    """FO4SFPlanet.esm's records from Starfield.esm (an esm.Plugin). opts: system ("sol", the default: our planet in
+    Sol; "own": in a star system of our own), star (the star's name: Sol, route B's host and route A's template),
+    planet (the template planet's name), star_name (route A's star), planet_name, system_id (route A), planet_id
+    (route A's; in Sol a free id to take instead of the first one), no_fauna, no_flora, star_offset (route A).
+    other_stars: [(source, system id, position)] of the other plugins in Data, checked for clashes in route A;
+    other_planets and other_locations: the same plugins' planets and galaxy locations, and other_overlays every
+    plugin's overlay worlds, Starfield.esm's included, for route B's free planet id (census.plugin_bodies and
+    overlay_worlds, sol_facts). Returns (esm.PluginWriter, report dict). Raises PlanetError on anything unexpected."""
+    o = {"system": DEFAULT_SYSTEM, "star": DEFAULT_STAR, "planet": DEFAULT_PLANET, "star_name": DEFAULT_STAR_NAME,
+         "planet_name": DEFAULT_PLANET_NAME, "system_id": DEFAULT_SYSTEM_ID, "planet_id": None,
          "no_fauna": True, "no_flora": True, "star_offset": STAR_OFFSET_PC}
     o.update(opts or {})
+    if o["system"] not in SYSTEMS:
+        raise PlanetError(f"system {o['system']!r}: one of {', '.join(SYSTEMS)}")
     if sf.masters:
         raise PlanetError(f"{sf.path} has masters {sf.masters}: the template must be Starfield.esm itself")
     kw_names = keyword_edids(sf)
@@ -547,76 +626,113 @@ def build_master(sf, opts=None, other_stars=()):
         raise PlanetError(f"LCTN {UNIVERSE:06X} is {universe[0].edid if universe else 'missing'!r}, not {UNIVERSE_EDID}")
     star_src = find_star(sf, o["star"])
     planet_src = find_planet(sf, o["planet"])
-    all_stars = stars(sf)
-    ids = {}
-    for fid, edid, name, sid, pos in all_stars:
-        ids.setdefault(sid, []).append(f"Starfield.esm {edid or fid_hex(fid)}")
-    for source, sid, pos in other_stars:
-        ids.setdefault(sid, []).append(source)
-    if o["system_id"] in ids:
-        raise PlanetError(f"system id {o['system_id']:#x} is taken by {ids[o['system_id']]}")
-    sys_planets = [p for p in planets(sf) if p[3] and p[3][0] == o["system_id"]]
-    if sys_planets:
-        raise PlanetError(f"system id {o['system_id']:#x} already has planets {[p[1] for p in sys_planets]}")
-    taken = [p for _, _, _, _, p in all_stars] + [p for _, _, p in other_stars]
-    position, gap = free_position(star_position(star_src), taken, o["star_offset"])
+
+    def listed(locs, only_ynam=None):
+        return [(fid_hex(f), e, y, [kw_names.get(k, fid_hex(k)) for k in ks], d.hex() if d else None,
+                 fid_hex(p) if p is not None else None) for f, e, y, ks, d, p, _ in locs
+                if only_ynam is None or y == only_ynam]
 
     w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
     own = w.own
-    star_tag, planet_tag = tag(o["star_name"]), tag(o["planet_name"])
-    sys_edid = f"S{star_tag}"
-    pl_edid = f"S{star_tag}_P{planet_tag}"
-    star = clone_star(star_src, own(STAR), star_tag, o["star_name"], o["system_id"], position)
-    w.add(star)
-    # vanilla templates for the location DATA: the template star's system location and the template planet's
-    # planet / orbit / surface locations (same XNAM / YNAM and keyword)
-    t_sys = system_locations(sf, star_system_id(star_src))
+    planet_tag = tag(o["planet_name"])
+    report = {"master": MASTER, "system": o["system"]}
+    plan, templates = [], {}
+    if o["system"] == "own":
+        system_id = o["system_id"]
+        planet_id = o["planet_id"] if o["planet_id"] is not None else DEFAULT_PLANET_ID
+        all_stars = stars(sf)
+        ids = {}
+        for fid, edid, name, sid, pos in all_stars:
+            ids.setdefault(sid, []).append(f"Starfield.esm {edid or fid_hex(fid)}")
+        for source, sid, pos in other_stars:
+            ids.setdefault(sid, []).append(source)
+        if system_id in ids:
+            raise PlanetError(f"system id {system_id:#x} is taken by {ids[system_id]}")
+        sys_planets = [p for p in planets(sf) if p[3] and p[3][0] == system_id]
+        if sys_planets:
+            raise PlanetError(f"system id {system_id:#x} already has planets {[p[1] for p in sys_planets]}")
+        taken = [p for _, _, _, _, p in all_stars] + [p for _, _, p in other_stars]
+        position, gap = free_position(star_position(star_src), taken, o["star_offset"])
+        star_tag = tag(o["star_name"])
+        prefix = f"S{star_tag}"
+        star = clone_star(star_src, own(STAR), star_tag, o["star_name"], system_id, position)
+        w.add(star)
+        system_parent = own(SYSTEM_LOC)
+        # the template star's system location gives the system location's DATA
+        t_sys = system_locations(sf, star_system_id(star_src))
+        plan.append((SYSTEM_LOC, prefix, o["star_name"], [kw["LocTypeStarSystem"]], UNIVERSE, 0,
+                     template_location(t_sys, kw["LocTypeStarSystem"], None)))
+        report.update(
+            star={"formid": fid_hex(star.formid), "edid": star.edid, "name": o["star_name"], "ours": True,
+                  "from": describe_star(star_src), "position_pc": list(position), "nearest_star_pc": gap},
+            system_location={"formid": fid_hex(own(SYSTEM_LOC)), "edid": prefix, "parent": fid_hex(UNIVERSE),
+                             "ours": True},
+            stars_checked=len(all_stars) + len(other_stars))
+        templates["star_system"] = listed(t_sys)
+    else:
+        sol = sol_facts(sf, kw, o["star"], other_planets, other_locations, other_overlays)
+        system_id = sol["system_id"]
+        used = {g[2] for _, _, _, g in sol["bodies"]} | {y for _, _, y in sol["ynams"]} | {
+            p for _, _, p in sol["overlays"]}
+        if o["planet_id"] is None:
+            planet_id, why = sol["free_planet_id"], f"the first free id in Sol: {sol['why']}"
+        else:
+            planet_id, why = o["planet_id"], "asked for"
+            if not 0 < planet_id < ID_UNSET or planet_id in used:
+                raise PlanetError(f"planet id {planet_id} is in use in Sol or not from 1 to {ID_UNSET - 1}: ids in "
+                                  f"use {sorted(used)}")
+        loc = sol["location"]
+        system_parent = loc.formid
+        prefix = loc.edid or f"S{tag(star_name(star_src) or o['star'])}"
+        parent = loc.get(b"PNAM")
+        report.update(
+            star={"formid": fid_hex(star_src.formid), "edid": star_src.edid, "name": star_name(star_src),
+                  "ours": False},
+            system_location={"formid": fid_hex(loc.formid), "edid": loc.edid,
+                             "parent": fid_hex(u32(parent)) if parent and len(parent) >= 4 else None, "ours": False},
+            sol={"bodies": [(s, e, n, list(g)) for s, e, n, g in sol["bodies"]],
+                 "location_ynams": sorted({y for _, _, y in sol["ynams"]}), "planet_id_why": why,
+                 "overlay_worlds": [list(x) for x in sol["overlays"]], "unset": [list(x) for x in sol["unset"]],
+                 "no_gnam": [list(x) for x in sol["no_gnam"]], "locations": listed(system_locations(sf, system_id))})
+    # vanilla templates for the location DATA: the template planet's planet / orbit / surface locations (same XNAM /
+    # YNAM and keyword)
     p_sys, _, p_id = galaxy(planet_src)
-    t_pl = system_locations(sf, p_sys) if p_sys != star_system_id(star_src) else t_sys
-
-    def template(locs, keyword, ynam):
-        for fid, edid, y, kws, data, parent, rec in locs:
-            if keyword in kws and (ynam is None or y == ynam) and data is not None and len(data) == 8:
-                return rec
-        return None
-
-    plan = [(SYSTEM_LOC, sys_edid, o["star_name"], [kw["LocTypeStarSystem"]], UNIVERSE, 0,
-             template(t_sys, kw["LocTypeStarSystem"], None)),
-            (PLANET_LOC, pl_edid, o["planet_name"], [kw["LocTypePlanet"], kw["LocTypeMajorOrbital"]], own(SYSTEM_LOC),
-             o["planet_id"], template(t_pl, kw["LocTypePlanet"], p_id)),
-            (ORBIT_LOC, pl_edid + "_Orbit", o["planet_name"], [kw["LocTypeOrbit"]], own(PLANET_LOC), o["planet_id"],
-             template(t_pl, kw["LocTypeOrbit"], p_id)),
-            (SURFACE_LOC, pl_edid + "_Surface", o["planet_name"], [kw["LocTypeSurface"]], own(PLANET_LOC),
-             o["planet_id"], template(t_pl, kw["LocTypeSurface"], p_id))]
+    t_pl = system_locations(sf, p_sys)
+    pl_edid = f"{prefix}_P{planet_tag}"
+    plan += [(PLANET_LOC, pl_edid, o["planet_name"], [kw["LocTypePlanet"], kw["LocTypeMajorOrbital"]], system_parent,
+              planet_id, template_location(t_pl, kw["LocTypePlanet"], p_id)),
+             (ORBIT_LOC, pl_edid + "_Orbit", o["planet_name"], [kw["LocTypeOrbit"]], own(PLANET_LOC), planet_id,
+              template_location(t_pl, kw["LocTypeOrbit"], p_id)),
+             (SURFACE_LOC, pl_edid + "_Surface", o["planet_name"], [kw["LocTypeSurface"]], own(PLANET_LOC), planet_id,
+              template_location(t_pl, kw["LocTypeSurface"], p_id))]
     locs = []
     for local, edid, name, kws, parent, ynam, tmpl in plan:
         data = tmpl.get(b"DATA") if tmpl is not None else DEFAULT_LOCATION_DATA
         version = tmpl.version if tmpl is not None else star_src.version
-        rec = new_location(own(local), edid, name, kws, parent, o["system_id"], ynam, data, version)
+        rec = new_location(own(local), edid, name, kws, parent, system_id, ynam, data, version)
         w.add(rec)
         locs.append({"formid": fid_hex(rec.formid), "edid": edid, "parent": fid_hex(parent),
                      "keywords": [kw_names.get(k, fid_hex(k)) for k in kws], "ynam": ynam, "data": data.hex(),
                      "data_from": f"{tmpl.edid} {fid_hex(tmpl.formid)}" if tmpl is not None else "default"})
     planet, changes = clone_planet(planet_src, own(PLANET), f"{planet_tag}PlanetData", o["planet_name"],
-                                   o["system_id"], o["planet_id"], 0, o["no_fauna"], o["no_flora"])
+                                   system_id, planet_id, 0, o["no_fauna"], o["no_flora"])
     w.add(planet)
-    report = {
-        "master": MASTER, "system_id": hex(o["system_id"]), "planet_id": o["planet_id"],
-        "star": {"formid": fid_hex(star.formid), "edid": star.edid, "name": o["star_name"],
-                 "from": describe_star(star_src), "position_pc": list(position), "nearest_star_pc": gap},
+    report.update({
+        "system_id": hex(system_id), "planet_id": planet_id,
         "planet": {"formid": fid_hex(planet.formid), "edid": planet.edid, "name": o["planet_name"],
                    "from": describe_planet(planet_src, kw_names), "changes": changes},
         "locations": locs, "keywords": {k: fid_hex(v) for k, v in kw.items()}, "keyword_notes": kw_notes,
-        "universe": fid_hex(UNIVERSE),
-        "template_locations": {
-            "star_system": [(fid_hex(f), e, y, [kw_names.get(k, fid_hex(k)) for k in ks], d.hex() if d else None,
-                             fid_hex(p) if p is not None else None) for f, e, y, ks, d, p, _ in t_sys],
-            "planet_system": [(fid_hex(f), e, y, [kw_names.get(k, fid_hex(k)) for k in ks], d.hex() if d else None,
-                               fid_hex(p) if p is not None else None) for f, e, y, ks, d, p, _ in t_pl
-                              if y == p_id]},
-        "stars_checked": len(all_stars) + len(other_stars),
-    }
+        "universe": fid_hex(UNIVERSE), "template_locations": dict(templates, planet_system=listed(t_pl, p_id))})
     return w, report
+
+
+def template_location(locs, keyword, ynam):
+    """The first vanilla location of system_locations' list with the keyword (and the YNAM, unless None) and an
+    8-byte DATA: the template our location copies its DATA from (None: DEFAULT_LOCATION_DATA)."""
+    for fid, edid, y, kws, data, parent, rec in locs:
+        if keyword in kws and (ynam is None or y == ynam) and data is not None and len(data) == 8:
+            return rec
+    return None
 
 
 def build_registration(master_path, world_plugin, world_local, latitude=0.0, longitude=0.0):
@@ -637,23 +753,31 @@ def build_registration(master_path, world_plugin, world_local, latitude=0.0, lon
 
 # ------------------------------------------------------------------------------------------------ offline check
 def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID, star_name=DEFAULT_STAR_NAME,
-                 planet_name=DEFAULT_PLANET_NAME):
-    """Problems of a written planet master ([] = none) and a summary. Reads it back with the raw reader. Every FULL
-    must be our plain name (the system location's the star's, the other locations' the planet's): a string id left
-    from the localized original would pass a plain-string test, since an id below 0x01000000 ends in a zero byte."""
+                 planet_name=DEFAULT_PLANET_NAME, system_location=None):
+    """Problems of a written planet master ([] = none) and a summary. Reads it back with the raw reader.
+    system_location: None for route A (our star 0x800 and our system location 0x801 must be there, and nothing
+    else); for route B the form id of the vanilla system location (Sol's) that our planet location names as its
+    parent, and then the plugin holds 0x802 to 0x805 only. Every FULL must be our plain name (the system location's
+    the star's, the other locations' the planet's): a string id left from the localized original would pass a
+    plain-string test, since an id below 0x01000000 ends in a zero byte."""
     problems, summary = [], {}
     with esm.Plugin(path) as p:
         if p.masters != ["Starfield.esm"]:
             problems.append(f"masters {p.masters}")
         if p.flags & esm.LOCALIZED:
             problems.append("the plugin is flagged localized")
+        if system_location is not None and system_location >> 24:
+            problems.append(f"system location {system_location:08X} is not a Starfield.esm record")
         recs = {}
         for g in ("STDT", "LCTN", "PNDT"):
             for r in p.records(g):
                 recs[r.formid] = r
         own = lambda local: (1 << 24) | local  # noqa: E731
-        want = {own(STAR): b"STDT", own(SYSTEM_LOC): b"LCTN", own(PLANET_LOC): b"LCTN", own(ORBIT_LOC): b"LCTN",
-                own(SURFACE_LOC): b"LCTN", own(PLANET): b"PNDT"}
+        want = {}
+        if system_location is None:
+            want.update({own(STAR): b"STDT", own(SYSTEM_LOC): b"LCTN"})
+        want.update({own(PLANET_LOC): b"LCTN", own(ORBIT_LOC): b"LCTN", own(SURFACE_LOC): b"LCTN",
+                     own(PLANET): b"PNDT"})
         for fid, sig in want.items():
             if fid not in recs or recs[fid].sig != sig:
                 problems.append(f"{sig.decode()} {fid:08X} missing")
@@ -662,19 +786,25 @@ def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID,
             problems.append(f"unexpected records {[fid_hex(f) for f in extra]}")
         if problems:
             return problems, summary
-        star = recs[own(STAR)]
-        if star_system_id(star) != system_id:
-            problems.append(f"star DNAM {star_system_id(star):#x}")
-        if star.flags & STARTS_HIDDEN:
-            problems.append("star starts hidden")
-        parents = {own(SYSTEM_LOC): UNIVERSE, own(PLANET_LOC): own(SYSTEM_LOC), own(ORBIT_LOC): own(PLANET_LOC),
-                   own(SURFACE_LOC): own(PLANET_LOC)}
+        star = None
+        if system_location is None:
+            star = recs[own(STAR)]
+            if star_system_id(star) != system_id:
+                problems.append(f"star DNAM {star_system_id(star):#x}")
+            if star.flags & STARTS_HIDDEN:
+                problems.append("star starts hidden")
+            parents = {own(SYSTEM_LOC): UNIVERSE, own(PLANET_LOC): own(SYSTEM_LOC)}
+        else:
+            parents = {own(PLANET_LOC): system_location}
+        parents.update({own(ORBIT_LOC): own(PLANET_LOC), own(SURFACE_LOC): own(PLANET_LOC)})
         for fid, parent in parents.items():
             r = recs[fid]
             x, y = location_ids(r)
             want_y = 0 if fid == own(SYSTEM_LOC) else planet_id
-            if u32(r.get(b"PNAM")) != parent:
-                problems.append(f"{r.edid}: parent {u32(r.get(b'PNAM')):08X}, expected {parent:08X}")
+            pn = r.get(b"PNAM")
+            got = u32(pn) if pn and len(pn) >= 4 else None
+            if got != parent:
+                problems.append(f"{r.edid}: parent {fid_hex(got) if got is not None else None}, expected {parent:08X}")
             if x != system_id or y != want_y:
                 problems.append(f"{r.edid}: XNAM/YNAM {x}/{y}, expected {system_id}/{want_y}")
             if len(r.get(b"DATA") or b"") != 8:
@@ -686,11 +816,13 @@ def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID,
             problems.append(f"planet GNAM {g}")
         if master_worldspaces(planet):
             problems.append("planet lists master worldspaces (the registration plugin does that)")
-        problems += names_problems("star", star.subs, star_name)
+        if star is not None:
+            problems += names_problems("star", star.subs, star_name)
         problems += names_problems("planet", planet.subs, planet_name)
         biomes(planet)                                         # raises on a bad PPBD
-        summary = {"star": describe_star(star), "planet": describe_planet(planet),
-                   "locations": [(fid_hex(f), recs[f].edid) for f in parents]}
+        summary = {"star": describe_star(star) if star is not None else None, "planet": describe_planet(planet),
+                   "locations": [(fid_hex(f), recs[f].edid) for f in parents],
+                   "system_location": fid_hex(own(SYSTEM_LOC) if system_location is None else system_location)}
     return problems, summary
 
 

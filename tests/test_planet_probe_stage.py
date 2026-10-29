@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import zipfile
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -38,7 +39,7 @@ BASE_SOURCES = {
     "Game": "Scriptname Game Native Hidden\nActor Function GetPlayer() native global\n"
             "Form Function GetFormFromFile(int a, string b) native global\nbool Function IsPluginInstalled(string a) native global\n",
     "Location": "Scriptname Location extends Form Native Hidden\n" + "".join(
-        f"bool Function {n}() native\n" for n in ("IsChild", "GetCurrentPlanet", "IsLoaded", "CountActors")),
+        f"bool Function {n}() native\n" for n in mpp.NATIVES["Location"]),
     "ObjectReference": "Scriptname ObjectReference extends Form Native Hidden\n" + "".join(
         f"float Function {n}() native\n" for n in mpp.NATIVES["ObjectReference"]),
     "Planet": "Scriptname Planet extends Form Native Hidden\n" + "".join(
@@ -161,14 +162,32 @@ class StageTests(unittest.TestCase):
         self.assertAlmostEqual(merge[0], pf.LC172_COC_POS[0] + mpp.MERGE_OFFSET, places=4)
         self.assertEqual(plan["known_ids"]["Mars"], "0003F59A")
         self.assertEqual(plan["known_ids"]["Jemison"], f"{pf.JEMISON:08X}")
+        # route B, the default: our planet in Sol, with the first free id there, under Sol's own system location
+        self.assertEqual((plan["system"], plan["system_id"], plan["planet_id"]), ("sol", "0x0", pf.SOL_FREE_ID))
+        self.assertEqual(plan["system_location"]["edid"], "SSol")
+        self.assertEqual(plan["known_ids"]["SSol system location"], f"{pf.SOL_LOCATION:08X}")
+        with open(os.path.join(self.out, "probe_params.json"), encoding="utf-8") as f:
+            prm = json.load(f)
+        self.assertEqual((prm["system_id"], prm["planet_id"]), (0, pf.SOL_FREE_ID))
+        with open(os.path.join(self.out, "census.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["sol"]["free_planet_id"], pf.SOL_FREE_ID)
+        with open(os.path.join(self.out, "master_report.json"), encoding="utf-8") as f:
+            report = json.load(f)                       # kept for the run: Jemison's locations and their parents
+        self.assertEqual((report["system_location"]["edid"], report["planet_id"]), ("SSol", pf.SOL_FREE_ID))
+        self.assertEqual({t[1]: t[5] for t in report["template_locations"]["planet_system"]},
+                         {"SAlphaCentauri_PJemison": "00018001", "SAlphaCentauri_PJemison_Orbit": "00018002",
+                          "SAlphaCentauri_PJemison_Surface": "00018002"})      # (EditorID: parent) of Jemison's three
         for name in ("README.txt", "census.json", "probe_params.json", "offline_check.json", "offline_check_mutagen.txt",
-                     "offline_check_merge.txt", probe.SCRIPT + ".psc"):
+                     "offline_check_merge.txt", "master_report.json", probe.SCRIPT + ".psc"):
             self.assertTrue(os.path.isfile(os.path.join(self.out, name)), name)
         self.assertFalse(os.path.exists(os.path.join(self.out, "work")))
         with open(os.path.join(self.out, "README.txt"), encoding="utf-8") as f:
             readme = f.read()
         self.assertIn("planet_probe_install.py install", readme)
         self.assertIn(f"2. coc {probe.SPAWN_EDID}", readme)
+        self.assertIn(f'Our planet "{records.DEFAULT_PLANET_NAME}" in Sol (system id 0x0, planet id {pf.SOL_FREE_ID}: '
+                      "the first free id in Sol: Starfield.esm location SSol_PBelt_Orbit has YNAM 7),\nunder SSol "
+                      f"{pf.SOL_LOCATION:08X}, Sol's own system location,", readme)
         compiled = [c for c in self.tools.calls if c[0] == "compile"]
         self.assertEqual(compiled[0][1], probe.SCRIPT)
         self.assertIn("Starfield_Papyrus_Flags.flg", compiled[0][2])
@@ -191,6 +210,86 @@ class StageTests(unittest.TestCase):
             f.write("x")
         code, text = self.main("check", "--stage", self.out)
         self.assertIn("files not in plan.json", text)
+
+    def test_route_a_our_own_star_system(self):
+        code, text = self.stage("--system", "own")
+        self.assertEqual(code, 0, text)
+        plan = self.plan()
+        self.assertEqual((plan["system"], plan["system_id"], plan["planet_id"]), ("own", "0xf04f1", 1))
+        self.assertTrue(plan["system_location"]["ours"])
+        self.assertFalse(any(k.endswith("system location") for k in plan["known_ids"]))
+        with open(os.path.join(self.out, "README.txt"), encoding="utf-8") as f:
+            self.assertIn(f'Our star "{records.DEFAULT_STAR_NAME}" (system id 0xf04f1)', f.read())
+        self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)
+        # a stage from before route B (probe run 1's) has no "system" in its plan: it is checked as route A's
+        for key in ("system", "system_location", "planet_id_why"):
+            del plan[key]
+        with open(os.path.join(self.out, "plan.json"), "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        code, text = self.main("check", "--stage", self.out)
+        self.assertEqual(code, 0, text)
+
+    def test_check_holds_the_stage_to_its_plans_ids(self):
+        self.assertEqual(self.stage()[0], 0)
+        plan = self.plan()
+        plan["planet_id"] = pf.SOL_FREE_ID + 1
+        with open(os.path.join(self.out, "plan.json"), "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        code, text = self.main("check", "--stage", self.out)
+        self.assertEqual(code, 1)
+        self.assertIn(f"{records.MASTER}: planet GNAM (0, 0, {pf.SOL_FREE_ID})", text)
+        plan["planet_id"], plan["system"] = pf.SOL_FREE_ID, "own"          # route B's master read as route A's
+        with open(os.path.join(self.out, "plan.json"), "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        code, text = self.main("check", "--stage", self.out)
+        self.assertIn(f"{records.MASTER}: STDT 01000800 missing", text)
+
+    def test_check_catches_a_plugin_that_took_our_planet_id_after_the_stage(self):
+        self.assertEqual(self.stage()[0], 0)
+        late = os.path.join(self.data, "Late.esp")
+        self.addCleanup(os.remove, late)
+        pf.write_creation(late, system_id=0x1F0F9, position=(49.0, 40.0, 4.0),
+                          bodies=[("LatePlanetData", "Late", (pf.SOL_SYSTEM, 0, pf.SOL_FREE_ID))],
+                          overlay=("LateWorld", pf.SOL_SYSTEM, pf.SOL_FREE_ID))
+        code, text = self.main("check", "--stage", self.out, "--data", self.data)
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"planet id {pf.SOL_FREE_ID} is in use in Sol now (Late.esp LatePlanetData, Late.esp overlay "
+                      "world LateWorld): re-stage", text)
+        self.assertEqual(self.main("check", "--stage", self.out)[0], 0)          # without Data: the files only
+        pf.write_creation(late, system_id=0x1F0F9, position=(49.0, 40.0, 4.0),
+                          bodies=[("LatePlanetData", "Late", (pf.SOL_SYSTEM, 0, pf.SOL_FREE_ID + 1))])
+        self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)  # above ours: no clash
+
+    def test_check_catches_a_plugin_that_cannot_be_read_now(self):
+        self.assertEqual(self.stage()[0], 0)
+        junk = os.path.join(self.data, "Junk.esm")
+        with open(junk, "wb") as f:
+            f.write(b"junk")
+        self.addCleanup(os.remove, junk)
+        code, text = self.main("check", "--stage", self.out, "--data", self.data)
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"cannot be read now, so a body they add to Sol is not checked against planet id "
+                      f"{pf.SOL_FREE_ID}: ['Junk.esm: ", text)
+        census_path = os.path.join(self.out, "census.json")      # one the stage could not read either: noted then
+        with open(census_path, encoding="utf-8") as f:
+            rep = json.load(f)
+        rep["plugin_stars"]["unreadable"] = ["Junk.esm: not a plugin"]
+        with open(census_path, "w", encoding="utf-8") as f:
+            json.dump(rep, f)
+        self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)
+
+    def test_check_without_starfield_esm_in_data_is_a_problem_not_a_crash(self):
+        self.assertEqual(self.stage()[0], 0)
+        code, text = self.main("check", "--stage", self.out, "--data", self.root)       # the game folder, not Data
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"no Starfield.esm in {self.root}: name the game's Data folder", text)
+
+    def test_the_scripts_keyword_ids_must_be_this_starfields(self):
+        with mock.patch.dict(probe.SCRIPT_IDS, {"MajorOrbitalKwId": 0x70A55}):
+            code, text = self.stage()
+        self.assertIn("keyword LocTypeMajorOrbital is 00070A54 in this Starfield.esm, not 00070A55 as "
+                      f"{probe.SCRIPT}.psc reads it (MajorOrbitalKwId): the script needs the new id", str(code))
+        self.assertFalse(os.path.exists(self.out))
 
     def test_no_merge_probe_and_keep_biome(self):
         code, text = self.stage("--no-merge-probe", "--world-biome", "keep")
