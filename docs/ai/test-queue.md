@@ -154,8 +154,8 @@ the walk climbs).
   `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
   so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
 - Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
-  `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
-  load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
+  `--no-preflight` overrides the variable for one run) runs thirteen checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
+  load order, loaders, start, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
   stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
   checklist either way. Unset: not run. `--preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`) runs the same checks report-only:
   the checklist goes to `run.log` and `preflight.json`, nothing is refused, nothing goes to the ledger (leader-core.md section 7).

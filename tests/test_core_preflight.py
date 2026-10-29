@@ -39,6 +39,11 @@ class FakeProbe:
         self.guard = ("running", "guardian.db")
         self.save = True
         self.inis = [PAPYRUS_OK]
+        self.my_games = True
+        self.test_files = []
+        self.cccs = []
+        self.shadows = []
+        self.starts = ([], [])
         self.__dict__.update(kw)
 
     def staged_plugin_sha256(self):
@@ -87,6 +92,21 @@ class FakeProbe:
 
     def ini_texts(self):
         return self.inis
+
+    def my_games_known(self):
+        return self.my_games
+
+    def ini_test_files(self):
+        return self.test_files
+
+    def ccc_files(self):
+        return self.cccs
+
+    def shadow_plugins(self):
+        return self.shadows
+
+    def start_overrides(self):
+        return self.starts
 
 
 def pinned(**extra):
@@ -261,6 +281,56 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(c.status, pf.PASS)
         self.assertIn("the bridge is not last", c.detail)
         self.assertIn("not verified", c.detail)                                      # the absolute index stays unresolved
+
+    def test_loaders(self):
+        c = one("loaders")
+        self.assertEqual(c.status, pf.PASS)
+        self.assertIn("no sTestFile, no Starfield.ccc", c.detail)
+        self.assertEqual(one("loaders", my_games=False).status, pf.UNKNOWN)
+        c = one("loaders", test_files=[("MG/StarfieldCustom.ini", 4, "sTestFile1", "FO4Port.esm")])
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("sTestFile1=FO4Port.esm in MG/StarfieldCustom.ini line 4", c.detail)
+        c = one("loaders", cccs=[("MG/Starfield.ccc", ["SFBGS003.esm", "BlueprintShips-Starfield.esm"])])
+        self.assertEqual(c.status, pf.PASS)                                          # the game's own plugins only
+        self.assertIn("1 Starfield.ccc listing only the game's own plugins", c.detail)
+        c = one("loaders", cccs=[("MG/Starfield.ccc", ["SFBGS003.esm", "SomeMod.esm"])])
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("lists SomeMod.esm: they load first", c.detail)
+        c = one("loaders", shadows=[("MG/Data/FO4Port.esm", "FO4Port.esm")])
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("a copy of Data\\FO4Port.esm", c.detail)
+
+    def test_start(self):
+        c = one("start")
+        self.assertEqual(c.status, pf.PASS)
+        self.assertIn("no plugin that will load overrides Starfield's start (StartupQuest_DO 00562D, MQ101 003448, "
+                      "MQ101Debug 0A7D31)", c.detail)
+        self.assertEqual(one("start", starts=None).status, pf.UNKNOWN)
+        c = one("start", starts=([], [("Broken.esm", "not a TES4 plugin")]))
+        self.assertEqual(c.status, pf.UNKNOWN)
+        self.assertIn("Broken.esm: not a TES4 plugin", c.detail)
+        # 28 Oct 2026: our new game plugin set MQ101Debug, and Starfield's pirate fight started: refused
+        newgame = ([("FO4SFNewGame.esm", "MQ101Debug", "0A7D31")], [])
+        c = one("start", starts=newgame)
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("FO4SFNewGame.esm:MQ101Debug: our plugin overrides Starfield's opening itself", c.detail)
+        # our own start (pick F) overrides StartupQuest_DO only: listed, and it passes
+        mine = ([("FO4SFStart.esm", "StartupQuest_DO", "00562D")], [])
+        c = one("start", starts=mine)
+        self.assertEqual(c.status, pf.PASS)
+        self.assertIn("our own start overrides StartupQuest_DO: FO4SFStart.esm:StartupQuest_DO (not pinned", c.detail)
+        c = one("start", starts=([("AltStart.esm", "StartupQuest_DO", "00562D")], []))
+        self.assertEqual(c.status, pf.FAIL)                                          # another mod's start: not our run
+        self.assertIn("AltStart.esm:StartupQuest_DO: a plugin not ours", c.detail)
+        # a pin holds them exactly: [] for a vanilla start (the baseline), or what a run means to test
+        c = one("start", starts=mine, queue=dict(FakeProbe().queue, start_overrides=[]))
+        self.assertEqual((c.status, c.expected, c.observed), (pf.FAIL, [], ["FO4SFStart.esm:StartupQuest_DO"]))
+        q = dict(FakeProbe().queue, start_overrides=["FO4SFNewGame.esm:MQ101Debug"])
+        self.assertEqual(one("start", starts=newgame, queue=q).status, pf.PASS)
+        q = dict(FakeProbe().queue, start_overrides=["fo4sfstart.esm:startupquest_do"])
+        self.assertEqual(one("start", starts=mine, queue=q).status, pf.PASS)       # names compare case-insensitively
+        self.assertEqual(one("start", queue=q).status, pf.FAIL)                      # the pinned start is missing
+        self.assertEqual(one("start", queue=dict(FakeProbe().queue, start_overrides=[])).status, pf.PASS)
 
     def test_game_version(self):
         self.assertEqual(one("game_version").status, pf.PASS)

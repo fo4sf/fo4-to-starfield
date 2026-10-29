@@ -65,8 +65,9 @@ when one trips:
     unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
     writes its queue, attempts and results to the ledger in that folder (section 10). Unset: not checked, not written;
   - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
-    eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
-    lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
+    thirteen checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, loaders,
+    start, game version, lease, STOP files, Resource Guardian, recovery save, log capture) run before the first
+    launch; one FAIL or UNKNOWN
     refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
     prints the checklist either way. Unset: not run. --preflight-report (or FO4SF_PREFLIGHT_REPORT=1) runs the same
     checks in report-only mode, the first step of switching the gate on: the checklist goes to run.log
@@ -2585,6 +2586,39 @@ class PreflightProbe:
                 with open(p, encoding="utf-8", errors="replace") as f:
                     out.append(f.read())
         return out
+
+    def my_games(self):
+        """The My Games\\Starfield folders that are there, by the Saves rule above (OneDrive's Documents first)."""
+        return [os.path.dirname(d) for d in self.saves_dirs() if os.path.isdir(os.path.dirname(d))]
+
+    def staged_at_launch(self):
+        """[(name, staged path)] of the plugins installed at the launch, so the start check reads the file that will
+        load: the pinned experiment's plugins, and the staging's FO4Port.esm unless the queue tests the installed port."""
+        pin = self.queue.get("experiment_identity") or {}
+        out = [(n, os.path.join(pin.get("exp_dir") or "", n)) for n in pin.get("plugins") or []]
+        if (self.queue.get("port") or {}).get("mode") != "installed" and self.queue.get("staging"):
+            out.append(("FO4Port.esm", os.path.join(self.queue["staging"], "FO4Port.esm")))
+        return out
+
+    def load_probe(self):
+        """The loaders and start checks' readings (fo4sf.core.loadset; src is on sys.path once the gate runs)."""
+        from fo4sf.core.loadset import LoadProbe, plugins_txt_path
+        return LoadProbe(self.starfield, self.my_games(), plugins_txt_path(), self.staged_at_launch(), self.queue)
+
+    def my_games_known(self):
+        return bool(self.my_games())
+
+    def ini_test_files(self):
+        return self.load_probe().ini_test_files()
+
+    def ccc_files(self):
+        return self.load_probe().ccc_files()
+
+    def shadow_plugins(self):
+        return self.load_probe().shadow_plugins()
+
+    def start_overrides(self):
+        return self.load_probe().start_overrides()
 
 
 def stop_files(queue_dir):
