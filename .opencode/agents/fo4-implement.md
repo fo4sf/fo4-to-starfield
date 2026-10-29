@@ -27,6 +27,15 @@ permission:
     "git reset --hard*": deny
     "rm *": deny
     "Remove-Item*": deny
+    "git rebase*": deny
+    "git clean*": deny
+    "git checkout -- *": deny
+    "git stash*": deny
+    "gh pr merge*": deny
+    "gh repo delete*": deny
+    "del *": deny
+    "rmdir*": deny
+    "format*": deny
 ---
 You are the **Implementation** agent (comment prefix `Implement (local):`). Follow AGENTS.md.
 Work only on the issue, files and branch the Lead gave you; if the brief is unclear, stop and say what is missing.
