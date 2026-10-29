@@ -33,8 +33,10 @@ usage:
         9. the raw check of the probe plugin (probe.py check_plugin) and offline_check.json; plan.json (every staged
            file's SHA-256, the arrivals, the ids the log reader names) and README.txt.
   python make_planet_probe.py check --stage <dir> [--data <Starfield Data>]
-      the install preflight: every staged file is the one plan.json pins, and the three plugins pass their raw checks
-      again; with --data, Starfield.esm is still the file the stage cloned from. Exit 1 on any mismatch: re-stage.
+      the install preflight (planet_probe_install.py install runs it too, with the game's Data): every staged file is
+      the one plan.json pins, and the three plugins pass their raw checks again; with --data, Starfield.esm is still
+      the file the stage cloned from and, in route B, no plugin in Data takes our planet id now or cannot be read
+      (one the stage noted as unreadable aside). Exit 1 on any mismatch: re-stage.
   python make_planet_probe.py log [--file <FO4SFPlanetProbe.0.log>] [--stage <dir>] [--out <summary.json>]
       the run's user log as arrivals and a verdict per test reference (probe_log.py); exit 0 when an arrival on our
       planet has all four readings.
@@ -505,7 +507,9 @@ def verify_stage(stage_dir, plan, data=None):
         system_location=int(plan["system_location"]["formid"], 16) if route_b else None)[0]]
     problems += [f"{records.REGISTRATION}: {x}" for x in records.check_registration(
         os.path.join(stage_dir, records.REGISTRATION), probe.PLUGIN, probe.WORLD_ID, master)[0]]
-    if data:
+    if data and not os.path.isfile(os.path.join(data, "Starfield.esm")):
+        problems.append(f"no Starfield.esm in {data}: name the game's Data folder (the install: the game folder)")
+    elif data:
         h = sha256(os.path.join(data, "Starfield.esm"))
         if h != plan["inputs"]["Starfield.esm"]["sha256"]:
             problems.append(f"Starfield.esm changed since the stage (sha256 {h}): re-stage")
@@ -517,8 +521,9 @@ def verify_stage(stage_dir, plan, data=None):
 def sol_now(data, plan, stage_dir):
     """Route B's planet id against Data as it is now ([] = still free): a plugin installed or updated after the stage
     can take it, so every other plugin is read again (census.plugin_bodies and sol_section; our own are skipped), and
-    one that cannot be read now but could at the stage (the stage's census.json) is a problem too: its bodies are not
-    checked. Starfield.esm itself, and so Sol's system location, is held to the stage by its sha256 first."""
+    one that cannot be read now is a problem too, a new one included (its bodies are not checked), unless the stage
+    noted it as unreadable already (the stage's census.json). Starfield.esm itself, and so Sol's system location, is
+    held to the stage by its sha256 first."""
     try:
         bodies = census.plugin_bodies(data)
         with esm.Plugin(os.path.join(data, "Starfield.esm")) as sf:
@@ -583,8 +588,9 @@ def log(a):
     print(f"log {path}")
     print(f"runs {s['runs']}, this run's probe load index {s.get('load_index')}")
     if s.get("chain"):
+        cut = (s.get("chain_reading") or {}).get("cut")                  # a cut line's last value: left out
         shown = {k: probe_log.hexid(v) if k in probe_log.ID_KEYS and type(v) is int else v
-                 for k, v in s["chain"].items() if k not in ("rt", "event", "end") and k not in probe_log.LIST_KEYS}
+                 for k, v in s["chain"].items() if k not in ("rt", "event", "end", cut) and k not in probe_log.LIST_KEYS}
         print("chain " + " ".join(f"{k}={v}" for k, v in shown.items()))
         reading = s.get("chain_reading") or {}
         word = {True: "yes", False: "NO", None: "not known"}

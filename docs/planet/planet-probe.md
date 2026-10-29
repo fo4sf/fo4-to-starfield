@@ -103,11 +103,12 @@ marker + (3, 0, 0).
   LC172World into Mars), counting Starfield.esm and every other plugin in Data, overrides too (`records.sol_facts`).
   An id that reads negative as a signed number is taken for unset and not counted (our convention, a hypothesis
   about the game; our own id stays below it either way); the census lists such bodies, and the bodies without a
-  readable GNAM, under `not_counted`. An installed copy of our own master, registration or
-  probe plugin is left out: their records are the ones rebuilt. Taking one more than the largest id is a hypothesis
-  about what the game expects; the census's precedent list (section 4) shows whether the bodies the Creations add
-  follow it. `check --stage <stage> --data <Data>` (section 6) and the install itself read every plugin again and
-  stop when one installed or updated since the stage takes the id, or can no longer be read.
+  readable GNAM, under `not_counted`. An installed copy of our own master, registration or probe plugin is left out:
+  their records are the ones rebuilt. Taking one more than the largest id is a hypothesis about what the game
+  expects; the census's precedent list (section 4) shows whether the bodies the Creations add follow it.
+  `check --stage <stage> --data <Data>` (section 6) and the install itself read every plugin again and stop when one
+  installed or updated since the stage takes the id, or when one cannot be read that the stage did not already note
+  as unreadable.
 * **The parent** of our planet location is Sol's system location, as a vanilla planet location names its own
   system's location (supported: Starfield's scripts find a planet location's star system among its parents; the
   stage records the parents of Jemison's own locations in `master_report.json`, so the PC's stage shows it). A system
@@ -194,9 +195,10 @@ our surface, our surface under our planet location, and our planet location unde
 route B, named from `plan.json`). So the answer does not depend on how far a list goes. A link is a `PROBLEM` line only
 when every reading of it says no. Readings that disagree are a `NOTE`, and so are an IsChild that answered when the
 child asks (or both ways) and a keyword lookup from the probe location that does not find our planet location or the
-system location. The reader also prints whether the probe location's own list goes past its parent. The line ends with
-`end=true`: a line without it was cut, so the reader leaves its last value out (a list cut short could miss a parent)
-and says so in a `NOTE`. Run 1's chain line came from version 1, which asked IsChild one way only (the child about its parent): the reader prints a `NOTE` that
+system location. The reader also prints whether the probe location's own list goes past its parent. The line ends
+with `end=true`: a line without it was cut, so the reader leaves its last value out unless it is a bool (a list cut
+short could miss a parent; a cut `true` or `false` never reads as a bool) and says so in a `NOTE`. Run 1's chain line
+came from version 1, which asked IsChild one way only (the child about its parent): the reader prints a `NOTE` that
 those two values settle nothing (section 8).
 
 What each result means for the move (section 5 of the plan):

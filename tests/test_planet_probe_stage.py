@@ -278,6 +278,12 @@ class StageTests(unittest.TestCase):
             json.dump(rep, f)
         self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)
 
+    def test_check_without_starfield_esm_in_data_is_a_problem_not_a_crash(self):
+        self.assertEqual(self.stage()[0], 0)
+        code, text = self.main("check", "--stage", self.out, "--data", self.root)       # the game folder, not Data
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"no Starfield.esm in {self.root}: name the game's Data folder", text)
+
     def test_the_scripts_keyword_ids_must_be_this_starfields(self):
         with mock.patch.dict(probe.SCRIPT_IDS, {"MajorOrbitalKwId": 0x70A55}):
             code, text = self.stage()

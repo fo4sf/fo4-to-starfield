@@ -222,28 +222,30 @@ def ischild_reading(chain, pair):
     return None, None
 
 
-def chain_reading(chain, names):
+def chain_reading(chain, names, version=None):
     """What the chain line shows, None without one: the IsChild answers as logged (ischild); each list by its label
     (parents); each link with a reading per source (IsChild, a list: True / False, None when the parent's id is not
     known) and whether it holds (True / False only when every known reading agrees, else None); the way IsChild
     answered (ischild_reads: "parent asks", "child asks", "both", "mixed" or None); the lookups from the probe
     location the way SQ_ParentScript does them (reach); whether the probe location's own list goes past its parent
-    (ancestors: None when unknown, or when that list lacks its parent); and (problems, notes). A version 2 line without
-    end=true was cut, so its last value is left out (a note)."""
+    (ancestors: None when unknown, or when that list lacks its parent); the key of a cut line's last value, left out
+    (cut); and (problems, notes). version: the script's, from the init line (None: told by the line's keys). A
+    version 2 line without end=true was cut, so its last value is left out (a note), unless it is a bool: a cut "true"
+    or "false" never reads as one, so a bool is whole."""
     if chain is None:
         return None, [], []
-    problems, notes = [], []
-    if any(k in chain for k in CHAIN_V1):
-        notes.append("chain: this log's script (version 1) asked IsChild one way only, the child about its parent, "
-                     "so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " settle nothing until a version 2 "
-                     "log shows which way IsChild reads")
+    problems, notes, cut = [], [], None
+    if (isinstance(version, int) and version < 2) or any(k in chain for k in CHAIN_V1):
+        if any(k in chain for k in CHAIN_V1):
+            notes.append("chain: this log's script (version 1) asked IsChild one way only, the child about its "
+                         "parent, so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " settle nothing until a "
+                         "version 2 log shows which way IsChild reads")
     elif "end" not in chain:                         # version 2 ends the line with end=true: the last value may be cut
-        chain = dict(chain)
         last = [k for k in chain if k not in ("rt", "event")][-1:]
-        for k in last:
-            del chain[k]
-        notes.append("chain: the line is cut (no end=true)" + (f": its last value, {last[0]}, is left out" if last
-                                                             else ""))
+        if last and not isinstance(chain[last[0]], bool):
+            cut = last[0]
+            chain = {k: v for k, v in chain.items() if k != cut}
+        notes.append("chain: the line is cut (no end=true)" + (f": its last value, {cut}, is left out" if cut else ""))
     out = {"ischild": {k: chain[k] for pair in ISCHILD for k in pair if k in chain}}
     out["parents"] = {LISTS[k]: [p if isinstance(p, str) else name_of(p, names) for p in chain[k]]
                       for k in LISTS if isinstance(chain.get(k), list)}
@@ -287,9 +289,10 @@ def chain_reading(chain, names):
             if found is False:
                 notes.append(f"chain: {label} does not find {target}")
     probe = chain.get("probe_parents")
-    above = ids_named(names, "our planet location") + ids_named(names, "the system location")
-    has_parent = isinstance(probe, list) and any(f in probe for f in ids_named(names, "our surface"))
-    out["ancestors"] = any(f in probe for f in above) if has_parent and above else None
+    parent = ids_named(names, "our surface")
+    has_parent = isinstance(probe, list) and any(f in probe for f in parent)
+    out["ancestors"] = any(f is not None and f not in parent for f in probe) if has_parent else None
+    out["cut"] = cut
     return out, problems, notes
 
 
@@ -332,7 +335,7 @@ def summarize(lines, plan=None, run=-1):
     init = next((p for p in lines_ if p["event"] == "init"), None)
     chain = next((p for p in lines_ if p["event"] == "chain"), None)
     names = known_names(plan, init)
-    reading, chain_problems, notes = chain_reading(chain, names)
+    reading, chain_problems, notes = chain_reading(chain, names, (init or {}).get("version"))
     local = local_positions(plan)
     arrivals = {}
     order = []

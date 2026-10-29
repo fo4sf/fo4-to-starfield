@@ -210,7 +210,7 @@ class SummaryTests(unittest.TestCase):
             "ischild_reads": "parent asks",
             "reach": {"the planet lookup from the probe location": True,
                       "the star system lookup from the probe location": True},
-            "ancestors": True})
+            "ancestors": True, "cut": None})
         self.assertEqual((s["problems"], s["notes"]), ([], []))
 
     def test_ischild_either_way_round(self):
@@ -253,6 +253,11 @@ class SummaryTests(unittest.TestCase):
             self.assertNotIn("our planet location under the system location", s["chain_reading"]["links"])
         self.assertEqual(probe_log.summarize(log_lines(chain="chain"), PLAN)["notes"],
                          ["chain: the line is cut (no end=true)"])
+        # a bool is whole even at the cut (a cut "true" or "false" never reads as one): it stays, and judges
+        s = probe_log.summarize(log_lines(chain="chain surface_ischild_probe=false probe_ischild_surface=false"), PLAN)
+        self.assertEqual((s["problems"], s["notes"], s["chain_reading"]["cut"]), (
+            ["chain: the probe location under our surface: every reading says no (IsChild)"],
+            ["chain: the line is cut (no end=true)"], None))
         self.assertIsNone(probe_log.parse_line("FO4SFPP rt=1 chain planet_parents= end=true")["planet_parents"])
         self.assertEqual(probe_log.parse_line("FO4SFPP rt=1 chain planet_parents=none end=true")["planet_parents"], [])
 
@@ -295,6 +300,8 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual((r["parents"]["the probe location's parents"], r["ancestors"]), ([], None))
         s = self.chain((f"probe_parents={PROBE_UP}", f"probe_parents={sid(UNIVERSE)}"))     # its parent missing:
         self.assertIsNone(s["chain_reading"]["ancestors"])                                  # nothing to go past
+        s = self.chain((f"probe_parents={PROBE_UP}", f"probe_parents={sid(SURFACE)},{sid(UNIVERSE)}"))
+        self.assertIs(s["chain_reading"]["ancestors"], True)              # past its parent, if not to our planet
         s = self.chain((f"probe_parents={PROBE_UP}", "probe_parents=none"))
         r = s["chain_reading"]
         self.assertEqual(r["links"]["the probe location under our surface"]["holds"], None)       # IsChild yes
@@ -328,7 +335,10 @@ class SummaryTests(unittest.TestCase):
                                       "about its parent, so probe_child_of_surface and surface_child_of_planet "
                                       "settle nothing until a version 2 log shows which way IsChild reads"])
         self.assertEqual(s["chain_reading"], {"ischild": {}, "parents": {}, "links": {}, "ischild_reads": None,
-                                              "reach": {}, "ancestors": None})
+                                              "reach": {}, "ancestors": None, "cut": None})
+        # version 1 without our planet master wrote no IsChild key: told by the init line, not taken for a cut line
+        s = probe_log.summarize(log_lines(chain="chain probe_planet=none", version=1), PLAN)
+        self.assertEqual((s["problems"], s["notes"]), ([], []))
         # a route A plan: our own system location, named from the init line's planet location
         names = probe_log.known_names({"refs": []}, probe_log.summarize(log_lines())["init"])
         self.assertEqual(names[(OUR << 24) | 0x801], "our system location")
@@ -389,6 +399,14 @@ class LogCommandTests(unittest.TestCase):
                       "  the star system lookup from the probe location: not known (the system location's id is "
                       "not known)\n"
                       "  the probe location's own list goes past its parent\n", text)
+
+    def test_a_cut_line_prints_without_its_cut_value(self):
+        line = CHAIN.split(" planet_location=")[0] + " planet_location=-209714"
+        code, text, summary = self.run_log(log_lines(chain=line))
+        chain = next(x for x in text.splitlines() if x.startswith("chain "))
+        self.assertNotIn("planet_location=", chain)
+        self.assertIn("NOTE  chain: the line is cut (no end=true): its last value, planet_location, is left out", text)
+        self.assertEqual(summary["chain_reading"]["cut"], "planet_location")
 
     def test_a_version_1_log_prints_its_note(self):
         code, text, _ = self.run_log(log_lines(chain=CHAIN_V1, version=1))
