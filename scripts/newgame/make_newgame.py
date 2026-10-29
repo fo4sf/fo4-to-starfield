@@ -63,7 +63,7 @@ VERSION = "FO4SF_NewGameVersion"
 # docs/newgame/vault111-start.md section 9 is the published table. Stage 0 is the quest's start, not a QUST record.
 STAGE_CONTRACT = {
     0: "started: as Starfield's startup quest, the guard, the move into the vault and the hold-off",
-    1: "stood down: not a new game, or no move into the vault (Starfield's opening starts if the game still loads)",
+    1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
     10: "in the vault: the player stands at their pod",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
@@ -135,11 +135,11 @@ LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 NATIVES = {
     # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
     # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads. The
-    # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc is believed to
-    # declare CenterOnCell, unverified until this precheck reads it, and whether it works in retail until the PC run).
+    # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc declares it too,
+    # read in ContentResources.zip 29 Oct; whether it works in retail is unverified until the PC run).
     # Our own start: the events OnQuestStarted and OnQuestInit on Quest (Roleplayers' Alternate Start handles the first on
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
-    # waits so) and Quest.Start (the hand back to MQ101)
+    # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
@@ -149,8 +149,8 @@ NATIVES = {
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
                             "GetItemCount", "AddItem"],
-        "Quest": ["SetStage", "GetStage", "IsRunning", "Start", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
-                  "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
+        "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
+                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
@@ -633,17 +633,23 @@ def split_runs(lines, line_re, start="init ", carry=()):
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
-    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handed_back", "start",
-    "start_events", "start_wait", "fade", "guard", "last_status", "runs", "earlier_completed"}.
+    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
+    "handed_back", "start", "start_events", "start_wait", "waiting_3d", "fade", "guard", "last_status", "runs",
+    "earlier_completed"}.
     Our own start (newgame_v11, the startup quest): "start" is the start's first line ("<route> player_loaded=<bool>
     cell=<cell> loading=<bool>", the start event that ran it, its two readings and whether either said the game was
     still loading, which decides a hand back), "start_events" every start event that came, the one that ran the start
     first, then any "came after the start" (which fire on 1.16.244 is what run 4 shows), "start_wait" the end of the
-    start's wait for the player's 3D ("loaded=<bool>": false leaves the fade to the timer) and "fade" the one fade in
-    ("by=<start|timer> loaded=<bool> cell=<cell>; ..."); an older build's log has none of them (None, and no events).
+    start's wait for the player's 3D ("loaded=<bool>": false leaves the fade to the timer), "waiting_3d" the timer's
+    last line while it still waits for that 3D ("tick=<n> vault_moves=<n> centered=<n> cell=<cell>", every 10 ticks;
+    None when the 3D came sooner, or the timer never ran then) and "fade" the one fade in ("by=<start|timer>
+    loaded=<bool> cell=<cell>; ..."); an older build's log has none of them (None, and no events).
     "stood_down" is true on either stand-down ("not a new game: ..." or "no move into the vault: ...", the line in
-    "stand_down") and "handed_back" is the hand back to Starfield's opening ("opening running=<bool> stage=<n>"; None
-    when nothing was handed back: a stand-down whose readings both said the game runs, or a start that went on).
+    "stand_down"). The hand back to Starfield's opening writes two lines: "handing_back" is the first ("<why>;
+    mq101debug=<n>"), written before the request, and "handed_back" the second ("requested=<bool> opening
+    starting=<bool> running=<bool> stage=<n>"), MQ101's state right after a request that waits for nothing: no
+    verdict. Both None when nothing was handed back (a stand-down whose readings both said the game runs, or a start
+    that went on); "handing_back" alone means the request never returned.
     "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> mq101debug=<n>
     write_after_hold=<n>"; newgame_v9 and v10 also wrote "fresh=<bool>"; None in a build before 28 Oct).
     "mq101debug_written" is the write right after hold-off pass 1 ("<n> was=<n>"; None when the build writes nothing,
@@ -671,7 +677,8 @@ def summarize(lines):
          "version_saved": None, "version_load": None, "version_mismatch": False,
          "inventory_cleared": None, "vault_suit": None, "centered": None,
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
-         "stand_down": None, "handed_back": None, "start": None, "start_events": [], "start_wait": None, "fade": None,
+         "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
+         "start_wait": None, "waiting_3d": None, "fade": None,
          "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
@@ -724,17 +731,21 @@ def summarize(lines):
         elif msg.startswith("not a new game") or msg.startswith("no move into the vault"):
             s["stood_down"] = True
             s["stand_down"] = msg
+        elif msg.startswith("handing back to Starfield's start: "):
+            s["handing_back"] = msg[len("handing back to Starfield's start: "):]
         elif msg.startswith("handed back: "):
             s["handed_back"] = msg[len("handed back: "):]
         elif msg.startswith("start route="):
             s["start"] = msg[len("start route="):]
-            # the event that ran the start first, whatever the lines' order (the script writes the other event's line
-            # after this one, 29 Oct review on #588)
-            s["start_events"].insert(0, s["start"].split()[0])
+            # the event that ran the start: first, since the script writes the other event's line after this one
+            # (Begin's lateRoute, 29 Oct review on #588)
+            s["start_events"].append(s["start"].split()[0])
         elif msg.startswith("start event "):
             s["start_events"].append(msg.split()[2])         # "start event <route> came after the start: ..."
         elif msg.startswith("3d wait over "):
             s["start_wait"] = msg[len("3d wait over "):]
+        elif msg.startswith("waiting for the 3d "):
+            s["waiting_3d"] = msg[len("waiting for the 3d "):]
         elif msg.startswith("fade in by="):
             if s["fade"] is None:                            # the script fades in once
                 s["fade"] = msg[len("fade in "):]

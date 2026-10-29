@@ -17,9 +17,11 @@ Scriptname FO4SF_NewGameQuest extends Quest
  OnQuestInit waits for that first load (supported hypothesis); the start therefore runs from OnQuestStarted, with
  OnQuestInit as a second route, once, from whichever comes first (Begin). A start that finds no new game (a New Game+)
  or cannot move the player at all stands down and, when either of its readings says the game is still loading (the
- player's 3D not in, or no parent cell yet), starts Starfield's opening instead (HandBack), so the first load does not
- wait on a move nobody makes. The temporary-anchor mode, whose centering during that load is unverified and hands
- nothing back when it moves nobody, is built only on request since newgame_v11 (the writer's --allow-temporary-anchor).
+ player's 3D not in, or no parent cell yet), first asks Starfield's opening to start (HandBack, which waits for
+ nothing), so that its stage 0 moves the player and the first load does not wait on a move nobody makes (unverified:
+ whether MQ101 started by a script during that load starts up then and moves the player). The temporary-anchor mode,
+ whose centering during that load is unverified and hands nothing back when it moves nobody, is built only on request
+ since newgame_v11 (the writer's --allow-temporary-anchor).
  MQ101 never runs, so the plugin overrides no MQ101Debug: right after the hold-off's first pass the quest writes
  DebugAfterHold (two, the value the main quests' developer skip-start stages write) into the global itself, which opens
  PEO_SustenanceAllowed, whose normal route (MQ101 stage 310) is never reached. The guard logs the value the game read
@@ -27,7 +29,7 @@ Scriptname FO4SF_NewGameQuest extends Quest
  Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
    0 started: as Starfield's startup quest, the guard, the move into the vault and the hold-off
-   1 stood down: not a new game, or no move into the vault (Starfield's opening starts if the game still loads)
+   1 stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)
    10 in the vault: the player stands at their pod
    20 looks done: character creation closed, or LooksWait passed
    30 cog door opened: from its console
@@ -45,8 +47,9 @@ GlobalVariable Property GameDaysPassed Auto Const Mandatory
 
 Quest Property Opening Auto Const Mandatory
 {Starfield's MQ101, the opening StartupQuest_DO names in vanilla. With the override nothing starts it on a New Game: the
- guard line logs its stage and whether it runs (0 and false expected), and HandBack starts it when our start stands
- down while the game is still loading, so its stage 0 moves the player as it would have without this plugin.}
+ guard line logs its stage and whether it runs (0 and false expected), and HandBack asks it to start when our start
+ stands down while the game is still loading, so that its stage 0 moves the player as it would have without this
+ plugin (unverified: no run has stood down during the first load yet).}
 
 GlobalVariable Property DebugGlobal Auto Const Mandatory
 {Starfield's MQ101Debug (Starfield.esm 0A7D31). MQ101's stage 0 has 12 log entries, ten of whose conditions read it
@@ -89,8 +92,9 @@ bool Property AnchorTemporary = false Auto Const
 string Property VaultCell = "FO4Port_Vault111Cryo" Auto Const
 {The vault cell's EditorID, what Debug.CenterOnCell takes in the temporary-anchor mode.}
 int Property CenterTicks = 30 Auto Const
-{The temporary-anchor mode's bound: after this many ticks without the anchor resolving, one more centering at most, then
- a failure line every 10 ticks ("vault anchor ... does not resolve after <n> ticks ..."), never a centering loop.}
+{The temporary-anchor mode's bound: after this many tries without the anchor resolving, one more centering at most,
+ then a failure line every 10 tries ("vault anchor ... does not resolve after <n> ticks ..."), never a centering loop.
+ The tries after the first are the timer's, which come only once the player's 3D is in (CenterOnVault).}
 float Property AnchorX Auto Const Mandatory
 float Property AnchorY Auto Const Mandatory
 float Property AnchorZ Auto Const Mandatory
@@ -262,25 +266,31 @@ Function Begin(string route)
 EndFunction
 
 Function StandDown(bool loading, string why)
-{Stage 1 and the quest stops. While the game is still loading (either reading of the start: the player's 3D not in, or
- no parent cell yet), Starfield's opening starts first (HandBack), since nothing else would move the player. A
- stand-down on a running game (startquest from the console on a played save: a game day or more, or above level 1)
- moves nothing and hands nothing back.}
-    AdvanceTo(1)
+{While the game is still loading (either reading of the start: the player's 3D not in, or no parent cell yet),
+ Starfield's opening is asked to start first (HandBack), since nothing else would move the player: before our own
+ stage, whose SetStage is latent (Quest.psc: it waits for the quest to start up if it needed to be started) while Begin
+ may run from OnQuestInit, our quest still starting up. Then stage 1 and the quest stops. A stand-down on a running
+ game (startquest from the console on a played save: a game day or more, or above level 1) moves nothing and hands
+ nothing back.}
     if loading
         HandBack(why)
     endif
+    AdvanceTo(1)
     Stop()
 EndFunction
 
 Function HandBack(string why)
-{Starfield's opening starts as it would have without this plugin: its stage 0 moves the player (New Game+'s entry 0,
- whatever MQ101Debug holds; the intro at 0). Called only from StandDown, before anything of ours was held off or written.
- Nothing else moves the player, so "handed back: opening running=false" with the loading screen still up is a hang (the
- doc's failure readings, section 13).}
+{Starfield's opening is asked to start as it would have without this plugin, so that its stage 0 moves the player
+ (New Game+'s entry 0, whatever MQ101Debug holds; the intro at 0). Unverified: whether MQ101 started by a script during
+ the first load starts up then and moves the player; no run has stood down during that load yet. StartNoWait returns at
+ once (Quest.psc: it does not wait for aliases to fill or fragments to run), so nothing of ours waits on MQ101's
+ start-up and the "handed back" line always follows: the request's result and MQ101's state at that moment (starting,
+ not yet running, is a start under way, not a verdict). The verdict is the screen: Starfield's intro, or a loading
+ screen that stays up. Papyrus.0.log cannot tell: MQ101's own Debug.Trace lines are not in run 3's, though its stage 0
+ ran then. Called only from StandDown, before anything of ours was held off or written.}
     Trace("handing back to Starfield's start: " + why + "; mq101debug=" + DebugGlobal.GetValue())
-    Opening.Start()
-    Trace("handed back: opening running=" + Opening.IsRunning() + " stage=" + Opening.GetStage())
+    bool requested = Opening.StartNoWait()
+    Trace("handed back: requested=" + requested + " opening starting=" + Opening.IsStarting() + " running=" + Opening.IsRunning() + " stage=" + Opening.GetStage())
 EndFunction
 
 Function FadeIn(string by)
@@ -289,9 +299,13 @@ Function FadeIn(string by)
  precedent fades only once its start cell has loaded). A player the start moved into the vault is turned to the pod's
  heading again first (EnterVault's turn came during the load; whether it holds then is unverified, and the screen is
  still dark now). Game.FadeOutGame(False, True, 0.0, 0.1, False) then fades in from black over 0.1 s, the call
- Roleplayers' Alternate Start makes once its start cell has loaded. Then saving and the HUD are turned on: MQ101 never
- ran, so nothing should have turned them off (its stage 0 does, and newgame_v9 had to turn them back on), but a run
- must not depend on that.}
+ Roleplayers' Alternate Start makes once its start cell has loaded. Whether the loading menu can still be up once the
+ 3D is in is unverified. MQ101's own fragments wait 0.1 s before they fade (with Utility's Wait, which does not run in
+ menu mode), since a fade requested while it is up "would be bashed when the loading menu goes away and tells the
+ fade menu to fade in" (QF_MQ101_00003448), and its intro entry (Item_02) makes no fade call at all: so a fade of ours
+ that comes that early gives way to the loading menu's own fade in, and the screen still comes in (supported
+ hypothesis, from that fragment). Then saving and the HUD are turned on: MQ101 never ran, so nothing should have
+ turned them off (its stage 0 does, and newgame_v9 had to turn them back on), but a run must not depend on that.}
     if faded
         return
     endif
@@ -334,6 +348,10 @@ Event OnTimer(int aiTimerID)
     if stage == 0
         ; Starfield's Utility.psc has no IsInMenuMode (PC precheck, 19 Oct): loaded 3D is the only wait
         if !player.Is3DLoaded()
+            if ticks % 10 == 0
+                ; a wait that does not end (a move or a centering that moved nobody) leaves this line, not silence
+                Trace("waiting for the 3d tick=" + ticks + " vault_moves=" + vaultMoves + " centered=" + centered + " cell=" + player.GetParentCell())
+            endif
             StartTimer(1.0, 1)                               ; the game is still loading
             return
         endif
@@ -465,13 +483,16 @@ EndFunction
 
 bool Function CenterOnVault()
 {The temporary-anchor mode (AnchorTemporary): the COC marker resolves to None while the vault is unloaded, so the cell is
- loaded with Debug.CenterOnCell on VaultCell (FO4's signature, CenterOnCell(string asCellname); Starfield's Debug.psc is
- believed to declare it, whether it works in retail is unverified: the precheck reads the declaration, the log line
- "centered on ..." and the "enter vault ok=" line after it are the proof) and false is returned, so the caller's 1 s
- retry resolves the now-loaded marker and does the MoveTo. Bounded: the first call centers; after CenterTicks ticks
- without the anchor resolving one more centering at most; past that a failure line every 10 ticks, never a loop. The
- guard has run before the first call (Begin's order), so a centering never re-judges it. Whether a centering during the
- first load ends that load in the vault, as a MoveTo does, is unverified: the installed port's anchor is persistent.}
+ loaded with Debug.CenterOnCell on VaultCell (CenterOnCell(string asCellname), FO4's signature and Starfield's: its
+ Debug.psc in ContentResources.zip, read 29 Oct; whether it works in retail is unverified: the log line "centered on
+ ..." and the "enter vault ok=" line after it are the proof) and false is returned, so the caller's 1 s retry resolves
+ the now-loaded marker and does the MoveTo. Bounded once the player's 3D is in: the first call centers; after
+ CenterTicks tries without the anchor resolving one more centering at most; past that a failure line every 10 tries,
+ never a loop. The tries after the first are the timer's, which waits for the player's 3D before it tries, so a
+ centering during the first load that moves nobody leaves the 3D out and none of this follows: the timer's "waiting
+ for the 3d" line every 10 ticks is then the only trace. The guard has run before the first call (Begin's order), so
+ a centering never re-judges it. Whether a centering during the first load ends that load in the vault, as a MoveTo
+ does, is unverified: the installed port's anchor is persistent.}
     centerTries += 1
     if centered == 0 || (centered == 1 && centerTries > CenterTicks)
         centered += 1
