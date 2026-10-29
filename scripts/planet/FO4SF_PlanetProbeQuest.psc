@@ -7,8 +7,9 @@ Scriptname FO4SF_PlanetProbeQuest extends Quest
  player is on, every test reference and the probe location. One line per finding in the user log "FO4SFPlanetProbe"
  (My Games\Starfield\Logs\Script\User\FO4SFPlanetProbe.0.log), in the fixed form
    FO4SFPP rt=<real time s> <event> key=value key=value ...
- (form ids as Papyrus prints them: signed decimal, "none" for None; bools True/False), which
- src/fo4sf/planet/probe_log.py reads. Nothing is judged in game: the lines are the evidence.
+ (form ids as Papyrus prints them: signed decimal, "none" for None; bools as Starfield prints them, true / false;
+ literal text may come back in another case), which src/fo4sf/planet/probe_log.py reads, ignoring case. Nothing is
+ judged in game: the lines are the evidence.
  The local ids below are src/fo4sf/planet/probe.py's layout (tests/test_planet_probe.py compares the two).}
 
 ; ---------------------------------------------------------------- the layout (src/fo4sf/planet/probe.py)

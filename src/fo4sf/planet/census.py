@@ -4,7 +4,8 @@ the game.
 
 What it reads:
   * the template star and planet (records.describe_star / describe_planet) and every star id in use (Starfield.esm
-    and each Creation), so our system id and map position are checked against all of them;
+    and every other plugin in Data: the DLC, the built-in Creations and any mod), so our system id and map position
+    are checked against all of them;
   * the records the probe world copies (LC172World, OverlayBlockLC172World, LC172WorldLocation) and the bases it
     places (XMarker, COCMarkerHeading, EncCitizen01Template), each checked by EditorID;
   * LC172World's references: how many are persistent, how many carry XLCN / XLRL, whether its persistent COC marker
@@ -26,7 +27,7 @@ MARS_PLANET = 0x03F59A               # PNDT MarsPlanetData (overlay_records.py)
 NEW_ATLANTIS = 0x01251B              # WRLD NewAtlantis (Jemison)
 TEMP_JEMISON_EDID = "TempJemisonWorld"
 BASES = {"XMarker": probe.XMARKER, "COCMarkerHeading": probe.COC_MARKER, "EncCitizen01Template": probe.CITIZEN}
-CREATION_PREFIX = "sfbgs"
+PLUGIN_EXTENSIONS = (".esm", ".esp", ".esl")
 
 
 class CensusError(ValueError):
@@ -121,22 +122,25 @@ def coc_cells(items, cells):
     return out
 
 
-def creation_stars(data_dir, skip=("starfield.esm",)):
-    """[(source, system id, position)] of every star in the built-in Creations (Data/SFBGS*.esm) and any other .esm
-    with STDT records next to Starfield.esm, for build_master's clash check."""
-    out, read = [], []
+def plugin_stars(data_dir, skip=("starfield.esm", records.MASTER.lower())):
+    """[(source, system id, position)] of every star in every plugin next to Starfield.esm (.esm, .esp, .esl: the
+    DLC such as ShatteredSpace.esm, the built-in Creations, any mod), for build_master's clash check; plus the names
+    read and the ones that could not be read ("name: reason"). Starfield.esm is read on its own, and an installed
+    copy of our own master is skipped (its star is the one being rebuilt)."""
+    out, read, unreadable = [], [], []
     for name in sorted(os.listdir(data_dir)):
         low = name.lower()
-        if not low.endswith(".esm") or low in skip or not low.startswith(CREATION_PREFIX):
+        if not low.endswith(PLUGIN_EXTENSIONS) or low in skip or not os.path.isfile(os.path.join(data_dir, name)):
             continue
         try:
             with esm.Plugin(os.path.join(data_dir, name)) as p:
-                read.append(name)
-                for f, e, n, sid, pos in records.stars(p):
-                    out.append((f"{name} {e or fid(f)}", sid, pos))
-        except esm.EsmError as e:
-            read.append(f"{name}: unreadable ({e})")
-    return out, read
+                found = [(f"{name} {e or fid(f)}", sid, pos) for f, e, n, sid, pos in records.stars(p)]
+        except (esm.EsmError, OSError, struct.error) as e:
+            unreadable.append(f"{name}: {e}")
+            continue
+        read.append(name)
+        out += found
+    return out, read, unreadable
 
 
 def run(sf_path, data_dir=None, planet_name=records.DEFAULT_PLANET, star_name=records.DEFAULT_STAR):
@@ -234,8 +238,9 @@ def run(sf_path, data_dir=None, planet_name=records.DEFAULT_PLANET, star_name=re
                                    "cells": len(tj_cells), "coc_cells": coc_cells(tj_items, tj_cells)[:20]}
         rep["planet_biomes"] = [fid(b) for b in planet_biomes]
     if data_dir:
-        stars, read = creation_stars(data_dir)
-        rep["creation_stars"] = {"plugins": read, "stars": [(s, sid, list(p) if p else None) for s, sid, p in stars]}
+        stars, read, unreadable = plugin_stars(data_dir)
+        rep["plugin_stars"] = {"plugins": read, "unreadable": unreadable,
+                               "stars": [(s, sid, list(p) if p else None) for s, sid, p in stars]}
     return rep
 
 

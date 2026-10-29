@@ -116,6 +116,13 @@ def set_full_name(subs, name):
     return subs[:at] + block + subs[at:]
 
 
+def plain_names(subs, name):
+    """Every FULL our name: a clone of a localized Starfield.esm record carries string ids in its FULL fields, which a
+    plugin that is not localized would show as text; set_full_name puts the main one, this the rest (none is known
+    on the planet: the copy of Mars in FO4TerrainCore_Mars.esm has one FULL)."""
+    return [(sig, esm.zbytes(name) if sig == b"FULL" else data) for sig, data in subs]
+
+
 def full_names(subs):
     """The FULL subrecords (raw) inside TESFullName_Component blocks and outside any block."""
     out = []
@@ -281,7 +288,7 @@ def clone_planet(src, formid, edid, name, system_id, planet_id=DEFAULT_PLANET_ID
     if not subs or subs[0][0] != b"EDID":
         raise PlanetError(f"planet {src.formid:08X} does not start with an EDID")
     subs[0] = (b"EDID", esm.zbytes(edid))
-    subs = set_full_name(subs, name)
+    subs = plain_names(set_full_name(subs, name), name)
     changes.append("FULL")
     bdst, _ = planet_spans(subs)
     pre, rest = subs[:bdst], subs[bdst:]
@@ -363,7 +370,7 @@ def clone_star(src, formid, edid, name, system_id, position):
     if not all(math.isfinite(v) for v in position):
         raise PlanetError(f"star position {position} is not finite")
     subs[0] = (b"EDID", esm.zbytes(edid))
-    subs = set_full_name(subs, name)
+    subs = plain_names(set_full_name(subs, name), name)
     out = []
     for sig, data in subs:
         if sig == b"ANAM":
@@ -432,10 +439,13 @@ def stars(plugin):
     """[(form id, EditorID, name, system id, position)] of every star of the plugin."""
     out = []
     for r in plugin.records("STDT", [b"STDT"]):
-        try:
-            out.append((r.formid, r.edid, star_name(r), star_system_id(r), star_position(r)))
-        except PlanetError:
-            out.append((r.formid, r.edid, star_name(r), None, None))
+        found = []
+        for read in (star_system_id, star_position):          # one missing field keeps the other for the checks
+            try:
+                found.append(read(r))
+            except PlanetError:
+                found.append(None)
+        out.append((r.formid, r.edid, star_name(r), *found))
     return out
 
 
@@ -522,7 +532,7 @@ def free_position(base, taken, offset=STAR_OFFSET_PC, gap=MIN_STAR_GAP_PC):
 def build_master(sf, opts=None, other_stars=()):
     """FO4SFPlanet.esm's records from Starfield.esm (an esm.Plugin). opts: star, planet (template names), star_name,
     planet_name, system_id, planet_id, no_fauna, no_flora, star_offset. other_stars: [(source, system id,
-    position)] of the other loaded plugins (the built-in Creations), checked for clashes too.
+    position)] of the other plugins in Data (census.plugin_stars), checked for clashes too.
     Returns (esm.PluginWriter, report dict). Raises PlanetError on anything unexpected."""
     o = {"star": DEFAULT_STAR, "planet": DEFAULT_PLANET, "star_name": DEFAULT_STAR_NAME,
          "planet_name": DEFAULT_PLANET_NAME, "system_id": DEFAULT_SYSTEM_ID, "planet_id": DEFAULT_PLANET_ID,
@@ -626,8 +636,11 @@ def build_registration(master_path, world_plugin, world_local, latitude=0.0, lon
 
 
 # ------------------------------------------------------------------------------------------------ offline check
-def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID):
-    """Problems of a written planet master ([] = none) and a summary. Reads it back with the raw reader."""
+def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID, star_name=DEFAULT_STAR_NAME,
+                 planet_name=DEFAULT_PLANET_NAME):
+    """Problems of a written planet master ([] = none) and a summary. Reads it back with the raw reader. Every FULL
+    must be our plain name (the system location's the star's, the other locations' the planet's): a string id left
+    from the localized original would pass a plain-string test, since an id below 0x01000000 ends in a zero byte."""
     problems, summary = [], {}
     with esm.Plugin(path) as p:
         if p.masters != ["Starfield.esm"]:
@@ -666,22 +679,28 @@ def check_master(path, system_id=DEFAULT_SYSTEM_ID, planet_id=DEFAULT_PLANET_ID)
                 problems.append(f"{r.edid}: XNAM/YNAM {x}/{y}, expected {system_id}/{want_y}")
             if len(r.get(b"DATA") or b"") != 8:
                 problems.append(f"{r.edid}: DATA not 8 bytes")
-            for c, d in full_names(r.subs):
-                if not d.endswith(b"\0"):
-                    problems.append(f"{r.edid}: FULL is not a plain string")
+            problems += names_problems(r.edid, r.subs, star_name if fid == own(SYSTEM_LOC) else planet_name)
         planet = recs[own(PLANET)]
         g = galaxy(planet)
         if g != (system_id, 0, planet_id):
             problems.append(f"planet GNAM {g}")
         if master_worldspaces(planet):
             problems.append("planet lists master worldspaces (the registration plugin does that)")
-        for c, d in full_names(planet.subs) + full_names(star.subs):
-            if not d.endswith(b"\0"):
-                problems.append(f"FULL in {c} is not a plain string ({d.hex()})")
+        problems += names_problems("star", star.subs, star_name)
+        problems += names_problems("planet", planet.subs, planet_name)
         biomes(planet)                                         # raises on a bad PPBD
         summary = {"star": describe_star(star), "planet": describe_planet(planet),
                    "locations": [(fid_hex(f), recs[f].edid) for f in parents]}
     return problems, summary
+
+
+def names_problems(label, subs, name):
+    """The problems of a record's FULL fields against our name: none at all, or any other bytes."""
+    names = full_names(subs)
+    if not names:
+        return [f"{label}: no FULL"]
+    want = esm.zbytes(name)
+    return [f"{label}: FULL{' in ' + c if c else ''} is {d.hex()}, not {name!r}" for c, d in names if d != want]
 
 
 def check_registration(path, world_plugin, world_local, master_path=None):

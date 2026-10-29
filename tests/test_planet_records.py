@@ -129,6 +129,30 @@ class MasterTests(unittest.TestCase):
         self.assertIn("parent 01000801", problems[0])
 
 
+    def test_every_full_of_a_clone_is_our_name(self):
+        with esm.Plugin(self.sf) as sf:
+            sol = records.find_star(sf, "Sol")
+        sol.subs = sol.subs[:1] + [(b"FULL", struct.pack("<I", 0x0001A682))] + sol.subs[1:]   # a stray string id
+        star = records.clone_star(sol, 0x01000800, "S", "Our Star", 0xF04F1, (1.0, 2.0, 3.0))
+        self.assertEqual([d for _, d in records.full_names(star.subs)], [b"Our Star\0", b"Our Star\0"])
+
+    def test_check_master_wants_our_names_in_every_full(self):
+        out, _ = self.build()
+        self.assertEqual(records.check_master(out, star_name="Another Star")[0],
+                         [f"SFO4SFProbeStar: FULL is {esm.zbytes(records.DEFAULT_STAR_NAME).hex()}, not 'Another Star'",
+                          f"star: FULL in TESFullName_Component is {esm.zbytes(records.DEFAULT_STAR_NAME).hex()}, "
+                          "not 'Another Star'"])
+        masters, flags, recs = self.recs(out)
+        w = esm.PluginWriter(masters, flags)
+        for fid, r in recs.items():
+            if fid == 0x01000800:                                # a string id left in the star: ends in a zero byte
+                r.subs = r.subs[:1] + [(b"FULL", bytes.fromhex("82a60100"))] + r.subs[1:]
+            w.add(r)
+        w.write(out)
+        problems, _ = records.check_master(out)
+        self.assertEqual(problems, [f"star: FULL is 82a60100, not {records.DEFAULT_STAR_NAME!r}"])
+
+
 class RegistrationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

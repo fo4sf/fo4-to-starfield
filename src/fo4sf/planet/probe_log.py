@@ -3,22 +3,29 @@ back into arrivals, readings and a verdict per test reference (docs/planet/plane
 
 Every line the script writes holds "FO4SFPP rt=<real time s> <event> key=value ...", anywhere in the line (the game
 puts a time stamp in front). Values: form ids as Papyrus prints them (signed decimal, so a load index of 0x80 or more
-and the runtime FF ids are negative), floats, True / False, and "none" for a None form. Events: init (once per new
-script instance: the quest's own id gives the probe plugin's load index), chain (the location chain as the game
-resolves it), arrive, then player / planet / ref / location lines at 2, 10, 30 and 60 s after each arrival.
+and the runtime FF ids are negative), floats, bools, and "none" for a None form. Events: init (once per new script
+instance: the quest's own id gives the probe plugin's load index), chain (the location chain as the game resolves
+it), arrive, then player / planet / ref / location lines at 2, 10, 30 and 60 s after each arrival.
+
+Case: Starfield's Papyrus prints a bool as "true" / "false" (verified: the bridge log of 14 Oct and the new game log
+of 28 Oct, docs/ai/test-queue.md and docs/newgame/vault111-start.md), Fallout 4's as "True" / "False". It also keeps
+one spelling per string, so literal text can come back in another case (the 28 Oct log printed "FO4Port.esm" as
+"fo4port.esm"). So the reader ignores case: in the prefix, the events, the keys, the bools, "none" and the tags
+(read as upper case: T1 .. T6, MERGE, LC172COC).
 
 The verdict a reference gets at an arrival, from its last reading there:
-  with player   found, in the player's worldspace (sameworld=True)
+  with player   found, in the player's worldspace (sameworld true, the worldspace not None)
   left behind   found, in another worldspace (for ours: the base probe world the game never plays)
   not loaded    GetFormFromFile returned None: a temporary reference whose cell is not loaded, or a missing record
   not installed its plugin is not loaded
+  unknown       the line lacks a value the verdict needs (a cut line), or both are in interiors
 The offset is the reference's position minus its position in the plugin (plan.json "refs" / "merge"): (0, 0) is a
 reference where the plugin put it; a merged reference moves with its world (LC172World's COC marker moved by about
 (-500, -2300) on 11 Oct).
 """
 import re
 
-LINE = re.compile(r"FO4SFPP rt=(?P<rt>[-+\d.eE]+) (?P<event>\w+)(?P<rest>.*)$")
+LINE = re.compile(r"FO4SFPP rt=(?P<rt>[-+\d.eE]+) (?P<event>\w+)(?P<rest>.*)$", re.IGNORECASE)
 TOKEN = re.compile(r"(\w+)=(\S*)")
 EVENTS = ("init", "chain", "arrive", "player", "planet", "ref", "location")
 ID_KEYS = {"quest", "world", "loc", "planet", "surface", "planetloc", "cell", "id", "editorloc", "type", "atmos",
@@ -32,10 +39,11 @@ def u32(v):
 
 
 def value(key, text):
-    if text == "none":
+    low = text.lower()
+    if low == "none":
         return None
-    if text in ("True", "False"):
-        return text == "True"
+    if low in ("true", "false"):
+        return low == "true"
     if key in ID_KEYS or key in ("n", "at", "local", "version", "actors"):
         try:
             return int(text)
@@ -50,11 +58,18 @@ def value(key, text):
 def parse_line(line):
     """{"rt", "event", key: value ...} of one probe line, None for any other line."""
     m = LINE.search(line)
-    if not m or m.group("event") not in EVENTS:
+    if not m or m.group("event").lower() not in EVENTS:
         return None
-    out = {"rt": float(m.group("rt")), "event": m.group("event")}
+    try:
+        rt = float(m.group("rt"))
+    except ValueError:
+        return None
+    out = {"rt": rt, "event": m.group("event").lower()}
     for k, v in TOKEN.findall(m.group("rest")):
+        k = k.lower()
         out[k] = value(k, v)
+    if isinstance(out.get("tag"), str):
+        out["tag"] = out["tag"].upper()
     for k in ID_KEYS & set(out):
         if isinstance(out[k], int):
             out[k] = u32(out[k])
@@ -118,9 +133,16 @@ def known_names(plan, init):
 def ref_verdict(r):
     if r.get("installed") is False:
         return "not installed"
-    if r.get("found") is not True:
+    found = r.get("found")
+    if found is False:
         return "not loaded"
-    return "with player" if r.get("sameworld") else "left behind"
+    if found is True:
+        same = r.get("sameworld")
+        if same is True and r.get("world") is not None:
+            return "with player"
+        if same is False:
+            return "left behind"
+    return "unknown"
 
 
 def local_positions(plan):
@@ -176,15 +198,17 @@ def summarize(lines, plan=None, run=-1):
                                loc=name_of(p.get("loc"), names))
         elif p["event"] == "ref":
             tag = p.get("tag")
+            if not isinstance(tag, str):                     # a cut line: nothing to file it under
+                continue
             v = ref_verdict(p)
             r = {"at": p.get("at"), "verdict": v, "plugin": p.get("plugin"), "local_id": p.get("local")}
-            if p.get("found"):
+            if p.get("found") is True:
                 pos = (p.get("x"), p.get("y"), p.get("z"))
                 r.update(id=hexid(p.get("id")), world=name_of(p.get("world"), names), world_id=hexid(p.get("world")),
                          loc=name_of(p.get("loc"), names), editorloc=name_of(p.get("editorloc"), names),
                          pos=list(pos), dist=p.get("dist"), loaded=p.get("loaded"), disabled=p.get("disabled"),
                          actor=p.get("actor"))
-                if tag in local and None not in pos[:2]:
+                if tag in local and all(isinstance(v, float) for v in pos[:2]):
                     r["offset"] = [round(pos[0] - local[tag][0], 2), round(pos[1] - local[tag][1], 2)]
             a["refs"][tag] = r
         elif p["event"] == "location":
@@ -194,8 +218,8 @@ def summarize(lines, plan=None, run=-1):
         a = arrivals[n]
         pl = a["player"] or {}
         a["complete"] = all(t in a["readings"] for t in READINGS)
-        a["kind"] = ("our planet" if pl.get("ourplanet") or a["probeworld"] or pl.get("probeworld")
-                     else pl.get("planet", "unknown"))
+        ours = pl.get("ourplanet") is True or a["probeworld"] is True or pl.get("probeworld") is True
+        a["kind"] = "our planet" if ours else pl.get("planet", "unknown")
         out_arrivals.append(a)
     problems = []
     if init is None:
@@ -205,7 +229,7 @@ def summarize(lines, plan=None, run=-1):
     if chain is not None:
         for k in ("probe_child_of_surface", "surface_child_of_planet"):
             if chain.get(k) is False:
-                problems.append(f"chain: {k} is False")
+                problems.append(f"chain: {k} is false")
     if not any(a["kind"] == "our planet" for a in out_arrivals):
         problems.append("no arrival on our planet")
     return {"runs": len(rs), "run": run if run >= 0 else len(rs) + run, "load_index": load_index(init),

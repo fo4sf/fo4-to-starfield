@@ -721,7 +721,8 @@ decided the import path); keeping the order as a parameter (two orders in the co
     a script that logs which of them are in the player's world.
   - The master is written with our own raw record writer (`src/fo4sf/planet/esm.py`), because Mutagen 0.55 drops
     star fields it does not know. The test world is written with Mutagen (`dotnet/PlanetProbe`), as our other worlds
-    are. A raw Python check reads every written plugin back.
+    are. A raw Python check reads the three plugins this kit writes back (the master, the registration and the
+    probe); the merge probe keeps MergeProbe's own Mutagen check. The stage pins all four by hash.
   - The probe rides along with the installed experiment: `scripts/planet/planet_probe_install.py` runs exp_install.py's
     code against a record of its own, so the core set is never touched.
 - **Why:** our characters stay in a base world the player never plays (verified 29 Oct). Two fixes have failed, and

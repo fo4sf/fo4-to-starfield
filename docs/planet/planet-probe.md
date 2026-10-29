@@ -54,7 +54,8 @@ Everything is cloned at stage time from the user's own game files. No Bethesda b
 **FO4SFPlanet.esm** (master Starfield.esm only; adds records, overrides none; `src/fo4sf/planet/records.py`):
 
 * `0x800` STDT, a clone of Sol's star with our name, our own system id `0xF04F1` (checked against every star of
-  Starfield.esm and the built-in Creations) and a free map position 2 / 2 / 1 parsecs from Sol;
+  every plugin in Data: Starfield.esm, the DLC, the built-in Creations and any mod) and a free map position 2 / 2 / 1
+  parsecs from Sol;
 * `0x801` to `0x804` LCTN, the system, planet, orbit and surface locations, with the DATA of the vanilla locations
   they copy and the keyword of each (checked by EditorID);
 * `0x805` PNDT, a clone of Jemison with our name and ids, no master worldspaces (Jemison's register New Atlantis), no
@@ -108,14 +109,20 @@ goes into `census.json` in the stage.
 
 ## 5. Reading the run
 
-`make_planet_probe.py log --stage <stage>` reads `My Games\Starfield\Logs\Script\User\FO4SFPlanetProbe.0.log`
+`make_planet_probe.py log --stage <stage>` reads `FO4SFPlanetProbe.0.log` in `My Games\Starfield\Logs\Script\User`
+under `OneDrive\Documents` (where the owner's PC keeps it), else under `Documents`; `--file` names another
 (`src/fo4sf/planet/probe_log.py`). The script logs each arrival (another worldspace, another interior cell, or a jump
 over 500 m) and reads everything 2, 10, 30 and 60 s later. Each reference gets a verdict at each arrival:
 
 * **with player**: found, in the player's worldspace;
 * **left behind**: found, in another worldspace (for ours: the base probe world the game never plays);
 * **not loaded**: not found, a temporary reference whose cell is not loaded;
-* **not installed**: its plugin is not loaded.
+* **not installed**: its plugin is not loaded;
+* **unknown**: the line lacks a value the verdict needs (a cut line).
+
+Starfield prints a bool as `true` / `false`, and it can print literal text in another case (both verified: the
+bridge log of 14 Oct and the new game log of 28 Oct, which printed `FO4Port.esm` as `fo4port.esm`). The reader
+ignores case everywhere, so the verdicts do not depend on how a word comes back.
 
 The offset (position now minus position in the plugin) shows whether a merged reference moved with its world.
 

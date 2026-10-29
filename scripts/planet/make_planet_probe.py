@@ -60,8 +60,6 @@ MERGE_ID = 0x800
 MERGE_OFFSET = 3.0                       # MergeProbe's default: the vanilla marker's position + (3, 0, 0)
 SCRIPT = probe.SCRIPT
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
-LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
-                   probe.LOG_NAME + ".0.log")
 TERRAIN_ARCHIVE = "Starfield - Terrain01.ba2"
 BTD_TEMPLATE = "terrain/landingoverlay01.btd"
 STAY_S = 75                              # the last reading is 60 s after an arrival
@@ -285,14 +283,18 @@ def stage(a):
     # 1. census
     rep = census.run(sf_path, a.data)
     write_json(os.path.join(out, "census.json"), rep)
-    other = [(s, sid, tuple(p) if p else None) for s, sid, p in (rep.get("creation_stars") or {}).get("stars", [])]
+    stars = rep.get("plugin_stars") or {}
+    other = [(s, sid, tuple(p) if p else None) for s, sid, p in stars.get("stars", [])]
+    if stars.get("unreadable"):
+        print(f"note: the star check could not read {stars['unreadable']} (their stars, if any, are not checked)")
 
     # 2. the planet master
     with esm.Plugin(sf_path) as sf:
         w, master_report = records.build_master(sf, {}, other)
     master_path = os.path.join(out, records.MASTER)
     w.write(master_path)
-    problems, master_summary = records.check_master(master_path)
+    problems, master_summary = records.check_master(master_path, star_name=master_report["star"]["name"],
+                                                    planet_name=master_report["planet"]["name"])
     if problems:
         sys.exit(f"{records.MASTER} check: {problems}; attempt kept in {out}")
     write_json(os.path.join(work, "master_report.json"), master_report)
@@ -455,7 +457,9 @@ def verify_stage(stage_dir, plan, data=None):
         prm = json.load(f)
     problems += [f"{probe.PLUGIN}: {x}" for x in probe.check_plugin(os.path.join(stage_dir, probe.PLUGIN), prm)[0]]
     master = os.path.join(stage_dir, records.MASTER)
-    problems += [f"{records.MASTER}: {x}" for x in records.check_master(master)[0]]
+    problems += [f"{records.MASTER}: {x}" for x in records.check_master(
+        master, star_name=plan.get("star", records.DEFAULT_STAR_NAME),
+        planet_name=plan.get("planet", records.DEFAULT_PLANET_NAME))[0]]
     problems += [f"{records.REGISTRATION}: {x}" for x in records.check_registration(
         os.path.join(stage_dir, records.REGISTRATION), probe.PLUGIN, probe.WORLD_ID, master)[0]]
     if data:
@@ -475,16 +479,37 @@ def check(a):
 
 
 # ------------------------------------------------------------------------------------------------ log
+def user_logs(name=probe.LOG_NAME + ".0.log"):
+    """Where the game writes the probe's user log, in the order they are tried: Documents under OneDrive (the
+    owner's PC: docs/spikes/combined-core-probes.md, scripts/game/snapshot.ps1), then plain Documents (as
+    scripts/game/bridge_log.py's default_log)."""
+    home = os.path.expanduser("~")
+    return [os.path.join(home, *base, "My Games", "Starfield", "Logs", "Script", "User", name)
+            for base in (("OneDrive", "Documents"), ("Documents",))]
+
+
 def log(a):
     plan = load_plan(a.stage) if a.stage else None
-    with open(a.file, encoding="utf-8", errors="replace") as f:
+    path = a.file
+    if path is None:
+        found = [p for p in user_logs() if os.path.isfile(p)]
+        if not found:
+            sys.exit("no probe log at " + " or ".join(user_logs()) + ": pass --file")
+        path = found[0]
+    elif not os.path.isfile(path):
+        sys.exit(f"no probe log at {path}")
+    with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
     s = probe_log.summarize(lines, plan)
+    s["log"] = path
     if a.out:
         write_json(a.out, s)
+    print(f"log {path}")
     print(f"runs {s['runs']}, this run's probe load index {s.get('load_index')}")
     if s.get("chain"):
-        print("chain " + " ".join(f"{k}={v}" for k, v in s["chain"].items() if k not in ("rt", "event")))
+        shown = {k: probe_log.hexid(v) if k in probe_log.ID_KEYS and type(v) is int else v
+                 for k, v in s["chain"].items() if k not in ("rt", "event")}
+        print("chain " + " ".join(f"{k}={v}" for k, v in shown.items()))
     for arr in s["arrivals"]:
         pl = arr["player"] or {}
         print(f"arrival {arr['n']} ({arr['kind']}): world {pl.get('world', arr['world'])}, planet {pl.get('planet')}, "
@@ -524,7 +549,8 @@ def main(argv=None):
     k.add_argument("--stage", required=True)
     k.add_argument("--data", default=None)
     g = sub.add_parser("log")
-    g.add_argument("--file", default=LOG)
+    g.add_argument("--file", default=None,
+                   help="the probe's user log (default: My Games under OneDrive\\Documents, else Documents)")
     g.add_argument("--stage", default=None)
     g.add_argument("--out", default=None)
     a = p.parse_args(argv)

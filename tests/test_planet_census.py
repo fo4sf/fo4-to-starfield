@@ -22,9 +22,16 @@ class CensusTests(unittest.TestCase):
         cls.sf = os.path.join(cls.data, "Starfield.esm")
         pf.write_starfield(cls.sf, census=True)
         pf.write_creation(os.path.join(cls.data, "SFBGS00X.esm"))
-        for name in ("NotACreation.esm", "SFBGS00Y.esm"):
+        # a DLC master and a mod with stars of their own, and our own master from an earlier install (skipped)
+        pf.write_creation(os.path.join(cls.data, "ShatteredSpace.esm"), system_id=0x1F0F1, position=(41.0, 40.0, 4.0))
+        pf.write_creation(os.path.join(cls.data, "SomeMod.esp"), system_id=0x1F0F2, position=(42.0, 40.0, 4.0))
+        pf.write_creation(os.path.join(cls.data, "FO4SFPlanet.esm"), system_id=0xF04F1, position=(2.0, 2.0, 1.0))
+        for name in ("NotAPlugin.esm", "SFBGS00Y.esm"):
             with open(os.path.join(cls.data, name), "wb") as f:
                 f.write(b"junk")
+        with open(os.path.join(cls.data, "readme.txt"), "w", encoding="utf-8") as f:
+            f.write("not a plugin")
+        os.makedirs(os.path.join(cls.data, "Strings"))
         cls.rep = census.run(cls.sf, cls.data)
 
     @classmethod
@@ -52,7 +59,7 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(lc["coc_cells"], [("LC172Ext01", "003807C1", [0, 0], "003807C2")])
         self.assertNotIn("warning", lc)
 
-    def test_mars_new_atlantis_temp_jemison_and_creation_stars(self):
+    def test_mars_new_atlantis_temp_jemison_and_plugin_stars(self):
         r = self.rep
         self.assertEqual(r["mars"]["master_worldspaces"], [(-0.0431, -0.0879, "0002DF8C")])
         self.assertTrue(r["new_atlantis"]["biome_in_planet_biomes"])
@@ -60,10 +67,12 @@ class CensusTests(unittest.TestCase):
         self.assertEqual([o[1] for o in r["overlay_worlds"]["on_template_planet"]], ["NewAtlantis"])
         self.assertEqual(r["temp_jemison"]["world"]["overlay"], None)
         self.assertEqual(r["planet_biomes"], ["0007F88A", "000FD00D"])
-        self.assertEqual(r["creation_stars"]["plugins"][0], "SFBGS00X.esm")
-        self.assertTrue(r["creation_stars"]["plugins"][1].startswith("SFBGS00Y.esm: unreadable"))
-        self.assertEqual(len(r["creation_stars"]["plugins"]), 2)
-        self.assertEqual(r["creation_stars"]["stars"], [("SFBGS00X.esm CreationStar", 0x1F0F0, [40.0, 40.0, 4.0])])
+        st = r["plugin_stars"]
+        self.assertEqual(st["plugins"], ["SFBGS00X.esm", "ShatteredSpace.esm", "SomeMod.esp"])
+        self.assertEqual([u.split(":")[0] for u in st["unreadable"]], ["NotAPlugin.esm", "SFBGS00Y.esm"])
+        self.assertEqual(st["stars"], [("SFBGS00X.esm CreationStar", 0x1F0F0, [40.0, 40.0, 4.0]),
+                                       ("ShatteredSpace.esm CreationStar", 0x1F0F1, [41.0, 40.0, 4.0]),
+                                       ("SomeMod.esp CreationStar", 0x1F0F2, [42.0, 40.0, 4.0])])
 
     def test_arrivals(self):
         self.assertEqual([(a["label"], a["coc"]) for a in census.arrivals(self.rep)],
