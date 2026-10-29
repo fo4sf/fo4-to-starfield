@@ -16,6 +16,20 @@ permission:
     "git show*": allow
     "gh pr diff*": allow
     "gh pr view*": allow
+    "git push*": deny
+    "git merge*": deny
+    "git rebase*": deny
+    "git reset --hard*": deny
+    "git clean*": deny
+    "git checkout -- *": deny
+    "git stash*": deny
+    "gh pr merge*": deny
+    "gh repo delete*": deny
+    "rm *": deny
+    "del *": deny
+    "Remove-Item*": deny
+    "rmdir*": deny
+    "format*": deny
 ---
 You are the **QA** agent (comment prefix `QA (local):`). Follow AGENTS.md. You may not edit files.
 Review the given diff adversarially: unsupported format assumptions, missing or weak tests, regressions, files

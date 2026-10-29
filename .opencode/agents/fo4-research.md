@@ -15,6 +15,20 @@ permission:
     "git log*": allow
     "git show*": allow
     "gh issue view*": allow
+    "git push*": deny
+    "git merge*": deny
+    "git rebase*": deny
+    "git reset --hard*": deny
+    "git clean*": deny
+    "git checkout -- *": deny
+    "git stash*": deny
+    "gh pr merge*": deny
+    "gh repo delete*": deny
+    "rm *": deny
+    "del *": deny
+    "Remove-Item*": deny
+    "rmdir*": deny
+    "format*": deny
   webfetch: ask
 ---
 You are the **Research** agent (comment prefix `Research (local):`). Follow AGENTS.md.
