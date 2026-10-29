@@ -176,8 +176,13 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   10](newgame/vault111-start.md), [playtest-issues row 40](owner/playtest-issues.md). **Run 2 (newgame_v8, 28 Oct):
   FAIL**, the new game never left its loading screen: no MQ101 start entry matches 2, so nothing moved the player.
   Fixed offline in newgame_v9 (no record override; the quest writes 2 after the hold-off; SPECIAL back):
-  [section 11](newgame/vault111-start.md), [row 41](owner/playtest-issues.md). Next: restage newgame_v9 from main
-  against the installed port and core, reinstall on the owner's line, new game from the main menu.
+  [section 11](newgame/vault111-start.md), [row 41](owner/playtest-issues.md). **Run 3 (newgame_v9, 28 Oct 18:07 PC
+  time): PASS to stage 200**: Vault 111 with no Starfield intro, the quick start, the cog door, the ride, and the owner
+  walked to Sanctuary and Concord. Two placement defects of ours, fixed offline in newgame_v10: the player sank at the
+  pod's z and the game stood them on the COC marker 8 m away (the start now 0.3 m higher, with a `pod settle` line),
+  and the ride's arrival, set in the move's own tick, was ignored until the fallback (now a tick later, read back):
+  [section 12](newgame/vault111-start.md), [row 42](owner/playtest-issues.md). The phase exit's quest-list check was
+  not looked at. Next: restage newgame_v10 from main, reinstall on the owner's line, new game from the main menu.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
@@ -216,9 +221,9 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
 a phase 0 gate.
 
 - "Install the quest probe plugin.": not needed; the probe went in on the owner's 00:14 UTC word (23 Oct)
-- "Install the new game." (**done 28 Oct, FAIL twice**: the pirate-fight developer start, then a load that never
-  finished, vault111-start.md sections 10 and 11; the next line, after the newgame_v9 restage from main: "Reinstall
-  the new game.")
+- "Install the new game." (**done 28 Oct, FAIL twice, then PASS to stage 200 with newgame_v9**: the pirate-fight
+  developer start, a load that never finished, then run 3, vault111-start.md sections 10 to 12; the next line, after
+  the newgame_v10 restage from main: "Reinstall the new game.")
 - "Install the animated doors port." (after the port build passes)
 - "Turn off FO4SFMission and install the combined-core probe for one test session." (after the restage from main; #431 is merged)
 - the b10 line: Interiors words it after card 1b passes
@@ -317,7 +322,8 @@ restaged against the installed v6i core as newgame_v7 (passed on the PC, 23 Oct:
 and core DC751664; no core rebuild, item 4). It was installed and run on 28 Oct: FAIL, Starfield's pirate-fight developer
 start (the MQ101Debug = 10 override; the guard's 0.25-day limit too). Its fix, newgame_v8, ran the same day and never
 left the loading screen (the override 2 matches no start entry); newgame_v9 overrides nothing and writes the global
-after the hold-off, restage pending (vault111-start.md sections 10 and 11). The same holds for the focc probe (#431, merged 23 Oct, main d05f8fc1): CombinedCore restages
+after the hold-off, and its run 3 reached stage 200 (Vault 111 to Sanctuary); newgame_v10 fixes its two placement
+defects, restage pending (vault111-start.md sections 10 to 12). The same holds for the focc probe (#431, merged 23 Oct, main d05f8fc1): CombinedCore restages
 it from main, with `--core` on the installed FO4TerrainCore.esm into a new staging folder; the core
 that ends up installed is v6i (Interiors shelved the border fields on 22 Oct, no v6j); its install needs the mission off (probe_install refuses while FO4SFMission.esm is active), so the
 owner's line is "Turn off FO4SFMission and install the combined-core probe for one test session.", and

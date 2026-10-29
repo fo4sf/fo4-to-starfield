@@ -870,6 +870,105 @@ class PreLaunchTests(unittest.TestCase):
         self.assertIn("pre-launch exit 3", log)
 
 
+class OpenBaselineTests(unittest.TestCase):
+    """docs/testing/baseline.md: while a vanilla baseline is open (baseline.py prepare turned our plugins off and its
+    restore has not run; prepare's note in the runner's state folder names it), a launch would load our plugins into
+    the baseline's session, so the runner neither installs nor launches anything."""
+
+    def test_no_install_or_launch_while_a_baseline_is_open(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = jload(os.path.join(d, "queue.json"))
+        marker = os.path.join(d, "installed.txt")
+        q["pre_launch"] = [sys.executable, "-c", f"open({marker!r}, 'w').close()"]
+        jdump(q, os.path.join(d, "queue.json"))
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        for folder in (out, state):
+            os.makedirs(folder)
+        rec = {"schema": 1, "prepared_sha256": "ab" * 32, "restored_at": None}
+        jdump(rec, os.path.join(out, "baseline.json"))
+        jdump({"schema": 1, "out": out}, os.path.join(state, "baseline-open.json"))
+        ctl = FakeControls()
+        ctl.pid, ctl.state_dir = None, state              # no game yet: the runner would launch
+        launched = []
+
+        def run():
+            r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+            r.pinned_ok = lambda: True
+            r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+            r.run()
+
+        run()
+        self.assertEqual(launched, [])
+        self.assertFalse(os.path.exists(marker))
+        self.assertIn(f"a vanilla baseline is open in {out}", readf(os.path.join(d, "run.log")))
+        self.assertEqual(jload(os.path.join(d, "state.json"))["status"],   # the reason, not a bare "stop"
+                         f"stopped: {tq.open_baseline(state)}")
+        jdump(dict(rec, restored_at="2026-10-29T08:00:00+00:00"), os.path.join(out, "baseline.json"))
+        run()                                             # restored: the note is stale, the launch goes ahead
+        self.assertEqual(launched[:1], ["cycle.ps1"])
+        self.assertTrue(os.path.exists(marker))
+
+    def test_a_baseline_prepared_during_the_installs_stops_the_launch(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        q = jload(os.path.join(d, "queue.json"))
+        prepare = (f"import json, os; os.makedirs({out!r}); "     # baseline.py prepare, while pre_launch installs
+                   f"json.dump({{'schema': 1, 'prepared_sha256': 'ab' * 32, 'restored_at': None}}, "
+                   f"open(os.path.join({out!r}, 'baseline.json'), 'w')); "
+                   f"json.dump({{'schema': 1, 'out': {out!r}}}, open(os.path.join({state!r}, 'baseline-open.json'), 'w'))")
+        q["pre_launch"] = [sys.executable, "-c", prepare]
+        jdump(q, os.path.join(d, "queue.json"))
+        os.makedirs(state)
+        ctl = FakeControls()
+        ctl.pid, ctl.state_dir = None, state
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+        r.run()
+        self.assertTrue(os.path.exists(os.path.join(state, "baseline-open.json")))   # pre_launch ran, then
+        self.assertEqual(launched, [])                                              # no launch
+        self.assertIn(f"a vanilla baseline is open in {out}", jload(os.path.join(d, "state.json"))["status"])
+
+    def test_controls_without_a_state_folder_never_read_the_machines(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        for folder in (out, state):
+            os.makedirs(folder)
+        jdump({"schema": 1, "prepared_sha256": "ab" * 32, "restored_at": None}, os.path.join(out, "baseline.json"))
+        jdump({"schema": 1, "out": out}, os.path.join(state, "baseline-open.json"))
+        ctl = FakeControls()                              # a test's controls name no state folder
+        ctl.pid = None
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+        with mock.patch.object(tq.Controls, "state_dir", state):   # the machine's state folder holds an open note
+            r.run()
+        self.assertEqual(launched[:1], ["cycle.ps1"])
+        self.assertNotIn("a vanilla baseline is open", readf(os.path.join(d, "run.log")))
+
+    def test_a_note_or_record_that_cannot_be_read_refuses(self):
+        d = tempfile.mkdtemp()
+        state, note = os.path.join(d, "state"), os.path.join(d, "state", "baseline-open.json")
+        os.makedirs(state)
+        self.assertIsNone(tq.open_baseline(state))                       # no note: nothing open
+        self.assertIsNone(tq.open_baseline(None))                        # no state folder (a test's controls)
+        writef(note, b"{not json")
+        self.assertIn("cannot be read, so a vanilla baseline may be open", tq.open_baseline(state))
+        jdump({"schema": 1, "out": os.path.join(d, "unplugged", "baseline_1")}, note)   # its drive not there
+        self.assertIn("whose record cannot be read", tq.open_baseline(state))
+        out = os.path.join(d, "baseline_1")
+        os.makedirs(out)
+        jdump({"schema": 1, "out": out}, note)
+        self.assertIsNone(tq.open_baseline(state))                       # the folder there, emptied: nothing open
+        writef(os.path.join(out, "baseline.json"), b'{"schema": 1, "prepared_sha')     # cut short
+        self.assertIn("whose record cannot be read", tq.open_baseline(state))
+
+
 class CellExportTests(unittest.TestCase):
     """Install, 2026-10-28 (T6 door runs on doors_anim_b00, --port installed): cycle.ps1 asked coc.ps1 for
     <staging>\\Vault111Cryo.json, which an interior batch stage keeps in base_exports, so r01 exited 4 after the launch

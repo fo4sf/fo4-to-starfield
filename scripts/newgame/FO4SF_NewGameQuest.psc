@@ -89,6 +89,15 @@ float Property PodY Auto Const Mandatory
 float Property PodZ Auto Const Mandatory
 float Property PodHeading Auto Const Mandatory
 {Where the player stands up from their pod (Fallout 4's pod position plus a step out of it; heading in degrees).}
+float Property PodLift = 0.3 Auto Const
+{Metres above PodZ the player is put at, so they drop onto the floor. The pod's z is under the floor: run 3 of 28 Oct
+ put the player at it (read back -1.045), the bridge saw them 0.69 m lower once the vault had loaded, and 0.64 s later they stood on the
+ cell's COC marker 8 m away, moved there by the game (no script line, Papyrus.0.log). On that marker (z -0.738) they
+ stood at -0.852; 0.3 above the pod's -1.029 is the marker's own height. The "pod settle" line judges it.}
+float Property PodRadius = 1.0 Auto Const
+float Property PodDrop = 0.5 Auto Const
+{The "pod settle" check, the first tick the player is loaded after the move: within PodRadius (m) of the pod's x and y,
+ and at most PodDrop under the start's z (PodZ + PodLift), is ok=true. Evidence only: nothing is moved again.}
 int Property CogDoorId = 0 Auto Const
 {The cog door VltGearDoor01 (FO4 000330C3) in the port, 0 when the port has none: opened from its console (no Pip-Boy).}
 float Property ConsoleX Auto Const Mandatory
@@ -102,7 +111,8 @@ float Property PlatformZ Auto Const Mandatory
 string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
 int Property ExitAnchorId Auto Const Mandatory
 {A persistent reference in the core world (its Vault 111 map marker): MoveTo it puts the player in the core world at
- the reference's LOCAL position (persistent references are not moved by the merge), SetPosition then places them.}
+ the reference's LOCAL position (persistent references are not moved by the merge), a later tick's SetPosition then
+ places them (FinishSurface).}
 float Property ArrivalX Auto Const Mandatory
 float Property ArrivalY Auto Const Mandatory
 float Property ArrivalZ Auto Const Mandatory
@@ -128,6 +138,12 @@ float Property ConsoleRadius = 2.5 Auto Const
 float Property PlatformRadius = 2.5 Auto Const
 float Property FallDrop = 3.0 Auto Const
 {A landing this far below its target z (m) counts as a fall: the player is put on the fallback spot.}
+float Property SurfaceWait = 10.0 Auto Const
+{Seconds after the ride's MoveTo the player may still be inside before it counts as missed: one more MoveTo, then the
+ elevator prompt again.}
+int Property SurfaceTries = 3 Auto Const
+{SetPositions on the merged arrival, one a tick, before stage 40 goes on without one taking (CheckLanding's fallback
+ then decides).}
 float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
@@ -149,6 +165,10 @@ int applied = 0
 int holdPasses = 0
 int centerTries = 0
 int centered = 0
+bool podChecked = false
+float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
+int surfaceMoves = 0
+int surfaceSets = 0
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
@@ -233,12 +253,19 @@ Event OnTimer(int aiTimerID)
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
     elseif stage == 10
+        if !podChecked && player.Is3DLoaded()
+            CheckPod(player)
+        endif
         if Utility.GetCurrentRealTime() - startedAt > LooksWait
             Trace("looks done: LooksWait fallback after " + LooksWait + " s")
             AdvanceTo(20)
         endif
     elseif stage == 20 || stage == 30
-        InVault(player, stage)
+        if surfaceMovedAt > 0.0
+            FinishSurface(player)                            ; the ride's MoveTo is done: the arrival waits for this tick
+        else
+            InVault(player, stage)
+        endif
     elseif stage == 40
         CheckLanding(player)
     endif
@@ -299,14 +326,25 @@ bool Function EnterVault(Actor player)
         Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve")
         return false
     endif
-    player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ - AnchorZ, False, False)
+    player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
     player.SetAngle(0.0, 0.0, PodHeading)
     bool ok = player.GetParentCell() == anchor.GetParentCell()
-    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + PodY + " " + PodZ + " cell=" + player.GetParentCell())
+    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell=" + player.GetParentCell())
     if ok
         Debug.Notification("Vault 111")
     endif
     return ok
+EndFunction
+
+Function CheckPod(Actor player)
+{Where the player stands the first tick they are loaded after the move into the pod: the "pod settle" line (PodRadius,
+ PodDrop). In run 3 of 28 Oct that tick came after the game had already put the sunk player on the COC marker.}
+    podChecked = true
+    float dx = player.GetPositionX() - PodX
+    float dy = player.GetPositionY() - PodY
+    float drop = PodZ + PodLift - player.GetPositionZ()
+    bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
+    Trace("pod settle ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " dx=" + dx + " dy=" + dy + " drop=" + drop)
 EndFunction
 
 bool Function CenterOnVault()
@@ -381,20 +419,58 @@ Function InVault(Actor player, int stage)
 EndFunction
 
 Function Surface(Actor player)
-{The ride up: MoveTo the core anchor, then SetPosition on the merged arrival (FO4SF_LoadDoor's UseDestinationPosition
- form, PASS on the Super Duper Mart round trip, 17 Oct).}
+{The ride up, first half: MoveTo the core anchor, which puts the player at its LOCAL position. FinishSurface places
+ them on the merged arrival on a later tick.}
     ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
     if anchor == None
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
         return
     endif
     player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
-    Trace("surface moveto pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + player.GetWorldSpace())
-    player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)
+    surfaceMoves += 1
+    surfaceMovedAt = Utility.GetCurrentRealTime()
+    Trace("surface moveto pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + player.GetWorldSpace() + " moves=" + surfaceMoves)
+EndFunction
+
+Function FinishSurface(Actor player)
+{The ride up, second half: SetPosition on the merged arrival, a tick after the MoveTo at the earliest and once the player
+ is outside with their 3D loaded (the load door's MoveTo, wait, SetPosition order: FO4SF_LoadDoor's SettleSeconds,
+ PASS on the Super Duper Mart round trip, 17 Oct). Run 3 of 28 Oct called it in the MoveTo's own tick: the game ignored
+ it, the player stood at the anchor's local spot until the fall check's SetPosition 5.7 s later moved them. A SetPosition
+ that does not take (the position read back is more than 5 m off) is tried again next tick, SurfaceTries in all, then
+ stage 40 goes on and CheckLanding decides. Still inside SurfaceWait seconds after the MoveTo: one more MoveTo, then the
+ elevator prompt again. Outside but not loaded yet: it waits.}
+    if player.IsInInterior()
+        if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
+            if surfaceMoves < 2
+                Trace("surface still inside " + SurfaceWait + " s after the moveto: moving again")
+                Surface(player)
+            else
+                Trace("surface missed: still inside after " + surfaceMoves + " moves; the elevator asks again")
+                surfaceMovedAt = 0.0
+                surfaceMoves = 0
+                asked = false
+            endif
+        endif
+        return
+    endif
+    if !player.Is3DLoaded()
+        return                                               ; outside, still loading: never a missed move
+    endif
+    float x = ArrivalX + MergeOffsetX
+    float y = ArrivalY + MergeOffsetY
+    player.SetPosition(x, y, ArrivalZ)
     player.SetAngle(0.0, 0.0, ArrivalHeading)
-    Trace("surface setposition pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + (ArrivalX + MergeOffsetX) + " " + (ArrivalY + MergeOffsetY) + " " + ArrivalZ)
-    arrivedAt = Utility.GetCurrentRealTime()
-    AdvanceTo(40)
+    surfaceSets += 1
+    float dx = player.GetPositionX() - x
+    float dy = player.GetPositionY() - y
+    bool ok = dx * dx + dy * dy <= 25.0
+    Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ)
+    if ok || surfaceSets >= SurfaceTries
+        surfaceMovedAt = 0.0
+        arrivedAt = Utility.GetCurrentRealTime()
+        AdvanceTo(40)
+    endif
 EndFunction
 
 Function CheckLanding(Actor player)

@@ -752,3 +752,57 @@ decided the import path); keeping the order as a parameter (two orders in the co
   test 2 passes 4 of 5 generated tests. Long-context tests 5a to 5c and test 4 (Guardian) are not yet run. RAM sits 1.6
   points under the 85% restrict level, so requests queue before the 90% block. Not merged: PR #587 waits for review and
   the owner's approval.
+
+## 2026-10-29: our errors are told from Starfield's by a vanilla baseline; the quieting goes into the mod (Claude-cloud)
+- **Decision:**
+  - The owner answered the strip-down plan's questions on 29 Oct (thread "Strip down Starfield and add our own
+    planet"). Pick I: the switches that quiet Starfield's own quests go straight into the mod, so there is no
+    test-only profile plugin. Pick T: Install's session on the owner's PC plays the vanilla baseline.
+  - `scripts/game/baseline.py` (docs/testing/baseline.md) turns off every plugin the game does not ship, keeping every
+    other byte of Plugins.txt. It records the built-in plugins and Starfield.exe, and after one plain New Game it
+    collects the Papyrus log and puts Plugins.txt back byte for byte. `compare` sorts a run's errors into "only ours",
+    "only in the run, Starfield's own scripts", "at the same script line in both", "in both" and "only in the
+    baseline" (`src/fo4sf/core/papyrus_log.py`).
+  - A session counts as vanilla only when its log names none of ours, Plugins.txt shows no plugin the game does not
+    ship ticked again, and SFSE wrote no log meanwhile. Otherwise its log is kept aside and the baseline gets none.
+  - While a baseline is open (its note in the runner's state folder names it and its restore has not run), the test
+    runner installs and launches nothing, since a launch would load our plugins into the baseline's session. A note or
+    record it cannot read stops it too (the gate's "any unknown refuses"), and `prepare` reads the note the same way,
+    so it never writes over the only pointer to a baseline that may be open. `prepare`, `collect` and `restore` take
+    one lock in that folder, so two of them do not change one record or Plugins.txt at the same time.
+  - A session of a game that changed between `prepare` and `collect` (a Steam update) is no baseline either: which
+    build it ran on is not known.
+  - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7). Their rules are in
+    `src/fo4sf/core/loadset.py`, which reads nothing, and `src/fo4sf/launcher/loadprobe.py` reads the PC for them, so
+    the core still reads nothing on the PC. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a
+    plugin copy in `My Games\Starfield\Data`. They also refuse an unexpected override of `StartupQuest_DO`, `MQ101`
+    or `MQ101Debug`. Our own start (pick F) may override `StartupQuest_DO` without a pin. One rule says what is ours,
+    for plugins and for names in a log: it starts with FO4 or FOCC.
+- **Why:** run 3's log (28 Oct) mixes our errors (28 from our map marker script, `FO4SF_MapMarkers.psc`) with errors
+  from Starfield's own scripts (SFBGS003's shutdown script among them), and nobody knew which of Starfield's come in a
+  vanilla game too. Without a baseline every one of them looks like ours. The 28 Oct pirate fight was our own
+  override of `MQ101Debug`. A plugin list or start record that no one meant to test is
+  cheaper to refuse before a run than to find in its log.
+- **Alternatives:**
+  - A test profile plugin that quiets Starfield for test runs only (pick H): the owner chose I instead.
+  - Filtering the logs by hand: rejected, because it is the guessing this replaces.
+  - Extending `plugin_toggle.py` to hold every plugin off: rejected, because it holds only the plugins our installers
+    own, with master-chain rules the baseline does not need. The baseline turns everything off and restores the
+    bytes, so a hold record would add nothing.
+- **Boundary:** nothing has run on the PC. The game rewrites Plugins.txt at startup (verified,
+  docs/research/framework/launcher-sources/sfstack.md). Restore therefore writes over a rewrite that ticked nothing,
+  and refuses one that ticked a plugin unless `--force`. Whether the game reads a plugin copy in My Games instead of
+  the one in Data is a supported hypothesis (what the loader rule implies), so the check refuses either way.
+
+## 2026-10-29: the vault start goes 0.3 m above the pod; the ride's arrival waits a tick (Claude-cloud)
+- Decision: newgame_v10 puts the player `PodLift` (0.3 m) above the pod's z and logs a `pod settle` line the first
+  loaded tick after the move, moving nothing again; the elevator ride is two ticks, MoveTo first and the SetPosition on
+  the merged arrival on a later tick once the player is outside and loaded, read back and tried up to three times
+  (docs/newgame/vault111-start.md section 12).
+- Why: the owner's third new game (28 Oct, newgame_v9) reached stage 200, but the player sank under the floor at the
+  pod's own z and the game stood them on the COC marker 8 m away; on that marker they stood 0.18 m above the pod's z,
+  and 0.3 m is the marker's own height. The ride's SetPosition in the MoveTo's tick was ignored, and the landing
+  check's SetPosition 5.7 s later took; the load door already waits between the two.
+- Alternatives: a retry MoveTo when the settle check fails (rejected for now: a second sink would show the owner two
+  falls, and the game's reset to the marker already leaves them standing); the COC marker itself as the start (8 m
+  from the pod; kept as what the game does on a sink).

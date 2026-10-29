@@ -5,6 +5,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -106,6 +107,59 @@ class LedgerTests(unittest.TestCase):
         with filelock.locked(lock, timeout_s=0.1):
             self.assertTrue(os.path.exists(lock))
         self.assertFalse(os.path.exists(lock))
+
+    def test_a_stale_lock_that_cannot_be_removed_is_waited_for(self):
+        lock = self.path + ".lock"
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        with open(lock, "w") as f:
+            f.write("4244 0\n")
+        os.utime(lock, (0, 0))                                               # older than stale_s, and
+        tries = []
+
+        def held_open(path):                                                 # its holder still has it open (Windows)
+            tries.append(path)
+            if len(tries) > 1000:
+                raise RuntimeError("spun on the lock without waiting")
+            raise PermissionError(32, "The process cannot access the file because it is being used", path)
+
+        with mock.patch.object(filelock.os, "unlink", held_open), self.assertRaises(TimeoutError):
+            with filelock.locked(lock, timeout_s=0.2, poll_s=0.02):
+                pass
+        self.assertLess(len(tries), 100)                                     # it slept between tries
+        os.unlink(lock)
+
+    def test_a_lock_whose_age_cannot_be_read_is_waited_for(self):
+        lock = self.path + ".lock"
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        with open(lock, "w") as f:
+            f.write("4244 0\n")
+        real, tries = os.lstat, []
+
+        def unreadable(path, *a, **k):                                       # a denied lookup
+            if path != lock:
+                return real(path, *a, **k)
+            tries.append(path)
+            if len(tries) > 1000:
+                raise RuntimeError("spun on the lock without waiting")
+            raise PermissionError(13, "Access is denied", path)
+
+        with mock.patch.object(filelock.os, "lstat", unreadable), self.assertRaises(TimeoutError):
+            with filelock.locked(lock, timeout_s=0.2, poll_s=0.02):
+                pass
+        self.assertLess(len(tries), 100)                                     # it slept between tries
+        os.unlink(lock)
+
+    def test_a_stale_dangling_link_at_the_lock_is_taken_over(self):
+        lock = self.path + ".lock"
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        try:
+            os.symlink(lock + ".gone", lock)
+            os.utime(lock, (0, 0), follow_symlinks=False)                   # older than stale_s
+        except (OSError, NotImplementedError):
+            self.skipTest("links, or their own times, cannot be made here")
+        with filelock.locked(lock, timeout_s=0.5, poll_s=0.02):
+            self.assertTrue(os.path.isfile(lock) and not os.path.islink(lock))
+        self.assertFalse(os.path.lexists(lock))
 
     def test_corrupt_middle_line_raises(self):
         for bad in ("not json", '{"t": "2026-10-15T12:00:00+00:00", "by": "x"}', "[]", '"ev"'):   # not an event

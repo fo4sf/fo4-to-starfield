@@ -2,8 +2,9 @@
 is PASS, or the gate refuses and the ledger says why.
 
 Pure Python: the checks read nothing themselves. A *probe* object supplies the readings (the runner's PreflightProbe
-in scripts/game/testqueue.py reads the PC; the tests use a fake), so the Windows-only parts (Plugins.txt under
-%LOCALAPPDATA%, Starfield.exe's version, the Saves folder, the ini files, the Guardian database) stay in the adapter.
+in scripts/game/testqueue.py reads the PC, through fo4sf.launcher.loadprobe for the loaders and start checks; the
+tests use a fake), so the Windows-only parts (Plugins.txt under %LOCALAPPDATA%, Starfield.exe's version, the Saves
+folder, the ini files, the Guardian database) stay in the adapter.
 A reading the probe cannot give is UNKNOWN, and UNKNOWN refuses exactly like FAIL ("any unknown → refuse").
 
 The probe interface (every method may raise; the gate turns an exception into UNKNOWN for that check):
@@ -26,18 +27,27 @@ The probe interface (every method may raise; the gate turns an exception into UN
   save_present(name)                 True / False, None when the Saves folder is not there
   ini_texts()                        the texts of the ini files that exist, lowest precedence first (the game folder's
                                      Starfield.ini, then StarfieldCustom.ini in My Games, which overrides it)
+  my_games_known()                   True when a My Games\\Starfield folder was found (fo4sf.launcher.loadprobe reads
+                                     the rest)
+  ini_test_files()                   [(ini path, line, key, value)] of every sTestFileN set in the game's INIs
+  ccc_files()                        [(path, [plugin names])] of every Starfield.ccc, My Games first
+  shadow_plugins()                   [(path, name)] of the plugins in My Games\\Starfield\\Data named like one in Data
+  start_overrides()                  (hits [(plugin, record, "00562D")], unreadable [(plugin, why)]) for the plugins that
+                                     will load and that the game does not ship; None when Plugins.txt cannot be located
 """
 import os
 import re
 from dataclasses import dataclass, field
 
+from .loadset import START_RECORDS, built_in, ours
 from .model import Event
 
 PASS, FAIL, UNKNOWN = "PASS", "FAIL", "UNKNOWN"
-CHECKS = ("pin", "deploy", "experiment", "plugins_active", "load_order", "game_version", "lease", "stop_controls",
-          "guardian", "recovery_save", "log_capture")
+CHECKS = ("pin", "deploy", "experiment", "plugins_active", "load_order", "loaders", "start", "game_version", "lease",
+          "stop_controls", "guardian", "recovery_save", "log_capture")
 DEPLOY_PLUGIN = "FO4Port.esm"
 BRIDGE_PLUGIN = "FO4SFBridge.esm"
+OWN_START = "StartupQuest_DO"     # the start record our own start may override without a pin (check_start)
 PAPYRUS_KEYS = (("bEnableLogging", "1"), ("bEnableTrace", "1"), ("bLoadDebugInformation", "1"))   # make_bridge.py
 
 
@@ -296,6 +306,78 @@ def check_load_order(p):
                  plugins, order)
 
 
+def check_loaders(p):
+    """Nothing outside Plugins.txt changes what loads (docs/testing/baseline.md; the rules in fo4sf.core.loadset): no
+    sTestFile in an INI (the game then ignores Plugins.txt and Starfield.ccc), no Starfield.ccc listing a plugin the
+    game does not ship (it loads first, unasked), and no plugin in My Games\\Starfield\\Data named like one in Data
+    (the game may load that copy instead of the one the other checks verified)."""
+    if not p.my_games_known():
+        return Check("loaders", UNKNOWN, "no My Games\\Starfield folder found: its INIs, Starfield.ccc and Data folder "
+                                         "cannot be checked")
+    bad = [f"{key}={value} in {path} line {n} (the game then ignores Plugins.txt and Starfield.ccc)"
+           for path, n, key, value in p.ini_test_files()]
+    cccs = list(p.ccc_files())
+    for path, listed in cccs:
+        extra = [x for x in listed if not built_in(x)]
+        if extra:
+            bad.append(f"{path} lists {', '.join(extra)}: they load first, whatever Plugins.txt says")
+    bad += [f"{path}: a copy of Data\\{name} the game may load instead" for path, name in p.shadow_plugins()]
+    if bad:
+        return Check("loaders", FAIL, "; ".join(bad) + " (take it out before a run: the run would not test what the "
+                                                       "other checks verified)")
+    ccc = f"{len(cccs)} Starfield.ccc listing only the game's own plugins" if cccs else "no Starfield.ccc"
+    return Check("loaders", PASS, f"no sTestFile, {ccc}, no plugin copies in My Games\\Starfield\\Data")
+
+
+def check_start(p):
+    """No plugin overrides Starfield's start unless the run expects it (START_RECORDS: StartupQuest_DO, the
+    DefaultObject that names the startup quest; MQ101, the opening; MQ101Debug, the global MQ101's stage 0 reads; 28 Oct
+    2026 our override of MQ101Debug started Starfield's pirate fight instead of our new game). The queue's
+    "start_overrides" (["FO4SFStart.esm:StartupQuest_DO", ...]; [] for none) pins the expected ones exactly. Without
+    it, only our own start may override, and only StartupQuest_DO (the owner's pick F, 29 Oct 2026: our start replaces
+    Starfield's through that record), and only one plugin of ours: it is listed and passes; any other override
+    refuses."""
+    got = p.start_overrides()
+    if got is None:
+        return Check("start", UNKNOWN, "Plugins.txt cannot be located (LOCALAPPDATA)")
+    hits, bad = got
+    if bad:
+        return Check("start", UNKNOWN, "a plugin that will load cannot be read: " +
+                     "; ".join(f"{name}: {why}" for name, why in bad))
+    found = sorted({f"{name}:{what}" for name, what, _ in hits}, key=str.casefold)
+    records = ", ".join(f"{what} {obj:06X}" for _, obj, what in START_RECORDS)
+    pinned = (p.queue or {}).get("start_overrides")
+    if pinned is not None and not isinstance(pinned, (list, tuple)):
+        return Check("start", UNKNOWN, f"queue.json start_overrides is {pinned!r}, not a list: write it as "
+                                       f'["<plugin>:<record>", ...], [] for none', None, found)
+    if pinned is not None:
+        want = sorted({str(x) for x in pinned}, key=str.casefold)
+        if {x.casefold() for x in found} != {x.casefold() for x in want}:
+            return Check("start", FAIL, f"overrides of Starfield's start ({records}): {', '.join(found) or 'none'}; "
+                                        f"the queue pins {', '.join(want) or 'none'}", want, found)
+        return Check("start", PASS, f"overrides of Starfield's start are the pinned ones: {', '.join(found) or 'none'}",
+                     want, found)
+    others = [x for x in found if not ours(x.split(":", 1)[0])]
+    if others:
+        return Check("start", FAIL, f"{', '.join(others)}: a plugin not ours overrides Starfield's start, so a New Game "
+                                    f"is not the one the run expects (take it out, or pin it in queue.json "
+                                    f"start_overrides)", None, found)
+    opening = [x for x in found if x.split(":", 1)[1] != OWN_START]
+    if opening:
+        return Check("start", FAIL, f"{', '.join(opening)}: our plugin overrides Starfield's opening itself (28 Oct 2026 "
+                                    f"our override of MQ101Debug started Starfield's pirate fight); our own start "
+                                    f"overrides {OWN_START} only (pin it in queue.json start_overrides if the run "
+                                    f"means it)", None, found)
+    if len(found) > 1:
+        return Check("start", FAIL, f"{', '.join(found)}: more than one plugin of ours overrides {OWN_START}, so the "
+                                    f"run tests whichever loads last (keep one, or pin them in queue.json "
+                                    f"start_overrides)", None, found)
+    if found:
+        return Check("start", PASS, f"our own start overrides {OWN_START}: {', '.join(found)} (not pinned: queue.json "
+                                    f"start_overrides holds it exactly)", None, found)
+    return Check("start", PASS, f"no plugin that will load overrides Starfield's start ({records})", None, found)
+
+
 def check_game_version(p):
     want = (p.queue or {}).get("game_version") or p.ledger_game_version()
     if not want:
@@ -371,8 +453,8 @@ def check_log_capture(p):
 
 
 CHECK_FUNCS = {"pin": check_pin, "deploy": check_deploy, "experiment": check_experiment,
-               "plugins_active": check_plugins_active, "load_order": check_load_order,
-               "game_version": check_game_version, "lease": check_lease, "stop_controls": check_stop_controls,
+               "plugins_active": check_plugins_active, "load_order": check_load_order, "loaders": check_loaders,
+               "start": check_start, "game_version": check_game_version, "lease": check_lease, "stop_controls": check_stop_controls,
                "guardian": check_guardian, "recovery_save": check_recovery_save, "log_capture": check_log_capture}
 
 
