@@ -31,6 +31,12 @@ class TeamModelTests(unittest.TestCase):
         self.assertRegex(f"{load_model.DEFAULT_MODEL}    {load_model.DEFAULT_MODEL}    IDLE", pattern)
         self.assertNotRegex("qwen3-14b    qwen3-14b    IDLE", pattern)
 
+    def test_unattended_lead_takes_no_qa_reviews(self):
+        script = read("run-lead.ps1")
+        self.assertNotIn("needs-qa", script, "the unattended Lead must not pick up QA reviews")
+        self.assertNotIn("QA (local)", script)
+        self.assertIn("Do not call fo4-qa", script)
+
     def test_start_team_does_not_advise_the_old_16k_context(self):
         self.assertNotIn("16384", read("start-team.ps1"))
 
