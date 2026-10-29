@@ -735,6 +735,24 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - A planet in Sol (route B) has Bethesda precedent. It is the fallback if our own star system does not load.
 - **Boundary:** nothing has run in game. The owner's line in the Install thread stages and installs it.
 
+## 2026-10-29: the local team runs Qwen3.6-35B-A3B at 128K; the 14B stays as a manual fallback (Claude-cloud)
+- **Decision:**
+  - The four local agents (`tools/ai-team/config.json`) use `qwen3.6-35b-a3b`. `load_model.py` loads it at 131072 tokens
+    with memory mapping off, flash attention on and an unquantized K/V cache, all sent explicitly. `opencode.json` asks
+    for the same context and a 32768-token output.
+  - The 14B stays on disk and loads with its old settings (`--model qwen3-14b --context 32768 --gpu 1 --kv q8_0`). It is
+    a manual fallback: `run-lead.ps1` loads only the 35B and never unloads another model.
+- **Why:** the owner wants precision on very large prompts while cloud models are away. The 35B measured 83.4% RAM and
+  10.9 GB VRAM at 131072 with memory mapping off, under the 90% RAM block. Its thinking takes 3,000 to 6,300 tokens per
+  answer, so the output cap must not be 4,096.
+- **Alternatives:**
+  - Keep the 14B as the default: rejected by the owner (precision and context).
+  - Quantize the K/V cache to fit more context: not done. The owner's rule is no K/V quantization without asking.
+- **Boundary:** at 8K, test 1 (leader-core summary) graded 37 of 45 claims correct, 8 partly correct, none wrong. At 128K,
+  test 2 passes 4 of 5 generated tests. Long-context tests 5a to 5c and test 4 (Guardian) are not yet run. RAM sits 1.6
+  points under the 85% restrict level, so requests queue before the 90% block. Not merged: PR #587 waits for review and
+  the owner's approval.
+
 ## 2026-10-29: our errors are told from Starfield's by a vanilla baseline; the quieting goes into the mod (Claude-cloud)
 - **Decision:**
   - The owner answered the strip-down plan's questions on 29 Oct (thread "Strip down Starfield and add our own
@@ -788,6 +806,17 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: a retry MoveTo when the settle check fails (rejected for now: a second sink would show the owner two
   falls, and the game's reset to the marker already leaves them standing); the COC marker itself as the start (8 m
   from the pod; kept as what the game does on a sink).
+
+## 2026-10-29: the guardian's RAM restrict level goes from 85% to 88% (Claude)
+- Decision: `tools/ai-team/config.json` `restrict_pct` is 88 (was 85). Caution (70%) and the RAM block (90%) stay.
+  `policy.py`'s built-in DEFAULTS, used only when `config.json` lacks a key, are unchanged.
+- Why: the owner's choice on 29 Oct. With Qwen3.6 loaded at 128K the team PC idles at 85-88% RAM (LM Studio's engine
+  alone holds ~16 GB), so the guardian held the model's own work: a PR-summary request waited 600 s and got HTTP 503 at
+  RAM 87.3% (proxy.log job 66), and the next one queued at 87.0% (job 67). Loaded at 64K the same PC sat at 78% RAM idle (the README table's 79.9% is measured at load).
+- Alternatives: load at 64K instead (`load_model.py --context 65536`; no guardian change, but long prompts lose room);
+  keep 85% (local work runs only when RAM dips under it).
+- Boundary: 88% leaves two points before the 90% block. A request that is already running is not stopped when RAM rises
+  (README); only new admissions are held. With no model resident, the same 88% also sets the VRAM restrict level (policy.py:53).
 
 ## 2026-10-29: our own start: the new game's quest is Starfield's startup quest (Claude-cloud)
 - Decision: newgame_v11 overrides the DefaultObject `StartupQuest_DO` (Starfield.esm 00562D, MQ101 in vanilla) to name

@@ -23,12 +23,19 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 ## Start
 
 1. LM Studio server on (`lms server start` or the app), Starfield closed. Load the model:
-   `python tools\ai-team\load_model.py` (qwen3-14b, 32K context, q8 KV cache, all on GPU, no memory mapping).
-   Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block.
+   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 128K context, K/V cache unquantized, LM Studio places
+   the layers, no memory mapping). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
+   the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
+   Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
+   (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
+   The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
+   it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
+   session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
+   that change: the test pins the 128K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
-   the guardian is paused/blocked; reloads the model if LM Studio unloaded it; log `lead-cycles.log` in the state dir.
+   the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
    One OpenCode session at a time.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
@@ -55,7 +62,7 @@ Local inference is **blocked while Starfield runs** (the GPU is needed for game 
 ## What is enforced, and what isn't
 
 Enforced by code (proxy): max 1 concurrent local inference request; resource check before each admission
-(RAM 70/85/90%, VRAM 95% block, 92% restrict with a resident model, game running = block, LM Studio down =
+(RAM 70/88/90%, VRAM 95% block, 92% restrict with a resident model, otherwise the same 88% restrict level also applies to VRAM, game running = block, LM Studio down =
 block); queue with a bounded wait (600 s) then HTTP 503; bounded upstream retries (2, backoff 2 s / 4 s) only
 before any output was sent; request timeout 900 s; pause / stop switch; every decision logged.
 Resources are sampled fresh at every admission attempt (`proxy.py`, `_wait_for_admission`), not taken from an
@@ -83,6 +90,25 @@ also reads #32 and docs/CODEX-HANDOFF.md.
 Choosing/downloading/loading the model; starting LM Studio; starting OpenCode; approving PR creation, merges and
 pushes; any game deployment or live testing (Claude's lane); installing anything as a service (not done).
 
+## Model change (2026-10-29, Qwen3.6-35B-A3B Q4_K_M, 128K context)
+
+Measured on the team PC (32 GB RAM, RTX 4070 Ti 12 GB), LM Studio 0.4.27, with memory mapping off, the K/V cache
+unquantized and flash attention left at LM Studio's default. `load_model.py` now forces flash attention on, so these
+numbers need a re-measure. Each size was loaded in ~17 s and answered a short prompt:
+
+| Context | RAM peak | VRAM peak | Short prompt |
+|---|---|---|---|
+| 16K | 78.3% | 10.1 GB | 24.6 tok/s, first token 0.40 s |
+| 32K | 79.1% | 10.3 GB | 25.0 tok/s, first token 0.37 s |
+| 64K | 79.9% | 10.6 GB | 25.4 tok/s, first token 0.41 s |
+| 128K | 83.4% | 10.9 GB | 24.5 tok/s, first token 0.43 s |
+
+128K is the model card's advice for keeping its thinking; 256K would need ~4 GB more and cross the guardian's 90% RAM
+block. The model thinks before every answer (3,000-6,300 reasoning tokens on 1.5-4K-token prompts, ~20 tok/s);
+with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned reasoning (316 tokens against 733
+on the same short prompt). LM Studio's own idle TTL (1 h on this PC) can
+unload the model between cycles; `run-lead.ps1` reloads it.
+
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 
 | # | Test | Result |
@@ -105,5 +131,7 @@ Observed: each Lead step takes ~40-135 s; Qwen3 writes long `<think>` reasoning 
 candidate: measure with thinking off). The Lead once mis-formatted a task call and corrected itself.
 
 ## Tests
-`python -m unittest tests.test_ai_guardian` (admission policy on synthetic snapshots); validation results of the
+`python -m unittest tests.test_ai_guardian` (admission policy on synthetic snapshots) and
+`python -m unittest tests.test_ai_team_defaults` (the agents' model, the Lead's loaded-model check and the load
+settings agree); validation results of the
 initial setup are in docs/ai/decisions.md and the setup report.

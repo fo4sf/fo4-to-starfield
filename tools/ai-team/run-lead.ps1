@@ -45,7 +45,7 @@ try {
       Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)"; Start-Sleep $Interval; continue
     }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null
-    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3-14b')) {
+    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
       Log "model not loaded: loading"; & $Python (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
     }
     git -C $wt pull -q --rebase --autostash origin main 2>$null
