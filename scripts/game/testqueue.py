@@ -60,13 +60,17 @@ when one trips:
     --wait-for-idle the runner waits until the PC has been idle --min-idle seconds instead of stopping; with --refocus it
     then brings ITS OWN game window back to the front once (never another app);
   - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
+  - an open vanilla baseline (docs/testing/baseline.md): while the note in the state folder
+    (baseline-open.json) names a baseline whose restore has not run, no game is launched (it would load our plugins
+    into the baseline's session);
   - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
     set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
     unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
     writes its queue, attempts and results to the ledger in that folder (section 10). Unset: not checked, not written;
   - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
-    eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
-    lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
+    thirteen checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, loaders,
+    start, game version, lease, STOP files, Resource Guardian, recovery save, log capture) run before the first
+    launch; one FAIL or UNKNOWN
     refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
     prints the checklist either way. Unset: not run. --preflight-report (or FO4SF_PREFLIGHT_REPORT=1) runs the same
     checks in report-only mode, the first step of switching the gate on: the checklist goes to run.log
@@ -2586,6 +2590,47 @@ class PreflightProbe:
                     out.append(f.read())
         return out
 
+    def my_games(self):
+        """The My Games\\Starfield folders that are there, by the Saves rule above (OneDrive's Documents first), each
+        once (one linked to the other is read once)."""
+        from fo4sf.launcher import loadprobe
+        return loadprobe.distinct_folders(os.path.dirname(d) for d in self.saves_dirs()
+                                          if os.path.isdir(os.path.dirname(d)))
+
+    def staged_at_launch(self):
+        """[(name, staged path)] of the plugins installed at the launch, so the start check reads the file that will
+        load: the pinned experiment's plugins, the staging's FO4Port.esm unless the queue tests the installed port, and
+        the bridge (bridge_install.py installs it from the queue's bridge dir before every launch)."""
+        pin = self.queue.get("experiment_identity") or {}
+        out = [(n, os.path.join(pin.get("exp_dir") or "", n)) for n in pin.get("plugins") or []]
+        if (self.queue.get("port") or {}).get("mode") != "installed" and self.queue.get("staging"):
+            out.append(("FO4Port.esm", os.path.join(self.queue["staging"], "FO4Port.esm")))
+        br = self.queue.get("bridge") or {}
+        if br.get("dir"):
+            name = br.get("plugin") or BRIDGE_PLUGIN
+            out.append((name, os.path.join(br["dir"], name)))
+        return out
+
+    def load_probe(self):
+        """The loaders and start checks' readings (fo4sf.launcher.loadprobe; src is on sys.path once the gate runs)."""
+        from fo4sf.launcher.loadprobe import LoadProbe, plugins_txt_path
+        return LoadProbe(self.starfield, self.my_games(), plugins_txt_path(), self.staged_at_launch(), self.queue)
+
+    def my_games_known(self):
+        return bool(self.my_games())
+
+    def ini_test_files(self):
+        return self.load_probe().ini_test_files()
+
+    def ccc_files(self):
+        return self.load_probe().ccc_files()
+
+    def shadow_plugins(self):
+        return self.load_probe().shadow_plugins()
+
+    def start_overrides(self):
+        return self.load_probe().start_overrides()
+
 
 def stop_files(queue_dir):
     """The STOP files that stop a run: the queue's own, the chain folder's STOP_ALL (the queues of one chain share a
@@ -2639,6 +2684,31 @@ def launch_limit(a, state):
         if free < floor:
             return f"limit: {free:.1f} GB free on {drive}, --min-free-gb {floor:g}"
     return None
+
+
+def open_baseline(state_dir):
+    """Why no game may be launched now, else None: a vanilla baseline is open (scripts/game/baseline.py prepare turned
+    our plugins off for one plain session and its restore has not run; prepare's note in the state folder names it).
+    A launch would deploy our plugins into that session. A note or record that cannot be read refuses too (any unknown
+    refuses; baseline.noted, which prepare reads alike). No state folder (a test's controls): None. Each reason starts
+    "baseline:", which stops the run without waiting (Runner.run)."""
+    if not state_dir:
+        return None
+    import baseline                                       # beside this file (scripts/game)
+    found = baseline.noted(state_dir)
+    if found is None:
+        return None
+    out, rec = found
+    path = os.path.join(state_dir, baseline.OPEN_NOTE)
+    if out is None:
+        return (f"baseline: the open-baseline note {path} cannot be read, so a vanilla baseline may be open "
+                f"(docs/testing/baseline.md): remove the note once you know none is")
+    if rec is None:
+        return (f"baseline: the open-baseline note {path} names {out}, whose record cannot be read (a drive not there, "
+                f"or a damaged {baseline.RECORD}?), so a vanilla baseline may be open (docs/testing/baseline.md): "
+                f"restore it, or remove the note once you know none is")
+    return (f"baseline: a vanilla baseline is open in {out} (docs/testing/baseline.md), and a launch would load our "
+            f"plugins into its session: restore it first (baseline.py restore --out {out})")
 
 
 def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
@@ -3257,6 +3327,9 @@ class Runner:
             why = launch_limit(self.a, self.state)
             if why:
                 return why
+            why = open_baseline(getattr(self.ctl, "state_dir", None))
+            if why:
+                return why
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why
@@ -3289,6 +3362,9 @@ class Runner:
                 self.log(f"pre-launch exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
                 if r.returncode != 0:
                     return "stop"
+            why = open_baseline(getattr(self.ctl, "state_dir", None))
+            if why:                                       # again, last: a baseline prepared during the installs above
+                return why
             if fresh:
                 self.state["fresh_launches"] = self.state.get("fresh_launches", 0) + 1
             else:
@@ -3735,8 +3811,9 @@ class Runner:
                 self.live_pid = None                      # closed on purpose: not a crash
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g and g.startswith(("the game did not start", "limit:", "the dedicated save")):
-                # no waiting fixes Steam, a full disk or a save that is not there or did not load (cycle.ps1 exit 11)
+            if g and g.startswith(("the game did not start", "limit:", "the dedicated save", "baseline:")):
+                # no waiting fixes Steam, a full disk or a save that is not there or did not load (cycle.ps1 exit 11),
+                # nor an open vanilla baseline (it needs a restore)
                 self.log(f"stopped: {g}")
                 self.checkpoint(f"stopped: {g}")
                 return 3

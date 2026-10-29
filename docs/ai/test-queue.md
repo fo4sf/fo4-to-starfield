@@ -136,6 +136,12 @@ the walk climbs).
 - STOP file, Resource Guardian mode (`paused` / `stopped`, or an unreadable database) stop the run.
 - The game is launched only after `--min-idle` seconds (default 900) without keyboard or mouse input, and only through
   `cycle.ps1`. A Starfield the runner did not start (the owner's own session) is never touched: the run stops.
+- An open vanilla baseline (docs/testing/baseline.md: `baseline.py prepare` turned our plugins off and its `restore` has
+  not run; its note `baseline-open.json` in the state folder names it) stops the run before any install or launch
+  (`stopped: baseline: a vanilla baseline is open in <folder>`): a launch would load our plugins into the baseline's
+  session. A note, or the record it names, that cannot be read stops the run too; a note is stale only when its
+  baseline folder is there without a record, or the record says it was restored. The runner checks before its
+  installs and again just before the launch.
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
@@ -154,8 +160,8 @@ the walk climbs).
   `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
   so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
 - Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
-  `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
-  load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
+  `--no-preflight` overrides the variable for one run) runs thirteen checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
+  load order, loaders, start, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
   stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
   checklist either way. Unset: not run. `--preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`) runs the same checks report-only:
   the checklist goes to `run.log` and `preflight.json`, nothing is refused, nothing goes to the ledger (leader-core.md section 7).

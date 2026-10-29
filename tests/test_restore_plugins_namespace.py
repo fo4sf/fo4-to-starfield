@@ -1,4 +1,5 @@
 """Plugins.txt binding refusal; installer effects are injected inside synthetic folders only."""
+import base64
 import hashlib
 import json
 import os
@@ -89,6 +90,15 @@ class PluginsNamespaceTests(unittest.TestCase):
         with self.assertRaisesRegex(restore.RestoreRefused, "Plugins.txt"):
             restore.write_plugins_txt(str(wrong), None, digest)
         self.assertEqual(wrong.read_bytes(), b"owner bytes")
+
+    def test_a_write_that_fails_leaves_the_bytes_and_no_temp_file(self):
+        before = self.read_pt()                                 # a read-only Plugins.txt on Windows: os.replace fails
+        digest = hashlib.sha256(before).hexdigest()
+        with mock.patch.object(restore.os, "replace", side_effect=PermissionError("read-only")), \
+                self.assertRaises(PermissionError):
+            restore.write_plugins_txt(self.pt, base64.b64encode(b"*Other.esm\r\n").decode("ascii"), digest)
+        self.assertEqual(self.read_pt(), before)
+        self.assertEqual(os.listdir(os.path.dirname(self.pt)), ["Plugins.txt"])
 
     def test_valid_custom_root_default_and_noop_restore_are_preserved(self):
         original = self.read_pt()
