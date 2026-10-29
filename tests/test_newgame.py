@@ -278,8 +278,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn("`CenterOnCell`", doc)
 
     def test_the_pod_start_is_lifted_and_checked(self):
-        """Run 3 of 28 Oct (newgame_v9): the MoveTo put the player at the pod's z (-1.029), the bridge saw them 0.69 m
-        lower once the vault had loaded, and 0.64 s later the game stood them on the COC marker 8 m away (no script
+        """Run 3 of 28 Oct (newgame_v9): the MoveTo put the player at about the pod's z (read back -1.045, the pod's
+        -1.029), the bridge saw them 0.69 m lower once the vault had loaded, and 0.64 s later the game stood them on the COC marker 8 m away (no script
         moved them). On that marker (z -0.738) they stood at -0.852, so the start goes PodLift (0.3) higher, the marker's
         height, and the first loaded tick after the move logs where the player stands ("pod settle"). The check moves
         nothing: the game's own reset to the marker is the fallback."""
@@ -305,7 +305,7 @@ class ContractTests(unittest.TestCase):
 
     def test_the_surface_arrival_waits_a_tick(self):
         """Run 3 of 28 Oct: the ride's SetPosition, called in the MoveTo's own tick, was ignored (the "surface
-        setposition" line read the MoveTo's position, the anchor's local spot 7.8 m under it) and the fall check's
+        setposition" line read the MoveTo's position, the anchor's local spot, 6.8 m under it) and the fall check's
         SetPosition 5.7 s later took. The ride is now two ticks, like the load door (MoveTo, wait, SetPosition): Surface
         only moves; FinishSurface sets the merged arrival on a later tick, once the player is outside and loaded, reads
         the position back, and goes on to stage 40 when it took or after SurfaceTries; a MoveTo that never left the vault
@@ -320,7 +320,12 @@ class ContractTests(unittest.TestCase):
         self.assertLess(surface.index("player.MoveTo("), surface.index("surfaceMovedAt = Utility.GetCurrentRealTime()"))
         finish = psc[psc.index("Function FinishSurface"):psc.index("Function CheckLanding")]
         self.assertNotIn("MoveTo(", finish.replace("Surface(player)", ""))   # its only move is Surface's, once more
-        self.assertLess(finish.index("if player.IsInInterior() || !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
+        # inside: wait, or count a missed move; outside but not loaded: wait; both return before the SetPosition
+        inside = finish[finish.index("    if player.IsInInterior()\n"):finish.index("    if !player.Is3DLoaded()\n")]
+        self.assertTrue(inside.endswith("        return\n    endif\n"), inside)
+        self.assertIn("    if !player.Is3DLoaded()\n        return", finish)
+        self.assertLess(finish.index("if !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
+        self.assertNotIn("Is3DLoaded", inside)               # an outside player still loading is never a missed move
         self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
         self.assertIn('Trace("surface setposition ok=" + ok + " set=" + surfaceSets', finish)
         self.assertIn("if ok || surfaceSets >= SurfaceTries", finish)
@@ -328,6 +333,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
+        self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's OnTimer finishes the ride
+        invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
+        self.assertIn("Surface(player)", invault)
+        self.assertNotIn("SetPosition(", invault)
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
         self.assertIn("if surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)

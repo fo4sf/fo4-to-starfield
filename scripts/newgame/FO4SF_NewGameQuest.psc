@@ -91,7 +91,7 @@ float Property PodHeading Auto Const Mandatory
 {Where the player stands up from their pod (Fallout 4's pod position plus a step out of it; heading in degrees).}
 float Property PodLift = 0.3 Auto Const
 {Metres above PodZ the player is put at, so they drop onto the floor. The pod's z is under the floor: run 3 of 28 Oct
- put the player at it, the bridge saw them 0.69 m lower once the vault had loaded, and 0.64 s later they stood on the
+ put the player at it (read back -1.045), the bridge saw them 0.69 m lower once the vault had loaded, and 0.64 s later they stood on the
  cell's COC marker 8 m away, moved there by the game (no script line, Papyrus.0.log). On that marker (z -0.738) they
  stood at -0.852; 0.3 above the pod's -1.029 is the marker's own height. The "pod settle" line judges it.}
 float Property PodRadius = 1.0 Auto Const
@@ -439,8 +439,8 @@ Function FinishSurface(Actor player)
  it, the player stood at the anchor's local spot until the fall check's SetPosition 5.7 s later moved them. A SetPosition
  that does not take (the position read back is more than 5 m off) is tried again next tick, SurfaceTries in all, then
  stage 40 goes on and CheckLanding decides. Still inside SurfaceWait seconds after the MoveTo: one more MoveTo, then the
- elevator prompt again.}
-    if player.IsInInterior() || !player.Is3DLoaded()
+ elevator prompt again. Outside but not loaded yet: it waits.}
+    if player.IsInInterior()
         if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
             if surfaceMoves < 2
                 Trace("surface still inside " + SurfaceWait + " s after the moveto: moving again")
@@ -453,6 +453,9 @@ Function FinishSurface(Actor player)
             endif
         endif
         return
+    endif
+    if !player.Is3DLoaded()
+        return                                               ; outside, still loading: never a missed move
     endif
     float x = ArrivalX + MergeOffsetX
     float y = ArrivalY + MergeOffsetY

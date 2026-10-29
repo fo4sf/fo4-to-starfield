@@ -1,9 +1,9 @@
 # A Fallout 4 new game: the Vault 111 start (phase 1)
 
 Written 2026-10-19 by Claude-cloud (the new-game thread). Phase 1 of the approved roadmap: a new game that opens in
-Vault 111 with no Starfield intro, which everything else plugs into. **In game once (28 Oct 2026, section 10): the first
-build sent the owner to Starfield's pirate-fight developer start and our quest stood down; both causes are fixed
-offline and the build waits for a restage.** Labels follow docs/ai/research-log.md (verified, supported hypothesis,
+Vault 111 with no Starfield intro, which everything else plugs into. **In game three times (28 Oct 2026, sections 10 to 12):
+runs 1 and 2 failed (the pirate-fight developer start, then a load that never finished); run 3 (newgame_v9) reached
+stage 200, with two placement defects of ours fixed offline in newgame_v10, which waits for a restage.** Labels follow docs/ai/research-log.md (verified, supported hypothesis,
 unresolved).
 
 Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `dotnet/NewGame/Records.cs` (the read-only PC
@@ -80,8 +80,8 @@ Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `m
 
 | Option | How | For | Against |
 |---|---|---|---|
-| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether one tick is enough for stage 9000 to have started its quests; with no override the intro's stage 0 has run (character generation on, the move to its start marker, the chargen HUD mode) before our quest starts, so the hold-off stops a running intro, and whether any of its scene, controls or menus outlive the stop is **unverified** until the next run (28 Oct: neither run reached the hold-off; the log says what each pass stopped) |
-| **B. The debug global (written after the hold-off by default: `--debug-after-hold <n>`, 0 for no write; `--mq101debug <n>` overrides the record, experiments only)** | No record override. Right after hold-off pass 1 has stopped MQ101, the quest writes 2 into Starfield's GLOB `MQ101Debug` (0A7D31) with `SetValueInt`. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's two runs, 28 Oct): MQ101's stage 0 has 12 log entries, ten of them conditioned on the global. Entry 0 is the NG+ start (`PlayerUnityTimesEntered >= 1`, whatever the global holds). Entry 2 (`== 0`) is the normal intro: its fragment (`Fragment_Stage_0000_Item_02`) disables controls in MQ101's input layer, turns character generation on, moves the player to `CharGenStartMarker`, sets the chargen HUD mode and waits for the player's 3D; after the wait it empties the inventory, equips the miner spacesuit, helmet, backpack and clothes, and takes Lin's and Heller's weapons. Nothing after its 3D wait sets a stage or starts a scene, so stopping MQ101 then leaves nothing that restarts it. Entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts, each moving the player itself; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed in run 1 (log: `opening_stage=250`). A value no entry matches moves nobody: the second build's override of 2 left the new game on its loading screen (run 2, section 11). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a New Game (the records report: it is no start-up stage; StartupQuest_DO 00562D starts MQ101), so the 19 Oct belief that vanilla writes 10 was wrong. 2 is the value the main quests' developer skip-start fragments write (MQ102 to MQ305, FFLodge01 and City_NA_Viewport02, each of which then jumps MQ101 to its end: 1800 and 1810, or 2000); a normally finished intro leaves 0 (MQ101's own fragments never write the global). Writing it opens PEO_SustenanceAllowed's `MQ101Debug != 0`, whose normal route (`GetStageDone(MQ101, 310)`) a held-off intro never reaches (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis), a start that moves the player itself; RoleplayersAlternateStart writes its unmatched 11 only after its own quest has placed the player (the research thread's read, 28 Oct), the same order as ours | No record touched; the write comes after MQ101 is stopped, so its stage 0 never reads it; sustenance stays possible | **unverified** until the next run: the write's log line, and that nothing reads the global in the moment between the stop and the write |
+| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **verified** (run 3, 28 Oct, section 12): one tick is enough; pass 2 held MQ101PostQuest and MQ_TutorialQuest_Misc04, and MQ101 had not restarted. With no override the intro's stage 0 has run (character generation on, the move to its start marker, the chargen HUD mode) before our quest starts, so the hold-off stops a running intro; in run 3 saving and the HUD came back (a save at 18:11:36) and the owner walked on to Concord. Anything of the intro run 3 did not show (its controls layer, menus) stays **unverified**; runs 1 and 2 never reached the hold-off |
+| **B. The debug global (written after the hold-off by default: `--debug-after-hold <n>`, 0 for no write; `--mq101debug <n>` overrides the record, experiments only)** | No record override. Right after hold-off pass 1 has stopped MQ101, the quest writes 2 into Starfield's GLOB `MQ101Debug` (0A7D31) with `SetValueInt`. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's two runs, 28 Oct): MQ101's stage 0 has 12 log entries, ten of them conditioned on the global. Entry 0 is the NG+ start (`PlayerUnityTimesEntered >= 1`, whatever the global holds). Entry 2 (`== 0`) is the normal intro: its fragment (`Fragment_Stage_0000_Item_02`) disables controls in MQ101's input layer, turns character generation on, moves the player to `CharGenStartMarker`, sets the chargen HUD mode and waits for the player's 3D; after the wait it empties the inventory, equips the miner spacesuit, helmet, backpack and clothes, and takes Lin's and Heller's weapons. Nothing after its 3D wait sets a stage or starts a scene, so stopping MQ101 then leaves nothing that restarts it. Entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts, each moving the player itself; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed in run 1 (log: `opening_stage=250`). A value no entry matches moves nobody: the second build's override of 2 left the new game on its loading screen (run 2, section 11). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a New Game (the records report: it is no start-up stage; StartupQuest_DO 00562D starts MQ101), so the 19 Oct belief that vanilla writes 10 was wrong. 2 is the value the main quests' developer skip-start fragments write (MQ102 to MQ305, FFLodge01 and City_NA_Viewport02, each of which then jumps MQ101 to its end: 1800 and 1810, or 2000); a normally finished intro leaves 0 (MQ101's own fragments never write the global). Writing it opens PEO_SustenanceAllowed's `MQ101Debug != 0`, whose normal route (`GetStageDone(MQ101, 310)`) a held-off intro never reaches (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis), a start that moves the player itself; RoleplayersAlternateStart writes its unmatched 11 only after its own quest has placed the player (the research thread's read, 28 Oct), the same order as ours | No record touched; the write comes after MQ101 is stopped, so its stage 0 never reads it; sustenance stays possible | **verified** (run 3, section 12): `mq101debug written=2.000000 was=0.000000`. That nothing reads the global in the moment between the stop and the write is **unverified** |
 | C. Override MQ00 / MQ101 without StartGameEnabled | Plugin overrides of Starfield's quest records | The opening never starts | Edits Starfield records; anything that expects MQ101 (NG+, Constellation, achievements) may break; hardest to undo in a save |
 | D. Our own start menu (as SKK) | A message box after character creation picking Vault 111 or Starfield's own start | Players keep the choice | More UI; only worth it once the Fallout start works |
 
@@ -270,7 +270,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   read); Starfield's MQ101 stage 0 entry 2 (the intro) runs `RemoveAllItems()` after its 3D wait and equips the miner
   spacesuit, helmet, backpack and clothes (**verified**, PC read of QF_MQ101_00003448.psc, 19 Oct; NG-N3 answered).
   Since newgame_v9 that fragment runs before our quest, so a default build leaves the player in the miner suit at the pod
-  (**unverified** in game until run 3). The answer is `--clear-inventory --vault-suit <the port's Vault 111 suit
+  (**unverified** in game: run 3's screenshots are first person and a default build logs no inventory line, section
+  12). The answer is `--clear-inventory --vault-suit <the port's Vault 111 suit
   EditorID>`: the reset runs after the move into the vault, well after the fragment's few calls. The reset stays a writer option, **off by default** until the owner picks it:
   `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
   the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
@@ -526,11 +527,10 @@ suit, which nothing undoes in a default build. The fragment and our first tick b
 stage set or scene after its wait, so the stop cannot be undone by it, and hold-off pass 2's lines for MQ101 would show
 a restart. Run 3 is the first New Game that reaches the hold-off (section 12: the restore and pass 2 held).
 
-**Next on the PC:** after this PR merges, restage newgame_v9 from main against the installed port and core with SPECIAL
-(no `--no-special` unless the precheck still reports a miss), reinstall on the owner's line, start a new game from the
-main menu, then read `make_newgame.py log`. Expected: the `guard` line shows `opening_running=true` and ends
-`mq101debug=0.000000 write_after_hold=2`, then `mq101debug written=2.000000 was=0.000000`; the player stands at the
-pod in the miner spacesuit (the default build has no inventory reset; `--clear-inventory --vault-suit` is the answer).
+**Next on the PC (done 28 Oct):** newgame_v9 was restaged from main with SPECIAL, reinstalled and run: section 12.
+Expected then: the `guard` line shows `opening_running=true` and ends `mq101debug=0.000000 write_after_hold=2`, then
+`mq101debug written=2.000000 was=0.000000`; the player stands at the pod in the miner spacesuit (the default build has
+no inventory reset; `--clear-inventory --vault-suit` is the answer).
 
 ## 12. In game, run 3 (28 Oct 2026): PASS to stage 200, with two placement defects of ours
 
@@ -541,8 +541,8 @@ A New Game from the main menu at 18:07 PC time (00:07 UTC 29 Oct).
 
 **The owner's report:** three hotkey snapshots (`C:\Modding\snapshots\20261028-180758`, `-181101`, `-181340`) with
 their own descriptions (typos fixed, meaning kept): "You fall under at first" (in the vault, 18:07:58); "No Codsworth"
-(Sanctuary, 18:11:01); "Here's showing broken textures, and the Freedom's Call activation didn't work" (Concord,
-18:13:40). The first screenshot shows our "Vault 111" notification and "Mission updated" with the FO4 quest name "Out
+(Sanctuary, 18:11:01); "Here's showing broken textures, and the freedom calls activation didn't work" (Concord,
+18:13:40; FO4's Concord quest, and our mission plugin's, is When Freedom Calls). The first screenshot shows our "Vault 111" notification and "Mission updated" with the FO4 quest name "Out
 of Time", which the quest posts after `enter vault ok=true` and stage 10.
 
 **The logs (Install's copy, `D:\Modding\testqueue\newgame_20261028_run3\`):** fo4sf_newgame.0.log, the bridge's
@@ -572,7 +572,7 @@ list (no Starfield start quest in it) was not looked at.
 at rt 43.05 the player is in the intro's cell (66892, pos -21.8 49.4 58.0); our MoveTo at rt 43.59 leaves them at z
 -1.045, at the pod's z (-1.029); the next bridge line, after the vault's load, at rt 45.34, reads pos 9.203 -2.641
 -1.738, 0.69 m lower; at rt 45.98 the player stands at 1.531505 -7.385632 (z -0.815, then -0.851672 from rt 46.65),
-the cell's COC marker FO4Port.esm:001338 at (1.532, -7.386, -0.738) m (newgame.md K4). Nothing in our log moves the
+the cell's COC marker FO4Port.esm:001338 at (1.532, -7.386, -0.738) m (newgame.md section O, the anchor bullet). Nothing in our log moves the
 player then (pass 2 starts at rt 46.04), and no Papyrus entry around it moves the player, so the game itself put them
 on the marker. **Cause (inferred from those numbers):** the pod's z is not the floor's. On the marker the player stood
 at -0.852, so the hall's floor there is about 0.18 m above the pod's z, and a player started under a floor drops
@@ -585,7 +585,8 @@ the fallback.
 
 **Defect 2, ours: the ride's arrival was set in the move's own tick and ignored.** `surface moveto pos=-1275.313965
 1305.275757 119.384842` (MarsPlanetWorld, runtime FF00C482) is the exit anchor's (FO4TerrainCore.esm 0A775B, the
-Vault 111 map marker) local x and y (-1275.314, 1305.276), 7.8 m under its z (127.211). The `surface setposition` line
+Vault 111 map marker) local x and y (-1275.314, 1305.276), 6.8 m under the anchor's z in the build (126.224,
+`FallbackZ`, which the fallback line below shows plus its 1 m). The `surface setposition` line
 right after reads the same position against the target -2467.781 -1406.925 128.110, so that SetPosition did nothing.
 The bridge has the player on that spot from rt 178.70 to 179.42, after the ride's load. At rt 181.43 the landing check
 read z 119.38, more than 3 m under the arrival, logged `fell` and put the player on the map marker's merged spot with
@@ -598,10 +599,13 @@ back (`surface setposition ok=<bool> set=<n> ...`), and goes on to stage 40 when
 the elevator asks again.
 
 **Not ours (sent on to their threads, 29 Oct):** Codsworth missing at Sanctuary (the snapshot's bridge position
--2342.7 -1408.3 112.0; the known Section A item, Codsworth about 3 km away); at Concord, black patches on the church
-and the buildings (textures), and the activator FO4TerrainCore.esm:00DCC6 (0400DCC6 in this load order) runs
-`DefaultActivateLinkedRefOnActivate` with no linked ref (core data); FO4SF_MapMarkers logs
-`FO4Core_CommonwealthLandingPadRedRocketNorth (090008F0): cannot be moved` every few seconds all session (map
+-2342.7 -1408.3 112.0; the known Section A item, Codsworth about 3 km away; no run 3 log places him); at Concord, black
+patches on the church and the buildings (textures), and the owner's When Freedom Calls activation, which has no log
+yet: the staged Papyrus.0.log, like the 18:13:40 snapshot's tail, ends at 18:12:23, before the owner reached Concord, so
+a later copy is needed. The activator FO4TerrainCore.esm:00DCC6 (0400DCC6 in this load order) that runs
+`DefaultActivateLinkedRefOnActivate` with no linked ref was activated at 18:12:01 at Red Rocket (bridge pos -2204.9
+-1561.9 105.2), not at Concord (core data). FO4SF_MapMarkers logs `FO4Core_CommonwealthLandingPadRedRocketNorth
+(090008F0): cannot be moved` every few seconds from 18:10:15, when the player came out, to the log's end (map
 markers). Vanilla noise at the start (SFBGS003 bounty quest errors, MQ101 alias shutdowns from the hold-off's stop)
 moves nobody.
 
