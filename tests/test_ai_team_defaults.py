@@ -34,6 +34,22 @@ class TeamModelTests(unittest.TestCase):
     def test_start_team_does_not_advise_the_old_16k_context(self):
         self.assertNotIn("16384", read("start-team.ps1"))
 
+    def test_the_configured_ram_levels_keep_the_35b_idle_level_admitted(self):
+        sys.path.insert(0, os.path.join(TEAM, "guardian"))
+        import policy
+        cfg = dict(policy.DEFAULTS, **json.loads(read("config.json"))["guardian"])
+        self.assertLess(cfg["caution_pct"], cfg["restrict_pct"])
+        self.assertLess(cfg["restrict_pct"], cfg["ram_block_pct"])
+
+        def level(ram):
+            snap = {"gpu": {"available": True, "vram_pct": 85.0}, "ram": {"used_pct": ram},
+                    "lmstudio": {"reachable": True, "loaded": [{"id": load_model.DEFAULT_MODEL}]},
+                    "agents": {"processes": {}}}
+            return policy.level(snap, cfg)[0]
+        self.assertEqual(level(87.3), "caution")       # the idle level that got job 66 refused at 85%
+        self.assertEqual(level(89.0), "restrict")
+        self.assertEqual(level(91.0), "block")
+
     def test_opencode_limits_match_the_loaded_context(self):
         models = json.loads(read("opencode.json", ROOT))["provider"]["guardian"]["models"]
         self.assertEqual(sorted(models), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])

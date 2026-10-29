@@ -806,3 +806,14 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: a retry MoveTo when the settle check fails (rejected for now: a second sink would show the owner two
   falls, and the game's reset to the marker already leaves them standing); the COC marker itself as the start (8 m
   from the pod; kept as what the game does on a sink).
+
+## 2026-10-29: the guardian's RAM restrict level goes from 85% to 88% (Claude)
+- Decision: `tools/ai-team/config.json` `restrict_pct` is 88 (was 85). Caution (70%) and the RAM block (90%) stay.
+  `policy.py`'s built-in DEFAULTS, used only when `config.json` lacks a key, are unchanged.
+- Why: the owner's choice on 29 Oct. With Qwen3.6 loaded at 128K the team PC idles at 85-88% RAM (LM Studio's engine
+  alone holds ~16 GB), so the guardian held the model's own work: a PR-summary request waited 600 s and got HTTP 503 at
+  RAM 87.3% (proxy.log job 66), and the next one queued at 87.0% (job 67). Loaded at 64K the same PC sat at 78% RAM idle (the README table's 79.9% is measured at load).
+- Alternatives: load at 64K instead (`load_model.py --context 65536`; no guardian change, but long prompts lose room);
+  keep 85% (local work runs only when RAM dips under it).
+- Boundary: 88% leaves two points before the 90% block. A request that is already running is not stopped when RAM rises
+  (README); only new admissions are held. With no model resident, the same 88% also sets the VRAM restrict level (policy.py:53).
