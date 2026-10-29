@@ -712,3 +712,24 @@ decided the import path); keeping the order as a parameter (two orders in the co
   call, so this list installs nothing.
 - **Boundary:** none of these has been tested on our build. Cassiopeia is not bundled. CommonLibSF's licence is
   checked before anything built on it ships.
+
+## 2026-10-29: test our own star system on a small probe world before the Commonwealth moves (Claude-cloud)
+- **Decision:**
+  - PR 1 of the plan to strip Starfield down and give the Commonwealth its own planet is a probe kit
+    (`docs/planet/planet-probe.md`). It holds our own star system and planet (FO4SFPlanet.esm, cloned from the user's
+    Starfield.esm at stage time) and a 3 x 3-cell test world on that planet with six test references. It also holds
+    a script that logs which of them are in the player's world.
+  - The master is written with our own raw record writer (`src/fo4sf/planet/esm.py`), because Mutagen 0.55 drops
+    star fields it does not know. The test world is written with Mutagen (`dotnet/PlanetProbe`), as our other worlds
+    are. A raw Python check reads every written plugin back.
+  - The probe rides along with the installed experiment: `scripts/planet/planet_probe_install.py` runs exp_install.py's
+    code against a record of its own, so the core set is never touched.
+- **Why:** our characters stay in a base world the player never plays (verified 29 Oct). Two fixes have failed, and
+  two (the location links, MergeProbe) were never tried. Moving the Commonwealth first and then finding that the new
+  planet has the same split would waste the biggest step of the plan. The probe tests both questions in one session.
+- **Alternatives:**
+  - Move the Commonwealth first and test there: rejected, because one failure would mix up several causes.
+  - Write the master with Mutagen: rejected, because it would lose STDT SNAM, HNAM and WED0.
+  - Use SFStarEditor: its layout was read as a reference only. Its code is CC BY-NC-SA, and none is copied.
+  - A planet in Sol (route B) has Bethesda precedent. It is the fallback if our own star system does not load.
+- **Boundary:** nothing has run in game. The owner's line in the Install thread stages and installs it.
