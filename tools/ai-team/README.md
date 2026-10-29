@@ -29,7 +29,9 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
    The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
-   it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`.
+   it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
+   session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
+   that change: the test pins the 128K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
@@ -90,8 +92,9 @@ pushes; any game deployment or live testing (Claude's lane); installing anything
 
 ## Model change (2026-10-29, Qwen3.6-35B-A3B Q4_K_M, 128K context)
 
-Measured on the team PC (32 GB RAM, RTX 4070 Ti 12 GB), LM Studio 0.4.27, loaded with `load_model.py`'s settings,
-one size after another; each loaded in ~17 s and answered a short prompt:
+Measured on the team PC (32 GB RAM, RTX 4070 Ti 12 GB), LM Studio 0.4.27, with memory mapping off, the K/V cache
+unquantized and flash attention left at LM Studio's default. `load_model.py` now forces flash attention on, so these
+numbers need a re-measure. Each size was loaded in ~17 s and answered a short prompt:
 
 | Context | RAM peak | VRAM peak | Short prompt |
 |---|---|---|---|
