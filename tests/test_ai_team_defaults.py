@@ -53,7 +53,8 @@ class TeamModelTests(unittest.TestCase):
                     "agents": {"processes": {}}}
             return policy.level(snap, cfg)[0]
         self.assertEqual(level(87.3), "caution")       # the idle level that got job 66 refused at 85%
-        self.assertEqual(level(89.0), "restrict")
+        self.assertEqual(level(88.9), "caution")       # the working level that held jobs 109-114 at 88%
+        self.assertEqual(level(89.5), "restrict")
         self.assertEqual(level(91.0), "block")
 
     def test_opencode_limits_match_the_loaded_context(self):

@@ -904,3 +904,15 @@ decided the import path); keeping the order as a parameter (two orders in the co
   owner's line. The orbit stays Jemison's (next to Mars) for the probe; for the final planet the owner picked Earth's
   orbit (29 Oct, "A").
   Hiding the other planets (the owner's X) is separate work.
+
+## 2026-10-29: the guardian's RAM restrict level goes from 88% to 89% (Claude)
+- Decision: `tools/ai-team/config.json` `restrict_pct` is 89 (was 88). The RAM block stays at 90%; with no model
+  resident the same 89% also sets the VRAM restrict level.
+- Why: the owner's word on 29 Oct ("I thought you allowed more than that usage on the RAM"). The first Lead session
+  after the 22:00Z restart (Qwen3.6 at 128K) failed: from 16:12 local its requests 109-114 were held at 88.4-88.9% RAM
+  (proxy.log), and OpenCode gives up on a provider after 300 s without response headers, so the session ended at 42
+  minutes. At 89% those requests would have been admitted. A trim loop (D:\lmstudio\tools\trim-claude-loop.ps1, every
+  60 s above 86%) keeps the Claude app's working sets down at the same time.
+- Alternatives: load at 64K (RAM about 78% working; the owner keeps 128K); restrict at 90% (would equal the block and
+  remove the warning band); raise OpenCode's provider timeout above the guardian's 600 s queue wait (not done here).
+- Boundary: one point of headroom before the 90% block; working peaks of 90.3% still block briefly.
