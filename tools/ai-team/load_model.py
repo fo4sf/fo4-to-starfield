@@ -20,15 +20,12 @@ DEFAULT_CONTEXT = 131072
 
 
 def load_config(context=DEFAULT_CONTEXT, kv="f16", gpu=None):
-    """The LM Studio load config. gpu=None leaves the GPU split to LM Studio; kv other than f16 quantizes the K/V cache
-    and turns flash attention on (V-cache quantization needs it)."""
-    cfg = {"contextLength": context, "tryMmap": False, "keepModelInMemory": False}
+    """The LM Studio load config. gpu=None leaves the GPU split to LM Studio. Flash attention and both K/V cache types
+    are always sent, so settings saved in LM Studio cannot change them. kv f16 keeps the K/V cache unquantized."""
+    cfg = {"contextLength": context, "tryMmap": False, "keepModelInMemory": False, "flashAttention": True,
+           "llamaKCacheQuantizationType": kv, "llamaVCacheQuantizationType": kv}
     if gpu is not None:
         cfg["gpu"] = {"ratio": gpu}
-    if kv != "f16":
-        cfg["flashAttention"] = True
-        cfg["llamaKCacheQuantizationType"] = kv
-        cfg["llamaVCacheQuantizationType"] = kv
     return cfg
 
 

@@ -33,7 +33,7 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
-   the guardian is paused/blocked; reloads the model if LM Studio unloaded it; log `lead-cycles.log` in the state dir.
+   the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
    One OpenCode session at a time.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
