@@ -293,7 +293,8 @@ records), so the script also re-moves a marker whose height is off by more than 
 build takes `--z-lift` in steps of 0.1 m only, so every change between builds reaches a saved game while a landed
 move (within 0.01 m) stays. The move budget (`MaxMoves`) is saved state too, so the script starts it over when a
 build changes the markers' count or height: a save whose budget the first placement spent still takes a later
-lift. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`) and fails one that still
+lift. `check` reads the overrides back (`override <FormKey> "<name>" flags 13 at (...)`; 03 for a marker the
+star map list leaves out, see Star map below) and fails one that still
 uses the location name, is Initially Disabled, is at another height, or overrides anything that is not a core
 marker (the override's parents arrive as copies of the worldspace and its persistent cell; the build prunes
 them to the markers). Those two copies are overrides too, and this plugin loads after the core, so `check` also
@@ -551,5 +552,7 @@ pipboy, for right now go with a". So:
   instead, and `--star-map-all` keeps the bit on every marker, as before.
 
 Unverified until a play test: that Mars's planet view then lists only those places plus the landing area, and that
-fast travel from the list reaches them. B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is
-for later.
+fast travel from the list reaches them. Also open: the research found that clearing the flag hides a marker from the
+hand scanner too (a comment on Nexus mod 15633), and whether a save made before this build keeps the old flags for
+markers it already knows (a guess, not tested); the play test should use a new game, or say which save it loaded.
+B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is for later.

@@ -559,6 +559,42 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 2, bad.stderr)
         self.assertIn('"Concord" repeats', bad.stderr)
 
+    def test_star_map_clears_the_bit_a_real_core_sets(self):
+        # the real core's markers carry LC172's FNAM 0x1B (on the star map); the synthetic core's are 0, so a copy with
+        # 0x1B shows the bit kept without a list (0x13, as before the list) and cleared on every unnamed marker with one
+        data = bytearray(self.core.read_bytes())
+        pattern, n = b"XMRK\x00\x00FNAM\x04\x00", 0
+        at = data.find(pattern)
+        while at >= 0:
+            struct.pack_into("<I", data, at + len(pattern), 0x1B)
+            n, at = n + 1, data.find(pattern, at + len(pattern))
+        self.assertEqual(n, len(self.markers))
+        core = self.root / "core-1b" / "Synthetic.esm"
+        core.parent.mkdir()
+        core.write_bytes(bytes(data))
+        extra, landing = self.extra_file("extra-star-1b", self.EXTRA), self.landing_file("landing-star-1b", self.landing())
+        star = self.star_file("star-1b", ["Concord", "Starlight Drive In", "Landing Area"])
+        for label, opts, named in (("all", [], None), ("list", ["--star-map", star], {"Concord", "Starlight Drive In"})):
+            out = self.root / f"plugin-star-1b-{label}"
+            proc = self.tool_run("build", "--core", core, "--out", out, "--extra", extra, "--landing", landing, *opts)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertNotIn("no marker is named", proc.stdout + proc.stderr)       # the landing marker's name is no typo
+            plugin = out / "FO4SFMapMarkers.esm"
+            recs = tri.records(plugin)
+            fnam = lambda k: struct.unpack("<I", tlw.field(recs[k][1], b"FNAM"))[0]      # noqa: E731
+            names = {int(self.ids[m["tag"]], 16): m["name"] for m in self.markers} | {0x900: "Abernathy Farm",
+                                                                                     0x901: "Starlight Drive In"}
+            for k, name in names.items():
+                self.assertEqual(fnam(k), 0x13 if named is None or name in named else 0x03, f"{label} {name}")
+            self.assertEqual(fnam(0x8F2), 0x33)
+            check = self.tool_run("check", plugin, core, "--extra", extra, "--landing", landing, *opts)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            crossed = self.tool_run("check", plugin, core, "--extra", extra, "--landing", landing,
+                                    *([] if opts else ["--star-map", star]))
+            self.assertEqual(crossed.returncode, 1, crossed.stdout)
+            self.assertIn('"Sanctuary Hills" is not on the star map (the core wants)' if opts else
+                          '"Sanctuary Hills" is on the star map (--star-map wants it off)', crossed.stdout)
+
     def test_the_landing_spot_stays_in_one_quest(self):
         # the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding): 3 core
         # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in a third quest, so that
@@ -962,12 +998,14 @@ class StageTests(unittest.TestCase):
             with open(os.path.join(named, "star_map.json"), encoding="utf-8") as f:
                 self.assertEqual(json.load(f), {"names": ["Concord", "Vault 81"], "strict": True})
             with open(os.path.join(named, "README.txt"), encoding="utf-8") as f:
-                self.assertIn("Visible on Star Map (star_map.json) only for: Concord, Vault 81;", f.read())
+                self.assertIn("Visible on Star Map (star_map.json) only for those of Concord, Vault 81 the plugin has "
+                              "(offline_check.txt: star map);", f.read())
             every = os.path.join(d, "every")
             mm.main(["stage", "--core", core, "--out", every, "--compiler", "PapyrusCompiler.exe", "--star-map-all"])
             self.assertFalse(os.path.exists(os.path.join(every, "star_map.json")))
-            with self.assertRaises(SystemExit):                # a name twice
+            with self.assertRaises(SystemExit):                # a name twice, refused before the folder is made
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s4"), "--star-map", "Concord", "Concord"])
+            self.assertFalse(os.path.exists(os.path.join(d, "s4")))
             with self.assertRaises(SystemExit):                # one or the other
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s5"), "--star-map", "Concord", "--star-map-all"])
         build, comp, check, build2, comp2, check2, build3, _comp3, check3, build4, _comp4, check4 = calls

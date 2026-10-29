@@ -157,6 +157,9 @@ def stage(a):
         sys.exit(f"{out} is not empty: stage into a new folder")
     if bool(a.fo4_map_markers or a.landing) != bool(a.core_stage):
         sys.exit("--core-stage goes with --fo4-map-markers or --landing (the core's own stage folder, for its BTD)")
+    names = [] if a.star_map_all else list(a.star_map) if a.star_map else list(STAR_MAP)
+    if len(set(names)) != len(names) or not all(names):              # before anything is written, so a retry can reuse --out
+        sys.exit(f"--star-map {names}: names must be non-empty and not repeat")
     core_sha256 = sha256(a.core)                         # the installer refuses any other core build
     os.makedirs(out, exist_ok=True)
     tool = os.path.join(REPO, "dotnet", "MapMarkers")
@@ -178,15 +181,13 @@ def stage(a):
                        f"(local {pad[0]} {pad[1]}, z {pad[2]}),\n  its landing zone, map marker and heading as LandingOverlay01 "
                        "places them, and its three LCSR rows.")
     if not a.star_map_all:
-        names = list(a.star_map) if a.star_map else list(STAR_MAP)
-        if len(set(names)) != len(names) or not all(names):
-            sys.exit(f"--star-map {names}: names must be non-empty and not repeat")
         path = os.path.join(out, "star_map.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"names": names, "strict": bool(a.star_map)}, f, indent=1)
         lift += ["--star-map", path]                                  # build and check take the same names
-        extra_note += (f"\n  Visible on Star Map (star_map.json) only for: {', '.join(names)}"
-                       + (", and the landing marker" if a.landing else "") + ";\n  every marker stays on the surface map.")
+        extra_note += (f"\n  Visible on Star Map (star_map.json) only for those of {', '.join(names)} the plugin has"
+                       + (", and the landing marker" if a.landing else "") + " (offline_check.txt: star map);"
+                       "\n  every marker stays on the surface map.")
     built = make_bridge.run(["dotnet", "run", "-c", "Release", "--project", tool, "--", "build", "--core", a.core,
                              "--out", out, "--plugin", a.plugin] + lift)
     src = make_bridge.extract_sources(a.content_resources, os.path.join(out, "work"))

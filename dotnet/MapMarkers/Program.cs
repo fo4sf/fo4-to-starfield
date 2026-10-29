@@ -258,7 +258,8 @@ if (args[0] == "build")
     if (starMap != null)
     {
         var shown = markers.Select(m => m.MapMarker?.Name?.String).Concat(extras.Select(e => e.Name)).ToList();
-        var unmatched = starMap.Names.Where(n => !shown.Contains(n, StringComparer.Ordinal)).ToList();
+        // the landing marker is always on the star map (LandingMarkerFlags), so naming it is no typo
+        var unmatched = starMap.Names.Where(n => !shown.Contains(n, StringComparer.Ordinal) && n != landing?.Name).ToList();
         foreach (var n in unmatched)
             (starMap.Strict ? Console.Error : Console.Out).WriteLine($"--star-map: no marker is named \"{n}\"");
         if (starMap.Strict && unmatched.Count > 0) return 1;
