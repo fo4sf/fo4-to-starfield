@@ -743,7 +743,10 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - `scripts/game/baseline.py` (docs/testing/baseline.md) turns off every plugin the game does not ship, keeping every
     other byte of Plugins.txt. It records the built-in plugins and Starfield.exe, and after one plain New Game it
     collects the Papyrus log and puts Plugins.txt back byte for byte. `compare` sorts a run's errors into "only ours",
-    "only in the run, Starfield's own scripts" and "in both" (`src/fo4sf/core/papyrus_log.py`).
+    "only in the run, Starfield's own scripts", "at the same script line in both", "in both" and "only in the
+    baseline" (`src/fo4sf/core/papyrus_log.py`).
+  - A session counts as vanilla only when its log names none of ours, Plugins.txt shows no plugin the game does not
+    ship ticked again, and SFSE wrote no log meanwhile. Otherwise its log is kept aside and the baseline gets none.
   - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7). Their rules are in
     `src/fo4sf/core/loadset.py`, which reads nothing, and `src/fo4sf/launcher/loadprobe.py` reads the PC for them, so
     the core still reads nothing on the PC. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a

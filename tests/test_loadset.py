@@ -123,6 +123,18 @@ class FolderTests(unittest.TestCase):
         write(os.path.join(self.mg, "Data", "Textures", "x.dds"), "DDS ")
         self.assertEqual(lp.shadow_plugins(self.data, [self.mg]),
                          [(os.path.join(self.mg, "Data", "fo4port.esm"), "fo4port.esm")])
+        write(os.path.join(self.game, "Starfield_en.ini"), "[General]\nsTestFile1=Lang.esm\n")   # the language INI
+        self.assertIn((os.path.join(self.game, "Starfield_en.ini"), 2, "sTestFile1", "Lang.esm"),
+                      lp.test_files(self.game, [self.mg]))
+
+    def test_a_linked_my_games_data_holds_no_copies(self):
+        plugin(os.path.join(self.data, "FO4Port.esm"))
+        os.makedirs(self.mg, exist_ok=True)
+        try:
+            os.symlink(self.data, os.path.join(self.mg, "Data"), target_is_directory=True)   # Vortex's junction
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no directory links here: {e}")
+        self.assertEqual(lp.shadow_plugins(self.data, [self.mg]), [])
 
     def test_start_overrides(self):
         d = self.data

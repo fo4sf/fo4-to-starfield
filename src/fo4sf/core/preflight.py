@@ -346,6 +346,9 @@ def check_start(p):
     found = sorted({f"{name}:{what}" for name, what, _ in hits}, key=str.casefold)
     records = ", ".join(f"{what} {obj:06X}" for _, obj, what in START_RECORDS)
     pinned = (p.queue or {}).get("start_overrides")
+    if pinned is not None and not isinstance(pinned, (list, tuple)):
+        return Check("start", UNKNOWN, f"queue.json start_overrides is {pinned!r}, not a list: write it as "
+                                       f'["<plugin>:<record>", ...], [] for none', None, found)
     if pinned is not None:
         want = sorted({str(x) for x in pinned}, key=str.casefold)
         if {x.casefold() for x in found} != {x.casefold() for x in want}:

@@ -152,6 +152,11 @@ class CompareTests(unittest.TestCase):
         self.assertEqual([(k["group"], k["baseline_count"]) for k in only_exact["kinds"]],
                          [("both", 1), ("baseline", 2)])                 # the other kind at that line is not lost
         self.assertEqual(sum(g["baseline_lines"] for g in only_exact["summary"].values()), 3)
+        # the baseline's only kind at that line came in the run exactly: another caller there is still both_place
+        rep = pl.compare(pl.parse("\n".join(run.splitlines()[:7])), pl.parse("\n".join(base.splitlines()[:3])))
+        self.assertEqual([(k["group"], k["baseline_count"], k["place_count"]) for k in rep["kinds"]],
+                         [("both_place", 0, 1), ("both", 1, 1)])
+        self.assertEqual(sum(g["baseline_lines"] for g in rep["summary"].values()), 1)
 
     def test_ours_comes_before_the_same_script_line(self):
         run = "\n".join([                                             # our reference, at a line vanilla errors at too
@@ -167,6 +172,9 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(sum(g["baseline_lines"] for g in rep["summary"].values()), 3)
         self.assertTrue(any("[ours: FO4Core_MarkerRef; 1 baseline lines at this place]" in ln
                             for ln in pl.report_lines(rep)))
+        rep = pl.compare(pl.parse(run + RUN), pl.parse(BASELINE))         # the vanilla kind there came too
+        ours = [k for k in rep["kinds"] if k["group"] == "ours" and k["ours"] == ["FO4Core_MarkerRef"]]
+        self.assertEqual([k["place_count"] for k in ours], [1])
 
     def test_a_kind_only_the_baseline_has(self):
         rep = pl.compare(pl.parse(""), pl.parse(BASELINE))

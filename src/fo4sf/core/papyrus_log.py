@@ -156,25 +156,26 @@ def compare(run, baseline, levels=("error", "warning")):
     """The run's kinds against the baseline's, as {"kinds": [...], "summary": {...}}, each kind in one group (module
     doc). Only the levels given are grouped (notes are counted, not grouped, by default: they are the log's own
     housekeeping and trace lines). A kind has run_count and baseline_count, its lines in each log ("both_place": the
-    baseline's lines at its script line), and place_count, the baseline's lines at its script line from kinds the run
-    does not have. A summary's baseline_lines count every baseline line once: the groups add up to the baseline's
-    lines of those levels."""
+    baseline's lines at its script line of the kinds the run does not have, which a summary counts once per script
+    line), and place_count, all the baseline's lines at its script line. A summary's baseline_lines count every
+    baseline line once: the groups add up to the baseline's lines of those levels."""
     rk = {k: v for k, v in run.kinds().items() if k[0] in levels}
     bk = {k: v for k, v in baseline.kinds().items() if k[0] in levels}
-    at_place = Counter()                  # the baseline's lines at each place, of the kinds the run does not have
+    place_lines, at_place = Counter(), Counter()  # the baseline's lines at each place: all, and the kinds the run lacks
     for k, evs in bk.items():
+        place_lines[evs[0].place] += len(evs)
         if k not in rk:
             at_place[evs[0].place] += len(evs)
     kinds, shared = [], set()
     for k, evs in rk.items():
         e = evs[0]
-        n = at_place.get(e.place, 0)
+        here = place_lines.get(e.place, 0)
         if k in bk:
-            kinds.append(_kind("both", e, len(evs), len(bk[k]), n))
+            kinds.append(_kind("both", e, len(evs), len(bk[k]), here))
         elif e.ours():
-            kinds.append(_kind("ours", e, len(evs), 0, n))
-        elif n:
-            kinds.append(_kind("both_place", e, len(evs), n, n))
+            kinds.append(_kind("ours", e, len(evs), 0, here))
+        elif here:
+            kinds.append(_kind("both_place", e, len(evs), at_place.get(e.place, 0), here))
             shared.add(e.place)
         else:
             kinds.append(_kind("starfield", e, len(evs), 0, 0))

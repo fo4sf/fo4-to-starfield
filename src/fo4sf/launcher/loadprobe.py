@@ -78,15 +78,25 @@ def test_files(game_dir, my_games):
     return ini_test_files([game_dir] + list(my_games))
 
 
+def same_folder(a, b):
+    """True when the two folders are one (a junction or a link: Vortex can link My Games\\Starfield\\Data to the game's
+    Data, sfstack.md)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
 def shadow_plugins(data, my_games):
-    """[(path, name)] of the plugins in My Games\\Starfield\\Data whose name is also a plugin in the install's Data."""
+    """[(path, name)] of the plugins in My Games\\Starfield\\Data whose name is also a plugin in the install's Data. A
+    My Games Data folder that is the game's Data itself holds no copies."""
     if not os.path.isdir(data):
         return []
     installed = {n.casefold() for n in os.listdir(data) if is_plugin(n)}
     out = []
     for folder in my_games:
         d = os.path.join(folder, "Data")
-        if not os.path.isdir(d):
+        if not os.path.isdir(d) or same_folder(d, data):
             continue
         for n in sorted(os.listdir(d), key=str.casefold):
             if is_plugin(n) and n.casefold() in installed and os.path.isfile(os.path.join(d, n)):

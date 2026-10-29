@@ -334,6 +334,9 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(one("start", starts=mine, queue=q).status, pf.PASS)       # names compare case-insensitively
         self.assertEqual(one("start", queue=q).status, pf.FAIL)                      # the pinned start is missing
         self.assertEqual(one("start", queue=dict(FakeProbe().queue, start_overrides=[])).status, pf.PASS)
+        c = one("start", starts=mine, queue=dict(FakeProbe().queue, start_overrides="FO4SFStart.esm:StartupQuest_DO"))
+        self.assertEqual(c.status, pf.UNKNOWN)                                       # a string is no list of pins
+        self.assertIn("start_overrides is 'FO4SFStart.esm:StartupQuest_DO', not a list", c.detail)
 
     def test_game_version(self):
         self.assertEqual(one("game_version").status, pf.PASS)

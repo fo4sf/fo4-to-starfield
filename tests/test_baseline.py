@@ -1,12 +1,15 @@
 """scripts/game/baseline.py, the vanilla baseline: prepare turns off every plugin the game does not ship and keeps
 every other byte of Plugins.txt, refuses when the load set would not be vanilla or an earlier baseline was never
-restored, collect takes one log, written after prepare and before restore, and never keeps one naming ours as the
-baseline, restore puts the bytes back (over the game's own rewrite, never over a ticked plugin unless forced), compare
-groups a run's log against the baseline's. A made-up game folder, My Games folder and LOCALAPPDATA."""
+restored (the open-baseline note finds one anywhere), collect joins the logs written after prepare and before restore
+and never keeps one as the baseline when the session was not vanilla (its log names ours, a plugin was ticked again,
+SFSE ran), restore puts the bytes back (over the game's own rewrite, never over a ticked plugin unless forced, keeping
+the file it writes over), compare groups a run's log against the baseline's and never writes its report over the
+baseline's files. A made-up game folder, My Games folder, LOCALAPPDATA and runner state folder."""
 import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -30,6 +33,8 @@ BASE_LOG = ("[05:20:01] Papyrus log opened (PC-64)\n"
 RUN_LOG = BASE_LOG + ("[05:30:04] error: Cannot call SetValue() on a None object, aborting function call\n"
                       "stack:\n\t[FO4SFNewGameQuest (0A000800)].FO4SF_NewGameScript.OnStageSet() - "
                       "\"FO4SF_NewGameScript.psc\" Line 30\n")
+SECOND_LOG = ("[06:00:01] Papyrus log opened (PC-64)\n"
+              "[06:00:05] warning: Property Q on script QScript attached to Q (00012345) cannot be bound\n")
 
 
 def write(path, data):
@@ -80,8 +85,9 @@ class BaselineTests(unittest.TestCase):
         write(os.path.join(self.mg, "StarfieldCustom.ini"), PAPYRUS_ON)
         self.pt = write(os.path.join(d, "local", "Starfield", "Plugins.txt"), ORIGINAL)
         self.out = os.path.join(d, "baseline_1")
-        for patch in (mock.patch.dict(os.environ, {"LOCALAPPDATA": os.path.join(d, "local")}),
-                      mock.patch.object(bl, "game_running", return_value=False)):
+        self.note = os.path.join(d, "state", bl.OPEN_NOTE)
+        env = {"LOCALAPPDATA": os.path.join(d, "local"), "FO4_AI_TEAM_STATE": os.path.join(d, "state")}
+        for patch in (mock.patch.dict(os.environ, env), mock.patch.object(bl, "game_running", return_value=False)):
             patch.start()
             self.addCleanup(patch.stop)
 
@@ -91,18 +97,25 @@ class BaselineTests(unittest.TestCase):
             code = bl.main(list(argv))
         return code, buf.getvalue()
 
-    def prepare(self):
-        return self.run_bl("prepare", "--starfield", self.game, "--my-games", self.mg, "--out", self.out)
+    def prepare(self, out=None, *more):
+        return self.run_bl("prepare", "--starfield", self.game, "--my-games", self.mg, "--out", out or self.out, *more)
 
     def record(self):
         with open(os.path.join(self.out, bl.RECORD), encoding="utf-8") as f:
             return json.load(f)
 
-    def log(self, text, age):
-        p = write(os.path.join(self.mg, "Logs", "Script", "Papyrus.0.log"), text)
+    def log(self, text, age, name="Papyrus.0.log"):
+        """A log in My Games, last written age seconds after prepare."""
+        p = write(os.path.join(self.mg, "Logs", "Script", name), text)
         t = self.record()["prepared_epoch"] + age
         os.utime(p, (t, t))
         return p
+
+    def between(self, path):
+        """Marks a file as written after prepare and before restore."""
+        rec = self.record()
+        t = (rec["prepared_epoch"] + rec["restored_epoch"]) / 2
+        os.utime(path, (t, t))
 
     def test_untick_keeps_every_other_byte(self):
         self.assertEqual(bl.untick(ORIGINAL), (PREPARED, ["FO4Port.esm", "FO4SFNewGame.esm"]))
@@ -121,7 +134,7 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("PASS    start: overrides of Starfield's start are the pinned ones: none", out)   # [] pinned
         self.assertIn("check: prepare would go ahead", out)
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertFalse(os.path.exists(self.out))
+        self.assertFalse(os.path.exists(self.out) or os.path.exists(self.note))
 
     def test_prepare_records_then_turns_off(self):
         code, out = self.prepare()
@@ -134,15 +147,19 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(rec["starfield_exe"]["size"], 2)
         self.assertEqual((rec["log"], rec["restored_at"], rec["my_games"]), (None, None, [self.mg]))
         self.assertIn("turned off: FO4Port.esm, FO4SFNewGame.esm", out)
+        self.assertEqual(bl.read_json(self.note)["out"], self.out)        # the open baseline, wherever it is
         with self.assertRaisesRegex(SystemExit, "never restored.*run restore --out"):
             self.prepare()                                             # the record holds the only original
         self.run_bl("restore", "--out", self.out)
+        self.assertFalse(os.path.exists(self.note))
         with self.assertRaisesRegex(SystemExit, "already holds a baseline"):
             self.prepare()
 
     def test_prepare_refuses_and_changes_nothing(self):
         cases = [
             ("running", lambda: mock.patch.object(bl, "game_running", return_value=True), "Starfield is running"),
+            ("started meanwhile", lambda: mock.patch.object(bl, "game_running", side_effect=[False, True]),
+             "started while prepare read the game folder"),             # the hashing takes a while
             ("logging", lambda: mock.patch.object(bl.preflight, "papyrus_logging_on", return_value=False),
              "would write no log"),
         ]
@@ -157,10 +174,13 @@ class BaselineTests(unittest.TestCase):
         code, out = self.run_bl("check", "--starfield", self.game, "--my-games", self.mg)
         self.assertEqual(code, 1)
         self.assertIn("refused: FAIL    loaders: sTestFile1=FO4Port.esm", out)
+        with self.assertRaisesRegex(SystemExit, "FAIL    loaders: sTestFile1=FO4Port.esm"):
+            self.prepare()
+        write(os.path.join(self.mg, "StarfieldCustom.ini"), PAPYRUS_ON)
         with self.assertRaisesRegex(SystemExit, "no Data folder"):
             self.run_bl("prepare", "--starfield", self.d, "--my-games", self.mg, "--out", self.out)
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertFalse(os.path.exists(self.out))
+        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)) or os.path.exists(self.note))
 
     def test_prepare_that_loses_a_race_leaves_no_record(self):
         real = bl.launcher_restore.write_plugins_txt
@@ -172,32 +192,58 @@ class BaselineTests(unittest.TestCase):
         with mock.patch.object(bl.launcher_restore, "write_plugins_txt", changed_meanwhile), \
                 self.assertRaisesRegex(SystemExit, "changed while restoring; nothing written"):
             self.prepare()
-        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)))
+        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)) or os.path.exists(self.note))
         self.assertEqual(read(self.pt), ORIGINAL + b"*Late.esm\r\n")
 
     def test_an_unrestored_baseline_is_never_taken_for_the_original(self):
         self.prepare()                                                  # the session ended before restore
         later = os.path.join(self.d, "baseline_2")
         with self.assertRaisesRegex(SystemExit, "baseline_1 holds a baseline of this Plugins.txt that was never restored"):
-            self.run_bl("prepare", "--starfield", self.game, "--my-games", self.mg, "--out", later)
-        elsewhere = os.path.join(self.d, "other", "baseline_3")        # a record this prepare cannot see
+            self.prepare(later)
         code, out = self.run_bl("check", "--starfield", self.game, "--my-games", self.mg)
         self.assertEqual(code, 1)
+        self.assertIn(f"{self.out} holds a baseline of this Plugins.txt that was never restored", out)
         self.assertIn("FO4Port.esm, FO4SFNewGame.esm are off in Plugins.txt already", out)
-        with self.assertRaisesRegex(SystemExit, "--allow-off if no baseline turned them off"):
-            self.run_bl("prepare", "--starfield", self.game, "--my-games", self.mg, "--out", elsewhere)
+        elsewhere = os.path.join(self.d, "other", "baseline_3")         # no folder next to baseline_1
+        write(self.pt, PREPARED + b"*SomeMod.esp\r\n")                  # a mod ticked again: something to turn off
+        with self.assertRaisesRegex(SystemExit, "baseline_1 holds a baseline of this Plugins.txt that was never restored"):
+            self.prepare(elsewhere)                                     # the note names it
         self.assertFalse(os.path.exists(later) or os.path.exists(elsewhere))
-        self.assertEqual(read(self.pt), PREPARED)
-        code, out = self.run_bl("prepare", "--starfield", self.game, "--my-games", self.mg, "--out", elsewhere,
-                                "--allow-off")
+        self.assertEqual(read(self.pt), PREPARED + b"*SomeMod.esp\r\n")
+        write(self.pt, PREPARED)
+        with mock.patch.dict(os.environ, {"FO4_AI_TEAM_STATE": os.path.join(self.d, "state2")}):   # the note lost
+            with self.assertRaisesRegex(SystemExit, "--allow-off if no baseline turned them off"):
+                self.prepare(elsewhere)
+            code, out = self.prepare(elsewhere, "--allow-off")
         self.assertEqual(code, 0, out)                                   # off anyway: nothing to turn off
         self.assertIsNone(bl.load_record(elsewhere)["prepared_sha256"])
+
+    def test_the_open_note_follows_the_baseline(self):
+        write(self.pt, b"*SFBGS003.esm\n")
+        self.prepare()                                                  # nothing turned off: nothing open
+        self.assertFalse(os.path.exists(self.note))
+        write(self.pt, ORIGINAL)
+        gone = os.path.join(self.d, "gone")
+        write(self.note, json.dumps({"schema": 1, "out": gone, "plugins_txt": self.pt}))
+        later = os.path.join(self.d, "other", "baseline_2")
+        code, out = self.prepare(later)                                 # a note naming no baseline is stale
+        self.assertEqual(code, 0, out)
+        self.assertEqual(bl.read_json(self.note)["out"], later)
+        self.run_bl("restore", "--out", later)
+        self.assertFalse(os.path.exists(self.note))
+        blocked = write(os.path.join(self.d, "blocked"), b"a file, not a folder")   # the note cannot be written
+        os.remove(os.path.join(self.out, bl.RECORD))
+        with mock.patch.dict(os.environ, {"FO4_AI_TEAM_STATE": os.path.join(blocked, "state")}), \
+                self.assertRaisesRegex(SystemExit, "open-baseline note .* could not be written"):
+            self.prepare()
+        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)))
+        self.assertEqual(read(self.pt), ORIGINAL)
 
     def test_prepare_that_cannot_write_leaves_no_record(self):
         with plugins_txt_denied(), \
                 self.assertRaisesRegex(SystemExit, "could not be written .*Access is denied.*read-only"):
             self.prepare()
-        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)))
+        self.assertFalse(os.path.exists(os.path.join(self.out, bl.RECORD)) or os.path.exists(self.note))
         self.assertEqual(read(self.pt), ORIGINAL)
         self.assertEqual(os.listdir(os.path.dirname(self.pt)), ["Plugins.txt"])   # no temp file left
         with mock.patch.object(bl.os, "access", return_value=False), \
@@ -222,7 +268,7 @@ class BaselineTests(unittest.TestCase):
         self.log(BASE_LOG, -60)
         with self.assertRaisesRegex(SystemExit, "last written before prepare"):
             self.run_bl("collect", "--out", self.out)
-        self.log(BASE_LOG, 60)
+        p = self.log(BASE_LOG, 60)
         with mock.patch.object(bl, "game_running", return_value=True), self.assertRaisesRegex(SystemExit, "quit"):
             self.run_bl("collect", "--out", self.out)                  # the log is complete only after the quit
         code, out = self.run_bl("collect", "--out", self.out)
@@ -230,8 +276,21 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("1 errors, 0 warnings, 1 notes", out)
         rec = self.record()
         self.assertEqual((rec["log"]["file"], rec["log"]["ours"], rec["log"]["counts"]["error"]), ("Papyrus.0.log", [], 1))
+        self.assertEqual([s["path"] for s in rec["log"]["sources"]], [p])
         self.assertEqual(read(os.path.join(self.out, "Papyrus.0.log")), BASE_LOG.encode("utf-8"))
         self.assertEqual(sorted(os.listdir(self.out)), ["Papyrus.0.log", bl.RECORD])
+
+    def test_collect_joins_every_log_of_the_baseline(self):
+        self.prepare()
+        self.log(RUN_LOG, -60, "Papyrus.2.log")                          # a session before prepare: not this one
+        first = self.log(BASE_LOG.rstrip("\n"), 60, "Papyrus.1.log")    # the 10 minutes; no newline at its end
+        second = self.log(b"\xef\xbb\xbf" + SECOND_LOG.encode("utf-8"), 120)   # a start that quit at the menu
+        code, out = self.run_bl("collect", "--out", self.out)
+        self.assertEqual(code, 0, out)
+        self.assertIn("2 sessions wrote a log after prepare; their logs are joined, oldest first", out)
+        self.assertIn("1 errors, 1 warnings, 2 notes", out)
+        self.assertEqual(read(os.path.join(self.out, "Papyrus.0.log")), (BASE_LOG + SECOND_LOG).encode("utf-8"))
+        self.assertEqual([s["path"] for s in self.record()["log"]["sources"]], [first, second])
 
     def test_collect_takes_one_log_only(self):
         self.prepare()
@@ -250,11 +309,8 @@ class BaselineTests(unittest.TestCase):
         self.log(BASE_LOG, 7200)                                        # the plugins were back on by then
         with self.assertRaisesRegex(SystemExit, "written after restore"):
             self.run_bl("collect", "--out", self.out)
-        rec = self.record()
-        self.assertIsNone(rec["log"])
-        p = self.log(BASE_LOG, 0)                                       # the baseline session's, collected late
-        t = (rec["prepared_epoch"] + rec["restored_epoch"]) / 2
-        os.utime(p, (t, t))
+        self.assertIsNone(self.record()["log"])
+        self.between(self.log(BASE_LOG, 0))                             # the baseline session's, collected late
         self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
 
     def test_a_log_naming_ours_is_no_baseline(self):
@@ -262,36 +318,96 @@ class BaselineTests(unittest.TestCase):
         self.log(RUN_LOG, 60)                                           # a session that loaded our new game plugin
         code, out = self.run_bl("collect", "--out", self.out)
         self.assertEqual(code, 1)
-        self.assertIn("the log names ours (FO4SF_NewGameScript, FO4SFNewGameQuest)", out)
+        self.assertIn("not a vanilla session (the log names ours: FO4SF_NewGameScript, FO4SFNewGameQuest)", out)
         rec = self.record()
         self.assertIsNone(rec["log"])
         self.assertEqual((rec["not_vanilla"]["file"], rec["not_vanilla"]["ours"]),
                          (bl.NOT_VANILLA, ["FO4SF_NewGameScript", "FO4SFNewGameQuest"]))
         self.assertFalse(os.path.exists(os.path.join(self.out, "Papyrus.0.log")))
         self.assertEqual(read(os.path.join(self.out, bl.NOT_VANILLA)), RUN_LOG.encode("utf-8"))
-        with self.assertRaisesRegex(SystemExit, "loaded ours"):
+        with self.assertRaisesRegex(SystemExit, "session was not vanilla .*names ours"):
             self.run_bl("collect", "--out", self.out)
         run = write(os.path.join(self.d, "run", "Papyrus.0.log"), RUN_LOG)
-        with self.assertRaisesRegex(SystemExit, "names ours .*no baseline"):
+        with self.assertRaisesRegex(SystemExit, "not vanilla .*names ours.*no baseline"):
             self.run_bl("compare", "--out", self.out, "--run-log", run)
-        self.assertIn("names ours (FO4SF_NewGameScript, FO4SFNewGameQuest), kept as Papyrus.0.log.not-vanilla",
-                      self.run_bl("status", "--out", self.out)[1])
+        self.assertIn("not vanilla (the log names ours: FO4SF_NewGameScript, FO4SFNewGameQuest), kept as "
+                      "Papyrus.0.log.not-vanilla", self.run_bl("status", "--out", self.out)[1])
+
+    def test_a_session_with_a_plugin_ticked_again_is_no_baseline(self):
+        self.prepare()
+        ticked = PREPARED + b"*SomeMod.esp\r\n"                          # the Creations menu, a mod manager...
+        write(self.pt, ticked)
+        self.assertIn("SomeMod.esp ticked again", self.run_bl("status", "--out", self.out)[1])
+        self.log(BASE_LOG, 60)                                          # its log names nothing of ours
+        code, out = self.run_bl("collect", "--out", self.out)
+        self.assertEqual(code, 1, out)
+        self.assertIn("not a vanilla session (Plugins.txt had SomeMod.esp ticked again)", out)
+        self.assertEqual(self.record()["not_vanilla"]["ticked"], ["SomeMod.esp"])
+        run = write(os.path.join(self.d, "run", "Papyrus.0.log"), RUN_LOG)
+        with self.assertRaisesRegex(SystemExit, "not vanilla"):
+            self.run_bl("compare", "--out", self.out, "--run-log", run)
+
+    def test_a_restore_that_finds_a_plugin_ticked_again_ends_the_baseline(self):
+        self.prepare()
+        write(self.pt, PREPARED + b"*SomeMod.esp\r\n")
+        code, out = self.run_bl("restore", "--out", self.out, "--force")       # restore first, collect after
+        self.assertEqual(code, 0, out)
+        self.assertIn("SomeMod.esp were ticked in Plugins.txt before restore", out)
+        self.assertEqual(self.record()["ticked_at_restore"], ["SomeMod.esp"])
+        self.between(self.log(BASE_LOG, 0))
+        code, out = self.run_bl("collect", "--out", self.out)
+        self.assertEqual(code, 1, out)
+        self.assertIn("Plugins.txt had SomeMod.esp ticked again", out)
+        self.assertIn("restore found SomeMod.esp ticked", self.run_bl("status", "--out", self.out)[1])
+
+    def test_an_sfse_session_is_no_baseline(self):
+        self.prepare()
+        self.log(BASE_LOG, 60)
+        sfse = write(os.path.join(self.mg, "SFSE", "Logs", "sfse.log"), "SFSE runtime: initialize\n")
+        t = self.record()["prepared_epoch"] + 30
+        os.utime(sfse, (t, t))
+        code, out = self.run_bl("collect", "--out", self.out)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"SFSE wrote {sfse} (a start through sfse_loader.exe)", out)
+        self.assertEqual(self.record()["not_vanilla"]["sfse"], [sfse])
+
+    def test_an_sfse_log_from_before_prepare_is_not_the_baselines(self):
+        old = write(os.path.join(self.mg, "SFSE", "Logs", "FOCCPing.log"), "a modded session, before prepare\n")
+        self.prepare()
+        t = self.record()["prepared_epoch"] - 60
+        os.utime(old, (t, t))
+        self.log(BASE_LOG, 60)
+        self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
+
+    def test_an_sfse_session_after_restore_is_not_the_baselines(self):
+        self.prepare()
+        self.run_bl("restore", "--out", self.out)
+        self.between(self.log(BASE_LOG, 0))
+        sfse = write(os.path.join(self.mg, "SFSE", "Logs", "sfse.log"), "a modded session, after restore\n")
+        t = self.record()["restored_epoch"] + 60
+        os.utime(sfse, (t, t))
+        self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
 
     def test_restore_puts_the_bytes_back(self):
         self.prepare()
         code, out = self.run_bl("restore", "--out", self.out)
         self.assertEqual(code, 0, out)
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertEqual(self.record()["restore"], "byte for byte")
+        self.assertEqual((self.record()["restore"], self.record()["ticked_at_restore"]), ("byte for byte", []))
         self.assertIn("FO4Port.esm, FO4SFNewGame.esm back on", out)
+        self.assertNotIn("ticked", out)
         self.assertIn("already restored", self.run_bl("restore", "--out", self.out)[1])
+        self.assertEqual(sorted(os.listdir(self.out)), [bl.RECORD])     # nothing kept: it was prepare's own file
 
     def test_restore_over_the_games_own_rewrite(self):
         self.prepare()
-        write(self.pt, b"*SFBGS003.esm\nFO4Port.esm\n")           # the game rewrote it at startup: nothing ticked
+        rewrite = b"*SFBGS003.esm\nFO4Port.esm\nNewMod.esm\n"            # the game's rewrite, or the owner's edit
+        write(self.pt, rewrite)
         self.run_bl("restore", "--out", self.out)
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertEqual(self.record()["restore"], "over the game's own rewrite (it ticked no plugin)")
+        self.assertEqual(self.record()["restore"],
+                         "over the game's own rewrite (it ticked no plugin; kept as Plugins.txt.at-restore)")
+        self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), rewrite)
 
     def test_restore_refuses_a_ticked_plugin_unless_forced(self):
         self.prepare()
@@ -302,17 +418,19 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(read(self.pt), ticked)
         with mock.patch.object(bl, "game_running", return_value=True), self.assertRaisesRegex(SystemExit, "running"):
             self.run_bl("restore", "--out", self.out, "--force")
-        self.run_bl("restore", "--out", self.out, "--force")
+        code, out = self.run_bl("restore", "--out", self.out, "--force")
         self.assertEqual(read(self.pt), ORIGINAL)
         self.assertEqual(read(os.path.join(self.out, bl.KEPT_AT_RESTORE)), ticked)
         self.assertTrue(self.record()["restore"].startswith("forced over a file with FO4Port.esm ticked"))
+        self.assertIn("collect will not take its log as the baseline", out)
 
     def test_restore_over_a_file_that_is_not_utf8(self):
         self.prepare()
         write(self.pt, b"*SFBGS003.esm\nMod\xe9.esm\n")                 # a name in the Windows code page
         self.run_bl("restore", "--out", self.out)
         self.assertEqual(read(self.pt), ORIGINAL)
-        self.assertEqual(self.record()["restore"], "over the game's own rewrite (it ticked no plugin)")
+        self.assertEqual(self.record()["restore"],
+                         "over the game's own rewrite (it ticked no plugin; kept as Plugins.txt.at-restore)")
         os.remove(os.path.join(self.out, bl.RECORD))
         self.prepare()
         write(self.pt, b"*Mod\xe9.esm\n")
@@ -334,6 +452,7 @@ class BaselineTests(unittest.TestCase):
                 self.assertRaisesRegex(SystemExit, "changed while restoring; nothing written .*run restore again"):
             self.run_bl("restore", "--out", self.out)
         self.assertIsNone(self.record()["restored_at"])
+        self.assertTrue(os.path.exists(self.note))                      # still open
         write(self.pt, PREPARED)
         with plugins_txt_denied(), \
                 self.assertRaisesRegex(SystemExit, "could not be written .*run restore again"):
@@ -345,8 +464,11 @@ class BaselineTests(unittest.TestCase):
     def test_restore_when_already_back_or_gone(self):
         self.prepare()
         write(self.pt, ORIGINAL)                                   # put back by hand: nothing to write
-        self.run_bl("restore", "--out", self.out)
-        self.assertEqual(self.record()["restore"], "already the recorded one (nothing written)")
+        code, out = self.run_bl("restore", "--out", self.out)
+        rec = self.record()
+        self.assertEqual(rec["restore"], "already the recorded one (nothing written)")
+        self.assertEqual(rec["ticked_at_restore"], ["FO4Port.esm", "FO4SFNewGame.esm"])   # when? not known
+        self.assertIn("collect will not take its log as the baseline", out)
         os.remove(os.path.join(self.out, bl.RECORD))
         self.prepare()
         os.remove(self.pt)
@@ -359,8 +481,13 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("turned off: nothing", out)
         self.assertEqual(read(self.pt), b"*SFBGS003.esm\n")
+        self.assertIn("never changed (nothing was turned off)", self.run_bl("status", "--out", self.out)[1])
         self.assertIn("nothing to put back", self.run_bl("restore", "--out", self.out)[1])
-        self.assertIn("never changed", self.run_bl("status", "--out", self.out)[1])
+        self.assertIsNotNone(self.record()["restored_epoch"])          # it still ends the baseline's time
+        self.assertIn("restore ran", self.run_bl("status", "--out", self.out)[1])
+        self.log(BASE_LOG, 7200)                                        # a modded session days later
+        with self.assertRaisesRegex(SystemExit, "written after restore"):
+            self.run_bl("collect", "--out", self.out)
 
     def test_status(self):
         with self.assertRaisesRegex(SystemExit, "no baseline"):
@@ -369,15 +496,20 @@ class BaselineTests(unittest.TestCase):
         out = self.run_bl("status", "--out", self.out)[1]
         self.assertIn("turned off FO4Port.esm, FO4SFNewGame.esm", out)
         self.assertIn("log: not collected yet", out)
-        self.assertIn("as prepared, our plugins off", out)
+        self.assertIn("as prepared, the plugins off", out)
         write(self.pt, ORIGINAL)                                         # put back by hand
         self.assertIn("the recorded original already (nothing is off)", self.run_bl("status", "--out", self.out)[1])
+        write(self.pt, b"*SFBGS003.esm\n")                               # the game's rewrite
+        self.assertIn("changed since prepare (the game's rewrite at startup, or another tool)",
+                      self.run_bl("status", "--out", self.out)[1])
+        os.remove(self.pt)
+        self.assertIn("Plugins.txt: gone", self.run_bl("status", "--out", self.out)[1])
         write(self.pt, PREPARED)
-        self.log(BASE_LOG, 60)
+        p = self.log(BASE_LOG, 60)
         self.run_bl("collect", "--out", self.out)
         self.run_bl("restore", "--out", self.out)
         out = self.run_bl("status", "--out", self.out)[1]
-        self.assertIn("1 errors, 0 warnings", out)
+        self.assertIn(f"from {p}: 1 errors, 0 warnings", out)
         self.assertIn("restored", out)
         self.assertIn("now the recorded one", out)
 
@@ -388,6 +520,8 @@ class BaselineTests(unittest.TestCase):
         self.log(BASE_LOG, 60)
         self.run_bl("collect", "--out", self.out)
         self.run_bl("restore", "--out", self.out)
+        with self.assertRaisesRegex(SystemExit, "is not there"):
+            self.run_bl("compare", "--out", self.out, "--run-log", os.path.join(self.d, "no.log"))
         run = write(os.path.join(self.d, "run", "Papyrus.0.log"), RUN_LOG)
         report = os.path.join(self.d, "compare.json")
         code, out = self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", report)
@@ -409,15 +543,41 @@ class BaselineTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "changed since collect"):
             self.run_bl("compare", "--out", self.out, "--run-log", run)
 
+    def test_compare_never_writes_over_the_baselines_files(self):
+        self.prepare()
+        self.log(BASE_LOG, 60)
+        self.run_bl("collect", "--out", self.out)
+        run = write(os.path.join(self.d, "run", "Papyrus.0.log"), RUN_LOG)
+        kept = {p: read(p) for p in (os.path.join(self.out, bl.RECORD), os.path.join(self.out, "Papyrus.0.log"),
+                                     run, self.pt)}
+        for target, what in ((bl.RECORD, "the baseline's baseline.json"), ("Papyrus.0.log", "the baseline's Papyrus.0.log"),
+                             (bl.KEPT_AT_RESTORE, "the baseline's Plugins.txt.at-restore")):
+            with self.subTest(target), self.assertRaisesRegex(SystemExit, f"would write over {what}"):
+                self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", os.path.join(self.out, target))
+        for target, what in ((run, "the run's log"), (self.pt, "Plugins.txt")):
+            with self.subTest(what), self.assertRaisesRegex(SystemExit, f"would write over {what}"):
+                self.run_bl("compare", "--out", self.out, "--run-log", run, "--report", target)
+        self.assertEqual({p: read(p) for p in kept}, kept)
+        self.assertEqual(self.run_bl("restore", "--out", self.out)[0], 0)  # the record still restores
+
     def test_the_record_is_written_before_plugins_txt(self):
         order = []
         real_json, real_write = bl.write_json, bl.launcher_restore.write_plugins_txt
-        with mock.patch.object(bl, "write_json", lambda p, v: order.append("record") or real_json(p, v)), \
+        with mock.patch.object(bl, "write_json", lambda p, v: order.append(os.path.basename(p)) or real_json(p, v)), \
                 mock.patch.object(bl.launcher_restore, "write_plugins_txt",
-                                  lambda *a: order.append("plugins") or real_write(*a)):
+                                  lambda *a: order.append("Plugins.txt") or real_write(*a)):
             self.prepare()
-        self.assertEqual(order, ["record", "plugins"])
+        self.assertEqual(order, [bl.RECORD, bl.OPEN_NOTE, "Plugins.txt"])
         self.assertLess(abs(self.record()["prepared_epoch"] - time.time()), 60)
+
+    def test_a_name_the_console_cannot_print_never_fails_a_step(self):
+        write(self.pt, ORIGINAL + "*Modж.esm\r\n".encode("utf-8"))
+        self.prepare()
+        env = dict(os.environ, PYTHONIOENCODING="cp1252")                # strict, as Windows' piped stdout
+        script = os.path.join(ROOT, "scripts", "game", "baseline.py")
+        r = subprocess.run([sys.executable, script, "status", "--out", self.out], env=env, capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(b"Mod\\u0436.esm", r.stdout)
 
 
 if __name__ == "__main__":
