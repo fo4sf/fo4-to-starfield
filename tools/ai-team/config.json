@@ -5,7 +5,7 @@
     "restrict_pct": 88,
     "vram_block_pct": 95,
     "ram_block_pct": 90,
-    "vram_restrict_with_model_pct": 92,
+    "vram_restrict_with_model_pct": 94,
     "game_blocks_inference": true,
     "game_process_prefixes": ["starfield", "fallout4"],
     "queue_wait_s": 600,

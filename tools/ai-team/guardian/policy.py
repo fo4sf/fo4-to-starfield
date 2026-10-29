@@ -16,7 +16,7 @@ DEFAULTS = {
     "max_concurrent_local": 1,
     "caution_pct": 70, "restrict_pct": 85,
     "vram_block_pct": 95, "ram_block_pct": 90,
-    "vram_restrict_with_model_pct": 92,
+    "vram_restrict_with_model_pct": 94,
     "game_blocks_inference": True,
     "game_process_prefixes": ["starfield", "fallout4"],
     "queue_wait_s": 600, "request_timeout_s": 900,

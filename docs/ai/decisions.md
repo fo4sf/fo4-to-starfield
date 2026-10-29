@@ -863,6 +863,19 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Boundary: a text change, not yet run from the PC checkout; the first unattended session is the check. No merge gate
   changes: a PR still needs a fresh Claude review and green CI, and the unattended Lead does not merge.
 
+## 2026-10-29: Guardian's VRAM restrict with a resident model goes from 92% to 94% (Claude-cloud)
+- Decision: `vram_restrict_with_model_pct` goes from 92 to 94 in `tools/ai-team/config.json`, and the matching default in
+  `tools/ai-team/guardian/policy.py` moves with it. `vram_block_pct` stays 95. The model stays loaded at 128K (131072
+  context), as the owner asked on 29 Oct ("128k and drop QA").
+- Why: after its first request, LM Studio keeps GPU working memory reserved while the model sits idle. With the 128K
+  load, VRAM reads 92.5% (11.36 of 12.28 GB) with nothing running, so Guardian held every request from the unattended
+  Lead at the 92% line and refused them after the 600 s queue wait (HTTP 503). Cycle 2 never reached the model.
+- Alternatives: reload at 64K, which brings VRAM to about 85% with no config change but gives up the 128K. The owner
+  chose 128K with the 94% line on the decision card.
+- Boundary: the 95% block still refuses new work above 95%, so this lets the 128K load in without removing the limit.
+  Applying it restarts Guardian, which drops its queued and running jobs. Restart run-lead after, since its failure
+  backoff resets on restart.
+
 ## 2026-10-29: our planet goes in Sol, under Sol's own system location; the probe asks the location chain both ways round (Claude-cloud)
 - Decision: the planet probe builds route B by default (`stage --system sol`; route A stays as `--system own`).
   FO4SFPlanet.esm adds our planet (a Jemison clone) to Sol with Sol's system id (its star's DNAM, read at stage time)

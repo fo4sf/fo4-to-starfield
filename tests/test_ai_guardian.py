@@ -29,9 +29,10 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy.level(snap(ram=91), self.cfg)[0], "block")
         self.assertEqual(policy.admit(snap(ram=86), self.cfg, 0)[0], "queue")   # overload queues new work
 
-    def test_vram_with_resident_model_only_restricts_above_92(self):
+    def test_vram_with_resident_model_only_restricts_above_94(self):
         self.assertEqual(policy.level(snap(vram=88, loaded=True), self.cfg)[0], "normal")
-        self.assertEqual(policy.level(snap(vram=93, loaded=True), self.cfg)[0], "restrict")
+        self.assertEqual(policy.level(snap(vram=93, loaded=True), self.cfg)[0], "normal")
+        self.assertEqual(policy.level(snap(vram=94.5, loaded=True), self.cfg)[0], "restrict")
         self.assertEqual(policy.level(snap(vram=96, loaded=True), self.cfg)[0], "block")
         self.assertEqual(policy.level(snap(vram=88, loaded=False), self.cfg)[0], "restrict")
 
