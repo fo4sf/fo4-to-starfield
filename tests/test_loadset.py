@@ -93,6 +93,16 @@ class FolderTests(unittest.TestCase):
         finally:
             os.chdir(cwd)
 
+    def test_a_linked_my_games_folder_is_read_once(self):
+        od = os.path.join(self.home, "OneDrive", "Documents", "My Games")
+        os.makedirs(od)
+        try:                                                                         # Documents linked to OneDrive's
+            os.symlink(self.mg, os.path.join(od, "Starfield"), target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no directory links here: {e}")
+        self.assertEqual(lp.my_games_dirs(home=self.home), [os.path.join(od, "Starfield")])
+        self.assertEqual(lp.distinct_folders([self.mg, os.path.join(od, "Starfield"), self.mg]), [self.mg])
+
     def test_builtin_plugins(self):
         plugin(os.path.join(self.data, "Starfield.esm"), masters=())
         plugin(os.path.join(self.data, "SFBGS003.esm"))

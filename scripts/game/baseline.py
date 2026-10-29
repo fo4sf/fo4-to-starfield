@@ -14,23 +14,28 @@ usage: python -I scripts\\game\\baseline.py check   --starfield <game dir> [--al
 
 check    reads the PC and writes nothing: the plugins prepare would turn off, the deployment gate's loaders and start
          checks (fo4sf.core.preflight) as they will read once those are off, the [Papyrus] logging keys, whether the
-         baseline the open-baseline note names was never restored (prepare also looks in the folders next to its
+         open-baseline note names a baseline that may be open (noted(); prepare also looks in the folders next to its
          --out), and whether our plugins are off already with nothing else on (an earlier baseline never restored?
          --allow-off when no baseline turned them off).
 prepare  refuses while Starfield runs, when --out holds a baseline (one never restored: restore it first) or is in
-         the game folder, a My Games folder or Plugins.txt's folder, when a baseline of this Plugins.txt was never
-         restored (the open-baseline note names it, wherever it is, or it is in a folder next to --out), or when check
-         would refuse; records in <out>\\baseline.json Plugins.txt as it is (its bytes), the built-in plugins (names,
-         sizes, sha256), Starfield.exe's identity and the time; when it turns plugins off, notes the baseline as open
-         (<the test runner's state folder>\\baseline-open.json), then unticks every active plugin the game does not
-         ship (a guarded rewrite: nothing is written when Plugins.txt changed after it was read, and a write that fails
-         removes the record and the note again).
-collect  refuses while Starfield runs, and after a restore that stopped before its record; joins every Papyrus log of
-         the My Games folders written after prepare and before restore (Papyrus.0.log, and the older ones the game has
-         moved on), oldest first, into <out>, once. The session was not vanilla when its log names any of ours (FO4*
-         or FOCC*), when Plugins.txt has a plugin the game does not ship ticked again (now, or when restore ran), or
-         when SFSE wrote a log meanwhile (a start through sfse_loader.exe; found now, or when restore ran): the log is
-         then kept as Papyrus.0.log.not-vanilla instead, and the baseline has none.
+         the game folder, a My Games folder or Plugins.txt's folder, when the open-baseline note names a baseline that
+         may be open (one never restored, or one whose note or record cannot be read: prepare would write over the
+         only pointer to it, wherever its folder is), when a baseline of this Plugins.txt in a folder next to --out was
+         never restored, or when check would refuse; records in <out>\\baseline.json Plugins.txt as it is (its bytes),
+         the built-in plugins (names, sizes, sha256), Starfield.exe's identity, the sha256 of the Papyrus logs already
+         there and the time; when it turns plugins off, notes the baseline as open (<the test runner's state
+         folder>\\baseline-open.json), then unticks every active plugin the game does not ship (loadset.built_in: the
+         official plugins and any SFBGS* or BlueprintShips-* plugin stay on; a guarded rewrite: nothing is written
+         when Plugins.txt changed after it was read, and a write that fails removes the record and the note again).
+collect  refuses while Starfield runs, after a restore that stopped before its record, and when the game folder is not
+         readable; joins every Papyrus log of the My Games folders written after prepare and before restore
+         (Papyrus.0.log, and the older ones the game has moved on), oldest first, into <out>, once. A log that was
+         there at prepare (its sha256) is never taken, whatever its time. The session was not vanilla when its log
+         names any of ours (FO4* or FOCC*), when Plugins.txt has a plugin the game does not ship ticked again (now, or
+         when restore ran), or when SFSE wrote a log meanwhile (a start through sfse_loader.exe; found now, or when
+         restore ran); and it is no baseline either when the game changed since prepare (the built-in plugins by name
+         and size, Starfield.exe by size and sha256: a Steam update, and which build the session ran on is not known).
+         The log is then kept as Papyrus.0.log.not-vanilla instead, and the baseline has none.
 restore  refuses while Starfield runs; puts Plugins.txt back byte for byte, and ends the time collect takes logs from.
          The game rewrites Plugins.txt at startup (verified: docs/research/framework/launcher-sources/sfstack.md), so a
          rewrite that ticked no plugin is restored over; one that ticked a plugin the game does not ship refuses
@@ -38,8 +43,9 @@ restore  refuses while Starfield runs; puts Plugins.txt back byte for byte, and 
          .2, .3: a copy an earlier restore kept is never written over). It records the plugins that were ticked and
          the SFSE logs of the baseline's time, and collect after it takes no log as the baseline when there were any.
          Before it writes Plugins.txt, it checks the record's copy against its sha256 and notes in the record what it
-         found and when, so a restore that stops before its record is finished by the next one, with the first one's
-         findings and time.
+         found and when. A restore that stops before its record ended the baseline's time: the next one finishes the
+         record with the first one's findings and time, and writes nothing when the game has rewritten Plugins.txt
+         since with the same plugins on (other plugins on refuse unless --force).
 status   what the record holds and where Plugins.txt stands.
 compare  a run's Papyrus log against the baseline's: the groups of fo4sf.core.papyrus_log (only ours, only the run's
          Starfield scripts, the same message at the same script line in both, the same kind in both, only the
@@ -50,11 +56,12 @@ compare  a run's Papyrus log against the baseline's: the groups of fo4sf.core.pa
          turned off too. Refuses a baseline without a vanilla log.
 
 prepare, collect and restore run one at a time, whatever their --out: each takes baseline.lock in the runner's state
-folder, and one that finds it taken waits LOCK_WAIT_S, then refuses and changes nothing (the lock of one that stopped
-is taken over after LOCK_STALE_S, fo4sf.core.filelock).
+folder, and one that finds it taken waits LOCK_WAIT_S, then refuses and changes nothing (fo4sf.core.filelock: the lock
+of one that stopped is taken over after LOCK_STALE_S; on Windows, one whose command still runs cannot be).
 
-Nothing here touches a plugin file, an archive or an INI; outside <out> it writes only Plugins.txt, the open-baseline
-note and the lock in the runner's state folder, and compare's --report where it is given.
+Nothing here touches a plugin file, an archive or an INI. Outside <out> it writes only Plugins.txt and the
+open-baseline note (each through a temp file beside it), the lock, and compare's --report where it is given; it makes
+the state folder when it is not there, and Plugins.txt's folder when restore finds it gone.
 """
 import argparse
 import base64
@@ -270,10 +277,40 @@ def open_note_path():
     return os.path.join(state_dir(), OPEN_NOTE)
 
 
-def close_open_note(out):
+def close_open_note(out, rec=None):
+    """Removes the open-baseline note when it names this baseline: its folder, or (a folder moved since prepare) the
+    same Plugins.txt and prepare time as its record."""
     note = read_json(open_note_path())
-    if note and isinstance(note.get("out"), str) and same_path(note["out"], out):
+    if not note:
+        return
+    here = isinstance(note.get("out"), str) and same_path(note["out"], out)
+    moved = (rec is not None and rec.get("prepared_at") and note.get("prepared_at") == rec["prepared_at"]
+             and isinstance(note.get("plugins_txt"), str) and isinstance(rec.get("plugins_txt"), str)
+             and same_path(note["plugins_txt"], rec["plugins_txt"]))
+    if here or moved:
         remove(open_note_path())
+
+
+def noted(state):
+    """What the open-baseline note in the state folder says, read so that any unknown counts as open: None when it
+    names no baseline that may be open (there is no note, the folder it names is there without a record, or that
+    record's restore ran), else (out, rec): the folder it names, None when the note cannot be read, and that folder's
+    record, None when it cannot be read (a drive not there, a damaged or missing file). testqueue.py's runner and
+    prepare read it alike: the note is the only pointer to a baseline whose folder is anywhere."""
+    path = os.path.join(state, OPEN_NOTE)
+    if not os.path.lexists(path):
+        return None
+    note = read_json(path)
+    out = note.get("out") if note else None
+    if not isinstance(out, str):
+        return None, None
+    record = os.path.join(out, RECORD)
+    if os.path.isdir(out) and not os.path.lexists(record):
+        return None                                       # the baseline folder was emptied: nothing open there
+    rec = read_json(record)
+    if rec is not None and not unrestored(rec):
+        return None
+    return out, rec
 
 
 def holds_open(folder, plugins_txt):
@@ -283,23 +320,41 @@ def holds_open(folder, plugins_txt):
             and same_path(rec["plugins_txt"], plugins_txt))
 
 
-def open_baselines(plugins_txt, out=None):
-    """The folders other than out that hold a baseline of this Plugins.txt that was never restored: the one the
-    open-baseline note names (it can be anywhere), then any next to out (the same parent folder: the note goes when
-    the state folder does)."""
-    note = read_json(open_note_path())
-    folders = [note["out"]] if note and isinstance(note.get("out"), str) else []
+def open_problems(plugins_txt, out=None):
+    """Why a baseline other than out's may be open, [] when none is: the one the open-baseline note names (noted(): an
+    unreadable note or record counts, since prepare would write over the only pointer to it), then any baseline of
+    this Plugins.txt next to out (the same parent folder: the note goes when the state folder does) that was never
+    restored."""
+    problems, seen = [], []
+    found = noted(state_dir())
+    if found is not None:
+        d, rec = found
+        if d is None:
+            problems.append(f"the open-baseline note {open_note_path()} cannot be read, so a baseline may be open: "
+                            f"restore it, or remove the note once you know none is")
+        elif rec is None:
+            seen.append(d)
+            problems.append(f"the open-baseline note names {d}, whose record cannot be read (a drive not there, or a "
+                            f"damaged {RECORD}?), so that baseline may be open: restore it first, or remove the note "
+                            f"once you know it is not")
+        else:
+            seen.append(d)
+            mine = isinstance(rec.get("plugins_txt"), str) and same_path(rec["plugins_txt"], plugins_txt)
+            problems.append(f"{d} holds a baseline of {'this Plugins.txt' if mine else rec.get('plugins_txt')} that "
+                            f"was never restored: restore it first (baseline.py restore --out {d})")
     if out:
         parent = os.path.dirname(out)
         try:
-            folders += [os.path.join(parent, n) for n in sorted(os.listdir(parent))]
+            names = sorted(os.listdir(parent))
         except OSError:
-            pass
-    found = []
-    for d in folders:
-        if not (out and same_path(d, out)) and not any(same_path(d, f) for f in found) and holds_open(d, plugins_txt):
-            found.append(d)
-    return found
+            names = []
+        for n in names:
+            d = os.path.join(parent, n)
+            if not same_path(d, out) and not any(same_path(d, f) for f in seen) and holds_open(d, plugins_txt):
+                seen.append(d)
+                problems.append(f"{d} holds a baseline of this Plugins.txt that was never restored: restore it first "
+                                f"(baseline.py restore --out {d})")
+    return problems
 
 
 def survey(a, out=None):
@@ -322,8 +377,7 @@ def survey(a, out=None):
         keys = " ".join(f"{k}={v}" for k, v in preflight.PAPYRUS_KEYS)
         problems.append(f"[Papyrus] {keys} not in effect (StarfieldCustom.ini overrides Starfield.ini): the session "
                         f"would write no log (scripts/bridge/make_bridge.py ini sets them)")
-    problems += [f"{d} holds a baseline of this Plugins.txt that was never restored: restore it first (baseline.py "
-                 f"restore --out {d})" for d in open_baselines(pt, out)]
+    problems += open_problems(pt, out)
     left_off = off_already(text_lines(raw)) if not any(loadset.ours(n) for n in off) else []
     if left_off and not getattr(a, "allow_off", False):
         problems.append(f"none of ours is on, and {', '.join(left_off)} are off in Plugins.txt already: an earlier "
@@ -377,6 +431,7 @@ def prepare(a):
         raise SystemExit("prepare: Starfield was started while prepare read the game folder, so nothing changed: close "
                          "it, then run prepare again")
     rec["prepared_at"], rec["prepared_epoch"] = now_iso(), time.time()   # collect takes logs from here on
+    rec["logs_at_prepare"] = sorted({files.sha256(p) for _, p in session_logs(s["my_games"])})   # never the baseline's
     os.makedirs(out, exist_ok=True)
     write_json(record, rec)                               # the record first: an interruption leaves restore its bytes
     if s["off"]:
@@ -458,8 +513,14 @@ def joined_logs(paths):
     return out
 
 
+def not_vanilla(entry):
+    """True when collect's entry shows a session that was not vanilla; False when it is no baseline only because the
+    game changed since prepare."""
+    return any(entry.get(k) for k in ("ours", "ticked", "sfse"))
+
+
 def why_not_vanilla(entry):
-    """What showed that the session was not vanilla (collect's not_vanilla entry), as text."""
+    """What showed that the session is no baseline (collect's not_vanilla entry), as text."""
     parts = []
     if entry.get("ours"):
         parts.append(f"the log names ours: {', '.join(entry['ours'])}")
@@ -467,6 +528,9 @@ def why_not_vanilla(entry):
         parts.append(f"Plugins.txt had {', '.join(entry['ticked'])} ticked again")
     if entry.get("sfse"):
         parts.append(f"SFSE wrote {', '.join(entry['sfse'])} (a start through sfse_loader.exe)")
+    if entry.get("changed"):
+        parts.append(f"the game changed since prepare ({', '.join(entry['changed'])}: a Steam update?), so which build "
+                     f"the session ran on is not known")
     return "; ".join(parts) or "no reason recorded"
 
 
@@ -477,20 +541,25 @@ def collect(a):
         raise SystemExit(f"collect: this baseline's log is collected already ({rec['log']['collected_at']}), and a "
                          f"baseline is collected once: prepare a new one for another session")
     if rec.get("not_vanilla"):
-        raise SystemExit(f"collect: this baseline's session was not vanilla ({why_not_vanilla(rec['not_vanilla'])}), "
-                         f"so it is no baseline: restore, then prepare a new one")
+        raise SystemExit(f"collect: this baseline's session is no baseline ({why_not_vanilla(rec['not_vanilla'])}): "
+                         f"restore, then prepare a new one")
     if rec.get("restoring"):
         raise SystemExit("collect: a restore of this baseline stopped before it updated the record: run restore again "
                          "first (it finishes the record), then collect")
     if game_running():
         raise SystemExit("collect: Starfield is running (or its state is unknown): quit to the desktop first, so the "
                          "log is complete")
+    changed = game_changes(rec)
+    if changed is None:
+        raise SystemExit(f"collect: the game folder {rec['starfield']} is not readable here, so whether the game "
+                         f"changed since prepare is not known: run collect again with it there")
     my_games = rec.get("my_games") or []
     logs = session_logs(my_games)
     if not logs:
         raise SystemExit(f"collect: no {LOG_NAME} in {', '.join(my_games) or 'any My Games folder'}")
     start, end = rec["prepared_epoch"], rec.get("restored_epoch")
-    inside = [(t, p) for t, p in logs if start < t and (end is None or t <= end)]
+    before = set(rec.get("logs_at_prepare") or [])        # a log the game moved on by copying keeps no time
+    inside = [(t, p) for t, p in logs if start < t and (end is None or t <= end) and files.sha256(p) not in before]
     if not inside:
         if end is not None and any(t > end for t, _ in logs):
             raise SystemExit("collect: the only Papyrus logs written after prepare were written after restore, by "
@@ -506,13 +575,15 @@ def collect(a):
     try:
         with open(tmp, "wb") as f:
             f.write(joined_logs([p for _, p in inside]))
+            f.flush()
+            os.fsync(f.fileno())                          # on disk before the record names it (a power cut)
         log = papyrus_log.read(tmp)
         mine = sorted({n for e in log.events for n in e.ours()}, key=str.casefold)
         c = log.counts()
         entry = {"sources": [{"path": p, "mtime": t, "size": os.path.getsize(p)} for t, p in inside],
                  "sha256": files.sha256(tmp), "size": os.path.getsize(tmp), "collected_at": now_iso(), "counts": c,
-                 "ours": mine, "ticked": ticked, "sfse": sfse}
-        bad = bool(mine or ticked or sfse)
+                 "ours": mine, "ticked": ticked, "sfse": sfse, "changed": changed}
+        bad = bool(mine or ticked or sfse or changed)
         kept = os.path.join(out, NOT_VANILLA if bad else LOG_NAME)
         os.replace(tmp, kept)
     except BaseException:
@@ -525,9 +596,10 @@ def collect(a):
     if len(inside) > 1:
         print(f"collect: {len(inside)} sessions wrote a log after prepare; their logs are joined, oldest first")
     if bad:
-        print(f"collect: not a vanilla session ({why_not_vanilla(entry)}), so it is no baseline. Kept as "
-              f"{NOT_VANILLA}; restore, then prepare a new baseline and start the game the plain way (Steam's Play or "
-              f"Starfield.exe, never the FO4SF Launcher or sfse_loader.exe)")
+        what = "not a vanilla session" if not_vanilla(entry) else "not a session of the recorded game"
+        print(f"collect: {what} ({why_not_vanilla(entry)}), so it is no baseline. Kept as {NOT_VANILLA}; restore, "
+              f"then prepare a new baseline and start the game the plain way (Steam's Play or Starfield.exe, never the "
+              f"FO4SF Launcher or sfse_loader.exe)")
         return 1
     return 0
 
@@ -563,7 +635,7 @@ def restore(a):
     out = os.path.abspath(a.out)
     rec = load_record(out)
     if rec.get("restored_at"):
-        close_open_note(out)
+        close_open_note(out, rec)
         print(f"restore: already restored at {rec['restored_at']} ({rec.get('restore')})")
         return 0
     if game_running():
@@ -574,16 +646,25 @@ def restore(a):
     now = sha256_bytes(cur)
     ticked = turned_on(cur, tolerant=True)                # the game may write a name in another encoding
     done = rec.get("restoring") if isinstance(rec.get("restoring"), dict) else None
-    finishing = bool(done) and rec.get("prepared_sha256") is not None and now == rec["plugins_txt_sha256"]
-    if finishing:                                         # a restore wrote it and stopped before its record: its time
+    if rec.get("prepared_sha256") is None:
+        done = None
+    if done:                                              # a restore that stopped before its record ended the time
         at, at_iso = done.get("epoch") or at, done.get("at") or at_iso
     sfse = sfse_logs(rec.get("my_games") or [], rec["prepared_epoch"], at)   # before a later start rewrites one
+    found = ticked                                        # the plugins ticked in the baseline's time
+    if done:                                              # what the stopped one found then; later changes came after
+        found = done.get("ticked") or []
+        sfse = list(dict.fromkeys((done.get("sfse") or []) + sfse))
+    on = {n.casefold() for n in ticked} == {n.casefold() for n in rec.get("turned_off") or []}
+    rewritten = bool(done) and cur is not None and on and now != rec["plugins_txt_sha256"]   # since the stopped one
     kept = None
     if rec.get("prepared_sha256") is None:
         how = "nothing to put back (prepare turned nothing off)"
-    elif finishing:
-        ticked, how = done.get("ticked") or [], done.get("how") or "written back (by the restore that stopped)"
-        sfse = list(dict.fromkeys((done.get("sfse") or []) + sfse))
+    elif done and now == rec["plugins_txt_sha256"]:
+        how = done.get("how") or "written back (by the restore that stopped)"
+    elif rewritten:                                       # the game's rewrite at startup of what it wrote back
+        how = (f"written back by the restore that stopped at {at_iso} (Plugins.txt was rewritten since, with the "
+               f"same plugins on; nothing written)")
     elif now == rec["plugins_txt_sha256"]:
         how = "already the recorded one (nothing written)"
     elif now == rec["prepared_sha256"]:
@@ -593,21 +674,29 @@ def restore(a):
     else:
         kept = kept_name(out)
         if ticked and not a.force:
+            if done:
+                raise SystemExit(f"restore: refused, nothing written: a restore of this baseline at {at_iso} stopped "
+                                 f"before it updated the record, and Plugins.txt has changed since: {', '.join(ticked)} "
+                                 f"are ticked now, which are not the plugins prepare turned off; --force keeps the "
+                                 f"current file as {kept} in {out} and writes the recorded one back (the baseline's "
+                                 f"time ended at that restore either way)")
             raise SystemExit(f"restore: refused, nothing written: since prepare, {', '.join(ticked)} were ticked in "
                              f"Plugins.txt (the baseline session may not have been vanilla); --force keeps the current "
                              f"file as {kept} in {out} and writes the recorded one back")
         how = (f"forced over a file with {', '.join(ticked)} ticked (kept as {kept})" if ticked else
                f"over the game's own rewrite (it ticked no plugin; kept as {kept})")
     record, wrote = os.path.join(out, RECORD), False
-    if rec.get("prepared_sha256") is not None and now != rec["plugins_txt_sha256"]:
+    if rec.get("prepared_sha256") is not None and now != rec["plugins_txt_sha256"] and not rewritten:
         if recorded_bytes(rec) is None:
             raise SystemExit(f"restore: refused, nothing written: the record's copy of Plugins.txt does not match its "
                              f"sha256, so {record} was changed or damaged since prepare")
         if kept:
             with open(os.path.join(out, kept), "xb") as f:
                 f.write(cur)
+                f.flush()
+                os.fsync(f.fileno())                      # on disk before Plugins.txt is written over
         try:                                              # what this restore found, for a rerun after a failed record
-            write_json(record, dict(rec, restoring={"ticked": ticked, "how": how, "sfse": sfse, "epoch": at,
+            write_json(record, dict(rec, restoring={"ticked": found, "how": how, "sfse": sfse, "epoch": at,
                                                     "at": at_iso}))
         except OSError as e:
             raise SystemExit(f"restore: {record} could not be written ({e}), so nothing was written: run restore "
@@ -624,21 +713,21 @@ def restore(a):
                              f"open in another program?): run restore again") from None
         wrote = True
     rec.pop("restoring", None)
-    rec.update(restored_at=at_iso, restored_epoch=at, restore=how, ticked_at_restore=ticked, sfse_at_restore=sfse)
+    rec.update(restored_at=at_iso, restored_epoch=at, restore=how, ticked_at_restore=found, sfse_at_restore=sfse)
     try:
         write_json(record, rec)
     except OSError as e:
         back = "Plugins.txt is back, but " if wrote else ""
         raise SystemExit(f"restore: {back}{record} could not be written ({e}): run restore again, which finishes the "
                          f"record") from None
-    close_open_note(out)
+    close_open_note(out, rec)
     if rec.get("prepared_sha256") is None:
         print("restore: prepare turned nothing off: nothing to put back (from now on, collect takes no log)")
     else:
         print(f"restored {pt} {how}: {', '.join(rec['turned_off'])} back on")
     if not (rec.get("log") or rec.get("not_vanilla")):
-        if ticked:
-            print(f"restore: {', '.join(ticked)} were ticked in Plugins.txt before restore, so the session may have "
+        if found:
+            print(f"restore: {', '.join(found)} were ticked in Plugins.txt before restore, so the session may have "
                   f"loaded them: collect will not take its log as the baseline")
         if sfse:
             print(f"restore: SFSE wrote {', '.join(sfse)} during the baseline's time (a start through sfse_loader.exe): "
@@ -656,7 +745,8 @@ def status(a):
         src = " + ".join(s["path"] for s in log.get("sources") or [])
         print(f"log: {log['file']} from {src}: {c['error']} errors, {c['warning']} warnings")
     elif bad:
-        print(f"log: not vanilla ({why_not_vanilla(bad)}), kept as {bad['file']}: no baseline")
+        print(f"log: {'not vanilla' if not_vanilla(bad) else 'not of the recorded game'} ({why_not_vanilla(bad)}), "
+              f"kept as {bad['file']}: no baseline")
     else:
         print("log: not collected yet")
     cur = read_bytes(rec["plugins_txt"])
@@ -688,20 +778,41 @@ def status(a):
     return 0
 
 
-def builtins_note(rec):
+def builtins_diff(rec):
+    """(how many there are now, [what differs from prepare's]) of the built-in plugins by name and size, None when the
+    game folder is not readable here."""
     now = loadprobe.builtin_plugins(os.path.join(rec["starfield"], "Data"))
-    was = rec.get("builtins") or {}
     if now is None:
-        return f"built-in plugins: the game folder {rec['starfield']} is not readable here, not compared"
+        return None
+    was = rec.get("builtins") or {}
     a = {n.casefold(): n for n in now}
     b = {n.casefold(): n for n in was}
     added = sorted(a[k] for k in set(a) - set(b))
     gone = sorted(b[k] for k in set(b) - set(a))
     resized = sorted(a[k] for k in set(a) & set(b) if now[a[k]]["size"] != was[b[k]]["size"])
-    if not (added or gone or resized):
-        return f"built-in plugins: the same {len(now)} as at the baseline (names and sizes)"
-    parts = [f"{what} {', '.join(names)}" for what, names in (("added", added), ("gone", gone),
-                                                                ("changed size", resized)) if names]
+    return len(now), [f"{what} {', '.join(names)}" for what, names in (("added", added), ("gone", gone),
+                                                                         ("changed size", resized)) if names]
+
+
+def game_changes(rec):
+    """What of the game changed since prepare recorded it ([] for nothing): the built-in plugins by name and size, and
+    Starfield.exe by size and sha256. None when the game folder is not readable here."""
+    found = builtins_diff(rec)
+    if found is None:
+        return None
+    parts = [f"built-in plugins {p}" for p in found[1]]
+    if file_identity(os.path.join(rec["starfield"], "Starfield.exe")) != rec.get("starfield_exe"):
+        parts.append("Starfield.exe")
+    return parts
+
+
+def builtins_note(rec):
+    found = builtins_diff(rec)
+    if found is None:
+        return f"built-in plugins: the game folder {rec['starfield']} is not readable here, not compared"
+    n, parts = found
+    if not parts:
+        return f"built-in plugins: the same {n} as at the baseline (names and sizes)"
     return f"built-in plugins differ from the baseline's: {'; '.join(parts)} (a Starfield update? re-run the baseline)"
 
 
@@ -742,9 +853,10 @@ def compare(a):
     out = os.path.abspath(a.out)
     rec = load_record(out)
     log = rec.get("log") or {}
-    bad = rec.get("not_vanilla") or (log if log.get("ours") or log.get("ticked") or log.get("sfse") else None)
+    bad = rec.get("not_vanilla") or (log if any(log.get(k) for k in ("ours", "ticked", "sfse", "changed")) else None)
     if bad:
-        raise SystemExit(f"compare: the baseline session was not vanilla ({why_not_vanilla(bad)}): it is no baseline "
+        what = "was not vanilla" if not_vanilla(bad) else "was not of the recorded game"
+        raise SystemExit(f"compare: the baseline session {what} ({why_not_vanilla(bad)}): it is no baseline "
                          f"(prepare a new one)")
     if not log:
         raise SystemExit("compare: the baseline's log is not collected yet (baseline.py collect)")

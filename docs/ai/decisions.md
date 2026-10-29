@@ -749,8 +749,11 @@ decided the import path); keeping the order as a parameter (two orders in the co
     ship ticked again, and SFSE wrote no log meanwhile. Otherwise its log is kept aside and the baseline gets none.
   - While a baseline is open (its note in the runner's state folder names it and its restore has not run), the test
     runner installs and launches nothing, since a launch would load our plugins into the baseline's session. A note or
-    record it cannot read stops it too (the gate's "any unknown refuses"). `prepare`, `collect` and `restore` take one
-    lock in that folder, so two of them do not change one record or Plugins.txt at the same time.
+    record it cannot read stops it too (the gate's "any unknown refuses"), and `prepare` reads the note the same way,
+    so it never writes over the only pointer to a baseline that may be open. `prepare`, `collect` and `restore` take
+    one lock in that folder, so two of them do not change one record or Plugins.txt at the same time.
+  - A session of a game that changed between `prepare` and `collect` (a Steam update) is no baseline either: which
+    build it ran on is not known.
   - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7). Their rules are in
     `src/fo4sf/core/loadset.py`, which reads nothing, and `src/fo4sf/launcher/loadprobe.py` reads the PC for them, so
     the core still reads nothing on the PC. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a

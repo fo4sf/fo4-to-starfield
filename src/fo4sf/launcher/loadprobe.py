@@ -18,13 +18,26 @@ from .files import sha256
 MY_GAMES = ("OneDrive", "Documents"), ("Documents",)                 # under the home folder, OneDrive first
 
 
+def distinct_folders(paths):
+    """paths without a folder named twice: one a link or junction to another (Documents linked to OneDrive's) is read
+    once, as the first one found."""
+    out, seen = [], set()
+    for p in paths:
+        key = os.path.normcase(os.path.realpath(p))
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
+
+
 def my_games_dirs(explicit=None, home=None):
     """The My Games\\Starfield folders to read, absolute: the one given, else those of the two usual places that exist
-    (Documents in OneDrive, then plain Documents: the test runner's rule, testqueue.py PreflightProbe)."""
+    (Documents in OneDrive, then plain Documents: the test runner's rule, testqueue.py PreflightProbe), each once."""
     if explicit:
         return [os.path.abspath(explicit)] if os.path.isdir(explicit) else []
     home = home or os.path.expanduser("~")
-    return [p for p in (os.path.join(home, *base, "My Games", "Starfield") for base in MY_GAMES) if os.path.isdir(p)]
+    return distinct_folders(p for p in (os.path.join(home, *base, "My Games", "Starfield") for base in MY_GAMES)
+                            if os.path.isdir(p))
 
 
 def plugins_txt_path(env=None):

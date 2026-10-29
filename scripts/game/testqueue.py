@@ -2591,8 +2591,11 @@ class PreflightProbe:
         return out
 
     def my_games(self):
-        """The My Games\\Starfield folders that are there, by the Saves rule above (OneDrive's Documents first)."""
-        return [os.path.dirname(d) for d in self.saves_dirs() if os.path.isdir(os.path.dirname(d))]
+        """The My Games\\Starfield folders that are there, by the Saves rule above (OneDrive's Documents first), each
+        once (one linked to the other is read once)."""
+        from fo4sf.launcher import loadprobe
+        return loadprobe.distinct_folders(os.path.dirname(d) for d in self.saves_dirs()
+                                          if os.path.isdir(os.path.dirname(d)))
 
     def staged_at_launch(self):
         """[(name, staged path)] of the plugins installed at the launch, so the start check reads the file that will
@@ -2687,31 +2690,25 @@ def open_baseline(state_dir):
     """Why no game may be launched now, else None: a vanilla baseline is open (scripts/game/baseline.py prepare turned
     our plugins off for one plain session and its restore has not run; prepare's note in the state folder names it).
     A launch would deploy our plugins into that session. A note or record that cannot be read refuses too (any unknown
-    refuses); a note is stale only when its baseline folder is there without a record, or its record is restored. No
-    state folder (a test's controls): None."""
+    refuses; baseline.noted, which prepare reads alike). No state folder (a test's controls): None. Each reason starts
+    "baseline:", which stops the run without waiting (Runner.run)."""
     if not state_dir:
         return None
     import baseline                                       # beside this file (scripts/game)
+    found = baseline.noted(state_dir)
+    if found is None:
+        return None
+    out, rec = found
     path = os.path.join(state_dir, baseline.OPEN_NOTE)
-    if not os.path.lexists(path):
-        return None
-    note = baseline.read_json(path)
-    out = note.get("out") if note else None
-    if not isinstance(out, str):
-        return (f"the open-baseline note {path} cannot be read, so a vanilla baseline may be open "
+    if out is None:
+        return (f"baseline: the open-baseline note {path} cannot be read, so a vanilla baseline may be open "
                 f"(docs/testing/baseline.md): remove the note once you know none is")
-    record = os.path.join(out, baseline.RECORD)
-    if os.path.isdir(out) and not os.path.lexists(record):
-        return None                                       # the baseline folder was emptied: nothing open there
-    rec = baseline.read_json(record)
     if rec is None:
-        return (f"the open-baseline note {path} names {out}, whose record cannot be read (a drive not there, or a "
-                f"damaged {baseline.RECORD}?), so a vanilla baseline may be open (docs/testing/baseline.md): restore it, "
-                f"or remove the note once you know none is")
-    if not baseline.unrestored(rec):
-        return None
-    return (f"a vanilla baseline is open in {out} (docs/testing/baseline.md), and a launch would load our plugins into "
-            f"its session: restore it first (baseline.py restore --out {out})")
+        return (f"baseline: the open-baseline note {path} names {out}, whose record cannot be read (a drive not there, "
+                f"or a damaged {baseline.RECORD}?), so a vanilla baseline may be open (docs/testing/baseline.md): "
+                f"restore it, or remove the note once you know none is")
+    return (f"baseline: a vanilla baseline is open in {out} (docs/testing/baseline.md), and a launch would load our "
+            f"plugins into its session: restore it first (baseline.py restore --out {out})")
 
 
 def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
@@ -3332,8 +3329,7 @@ class Runner:
                 return why
             why = open_baseline(getattr(self.ctl, "state_dir", None))
             if why:
-                self.log(f"{why}: stopping")
-                return "stop"
+                return why
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why
@@ -3366,6 +3362,9 @@ class Runner:
                 self.log(f"pre-launch exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
                 if r.returncode != 0:
                     return "stop"
+            why = open_baseline(getattr(self.ctl, "state_dir", None))
+            if why:                                       # again, last: a baseline prepared during the installs above
+                return why
             if fresh:
                 self.state["fresh_launches"] = self.state.get("fresh_launches", 0) + 1
             else:
@@ -3812,8 +3811,9 @@ class Runner:
                 self.live_pid = None                      # closed on purpose: not a crash
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g and g.startswith(("the game did not start", "limit:", "the dedicated save")):
-                # no waiting fixes Steam, a full disk or a save that is not there or did not load (cycle.ps1 exit 11)
+            if g and g.startswith(("the game did not start", "limit:", "the dedicated save", "baseline:")):
+                # no waiting fixes Steam, a full disk or a save that is not there or did not load (cycle.ps1 exit 11),
+                # nor an open vanilla baseline (it needs a restore)
                 self.log(f"stopped: {g}")
                 self.checkpoint(f"stopped: {g}")
                 return 3

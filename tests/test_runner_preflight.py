@@ -284,7 +284,8 @@ class ProbeOnThisBoxTests(unittest.TestCase):
                 self.assertIn(part, c.detail)
         with mock.patch.object(tq.PreflightProbe, "saves_dirs", return_value=[os.path.join(self.d, "none", "Saves")]):
             self.assertEqual(pf.check_loaders(self.p).status, pf.UNKNOWN)    # no My Games folder: nothing checked
-        with mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}):
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}), mock.patch.object(tq.PreflightProbe, "saves_dirs",
+                                                                              return_value=saves):
             self.assertEqual(pf.check_start(self.p).status, pf.UNKNOWN)      # Plugins.txt not locatable
 
     def pin(self, **fields):

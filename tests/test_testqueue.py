@@ -902,10 +902,35 @@ class OpenBaselineTests(unittest.TestCase):
         self.assertEqual(launched, [])
         self.assertFalse(os.path.exists(marker))
         self.assertIn(f"a vanilla baseline is open in {out}", readf(os.path.join(d, "run.log")))
+        self.assertEqual(jload(os.path.join(d, "state.json"))["status"],   # the reason, not a bare "stop"
+                         f"stopped: {tq.open_baseline(state)}")
         jdump(dict(rec, restored_at="2026-10-29T08:00:00+00:00"), os.path.join(out, "baseline.json"))
         run()                                             # restored: the note is stale, the launch goes ahead
         self.assertEqual(launched[:1], ["cycle.ps1"])
         self.assertTrue(os.path.exists(marker))
+
+    def test_a_baseline_prepared_during_the_installs_stops_the_launch(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        q = jload(os.path.join(d, "queue.json"))
+        prepare = (f"import json, os; os.makedirs({out!r}); "     # baseline.py prepare, while pre_launch installs
+                   f"json.dump({{'schema': 1, 'prepared_sha256': 'ab' * 32, 'restored_at': None}}, "
+                   f"open(os.path.join({out!r}, 'baseline.json'), 'w')); "
+                   f"json.dump({{'schema': 1, 'out': {out!r}}}, open(os.path.join({state!r}, 'baseline-open.json'), 'w'))")
+        q["pre_launch"] = [sys.executable, "-c", prepare]
+        jdump(q, os.path.join(d, "queue.json"))
+        os.makedirs(state)
+        ctl = FakeControls()
+        ctl.pid, ctl.state_dir = None, state
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+        r.run()
+        self.assertTrue(os.path.exists(os.path.join(state, "baseline-open.json")))   # pre_launch ran, then
+        self.assertEqual(launched, [])                                              # no launch
+        self.assertIn(f"a vanilla baseline is open in {out}", jload(os.path.join(d, "state.json"))["status"])
 
     def test_controls_without_a_state_folder_never_read_the_machines(self):
         d = tempfile.mkdtemp()
