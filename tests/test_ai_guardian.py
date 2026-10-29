@@ -45,5 +45,16 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy.level(snap(procs={"Starfield.exe": {}}), cfg)[0], "normal")
 
 
+class ProcessSampleTests(unittest.TestCase):
+    def test_tasklist_memory_of_n_a_does_not_break_the_sample(self):
+        import resources
+        from unittest import mock
+        out = '"Starfield.exe","1234","Console","1","N/A"\n"python.exe","88","Console","1","12,345 K"\n'
+        with mock.patch.object(resources, "_run", return_value=out):
+            found = resources.processes()["processes"]
+        self.assertEqual(found["Starfield.exe"]["working_set_mib"], 0)
+        self.assertEqual(found["python.exe"]["working_set_mib"], 12)
+
+
 if __name__ == "__main__":
     unittest.main()

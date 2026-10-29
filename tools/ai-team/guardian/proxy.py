@@ -132,9 +132,15 @@ class Handler(BaseHTTPRequestHandler):
             req.setdefault("stream_options", {})["include_usage"] = True
         c = store.connect()
         now = time.time()
+        # a queued row whose waiter has stopped heartbeating is an orphan; a live waiter refreshes every few seconds
+        c.execute("UPDATE jobs SET status='abandoned', finished=?, error='waiter gone (no heartbeat)' "
+                  "WHERE status='queued' AND heartbeat < ?", (now, now - 60))
         job = c.execute("INSERT INTO jobs (agent, model, kind, status, created, heartbeat, owner_pid) "
                         "VALUES (?,?,?,?,?,?,?)", (agent, real, self.path, "queued", now, now, os.getpid())).lastrowid
-        decision = self._wait_for_admission(c, job)
+        try:
+            decision = self._wait_for_admission(c, job)
+        except Exception as e:                           # a dead waiter must not leave its row queued
+            decision = f"error while queued: {type(e).__name__}: {e}"
         if decision != "admit":
             c.execute("UPDATE jobs SET status='rejected', finished=?, error=? WHERE id=?",
                       (time.time(), decision, job))

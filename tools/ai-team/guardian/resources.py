@@ -103,6 +103,13 @@ def lmstudio(base=LMSTUDIO):
             return {"reachable": False, "source": "measured", "error": f"{type(e).__name__}: {e}"}
 
 
+def _mem_kib(text):
+    """tasklist's memory column ('12,345 K'). 'N/A' or any other non-number counts as 0. A ValueError here used to
+    kill the request thread that was waiting on the sample, and its queued row was left behind forever."""
+    parts = text.replace(",", "").replace(".", "").split()
+    return int(parts[0]) if parts and parts[0].isdigit() else 0
+
+
 def processes():
     """Agent / model / game processes by image name (tasklist). Identifies presence, not activity."""
     out = _run(["tasklist", "/fo", "csv", "/nh"], timeout=10) or ""
@@ -114,7 +121,7 @@ def processes():
         key = next((w for w in WATCHED if name.startswith(w.replace(" ", ""))
                     or name.startswith(w)), None)
         if key:
-            mem_kib = int(row[4].replace(",", "").replace(".", "").split()[0] or 0)
+            mem_kib = _mem_kib(row[4])
             f = found.setdefault(row[0], {"count": 0, "working_set_mib": 0})
             f["count"] += 1
             f["working_set_mib"] += mem_kib // 1024
