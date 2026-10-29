@@ -213,6 +213,81 @@ class ProbeOnThisBoxTests(unittest.TestCase):
         with self.assertRaises(ValueError):                               # a record naming a path outside Data: UNKNOWN
             self.p.data_file_sha256(os.path.join("..", "Starfield.exe"))
 
+    def test_the_load_set_readings_come_from_the_game_and_my_games_folders(self):
+        from fo4sf.planet import esm
+        home, local = os.path.join(self.d, "home"), os.path.join(self.d, "local")
+        mg = os.path.join(home, "Documents", "My Games", "Starfield")
+        saves = [os.path.join(home, "OneDrive", "Documents", "My Games", "Starfield", "Saves"), os.path.join(mg, "Saves")]
+        data = os.path.join(self.d, "game", "Data")
+        for d in (os.path.join(mg, "Data"), data, os.path.join(local, "Starfield")):
+            os.makedirs(d)
+
+        def plugin(path, sig=None, fid=0):
+            w = esm.PluginWriter(["Starfield.esm"])
+            if sig:
+                w.add(esm.Record(sig, fid, [(b"EDID", esm.zbytes("X"))]))
+            w.write(path)
+
+        env = {"LOCALAPPDATA": local}
+        with mock.patch.object(tq.PreflightProbe, "saves_dirs", return_value=saves), mock.patch.dict(os.environ, env):
+            self.assertEqual(self.p.my_games(), [mg])                        # OneDrive's Documents is not there
+            self.assertTrue(self.p.my_games_known())
+            self.assertEqual((self.p.ini_test_files(), self.p.ccc_files(), self.p.shadow_plugins()), ([], [], []))
+            self.assertEqual(self.p.start_overrides(), ([], []))              # no Plugins.txt yet, nothing staged
+            self.assertEqual(pf.check_loaders(self.p).status, pf.PASS)
+            plugin(os.path.join(data, "Other.esm"), b"DFOB", 0x0000562D)     # StartupQuest_DO
+            plugin(os.path.join(data, "FO4Port.esm"))                         # the installed port: no override
+            plugin(os.path.join(self.d, "FO4Port.esm"), b"GLOB", 0x000A7D31)  # the staged one, deployed at the launch
+            plugin(os.path.join(data, "SFBGS003.esm"), b"QUST", 0x00003448)   # the game's own: never counted
+            with open(os.path.join(local, "Starfield", "Plugins.txt"), "w", encoding="utf-8") as f:
+                f.write("# comment\n*Other.esm\n*FO4Port.esm\n*SFBGS003.esm\nOff.esm\n")
+            hits, bad = self.p.start_overrides()
+            self.assertEqual((sorted(hits), bad), ([("FO4Port.esm", "MQ101Debug", "0A7D31"),
+                                                    ("Other.esm", "StartupQuest_DO", "00562D")], []))
+            c = pf.check_start(self.p)
+            self.assertEqual(c.status, pf.FAIL)
+            self.assertIn("Other.esm:StartupQuest_DO: a plugin not ours", c.detail)
+            installed = self.pin(port={"mode": "installed", "plugin_sha256": "x"})   # the run loads Data's port
+            self.assertEqual(installed.start_overrides()[0], [("Other.esm", "StartupQuest_DO", "00562D")])
+            bdir = os.path.join(self.d, "bridge")                            # bridge_install.py installs it at the launch
+            os.makedirs(bdir)
+            plugin(os.path.join(bdir, "FO4SFBridge.esm"), b"QUST", 0x00003448)
+            bridged = self.pin(bridge={"dir": bdir, "plugin": "FO4SFBridge.esm", "sha256": {}})
+            self.assertEqual(bridged.staged_at_launch()[-1], ("FO4SFBridge.esm", os.path.join(bdir, "FO4SFBridge.esm")))
+            self.assertEqual(bridged.start_overrides()[0], [("Other.esm", "StartupQuest_DO", "00562D"),
+                                                            ("FO4SFBridge.esm", "MQ101", "003448")])
+            edir = os.path.join(self.d, "exp")                               # exp_install.py installs it at the launch
+            os.makedirs(edir)
+            plugin(os.path.join(edir, "FO4SFStart.esm"), b"DFOB", 0x0000562D)   # our own start (pick F), staged
+            with open(os.path.join(local, "Starfield", "Plugins.txt"), "w", encoding="utf-8") as f:
+                f.write("*FO4Port.esm\n*SFBGS003.esm\n")                       # Other.esm off
+            started = self.pin(bridge=None, experiment_identity={"exp_dir": edir, "plugins": ["FO4SFStart.esm"]})
+            self.assertEqual(started.staged_at_launch(), [("FO4SFStart.esm", os.path.join(edir, "FO4SFStart.esm"))])
+            c = pf.check_start(started)
+            self.assertEqual(c.status, pf.PASS, c.detail)
+            self.assertIn("our own start overrides StartupQuest_DO: FO4SFStart.esm:StartupQuest_DO", c.detail)
+            plugin(os.path.join(edir, "FO4SFStart.esm"), b"GLOB", 0x000A7D31)   # a staged build overriding MQ101Debug
+            c = pf.check_start(started)
+            self.assertEqual(c.status, pf.FAIL)
+            self.assertIn("FO4SFStart.esm:MQ101Debug", c.detail)
+            with open(os.path.join(mg, "StarfieldCustom.ini"), "w", encoding="utf-8") as f:
+                f.write("[General]\nsTestFile1=Other.esm\n")
+            with open(os.path.join(mg, "Starfield.ccc"), "w", encoding="utf-8") as f:
+                f.write("SFBGS003.esm\nMod.esm\n")
+            plugin(os.path.join(mg, "Data", "Other.esm"))
+            self.assertEqual(self.p.ini_test_files(), [(os.path.join(mg, "StarfieldCustom.ini"), 2, "sTestFile1", "Other.esm")])
+            self.assertEqual(self.p.ccc_files(), [(os.path.join(mg, "Starfield.ccc"), ["SFBGS003.esm", "Mod.esm"])])
+            self.assertEqual(self.p.shadow_plugins(), [(os.path.join(mg, "Data", "Other.esm"), "Other.esm")])
+            c = pf.check_loaders(self.p)
+            self.assertEqual(c.status, pf.FAIL)
+            for part in ("sTestFile1=Other.esm", "lists Mod.esm", "a copy of Data\\Other.esm"):
+                self.assertIn(part, c.detail)
+        with mock.patch.object(tq.PreflightProbe, "saves_dirs", return_value=[os.path.join(self.d, "none", "Saves")]):
+            self.assertEqual(pf.check_loaders(self.p).status, pf.UNKNOWN)    # no My Games folder: nothing checked
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}), mock.patch.object(tq.PreflightProbe, "saves_dirs",
+                                                                              return_value=saves):
+            self.assertEqual(pf.check_start(self.p).status, pf.UNKNOWN)      # Plugins.txt not locatable
+
     def pin(self, **fields):
         """The queue with these fields, read by a fresh probe (the Runner loads queue.json once)."""
         q = tt.jload(os.path.join(self.d, "queue.json"))

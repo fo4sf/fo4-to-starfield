@@ -8,8 +8,11 @@ read only.
                 reported (required only if asked). Runtime gate (owner, 2026-10-19: LA-15, LA-16, NG-1, RE-12):
                 Starfield.exe must be listed in the known-runtimes table, SFSE must be installed and be the SFSE
                 build listed for that runtime, and a Microsoft Store / Game Pass folder is refused (Steam only)
-    INIs        any sTestFileN in Starfield.ini, StarfieldPrefs.ini or StarfieldCustom.ini (game folder and My Games) is a
-                refusal: the game then ignores Plugins.txt
+    INIs        any sTestFileN in Starfield.ini, the language INIs the game ships, StarfieldPrefs.ini or
+                StarfieldCustom.ini (game folder and My Games) is a refusal: the game then ignores Plugins.txt. The game
+                folder holds Starfield_de, _es, _fr, _it, _ja, _pl, _ptbr and _zhhans.ini (verified: the owner's
+                1.16.244 install, 29 Oct 2026; English has none). That the game reads sTestFile in them is a hypothesis
+                (sfstack.md question 18 lists them): reading them only refuses more
     My Games    loose files in its Data folder are reported (the game reads them over archives); the folder is given
                 as Windows resolves it, never guessed (OneDrive and redirected Documents move it). An omitted or
                 unavailable folder warns that its INIs were not checked; READY does not clear unchecked INIs.
@@ -29,6 +32,7 @@ from . import runtimes as rt
 
 DEFAULT_FLOOR_GB = 40.0
 INI_NAMES = ("Starfield.ini", "StarfieldPrefs.ini", "StarfieldCustom.ini")
+LANGUAGE_INIS = tuple(f"Starfield_{x}.ini" for x in ("de", "es", "fr", "it", "ja", "pl", "ptbr", "zhhans"))
 _TEST_FILE = re.compile(r"^\s*(sTestFile\d+)\s*=\s*(\S.*?)\s*$", re.IGNORECASE)
 
 
@@ -97,7 +101,7 @@ def ini_test_files(folders):
     Any one makes the game ignore Plugins.txt (MO2 and Vortex both say so), so our plugins would silently not load."""
     hits = []
     for folder in folders:
-        for name in INI_NAMES:
+        for name in INI_NAMES + LANGUAGE_INIS:
             path = os.path.join(folder, name)
             if not os.path.isfile(path):
                 continue

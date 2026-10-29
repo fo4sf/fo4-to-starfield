@@ -39,15 +39,23 @@
 // writes them), the trigger too (LandingOverlay01's is temporary), so the quests move them with the markers; the
 // Location override gets LandingOverlay01Location's three rows (MapMarkerRefType to the marker,
 // ShipLandingMarkerRefType and its _Large twin to the pad) after --extra's. check takes the same --landing.
+// --star-map <json> keeps "Visible on Star Map" (map-marker flag bit 4, 0x10; xEdit's SF1 definitions and the Creation Kit's
+// Marker Data labels) on the markers it names and clears it on every other core override and --extra marker, so Mars's
+// planet view, which stacks the markers at one spot on the globe into one icon with a list (docs/terrain/map-markers.md
+// "Star map"), lists only those and the landing marker (0x33 keeps it); the surface map keeps every marker. The owner's
+// pick A, 2026-10-28. strict: a name that matches no marker fails the build; otherwise the build prints it and goes on.
+// check takes the same --star-map. Without it the flags stay the core's (0x13: on the star map), as before.
 // The quest's VMAD shape is dotnet/Bridge's (vanilla Starfield quests: version 6, object format 2, extra-bind-data
 // version 3, an empty fragment script entry, object properties with alias -1; record version 581 / 12).
 //
-// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]
-//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]   reads both back (exit 1 on a mismatch)
+// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]
+//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]   reads both back (exit 1 on a mismatch)
 // --extra: {"markers": [{"tag", "name", "pos": [x, y, z], "cell": [x, y]}, ...]} (fo4sf.map_markers.overlay_markers
 // entries: local metres, z the ground before the lift), written by make_map_markers.py stage --fo4-map-markers.
 // --landing: {"landing": {"tag", "name", "pad" | "trigger" | "marker" | "heading": {"pos": [x, y, z], "rot": [x, y, z],
 // "cell": [x, y]}}} (fo4sf.map_markers.landing_spot: local metres, final positions), from make_map_markers.py --landing.
+// --star-map: {"names": ["Sanctuary Hills", ...], "strict": true|false} (map-marker names, as the map shows them), from
+// make_map_markers.py stage (its default list, not strict, unless --star-map names others).
 using System.Globalization;
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
@@ -63,6 +71,7 @@ const uint LandingPad = 0x7145, LandingTrigger = 0x267F4C, XMarkerHeading = 0x34
 const uint LandingZoneTriggerKeyword = 0x267F4D, LinkShipLandingOverlayMapMarker = 0x3A866F;
 const uint ShipLandingMarkerRefType = 0x9105, ShipLandingMarkerRefTypeLarge = 0x9102;
 const PlacedObjectMapMarker.Flag LandingMarkerFlags = (PlacedObjectMapMarker.Flag)0x33;
+const PlacedObjectMapMarker.Flag VisibleOnStarMap = (PlacedObjectMapMarker.Flag)0x10;
 const sbyte LandingMarkerType = 45;
 const float LandingMarkerRadius = 100;
 const int PerQuest = 100, DefaultMaxMoves = 40;
@@ -74,8 +83,8 @@ var sfKey = ModKey.FromFileName("Starfield.esm");
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] | " +
-                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>]");
+    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] | " +
+                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]");
     return 2;
 }
 if (args.Length == 0) return Usage();
@@ -120,6 +129,17 @@ catch (Exception e) when (e is IOException or JsonException or InvalidDataExcept
     return 2;
 }
 
+StarMap? starMap;
+try
+{
+    starMap = LoadStarMap(Arg("--star-map", ""));
+}
+catch (Exception e) when (e is IOException or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException)
+{
+    Console.Error.WriteLine($"--star-map {Arg("--star-map", "")}: {e.Message}");
+    return 2;
+}
+
 BinaryReadParameters Params(params ModKey[] full)
 {
     var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
@@ -158,6 +178,7 @@ if (args[0] == "build")
         var ctx = cache.ResolveContext<IPlacedObject, IPlacedObjectGetter>(m.FormKey);
         var ov = ctx.GetOrAddAsOverride(mod);
         Override(ov, zLift);
+        OnStarMap(ov, starMap);
         lifted[m.FormKey] = ov.Position;
     }
     // the override's parents come along as copies of the core's worldspace and its persistent cell, with every
@@ -203,6 +224,7 @@ if (args[0] == "build")
             r.LinkedReferences?.Clear();
             Override(r, zLift);
             r.MapMarker!.Name = e.Name;
+            OnStarMap(r, starMap);
             w.TopCell!.Persistent.Add(r);
             loc.MasterSpecialReferences.Add(Row(r.FormKey, w.FormKey, e));
             lifted[r.FormKey] = r.Position;
@@ -231,6 +253,18 @@ if (args[0] == "build")
                               string.Join(", ", pieces.Select(r => $"{r.EditorID} ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)})")) +
                               $"; 3 LCSR rows in the override of {loc.FormKey} {loc.EditorID}");
         }
+    }
+
+    if (starMap != null)
+    {
+        var shown = markers.Select(m => m.MapMarker?.Name?.String).Concat(extras.Select(e => e.Name)).ToList();
+        // the landing marker is always on the star map (LandingMarkerFlags), so naming it is no typo
+        var unmatched = starMap.Names.Where(n => !shown.Contains(n, StringComparer.Ordinal) && n != landing?.Name).ToList();
+        foreach (var n in unmatched)
+            (starMap.Strict ? Console.Error : Console.Out).WriteLine($"--star-map: no marker is named \"{n}\"");
+        if (starMap.Strict && unmatched.Count > 0) return 1;
+        Console.WriteLine($"  star map: {shown.Count(n => n != null && starMap.Names.Contains(n))} of {shown.Count} marker(s) keep Visible on Star Map " +
+                          $"(--star-map: {string.Join(", ", starMap.Names.Select(n => $"\"{n}\""))})" + (landing != null ? ", and the landing marker" : ""));
     }
 
     var chunks = QuestChunks(all, landing != null);
@@ -283,6 +317,7 @@ if (args[0] == "build")
                       $"{string.Join(", ", mod.Quests.Select(q => $"{q.EditorID} {q.FormKey}"))} script {ScriptName}, " +
                       $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), {extras.Count} of its own (--extra), " +
                       (landing != null ? $"a landing spot (--landing {landing.Tag}), " : "") +
+                      (starMap != null ? $"{starMap.Names.Count} name(s) on the star map (--star-map), " : "") +
                       $"world copy --world {world} ({WorldDescribed(world)}):");
     foreach (var w in mod.Worldspaces)
         Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]");
@@ -330,6 +365,9 @@ if (args[0] == "check" && args.Length >= 3)
             if (flags.Value.HasFlag(PlacedObjectMapMarker.Flag.UseLocationName)) problems.Add($"{m.FormKey} override still uses the location's name");
             if (!flags.Value.HasFlag(PlacedObjectMapMarker.Flag.Visible)) problems.Add($"{m.FormKey} override is not Visible");
             if (ov.MapMarker.Name?.String != m.MapMarker?.Name?.String) problems.Add($"{m.FormKey} override name \"{ov.MapMarker.Name}\" != \"{m.MapMarker?.Name}\"");
+            var starWant = StarMapWanted(m.MapMarker?.Flags ?? 0, m.MapMarker?.Name?.String, starMap);
+            if (flags.Value.HasFlag(VisibleOnStarMap) != starWant)
+                problems.Add($"{m.FormKey} override \"{ov.MapMarker.Name}\" is {(starWant ? "not " : "")}on the star map ({(starMap == null ? "the core" : "--star-map")} want{(starWant ? "s" : "s it off")})");
         }
         if (ov.Position != target) problems.Add($"{m.FormKey} override at z {F(ov.Position.Z)}, not the core's {F(m.Position.Z)} lifted {F(zLift)} m");
         if ((ov.MajorRecordFlagsRaw & 0x800) != 0) problems.Add($"{m.FormKey} override is Initially Disabled");
@@ -368,6 +406,9 @@ if (args[0] == "check" && args.Length >= 3)
             if (flags.Value.HasFlag(PlacedObjectMapMarker.Flag.UseLocationName)) problems.Add($"{key} uses the location's name");
             if (!flags.Value.HasFlag(PlacedObjectMapMarker.Flag.Visible)) problems.Add($"{key} is not Visible");
             if (r.MapMarker.Name?.String != e.Name) problems.Add($"{key} name \"{r.MapMarker.Name}\" != \"{e.Name}\"");
+            var starWant = StarMapWanted(want.Count > 0 ? want[0].MapMarker?.Flags ?? 0 : 0, e.Name, starMap);
+            if (flags.Value.HasFlag(VisibleOnStarMap) != starWant)
+                problems.Add($"{key} \"{e.Name}\" is {(starWant ? "not " : "")}on the star map ({(starMap == null ? "the core" : "--star-map")} want{(starWant ? "s" : "s it off")})");
         }
         if (r.Position != target) problems.Add($"{key} at ({F(r.Position.X)}, {F(r.Position.Y)}, {F(r.Position.Z)}), not --extra's ({F(e.Pos.X)}, {F(e.Pos.Y)}, {F(e.Pos.Z)}) lifted {F(zLift)} m");
         if ((r.MajorRecordFlagsRaw & 0xC00) != 0x400) problems.Add($"{key} flags {r.MajorRecordFlagsRaw:X}: not persistent and enabled");
@@ -516,6 +557,15 @@ static void Override(IPlacedObject ov, float lift)
     if (ov.MapMarker == null) throw new InvalidDataException($"{ov.FormKey} has no map-marker data");
     ov.MapMarker.Flags = (ov.MapMarker.Flags | PlacedObjectMapMarker.Flag.Visible) & ~PlacedObjectMapMarker.Flag.UseLocationName;
 }
+// --star-map: the marker keeps Visible on Star Map when the list names it, and loses it otherwise; no list, the core's flags
+static void OnStarMap(IPlacedObject r, StarMap? starMap)
+{
+    if (starMap == null || r.MapMarker == null) return;
+    r.MapMarker.Flags = starMap.Names.Contains(r.MapMarker.Name?.String ?? "")
+        ? r.MapMarker.Flags | VisibleOnStarMap : r.MapMarker.Flags & ~VisibleOnStarMap;
+}
+static bool StarMapWanted(PlacedObjectMapMarker.Flag coreFlags, string? name, StarMap? starMap) =>
+    starMap == null ? coreFlags.HasFlag(VisibleOnStarMap) : starMap.Names.Contains(name ?? "");
 // the WRLD copy as dotnet/BorderProbe writes the variant: nosmall and city drop SmallWorld, city sets HNAM 5; control leaves the core's
 static void WorldVariant(IWorldspace w, string variant)
 {
@@ -626,6 +676,18 @@ static List<Extra> LoadExtras(string path)
     if (dup != null) throw new InvalidDataException($"tag {dup.Key} repeats");
     return list;
 }
+// --star-map's names; "" = none. names: non-empty strings that do not repeat; strict: true or false (default false).
+static StarMap? LoadStarMap(string path)
+{
+    if (path == "") return null;
+    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+    var names = doc.RootElement.GetProperty("names").EnumerateArray().Select(v => v.GetString() ?? "").ToList();
+    if (names.Any(n => n == "")) throw new InvalidDataException("an empty name");
+    var dup = names.GroupBy(n => n, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1);
+    if (dup != null) throw new InvalidDataException($"\"{dup.Key}\" repeats");
+    var strict = doc.RootElement.TryGetProperty("strict", out var s) && s.GetBoolean();
+    return new StarMap(new HashSet<string>(names, StringComparer.Ordinal), strict);
+}
 // --landing's spot; "" = none. A tag (letters, digits, _), a name, and pad, trigger, marker, heading each with pos [x, y, z]
 // and rot [x, y, z] (finite) and cell [x, y].
 static Landing? LoadLanding(string path)
@@ -674,3 +736,4 @@ static int? MaxMovesFor(int n) => 2 * n > DefaultMaxMoves ? 2 * n : null;
 record Extra(string Tag, string Name, P3Float Pos, short CellX, short CellY);
 record LandingPiece(P3Float Pos, P3Float Rot, short CellX, short CellY);
 record Landing(string Tag, string Name, LandingPiece Pad, LandingPiece Trigger, LandingPiece Marker, LandingPiece Heading);
+record StarMap(HashSet<string> Names, bool Strict);

@@ -15,8 +15,16 @@ var world = new Worldspace(new FormKey(key, 0x02DF8C), release)
 {
     EditorID = "SyntheticTemplateWorld", Flags = Worldspace.Flag.SmallWorld, HNAM = new Noggog.MemorySlice<byte>(new byte[] { 0 }),
 };
-world.Components.Add(new WorldSpaceOverlayComponent());
+var overlayComponent = new WorldSpaceOverlayComponent();
+world.Components.Add(overlayComponent);
 mod.Worldspaces.Add(world);
+// Optional (args[1..] contains "overlay-ids"): LC172World's overlay system and planet ids (Mars: system 0, planet 4)
+// as 4-byte SNAM / PNAM, which dotnet/PlanetProbe requires of its template; the default fixture leaves them unset.
+if (args.Skip(1).Contains("overlay-ids"))
+{
+    overlayComponent.SNAM = BitConverter.GetBytes(0);
+    overlayComponent.PNAM = BitConverter.GetBytes(4);
+}
 mod.SurfaceBlocks.Add(new SurfaceBlock(new FormKey(key, 0x102382), release) { EditorID = "SyntheticTemplateBlock" });
 mod.Locations.Add(new Location(new FormKey(key, 0x3807BE), release) { EditorID = "SyntheticTemplateLocation" });
 // The template terminal (0155A2): synthetic values in every furniture field the writer copies, and a script, bounds,

@@ -27,7 +27,7 @@ SCRIPT = ROOT / "scripts/mapmarkers/FO4SF_MapMarkers.psc"
 PROGRAM = ROOT / "dotnet/MapMarkers/Program.cs"
 Z_LIFT = 2.5                     # dotnet/MapMarkers DefaultZLift, metres above the core's sampled terrain height
 Z_LIFT_STEP = 0.1                # dotnet/MapMarkers ZLiftStep: the build takes a lift on this grid only
-USE_LOCATION_NAME, VISIBLE = 0x8, 0x1   # map-marker FNAM bits (docs/terrain/map-markers.md)
+USE_LOCATION_NAME, VISIBLE, STAR_MAP = 0x8, 0x1, 0x10   # map-marker FNAM bits (docs/terrain/map-markers.md)
 
 
 def build(dotnet, project):
@@ -510,6 +510,91 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 1, missing.stdout)
         self.assertIn("SyntheticWorldLandingPadRedRocketNorth (--landing) is missing", missing.stdout)
 
+    def star_file(self, name, names, strict=True):
+        path = self.root / f"{name}.json"
+        path.write_text(json.dumps({"names": names, "strict": strict}))
+        return path
+
+    def test_star_map_keeps_only_the_named_markers_on_it(self):
+        # --star-map (the owner's pick A, 2026-10-28): Mars's planet view stacks the markers at one spot into one icon
+        # with a list, so only the named markers and the landing marker keep Visible on Star Map; every marker stays
+        # Visible (the surface map), and check wants the same list
+        extra, landing = self.extra_file("extra-star", self.EXTRA), self.landing_file("landing-star", self.landing())
+        star = self.star_file("star", ["Sanctuary Hills", "Abernathy Farm"])
+        out = self.root / "plugin-star"
+        proc = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--landing", landing, "--star-map", star)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("star map: 2 of 5 marker(s) keep Visible on Star Map", proc.stdout)
+        plugin = out / "FO4SFMapMarkers.esm"
+        recs = tri.records(plugin)
+        fnam = lambda k: struct.unpack("<I", tlw.field(recs[k][1], b"FNAM"))[0]      # noqa: E731
+        on = {int(self.ids[m["tag"]], 16): m["name"] == "Sanctuary Hills" for m in self.markers}
+        on.update({0x900: True, 0x901: False, 0x8F2: True})       # Abernathy Farm, Starlight Drive In, the landing marker
+        for k, want in on.items():
+            self.assertEqual(bool(fnam(k) & STAR_MAP), want, hex(k))
+            self.assertEqual(fnam(k) & (USE_LOCATION_NAME | VISIBLE), VISIBLE, hex(k))   # all on the surface map
+        self.assertEqual(fnam(0x8F2), 0x33)                                                 # LandingOverlay01's, as before
+        same = self.tool_run("check", plugin, self.core, "--extra", extra, "--landing", landing, "--star-map", star)
+        self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
+        other = self.tool_run("check", plugin, self.core, "--extra", extra, "--landing", landing,
+                              "--star-map", self.star_file("star-other", ["Concord"]))
+        self.assertEqual(other.returncode, 1, other.stdout)
+        self.assertIn('"Concord" is not on the star map (--star-map wants)', other.stdout)
+        self.assertIn('"Sanctuary Hills" is on the star map (--star-map wants it off)', other.stdout)
+        bare = self.tool_run("check", plugin, self.core, "--extra", extra, "--landing", landing)
+        self.assertEqual(bare.returncode, 1, bare.stdout)                 # without the list: the core's flags (off here)
+        self.assertIn('"Sanctuary Hills" is on the star map (the core wants it off)', bare.stdout)
+        # a name that matches no marker: strict fails the build, the stage's default list only says so
+        typo = self.star_file("star-typo", ["Sanctuary Hils"])
+        failed = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-star-typo", "--star-map", typo)
+        self.assertEqual(failed.returncode, 1, failed.stdout)
+        self.assertIn('--star-map: no marker is named "Sanctuary Hils"', failed.stderr)
+        lenient = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-star-lenient",
+                                "--star-map", self.star_file("star-lenient", ["Sanctuary Hils", "Concord"], strict=False))
+        self.assertEqual(lenient.returncode, 0, lenient.stdout + lenient.stderr)
+        self.assertIn('--star-map: no marker is named "Sanctuary Hils"', lenient.stdout)
+        self.assertIn("star map: 1 of 3 marker(s) keep Visible on Star Map", lenient.stdout)
+        bad = self.tool_run("build", "--core", self.core, "--out", self.root / "plugin-star-bad",
+                            "--star-map", self.star_file("star-bad", ["Concord", "Concord"]))
+        self.assertEqual(bad.returncode, 2, bad.stderr)
+        self.assertIn('"Concord" repeats', bad.stderr)
+
+    def test_star_map_clears_the_bit_a_real_core_sets(self):
+        # the real core's markers carry LC172's FNAM 0x1B (on the star map); the synthetic core's are 0, so a copy with
+        # 0x1B shows the bit kept without a list (0x13, as before the list) and cleared on every unnamed marker with one
+        data = bytearray(self.core.read_bytes())
+        pattern, n = b"XMRK\x00\x00FNAM\x04\x00", 0
+        at = data.find(pattern)
+        while at >= 0:
+            struct.pack_into("<I", data, at + len(pattern), 0x1B)
+            n, at = n + 1, data.find(pattern, at + len(pattern))
+        self.assertEqual(n, len(self.markers))
+        core = self.root / "core-1b" / "Synthetic.esm"
+        core.parent.mkdir()
+        core.write_bytes(bytes(data))
+        extra, landing = self.extra_file("extra-star-1b", self.EXTRA), self.landing_file("landing-star-1b", self.landing())
+        star = self.star_file("star-1b", ["Concord", "Starlight Drive In", "Landing Area"])
+        for label, opts, named in (("all", [], None), ("list", ["--star-map", star], {"Concord", "Starlight Drive In"})):
+            out = self.root / f"plugin-star-1b-{label}"
+            proc = self.tool_run("build", "--core", core, "--out", out, "--extra", extra, "--landing", landing, *opts)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertNotIn("no marker is named", proc.stdout + proc.stderr)       # the landing marker's name is no typo
+            plugin = out / "FO4SFMapMarkers.esm"
+            recs = tri.records(plugin)
+            fnam = lambda k: struct.unpack("<I", tlw.field(recs[k][1], b"FNAM"))[0]      # noqa: E731
+            names = {int(self.ids[m["tag"]], 16): m["name"] for m in self.markers} | {0x900: "Abernathy Farm",
+                                                                                     0x901: "Starlight Drive In"}
+            for k, name in names.items():
+                self.assertEqual(fnam(k), 0x13 if named is None or name in named else 0x03, f"{label} {name}")
+            self.assertEqual(fnam(0x8F2), 0x33)
+            check = self.tool_run("check", plugin, core, "--extra", extra, "--landing", landing, *opts)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            crossed = self.tool_run("check", plugin, core, "--extra", extra, "--landing", landing,
+                                    *([] if opts else ["--star-map", star]))
+            self.assertEqual(crossed.returncode, 1, crossed.stdout)
+            self.assertIn('"Sanctuary Hills" is not on the star map (the core wants)' if opts else
+                          '"Sanctuary Hills" is on the star map (--star-map wants it off)', crossed.stdout)
+
     def test_the_landing_spot_stays_in_one_quest(self):
         # the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding): 3 core
         # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in a third quest, so that
@@ -905,12 +990,37 @@ class StageTests(unittest.TestCase):
                 self.assertIn("--world city (dotnet/BorderProbe's: SmallWorld cleared, HNAM 5)", f.read())
             with self.assertRaises(SystemExit):                # the probe's variants only
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s3"), "--world", "hnam5"])
-        build, comp, check, build2, comp2, check2 = calls
-        self.assertEqual(build[0][-7:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm"])
+            # the star map: the default list (not strict), names given (strict), or every marker as before
+            with open(os.path.join(out, "star_map.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f), {"names": list(mm.STAR_MAP), "strict": False})
+            named = os.path.join(d, "named")
+            mm.main(["stage", "--core", core, "--out", named, "--compiler", "PapyrusCompiler.exe", "--star-map", "Concord", "Vault 81"])
+            with open(os.path.join(named, "star_map.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f), {"names": ["Concord", "Vault 81"], "strict": True})
+            with open(os.path.join(named, "README.txt"), encoding="utf-8") as f:
+                self.assertIn("Visible on Star Map (star_map.json) only for those of Concord, Vault 81 the plugin has "
+                              "(offline_check.txt: star map);", f.read())
+            every = os.path.join(d, "every")
+            mm.main(["stage", "--core", core, "--out", every, "--compiler", "PapyrusCompiler.exe", "--star-map-all"])
+            self.assertFalse(os.path.exists(os.path.join(every, "star_map.json")))
+            with self.assertRaises(SystemExit):                # a name twice, refused before the folder is made
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s4"), "--star-map", "Concord", "Concord"])
+            self.assertFalse(os.path.exists(os.path.join(d, "s4")))
+            with self.assertRaises(SystemExit):                # one or the other
+                mm.main(["stage", "--core", core, "--out", os.path.join(d, "s5"), "--star-map", "Concord", "--star-map-all"])
+        build, comp, check, build2, comp2, check2, build3, _comp3, check3, build4, _comp4, check4 = calls
+        star = os.path.join(out, "star_map.json")
+        self.assertEqual(build[0][-9:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm", "--star-map", star])
         self.assertEqual(comp[0][1], "FO4SF_MapMarkers.psc")
-        self.assertEqual(check[0][-3:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core])
-        self.assertEqual(build2[0][-9:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city"])
-        self.assertEqual(check2[0][-5:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city"])
+        self.assertEqual(check[0][-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--star-map", star])
+        star = os.path.join(city, "star_map.json")
+        self.assertEqual(build2[0][-11:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city",
+                                           "--star-map", star])
+        self.assertEqual(check2[0][-7:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city", "--star-map", star])
+        self.assertEqual(build3[0][-2:], ["--star-map", os.path.join(named, "star_map.json")])
+        self.assertEqual(check3[0][-2:], ["--star-map", os.path.join(named, "star_map.json")])
+        self.assertEqual(build4[0][-7:], ["build", "--core", core, "--out", every, "--plugin", "FO4SFMapMarkers.esm"])
+        self.assertEqual(check4[0][-3:], ["check", os.path.join(every, "FO4SFMapMarkers.esm"), core])
 
     def test_stage_adds_fo4_markers_from_the_core_stage(self):
         # --fo4-map-markers with --core-stage: the core's own stage folder gives the bounds, the fixed markers and the
@@ -981,8 +1091,9 @@ class StageTests(unittest.TestCase):
             self.assertIn("Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket", reasons)
             path = os.path.join(out, "extra_markers.json")
             build, _comp, check = calls
-            self.assertEqual(build[-2:], ["--extra", path])
-            self.assertEqual(check[-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--extra", path])
+            star = os.path.join(out, "star_map.json")
+            self.assertEqual(build[-4:], ["--extra", path, "--star-map", star])
+            self.assertEqual(check[-7:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--extra", path, "--star-map", star])
             with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
                 self.assertIn("Plus 1 markers of its own (extra_markers.json", f.read())
             # refusals: half the pair; a core stage holding another core build; a core already built with the markers
@@ -1051,8 +1162,9 @@ class StageTests(unittest.TestCase):
             self.assertEqual(spot["heading"]["pos"][2], 5.5)                     # its ground plus the tool's 2.5 m
             self.assertEqual(spot["name"], "Commonwealth Landing Area")
             build, _comp, check = calls
-            self.assertEqual(build[-2:], ["--landing", path])
-            self.assertEqual(check[-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--landing", path])
+            star = os.path.join(out, "star_map.json")
+            self.assertEqual(build[-4:], ["--landing", path, "--star-map", star])
+            self.assertEqual(check[-7:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--landing", path, "--star-map", star])
             with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
                 self.assertIn('Plus a ship landing spot "Commonwealth Landing Area" (landing.json): a pad at getpos -1959.0 -493.0', f.read())
             mm.main(["stage", "--core", core, "--out", os.path.join(d, "lift"), "--compiler", "PapyrusCompiler.exe",
