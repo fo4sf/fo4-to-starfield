@@ -552,7 +552,8 @@ pipboy, for right now go with a". So:
   instead, and `--star-map-all` keeps the bit on every marker, as before.
 
 Unverified until a play test: that Mars's planet view then lists only those places plus the landing area, and that
-fast travel from the list reaches them. Also open: the research found that clearing the flag hides a marker from the
-hand scanner too (a comment on Nexus mod 15633), and whether a save made before this build keeps the old flags for
+fast travel from the list reaches them. Also open: whether clearing the flag hides a marker from the hand scanner
+too (the sources disagree: a comment on Nexus mod 15633 says so, the mod's own page says hidden markers stay on the
+surface map and scanner), and whether a save made before this build keeps the old flags for
 markers it already knows (a guess, not tested); the play test should use a new game, or say which save it loaded.
 B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is for later.
