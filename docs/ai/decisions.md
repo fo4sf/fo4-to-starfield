@@ -817,3 +817,37 @@ decided the import path); keeping the order as a parameter (two orders in the co
   keep 85% (local work runs only when RAM dips under it).
 - Boundary: 88% leaves two points before the 90% block. A request that is already running is not stopped when RAM rises
   (README); only new admissions are held. With no model resident, the same 88% also sets the VRAM restrict level (policy.py:53).
+
+## 2026-10-29: our own start: the new game's quest is Starfield's startup quest (Claude-cloud)
+- Decision: newgame_v11 overrides the DefaultObject `StartupQuest_DO` (Starfield.esm 00562D, MQ101 in vanilla) to name
+  FO4SF_NewGame, which is no longer start-game enabled. The quest moves the player into the vault itself during the
+  first load (from `OnQuestStarted`, or `OnQuestInit` if that comes first, once), fades the screen in once the player's
+  3D has loaded (never before: both callers check it), and keeps the hold-off (both passes, after the move) and the
+  MQ101Debug write of 2 (after pass 1). A start that is not a new game (a New Game+) or cannot move the player stands
+  down and, when either reading says the game is still loading (the player's 3D not in, or no cell yet), first asks
+  MQ101 to start (a request that waits for nothing, before our own stage), so that MQ101's stage 0 moves the player and
+  the first load ends (unverified until a run stands down during that load; run 4 should not). The guard is days and
+  level alone. The temporary-anchor mode is built only on request (`--allow-temporary-anchor`): its centering during
+  that load cannot be judged, and one that moves nobody hands nothing back. This replaces the 28 Oct entry's "overrides
+  no record" for the start record only; MQ101 and MQ101Debug stay untouched (docs/newgame/vault111-start.md sections 1,
+  2, 3a and 13).
+- Why: the owner, 29 Oct (typos fixed): "too many things are breaking because we are forcing ourselves into the
+  Starfield system", and their pick F (our own start) for the strip-down. v9 and v10 let MQ101's stage 0 run and then
+  undid it: they stopped the opening, restored saving and the HUD, and left the miner suit on. Owning the start removes
+  all of that, and no save should ever start our quest. Shipped precedent: Roleplayers' Alternate Start (its startup
+  quest moves the player from `OnQuestStarted` and fades in once its start cell has loaded) and No Ship Fast Start
+  override the same record. The first fresh review of 29 Oct on #588 found the fade could fire under the loading screen
+  and two paths that could still leave the first load hanging: the fade and the one-reading stand-down are fixed, and
+  the temporary-anchor path is gated (built only on request). The second found the hand back's effect stated as fact and
+  a stalled hand back invisible in the log: it is labelled, the request no longer waits, and the log reader and the
+  timer's wait now show it.
+- Alternatives: keep stopping MQ101 (newgame_v10; the way back if run 4 fails, by restaging main d9958261); a stage 0
+  fragment on our quest, the way MQ101 moves its player (held: a fragment script and more records, for if neither start
+  event fires during the load); `Game.FastTravel` instead of MoveTo (the precedent's call; not taken: MoveTo with the
+  pod's offset is what run 3 and the map test verified, and MQ101's own intro moves its player with MoveTo during this
+  load); moving the player to MQ101's own `CharGenStartMarker` before the hand back, so that load ends whatever MQ101
+  does (held: no run has stood down during the load yet; the next step if a hand back ever leaves the loading screen
+  up); overriding MQ101 or MQ00 (option C: rejected, it edits Starfield's quests).
+- Boundary: not run in game. Which start events fire during the load, what ends the loading screen on 1.16.244 (the
+  move, or the fade call) and what the player wears without MQ101 stay open until run 4 (section 13); whether a hand
+  back moves the player stays open until a run stands down during the load.

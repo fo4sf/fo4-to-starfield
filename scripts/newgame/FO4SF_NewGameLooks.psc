@@ -28,8 +28,12 @@ string Property MenuName = "ChargenMenu" Auto Const
 bool shown = false
 bool waiting = false
 
+Event OnQuestStarted()
+    StartTimer(1.0, 2)                                       ; the startup quest's start (FO4SF_NewGameQuest.Begin)
+EndEvent
+
 Event OnQuestInit()
-    StartTimer(1.0, 2)
+    StartTimer(1.0, 2)                                       ; whichever start event comes, the timer runs; a second call restarts it
 EndEvent
 
 Event OnTimer(int aiTimerID)

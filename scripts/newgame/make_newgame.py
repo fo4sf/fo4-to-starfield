@@ -12,12 +12,12 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--debug-after-hold N] [--pod-ref HEX] [--terminal-ref HEX]
-                               [--clear-inventory [--vault-suit EDITORID]] [--require-persistent-anchor]
+                               [--clear-inventory [--vault-suit EDITORID]] [--allow-temporary-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt; its "vault anchor" line says
          whether the anchor is persistent or the temporary COC marker the script must center on first, and plan.json
-         records that mode; --require-persistent-anchor refuses the temporary mode);
+         records that mode; a vault cell without a persistent reference is refused unless --allow-temporary-anchor);
       3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks,
          FO4SF_NewGameSpecial.psc unless --no-special, FO4SF_NewGameVersion.psc unless --no-version);
       4. plan.json (the plugin's and scripts' SHA-256 and the port, its formids.json and the core it was checked
@@ -33,9 +33,10 @@ usage:
       installer activates only the plugins listed (none listed: the first .esm alphabetically), so the core's own
       command would never install the new game.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
-      the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
-      the SPECIAL ending, the save version lines, the inventory reset, the centering of a temporary-anchor start, moves,
-      the landing); exit 0 when stage 200 was reached.
+      the run's user log as a summary (the start events that came, stages by the contract below, a hand back to
+      Starfield's start, the fade in, held-off quests by pass, what ended the looks wait, the SPECIAL ending, the save
+      version lines, the inventory reset, the centering of a temporary-anchor start, moves, the landing); exit 0 when
+      stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -61,8 +62,8 @@ VERSION = "FO4SF_NewGameVersion"
 # what each means. FO4SF_NewGameQuest.psc's header lists the same lines and tests/test_newgame.py holds them equal;
 # docs/newgame/vault111-start.md section 9 is the published table. Stage 0 is the quest's start, not a QUST record.
 STAGE_CONTRACT = {
-    0: "started: waiting for the player's 3D, then the guard and the hold-off",
-    1: "stood down: not a new game, nothing moved",
+    0: "started: as Starfield's startup quest, the guard, the move into the vault and the hold-off",
+    1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
     10: "in the vault: the player stands at their pod",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
@@ -79,9 +80,10 @@ DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
-# value 2: the quest started, its version alias logged, but OnQuestInit never fired). The quest writes DEBUG_AFTER_HOLD
-# (the value the main quests' developer skip-start stages write; a normal intro leaves 0) right after the hold-off
-# stopped MQ101 instead, which opens PEO_SustenanceAllowed's "MQ101Debug != 0" (its normal route, MQ101 stage 310, is
+# value 2: the quest started, its version alias logged, but OnQuestInit never fired). With our own start (the plugin's
+# StartupQuest_DO override, the owner's pick F) MQ101 never runs; the quest writes DEBUG_AFTER_HOLD (the value the main
+# quests' developer skip-start stages write; a normal intro leaves 0) right after the hold-off's first pass, once the
+# player has been moved, which opens PEO_SustenanceAllowed's "MQ101Debug != 0" (its normal route, MQ101 stage 310, is
 # never reached); --debug-after-hold, 0 writes nothing.
 DEFAULT_MQ101DEBUG = None
 DEBUG_AFTER_HOLD = 2
@@ -108,19 +110,22 @@ SPECIAL_MAX_PRESSES = 300
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
-# OFF until the first in-game proof shows what Starfield leaves the player with when MQ101 is held off. --clear-inventory
-# makes the quest script call RemoveAllItems (quest items kept) right after the move into the pod and log "inventory
-# cleared removed=<n> left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and
-# equips ("vault suit equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
+# OFF until an in-game run shows what Starfield leaves the player with when MQ101 never runs. --clear-inventory
+# makes the quest script call RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity,
+# so whether quest items stay is unverified) once the player is in the vault and log "inventory cleared removed=<n>
+# left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and equips ("vault suit
+# equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
 DEFAULT_CLEAR_INVENTORY = False
-# The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The installed
-# port (PC 21 Oct) has no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
+# The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
+# installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
 # terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
-# then anchors on the temporary COC marker and the quest script loads the cell first (Debug.CenterOnCell, the
-# AnchorTemporary / VaultCell properties). The persistent mode stays preferred and returns by itself once the port marks
-# its COC markers persistent; --require-persistent-anchor restores the refusal. check prints the mode after the anchor
+# can anchor on the temporary COC marker and have the quest script load the cell first (Debug.CenterOnCell, the
+# AnchorTemporary / VaultCell properties). The port of run 3 (28 Oct) has the marker persistent. Since newgame_v11 the
+# temporary mode is refused by default: its centering comes during our own start's first load, and when it moves nobody
+# the start hands nothing back (29 Oct review on #588); --allow-temporary-anchor builds it on request, and
+# --require-persistent-anchor (the default now) is kept for old command lines. check prints the mode after the anchor
 # ("vault anchor FO4Port.esm:<id> persistent|temporary"), anchor_mode reads it into plan.json.
-DEFAULT_REQUIRE_PERSISTENT_ANCHOR = False
+DEFAULT_REQUIRE_PERSISTENT_ANCHOR = True
 ANCHOR_LINE = re.compile(r"vault anchor FO4Port\.esm:(?P<id>[0-9A-Fa-f]+) (?P<mode>persistent|temporary)\b")
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
@@ -131,19 +136,22 @@ LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 NATIVES = {
     # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
     # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads. The
-    # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc is believed to
-    # declare CenterOnCell, unverified until this precheck reads it, and whether it works in retail until the PC run)
+    # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc declares it too,
+    # read in ContentResources.zip 29 Oct; whether it works in retail is unverified until the PC run).
+    # Our own start: the events OnQuestStarted and OnQuestInit on Quest (Roleplayers' Alternate Start handles the first on
+    # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
+    # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
-                            "IsInInterior", "Is3DLoaded", "GetOpenState", "SetOpen", "RemoveAllItems", "GetItemCount",
-                            "AddItem"],
-        "Quest": ["SetStage", "GetStage", "IsRunning", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
-                  "SetObjectiveCompleted", "SetActive", "IsCompleted"],
+                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
+                            "GetItemCount", "AddItem"],
+        "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
+                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
@@ -151,7 +159,7 @@ NATIVES = {
         "Debug": ["TraceUser"],
         "Game": ["ShowRaceMenu"],
         "Message": ["Show"],
-        "Quest": ["SetStage", "GetStage"],
+        "Quest": ["SetStage", "GetStage", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
     },
@@ -163,7 +171,7 @@ NATIVES = {
         "Game": ["GetPlayer", "GetFormFromFile"],
         "Message": ["Show"],
         "ObjectReference": ["GetPositionX", "IsInInterior"],
-        "Quest": ["GetStage"],
+        "Quest": ["GetStage", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer"],
         "Utility": ["GetCurrentRealTime"],
     },
@@ -230,28 +238,18 @@ def special_press(values, left, button, base=SPECIAL_BASE, points=SPECIAL_POINTS
 # the guard's day limit (FO4SF_NewGameQuest MaxNewGameDays, held equal by tests/test_newgame.py). Starfield's clock
 # starts at GameHour 8 (the record's value, docs/ai/test-queue.md) and GameDaysPassed carries the hour, so a new game
 # reads about 0.3335 one second in: verified in game 28 Oct, two runs (0.333530 with MQ101 at stage 0, 0.333537 at
-# 250). The first build's 0.25 stood every new game down on this test alone; a player's save is kept out by
-# is_fresh_start, so one game day is the bound here.
+# 250). The first build's 0.25 stood every new game down on this test alone; a player's save should never start the
+# startup quest (supported hypothesis), so one game day is the bound here.
 MAX_NEW_GAME_DAYS = 1.0
 NEW_GAME_DAYS_MEASURED = 0.3335
 
 
 def is_new_game(days, level, max_days=MAX_NEW_GAME_DAYS, max_level=1):
-    """FO4SF_NewGameQuest.IsNewGame: fewer than max_days game days passed and the player at most max_level. An
-    existing save that gains the plugin stands down (with is_fresh_start, which does the real work)."""
+    """FO4SF_NewGameQuest.IsNewGame, the whole guard: fewer than max_days game days passed and the player at most
+    max_level. Only a New Game (or a New Game+, which keeps the player's level) should start the startup quest, never
+    a save (supported hypothesis, the doc's section 1 step 2), so newgame_v9's opening-stage test (is_fresh_start, 21
+    Oct review on #393) had nothing left to judge. A console start under a day at level 1 passes, as a New Game does."""
     return days < max_days and level <= max_level
-
-
-SAVEABLE_STAGE = 105   # MQ101's stage that turns saving back on (QF_MQ101_00003448.psc, PC read 19 Oct)
-
-
-def is_fresh_start(opening_stage, opening_running, opening_completed, saveable=SAVEABLE_STAGE):
-    """FO4SF_NewGameQuest.IsFreshStart: the opening (MQ101) running below the stage that turns saving back on, and not
-    completed. A save the player made cannot have it there, so an early level-1 save under six game hours still stands
-    down (21 Oct review on #393). A New Game has it running, since its stage 0 placed the player before our quest could
-    run (28 Oct run 2); a session started with coc from the main menu never starts it (Install's map test, 28 Oct), so it
-    stands down too."""
-    return opening_running and opening_stage < saveable and not opening_completed
 
 
 def declared_properties(psc_text):
@@ -392,8 +390,10 @@ def tool_options(a):
             opts += ["--vault-suit", a.vault_suit]
     elif a.vault_suit:
         sys.exit("--vault-suit is equipped by the inventory reset: stage with --clear-inventory too")
-    if a.require_persistent_anchor:
-        opts.append("--require-persistent-anchor")
+    if a.allow_temporary_anchor:
+        if a.require_persistent_anchor:
+            sys.exit("--allow-temporary-anchor and --require-persistent-anchor contradict each other")
+        opts.append("--allow-temporary-anchor")
     return opts
 
 
@@ -468,7 +468,7 @@ def stage(a):
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
                         "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None,
-                        "require_persistent_anchor": bool(a.require_persistent_anchor)},
+                        "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
@@ -476,17 +476,17 @@ def stage(a):
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
-{PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (start game enabled, run once),
+{PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (run once, Starfield's startup quest: DFOB StartupQuest_DO overridden),
 MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
-Inventory reset at the pod: {('ON (quest items kept), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
+Inventory reset at the pod: {('ON (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
 command, every plugin listed), verify, then exp_install.py.
-In game: a NEW game only (an existing save stands the quest down at stage 1). Read the run:
+In game: a NEW game from the main menu only (a save should never start the quest, nor a coc from the menu). Read the run:
   python scripts\\newgame\\make_newgame.py log
 """)
     os.replace(out, final)
@@ -634,23 +634,40 @@ def split_runs(lines, line_re, start="init ", carry=()):
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
-    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "guard", "last_status", "runs",
+    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
+    "handed_back", "start", "start_events", "start_wait", "waiting_3d", "fade", "guard", "last_status", "runs",
     "earlier_completed"}.
-    "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> fresh=<bool>
-    mq101debug=<n> write_after_hold=<n>", written before the verdict since 28 Oct; None in an older build's log).
+    Our own start (newgame_v11, the startup quest): "start" is the start's first line ("<route> player_loaded=<bool>
+    cell=<cell> loading=<bool>", the start event that ran it, its two readings and whether either said the game was
+    still loading, which decides a hand back), "start_events" every start event that came, the one that ran the start
+    first, then any "came after the start" (which fire on 1.16.244 is what run 4 shows), "start_wait" the end of the
+    start's wait for the player's 3D ("loaded=<bool>": false leaves the fade to the timer), "waiting_3d" the timer's
+    last line while it still waits for that 3D ("tick=<n> vault_moves=<n> centered=<n> cell=<cell>", every 10 ticks;
+    None when the 3D came sooner, or the timer never ran then) and "fade" the one fade in ("by=<start|timer>
+    loaded=<bool> cell=<cell>; ..."); an older build's log has none of them (None, and no events).
+    "stood_down" is true on either stand-down ("not a new game: ..." or "no move into the vault: ...", the line in
+    "stand_down"). The hand back to Starfield's opening writes two lines: "handing_back" is the first ("<why>;
+    mq101debug=<n>"), written before the request, and "handed_back" the second ("requested=<bool> opening
+    starting=<bool> running=<bool> stage=<n>"), MQ101's state right after a request that waits for nothing: no
+    verdict. Both None when nothing was handed back (a stand-down whose readings both said the game runs, or a start
+    that went on); "handing_back" alone means the request never returned.
+    "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> mq101debug=<n>
+    write_after_hold=<n>"; newgame_v9 and v10 also wrote "fresh=<bool>"; None in a build before 28 Oct).
     "mq101debug_written" is the write right after hold-off pass 1 ("<n> was=<n>"; None when the build writes nothing,
     or when the hold-off never ran: run 2 of 28 Oct has only the version line, the game never finished its first load).
-    "inventory_cleared" is the reset's line ("removed=<n> left=<n> ..."; None when the build kept the inventory) and
+    "inventory_cleared" is the reset's line ("removed=<n> left=<n>"; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
-    persistent mode, which never centers, or when the anchor resolved at once).
+    persistent mode, which never centers, or when the anchor resolved at once). "entered_vault" is the last move's
+    verdict, or true once the timer confirms after the load that the start's move took ("enter vault confirmed").
     "pod_settle" is where the player stood the first loaded tick after the move into the pod ("ok=<bool> pos=<x y z>
     dx=<n> dy=<n> drop=<n>"; None in a build before newgame_v10, which had no such line: run 3 of 28 Oct sank under the
     pod's z and the game put the player on the COC marker). "surfaced" is the last "surface setposition" line: since
     newgame_v10 it says whether the merged arrival took ("ok=<bool> set=<n> pos=... target=...").
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
-    hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
-    says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
+    hold-off pass stopped (since newgame_v11 pass 1 in the start right after the move, pass 2 once the vault has loaded;
+    before it pass 1 came before the move and pass 2 a tick later); "looks_done" says what ended the looks wait
+    ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
     is the SPECIAL script's ending ("set S=.. P=.. ..." or "skipped: ..." when the player left the vault without it;
     "later" and "left" prompts are not endings). "version_saved" is the build version the version script recorded
     when the new game started, "version_load" the last "saved=<n> installed=<n>" line of a save load (a load logs no
@@ -660,8 +677,10 @@ def summarize(lines):
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
          "inventory_cleared": None, "vault_suit": None, "centered": None,
-         "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None, "mq101debug_written": None,
-         "last_status": None, "runs": 0, "earlier_completed": False}
+         "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
+         "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
+         "start_wait": None, "waiting_3d": None, "fade": None,
+         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -699,6 +718,8 @@ def summarize(lines):
             # Starfield's Papyrus prints a bool as "true" / "false" (the 28 Oct log: anchor_temporary=true), FO4's
             # tests wrote "True"; both read
             s["entered_vault"] = msg.split()[2].lower() == "ok=true"
+        elif msg.startswith("enter vault confirmed "):
+            s["entered_vault"] = True                        # the start's move took: the timer saw the vault cell
         elif msg.startswith("pod settle "):
             if s["pod_settle"] is None:                      # the script checks once
                 s["pod_settle"] = msg[len("pod settle "):]
@@ -708,8 +729,27 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("fell "):
             s["fell"] = True
-        elif msg.startswith("not a new game"):
+        elif msg.startswith("not a new game") or msg.startswith("no move into the vault"):
             s["stood_down"] = True
+            s["stand_down"] = msg
+        elif msg.startswith("handing back to Starfield's start: "):
+            s["handing_back"] = msg[len("handing back to Starfield's start: "):]
+        elif msg.startswith("handed back: "):
+            s["handed_back"] = msg[len("handed back: "):]
+        elif msg.startswith("start route="):
+            s["start"] = msg[len("start route="):]
+            # the event that ran the start: first, since the script writes the other event's line after this one
+            # (Begin's lateRoute, 29 Oct review on #588)
+            s["start_events"].append(s["start"].split()[0])
+        elif msg.startswith("start event "):
+            s["start_events"].append(msg.split()[2])         # "start event <route> came after the start: ..."
+        elif msg.startswith("3d wait over "):
+            s["start_wait"] = msg[len("3d wait over "):]
+        elif msg.startswith("waiting for the 3d "):
+            s["waiting_3d"] = msg[len("waiting for the 3d "):]
+        elif msg.startswith("fade in by="):
+            if s["fade"] is None:                            # the script fades in once
+                s["fade"] = msg[len("fade in "):]
         elif msg.startswith("guard "):
             s["guard"] = msg[len("guard "):]
         elif msg.startswith("mq101debug written="):
@@ -754,22 +794,28 @@ def main(argv=None):
                    help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
     s.add_argument("--mq101debug", type=float, default=None,
-                   help=f"override GLOB MQ101Debug at the start, experiments only (default: no override; Starfield's intro at "
-                        f"{DEBUG_INTRO} places the player and the hold-off stops it; {DEBUG_START_PIRATES} is the pirate-fight "
-                        f"developer start of 28 Oct run 1; {DEBUG_UNMATCHED} matched no entry and never left the loading screen, run 2)")
+                   help=f"override GLOB MQ101Debug, experiments only (default: no override). MQ101 never runs with our own "
+                        f"start, so it matters only when the start hands back to MQ101 (a New Game+, or no move into the vault): "
+                        f"{DEBUG_INTRO} is the intro, {DEBUG_START_PIRATES} the pirate-fight developer start of 28 Oct run 1, "
+                        f"{DEBUG_UNMATCHED} matched no entry and never left the loading screen (run 2)")
     s.add_argument("--no-mq101debug", action="store_true",
                    help="kept for old command lines: the default already writes no override; it still cancels a --mq101debug given with it")
     s.add_argument("--debug-after-hold", type=int, default=None,
-                   help=f"the value the quest writes into MQ101Debug right after the hold-off stopped MQ101 (default "
+                   help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--clear-inventory", action="store_true",
-                   help="empty the player's inventory (quest items kept) right after the move into the pod (NG-K8; off by default)")
+                   help="empty the player's inventory once the player is confirmed in the vault, before stage 10 "
+                        "(NG-K8; off by default; whether quest items stay is unverified)")
     s.add_argument("--vault-suit", default=None, metavar="EDITORID",
                    help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
+    s.add_argument("--allow-temporary-anchor", action="store_true",
+                   help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
+                        "marker, and the script centers on the cell first (unverified during our own start's first load, "
+                        "and a centering that moves nobody hands nothing back; refused by default)")
     s.add_argument("--require-persistent-anchor", action="store_true",
-                   help="refuse a port whose vault cell has no persistent reference (default: anchor on its temporary "
-                        "COC marker, and the script centers on the cell first)")
+                   help="kept for old command lines: the default since newgame_v11 already refuses a vault cell without "
+                        "a persistent reference")
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)
     v.add_argument("--plan", required=True)

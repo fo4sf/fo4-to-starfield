@@ -3,8 +3,10 @@
 Written 2026-10-19 by Claude-cloud (the new-game thread). Phase 1 of the approved roadmap: a new game that opens in
 Vault 111 with no Starfield intro, which everything else plugs into. **In game three times (28 Oct 2026, sections 10 to 12):
 runs 1 and 2 failed (the pirate-fight developer start, then a load that never finished); run 3 (newgame_v9) reached
-stage 200, with two placement defects of ours fixed offline in newgame_v10, which waits for a restage.** Labels follow docs/ai/research-log.md (verified, supported hypothesis,
-unresolved).
+stage 200, with two placement defects of ours fixed offline in newgame_v10.** **Since newgame_v11 (29 Oct, the owner's
+pick F: our own start) the plugin replaces Starfield's start instead of stopping it: a New Game starts our quest, not
+MQ101 (sections 1, 2 and 13); not run in game yet.** Labels follow docs/ai/research-log.md (verified, supported
+hypothesis, unresolved).
 
 Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `dotnet/NewGame/Records.cs` (the read-only PC
 record reader, section 6a), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
@@ -15,37 +17,57 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 
 ## 1. What the player gets (the defaults)
 
-1. **Start:** our quest starts with the game (start game enabled, run once) and waits each second until the player's 3D
-   is loaded (Starfield's Utility.psc has no IsInMenuMode, so open menus are not awaited).
-2. **Guard:** it acts only on a new game. That means fewer than one game day has passed, the player is at level 1, and
-   Starfield's opening (`MQ101`) is running, still below stage 105, where it turns saving back on, and not completed. A
-   save the player made always has the opening at 105 or later, so even an early level-1 save stands down (21 Oct
-   review). A New Game has the opening running, because its stage 0 is what placed the player before our quest could
-   run (section 11; **verified** in game, run 3 of 28 Oct: `opening_stage=5 opening_running=true fresh=true`, section
-   12). A session started with `coc` from the main menu never starts MQ101, so it stands down too
-   (since newgame_v9: Install's map-test session of 28 Oct on v8 found MQ101 not running, and the quest moved that
-   character from Red Rocket into the vault). An existing save that gains the plugin stands the quest down at stage 1 and nothing
-   moves. The owner's test saves are safe. The day limit was 0.25 in the first build, which stood every new game down:
-   Starfield's clock starts at 8:00 and `GameDaysPassed` carries the hour, so a new game reads about 0.3335 a second in
-   (**verified** in game 28 Oct, two runs; section 10). The guard now logs every reading it judges (the `guard` line).
-3. **Starfield's opening is held off:** the quest stops `MQ00` (the main-quest start), `MQ101` (the opening),
-   `MQ101PostQuest` and `MQ_TutorialQuest_Misc04` if they run, and logs each stop. The list is walked twice: once before
-   the move, and once one tick later, because stopping MQ101 runs its stage 9000, which starts the last two (section 2).
-   Saving and the HUD, which MQ101's stage 0 had turned off, are turned back on right after the first pass.
-   The plugin overrides no Starfield record (section 2, B). MQ101's start stage picks its start by the global
-   `MQ101Debug`: 0 is the intro, whose own fragment moves the player to its start marker and waits for the 3D; 1 and 3
-   to 10 are developer starts (10, the first build's override, is the pirate fight: section 10). A value no entry
-   matches moves nobody, and the new game never leaves its loading screen (the second build's override of 2: section
-   11). So Starfield's intro places the player, our quest starts once that first load is through, and right after the
-   hold-off's first pass has stopped MQ101 the quest writes 2 into the global itself (`SetValueInt`), logged as
-   `mq101debug written=2.000000 was=0.000000`. 2 is the value the main quests' developer skip-start stages write; a
-   normally finished intro leaves 0. It opens the sustenance condition (`MQ101Debug != 0`), whose normal route (MQ101
-   stage 310) a held-off intro never reaches.
-   The intro's stage 0 also empties the inventory and equips Starfield's miner spacesuit after its 3D wait; with the
-   inventory reset off (the default, section 4c) the player wears it at the pod.
-4. **The cryo pod:** the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`) and stands up one metre
-   in front of their own pod, facing out of it (with a temporary COC marker the script first loads the cell by
-   centering on it: section 3a; the port of run 3 has the marker persistent). Since newgame_v10 the player is put 0.3 m
+1. **Start:** our quest is Starfield's startup quest. The plugin overrides the DefaultObject `StartupQuest_DO`
+   (Starfield.esm 00562D, which names `MQ101`, the opening, in vanilla) to name our quest, so a New Game starts ours
+   instead of Starfield's opening (our own start, the owner's pick F, 29 Oct; section 2, F). The quest runs once and is
+   not start-game enabled, so no save should ever start it (step 2). It starts while the game is still on its first
+   loading screen and does there what MQ101's stage 0 would have done: it moves the player (step 4). Nothing else of
+   Starfield's moves the player now, and a first load that nobody ends never finishes (run 2, section 11), so the start
+   runs from `OnQuestStarted` (the event Roleplayers' Alternate Start, which replaces the same record, moves its player
+   from) or from `OnQuestInit`, whichever comes first, once. When the player's 3D has loaded the screen fades in
+   (`Game.FadeOutGame(False, True, 0.0, 0.1, False)`, the call Roleplayers' Alternate Start makes once its start cell
+   has loaded) and saving and the HUD are turned on: from the start if its wait for the 3D ends with the 3D in, else
+   from the timer once it sees it, never before. Which of the two events fires during the load on 1.16.244 is what run 4
+   shows (section 13).
+2. **Guard:** it acts only on a new game: fewer than one game day has passed and the player is at level 1. Only the
+   engine's New Game (and New Game+) starts the startup quest (**supported hypothesis**: the precedent relies on it,
+   MQ101 has an NG+ entry, and what reads `StartupQuest_DO` is not in the records report, NG-N4), so a save the player
+   made should never start ours, nor an existing save that gains the plugin: the owner's test saves are safe. A session
+   started with `coc` from the main menu does not start the startup quest either (**supported hypothesis**: Install's
+   map test of 28 Oct found MQ101, the startup quest then, not running). The opening-stage test of newgame_v9 and v10
+   (MQ101 running and below stage 105, the 21 Oct review) is gone: MQ101 no longer runs before ours. A New Game+ keeps
+   the player's level, so it stands down (stage 1); when either reading of the start says the game is still loading (the
+   player's 3D not in, or no parent cell yet: `loading=true` on the `start route` line), the quest first asks MQ101 to
+   start (`Opening.StartNoWait()`, which waits for nothing; logged `handing back ...`, then `handed back: ...`), whose
+   stage 0 entry 0 is the NG+ start; whether MQ101 started by a script during the first load starts up then and moves
+   the player is **unverified** (section 13). The guard now reads days and level during the first load; the readings of
+   section 10 were taken a second later, so an NG+ whose level still read 1 then would get our start instead
+   (**unverified**; not a hang). A console start on a played save (a game day or more, or above level 1) stands down and
+   moves nothing; one in a session under a day at level 1 (a `coc` session from the main menu: Install's map test read
+   `days=0.333532 level=1`, section 11) passes the guard and runs the whole start, as a New Game does. The day limit was
+   0.25 in the first build, which stood every new game down: Starfield's clock starts at 8:00 and `GameDaysPassed`
+   carries the hour, so a new game reads about 0.3335 a second in (**verified** in game 28 Oct, two runs; section 10).
+   The guard logs every reading it judges (the `guard` line).
+3. **Our start replaces Starfield's opening, and its start quests are held off:** on a start that goes on, nothing
+   starts MQ101 any more (only a stand-down during the first load asks it to start, step 2). The quest still stops
+   `MQ00` (the main-quest start, start-game enabled), `MQ101` (the opening), `MQ101PostQuest` and
+   `MQ_TutorialQuest_Misc04` if they run, and logs each stop: once in the start right after the move, and once more when
+   the vault has loaded, for a quest that started meanwhile and for the two that MQ101's stage 9000 starts if something
+   had started MQ101 and the first pass stopped it (section 2). The plugin overrides no other Starfield record:
+   `MQ101Debug` keeps its value (section 2, B). Right after the hold-off's first pass the quest writes 2 into that
+   global itself (`SetValueInt`), logged as `mq101debug written=2.000000 was=0.000000`. 2 is the value the main quests'
+   developer skip-start stages write; a normally finished intro leaves 0. It opens the sustenance condition (`MQ101Debug
+   != 0`), whose normal route (MQ101 stage 310) is never reached. A hand back never follows the write or the hold-off:
+   both come after the move, and both stand-downs return before them.
+   Without MQ101's stage 0 nothing empties the inventory or puts on Starfield's miner spacesuit (newgame_v9 and v10
+   left the player in it at the pod): what the player wears and carries now is **unresolved** until run 4 (section 13;
+   the inventory reset, section 4c, stays off until then).
+4. **The cryo pod:** during the first load the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`)
+   and stands up one metre in front of their own pod, facing out of it (a port whose COC marker is temporary is refused
+   by default since newgame_v11; under `--allow-temporary-anchor` the script first loads the cell by centering on it:
+   section 3a; the port of run 3 has the marker persistent). Once the player's 3D has
+   loaded, the timer confirms they stand in the vault's cell (`enter vault confirmed after the load ...` when the move's
+   own check could not tell yet) and moves them again only if they do not. Since newgame_v10 the player is put 0.3 m
    above the pod's z (`PodLift`) and drops onto the floor: at the pod's own z they sank under it in run 3 and the game
    stood them on the COC marker 8 m away (section 12). The first tick the player is loaded there logs `pod settle
    ok=<bool> ...`. The notification reads "Vault 111" and the objective is "Leave Vault
@@ -69,10 +91,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
     it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
     changes (optional script).
-11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory`
-    build empties the inventory (quest items kept) right after the move into the pod and logs the count; with
-    `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8; section 4c). Off until the first
-    in-game proof shows what a game with MQ101 held off leaves in the inventory.
+11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory` build
+    empties the inventory (whether quest items stay is **unverified**, section 4c) once the player is confirmed in the
+    vault and logs the count; with `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8;
+    section 4c). Off until the first in-game run of our own start shows what a game whose MQ101 never ran leaves in the
+    inventory.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -80,14 +103,17 @@ Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `m
 
 | Option | How | For | Against |
 |---|---|---|---|
-| **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **verified** (run 3, 28 Oct, section 12): one tick is enough; pass 2 held MQ101PostQuest and MQ_TutorialQuest_Misc04, and MQ101 had not restarted. With no override the intro's stage 0 has run (character generation on, the move to its start marker, the chargen HUD mode) before our quest starts, so the hold-off stops a running intro; in run 3 saving and the HUD came back (a save at 18:11:36) and the owner walked on to Concord. Anything of the intro run 3 did not show (its controls layer, menus) stays **unverified**; runs 1 and 2 never reached the hold-off |
-| **B. The debug global (written after the hold-off by default: `--debug-after-hold <n>`, 0 for no write; `--mq101debug <n>` overrides the record, experiments only)** | No record override. Right after hold-off pass 1 has stopped MQ101, the quest writes 2 into Starfield's GLOB `MQ101Debug` (0A7D31) with `SetValueInt`. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's two runs, 28 Oct): MQ101's stage 0 has 12 log entries, ten of them conditioned on the global. Entry 0 is the NG+ start (`PlayerUnityTimesEntered >= 1`, whatever the global holds). Entry 2 (`== 0`) is the normal intro: its fragment (`Fragment_Stage_0000_Item_02`) disables controls in MQ101's input layer, turns character generation on, moves the player to `CharGenStartMarker`, sets the chargen HUD mode and waits for the player's 3D; after the wait it empties the inventory, equips the miner spacesuit, helmet, backpack and clothes, and takes Lin's and Heller's weapons. Nothing after its 3D wait sets a stage or starts a scene, so stopping MQ101 then leaves nothing that restarts it. Entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts, each moving the player itself; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed in run 1 (log: `opening_stage=250`). A value no entry matches moves nobody: the second build's override of 2 left the new game on its loading screen (run 2, section 11). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a New Game (the records report: it is no start-up stage; StartupQuest_DO 00562D starts MQ101), so the 19 Oct belief that vanilla writes 10 was wrong. 2 is the value the main quests' developer skip-start fragments write (MQ102 to MQ305, FFLodge01 and City_NA_Viewport02, each of which then jumps MQ101 to its end: 1800 and 1810, or 2000); a normally finished intro leaves 0 (MQ101's own fragments never write the global). Writing it opens PEO_SustenanceAllowed's `MQ101Debug != 0`, whose normal route (`GetStageDone(MQ101, 310)`) a held-off intro never reaches (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis), a start that moves the player itself; RoleplayersAlternateStart writes its unmatched 11 only after its own quest has placed the player (the research thread's read, 28 Oct), the same order as ours | No record touched; the write comes after MQ101 is stopped, so its stage 0 never reads it; sustenance stays possible | **verified** (run 3, section 12): `mq101debug written=2.000000 was=0.000000`. That nothing reads the global in the moment between the stop and the write is **unverified** |
+| **F. Our own start (default since newgame_v11, the owner's pick 29 Oct)** | The plugin overrides the DefaultObject `StartupQuest_DO` (Starfield.esm 00562D; **verified**, records report PC 21 Oct: it names MQ101 003448; that the engine starts the quest it names on a New Game is what the precedent below relies on) to name our quest, which is run once and not start-game enabled. The writer refuses a Starfield.esm whose `StartupQuest_DO` is missing, sits at another id than 00562D or names another quest than MQ101, and `check` holds the plugin to exactly one DFOB, that override, and to our quest as its only QUST. The quest moves the player into the vault itself during the first load and fades the screen in once the player's 3D has loaded (section 1, steps 1 and 4); A's hold-off and B's write stay, after the move. A start that is not a new game, or cannot move the player, stands down and, when either reading says the game is still loading (the player's 3D not in, or no cell yet), first asks MQ101 to start (`HandBack`, `StartNoWait`) | MQ101 never runs, so nothing of the intro (character generation on, its input layer, the miner suit, the stop's stage 9000) has to be undone; no save should ever start our quest (**supported hypothesis**, section 1 step 2). Shipped precedent: Roleplayers' Alternate Start and No Ship Fast Start override the same record (research, 28 Oct). The deployment gate's start check passes exactly one plugin of ours overriding it (`fo4sf.core.preflight` `check_start`) | One Starfield record overridden (removing our plugin undoes it). Anything of Starfield's that waits on MQ101 having run is **unresolved**. That `OnQuestStarted` fires during the first load for our quest, that a MoveTo then ends that load in the vault and that the screen then comes in on 1.16.244 are **supported hypotheses** (the precedent; MQ101's intro makes no fade call of its own) until run 4 (section 13); if neither start event comes, the load hangs as run 2 did, and newgame_v10 is the way back. That MQ101 started by a script during the first load moves the player (the hand back, the stand-downs' only way out of that load) is **unverified**: no run has stood down during it, and run 4 should not either |
+| A. Stop the opening quests at start (the default until newgame_v10; kept in F, after the move) | Our start-game quest stops MQ00, MQ101, MQ101PostQuest and MQ_TutorialQuest_Misc04 from Papyrus (`Quest.Stop`), then moves the player. **verified** (ContentResources.zip, PC 19 Oct): MQ00's only fragment, stage 10, sets MQ101Debug to 10, waits 0.1 s and starts MQ101; MQ101Script's OnQuestInit jumps to stage 400 only when MQ101Debug reads 1. **verified** (records report, PC 21 Oct): MQ00 is "Important Script Functions and Aliases", StartGameEnabled with 18 aliases, and its stage 10 is not a start-up stage, so vanilla never runs it; holding MQ00 off is no longer load-bearing and stays in the list only as the approved default. **verified** (19 Oct read): MQ101's stage 9000 runs on stop; it always starts MQ101PostQuest and, when the player never entered the Unity, MQ_TutorialQuest_Misc04, and restores neither saving nor the HUD. So the script walks the hold-off list a second time one tick after the first pass (NG-19, NG-N1) and restores saving and the HUD itself | Edits no Starfield quest record; reversible by removing our plugin; the list is a build option (`--hold`) | **verified** (run 3, 28 Oct, section 12): one tick is enough; pass 2 held MQ101PostQuest and MQ_TutorialQuest_Misc04, and MQ101 had not restarted. With no override the intro's stage 0 has run (character generation on, the move to its start marker, the chargen HUD mode) before our quest starts, so the hold-off stops a running intro; in run 3 saving and the HUD came back (a save at 18:11:36) and the owner walked on to Concord. Anything of the intro run 3 did not show (its controls layer, menus) stays **unverified**; runs 1 and 2 never reached the hold-off |
+| **B. The debug global (written after the hold-off by default: `--debug-after-hold <n>`, 0 for no write; `--mq101debug <n>` overrides the record, experiments only)** | No record override. Right after hold-off pass 1 (which stopped a running MQ101 before F; under F MQ101 never runs), the quest writes 2 into Starfield's GLOB `MQ101Debug` (0A7D31) with `SetValueInt`. **verified** (records report, PC 21 Oct, lines 352 to 396; the fragment sources, PC 19 Oct; the owner's two runs, 28 Oct): MQ101's stage 0 has 12 log entries, ten of them conditioned on the global. Entry 0 is the NG+ start (`PlayerUnityTimesEntered >= 1`, whatever the global holds). Entry 2 (`== 0`) is the normal intro: its fragment (`Fragment_Stage_0000_Item_02`) disables controls in MQ101's input layer, turns character generation on, moves the player to `CharGenStartMarker`, sets the chargen HUD mode and waits for the player's 3D; after the wait it empties the inventory, equips the miner spacesuit, helmet, backpack and clothes, and takes Lin's and Heller's weapons. Nothing after its 3D wait sets a stage or starts a scene, so stopping MQ101 then leaves nothing that restarts it. Entries 1 and 10 (`== 1`, `== 10`) and 3 to 9 (6, 3, 4, 5, 7, 8, 9) are developer starts, each moving the player itself; entry 11 has no condition and only ghosts Lin, Heller and Barrett. Entry 10's fragment (`Fragment_Stage_0000_Item_10`) moves the player to the Scene08 marker, equips the miner gear and the Cutter, enables Barrett's ship, sets stages 210 and 250 ("make pirate ship land") and the local time to 10: the pirate fight with no cutscene and no mine, where the owner landed in run 1 (log: `opening_stage=250`). A value no entry matches moves nobody: the second build's override of 2 left the new game on its loading screen (run 2, section 11). MQ00's stage 10 writes 10 and starts MQ101, but nothing runs that stage on a New Game (the records report: it is no start-up stage; StartupQuest_DO 00562D starts MQ101), so the 19 Oct belief that vanilla writes 10 was wrong. 2 is the value the main quests' developer skip-start fragments write (MQ102 to MQ305, FFLodge01 and City_NA_Viewport02, each of which then jumps MQ101 to its end: 1800 and 1810, or 2000); a normally finished intro leaves 0 (MQ101's own fragments never write the global). Writing it opens PEO_SustenanceAllowed's `MQ101Debug != 0`, whose normal route (`GetStageDone(MQ101, 310)`) a held-off intro never reaches (NG-2, NG-M1; its four conditions are in the 21 Oct report). SKK Fast Start's 8 is entry 8 (New Atlantis), a start that moves the player itself; RoleplayersAlternateStart writes its unmatched 11 only after its own quest has placed the player (the research thread's read, 28 Oct), the same order as ours | No record touched; the write comes after the hold-off's first pass (before F that pass had stopped MQ101; under F it also follows the move, and no hand back follows it), so MQ101's stage 0 never reads it; sustenance stays possible | **verified** (run 3, section 12): `mq101debug written=2.000000 was=0.000000`. That nothing reads the global in the moment between the stop and the write is **unverified** |
 | C. Override MQ00 / MQ101 without StartGameEnabled | Plugin overrides of Starfield's quest records | The opening never starts | Edits Starfield records; anything that expects MQ101 (NG+, Constellation, achievements) may break; hardest to undo in a save |
 | D. Our own start menu (as SKK) | A message box after character creation picking Vault 111 or Starfield's own start | Players keep the choice | More UI; only worth it once the Fallout start works |
 
-The ladder for the next in-game proof: the default (A, and B's write of 2 after the hold-off) first; `--debug-after-hold
+The ladder for the next in-game proof: the default (F, with A's hold-off and B's write of 2 after the move) first. If
+our own start fails (section 13's failure readings), the way back is newgame_v10 (restage main d9958261, the last
+build that stops Starfield's opening instead), where the old ladder applies: `--debug-after-hold
 0` if the write itself does harm (the global then stays at the intro's 0, and PEO_SustenanceAllowed's `!= 0` stays
-closed). `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches) is **not** a rung with today's guard:
+closed). `--mq101debug 8` (SKK's New Atlantis start, a value an entry matches) was **not** a rung with v10's guard:
 entry 8 sets MQ101's stages 500 and 1310 itself, so the guard would read the opening past 105 and stand down, as it did
 in run 1. Never an override no entry matches (2, 11): it hangs the first load (section 11). `--mq101debug 10` is the
 first build's pirate-fight start, kept only to reproduce run 1; C only on the owner's word.
@@ -133,28 +159,37 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   needs no rebuild beyond the re-stage that pins the new port's bytes). When the cell has no persistent reference the
   writer anchors on the temporary COC marker itself and writes `AnchorTemporary = true` and `VaultCell =
   "FO4Port_Vault111Cryo"` (the cell's EditorID): the **temporary mode**. `write` and `check` print the mode after the
-  anchor's id (`vault anchor FO4Port.esm:001338 temporary`), `offline_check.txt` keeps the line, `make_newgame.py`
-  reads it into plan.json as `anchor` and `check` holds a build to its mode (a temporary-anchor build fails the check
-  against a port with a persistent reference, and the other way round). `--require-persistent-anchor` restores the
-  refusal, for a build that must not rely on the fallback.
+  anchor's id (`vault anchor FO4Port.esm:001338 temporary`), `offline_check.txt` keeps the line, `make_newgame.py` reads
+  it into plan.json as `anchor` and `check` holds a build to its mode (a temporary-anchor build fails the check against
+  a port with a persistent reference, and the other way round). **Since newgame_v11 the refusal is the default:** with
+  our own start the centering comes during the first load, and a centering counts as a move, so one that moves nobody
+  hands nothing back and that load would never end (the 29 Oct review on #588). `--allow-temporary-anchor` builds the
+  temporary mode on request; `--require-persistent-anchor` is kept for old command lines and changes nothing.
 - **The script in the temporary mode:** `EnterVault` resolves the anchor as before. When it comes back None and
   `AnchorTemporary` is set, `CenterOnVault` calls `Debug.CenterOnCell(VaultCell)` once, logs `centered on
-  FO4Port_Vault111Cryo attempt=1 tick=1: ...` and returns false, so the existing 1 s retry resolves the now-loaded marker
-  and does the same `MoveTo` with the pod's offset: the player, already standing in the cell on the COC marker after the
-  centering, still ends at their pod, and the `enter vault ok=` line is the same proof as in the persistent mode. The
-  wait is bounded: after `CenterTicks` ticks (30) without the anchor resolving the script centers once more, at most,
-  and past that logs a failure line every 10 ticks (`vault anchor FO4Port.esm:<id> does not resolve after <n> ticks and
-  <m> centerings on FO4Port_Vault111Cryo: the temporary-anchor start failed`) instead of recentering in a loop. The
-  guard and the hold-off run before the first `EnterVault` as before (once, before the hold-off), so a centering never
-  re-judges them; the persistent mode never centers.
-- **What is unverified:** FO4 declares `Function CenterOnCell(string asCellname) native global` in Debug.psc. Starfield's
-  Debug.psc is **believed** to declare `CenterOnCell` (and `CenterOnCellAndWait`), **unverified** until the PC precheck
-  reads it (it is in the quest script's NATIVES, so a miss fails the precheck: the script would not compile); whether
-  the call works in retail Starfield, loads the cell and leaves the player in it is **unverified** until the PC run (the
-  `centered on` line followed by `enter vault ok=True` is the proof; the failure line is the counter-proof). The
-  selftest covers the resolver and the plugin: the no-persistent-reference fixture (every reference of the cell
-  temporary, as on the PC) writes a temporary-anchor build and still refuses under `--require-persistent-anchor`, and
-  mutations of `AnchorTemporary` and `VaultCell` are rejected.
+  FO4Port_Vault111Cryo attempt=1 tick=1: ...` and returns false, so the existing 1 s retry resolves the now-loaded
+  marker and does the same `MoveTo` with the pod's offset: the player, already standing in the cell on the COC marker
+  after the centering, still ends at their pod, and the `enter vault ok=` line is the same proof as in the persistent
+  mode. The wait is bounded once the player's 3D is in: after `CenterTicks` (30) tries without the anchor resolving the
+  script centers once more, at most, and past that logs a failure line every 10 tries (`vault anchor FO4Port.esm:<id>
+  does not resolve after <n> ticks and <m> centerings on FO4Port_Vault111Cryo: the temporary-anchor start failed`)
+  instead of recentering in a loop. The tries after the first are the timer's, and the timer waits for the player's 3D
+  before it tries: a centering during the first load that moves nobody leaves the 3D out, so none of this follows, and
+  the timer's `waiting for the 3d tick=<n> vault_moves=0 centered=1 ...` line every 10 ticks is the only trace (section
+  13). The guard runs before the first `EnterVault` (once, in the start), so a centering never re-judges it; a centering
+  counts as a move under way, so the start goes on to the hold-off and the write as after a MoveTo and never hands back
+  (the reason the mode is built only on request). Whether a centering during the first load ends that load in the vault,
+  as a MoveTo does, is **unverified** (the installed port's anchor is persistent: run 3). The persistent mode never
+  centers.
+- **What is unverified:** FO4 declares `Function CenterOnCell(string asCellname) native global` in Debug.psc.
+  Starfield's Debug.psc declares the same `CenterOnCell` and also `CenterOnCellAndWait` (**verified**:
+  ContentResources.zip, read 29 Oct; it is in the quest script's NATIVES, so the precheck reads it on every build);
+  whether the call works in retail Starfield, loads the cell and leaves the player in it is **unverified** until the PC
+  run (the `centered on` line followed by `enter vault ok=True` is the proof; the failure line is the counter-proof, or
+  the timer's `waiting for the 3d` lines when the centering came during the first load). The selftest covers the
+  resolver and the plugin: the no-persistent-reference fixture (every reference of the cell temporary, as on the PC on
+  21 Oct) is refused by default and writes a temporary-anchor build under `--allow-temporary-anchor`, and mutations of
+  `AnchorTemporary` and `VaultCell` are rejected.
 - `make_newgame.py log` prints `centered` (the first centering line's text; None in the persistent mode).
 - Run 3 (28 Oct, section 12): the installed port's COC marker `001338` is persistent now (`anchor_temporary=false`), so
   the persistent mode ran, with no centering.
@@ -269,20 +304,22 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   from the SKK FastStart article and a forum post, research note 06-fo4-vault111-chain; the fragment itself was not
   read); Starfield's MQ101 stage 0 entry 2 (the intro) runs `RemoveAllItems()` after its 3D wait and equips the miner
   spacesuit, helmet, backpack and clothes (**verified**, PC read of QF_MQ101_00003448.psc, 19 Oct; NG-N3 answered).
-  Since newgame_v9 that fragment runs before our quest, so a default build leaves the player in the miner suit at the pod
-  (**unverified** in game: run 3's screenshots are first person and a default build logs no inventory line, section
-  12). The answer is `--clear-inventory --vault-suit <the port's Vault 111 suit
-  EditorID>`: the reset runs after the move into the vault, well after the fragment's few calls. The reset stays a writer option, **off by default** until the owner picks it:
+  In newgame_v9 and v10 that fragment ran before our quest, so a default build left the player in the miner suit at the
+  pod (**unverified** in game: run 3's screenshots are first person and a default build logs no inventory line, section
+  12). Since newgame_v11 MQ101 never runs, so neither does that fragment: what a New Game leaves the player with then is
+  **unresolved** until run 4 (section 13). `--clear-inventory --vault-suit <the port's Vault 111 suit EditorID>` stays
+  the answer for a start that does not depend on it: the reset runs once the player is confirmed in the vault. The reset stays a writer option, **off by default** until the owner picks it:
   `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
   the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
   setting.
-- When on: right after the move into the pod succeeds and before stage 10, `ResetInventory` calls
-  `player.RemoveAllItems(None, false, false)` (the third argument false keeps quest items), reads
-  `GetItemCount(None)` before and after and logs `inventory cleared removed=<n> left=<n> (quest items kept)`. Both
-  natives are written with FO4's signatures; Starfield's `ObjectReference.psc` is what the precheck reads, and a miss
-  fails the core script (there is no `--no-...` for it: the property is off, but the script must compile). Whether
-  Starfield's `GetItemCount(None)` counts every item, as FO4's does, is **unverified**: both numbers are logged so the
-  proof can say.
+- When on: once the player is confirmed in the vault (the timer's first tick after the 3D has loaded) and before stage
+  10, `ResetInventory` calls `player.RemoveAllItems(None, false, false)`, reads `GetItemCount(None)` before and after
+  and logs `inventory cleared removed=<n> left=<n>`. Both natives are written with FO4's signatures; Starfield's
+  `ObjectReference.psc` is what the precheck reads, and a miss fails the core script (there is no `--no-...` for it: the
+  property is off, but the script must compile). Starfield's third parameter of `RemoveAllItems` is
+  `abRespectTargetCapacity` (`ObjectReference.psc`, ContentResources.zip, read 29 Oct), so whether quest items stay is
+  **unverified**: `left=` says how many items stayed, not which. Whether Starfield's `GetItemCount(None)` counts every
+  item, as FO4's does, is **unverified**: both numbers are logged so the proof can say.
 - The suit: `--vault-suit <EditorID>` (only with `--clear-inventory`; refused alone) names an ARMO of FO4Port.esm. The
   writer resolves it offline exactly as it does the anchors and the terminal: exactly one ARMO of that EditorID (any
   case) in the port, the port's own record, else refused (none, two, or another plugin's record). The script resolves it
@@ -316,7 +353,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    `--no-special` (a function counts as present when any script in the base's `extends` chain declares it, as the
    compiler resolves it); a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
    (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) belong to the quest script, so a miss there
-   is a core miss (section 4c).
+   is a core miss (section 4c). So do our own start's (section 13): `Game.FadeOutGame`, `ObjectReference.WaitFor3DLoad`,
+   `Quest.StartNoWait` and `Quest.IsStarting` (the hand back) and the start events `OnQuestStarted` and `OnQuestInit`,
+   which the looks and SPECIAL scripts start on too.
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
@@ -328,23 +367,28 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    given with it), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
-   `--require-persistent-anchor` (refuse a vault cell without a persistent reference instead of the temporary-anchor
-   mode, section 3a). plan.json records them, the anchor's id and mode (`anchor`), and the stage contract.
-3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
-   (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
-   selftest builds the default, `--no-looks`, `--mq101debug 0`, `--mq101debug 8`, `--debug-after-hold 0`,
-   `--mq101debug 10`, no-cog-door, two-quest-hold,
-   `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
-   `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the
-   others' options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks,
-   has twice, or that another plugin owns is refused. A port whose vault cell has no persistent reference (every
-   reference temporary, the installed port's shape) builds a temporary-anchor plugin whose `write` and `check` lines say
-   `temporary`, fails `check` against the port with persistent references (and that build fails against it), and is
-   refused under `--require-persistent-anchor`. It also checks the four MESG records (two buttons each,
-   ten on the allocation), the seven AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties, the SPECIAL
-   script's list, messages and terminal, and the version GLOB (its value and Constant flag), the player alias (forced
-   to 00000014, the only alias) and the alias script's binding and `BuildVersion` property; the terminal pick prefers a
-   persistent reference and refuses a foreign or missing one.
+   `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
+   3a; refused by default since newgame_v11, and `--require-persistent-anchor` is kept for old command lines). plan.json
+   records them, the anchor's id and mode (`anchor`), and the stage contract.
+3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest (`dotnet run -c
+   Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The selftest builds the
+   default, `--no-looks`, `--mq101debug 0`, `--mq101debug 8`, `--debug-after-hold 0`, `--mq101debug 10`, no-cog-door,
+   two-quest-hold, `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
+   `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the others'
+   options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks, has
+   twice, or that another plugin owns is refused. A port whose vault cell has no persistent reference (every reference
+   temporary, the shape of the port installed on 21 Oct) is refused by default; under `--allow-temporary-anchor` it
+   builds a temporary-anchor plugin whose `write` and `check` lines say `temporary` and that fails `check` against the
+   port with persistent references (and that build fails against it). It also checks the four MESG records (two buttons
+   each, ten on the allocation), the seven AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties, the
+   SPECIAL script's list, messages and terminal, and the version GLOB (its value and Constant flag), the player alias
+   (forced to 00000014, the only alias) and the alias script's binding and `BuildVersion` property; the terminal pick
+   prefers a persistent reference and refuses a foreign or missing one. Our own start: the plugin's one DFOB must be
+   Starfield's `StartupQuest_DO` naming QUST 0x800, the quest run once and not start-game enabled, and our quest the
+   plugin's only QUST (mutations: the override removed, naming MQ101 or MQ00, renamed, a second DFOB, a new DFOB of ours
+   named `StartupQuest_DO` instead of the override, the quest start-game enabled again, an MQ101 override added), and
+   `write` refuses a Starfield.esm without `StartupQuest_DO`, with one naming another quest than MQ101, or with one at
+   another id than 00562D (`check` refuses the default build against the second).
 4. Install is a later owner line: `fold` into a copy of the installed core set, `verify`, then `exp_install.py`, game
    closed, after the current v6e test. Testing needs a NEW game, so it never touches the owner's saves.
 
@@ -386,7 +430,7 @@ and its findings go into newgame.md section N as the 19 Oct script read did.
 New game with the plugin installed. Record the log, `sqv MQ101`, `sqv MQ00` and screenshots at the pod, at the cog door
 and on the surface. PASS means the log reaches stage 200 with "enter vault ok=True" and "landed", there is no Starfield
 intro on screen, and the surface screenshot shows the Vault 111 elevator area. Then walk on from there: the
-continuous-traversal gate starts at the vault exit.
+continuous-traversal gate starts at the vault exit. Since newgame_v11 the start's own lines are section 13's table.
 
 ## 8. Questions for the talk
 
@@ -408,8 +452,8 @@ the quest after `LooksWait` seconds; a `--no-looks` build does not wait.
 
 | Stage | Meaning |
 |---|---|
-| 0 | started: waiting for the player's 3D, then the guard and the hold-off |
-| 1 | stood down: not a new game, nothing moved |
+| 0 | started: as Starfield's startup quest, the guard, the move into the vault and the hold-off |
+| 1 | stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads) |
 | 10 | in the vault: the player stands at their pod |
 | 20 | looks done: character creation closed, or LooksWait passed |
 | 30 | cog door opened: from its console |
@@ -614,6 +658,110 @@ on the owner's line, a New Game from the main menu. Expected: `enter vault ok=tr
 -0.728571`, then `pod settle ok=true` with a drop of about 0.1 m, and no fall; at the ride, `surface setposition
 ok=true set=1` and `landed z=...`, stage 200. A `pod settle ok=false` with the player on the COC marker means the
 floor at the pod is higher than the marker's (or has no collision there), the next thing to read in the port.
+
+## 13. Our own start (newgame_v11, 29 Oct 2026): what run 4 must show
+
+**Why (the owner, 29 Oct, typos fixed):** "too many things are breaking because we are forcing ourselves into the
+Starfield system". Of the strip-down plan's choices the owner picked F, our own start. newgame_v9 and v10 let MQ101's
+stage 0 run and then undid it (the hold-off, the restore of saving and the HUD, the miner suit left on); v11 replaces
+the start itself, as Roleplayers' Alternate Start does.
+
+**What changed (offline; the writer's selftest and tests/test_newgame.py hold it):** the plugin overrides
+`StartupQuest_DO` (00562D) to name `FO4SF_NewGame` (0x800), and the quest is no longer start-game enabled. The script
+starts from `OnQuestStarted` or `OnQuestInit` (`Begin`, once), during the first load: the guard, the move into the
+vault, the hold-off's first pass and the `MQ101Debug` write, then the timer, and once the player's 3D has loaded the
+fade in (`FadeIn`, from the start's own wait or from the timer, whichever sees the 3D first). The timer confirms the
+vault cell, runs pass 2 and sets stage 10; everything after stage 10 is newgame_v10's (the pod settle check, the looks,
+SPECIAL, the cog door, the two-tick ride). A start that is not a new game, or that cannot move the player (the anchor
+does not resolve), stands down (stage 1) and, when either reading of the start says the game is still loading (the
+player's 3D not in, or no parent cell yet: `loading=true`), first asks MQ101 to start (`HandBack`, with `StartNoWait`,
+before it sets that stage, so nothing of ours waits on MQ101's start-up), so that its stage 0 moves the player and the
+first load does not wait on a move nobody makes (**unverified**, below). The first review of 29 Oct (on #588) found
+three ways the first load could still go wrong: the fade could fire under the loading screen when the start's wait ended
+without the 3D (fixed: each caller checks the 3D first), a stand-down judged the load by one reading (fixed: either),
+and a temporary anchor's centering counts as a move, so a centering that moves nobody hands nothing back (not fixed but
+gated: that mode is built only on request, `--allow-temporary-anchor`, section 3a). The second start event's line now
+always follows the start's route line. The second review found the hand back's effect stated as fact and a stalled hand
+back invisible in the log: it is labelled, the request waits for nothing, the reader keeps both of its lines
+(`handing_back`, `handed_back`), and the timer's wait for the 3D writes a line every 10 ticks (`waiting_3d`). The
+deployment gate's start check passes the override (`our own start overrides StartupQuest_DO:
+FO4SFNewGame.esm:StartupQuest_DO`). The looks and SPECIAL scripts start their timers on the same two events.
+
+**Expected lines on a New Game, in this order** (`make_newgame.py log` keys in the last column):
+
+| Step | Line | Reader |
+|---|---|---|
+| Version | `version saved=1.000000 (new game)` | `version_saved` |
+| Start | `init holdoff=4 ...`, then `start route=OnQuestStarted player_loaded=false cell=None loading=true` (or `OnQuestInit`) | `start`, `start_events` |
+| Guard | `guard days=0.33... level=1 opening_stage=0 opening_running=false mq101debug=0.000000 write_after_hold=2` | `guard` |
+| Move | `enter vault ok=<bool> pos=... target=9.142858 -3.114286 -0.728571 cell=...` (false is possible while the cell loads) | `entered_vault` |
+| Hold-off 1 | `held off ...` or `not running ... pass=1`, then `hold-off pass 1 stopped=<n> of 4` | `held_off_by_pass` |
+| Write | `mq101debug written=2.000000 was=0.000000` | `mq101debug_written` |
+| Second event | `start event OnQuestInit came after the start: nothing to do`, if it fires: anywhere after the `start route` line (right after it when it came during the start's first calls) | `start_events` |
+| 3D | `3d wait over loaded=true`; `fade in by=start loaded=true cell=[Cell <FO4Port_Vault111Cryo ...>]; saving and HUD on` (after `loaded=false`, or when the timer sees the 3D first: `by=timer`); a timer still waiting for the 3D writes `waiting for the 3d tick=<n> ...` every 10 ticks | `start_wait`, `fade`, `waiting_3d` |
+| Vault | `enter vault confirmed after the load ...` if the move's own check said false; pass 2; `stage 10` | `entered_vault`, `stages` |
+| Pod | `pod settle ok=true ... drop=<about 0.1>` | `pod_settle` |
+
+From there on as section 12's next run: the looks prompt, the cog door, `surface setposition ok=true set=1`, `landed`,
+stage 200. On screen: no Starfield intro at all (no mine, no Lin), and the loading screen ends in the vault.
+
+**What run 4 answers (each open until then):**
+- Which start events fire, and in what order. **Supported hypothesis:** `OnQuestStarted` during the load, the
+  precedent's event; run 2 showed a start-game-enabled quest's `OnQuestInit` waiting for the end of the load.
+- Whether `GetParentCell` names the vault right after a MoveTo during the load. **Unverified**; the timer's
+  confirmation covers both answers.
+- Whether the player's 3D reads as not loaded, or the player has no parent cell, when the start runs during the load
+  (**supported hypothesis**: MQ101's intro waits for the 3D after its move). A hand back needs either; the `start`
+  line logs both and the verdict (`player_loaded=`, `cell=`, `loading=`).
+- Whether the guard's readings during the load are those of a second later (section 10 read them then): an NG+ whose
+  level still read 1 would get our start, not MQ101's NG+ start (not a hang). MQ101's own NG+ test,
+  `PlayerUnityTimesEntered >= 1`, is the candidate for a stronger guard once a records read shows what it is.
+- Nothing about the hand back: on a New Game our start goes on, so MQ101 is never asked. Whether MQ101 started by a
+  script during the first load starts up then and moves the player is **unverified** until a run stands down during that
+  load (a New Game+, or a build whose anchor does not resolve, on purpose).
+- Whether the fade call ends the loading screen, or the move does and the loading menu fades the game in itself.
+  **Supported hypothesis:** the latter, from MQ101's own fragments: they wait 0.1 s after the move before they fade
+  (`Utility.Wait`, which does not run in menu mode), because a fade requested while the loading menu is up "would be
+  bashed when the loading menu goes away and tells the fade menu to fade in", and the intro's entry (Item_02) makes no
+  fade call at all (QF_MQ101_00003448, ContentResources.zip, read 29 Oct). The precedent's comment says its fade
+  "finishes main menu loading". Either way the screen should come in once the player's 3D is in.
+- What the player wears and carries with no MQ101 stage 0. **Unresolved.**
+- Whether MQ00 starts before or after our start (the pass that stops it will say).
+- Whether a centering during the first load works in the temporary-anchor mode. Not exercised: the installed port's
+  anchor is persistent, and the mode is built only on request since the 29 Oct review.
+- Whether anything else of Starfield's waits on MQ101 having run (a quest list with `sqv` after the run).
+- A `coc` session from the main menu should no longer start our quest at all: its log has no `init` line.
+
+**Failure readings:**
+- Only a `version saved` line and no `init` line, with the loading screen up: neither start event came during the
+  load (run 2's shape). The way back is newgame_v10 (restage main d9958261). The next step would be a stage 0 fragment
+  on our quest, as MQ101 moves its own player, or a route from the player alias (its `OnInit` ran during run 2's load).
+- `no move into the vault ...`, then `handing back ...` and `handed back: requested=true ...`, then Starfield's intro on
+  screen: the anchor did not resolve and Starfield's own intro took over (the hand back works during the load). The game
+  is playable; ours did not start.
+- `not a new game ... loading=true`, then `handed back`: the guard judged the New Game a New Game+; its `guard`
+  line has the readings.
+- `handed back: requested=true ...` comes right after the request, which waits for nothing, so it reads MQ101 while its
+  start-up may still be under way (most likely `starting=true running=false`) and is no verdict. If the loading screen
+  then stays up, MQ101 started by a script during the first load did not start up or did not move the player;
+  Papyrus.0.log cannot say which (MQ101's own `Debug.Trace` lines are not in run 3's, though its stage 0 ran then: our
+  log read `opening_stage=5`). The way back is newgame_v10; the next build would move the player to MQ101's own start
+  marker (`CharGenStartMarker`, where its intro entry moves the player) before the request, so that load ends whatever
+  MQ101 does. `requested=false`: MQ101 could not be started at all, with the same way back.
+- `handing back ...` with no `handed back` line (`handing_back` set, `handed_back` None): the request itself never
+  returned, which `StartNoWait` should not do (Quest.psc: it returns at once). `handed back` with no `stage 1` line
+  after it: our own `SetStage(1)` waited, after the request had gone out.
+- `not a new game ... loading=false` or `no move into the vault ...` with no `handing back` line, on a New Game whose
+  loading screen stays up: neither reading saw the load (`start route ... loading=false`), so nothing was handed back.
+  The hand back then needs another signal of the first load.
+- `enter vault ok=false`, pass 1 and the write, then no `3d wait over` line and no `enter vault confirmed`, with the
+  loading screen up: most likely the MoveTo during the load did not take (the start counts MoveTo calls, not moves that
+  took), so the load waits as in run 2 (the timer's `waiting for the 3d ... vault_moves=1` lines, if it runs then, show
+  the same). The way back is newgame_v10.
+- `3d wait over loaded=false` and no `fade in` line, the screen black: the timer never saw the player's 3D. While it
+  waits it writes `waiting for the 3d tick=<n> vault_moves=<n> centered=<n> cell=<cell>` every 10 ticks (`waiting_3d`,
+  the last one): those lines say it ran and what the start had done; none at all means the timer did not run then
+  (whether a script timer runs under the loading menu is **unverified**: ScriptObject.psc does not say).
 
 ## Sources
 
