@@ -43,9 +43,11 @@ PLAN = {"refs": [{"tag": "T1", "pos": [60.0, 50.0, 10.0]}, {"tag": "T3", "pos": 
                       "SSol system location": f"{SOL_LOC:08X}"}}
 PROBE_UP = f"{sid(SURFACE)},{sid(PLANET_LOC)},{sid(SOL_LOC)},{sid(UNIVERSE)}"   # every ancestor, nearest first
 SURFACE_UP, PLANET_UP = f"{sid(PLANET_LOC)},{sid(SOL_LOC)},{sid(UNIVERSE)}", f"{sid(SOL_LOC)},{sid(UNIVERSE)}"
-CHAIN = (f"chain surface_has_probe=true planet_has_surface=true probe_parents={PROBE_UP} probe_planet={sid(PLANET)} "
-         f"surface_parents={SURFACE_UP} surface_planet={sid(PLANET)} planet_parents={PLANET_UP} "
-         f"planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")
+CHAIN = (f"chain surface_ischild_probe=true probe_ischild_surface=false planet_ischild_surface=true "
+         f"surface_ischild_planet=false probe_parents={PROBE_UP} probe_planet={sid(PLANET)} "
+         f"probe_orbitals={sid(PLANET_LOC)} probe_systems={sid(SOL_LOC)} surface_parents={SURFACE_UP} "
+         f"surface_planet={sid(PLANET)} planet_parents={PLANET_UP} planet_systems={sid(SOL_LOC)} "
+         f"planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")       # in the script's order
 CHAIN_V1 = (f"chain probe_child_of_surface=false surface_child_of_planet=false probe_planet={sid(PLANET)} "
             f"surface_planet={sid(PLANET)} planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")
 FLT_MAX = "340282346638528859811704183484516925440.000000"           # as probe run 1's log printed it
@@ -178,48 +180,126 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual([a["kind"] for a in got["arrivals"]], [a["kind"] for a in want["arrivals"]])
             self.assertEqual((got["problems"], got["load_index"]), (want["problems"], want["load_index"]))
 
+    def chain(self, *swaps, plan=PLAN):
+        """The summary of a log whose chain line is CHAIN with each (old, new) swapped in."""
+        line = CHAIN
+        for a, c in swaps:
+            self.assertIn(a, line)
+            line = line.replace(a, c)
+        return probe_log.summarize(log_lines(chain=line), plan)
+
     def test_the_chain_line(self):
         s = probe_log.summarize(log_lines(), PLAN)
         self.assertEqual(s["chain_reading"], {
-            "links": {"surface_has_probe": True, "planet_has_surface": True},
-            "parents": {"the probe location": ["our surface", "our planet location", "SSol system location",
-                                               f"{UNIVERSE:08X}"],
-                        "our surface": ["our planet location", "SSol system location", f"{UNIVERSE:08X}"],
-                        "our planet location": ["SSol system location", f"{UNIVERSE:08X}"]},
-            "holds": {"the probe location under our surface": True, "our surface under our planet location": True,
-                      "our planet location under the system location": True},
+            "ischild": {"surface_ischild_probe": True, "probe_ischild_surface": False, "planet_ischild_surface": True,
+                        "surface_ischild_planet": False},
+            "parents": {"the probe location's parents": ["our surface", "our planet location", "SSol system location",
+                                                         f"{UNIVERSE:08X}"],
+                        "our surface's parents": ["our planet location", "SSol system location", f"{UNIVERSE:08X}"],
+                        "our planet location's parents": ["SSol system location", f"{UNIVERSE:08X}"],
+                        "our planet location's LocTypeStarSystem parents": ["SSol system location"],
+                        "the probe location's LocTypeMajorOrbital parents": ["our planet location"],
+                        "the probe location's LocTypeStarSystem parents": ["SSol system location"]},
+            "links": {"the probe location under our surface": {
+                          "holds": True, "readings": {"IsChild": True, "the probe location's parents": True}},
+                      "our surface under our planet location": {
+                          "holds": True, "readings": {"IsChild": True, "our surface's parents": True}},
+                      "our planet location under the system location": {
+                          "holds": True, "readings": {"our planet location's parents": True,
+                                                      "our planet location's LocTypeStarSystem parents": True}}},
+            "ischild_reads": "parent asks",
+            "reach": {"the planet lookup from the probe location": True,
+                      "the star system lookup from the probe location": True},
             "ancestors": True})
         self.assertEqual((s["problems"], s["notes"]), ([], []))
-        # Sol's location missing from our planet location's list: that link is the problem
-        broken = (CHAIN.replace("planet_has_surface=true", "planet_has_surface=false")
-                  .replace(f"planet_parents={PLANET_UP}", f"planet_parents={sid(UNIVERSE)}"))
-        s = probe_log.summarize(log_lines(chain=broken), PLAN)
-        self.assertEqual(s["problems"], ["chain: planet_has_surface is false",
-                                         "chain: the system location is not among our planet location's parents"])
-        # lists of the direct parent only: every link still holds, and the probe location's list stops there
-        direct = (CHAIN.replace(f"probe_parents={PROBE_UP}", f"probe_parents={sid(SURFACE)}")
-                  .replace(f"surface_parents={SURFACE_UP}", f"surface_parents={sid(PLANET_LOC)}")
-                  .replace(f"planet_parents={PLANET_UP}", f"planet_parents={sid(SOL_LOC)}"))
-        s = probe_log.summarize(log_lines(chain=direct), PLAN)
-        self.assertEqual((s["problems"], s["chain_reading"]["ancestors"]), ([], False))
-        self.assertEqual(set(s["chain_reading"]["holds"].values()), {True})
-        # an empty list: that location's own parent is missing, the other links stand
-        empty = CHAIN.replace(f"probe_parents={PROBE_UP}", "probe_parents=none")
-        s = probe_log.summarize(log_lines(chain=empty), PLAN)
-        self.assertEqual(s["chain_reading"]["parents"]["the probe location"], [])
-        self.assertEqual(s["problems"], ["chain: our surface is not among the probe location's parents"])
-        # no plan: the system location is not known, so it is not missed
-        s = probe_log.summarize(log_lines(chain=broken.replace("planet_has_surface=false", "planet_has_surface=true")))
-        self.assertEqual(s["chain_reading"]["holds"]["our planet location under the system location"], None)
+
+    def test_ischild_either_way_round(self):
+        flip = (("surface_ischild_probe=true probe_ischild_surface=false",
+                 "surface_ischild_probe=false probe_ischild_surface=true"),
+                ("planet_ischild_surface=true surface_ischild_planet=false",
+                 "planet_ischild_surface=false surface_ischild_planet=true"))
+        s = self.chain(*flip)                                     # the child asks, as MQ204 and UC04 call it
+        r = s["chain_reading"]
+        self.assertEqual((r["ischild_reads"], {k: v["holds"] for k, v in r["links"].items()}, s["problems"]),
+                         ("child asks", dict.fromkeys(r["links"], True), []))
+        self.assertEqual(len(s["notes"]), 1)
+        self.assertIn("IsChild answered true when the child asks", s["notes"][0])
+        s = self.chain(flip[1])                                   # one link each way
+        self.assertEqual(s["chain_reading"]["ischild_reads"], "mixed")
+        self.assertEqual(s["notes"], ["chain: IsChild answered differently for the two links (the probe location "
+                                      "under our surface: parent asks; our surface under our planet location: "
+                                      "child asks)"])
+        s = self.chain(("probe_ischild_surface=false", "probe_ischild_surface=true"),
+                       ("surface_ischild_planet=false", "surface_ischild_planet=true"))
+        self.assertEqual((s["chain_reading"]["ischild_reads"], s["notes"], s["problems"]),
+                         ("both", ["chain: IsChild answered true both ways round"], []))
+        cut = probe_log.summarize(log_lines(chain="chain surface_ischild_probe=true"), PLAN)
+        self.assertEqual(cut["chain_reading"]["links"], {"the probe location under our surface": {
+            "holds": True, "readings": {"IsChild": True}}})
+        self.assertEqual((cut["chain_reading"]["ischild_reads"], cut["notes"]), (None, []))
+
+    def test_a_link_is_broken_only_when_every_reading_says_so(self):
+        no = ("planet_ischild_surface=true", "planet_ischild_surface=false")
+        s = self.chain(no)                                        # IsChild no, the list yes: a note, no problem
+        link = s["chain_reading"]["links"]["our surface under our planet location"]
+        self.assertEqual(link, {"holds": None, "readings": {"IsChild": False, "our surface's parents": True}})
         self.assertEqual(s["problems"], [])
+        self.assertIn("chain: our surface under our planet location: the readings disagree (IsChild no, our "
+                      "surface's parents yes)", s["notes"])
+        s = self.chain(no, (f"surface_parents={SURFACE_UP}", f"surface_parents={sid(SOL_LOC)}"))
+        self.assertEqual(s["problems"], ["chain: our surface under our planet location: every reading says no "
+                                         "(IsChild, our surface's parents)"])
+        s = self.chain((f"planet_parents={PLANET_UP}", f"planet_parents={sid(UNIVERSE)}"),
+                       (f"planet_systems={sid(SOL_LOC)}", "planet_systems=none"))
+        self.assertEqual(s["problems"], ["chain: our planet location under the system location: every reading says "
+                                         "no (our planet location's parents, our planet location's "
+                                         "LocTypeStarSystem parents)"])
+        self.assertEqual(s["notes"], [])                          # the probe location's own lookup still finds Sol
+
+    def test_lists_of_the_direct_parent_only(self):
+        s = self.chain((f"probe_parents={PROBE_UP}", f"probe_parents={sid(SURFACE)}"),
+                       (f"surface_parents={SURFACE_UP}", f"surface_parents={sid(PLANET_LOC)}"),
+                       (f"planet_parents={PLANET_UP}", f"planet_parents={sid(SOL_LOC)}"))
+        r = s["chain_reading"]
+        self.assertEqual((s["problems"], s["notes"], r["ancestors"]), ([], [], False))
+        self.assertEqual({v["holds"] for v in r["links"].values()}, {True})
+
+    def test_empty_lists_and_the_lookups(self):
+        s = self.chain((f"probe_parents={PROBE_UP}", "probe_parents=none"))
+        r = s["chain_reading"]
+        self.assertEqual((r["parents"]["the probe location's parents"], r["ancestors"]), ([], None))
+        self.assertEqual(r["links"]["the probe location under our surface"]["holds"], None)       # IsChild yes
+        self.assertIn("chain: the probe location under our surface: the readings disagree (IsChild yes, the probe "
+                      "location's parents no)", s["notes"])
+        s = self.chain((f"probe_orbitals={sid(PLANET_LOC)}", "probe_orbitals=none"),
+                       (f"probe_systems={sid(SOL_LOC)}", f"probe_systems={sid(UNIVERSE)}"))
+        self.assertEqual(s["chain_reading"]["reach"], {"the planet lookup from the probe location": False,
+                                                       "the star system lookup from the probe location": False})
+        self.assertEqual((s["problems"], s["notes"]), ([], [
+            "chain: the planet lookup from the probe location does not find our planet location",
+            "chain: the star system lookup from the probe location does not find the system location"]))
+
+    def test_without_a_plan_the_system_location_is_not_known(self):
+        s = self.chain((f"planet_parents={PLANET_UP}", f"planet_parents={sid(UNIVERSE)}"), plan=None)
+        link = s["chain_reading"]["links"]["our planet location under the system location"]
+        self.assertEqual(link["holds"], None)
+        self.assertEqual(s["chain_reading"]["reach"]["the star system lookup from the probe location"], None)
+        self.assertEqual(s["problems"], [])
+        # an empty list holds no parent at all, whatever the parent's id
+        s = self.chain((f"planet_parents={PLANET_UP}", "planet_parents=none"),
+                       (f"planet_systems={sid(SOL_LOC)}", "planet_systems=none"), plan=None)
+        self.assertEqual(s["problems"], ["chain: our planet location under the system location: every reading says "
+                                         "no (our planet location's parents, our planet location's "
+                                         "LocTypeStarSystem parents)"])
 
     def test_a_version_1_chain_line_is_no_evidence(self):
         s = probe_log.summarize(log_lines(chain=CHAIN_V1, version=1), PLAN)
         self.assertEqual(s["problems"], [])
-        self.assertEqual(len(s["notes"]), 1)
-        self.assertIn("wrong way round", s["notes"][0])
-        self.assertIn("probe_child_of_surface and surface_child_of_planet are no evidence", s["notes"][0])
-        self.assertEqual(s["chain_reading"], {"links": {}})
+        self.assertEqual(s["notes"], ["chain: this log's script (version 1) asked IsChild one way only, the child "
+                                      "about its parent, so probe_child_of_surface and surface_child_of_planet "
+                                      "settle nothing until a version 2 log shows which way IsChild reads"])
+        self.assertEqual(s["chain_reading"], {"ischild": {}, "parents": {}, "links": {}, "ischild_reads": None,
+                                              "reach": {}, "ancestors": None})
         # a route A plan: our own system location, named from the init line's planet location
         names = probe_log.known_names({"refs": []}, probe_log.summarize(log_lines())["init"])
         self.assertEqual(names[(OUR << 24) | 0x801], "our system location")
@@ -271,14 +351,20 @@ class LogCommandTests(unittest.TestCase):
         self.assertIn(f"the probe location's parents: our surface, our planet location, {SOL_LOC:08X}, {UNIVERSE:08X}",
                       text)                                     # no stage given: Sol's location by its id
         self.assertIn(f"our planet location's parents: {SOL_LOC:08X}, {UNIVERSE:08X}", text)
-        self.assertIn("the probe location under our surface: yes; our surface under our planet location: yes; "
-                      "our planet location under the system location: not known", text)
-        self.assertIn("the probe location's list goes past its own parent", text)
+        self.assertIn("  the probe location under our surface: yes (IsChild yes, the probe location's parents yes)\n"
+                      "  our surface under our planet location: yes (IsChild yes, our surface's parents yes)\n"
+                      "  our planet location under the system location: not known (our planet location's parents "
+                      "not known, our planet location's LocTypeStarSystem parents not known)\n"
+                      "  IsChild answered: parent asks (as Location.psc's comment reads it)\n"
+                      "  the planet lookup from the probe location: finds our planet location\n"
+                      "  the star system lookup from the probe location: not known (the system location's id is "
+                      "not known)\n"
+                      "  the probe location's own list goes past its parent\n", text)
 
     def test_a_version_1_log_prints_its_note(self):
         code, text, _ = self.run_log(log_lines(chain=CHAIN_V1, version=1))
         self.assertEqual(code, 0, text)
-        self.assertIn("NOTE  chain: this log's script (version 1) asked IsChild the wrong way round", text)
+        self.assertIn("NOTE  chain: this log's script (version 1) asked IsChild one way only", text)
         self.assertNotIn("PROBLEM", text)
 
     def test_incomplete_run_exits_1(self):

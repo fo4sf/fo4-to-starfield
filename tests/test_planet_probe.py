@@ -169,8 +169,22 @@ class ScriptTests(unittest.TestCase):
         self.assertRegex(self.src, rf"^Scriptname {probe.SCRIPT} extends Quest", )
 
     def test_the_chain_line_writes_what_the_reader_reads(self):
-        for key in (*probe_log.CHAIN_LINKS, *probe_log.LIST_KEYS):
+        loc = {"probe": "ProbeLoc", "surface": "SurfaceLoc", "planet": "PlanetLoc"}
+        for pair in probe_log.ISCHILD:                          # <caller>_ischild_<argument>, the parent first
+            for key in pair:
+                caller, arg = key.split("_ischild_")
+                self.assertIn(f'" {key}=" + {loc[caller]}.IsChild({loc[arg]})', self.src)
+        for key in probe_log.LIST_KEYS:
             self.assertIn(f'" {key}="', self.src)
+        kw = {"parents": "", "systems": "starSystem", "orbitals": "majorOrbital"}
+        for key in probe_log.LIST_KEYS:
+            whose, what = key.split("_")
+            self.assertIn(f'" {key}=" + IdList({loc[whose]}.GetParentLocations({kw[what]}))', self.src)
+        self.assertIn('Keyword starSystem = Game.GetFormFromFile(StarSystemKwId, "Starfield.esm") as Keyword', self.src)
+        self.assertIn('Keyword majorOrbital = Game.GetFormFromFile(MajorOrbitalKwId, "Starfield.esm") as Keyword',
+                      self.src)
+        self.assertEqual({k: probe.SCRIPT_IDS[k] for k in probe.SCRIPT_KEYWORDS},
+                         {k: records.KEYWORDS[n] for k, n in probe.SCRIPT_KEYWORDS.items()})
         for key in probe_log.CHAIN_V1:                          # version 1's keys are gone from the script
             self.assertNotIn(key, self.src)
 

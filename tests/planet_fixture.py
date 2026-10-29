@@ -88,9 +88,10 @@ def planet(houdini=2048):
 
 
 def body(fid, edid, name, galaxy):
-    """A minimal planet record: the body markers, its name and GNAM (system, parent, planet)."""
-    return esm.Record(b"PNDT", fid, [(b"EDID", z(edid)), (b"BDST", b""), (b"ANAM", z(name)), (b"CNAM", b"\x02"),
-                                     (b"GNAM", struct.pack("<III", *galaxy)), (b"BDED", b"")], version=0x245)
+    """A minimal planet record: the body markers, its name and GNAM (system, parent, planet; None: no GNAM)."""
+    gnam = [(b"GNAM", struct.pack("<III", *galaxy))] if galaxy is not None else []
+    return esm.Record(b"PNDT", fid, [(b"EDID", z(edid)), (b"BDST", b""), (b"ANAM", z(name)), (b"CNAM", b"\x02")]
+                      + gnam + [(b"BDED", b"")], version=0x245)
 
 
 def sol_bodies():
@@ -248,25 +249,30 @@ def census_records():
     return [block, loc] + bases + [mars]
 
 
-def write_creation(path, system_id=0x0001F0F0, position=(40.0, 40.0, 4.0), bodies=(), system_override=None,
-                   own_index=None):
+def write_creation(path, system_id=0x0001F0F0, position=(40.0, 40.0, 4.0), bodies=(), overrides=(), own_index=None,
+                   overlay=None):
     """A built-in Creation stand-in (SFBGS*.esm) adding one star, and the bodies [(EditorID, name, (system, parent,
-    planet))] as its own records (0x801 on; own_index: their form ids' top byte, as SFBGS003.esm writes FD), and with
-    system_override (a location of locations(), with one more keyword) an override of a vanilla star system location,
-    as SFBGS00D.esm overrides SAlgorab."""
+    planet), or None for no GNAM)] as its own records (0x801 on; own_index: their form ids' top byte, as SFBGS003.esm
+    writes FD); overrides: the form ids of locations() it overrides, each with one more keyword (as SFBGS00D.esm
+    overrides SAlgorab); overlay: (EditorID, system, planet id) of an overlay world of its own (0x8F0)."""
     w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
     w.add(esm.Record(b"STDT", w.own(0x800), [(b"EDID", z("CreationStar")), (b"ANAM", z("Creation Star")),
                                              (b"BNAM", struct.pack("<3f", *position)),
                                              (b"DNAM", struct.pack("<I", system_id))], version=0x245))
     for i, (edid, name, galaxy) in enumerate(bodies, 1):
         w.add(body(w.own(0x800 + i) if own_index is None else own_index << 24 | 0x800 + i, edid, name, galaxy))
-    if system_override is not None:
-        rec = next(r for r in locations() if r.formid == system_override)
+    for fid in overrides:
+        rec = next(r for r in locations() if r.formid == fid)
         kws = records.keywords_of(rec) + [0x00061990]
         rec.subs = [(s, struct.pack("<I", len(kws)) if s == b"KSIZ" else struct.pack(f"<{len(kws)}I", *kws)
                      if s == b"KWDA" else d) for s, d in rec.subs]
         w.add(rec)
-    w.write(path)
+    if overlay is None:
+        w.write(path)
+        return
+    world = overlay_world(w.own(0x8F0), *overlay, block=0, location=0)
+    with open(path, "wb") as f:
+        f.write(w.to_bytes() + esm.group_bytes("WRLD", world_group(world)))
 
 
 # ------------------------------------------------------------------------------------------------ the probe plugin

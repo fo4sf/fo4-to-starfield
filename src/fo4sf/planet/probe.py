@@ -97,7 +97,10 @@ MEANING = {
 }
 SCRIPT_IDS = {"T1Id": 0x800, "T2Id": 0x801, "T3Id": 0x802, "T4Id": 0x803, "T5Id": 0x804, "T6Id": 0x805,
               "LocationId": LOCATION_ID, "WorldId": WORLD_ID, "MergeId": 0x800, "LC172CocId": LC172_COC,
-              "PlanetLocId": records.PLANET_LOC, "SurfaceLocId": records.SURFACE_LOC, "PlanetId": records.PLANET}
+              "PlanetLocId": records.PLANET_LOC, "SurfaceLocId": records.SURFACE_LOC, "PlanetId": records.PLANET,
+              "StarSystemKwId": records.KEYWORDS["LocTypeStarSystem"],          # Starfield.esm keywords: the stage
+              "MajorOrbitalKwId": records.KEYWORDS["LocTypeMajorOrbital"]}      # holds them to the census's
+SCRIPT_KEYWORDS = {"StarSystemKwId": "LocTypeStarSystem", "MajorOrbitalKwId": "LocTypeMajorOrbital"}
 CELL_TYPES = {1: "world", 4: "block", 5: "subblock", 6: "cell", 8: "persistent", 9: "temporary"}
 
 

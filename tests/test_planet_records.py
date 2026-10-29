@@ -25,9 +25,10 @@ class MasterTests(unittest.TestCase):
         self.sf = os.path.join(self.tmp.name, "Starfield.esm")
         pf.write_starfield(self.sf, houdini=70000)            # a PCCC above 65,535 bytes: written with XXXX
 
-    def build(self, opts=None, other=(), planets=(), locations=()):
+    def build(self, opts=None, other=(), planets=(), locations=(), overlays=()):
         with esm.Plugin(self.sf) as sf:
-            w, rep = records.build_master(sf, dict({"system": self.SYSTEM}, **(opts or {})), other, planets, locations)
+            w, rep = records.build_master(sf, dict({"system": self.SYSTEM}, **(opts or {})), other, planets, locations,
+                                          overlays)
         out = os.path.join(self.tmp.name, records.MASTER)
         w.write(out)
         return out, rep
@@ -40,7 +41,7 @@ class MasterTests(unittest.TestCase):
                     out[r.formid] = r
             return p.masters, p.flags, out
 
-    def test_master_passes_its_check_and_holds_six_records(self):
+    def test_master_passes_its_check_and_holds_its_records(self):
         out, rep = self.build()
         problems, summary = records.check_master(out)
         self.assertEqual(problems, [])
@@ -164,7 +165,7 @@ class SolTests(MasterTests):
     def check(self, out, planet_id=pf.SOL_FREE_ID, system_location=pf.SOL_LOCATION, **kw):
         return records.check_master(out, pf.SOL_SYSTEM, planet_id, system_location=system_location, **kw)
 
-    def test_master_passes_its_check_and_holds_six_records(self):
+    def test_master_passes_its_check_and_holds_its_records(self):
         out, rep = self.build()
         self.assertEqual(self.check(out)[0], [])
         _, _, recs = self.recs(out)
@@ -236,7 +237,7 @@ class SolTests(MasterTests):
         out, rep = self.build({"planet_id": 9})
         self.assertEqual((rep["planet_id"], rep["sol"]["planet_id_why"]), (9, "asked for"))
         self.assertEqual(self.check(out, planet_id=9)[0], [])
-        for taken in (3, 6, 7, 0):                               # Earth, Luna, a location's YNAM, no id
+        for taken in (3, 6, 7, 0, records.ID_UNSET):            # Earth, Luna, a location's YNAM, no id, negative
             with self.assertRaises(records.PlanetError):
                 self.build({"planet_id": taken})
 
@@ -283,11 +284,31 @@ class SolTests(MasterTests):
         with self.assertRaises(records.PlanetError):
             self.build({"system": "mars"})
 
+    def test_overlay_worlds_count_and_ids_that_read_negative_do_not(self):
+        world = ("Starfield.esm", "SomeWorld", pf.SOL_SYSTEM, 15)
+        _, rep = self.build(overlays=[world, ("Far.esp", "FarWorld", pf.JEMISON_SYSTEM, 40),
+                                      ("Mod.esp", "NoPlanet", pf.SOL_SYSTEM, 0)])
+        self.assertEqual(rep["planet_id"], 16)
+        self.assertIn("Starfield.esm overlay world SomeWorld names planet id 15", rep["sol"]["planet_id_why"])
+        self.assertEqual(rep["sol"]["overlay_worlds"], [["Starfield.esm", "SomeWorld", 15]])
+        with self.assertRaises(records.PlanetError):                 # an overlay world's planet id is taken
+            self.build({"planet_id": 15}, overlays=[world])
+        _, rep = self.build(planets=[("Odd.esp", "OddBody", "Odd", [0, 0, 0xFFFFFFFF], True)])
+        self.assertEqual(rep["planet_id"], pf.SOL_FREE_ID)
+        self.assertEqual(rep["sol"]["unset"], [["Odd.esp", "OddBody", 0xFFFFFFFF]])
+        self.assertEqual(rep["sol"]["no_gnam"], [])
+
     def test_free_planet_id(self):
         self.assertEqual(records.free_planet_id([], []), (1, "no body or location id in use"))
         bodies = [("A.esm", "P", "P", (0, 0, 4)), ("B.esm", "", "Moon", (0, 4, 9))]
         self.assertEqual(records.free_planet_id(bodies, [("A.esm", "L", 2)]), (10, "B.esm Moon has planet id 9"))
         self.assertEqual(records.free_planet_id(bodies, [("A.esm", "L", 11)])[0], 12)
+        self.assertEqual(records.free_planet_id(bodies, [], [("C.esm", "W", 20)]),
+                         (21, "C.esm overlay world W names planet id 20"))
+        odd = bodies + [("D.esm", "Odd", "Odd", (0, 0, records.ID_UNSET)), ("D.esm", "Max", "Max", (0, 0, 0xFFFFFFFF))]
+        self.assertEqual(records.free_planet_id(odd, [("D.esm", "L", 0xFFFFFFFE)])[0], 10)       # not counted
+        with self.assertRaises(records.PlanetError):                 # one above the largest would read negative
+            records.free_planet_id([("E.esm", "Last", "Last", (0, 0, records.ID_UNSET - 1))], [])
 
 
 class RegistrationTests(unittest.TestCase):

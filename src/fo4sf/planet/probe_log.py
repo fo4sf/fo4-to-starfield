@@ -8,15 +8,21 @@ and the runtime FF ids are negative), floats, bools, "none" for a None form, and
 load index), chain (the location chain as the game resolves it), arrive, then player / planet / ref / location
 lines at 2, 10, 30 and 60 s after each arrival.
 
-The chain line (chain_reading): Starfield's Location.IsChild "Returns whether the other location is a child of this
-one" (Location.psc, ContentResources.zip, read 29 Oct), so version 2 of the script asks each parent about its child
-(surface_has_probe, planet_has_surface) and lists the parents the game gives each of our three locations
-(probe_parents, surface_parents, planet_parents: GetParentLocations, which Starfield's own scripts use to find the
-planet and star system of a site's or an outpost's location, SQ_ParentScript.psc and SQ_OutpostAttackScript.psc, so
-a list may hold every ancestor). The reader checks each location's own parent in our records in that location's own
-list, so the answer does not depend on how far a list goes, and says whether the probe location's list goes past its
-parent (ancestors). Version 1 (probe run 1, 29 Oct) asked the child about its parent (probe_child_of_surface,
-surface_child_of_planet): those two values are no evidence, and the reader says so instead of judging them.
+The chain line (chain_reading) gives every link of our location chain more than one reading, because two things it
+leans on are untested: which way IsChild reads, and GetParentLocations with no keyword. Starfield's Location.psc says
+IsChild "Returns whether the other location is a child of this one" (ContentResources.zip, read 29 Oct), and
+ObjectReference.IsInLocation calls it so (the parent asks), but some vanilla quest scripts call it the other way (the
+child asks: MQ204_NA_StateChangeHandlerScript, UC04_QuestScript), so version 2 of the script asks it both ways
+(<caller>_ischild_<argument>). It also lists the parents the game gives each of our three locations
+(probe_parents, surface_parents, planet_parents: GetParentLocations with no keyword, a form no vanilla script uses),
+and asks the way SQ_ParentScript finds a planet location's star system and a site's planet and star system
+(planet_systems, probe_orbitals, probe_systems: with LocTypeStarSystem or LocTypeMajorOrbital). The reader looks
+for each location's own parent in our records in that location's own lists, so the answer does not depend on how far
+a list goes. A link is broken (a problem) only when every reading of it says so; readings that disagree are a note.
+The lookups from the probe location (reach) and the way IsChild answered are notes too. Version 1 (probe run 1,
+29 Oct) asked IsChild one way only, the child about its parent (probe_child_of_surface, surface_child_of_planet):
+those two values settle nothing until a version 2 log shows which way IsChild reads, and the reader says so instead
+of judging them.
 
 Case: Starfield's Papyrus prints a bool as "true" / "false" (verified: the bridge log of 14 Oct and the new game log
 of 28 Oct, docs/ai/test-queue.md and docs/newgame/vault111-start.md), Fallout 4's as "True" / "False". It also keeps
@@ -42,12 +48,22 @@ TOKEN = re.compile(r"(\w+)=(\S*)")
 EVENTS = ("init", "chain", "arrive", "player", "planet", "ref", "location")
 ID_KEYS = {"quest", "world", "loc", "planet", "surface", "planetloc", "cell", "id", "editorloc", "type", "atmos",
            "probe_planet", "surface_planet", "planet_location"}
-LIST_KEYS = {"probe_parents", "surface_parents", "planet_parents"}
-PARENT_LISTS = (("probe_parents", "the probe location", "our surface"),       # (key, whose list, that location's
-                ("surface_parents", "our surface", "our planet location"),    # own parent in our records)
-                ("planet_parents", "our planet location", "the system location"))
-CHAIN_LINKS = ("surface_has_probe", "planet_has_surface")            # version 2: the parent asked about its child
-CHAIN_V1 = ("probe_child_of_surface", "surface_child_of_planet")     # version 1: the child asked; no evidence
+LISTS = {"probe_parents": "the probe location's parents",                  # key: the list (GetParentLocations)
+         "surface_parents": "our surface's parents",
+         "planet_parents": "our planet location's parents",
+         "planet_systems": "our planet location's LocTypeStarSystem parents",
+         "probe_orbitals": "the probe location's LocTypeMajorOrbital parents",
+         "probe_systems": "the probe location's LocTypeStarSystem parents"}
+LIST_KEYS = set(LISTS)
+ISCHILD = (("surface_ischild_probe", "probe_ischild_surface"),      # version 2: (the parent asks, the child asks)
+           ("planet_ischild_surface", "surface_ischild_planet"))
+CHAIN_V1 = ("probe_child_of_surface", "surface_child_of_planet")     # version 1: the child asked only; no evidence
+LINKS = (("the probe location under our surface", ISCHILD[0], "our surface", ("probe_parents",)),
+         ("our surface under our planet location", ISCHILD[1], "our planet location", ("surface_parents",)),
+         ("our planet location under the system location", None, "the system location",
+          ("planet_parents", "planet_systems")))         # (link, its IsChild pair, the parent, the lists to hold it)
+REACH = (("the planet lookup from the probe location", "probe_orbitals", "our planet location"),
+         ("the star system lookup from the probe location", "probe_systems", "the system location"))
 READINGS = (2, 10, 30, 60)
 OTHER_WORLD_M = 1e30                     # GetDistance's answer for another worldspace is 3.4e38 (FLT_MAX)
 
@@ -179,35 +195,87 @@ def ids_named(names, label):
     return [f for f, n in names.items() if n == label]
 
 
+def list_reading(chain, key, want):
+    """Whether the list under key holds one of want's ids: False for an empty list (it holds no parent at all), None
+    without the list or when want is empty (the id is not known)."""
+    got = chain.get(key)
+    if not isinstance(got, list):
+        return None
+    if not got:
+        return False
+    return any(f in got for f in want) if want else None
+
+
+def ischild_reading(chain, pair):
+    """(the link by IsChild: True when either way answered true, False when both answered false, else None; the way
+    it answered: "parent asks" as Location.psc's comment reads, "child asks", "both", or None)."""
+    asked = tuple(chain.get(k) if isinstance(chain.get(k), bool) else None for k in pair or ())
+    if all(v is None for v in asked):
+        return None, None
+    if True in asked:
+        return True, {(True, False): "parent asks", (False, True): "child asks", (True, True): "both"}.get(asked)
+    return False, None
+
+
 def chain_reading(chain, names):
-    """What the chain line shows, None without one: its version's links; per location of ours the parents the game
-    gives it, by name; holds: whether each list has that location's own parent in our records (None when that
-    parent's id is not known: the system location needs plan.json); ancestors: whether the probe location's list
-    goes past its own parent (None when unknown); and (problems, notes)."""
+    """What the chain line shows, None without one: the IsChild answers as logged (ischild); each list by its label
+    (parents); each link with a reading per source (IsChild, a list: True / False, None when the parent's id is not
+    known) and whether it holds (True / False only when every known reading agrees, else None); the way IsChild
+    answered (ischild_reads: "parent asks", "child asks", "both", "mixed" or None); the lookups from the probe
+    location the way SQ_ParentScript does them (reach); whether the probe location's own list goes past its parent
+    (ancestors, None when unknown); and (problems, notes)."""
     if chain is None:
         return None, [], []
     problems, notes = [], []
-    out = {"links": {k: chain.get(k) for k in CHAIN_LINKS if k in chain}}
-    for k, v in out["links"].items():
-        if v is False:
-            problems.append(f"chain: {k} is false")
+    out = {"ischild": {k: chain[k] for pair in ISCHILD for k in pair if k in chain}}
     if any(k in chain for k in CHAIN_V1):
-        notes.append("chain: this log's script (version 1) asked IsChild the wrong way round (the child about its "
-                     "parent), so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " are no evidence either way")
-    lists = [(key, whose, parent) for key, whose, parent in PARENT_LISTS if isinstance(chain.get(key), list)]
-    if lists:
-        out["parents"], out["holds"] = {}, {}
-    for key, whose, parent in lists:
-        got = chain[key]
-        out["parents"][whose] = [p if isinstance(p, str) else name_of(p, names) for p in got]
+        notes.append("chain: this log's script (version 1) asked IsChild one way only, the child about its parent, "
+                     "so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " settle nothing until a version 2 "
+                     "log shows which way IsChild reads")
+    out["parents"] = {LISTS[k]: [p if isinstance(p, str) else name_of(p, names) for p in chain[k]]
+                      for k in LISTS if isinstance(chain.get(k), list)}
+    out["links"], ways = {}, {}
+    for label, pair, parent, keys in LINKS:
         want = ids_named(names, parent)
-        held = any(f in got for f in want) if want else None
-        out["holds"][f"{whose} under {parent}"] = held
-        if held is False:
-            problems.append(f"chain: {parent} is not among {whose}'s parents")
-    if isinstance(chain.get("probe_parents"), list):
-        above = ids_named(names, "our planet location") + ids_named(names, "the system location")
-        out["ancestors"] = any(f in chain["probe_parents"] for f in above) if above else None
+        readings = {}
+        held, way = ischild_reading(chain, pair)
+        if held is not None:
+            readings["IsChild"] = held
+        if way:
+            ways[label] = way
+        for k in keys:
+            if k in chain:
+                readings[LISTS[k]] = list_reading(chain, k, want)
+        if not readings:
+            continue
+        known = {v for v in readings.values() if v is not None}
+        holds = next(iter(known)) if len(known) == 1 else None
+        out["links"][label] = {"holds": holds, "readings": readings}
+        if holds is False:
+            problems.append(f"chain: {label}: every reading says no (" + ", ".join(
+                k for k, v in readings.items() if v is not None) + ")")
+        elif len(known) > 1:
+            notes.append(f"chain: {label}: the readings disagree (" + ", ".join(
+                f"{k} {'yes' if v else 'no'}" for k, v in readings.items() if v is not None) + ")")
+    kinds = set(ways.values())
+    out["ischild_reads"] = next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else None
+    if out["ischild_reads"] == "child asks":
+        notes.append("chain: IsChild answered true when the child asks (the caller is the child), the other way round "
+                     "from Location.psc's comment and the way MQ204's and UC04's scripts call it")
+    elif out["ischild_reads"] == "both":
+        notes.append("chain: IsChild answered true both ways round")
+    elif out["ischild_reads"] == "mixed":
+        notes.append("chain: IsChild answered differently for the two links (" + "; ".join(
+            f"{k}: {v}" for k, v in ways.items()) + ")")
+    out["reach"] = {}
+    for label, key, target in REACH:
+        if key in chain:
+            found = out["reach"][label] = list_reading(chain, key, ids_named(names, target))
+            if found is False:
+                notes.append(f"chain: {label} does not find {target}")
+    probe = chain.get("probe_parents")
+    above = ids_named(names, "our planet location") + ids_named(names, "the system location")
+    out["ancestors"] = any(f in probe for f in above) if isinstance(probe, list) and probe and above else None
     return out, problems, notes
 
 

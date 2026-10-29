@@ -14,7 +14,7 @@ Scriptname FO4SF_PlanetProbeQuest extends Quest
 
 ; ---------------------------------------------------------------- the layout (src/fo4sf/planet/probe.py)
 
-int Version = 2             ; 2: the chain line asks each parent about its child and lists each location's parents
+int Version = 2             ; 2: the chain line asks IsChild both ways and lists each location's parents
 string LogName = "FO4SFPlanetProbe"
 string ProbePlugin = "FO4SFPlanetProbe.esm"
 string PlanetPlugin = "FO4SFPlanet.esm"
@@ -33,6 +33,8 @@ int LC172CocId = 0x10238E   ; REFR LC172World's persistent COC marker (Starfield
 int PlanetLocId = 0x802     ; LCTN our planet (FO4SFPlanet.esm)
 int SurfaceLocId = 0x804    ; LCTN our planet's surface (FO4SFPlanet.esm)
 int PlanetId = 0x805        ; PNDT our planet (FO4SFPlanet.esm)
+int StarSystemKwId = 0x149F     ; KYWD LocTypeStarSystem (Starfield.esm; the stage checks it against the census)
+int MajorOrbitalKwId = 0x70A54  ; KYWD LocTypeMajorOrbital (Starfield.esm; the same)
 
 ; ---------------------------------------------------------------- state
 
@@ -110,7 +112,7 @@ string Function Id(Form f)
     return "" + f.GetFormID()
 EndFunction
 
-string Function Ids(Location[] a)
+string Function IdList(Location[] a)
     {The array's ids joined by commas, in its order ("<id>,<id>,..."), or "none" when it is empty or None.}
     if !a || a.Length == 0
         return "none"
@@ -125,28 +127,40 @@ string Function Ids(Location[] a)
 EndFunction
 
 Function Chain()
-    {The location chain and the planet as the game resolves them, once at the start. IsChild "Returns whether the
-     other location is a child of this one" (Starfield's Location.psc), so each parent is asked about its child:
-     surface_has_probe and planet_has_surface (version 1 asked the child, the wrong way round). probe_parents,
-     surface_parents and planet_parents list every parent the game gives each of our three locations
-     (GetParentLocations with no keyword, in the order it returns them). Starfield's own scripts read that list to
-     find the planet and star system of a site's or an outpost's location, so it may hold every ancestor, not only
-     the direct parent; one list per location lets the reader check each link either way.}
+    {The location chain and the planet as the game resolves them, once at the start. Each IsChild is asked both ways,
+     <caller>_ischild_<argument>: Starfield's Location.psc says IsChild "Returns whether the other location is a
+     child of this one" (the parent asks), and ObjectReference.IsInLocation uses it so, but some vanilla quest
+     scripts call it the other way (the child asks), so the log holds both and the parent lists settle it. Version 1
+     asked the child only. probe_parents, surface_parents and planet_parents list every parent the game gives each
+     of our three locations (GetParentLocations with no keyword, in the order it returns them; every vanilla call
+     passes a keyword, so this form is untried). planet_systems, probe_orbitals and probe_systems ask the way
+     SQ_ParentScript does for a planet's and a site's location (with LocTypeStarSystem or LocTypeMajorOrbital).}
     string line = "chain"
     if ProbeLoc != None && SurfaceLoc != None
-        line += " surface_has_probe=" + SurfaceLoc.IsChild(ProbeLoc)
+        line += " surface_ischild_probe=" + SurfaceLoc.IsChild(ProbeLoc) + " probe_ischild_surface=" + ProbeLoc.IsChild(SurfaceLoc)
     endif
     if SurfaceLoc != None && PlanetLoc != None
-        line += " planet_has_surface=" + PlanetLoc.IsChild(SurfaceLoc)
+        line += " planet_ischild_surface=" + PlanetLoc.IsChild(SurfaceLoc) + " surface_ischild_planet=" + SurfaceLoc.IsChild(PlanetLoc)
     endif
+    Keyword starSystem = Game.GetFormFromFile(StarSystemKwId, "Starfield.esm") as Keyword
+    Keyword majorOrbital = Game.GetFormFromFile(MajorOrbitalKwId, "Starfield.esm") as Keyword
     if ProbeLoc != None
-        line += " probe_parents=" + Ids(ProbeLoc.GetParentLocations()) + " probe_planet=" + Id(ProbeLoc.GetCurrentPlanet())
+        line += " probe_parents=" + IdList(ProbeLoc.GetParentLocations()) + " probe_planet=" + Id(ProbeLoc.GetCurrentPlanet())
+        if majorOrbital != None
+            line += " probe_orbitals=" + IdList(ProbeLoc.GetParentLocations(majorOrbital))
+        endif
+        if starSystem != None
+            line += " probe_systems=" + IdList(ProbeLoc.GetParentLocations(starSystem))
+        endif
     endif
     if SurfaceLoc != None
-        line += " surface_parents=" + Ids(SurfaceLoc.GetParentLocations()) + " surface_planet=" + Id(SurfaceLoc.GetCurrentPlanet())
+        line += " surface_parents=" + IdList(SurfaceLoc.GetParentLocations()) + " surface_planet=" + Id(SurfaceLoc.GetCurrentPlanet())
     endif
     if PlanetLoc != None
-        line += " planet_parents=" + Ids(PlanetLoc.GetParentLocations())
+        line += " planet_parents=" + IdList(PlanetLoc.GetParentLocations())
+        if starSystem != None
+            line += " planet_systems=" + IdList(PlanetLoc.GetParentLocations(starSystem))
+        endif
     endif
     if ProbePlanet != None
         line += " planet_location=" + Id(ProbePlanet.GetLocation()) + " gravity=" + ProbePlanet.GetGravity() + " day=" + ProbePlanet.GetDayLength() + " temp=" + ProbePlanet.GetTemperature()

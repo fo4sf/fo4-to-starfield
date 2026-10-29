@@ -492,37 +492,54 @@ def star_system_location(plugin, system_id, kw):
     return hits[0]
 
 
-def free_planet_id(bodies, ynams):
+ID_UNSET = 0x80000000                  # a planet id at or above it reads negative as a signed number: not one in use
+
+
+def free_planet_id(bodies, ynams, overlays=()):
     """(the first planet id after every one in use, why): one more than the largest body id in the system (planets
-    and moons share the numbering: a moon's GNAM names its planet as the parent) and the largest location YNAM there.
-    bodies: [(source, EditorID, name, (system, parent, planet))]; ynams: the YNAM of every location in the system."""
+    and moons share the numbering: a moon's GNAM names its planet as the parent), the largest location YNAM there and
+    the largest planet id an overlay world names there (the game merges an overlay world into the planet whose id it
+    names). bodies: [(source, EditorID, name, (system, parent, planet))]; ynams: [(source, EditorID, YNAM)];
+    overlays: [(source, EditorID, planet id)]. An id that reads negative as a signed number (ID_UNSET or more) is
+    not one in use (sol_facts lists such bodies). Raises PlanetError when the next id would not fit."""
     best, why = 0, "no body or location id in use"
     for source, edid, name, g in bodies:
-        if g[2] > best:
+        if best < g[2] < ID_UNSET:
             best, why = g[2], f"{source} {edid or name} has planet id {g[2]}"
     for source, edid, y in ynams:
-        if y > best:
+        if best < y < ID_UNSET:
             best, why = y, f"{source} location {edid} has YNAM {y}"
+    for source, edid, pid in overlays:
+        if best < pid < ID_UNSET:
+            best, why = pid, f"{source} overlay world {edid} names planet id {pid}"
+    if best + 1 >= ID_UNSET:
+        raise PlanetError(f"no free planet id after {best} ({why})")
     return best + 1, why
 
 
-def sol_facts(sf, kw, star=DEFAULT_STAR, other_planets=(), other_locations=()):
+def sol_facts(sf, kw, star=DEFAULT_STAR, other_planets=(), other_locations=(), other_overlays=()):
     """What route B builds on: Sol's star and system id (its DNAM), Sol's system location (star_system_location),
-    every body and location id in use in Sol, and the first free planet id. sf: Starfield.esm; other_planets
-    [(source, EditorID, name, (system, parent, planet), new)] and other_locations [(source, EditorID, XNAM, YNAM,
-    keywords, form id, new)]: every other plugin in Data (census.plugin_bodies; overrides count too: a plugin that
-    renumbers a body must not clash with ours). Raises PlanetError when the star or its system location is not found
-    exactly once."""
+    every body, location and overlay world id in use in Sol, and the first free planet id. sf: Starfield.esm;
+    other_planets [(source, EditorID, name, (system, parent, planet), new)] and other_locations [(source, EditorID,
+    XNAM, YNAM, keywords, form id, new)]: every other plugin in Data (census.plugin_bodies; overrides count too: a
+    plugin that renumbers a body must not clash with ours); other_overlays [(source, EditorID, system, planet)]: the
+    overlay worlds of every plugin, Starfield.esm's included (census.overlay_worlds). unset: Sol's bodies whose id
+    reads negative (not counted); no_gnam: Starfield.esm's bodies without a readable GNAM (not counted). Raises
+    PlanetError when the star or its system location is not found exactly once."""
     star_rec = find_star(sf, star)
     sid = star_system_id(star_rec)
     loc = star_system_location(sf, sid, kw)
-    bodies = [("Starfield.esm", e, n, g) for _, e, n, g in planets(sf) if g and g[0] == sid]
+    sf_planets = planets(sf)
+    bodies = [("Starfield.esm", e, n, g) for _, e, n, g in sf_planets if g and g[0] == sid]
     bodies += [(s, e, n, tuple(g)) for s, e, n, g, _ in other_planets if g and g[0] == sid]
     ynams = [("Starfield.esm", e, y) for _, e, y, *_ in system_locations(sf, sid) if y is not None]
     ynams += [(s, e, y) for s, e, x, y, *_ in other_locations if x == sid and y is not None]
-    pid, why = free_planet_id(bodies, ynams)
+    overlays = [(s, e, p) for s, e, x, p in other_overlays if x == sid and p is not None and p > 0]
+    pid, why = free_planet_id(bodies, ynams, overlays)
     return {"star": star_rec, "system_id": sid, "location": loc, "bodies": bodies, "ynams": ynams,
-            "free_planet_id": pid, "why": why}
+            "overlays": overlays, "free_planet_id": pid, "why": why,
+            "unset": [(s, e or n, g[2]) for s, e, n, g in bodies if g[2] >= ID_UNSET],
+            "no_gnam": [("Starfield.esm", e) for _, e, _, g in sf_planets if g is None]}
 
 
 def subrecord_list(rec):
@@ -583,15 +600,15 @@ def free_position(base, taken, offset=STAR_OFFSET_PC, gap=MIN_STAR_GAP_PC):
     return pos, closest
 
 
-def build_master(sf, opts=None, other_stars=(), other_planets=(), other_locations=()):
+def build_master(sf, opts=None, other_stars=(), other_planets=(), other_locations=(), other_overlays=()):
     """FO4SFPlanet.esm's records from Starfield.esm (an esm.Plugin). opts: system ("sol", the default: our planet in
     Sol; "own": in a star system of our own), star (the star's name: Sol, route B's host and route A's template),
     planet (the template planet's name), star_name (route A's star), planet_name, system_id (route A), planet_id
     (route A's; in Sol a free id to take instead of the first one), no_fauna, no_flora, star_offset (route A).
     other_stars: [(source, system id, position)] of the other plugins in Data, checked for clashes in route A;
-    other_planets and other_locations: the same plugins' planets and galaxy locations, for route B's free planet id
-    (census.plugin_bodies, sol_facts). Returns (esm.PluginWriter, report dict). Raises PlanetError on anything
-    unexpected."""
+    other_planets and other_locations: the same plugins' planets and galaxy locations, and other_overlays every
+    plugin's overlay worlds, Starfield.esm's included, for route B's free planet id (census.plugin_bodies and
+    overlay_worlds, sol_facts). Returns (esm.PluginWriter, report dict). Raises PlanetError on anything unexpected."""
     o = {"system": DEFAULT_SYSTEM, "star": DEFAULT_STAR, "planet": DEFAULT_PLANET, "star_name": DEFAULT_STAR_NAME,
          "planet_name": DEFAULT_PLANET_NAME, "system_id": DEFAULT_SYSTEM_ID, "planet_id": None,
          "no_fauna": True, "no_flora": True, "star_offset": STAR_OFFSET_PC}
@@ -651,15 +668,17 @@ def build_master(sf, opts=None, other_stars=(), other_planets=(), other_location
             stars_checked=len(all_stars) + len(other_stars))
         templates["star_system"] = listed(t_sys)
     else:
-        sol = sol_facts(sf, kw, o["star"], other_planets, other_locations)
+        sol = sol_facts(sf, kw, o["star"], other_planets, other_locations, other_overlays)
         system_id = sol["system_id"]
-        used = {g[2] for _, _, _, g in sol["bodies"]} | {y for _, _, y in sol["ynams"]}
+        used = {g[2] for _, _, _, g in sol["bodies"]} | {y for _, _, y in sol["ynams"]} | {
+            p for _, _, p in sol["overlays"]}
         if o["planet_id"] is None:
             planet_id, why = sol["free_planet_id"], f"the first free id in Sol: {sol['why']}"
         else:
             planet_id, why = o["planet_id"], "asked for"
-            if planet_id <= 0 or planet_id in used:
-                raise PlanetError(f"planet id {planet_id} is in use in Sol (or not above 0): ids in use {sorted(used)}")
+            if not 0 < planet_id < ID_UNSET or planet_id in used:
+                raise PlanetError(f"planet id {planet_id} is in use in Sol or not from 1 to {ID_UNSET - 1}: ids in "
+                                  f"use {sorted(used)}")
         loc = sol["location"]
         system_parent = loc.formid
         prefix = loc.edid or f"S{tag(star_name(star_src) or o['star'])}"
@@ -671,7 +690,8 @@ def build_master(sf, opts=None, other_stars=(), other_planets=(), other_location
                              "parent": fid_hex(u32(parent)) if parent and len(parent) >= 4 else None, "ours": False},
             sol={"bodies": [(s, e, n, list(g)) for s, e, n, g in sol["bodies"]],
                  "location_ynams": sorted({y for _, _, y in sol["ynams"]}), "planet_id_why": why,
-                 "locations": listed(system_locations(sf, system_id))})
+                 "overlay_worlds": [list(x) for x in sol["overlays"]], "unset": [list(x) for x in sol["unset"]],
+                 "no_gnam": [list(x) for x in sol["no_gnam"]], "locations": listed(system_locations(sf, system_id))})
     # vanilla templates for the location DATA: the template planet's planet / orbit / surface locations (same XNAM /
     # YNAM and keyword)
     p_sys, _, p_id = galaxy(planet_src)

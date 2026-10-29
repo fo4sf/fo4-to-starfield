@@ -98,11 +98,15 @@ marker + (3, 0, 0).
 * **The system id** is Sol's star's DNAM: 0 on 1.16.244 (verified: run 1's census read SolStar `0005E5CB`, system id
   0, and Mars's GNAM is (0, 0, 4)). The stage reads it again from the user's Starfield.esm.
 * **The planet id** is the first free one in Sol: one more than the largest body id there (planets and moons share
-  one numbering; a moon's GNAM names its planet as the parent) and the largest location YNAM there, counting
-  Starfield.esm and every other plugin in Data, overrides too (`records.sol_facts`). An installed copy of our own
-  master or registration plugin is left out: their records are the ones rebuilt. Taking one more than the largest id
-  is a hypothesis about what the game expects; the census's precedent list (section 4) shows whether the bodies the
-  Creations add follow it.
+  one numbering; a moon's GNAM names its planet as the parent), the largest location YNAM there and the largest
+  planet id an overlay world names there (the game merges an overlay world into the planet whose id it names, as
+  LC172World into Mars), counting Starfield.esm and every other plugin in Data, overrides too (`records.sol_facts`).
+  An id that reads negative as a signed number is not one in use and is not counted; the census lists such bodies,
+  and the bodies without a readable GNAM, under `not_counted`. An installed copy of our own master, registration or
+  probe plugin is left out: their records are the ones rebuilt. Taking one more than the largest id is a hypothesis
+  about what the game expects; the census's precedent list (section 4) shows whether the bodies the Creations add
+  follow it. `check --stage <stage> --data <Data>`, run just before the install (section 6), reads every plugin
+  again and stops when one installed or updated since the stage takes the id.
 * **The parent** of our planet location is Sol's system location, as a vanilla planet location names its own
   system's location (supported: Starfield's scripts find a planet location's star system among its parents; the
   stage records the parents of Jemison's own locations in `master_report.json`, so the PC's stage shows it). A system
@@ -110,8 +114,8 @@ marker + (3, 0, 0).
   Universe. We add no star and no system location, and override none.
 * **The orbit** stays Jemison's: mean 224.96 million km (1.50 AU), very close to Mars's 227.94 million km (1.52 AU;
   both read from the records: Jemison in run 1's census, Mars in FO4TerrainCore_Mars.esm's copy), and both start at
-  angle 0. On the system map ours may sit next to Mars. That is fine for the probe; the final planet's orbit is the
-  owner's choice and comes with the move of the Commonwealth.
+  angle 0. On the system map ours may sit next to Mars. That is fine for the probe. For the final planet the owner
+  picked Earth's orbit (29 Oct); it comes with the move of the Commonwealth.
 
 **Data files**, packed into "FO4SFPlanet - Main.ba2" at install (loose files are not read on this install, verified
 in October): the BTD (flat ground at 10 m and a 30 x 15 m block 25 m high north of the arrival, so a screenshot tells
@@ -134,8 +138,9 @@ LC172WorldLocation's LCPR rows); Mars's master worldspaces; the planet of every 
 the other arrivals (an exterior cell with an EditorID and a COC marker in TempJemisonWorld and in New Atlantis). It
 goes into `census.json` in the stage.
 
-For route B it also reads Sol (the `sol` part): its system id and system location, every body and location id in
-use there and the first free planet id, and **the precedent**: each body a plugin adds, with the largest vanilla body
+For route B it also reads Sol (the `sol` part): its system id and system location, every body, location and overlay
+world id in use there (with the ones not counted, `not_counted`) and the first free planet id, and **the
+precedent**: each body a plugin adds, with the largest vanilla body
 id of its system, and what each plugin's override of a vanilla star system location changes. What the staged
 Creations hold (verified in the cloud, 29 Oct): SFBGS00D.esm adds three bodies to vanilla systems (Anchorpoint,
 planet id 10 in Algorab; two more with parent 1) and SFBGS003.esm one (the Chop Shop, planet id 13 around planet 8 of
@@ -168,18 +173,29 @@ The offset (position now minus position in the plugin) shows whether a merged re
 distance to the player is left out of the table for a reference in another worldspace: the game returns the largest
 float there, 3.4e38 (verified: run 1, 31 of 33 readings).
 
-**The chain line**, written once at the start, shows how the game joins our locations. Starfield's IsChild asks the
-location it is called on whether the other one is its child ("Returns whether the other location is a child of this
-one", Starfield's Location.psc), so version 2 of the script asks each parent about its child (`surface_has_probe`,
-`planet_has_surface`). It also lists the parents the game gives each of our three locations (`probe_parents`,
-`surface_parents`, `planet_parents`, from GetParentLocations). Starfield's own scripts read that list to find the
-planet and star system of a site's or an outpost's location, so a list may hold every ancestor, not only the direct
-parent (supported, not proven). The reader looks for each location's own parent in our records in that location's own
-list: the probe location under our surface, our surface under our planet location, and our planet location under the
-system location (Sol's with route B, named from `plan.json`). So the answer does not depend on how far a list goes,
-and the reader also prints whether the probe location's list goes past its parent. A parent that is missing, or a
-`false` link, is a `PROBLEM` line. Run 1's chain line came from version 1, which asked each child about its parent:
-the reader prints a `NOTE` that those two values are no evidence either way (section 8).
+**The chain line**, written once at the start, shows how the game joins our locations. Two things it leans on are
+untested, so each link gets more than one reading.
+
+* **Which way IsChild reads** (unresolved). Starfield's Location.psc says it "Returns whether the other location is
+  a child of this one", and ObjectReference.IsInLocation calls it so: the parent asks (supported). Some vanilla
+  quest scripts call it the other way round, the child asking about its parent (MQ204's and UC04's; supported too).
+  So version 2 of the script asks it both ways, named `<caller>_ischild_<argument>`: `surface_ischild_probe` and
+  `probe_ischild_surface`, `planet_ischild_surface` and `surface_ischild_planet`.
+* **GetParentLocations with no keyword**, which no vanilla script calls. The script lists what it gives each of our
+  three locations (`probe_parents`, `surface_parents`, `planet_parents`), and also asks the way SQ_ParentScript finds
+  a planet location's star system and a site's planet and star system, with a keyword: `planet_systems` and
+  `probe_systems` with LocTypeStarSystem, `probe_orbitals` with LocTypeMajorOrbital (the script reads both keywords by
+  id, so the stage stops if either id differs in the user's Starfield.esm). SQ_ParentScript's site lookups suggest a
+  list holds every ancestor, not only the direct parent (supported, not proven).
+
+The reader looks for each location's own parent in our records in that location's own lists: the probe location under
+our surface, our surface under our planet location, and our planet location under the system location (Sol's with
+route B, named from `plan.json`). So the answer does not depend on how far a list goes. A link is a `PROBLEM` line only
+when every reading of it says no. Readings that disagree are a `NOTE`, and so are an IsChild that answered when the
+child asks (or both ways) and a keyword lookup from the probe location that does not find our planet location or the
+system location. The reader also prints whether the probe location's own list goes past its parent. Run 1's chain line
+came from version 1, which asked IsChild one way only (the child about its parent): the reader prints a `NOTE` that
+those two values settle nothing (section 8).
 
 What each result means for the move (section 5 of the plan):
 
@@ -265,8 +281,11 @@ Rules:
   Jemison's gravity, day length and temperature, our name on the HUD); a landing from orbit was not tried.
 * The biome map's folder for a plugin's planet: hypothesis (both are staged). Run 1's icy ground outside our cells
   suggests that neither copy was read (supported, not proven).
-* GetParentLocations may return every ancestor (supported: Starfield's own scripts ask a site's or an outpost's
-  location for its star system with it); the reader does not depend on it (section 5).
+* Which way IsChild reads: unresolved (the parent asks, by Location.psc's comment and IsInLocation; the child asks, by
+  MQ204's and UC04's calls). The script asks both ways; run 2's chain line settles it (section 5).
+* GetParentLocations with no keyword: untried in vanilla (every vanilla call passes one). A list may hold every
+  ancestor (supported: SQ_ParentScript asks a site's location for its planet and star system with a keyword). The
+  reader depends on neither (section 5).
 * A user log stays open only in the game session that opened it (Skyrim and Fallout 4); the script reopens it when a
   write fails.
 * Mutagen 0.55 writes the LCPR grid as Y then X (verified on a written plugin with a nonzero grid, 29 Oct).
@@ -290,9 +309,11 @@ planet). The probe was taken out afterwards and Plugins.txt was back as it was. 
   (-500, -2300), as the COC marker did on 11 Oct. A plugin's persistent reference in vanilla LC172World's persistent
   cell merges like Starfield.esm's own, so the cause of the split is in our own world and location records, not in
   being a plugin.
-* **The chain line is no evidence.** Version 1 of the script asked IsChild the wrong way round and read false and
-  false. Its GetCurrentPlanet readings (the probe and surface locations both on our planet `0B000805`) point to a
-  chain that works (supported). Version 2 asks the right way and lists every location's parents (section 5).
+* **The chain line settles nothing yet.** Version 1 of the script asked IsChild one way only, the child about its
+  parent, and read false and false. If the parent asks (Location.psc's comment), a working chain reads so; if the
+  child asks (as some vanilla quest scripts call it), the chain was broken. Its GetCurrentPlanet readings (the probe
+  and surface locations both on our planet `0B000805`) point to a chain that works (supported). Version 2 asks both
+  ways and lists every location's parents (section 5).
 * **Icy ground outside our cells**: our copy of the biome map was not read (supported, not proven).
 * **The session itself**: only three arrivals were logged (the start on Mars, LC172 and our planet; not the
   TempJemisonWorld and New Atlantis ones), with readings up to 30 s at most. The session's own driver script took

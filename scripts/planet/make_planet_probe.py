@@ -301,10 +301,16 @@ def stage(a):
     bodies = rep.get("plugin_bodies") or {}
     planets = [(s, e, n, tuple(g), new) for s, e, n, g, new in bodies.get("planets", [])]
     locations = [(s, e, x, y, kws, f, new) for s, e, x, y, kws, f, new in bodies.get("locations", [])]
+    overlays = [tuple(o) for o in (rep.get("sol") or {}).get("overlay_worlds", [])]
+    for key, name in probe.SCRIPT_KEYWORDS.items():           # the script reads these Starfield.esm keywords by id
+        got = (rep.get("keywords") or {}).get(name)
+        if got is None or int(got, 16) != probe.SCRIPT_IDS[key]:
+            sys.exit(f"keyword {name} is {got} in this Starfield.esm, not {probe.SCRIPT_IDS[key]:08X} as {SCRIPT}.psc "
+                     f"reads it ({key}): the script needs the new id; attempt kept in {out}")
 
     # 2. the planet master
     with esm.Plugin(sf_path) as sf:
-        w, master_report = records.build_master(sf, {"system": a.system}, other, planets, locations)
+        w, master_report = records.build_master(sf, {"system": a.system}, other, planets, locations, overlays)
     master_path = os.path.join(out, records.MASTER)
     w.write(master_path)
     system_id, planet_id = int(master_report["system_id"], 16), master_report["planet_id"]
@@ -469,7 +475,8 @@ def load_plan(stage_dir):
 
 
 def verify_stage(stage_dir, plan, data=None):
-    """Problems of a stage ([] = none): its files against plan.json, the raw checks again, Starfield.esm's pin."""
+    """Problems of a stage ([] = none): its files against plan.json, the raw checks again, Starfield.esm's pin and, in
+    route B, our planet id against the plugins in Data now (sol_now)."""
     problems = []
     now = stage_files(stage_dir)
     for rel, h in plan["outputs"].items():
@@ -502,7 +509,28 @@ def verify_stage(stage_dir, plan, data=None):
         h = sha256(os.path.join(data, "Starfield.esm"))
         if h != plan["inputs"]["Starfield.esm"]["sha256"]:
             problems.append(f"Starfield.esm changed since the stage (sha256 {h}): re-stage")
+        elif route_b:
+            problems += sol_now(data, plan)
     return problems
+
+
+def sol_now(data, plan):
+    """Route B's planet id against Data as it is now ([] = still free): a plugin installed or updated after the stage
+    can take it, so every other plugin is read again (census.plugin_bodies and sol_section; our own are skipped).
+    Starfield.esm itself, and so Sol's system location, is held to the stage by its sha256 first."""
+    try:
+        bodies = census.plugin_bodies(data)
+        with esm.Plugin(os.path.join(data, "Starfield.esm")) as sf:
+            kw, _ = records.check_keywords(records.keyword_edids(sf))
+            sol = census.sol_section(sf, kw, bodies)
+    except (records.PlanetError, esm.EsmError, OSError) as e:
+        return [f"Sol could not be read again ({e}): re-stage"]
+    pid = plan["planet_id"]
+    users = [f"{src} {e or n}" for src, e, n, g in sol["bodies"] if g[2] == pid]
+    users += [f"{src} overlay world {e}" for src, e, _, p in sol["overlay_worlds"] if p == pid]
+    if pid in sol["location_ynams"]:
+        users.append("a location's YNAM")
+    return [f"planet id {pid} is in use in Sol now ({', '.join(users)}): re-stage"] if users else []
 
 
 def check(a):
@@ -547,14 +575,23 @@ def log(a):
                  for k, v in s["chain"].items() if k not in ("rt", "event") and k not in probe_log.LIST_KEYS}
         print("chain " + " ".join(f"{k}={v}" for k, v in shown.items()))
         reading = s.get("chain_reading") or {}
-        for whose, parents in (reading.get("parents") or {}).items():
-            print(f"  {whose}'s parents: " + (", ".join(parents) or "none"))
-        if reading.get("holds"):
-            print("  " + "; ".join(f"{label}: {'yes' if held else 'NO' if held is False else 'not known'}"
-                                   for label, held in reading["holds"].items()))
+        word = {True: "yes", False: "NO", None: "not known"}
+        for label, parents in (reading.get("parents") or {}).items():
+            print(f"  {label}: " + (", ".join(parents) or "none"))
+        for label, link in (reading.get("links") or {}).items():
+            print(f"  {label}: {word[link['holds']]} (" + ", ".join(
+                f"{k} {word[v]}" for k, v in link["readings"].items()) + ")")
+        if reading.get("ischild_reads"):
+            print(f"  IsChild answered: {reading['ischild_reads']}"
+                  + (" (as Location.psc's comment reads it)" if reading["ischild_reads"] == "parent asks" else ""))
+        for label, _, target in probe_log.REACH:
+            if label in (reading.get("reach") or {}):
+                found = reading["reach"][label]
+                print(f"  {label}: " + {True: f"finds {target}", False: f"does NOT find {target}",
+                                        None: f"not known ({target}'s id is not known)"}[found])
         if reading.get("ancestors") is not None:
-            print("  the probe location's list " + ("goes past its own parent" if reading["ancestors"]
-                                                    else "stops at its own parent"))
+            print("  the probe location's own list " + ("goes past its parent" if reading["ancestors"]
+                                                        else "stops at its parent"))
     for arr in s["arrivals"]:
         pl = arr["player"] or {}
         print(f"arrival {arr['n']} ({arr['kind']}): world {pl.get('world', arr['world'])}, planet {pl.get('planet')}, "

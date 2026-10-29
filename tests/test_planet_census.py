@@ -23,20 +23,27 @@ class CensusTests(unittest.TestCase):
         os.makedirs(cls.data)
         cls.sf = os.path.join(cls.data, "Starfield.esm")
         pf.write_starfield(cls.sf, census=True)
-        # a Creation adding a station to Jemison's system and overriding its system location (as SFBGS00D.esm does
-        # Algorab's), a DLC master and a mod with stars of their own (the mod also a moon in Sol), and our own master
-        # and registration from an earlier install (skipped: their records are the ones rebuilt)
+        # a Creation adding a station to Jemison's system (and a body in Sol whose id reads negative) and overriding
+        # Jemison's system location (as SFBGS00D.esm does Algorab's); a DLC master; a mod with a star of its own, a
+        # moon in Sol, a body without a GNAM, an overlay world naming Sol's planet 13 (as one on another plugin's
+        # planet would) and an override of Earth's location; and our own master, registration and probe plugin from
+        # an earlier install (skipped: their records are the ones rebuilt)
         pf.write_creation(os.path.join(cls.data, "SFBGS00X.esm"),
-                          bodies=[("CreationStationPlanetData", "Creation Station", (pf.JEMISON_SYSTEM, 0, 3))],
-                          system_override=0x00018001)
+                          bodies=[("CreationStationPlanetData", "Creation Station", (pf.JEMISON_SYSTEM, 0, 3)),
+                                  ("UnsetPlanetData", "Unset", (pf.SOL_SYSTEM, 0, 0xFFFFFFFF))],
+                          overrides=[0x00018001])
         pf.write_creation(os.path.join(cls.data, "ShatteredSpace.esm"), system_id=0x1F0F1, position=(41.0, 40.0, 4.0))
         pf.write_creation(os.path.join(cls.data, "SomeMod.esp"), system_id=0x1F0F2, position=(42.0, 40.0, 4.0),
-                          bodies=[("ModMoonPlanetData", "Mod Moon", (pf.SOL_SYSTEM, 3, 11))], own_index=0xFD)
+                          bodies=[("ModMoonPlanetData", "Mod Moon", (pf.SOL_SYSTEM, 3, 11)),
+                                  ("ModNoGnamPlanetData", "No GNAM", None)],
+                          own_index=0xFD, overrides=[0x00018010], overlay=("ModOverlayWorld", pf.SOL_SYSTEM, 13))
         pf.write_creation(os.path.join(cls.data, "FO4SFPlanet.esm"), system_id=0xF04F1, position=(2.0, 2.0, 1.0),
                           bodies=[("OldProbePlanetData", "Old Probe", (pf.SOL_SYSTEM, 0, 30))])
         pf.write_creation(os.path.join(cls.data, "FO4SFPlanetProbe_Reg.esm"), system_id=0xF04F2,
                           position=(3.0, 2.0, 1.0),
                           bodies=[("OldProbePlanetData", "Old Probe", (pf.SOL_SYSTEM, 0, 31))])
+        pf.write_creation(os.path.join(cls.data, "FO4SFPlanetProbe.esm"), system_id=0xF04F3, position=(4.0, 2.0, 1.0),
+                          overlay=("FO4SF_PlanetProbeWorld", pf.SOL_SYSTEM, 32))
         for name in ("NotAPlugin.esm", "SFBGS00Y.esm"):
             with open(os.path.join(cls.data, name), "wb") as f:
                 f.write(b"junk")
@@ -90,20 +97,41 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(sol["star"], {"formid": f"{pf.SOL_STAR:08X}", "edid": "Sol", "name": "Sol", "system_id": 0})
         self.assertEqual((sol["system_location"]["edid"], sol["system_location"]["parent"]), ("SSol", "0001A53A"))
         self.assertEqual([b[1] for b in sol["bodies"]], ["EarthPlanetData", "LunaPlanetData", "MarsPlanetData",
-                                                         "ModMoonPlanetData"])
-        self.assertEqual((sol["free_planet_id"], sol["why"]), (12, "SomeMod.esp ModMoonPlanetData has planet id 11"))
+                                                         "UnsetPlanetData", "ModMoonPlanetData"])
+        self.assertEqual(sol["overlay_worlds"], [["Starfield.esm", "LC172World", 0, pf.MARS_PLANET_ID],
+                                                 ["SomeMod.esp", "ModOverlayWorld", 0, 13]])
+        self.assertEqual((sol["free_planet_id"], sol["why"]),
+                         (14, "SomeMod.esp overlay world ModOverlayWorld names planet id 13"))
         self.assertEqual(sol["location_ynams"], [0, 3, 6, 7])
+        self.assertEqual(sol["not_counted"], {"ids_unset": [["SFBGS00X.esm", "UnsetPlanetData", 0xFFFFFFFF]],
+                                              "bodies_without_gnam": [["SomeMod.esp", "ModNoGnamPlanetData"]]})
         added = sol["precedent"]["bodies_added_by_plugins"]
         self.assertEqual(added, [("SFBGS00X.esm", "CreationStationPlanetData", "Creation Station",
                                   [pf.JEMISON_SYSTEM, 0, 3], 2),
+                                 ("SFBGS00X.esm", "UnsetPlanetData", "Unset", [0, 0, 0xFFFFFFFF], 6),
                                  ("SomeMod.esp", "ModMoonPlanetData", "Mod Moon", [0, 3, 11], 6)])
+        # only the override of a star system location: Earth's planet location is overridden too, and left out
         self.assertEqual(sol["precedent"]["system_location_overrides"],
                          [{"plugin": "SFBGS00X.esm", "formid": "00018001", "edid": "SAlphaCentauri",
                            "changed": [("KSIZ", "01000000", "02000000"), ("KWDA", "9f140000", "9f14000090190600")]}])
         bodies = self.rep["plugin_bodies"]
         self.assertEqual(sorted({b[0] for b in bodies["planets"]}), ["SFBGS00X.esm", "SomeMod.esp"])
         self.assertEqual(bodies["locations"], [("SFBGS00X.esm", "SAlphaCentauri", pf.JEMISON_SYSTEM, 0,
-                                                ["0000149F", "00061990"], "00018001", False)])
+                                                ["0000149F", "00061990"], "00018001", False),
+                                               ("SomeMod.esp", "SSol_PEarth", 0, 3,
+                                                ["000014A0", "00070A54", "00061990"], "00018010", False)])
+
+    def test_plugin_bodies_skips_our_own_plugins_and_keeps_overrides_apart(self):
+        b = census.plugin_bodies(self.data)
+        self.assertEqual(b["read"], ["SFBGS00X.esm", "ShatteredSpace.esm", "SomeMod.esp"])
+        self.assertEqual(b["overlays"], [("SomeMod.esp", "ModOverlayWorld", 0, 13)])     # not FO4SFPlanetProbe.esm's
+        self.assertEqual(b["planets_without_gnam"], [("SomeMod.esp", "ModNoGnamPlanetData")])
+        self.assertEqual([(src, f"{f:06X}", rec.edid, idx) for src, f, rec, idx in b["location_overrides"]],
+                         [("SFBGS00X.esm", "018001", "SAlphaCentauri", 0), ("SomeMod.esp", "018010", "SSol_PEarth", 0)])
+        with esm.Plugin(self.sf) as sf:
+            self.assertEqual(census.overlay_worlds(sf, "Starfield.esm"),
+                             [("Starfield.esm", "LC172World", 0, pf.MARS_PLANET_ID),
+                              ("Starfield.esm", "NewAtlantis", pf.JEMISON_SYSTEM, pf.JEMISON_PLANET)])
 
     def test_sol_without_a_system_location_is_a_finding_not_a_crash(self):
         d = os.path.join(self.tmp, "nosol")

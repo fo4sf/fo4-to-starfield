@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import zipfile
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -242,6 +243,29 @@ class StageTests(unittest.TestCase):
             json.dump(plan, f)
         code, text = self.main("check", "--stage", self.out)
         self.assertIn(f"{records.MASTER}: STDT 01000800 missing", text)
+
+    def test_check_catches_a_plugin_that_took_our_planet_id_after_the_stage(self):
+        self.assertEqual(self.stage()[0], 0)
+        late = os.path.join(self.data, "Late.esp")
+        self.addCleanup(os.remove, late)
+        pf.write_creation(late, system_id=0x1F0F9, position=(49.0, 40.0, 4.0),
+                          bodies=[("LatePlanetData", "Late", (pf.SOL_SYSTEM, 0, pf.SOL_FREE_ID))],
+                          overlay=("LateWorld", pf.SOL_SYSTEM, pf.SOL_FREE_ID))
+        code, text = self.main("check", "--stage", self.out, "--data", self.data)
+        self.assertEqual(code, 1, text)
+        self.assertIn(f"planet id {pf.SOL_FREE_ID} is in use in Sol now (Late.esp LatePlanetData, Late.esp overlay "
+                      "world LateWorld): re-stage", text)
+        self.assertEqual(self.main("check", "--stage", self.out)[0], 0)          # without Data: the files only
+        pf.write_creation(late, system_id=0x1F0F9, position=(49.0, 40.0, 4.0),
+                          bodies=[("LatePlanetData", "Late", (pf.SOL_SYSTEM, 0, pf.SOL_FREE_ID + 1))])
+        self.assertEqual(self.main("check", "--stage", self.out, "--data", self.data)[0], 0)  # above ours: no clash
+
+    def test_the_scripts_keyword_ids_must_be_this_starfields(self):
+        with mock.patch.dict(probe.SCRIPT_IDS, {"MajorOrbitalKwId": 0x70A55}):
+            code, text = self.stage()
+        self.assertIn("keyword LocTypeMajorOrbital is 00070A54 in this Starfield.esm, not 00070A55 as "
+                      f"{probe.SCRIPT}.psc reads it (MajorOrbitalKwId): the script needs the new id", str(code))
+        self.assertFalse(os.path.exists(self.out))
 
     def test_no_merge_probe_and_keep_biome(self):
         code, text = self.stage("--no-merge-probe", "--world-biome", "keep")
