@@ -793,17 +793,20 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Decision: newgame_v11 overrides the DefaultObject `StartupQuest_DO` (Starfield.esm 00562D, MQ101 in vanilla) to
   name FO4SF_NewGame, which is no longer start-game enabled. The quest moves the player into the vault itself during
   the first load (from `OnQuestStarted`, or `OnQuestInit` if that comes first, once), fades the screen in once the
-  player's 3D has loaded, and keeps the hold-off (both passes, after the move) and the MQ101Debug write of 2 (after
-  pass 1). A start that is not a new game (a New Game+) or cannot move the player stands down and, while the game is
-  still loading, starts MQ101, so the first load ends. The guard is days and level alone. This replaces the 28 Oct
-  entry's "overrides no record" for the start record only; MQ101 and MQ101Debug stay untouched
-  (docs/newgame/vault111-start.md sections 1, 2 and 13).
+  player's 3D has loaded (never before: both callers check it), and keeps the hold-off (both passes, after the move)
+  and the MQ101Debug write of 2 (after pass 1). A start that is not a new game (a New Game+) or cannot move the player
+  stands down and, when either reading says the game is still loading (the player's 3D not in, or no cell yet),
+  starts MQ101, so the first load ends. The guard is days and level alone. The temporary-anchor mode is built only on
+  request (`--allow-temporary-anchor`): its centering during that load cannot be judged, and one that moves nobody
+  hands nothing back. This replaces the 28 Oct entry's "overrides no record" for the start record only; MQ101 and
+  MQ101Debug stay untouched (docs/newgame/vault111-start.md sections 1, 2, 3a and 13).
 - Why: the owner, 29 Oct (typos fixed): "too many things are breaking because we are forcing ourselves into the
   Starfield system", and their pick F (our own start) for the strip-down. v9 and v10 let MQ101's stage 0 run and then
   undid it: they stopped the opening, restored saving and the HUD, and left the miner suit on. Owning the start removes
-  all of that, and no save ever starts our quest. Shipped precedent: Roleplayers' Alternate Start (its startup quest
-  moves the player from `OnQuestStarted` and fades in once its start cell has loaded) and No Ship Fast Start override
-  the same record.
+  all of that, and no save should ever start our quest. Shipped precedent: Roleplayers' Alternate Start (its startup
+  quest moves the player from `OnQuestStarted` and fades in once its start cell has loaded) and No Ship Fast Start
+  override the same record. The fresh review of 29 Oct on #588 found the fade could fire under the loading screen and
+  two paths that could still leave the first load hanging; all three were closed before the merge.
 - Alternatives: keep stopping MQ101 (newgame_v10; the way back if run 4 fails, by restaging main d9958261); a stage 0
   fragment on our quest, the way MQ101 moves its player (held: a fragment script and more records, for if neither
   start event fires during the load); `Game.FastTravel` instead of MoveTo (the precedent's call; not taken: MoveTo with

@@ -27,7 +27,8 @@ RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
-                version=True, build_version=None, clear_inventory=False, vault_suit=None, require_persistent_anchor=False)
+                version=True, build_version=None, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
+                allow_temporary_anchor=False)
 
 
 def namespace(**kw):
@@ -110,8 +111,10 @@ class ContractTests(unittest.TestCase):
         """MQ101's stage 0 turns saving off and hides the HUD; its stop (stage 9000) restores neither (PC read of
         QF_MQ101_00003448.psc, 19 Oct). Our own start (newgame_v11) never runs MQ101, but a run must not depend on that:
         the one fade in (FadeIn, the call Roleplayers' Alternate Start makes once its start cell has loaded) turns both
-        back on. It runs once, from the start's wait for the player's 3D or from the timer, whichever sees the 3D first;
-        the timer's comes before it confirms the vault."""
+        back on. It runs once, from the start's wait for the player's 3D or from the timer, whichever sees the 3D first,
+        and never before the 3D is in: the start's wait can return without it, and the start fades only if it is in, else
+        the timer does once it sees it (29 Oct review on #588: a fade under the loading screen, then never again). The
+        timer's comes before it confirms the vault."""
         psc = read(PSC)
         fade = psc[psc.index("Function FadeIn"):psc.index("Function AdvanceTo")]
         code = fade[fade.index("    if faded"):]                  # past the doc comment
@@ -128,9 +131,14 @@ class ContractTests(unittest.TestCase):
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("StartTimer(1.0, 1)"), begin.index("player.WaitFor3DLoad()"))
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
+        self.assertIn('    player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load\n'
+                      '    bool ready = player.Is3DLoaded()\n    Trace("3d wait over loaded=" + ready)\n'
+                      '    if ready\n        FadeIn("start")', begin)
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
-        self.assertLess(zero.index("if !player.Is3DLoaded()"), zero.index('FadeIn("timer")'))
+        self.assertIn('        if !player.Is3DLoaded()\n            StartTimer(1.0, 1)                               ; the game is still loading\n'
+                      '            return\n        endif\n        FadeIn("timer")', zero)
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
+        self.assertEqual(len(re.findall(r'\bFadeIn\("', psc)), 2)   # the two calls, each behind its 3D check
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
 
@@ -239,12 +247,17 @@ class ContractTests(unittest.TestCase):
         reference of an unloaded cell resolves to None (verified 16 Oct), so the writer now falls back to the temporary
         COC marker and tells the script (AnchorTemporary, VaultCell) to load the cell with Debug.CenterOnCell once before
         the same MoveTo; the retry is bounded (CenterTicks, one more centering at most, then a failure line each 10
-        ticks). The persistent mode stays preferred; --require-persistent-anchor restores the refusal; write and check
-        print the mode after the anchor id; plan.json records it; the log summary reads the centering line."""
+        ticks). The persistent mode stays preferred. Since newgame_v11 (our own start) the temporary mode is refused by
+        default: its centering comes during the first load, and a centering that moves nobody hands nothing back, so
+        that load would never end (29 Oct review on #588); --allow-temporary-anchor builds it, and
+        --require-persistent-anchor is kept for old command lines. write and check print the mode after the anchor id;
+        plan.json records it; the log summary reads the centering line."""
         cs, psc = read(CS), read(PSC)
         self.assertIn(f"DefaultRequirePersistentAnchor = {str(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR).lower()};", cs)
-        self.assertFalse(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR)
-        self.assertIn('a.Contains("--require-persistent-anchor")', cs)
+        self.assertTrue(ng.DEFAULT_REQUIRE_PERSISTENT_ANCHOR)
+        self.assertIn('!a.Contains("--allow-temporary-anchor")', cs)
+        self.assertIn('throw new Refusal("--allow-temporary-anchor and --require-persistent-anchor contradict each other")', cs)
+        self.assertIn("--allow-temporary-anchor builds on the temporary COC marker", cs)   # the refusal names the way in
         self.assertIn("bool requirePersistentAnchor = DefaultRequirePersistentAnchor", cs)
         self.assertIn("if (persistent is null && requirePersistentAnchor)", cs)
         self.assertIn("var anchor = persistent ?? cocs[0];", cs)
@@ -274,7 +287,8 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("MoveTo(", center)
         self.assertIsNone(re.search(r"^\s*while\b", center, re.M))   # no loop: the timer's retry is the only repeat
         # the guard still runs first, once (Begin): EnterVault, and so any centering, comes after it; a centering is a
-        # move under way, so the start goes on (the hold-off, the write) as after a MoveTo
+        # move under way, so the start goes on (the hold-off, the write) as after a MoveTo and never hands back (the
+        # reason the mode is built only on request)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("if !IsNewGame(days, level)"), begin.index("entered = EnterVault(player)"))
         self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("if vaultMoves == 0 && centered == 0"))
@@ -282,8 +296,11 @@ class ContractTests(unittest.TestCase):
         self.assertIn("anchor_temporary=", begin)
         # the precheck reads the native; the stage option, the plan and the README carry the mode
         self.assertIn("CenterOnCell", ng.NATIVES[ng.SCRIPT]["Debug"])
-        self.assertEqual(ng.tool_options(namespace(require_persistent_anchor=True)), ["--require-persistent-anchor"])
+        self.assertEqual(ng.tool_options(namespace(allow_temporary_anchor=True)), ["--allow-temporary-anchor"])
+        self.assertEqual(ng.tool_options(namespace(require_persistent_anchor=True)), [])   # the default: nothing to pass
         self.assertEqual(ng.tool_options(namespace()), [])
+        with self.assertRaises(SystemExit):
+            ng.tool_options(namespace(allow_temporary_anchor=True, require_persistent_anchor=True))
         self.assertEqual(ng.anchor_mode("  vault anchor FO4Port.esm:001338 temporary, cog door none, exit anchor FO4TerrainCore.esm:0A775B\n"),
                          {"id": "001338", "mode": "temporary"})
         self.assertEqual(ng.anchor_mode("x\n  vault anchor FO4Port.esm:000805 persistent, cog door 000802 Door X, exit anchor FO4TerrainCore.esm:0A775B\n"),
@@ -292,9 +309,9 @@ class ContractTests(unittest.TestCase):
         self.assertIsNone(ng.anchor_mode(""))
         src = read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py"))
         self.assertIn('"anchor": anchor,', src)
-        self.assertIn('"require_persistent_anchor": bool(a.require_persistent_anchor)', src)
+        self.assertIn('"allow_temporary_anchor": bool(a.allow_temporary_anchor)', src)
         doc = read(DOC)
-        self.assertIn("--require-persistent-anchor", doc)
+        self.assertIn("--allow-temporary-anchor", doc)
         self.assertIn("## 3a. The vault anchor: persistent, or the temporary COC marker", doc)
         self.assertRegex(doc, r"0 persistent references of\s+1,166")
         self.assertIn("`CenterOnCell`", doc)
@@ -509,7 +526,7 @@ class ContractTests(unittest.TestCase):
         psc = read(PSC)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("HoldOffPass(1)"))
-        self.assertLess(begin.rindex("StandDown(loaded, "), begin.index("HoldOffPass(1)"))
+        self.assertLess(begin.rindex("StandDown(loading, "), begin.index("HoldOffPass(1)"))
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
         self.assertLess(zero.index("if !entered\n            StartTimer(1.0, 1)"), zero.index("HoldOffPass(2)"))
         self.assertLess(zero.index("HoldOffPass(2)"), zero.index("AdvanceTo(10)"))
@@ -592,7 +609,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.index("HoldOffPass(1)"), begin.index("if DebugAfterHold != 0"))
         self.assertNotIn("endif", begin[begin.index("if DebugAfterHold != 0"):write])
         self.assertLess(write, begin.index("StartTimer(1.0, 1)"))
-        self.assertLess(begin.rindex("StandDown(loaded, "), write)
+        self.assertLess(begin.rindex("StandDown(loading, "), write)
         self.assertEqual(psc.count("SetValueInt("), 1)
         self.assertIn('Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)', psc)
         self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt"])
@@ -625,8 +642,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("!q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) && q.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce)", cs)
         self.assertIn("the plugin's DFOB are not one override of Starfield's {StartupEdid} naming QUST 0x{QuestId:X} (our own start)", cs)
         for mutation in ("start game enabled again", "the startup override removed", "the startup override names Starfield's opening again",
-                         "the startup override names MQ00", "the startup override renamed", "a second DFOB override"):
-            self.assertIn(f'("{mutation}", m => ', cs)       # the selftest's check rejects each
+                         "the startup override names MQ00", "the startup override renamed", "a second DFOB override",
+                         "our own new DFOB named StartupQuest_DO instead of the override", "an MQ101 override added"):
+            self.assertIn(f'("{mutation}", m =>', cs)        # the selftest's check rejects each
+        # the record is Starfield's 00562D, the one the gate knows (write refuses another id), and our quest is the
+        # plugin's only QUST (an MQ101 override would change the start it replaces)
+        self.assertIn("if (dobj.FormKey != new FormKey(SfEsm, StartupId))", cs)
+        self.assertIn('("a Starfield.esm whose StartupQuest_DO is not 00562D", sfMovedStartup)', cs)
+        self.assertIn('Need(plug.Quests.Count == 1, $"the plugin carries {plug.Quests.Count} QUST, not {QuestEdid} alone");', cs)
         # the gate: the record is the start record check_start knows, and our plugin is one it passes
         sys.path.insert(0, os.path.join(ROOT, "src"))
         from fo4sf.core import loadset, preflight
@@ -639,15 +662,23 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(psc.count("    Begin("), 2)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         code = begin[begin.index("    if begun"):]
-        self.assertTrue(code.startswith('    if begun\n        Trace("start event " + route + " came after the start: nothing to do")\n'
-                                        '        return\n    endif\n    begun = true\n'))
-        self.assertIn('Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + player.GetParentCell())', code)
+        self.assertTrue(code.startswith('    if begun\n        if routed\n'
+                                        '            Trace("start event " + route + " came after the start: nothing to do")\n'))
+        self.assertIn("        return\n    endif\n    begun = true\n", code)
+        self.assertIn('Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + startCell + " loading=" + loading)', code)
+        # still loading if either reading says so (29 Oct review on #588: one reading alone could miss the load, and a
+        # stand-down that then hands nothing back leaves the first load for ever)
+        self.assertIn("    bool loaded = player.Is3DLoaded()\n    Cell startCell = player.GetParentCell()\n", code)
+        self.assertIn("    bool loading = !loaded || startCell == None\n", code)
+        self.assertLess(code.index("bool loading = "), code.index('Trace("start route='))
         # the two stand-downs come before the hold-off and the write; a stand-down hands back only while the game loads
-        self.assertLess(code.index('StandDown(loaded, "not a new game")'), code.index("entered = EnterVault(player)"))
-        self.assertLess(code.index('StandDown(loaded, "no move into the vault")'), code.index("HoldOffPass(1)"))
+        self.assertLess(code.index('StandDown(loading, "not a new game")'), code.index("entered = EnterVault(player)"))
+        self.assertLess(code.index('StandDown(loading, "no move into the vault")'), code.index("HoldOffPass(1)"))
         self.assertLess(code.index("HoldOffPass(1)"), code.index("DebugGlobal.SetValueInt(DebugAfterHold)"))
+        self.assertNotIn("StandDown(loaded", psc)
         stand = psc[psc.index("Function StandDown"):psc.index("Function HandBack")]
-        self.assertIn("    AdvanceTo(1)\n    if !loaded\n        HandBack(why)\n    endif\n    Stop()\n", stand)
+        self.assertIn("Function StandDown(bool loading, string why)", stand)
+        self.assertIn("    AdvanceTo(1)\n    if loading\n        HandBack(why)\n    endif\n    Stop()\n", stand)
         hand = psc[psc.index("Function HandBack"):psc.index("Function FadeIn")]
         self.assertEqual(psc.count("Opening.Start()"), 1)      # in HandBack alone
         self.assertIn("Opening.Start()", hand)
@@ -664,6 +695,27 @@ class ContractTests(unittest.TestCase):
             text = read(path)
             for event in ("OnQuestStarted", "OnQuestInit"):
                 self.assertRegex(text, rf"Event {event}\(\)\n    StartTimer\(1\.0, {timer}\)\s")
+
+    def test_the_second_start_event_is_logged_after_the_route_line(self):
+        """The two start events can both run Begin: the second arrives while the first is in a call (the log, the
+        player), which releases the script's lock. Its line is written at once only when the start's route line is
+        (routed); otherwise it is kept (lateRoute) and the start writes it right after that line, so a log always names
+        the event that ran the start first (29 Oct review on #588). The flag is set right after the route line with no
+        call before the start reads lateRoute, so the two threads cannot both miss it."""
+        psc = read(PSC)
+        self.assertIn('bool routed = false', psc)
+        self.assertIn('string lateRoute = ""', psc)
+        begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
+        code = begin[begin.index("    if begun"):]
+        self.assertTrue(code.startswith(
+            '    if begun\n        if routed\n            Trace("start event " + route + " came after the start: nothing to do")\n'
+            '        else\n            lateRoute = route'))
+        route_line = code.index('    Trace("start route=')
+        flag = code.index("\n    routed = true\n")
+        late = code.index('\n    if lateRoute != ""\n        Trace("start event " + lateRoute + " came after the start: nothing to do")\n    endif\n')
+        self.assertLess(route_line, flag)
+        self.assertEqual(flag + len("\n    routed = true"), late)   # nothing between the flag and its reading
+        self.assertEqual((psc.count("routed = true"), psc.count("lateRoute = route")), (1, 1))
 
     def test_every_native_the_script_calls_is_prechecked(self):
         psc = read(PSC)
@@ -942,14 +994,14 @@ class PrecheckTests(unittest.TestCase):
 
 # the guard's stand-down line as the quest script writes it since our own start (days, level, and whether the game was
 # still loading: a New Game+ here, which hands back); test_the_stand_down_line_is_the_scripts holds the fixture to the script
-STOOD_DOWN = "not a new game: days=0.333530 level=12 player_loaded=false: standing down"
+STOOD_DOWN = "not a new game: days=0.333530 level=12 loading=true: standing down"
 
 
 class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 version saved=1.000000 (new game)",
-        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 start route=OnQuestStarted player_loaded=false cell=None",
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 start route=OnQuestStarted player_loaded=false cell=None loading=true",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 guard days=0.333530 level=1 opening_stage=0 opening_running=false mq101debug=0.000000 write_after_hold=2",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
@@ -995,7 +1047,7 @@ class LogTests(unittest.TestCase):
         self.assertFalse(s["stood_down"])
         self.assertIsNone(s["stand_down"])
         self.assertIsNone(s["handed_back"])
-        self.assertEqual(s["start"], "OnQuestStarted player_loaded=false cell=None")
+        self.assertEqual(s["start"], "OnQuestStarted player_loaded=false cell=None loading=true")
         self.assertEqual(s["start_events"], ["OnQuestStarted", "OnQuestInit"])
         self.assertEqual(s["start_wait"], "loaded=true")
         self.assertEqual(s["fade"], "by=start loaded=true cell=[Cell <FO4Port_Vault111Cryo>]; saving and HUD on")
@@ -1062,12 +1114,12 @@ class LogTests(unittest.TestCase):
     def test_the_stand_down_line_is_the_scripts(self):
         """The fixtures' stand-down line must be one the script writes: the guard's trace gained the opening's stage and
         the fresh verdict (21 Oct), and a fixture still naming days and level alone was a line no script produced. Our
-        own start (newgame_v11) has no fresh verdict; the line says whether the game was still loading instead (a hand
-        back follows then)."""
-        trace = 'Trace("not a new game: days=" + days + " level=" + level + " player_loaded=" + loaded + ": standing down")'
+        own start (newgame_v11) has no fresh verdict; the line says whether the game was still loading instead (either
+        reading of the start: a hand back follows then)."""
+        trace = 'Trace("not a new game: days=" + days + " level=" + level + " loading=" + loading + ": standing down")'
         self.assertIn(trace, read(PSC))
         parts = re.findall(r'"([^"]*)"', trace[len('Trace('):])
-        self.assertEqual(parts, ["not a new game: days=", " level=", " player_loaded=", ": standing down"])
+        self.assertEqual(parts, ["not a new game: days=", " level=", " loading=", ": standing down"])
         rest = STOOD_DOWN
         for literal in parts:                                # the literals in order, with a value between each pair
             self.assertIn(literal, rest)
@@ -1099,14 +1151,16 @@ class LogTests(unittest.TestCase):
         """Our own start (newgame_v11): every line the reader takes from the start is one the script writes (the
         literals in order), and the reader's verdicts. A New Game+ stands down and hands back (exit 1, stage 1, the hand
         back's line); a start whose anchor resolves to nothing stands down the same way; a stand-down on a running game
-        hands nothing back; the timer can be the one that fades in."""
+        hands nothing back; the start's wait can end without the 3D, and the timer fades in then."""
         psc = read(PSC)
         for trace, line in (
-                ('Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + player.GetParentCell())',
-                 "start route=OnQuestInit player_loaded=false cell=None"),
+                ('Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + startCell + " loading=" + loading)',
+                 "start route=OnQuestInit player_loaded=false cell=None loading=true"),
                 ('Trace("start event " + route + " came after the start: nothing to do")',
                  "start event OnQuestStarted came after the start: nothing to do"),
-                ('Trace("3d wait over loaded=" + player.Is3DLoaded())', "3d wait over loaded=false"),
+                ('Trace("start event " + lateRoute + " came after the start: nothing to do")',
+                 "start event OnQuestStarted came after the start: nothing to do"),
+                ('Trace("3d wait over loaded=" + ready)', "3d wait over loaded=false"),
                 ('Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")',
                  "fade in by=timer loaded=true cell=[Cell <FO4Port_Vault111Cryo (030011F3)>]; saving and HUD on"),
                 ('Trace("no move into the vault: anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve; standing down")',
@@ -1126,7 +1180,7 @@ class LogTests(unittest.TestCase):
                     rest = rest[rest.index(literal) + len(literal):]
         head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:4920 anchor_temporary=false core=FO4TerrainCore.esm:685915\n"
         # a New Game+: the guard stands down while the game loads, and MQ101 takes the start back
-        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=false cell=None\n"
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=false cell=None loading=true\n"
                                       f"[x] FO4SF_NEWGAME rt=2.1 {STOOD_DOWN}\n"
                                       "[x] FO4SF_NEWGAME rt=2.1 stage 1\n"
                                       "[x] FO4SF_NEWGAME rt=2.1 handing back to Starfield's start: not a new game; mq101debug=0.000000\n"
@@ -1139,25 +1193,28 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(s["mq101debug_written"])           # a hand back follows no write
         # no move into the vault: the same stand-down and hand back
         no_move = "no move into the vault: anchor FO4Port.esm:4920 does not resolve; standing down"
-        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=false cell=None\n"
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=None loading=true\n"
                                       "[x] FO4SF_NEWGAME rt=2.0 vault anchor FO4Port.esm:4920 does not resolve\n"
                                       f"[x] FO4SF_NEWGAME rt=2.1 {no_move}\n"
                                       "[x] FO4SF_NEWGAME rt=2.2 handed back: opening running=true stage=0\n")
         self.assertEqual((code, s["stood_down"], s["stand_down"]), (1, True, no_move))
-        # a start from the console on a running game: stood down, nothing handed back
-        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=[Cell <x>]\n"
-                                "[x] FO4SF_NEWGAME rt=2.1 not a new game: days=41.200000 level=12 player_loaded=true: standing down\n")[1]
+        # a start from the console on a played save: both readings say the game runs, stood down, nothing handed back
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=[Cell <x>] loading=false\n"
+                                "[x] FO4SF_NEWGAME rt=2.1 not a new game: days=41.200000 level=12 loading=false: standing down\n")[1]
         self.assertTrue(s["stood_down"])
         self.assertIsNone(s["handed_back"])
-        # OnQuestInit first, the timer fading in before the start's wait returns: the first fade counts
-        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestInit player_loaded=false cell=None\n"
+        # OnQuestInit first; the start's wait ends before the 3D is in, so the start leaves the fade to the timer
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestInit player_loaded=false cell=None loading=true\n"
                                 "[x] FO4SF_NEWGAME rt=2.0 start event OnQuestStarted came after the start: nothing to do\n"
-                                "[x] FO4SF_NEWGAME rt=3.0 fade in by=timer loaded=true cell=x; saving and HUD on\n"
-                                "[x] FO4SF_NEWGAME rt=3.1 3d wait over loaded=true\n"
-                                "[x] FO4SF_NEWGAME rt=3.1 fade in by=start loaded=true cell=x; saving and HUD on\n")[1]
+                                "[x] FO4SF_NEWGAME rt=3.0 3d wait over loaded=false\n"
+                                "[x] FO4SF_NEWGAME rt=4.0 fade in by=timer loaded=true cell=x; saving and HUD on\n")[1]
         self.assertEqual(s["start_events"], ["OnQuestInit", "OnQuestStarted"])
         self.assertEqual(s["fade"], "by=timer loaded=true cell=x; saving and HUD on")
-        self.assertEqual(s["start_wait"], "loaded=true")
+        self.assertEqual(s["start_wait"], "loaded=false")
+        # the event that ran the start is listed first even when the other's line came ahead of the route line
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=2.0 start event OnQuestInit came after the start: nothing to do\n"
+                                "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=false cell=None loading=true\n")[1]
+        self.assertEqual(s["start_events"], ["OnQuestStarted", "OnQuestInit"])
         # an older build's log has none of them
         old = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=true pos=1 2 3 target=1 2 3 cell=x\n")[1]
         self.assertEqual((old["start"], old["start_events"], old["start_wait"], old["fade"], old["handed_back"]), (None, [], None, None, None))

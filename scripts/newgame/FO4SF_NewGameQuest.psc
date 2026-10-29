@@ -15,9 +15,11 @@ Scriptname FO4SF_NewGameQuest extends Quest
  its start cell has loaded, calls Game.FadeOutGame(False, True, 0.0, 0.1, False) (";finishes main menu loading"). In
  run 2 our quest, start-game enabled then, never got its OnQuestInit while the version alias's OnInit did, so
  OnQuestInit waits for that first load (supported hypothesis); the start therefore runs from OnQuestStarted, with
- OnQuestInit as a second route, once, from whichever comes first (Begin). A start that finds no new game while the game
- is still loading (a New Game+), or that cannot move the player at all, starts Starfield's opening instead (HandBack),
- so the first load never waits on a move nobody makes.
+ OnQuestInit as a second route, once, from whichever comes first (Begin). A start that finds no new game (a New Game+)
+ or cannot move the player at all stands down and, when either of its readings says the game is still loading (the
+ player's 3D not in, or no parent cell yet), starts Starfield's opening instead (HandBack), so the first load does not
+ wait on a move nobody makes. The temporary-anchor mode, whose centering during that load is unverified and hands
+ nothing back when it moves nobody, is built only on request since newgame_v11 (the writer's --allow-temporary-anchor).
  MQ101 never runs, so the plugin overrides no MQ101Debug: right after the hold-off's first pass the quest writes
  DebugAfterHold (two, the value the main quests' developer skip-start stages write) into the global itself, which opens
  PEO_SustenanceAllowed, whose normal route (MQ101 stage 310) is never reached. The guard logs the value the game read
@@ -34,7 +36,8 @@ Scriptname FO4SF_NewGameQuest extends Quest
  The places come from other plugins by their plugin-local form ids (the FO4SF_LoadDoor contract): this plugin has no
  master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).
  The vault anchor has two modes (AnchorTemporary): a persistent reference, which resolves before the vault loads, or the
- temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo.}
+ temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo (on request
+ only since newgame_v11, see above).}
 
 GlobalVariable Property GameDaysPassed Auto Const Mandatory
 {Starfield.esm 000039 (the record's value is 0; in game it reads about 0.3335 one second into a new game, the 8:00 clock,
@@ -138,12 +141,15 @@ float Property MergeOffsetY = -2700.0 Auto Const
 float Property MaxNewGameDays = 1.0 Auto Const
 {The guard: a new game has passed less than this many game days. Starfield's clock starts at GameHour 8 (the record's
  value, docs/ai/test-queue.md) and GameDaysPassed carries the hour, so a new game reads about 0.3335 a second in
- (verified in game 28 Oct, two runs: 0.333530 with MQ101 at stage 0, 0.333537 at 250); the first build's 0.25 stood
- every new game down on this test alone. A save the player made never starts this quest at all: only a New Game
- starts the startup quest, and the quest is not start-game enabled...}
+ (verified in game 28 Oct, two runs: 0.333530 with MQ101 at stage 0, 0.333537 at 250; both read a second into the game,
+ not during the first load, where the start reads it now); the first build's 0.25 stood every new game down on this
+ test alone. A save the player made should never start this quest at all (supported hypothesis: only a New Game starts
+ the startup quest, and the quest is not start-game enabled)...}
 int Property MaxNewGameLevel = 1 Auto Const
-{...and the player is at most this level: a New Game+ start keeps the player's level, stands down (stage 1) and hands
- the start back to MQ101, whose entry 0 is the NG+ start.}
+{...and the player is at most this level: a New Game+ keeps the player's level, so its start stands down (stage 1) and
+ hands the start back to MQ101, whose entry 0 is the NG+ start (supported hypothesis: that a New Game+ starts the
+ startup quest, and that the kept level already reads during the first load; MQ101's own NG+ test is
+ PlayerUnityTimesEntered >= 1).}
 float Property ConsoleRadius = 2.5 Auto Const
 float Property PlatformRadius = 2.5 Auto Const
 float Property FallDrop = 3.0 Auto Const
@@ -172,10 +178,11 @@ float startedAt = 0.0
 float arrivedAt = 0.0
 bool asked = false
 int applied = 0
-int holdPasses = 0
 int centerTries = 0
 int centered = 0
 bool begun = false                                           ; Begin ran (from OnQuestStarted or OnQuestInit)
+bool routed = false                                          ; the start's "start route=" line is written
+string lateRoute = ""                                        ; the other start event, when it came before that line
 int vaultMoves = 0                                           ; MoveTo calls onto the vault anchor
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
@@ -193,14 +200,19 @@ Event OnQuestInit()
 EndEvent
 
 Function Begin(string route)
-{The start, once, from whichever start event comes first; the other only logs that it came. It runs while the game is
- still on its first loading screen: the guard; on a new game the move into the vault (EnterVault), then the hold-off's
- first pass and the MQ101Debug write; then the timer starts and the start waits for the player's 3D (WaitFor3DLoad, as
- MQ101's own intro entry does after its move) and fades the screen in (FadeIn: the timer does it instead if it sees the
- 3D first). The order is the safety: nothing is held off or written before the player has been moved, so a HandBack
- always finds Starfield's start as the game left it.}
+{The start, once, from whichever start event comes first; the other only logs that it came, after the start's route
+ line (it can arrive while the start is in a call, which releases the script's lock). It runs while the game is still
+ on its first loading screen: the guard; on a new game the move into the vault (EnterVault), then the hold-off's first
+ pass and the MQ101Debug write; then the timer starts and the start waits for the player's 3D (WaitFor3DLoad, as
+ MQ101's own intro entry does after its move) and, if the 3D is in when the wait returns, fades the screen in
+ (FadeIn); otherwise, or if the timer sees the 3D first, the timer does. The order is the safety: nothing is held off
+ or written before the player has been moved, so a HandBack always finds Starfield's start as the game left it.}
     if begun
-        Trace("start event " + route + " came after the start: nothing to do")
+        if routed
+            Trace("start event " + route + " came after the start: nothing to do")
+        else
+            lateRoute = route                                ; written right after the start's route line
+        endif
         return
     endif
     begun = true
@@ -208,22 +220,29 @@ Function Begin(string route)
     Trace("init holdoff=" + HoldOff.Length + " vault=" + VaultPlugin + ":" + VaultAnchorId + " anchor_temporary=" + AnchorTemporary + " core=" + CorePlugin + ":" + ExitAnchorId)
     Actor player = Game.GetPlayer()
     bool loaded = player.Is3DLoaded()
-    Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + player.GetParentCell())
+    Cell startCell = player.GetParentCell()
+    ; still on the first load if either reading says so: a stand-down hands back then (StandDown)
+    bool loading = !loaded || startCell == None
+    Trace("start route=" + route + " player_loaded=" + loaded + " cell=" + startCell + " loading=" + loading)
+    routed = true
+    if lateRoute != ""
+        Trace("start event " + lateRoute + " came after the start: nothing to do")
+    endif
     ; every reading the guard judges, and the debug global as the game read it (the 28 Oct runs: the cause of a stand-down
     ; had to come from the records until this line carried it)
     float days = GameDaysPassed.GetValue()
     int level = player.GetLevel()
     Trace("guard days=" + days + " level=" + level + " opening_stage=" + Opening.GetStage() + " opening_running=" + Opening.IsRunning() + " mq101debug=" + DebugGlobal.GetValue() + " write_after_hold=" + DebugAfterHold)
     if !IsNewGame(days, level)
-        Trace("not a new game: days=" + days + " level=" + level + " player_loaded=" + loaded + ": standing down")
-        StandDown(loaded, "not a new game")
+        Trace("not a new game: days=" + days + " level=" + level + " loading=" + loading + ": standing down")
+        StandDown(loading, "not a new game")
         return
     endif
     entered = EnterVault(player)
     if vaultMoves == 0 && centered == 0
         ; nothing moved the player, so the first load would never end (28 Oct run 2)
         Trace("no move into the vault: anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve; standing down")
-        StandDown(loaded, "no move into the vault")
+        StandDown(loading, "no move into the vault")
         return
     endif
     HoldOffPass(1)
@@ -235,16 +254,20 @@ Function Begin(string route)
     endif
     StartTimer(1.0, 1)
     player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load
-    Trace("3d wait over loaded=" + player.Is3DLoaded())
-    FadeIn("start")
+    bool ready = player.Is3DLoaded()
+    Trace("3d wait over loaded=" + ready)
+    if ready
+        FadeIn("start")                                      ; else the timer fades in once the 3D is in
+    endif
 EndFunction
 
-Function StandDown(bool loaded, string why)
-{Stage 1 and the quest stops. While the game is still loading (the player's 3D not loaded at the start), Starfield's
- opening starts first (HandBack), since nothing else would move the player; a start on a running game (startquest from
- the console) moves nothing.}
+Function StandDown(bool loading, string why)
+{Stage 1 and the quest stops. While the game is still loading (either reading of the start: the player's 3D not in, or
+ no parent cell yet), Starfield's opening starts first (HandBack), since nothing else would move the player. A
+ stand-down on a running game (startquest from the console on a played save: a game day or more, or above level 1)
+ moves nothing and hands nothing back.}
     AdvanceTo(1)
-    if !loaded
+    if loading
         HandBack(why)
     endif
     Stop()
@@ -252,19 +275,23 @@ EndFunction
 
 Function HandBack(string why)
 {Starfield's opening starts as it would have without this plugin: its stage 0 moves the player (New Game+'s entry 0,
- whatever MQ101Debug holds; the intro at 0). Called only from StandDown, before anything of ours was held off or written.}
+ whatever MQ101Debug holds; the intro at 0). Called only from StandDown, before anything of ours was held off or written.
+ Nothing else moves the player, so "handed back: opening running=false" with the loading screen still up is a hang (the
+ doc's failure readings, section 13).}
     Trace("handing back to Starfield's start: " + why + "; mq101debug=" + DebugGlobal.GetValue())
     Opening.Start()
     Trace("handed back: opening running=" + Opening.IsRunning() + " stage=" + Opening.GetStage())
 EndFunction
 
 Function FadeIn(string by)
-{Once, from the start's wait or the timer, whichever sees the player's 3D first. A player the start moved into the vault
- is turned to the pod's heading again first (EnterVault's turn came during the load; whether it holds then is
- unverified, and the screen is still dark now). Game.FadeOutGame(False, True, 0.0, 0.1, False) then fades in from black
- over 0.1 s, the call Roleplayers' Alternate Start makes once its start cell has loaded. Then saving and the HUD are
- turned on: MQ101 never ran, so nothing should have turned them off (its stage 0 does, and newgame_v9 had to turn them
- back on), but a run must not depend on that.}
+{Once, from the start's wait or the timer, whichever sees the player's 3D first: each caller checks Is3DLoaded before it
+ calls, so the fade never comes while the 3D is still out (the start's wait can return before it is in, and the
+ precedent fades only once its start cell has loaded). A player the start moved into the vault is turned to the pod's
+ heading again first (EnterVault's turn came during the load; whether it holds then is unverified, and the screen is
+ still dark now). Game.FadeOutGame(False, True, 0.0, 0.1, False) then fades in from black over 0.1 s, the call
+ Roleplayers' Alternate Start makes once its start cell has loaded. Then saving and the HUD are turned on: MQ101 never
+ ran, so nothing should have turned them off (its stage 0 does, and newgame_v9 had to turn them back on), but a run
+ must not depend on that.}
     if faded
         return
     endif
@@ -358,11 +385,14 @@ EndEvent
 
 bool Function IsNewGame(float days, int level)
 {The new-game guard (make_newgame.py is_new_game is the same rule, tested there). Only the engine's New Game (and New
- Game+) starts the startup quest; a save the player made, or one that gains this plugin, never starts it, and a
- session started with coc from the main menu does not either (Install's map test, 28 Oct, found MQ101, the startup
- quest then, not running; supported hypothesis). So days and level are the whole guard: they keep out a New Game+ and
- a start from the console on a played save. The opening-stage test of newgame_v9 (21 Oct review on #393) has nothing
- left to judge: MQ101 never runs.}
+ Game+) should start the startup quest (supported hypothesis: the precedent's start, and MQ101's NG+ entry); a save the
+ player made, or one that gains this plugin, should never start it, and a session started with coc from the main menu
+ does not either (Install's map test, 28 Oct, found MQ101, the startup quest then, not running; supported hypothesis).
+ So days and level are the whole guard: they keep out a New Game+ and a console start on a played save (a game day or
+ more, or above level 1). A console start in a session under a day at level 1 (a coc session from the main menu: the
+ map test read days=0.333532 level=1) passes it and runs the whole start, as a New Game does: the move into the vault,
+ the hold-off, the write and the fade. The opening-stage test of newgame_v9 (21 Oct review on #393) has nothing left to
+ judge: MQ101 never runs.}
     return days < MaxNewGameDays && level <= MaxNewGameLevel
 EndFunction
 
@@ -372,7 +402,6 @@ Function HoldOffPass(int pass)
  MQ101 and pass 1 stopped it, for what its stage 9000 starts: MQ101PostQuest and (unless the player has entered the
  Unity) MQ_TutorialQuest_Misc04 (PC read 19 Oct, NG-N1; Stop() does not wait for that). What each pass stopped is in the
  log (make_newgame.py log, held_off_by_pass).}
-    holdPasses = pass
     int stopped = 0
     int i = 0
     while i < HoldOff.Length

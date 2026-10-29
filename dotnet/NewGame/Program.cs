@@ -15,7 +15,7 @@
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--debug-after-hold <n>] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]] [--require-persistent-anchor]
+//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]] [--allow-temporary-anchor]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (run once, NOT start game enabled; stages 1 /
 //        10 / 20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10), the
 //        override of Starfield's DFOB StartupQuest_DO naming it (the writer refuses a Starfield.esm whose
@@ -39,17 +39,19 @@
 //        MESG FO4SF_NewGameTerminal (the prompt at the vault terminal, two buttons) and MESG FO4SF_NewGameSpecial (the
 //        allocation: one button per stat, Reset, Confirm, Leave), which the SPECIAL script drives (NG-5 / NG-C4). The
 //        port and the core are read for the ids and positions the scripts resolve at run time with Game.GetFormFromFile
-//        (plugin-local ids): the vault anchor (a persistent reference of FO4Port_Vault111Cryo, the COC marker first; when
-//        the cell has none, the temporary COC marker itself, and the script loads the cell with Debug.CenterOnCell
-//        before the move: the AnchorTemporary / VaultCell properties; --require-persistent-anchor refuses that
-//        fallback), the cog door (formids.json
+//        (plugin-local ids): the vault anchor (a persistent reference of FO4Port_Vault111Cryo, the COC marker first; a
+//        cell with none is refused unless --allow-temporary-anchor, which anchors on the temporary COC marker itself
+//        and has the script load the cell with Debug.CenterOnCell before the move: the AnchorTemporary / VaultCell
+//        properties; --require-persistent-anchor, the default since newgame_v11, is kept for old command lines),
+//        the cog door (formids.json
 //        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
 //        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
 //        and the exit anchor (the core's Vault 111 map marker).
 //        --clear-inventory (default off, NG-K8): the quest script empties the player's inventory (quest items kept)
-//        right after the move into the pod and logs the count removed; --vault-suit <EditorID> (only with it) names an
-//        ARMO of FO4Port.esm the script then adds and equips, resolved here by EditorID with the same owner check as
-//        the other ids (refused when the port lacks it, has two, or it is another plugin's record).
+//        once the player is confirmed in the vault (before stage 10) and logs the count removed; --vault-suit
+//        <EditorID> (only with it) names an ARMO of FO4Port.esm the script then adds and equips, resolved here by
+//        EditorID with the same owner check as the other ids (refused when the port lacks it, has two, or it is
+//        another plugin's record).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -106,11 +108,13 @@ static class NewGame
     public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
     public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialAvifPrefix = "FO4SF_Special_";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
-    // Our own start (the owner's pick F, 29 Oct): Starfield's DefaultObject StartupQuest_DO (Starfield.esm 00562D, verified:
-    // the 21 Oct records report, it names MQ101) is the quest the engine starts on a New Game; the plugin overrides it to
-    // name FO4SF_NewGame, which is therefore NOT start game enabled (an existing save never starts it). Shipped precedent:
-    // Roleplayers' Alternate Start and No Ship Fast Start override the same record (research, 28 Oct). The deployment
-    // gate's start check (fo4sf.core.preflight check_start, OWN_START) passes exactly one plugin of ours overriding it.
+    // Our own start (the owner's pick F, 29 Oct): Starfield's DefaultObject StartupQuest_DO (Starfield.esm 00562D;
+    // verified, the 21 Oct records report: it names MQ101) names the quest the engine starts on a New Game (supported
+    // hypothesis: what reads the record is not in that report, NG-N4; the shipped precedents below rely on it). The
+    // plugin overrides it to name FO4SF_NewGame, which is therefore NOT start game enabled (so an existing save should
+    // never start it). Shipped precedent: Roleplayers' Alternate Start and No Ship Fast Start override the same record
+    // (research, 28 Oct). The deployment gate's start check (fo4sf.core.preflight check_start, OWN_START) passes
+    // exactly one plugin of ours overriding it, at that id.
     public const string StartupEdid = "StartupQuest_DO";
     public const uint StartupId = 0x00562D;
     public const uint SpecialAvifBase = 0x810;                  // the seven AVIF: 0x810 Strength to 0x816 Luck
@@ -150,15 +154,17 @@ static class NewGame
     // ObjectReference.RemoveAllItems(None, false, false) (quest items kept; FO4's signature, Starfield's is read by the
     // precheck, unverified) after the move into the pod, and with --vault-suit it adds and equips the port's ARMO.
     public const bool DefaultClearInventory = false;
-    // The vault anchor's mode (PC result 21 Oct, the installed port: FO4Port_Vault111Cryo has 0 persistent references of
-    // 1,166, its COC marker 001338 and every terminal temporary, so the persistent-only resolver refused the build).
-    // Verified 16 Oct: a temporary reference of an unloaded cell resolves to None via Game.GetFormFromFile, and a MoveTo
-    // onto a non-persistent reference fails. So with no persistent reference the writer anchors on the temporary COC
-    // marker and the script loads the cell first (Debug.CenterOnCell(VaultCell), the AnchorTemporary property; whether
-    // Starfield's CenterOnCell works in retail is unverified, the precheck reads its declaration). Persistent stays the
-    // preferred mode and returns by itself once the port marks its COC markers persistent (same form id, another thread);
-    // --require-persistent-anchor restores the refusal for a build that must not rely on the fallback.
-    public const bool DefaultRequirePersistentAnchor = false;
+    // The vault anchor's mode (PC result 21 Oct, the port installed then: FO4Port_Vault111Cryo had 0 persistent
+    // references of 1,166, its COC marker 001338 and every terminal temporary, so the persistent-only resolver refused
+    // the build). Verified 16 Oct: a temporary reference of an unloaded cell resolves to None via Game.GetFormFromFile,
+    // and a MoveTo onto a non-persistent reference fails. So with no persistent reference the writer can anchor on the
+    // temporary COC marker and have the script load the cell first (Debug.CenterOnCell(VaultCell), the AnchorTemporary
+    // property; whether Starfield's CenterOnCell works in retail is unverified, the precheck reads its declaration).
+    // The port of run 3 (28 Oct) has its COC marker persistent. Since newgame_v11 (our own start) the temporary mode is
+    // refused by default: its centering comes during the first load, and when it moves nobody the start cannot tell and
+    // hands nothing back, so that load would never end (29 Oct review on #588). --allow-temporary-anchor builds it on
+    // request; --require-persistent-anchor, the default now, is kept for old command lines.
+    public const bool DefaultRequirePersistentAnchor = true;
     // GLOB MQ101Debug (Starfield.esm 0A7D31): MQ101's stage 0 has 12 log entries, ten conditioned on it (records report,
     // PC 21 Oct): 0 the normal intro, 1 and 3 to 10 developer starts; entry 0 is the NG+ start (PlayerUnityTimesEntered
     // >= 1) and entry 11 has no condition (it only ghosts Lin, Heller and Barrett). Every matching entry's fragment is what moves the player into the game (entry 2:
@@ -183,10 +189,10 @@ static class NewGame
                       Fo4ExitDoor = 0x01F180, Fo4MQ102 = 0x01CC2A;
     // the quests held off on a new game: the main-quest start and the opening, and the two MQ101's stage 9000 starts
     // when MQ101 is stopped (MQ101PostQuest always, MQ_TutorialQuest_Misc04 unless the player entered the Unity; PC
-    // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass one tick later
+    // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass once the vault has loaded
     const string OpeningEdid = "MQ101";
     public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04" };
-    // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the wait for the player's 3D, is no record)
+    // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the start and the wait for the vault, is no record)
     public static readonly ushort[] Stages = { 1, 10, 20, 30, 40, 200 };
     public const ushort Objective = 10;
     public const string ObjectiveText = "Leave Vault 111";
@@ -216,6 +222,8 @@ static class NewGame
             if (a.Contains("--vault-suit") && (suit is null || suit.StartsWith("--"))) throw new Refusal("--vault-suit needs an ARMO EditorID");
             bool clear = a.Contains("--clear-inventory");
             if (suit is not null && !clear) throw new Refusal("--vault-suit is equipped by the inventory reset: it needs --clear-inventory");
+            if (a.Contains("--allow-temporary-anchor") && a.Contains("--require-persistent-anchor"))
+                throw new Refusal("--allow-temporary-anchor and --require-persistent-anchor contradict each other");
             return new(
                 ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
                 (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
@@ -226,7 +234,7 @@ static class NewGame
                 !a.Contains("--no-version"),
                 ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
-                clear, suit, a.Contains("--require-persistent-anchor"),
+                clear, suit, !a.Contains("--allow-temporary-anchor"),
                 ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold);
         }
     }
@@ -332,8 +340,8 @@ static class NewGame
     }
 
     /// The vault anchor (a persistent reference of FO4Port_Vault111Cryo: its one COC marker when that is persistent, else
-    /// the port's persistent reference nearest to it; with none, the temporary COC marker itself and AnchorTemporary set,
-    /// unless `requirePersistentAnchor` refuses that), the cog door (formids.json's key for FO4 000330C3
+    /// the port's persistent reference nearest to it; with none, refused while `requirePersistentAnchor` holds, the
+    /// default, else the temporary COC marker itself and AnchorTemporary set), the cog door (formids.json's key for FO4 000330C3
     /// in that cell, 0 when absent, and it must be a reference of that cell), the SPECIAL terminal (the first of points'
     /// terminals the port carries, a persistent one preferred, nearest the pod among those; each key named must be the
     /// port's own reference of the cell; 0 when it carries none, and the prompt then watches points' nearest terminal)
@@ -362,16 +370,17 @@ static class NewGame
         // unloaded cell resolves to none (16 Oct probe, JOURNAL), so a persistent anchor is preferred. The COC marker
         // when it is; otherwise the port's own persistent reference in the cell nearest to it (the script moves the
         // player by the pod's offset from the anchor, so any persistent reference of the cell serves). 20 Oct review on
-        // #393. With none at all (the installed port, PC 21 Oct: 0 persistent of 1,166) the anchor is the temporary COC
-        // marker and AnchorTemporary tells the script to load the cell first (Debug.CenterOnCell(VaultCell)), after
-        // which the marker resolves and the same MoveTo applies; --require-persistent-anchor keeps the refusal instead.
+        // #393. With none at all (the port installed on 21 Oct: 0 persistent of 1,166) the build is refused unless
+        // requirePersistentAnchor is off (--allow-temporary-anchor): the anchor is then the temporary COC marker and
+        // AnchorTemporary tells the script to load the cell first (Debug.CenterOnCell(VaultCell)), after which the
+        // marker resolves and the same MoveTo applies.
         var c0 = cocs[0].Position;
         float Dist(SF.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - c0.X, 2) + MathF.Pow(r.Position.Y - c0.Y, 2) + MathF.Pow(r.Position.Z - c0.Z, 2));
         var persistent = IsPersistent(cocs[0]) ? cocs[0]
                        : cell.Persistent.OfType<SF.IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == port.ModKey && IsPersistent(r))
                              .OrderBy(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault();
         if (persistent is null && requirePersistentAnchor)
-            throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads; without --require-persistent-anchor the build anchors on the temporary COC marker and the script centers on the cell first)");
+            throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads; --allow-temporary-anchor builds on the temporary COC marker and the script centers on the cell first, which during our own start's first load is unverified and hands nothing back when it moves nobody)");
         var anchor = persistent ?? cocs[0];
         bool anchorTemporary = persistent is null;
         uint cog = 0;
@@ -688,6 +697,8 @@ static class NewGame
     public static SF.IDefaultObjectGetter Startup(SF.IStarfieldModGetter sf, SF.IQuestGetter opening)
     {
         var dobj = sf.DefaultObjects.FirstOrDefault(d => d.EditorID == StartupEdid) ?? throw new Refusal($"Starfield.esm has no DFOB {StartupEdid}");
+        if (dobj.FormKey != new FormKey(SfEsm, StartupId))
+            throw new Refusal($"Starfield.esm's {StartupEdid} is {dobj.FormKey}, not Starfield.esm:{StartupId:X6}, the record the deployment gate's start check knows");
         if (dobj.Object.FormKey != opening.FormKey)
             throw new Refusal($"Starfield.esm's {StartupEdid} {dobj.FormKey} names {dobj.Object.FormKey}, not {OpeningEdid} {opening.FormKey}: not the start this plugin replaces");
         return dobj;
@@ -798,6 +809,8 @@ static class NewGame
         Console.WriteLine($"  start: {string.Join("; ", dobjs.Select(d => $"DFOB {d.EditorID} {d.FormKey} -> {d.Object.FormKey}"))}" +
                           (vanilla is null ? "" : $" (vanilla: {vanilla.Object.FormKey})"));
 
+        // our quest alone: an override of one of Starfield's quests (MQ101 above all) would change the start it replaces
+        Need(plug.Quests.Count == 1, $"the plugin carries {plug.Quests.Count} QUST, not {QuestEdid} alone");
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
         if (q is null) problems.Add("no QUST 0x800");
         else
@@ -966,6 +979,8 @@ static class NewGame
         }
         var sfNoStartup = SfVariant("sf_nostartup", m => m.DefaultObjects.Clear());
         var sfOtherStartup = SfVariant("sf_otherstartup", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901)));
+        // and one whose StartupQuest_DO sits at another id than 00562D, the record the deployment gate's start check knows
+        var sfMovedStartup = SfVariant("sf_movedstartup", m => { var d = m.DefaultObjects.First(); m.DefaultObjects.Remove(d.FormKey); m.DefaultObjects.Add((SF.DefaultObject)d.Duplicate(new FormKey(SfEsm, 0x905))); });
         // a port with FO4Port_Vault111Cryo: its COC marker and the cog door, and formids.json as PluginSpike writes it
         var portKey = ModKey.FromFileName("FO4Port.esm");
         var port = new SF.StarfieldMod(portKey, rel);
@@ -1053,9 +1068,13 @@ static class NewGame
             try { Options.From(bad); Console.WriteLine($"FAIL  options accepted {why}"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
         }
-        // the anchor mode: the fallback is on by default; --require-persistent-anchor turns it off
-        var requirePers = plain with { RequirePersistentAnchor = true };
-        if (plain.RequirePersistentAnchor || !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
+        // the anchor mode: since newgame_v11 the temporary fallback is off by default; --allow-temporary-anchor turns it
+        // on, --require-persistent-anchor (old command lines) changes nothing, and the two together are refused
+        var allowTemp = plain with { RequirePersistentAnchor = false };
+        if (!plain.RequirePersistentAnchor || Options.From(new[] { "--allow-temporary-anchor" }).RequirePersistentAnchor ||
+            !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
+        try { Options.From(new[] { "--allow-temporary-anchor", "--require-persistent-anchor" }); Console.WriteLine("FAIL  options accepted both anchor options"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (both anchor options): {e.Message}"); }
         var clear = plain with { ClearInventory = true };
         var suit = clear with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
@@ -1124,6 +1143,9 @@ static class NewGame
             ("the startup override names MQ00", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901))),
             ("the startup override renamed", m => m.DefaultObjects.First().EditorID = "StartupQuest_DO2"),
             ("a second DFOB override", m => m.DefaultObjects.Add(new SF.DefaultObject(new FormKey(SfEsm, StartupId + 1), rel) { EditorID = "OtherDO" })),
+            ("our own new DFOB named StartupQuest_DO instead of the override", m =>
+                { m.DefaultObjects.Clear(); var d = new SF.DefaultObject(new FormKey(m.ModKey, 0x8FF), rel) { EditorID = StartupEdid }; d.Object.SetTo(new FormKey(m.ModKey, QuestId)); m.DefaultObjects.Add(d); }),
+            ("an MQ101 override added", m => m.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x902), rel) { EditorID = "MQ101" })),
             ("not run once", m => m.Quests.First().Data!.Flags &= ~SF.Quest.Flag.RunOnce),
             ("a stage missing", m => m.Quests.First().Stages.RemoveAt(0)),
             ("the vault anchor id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultAnchorId")).Data = 0x999),
@@ -1221,8 +1243,9 @@ static class NewGame
                 catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
             }
             // the vault anchor prefers persistence: a temporary COC marker gives way to the nearest persistent reference
-            // of the port in the cell; a persistent COC marker is used itself; none at all (the installed port, PC 21
-            // Oct) anchors on the temporary COC marker with AnchorTemporary set, and --require-persistent-anchor refuses
+            // of the port in the cell; a persistent COC marker is used itself; none at all (the port installed on 21 Oct)
+            // is refused by default and, under --allow-temporary-anchor, anchors on the temporary COC marker with
+            // AnchorTemporary set
             var full0 = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms);
             if (full0.VaultAnchor != 0x805 || full0.AnchorTemporary || full0.AnchorMode != "persistent") { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
             var persCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); r.MajorRecordFlagsRaw |= 0x400; c.Persistent.Add(r); });
@@ -1230,14 +1253,14 @@ static class NewGame
             if (pc.VaultAnchor != 0x801 || pc.AnchorTemporary) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
             // the installed port's shape (PC 21 Oct): every reference of the cell temporary, the terminals among them
             var noPers = Port(m => { var c = VCell(m); foreach (var r in c.Persistent.ToList()) { var t = (SF.PlacedObject)r; t.MajorRecordFlagsRaw &= ~0x400; c.Temporary.Add(t); } c.Persistent.Clear(); });
-            var tmp = Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms);
+            var tmp = Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms, requirePersistentAnchor: false);
             if (tmp.Terminal != 0x807) { Console.WriteLine($"FAIL  the temporary-only port's terminal is not the nearer one: {tmp.Terminal:X}"); return 1; }
             if (tmp.VaultAnchor != 0x801 || !tmp.AnchorTemporary || tmp.AnchorMode != "temporary" || MathF.Abs(tmp.AnchorPos.X - 60f) > 1e-3) { Console.WriteLine($"FAIL  a vault with no persistent reference is not anchored on its temporary COC marker: {tmp.VaultAnchor:X} {tmp.AnchorMode}"); return 1; }
-            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms, requirePersistentAnchor: true); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference under --require-persistent-anchor"); return 1; }
-            catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault, --require-persistent-anchor): {e.Message}"); }
-            // the temporary-anchor build: written and checked against that port (its check line says "temporary"); it
-            // fails the check against the port with persistent references and the default build fails against the port
-            // without (another anchor id and the other mode); the build under --require-persistent-anchor is refused
+            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference by default"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault, the default): {e.Message}"); }
+            // the temporary-anchor build (--allow-temporary-anchor): written and checked against that port (its check
+            // line says "temporary"); it fails the check against the port with persistent references and the default
+            // build fails against the port without (another anchor id and the other mode); the default refuses to write it
             {
                 var td = Path.Combine(outDir, "tempanchor");
                 var tw = new StringWriter();
@@ -1245,21 +1268,21 @@ static class NewGame
                 Console.SetOut(tw);
                 try
                 {
-                    rc = Write(sfPath, noPers, idsPath, corePath, pointsPath, td, plain);
-                    if (rc == 0) rc = Check(Path.Combine(td, Plugin), sfPath, noPers, idsPath, corePath, pointsPath, plain);
+                    rc = Write(sfPath, noPers, idsPath, corePath, pointsPath, td, allowTemp);
+                    if (rc == 0) rc = Check(Path.Combine(td, Plugin), sfPath, noPers, idsPath, corePath, pointsPath, allowTemp);
                 }
                 finally { Console.SetOut(stdout); }
                 Console.Write(tw.ToString());
                 if (rc != 0) { Console.WriteLine("FAIL  the temporary-anchor build"); return 1; }
                 if (!tw.ToString().Contains("vault anchor FO4Port.esm:000801 temporary at") || !tw.ToString().Contains("  vault anchor FO4Port.esm:000801 temporary, cog door")) { Console.WriteLine("FAIL  write and check do not print the temporary anchor mode"); return 1; }
-                if (Check(Path.Combine(td, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine("FAIL  check passed a temporary-anchor build against a port with persistent references"); return 1; }
+                if (Check(Path.Combine(td, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, allowTemp) == 0) { Console.WriteLine("FAIL  check passed a temporary-anchor build against a port with persistent references"); return 1; }
                 Console.WriteLine("rejected: a temporary-anchor build against a port with persistent references");
-                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, noPers, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine("FAIL  check passed a persistent-anchor build against a port without a persistent reference"); return 1; }
+                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, noPers, idsPath, corePath, pointsPath, allowTemp) == 0) { Console.WriteLine("FAIL  check passed a persistent-anchor build against a port without a persistent reference"); return 1; }
                 Console.WriteLine("rejected: a persistent-anchor build against a port without a persistent reference");
-                try { Write(sfPath, noPers, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), requirePers); Console.WriteLine("FAIL  write accepted a temporary anchor under --require-persistent-anchor"); return 1; }
-                catch (Refusal e) { Console.WriteLine($"refused as expected (--require-persistent-anchor): {e.Message}"); }
+                try { Write(sfPath, noPers, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine("FAIL  write accepted a temporary anchor by default"); return 1; }
+                catch (Refusal e) { Console.WriteLine($"refused as expected (a temporary anchor, the default): {e.Message}"); }
                 // the option changes nothing in a build whose anchor is persistent: the default build passes under it
-                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, portPath, idsPath, corePath, pointsPath, requirePers) != 0) { Console.WriteLine("FAIL  the default build fails under --require-persistent-anchor"); return 1; }
+                if (Check(Path.Combine(outDir, "default", Plugin), sfPath, portPath, idsPath, corePath, pointsPath, allowTemp) != 0) { Console.WriteLine("FAIL  the default build fails under --allow-temporary-anchor"); return 1; }
             }
             // the terminal: the persistent one is preferred over the nearer temporary one; with only the temporary
             // one it is taken; with none the id is 0 and the spot is the nearest terminal's; --terminal-ref pins one
@@ -1302,7 +1325,8 @@ static class NewGame
         }
         // refusals: a Starfield.esm without StartupQuest_DO, or with one naming another quest than MQ101; check refuses the
         // default build against the second too
-        foreach (var (why, sfp) in new[] { ("a Starfield.esm without StartupQuest_DO", sfNoStartup), ("a Starfield.esm whose StartupQuest_DO names MQ00", sfOtherStartup) })
+        foreach (var (why, sfp) in new[] { ("a Starfield.esm without StartupQuest_DO", sfNoStartup), ("a Starfield.esm whose StartupQuest_DO names MQ00", sfOtherStartup),
+                                           ("a Starfield.esm whose StartupQuest_DO is not 00562D", sfMovedStartup) })
         {
             try { Write(sfp, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine($"FAIL  write accepted {why}"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
