@@ -2676,3 +2676,16 @@ Starfield draws a city, and asked for research; whether it lists our places
 for fast travel is the next check.
 A save load closes the user logs (`Log closed` in fo4sf_map.0.log); attempt 4
 had no map pass after its load because the console stayed open.
+
+## 2026-10-28: Map markers: a short star map list (the owner's pick A)
+
+Research (web and Creation Kit sources, `/mnt/project-files/map/starfield-map-icon-grouping.md`)
+supports the owner's reading: Mars's planet view stacks every marker with
+Visible on Star Map (`FNAM` 0x10) at one spot on the globe under one icon,
+and all our markers had it, so the list held about 309 places. The owner
+picked A: `dotnet/MapMarkers --star-map` now keeps that bit only on the
+listed markers (the stage's default: Red Rocket Truck Stop, Sanctuary Hills,
+Vault 111, Concord, Lexington, The Castle, Vault 81, Bunker Hill) and on the
+landing marker; every marker stays on the surface map. xEdit's SF1
+definitions name `TNAM` 0x17 "NASA", not a plain diamond. Offline only;
+the planet view list and fast travel from it wait on a play test.
