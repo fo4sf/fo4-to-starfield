@@ -586,7 +586,7 @@ the fallback.
 **Defect 2, ours: the ride's arrival was set in the move's own tick and ignored.** `surface moveto pos=-1275.313965
 1305.275757 119.384842` (MarsPlanetWorld, runtime FF00C482) is the exit anchor's (FO4TerrainCore.esm 0A775B, the
 Vault 111 map marker) local x and y (-1275.314, 1305.276), 6.8 m under the anchor's z in the build (126.224,
-`FallbackZ`, which the fallback line below shows plus its 1 m). The `surface setposition` line
+`FallbackZ`: the End row's fallback line above reads it plus 1 m, 127.224). The `surface setposition` line
 right after reads the same position against the target -2467.781 -1406.925 128.110, so that SetPosition did nothing.
 The bridge has the player on that spot from rt 178.70 to 179.42, after the ride's load. At rt 181.43 the landing check
 read z 119.38, more than 3 m under the arrival, logged `fell` and put the player on the map marker's merged spot with
