@@ -185,11 +185,12 @@ class DetectTests(unittest.TestCase):
     def test_test_file_in_a_language_ini_is_refused(self):
         mg = os.path.join(self.root, "My Games", "Starfield")
         os.makedirs(mg, exist_ok=True)
-        write(os.path.join(self.sf, "Starfield_en.ini"), b"[General]\nsTestFile1=Lang.esm\n")
+        write(os.path.join(self.sf, "Starfield_de.ini"), b"[General]\nsTestFile1=Lang.esm\n")
+        write(os.path.join(self.sf, "Starfield_backup.ini"), b"[General]\nsTestFile1=Old.esm\n")  # not the game's
         r = self.run_detect(my_games=mg)
         self.assertFalse(r["ready"])
         self.assertEqual(len(r["refusals"]), 1)
-        self.assertIn("sTestFile1=Lang.esm in " + os.path.join(self.sf, "Starfield_en.ini"), r["refusals"][0])
+        self.assertIn("sTestFile1=Lang.esm in " + os.path.join(self.sf, "Starfield_de.ini"), r["refusals"][0])
 
     def test_loose_files_in_my_games_are_reported(self):
         mg = os.path.join(self.root, "My Games", "Starfield")

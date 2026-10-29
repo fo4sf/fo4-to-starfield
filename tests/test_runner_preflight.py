@@ -256,6 +256,20 @@ class ProbeOnThisBoxTests(unittest.TestCase):
             self.assertEqual(bridged.staged_at_launch()[-1], ("FO4SFBridge.esm", os.path.join(bdir, "FO4SFBridge.esm")))
             self.assertEqual(bridged.start_overrides()[0], [("Other.esm", "StartupQuest_DO", "00562D"),
                                                             ("FO4SFBridge.esm", "MQ101", "003448")])
+            edir = os.path.join(self.d, "exp")                               # exp_install.py installs it at the launch
+            os.makedirs(edir)
+            plugin(os.path.join(edir, "FO4SFStart.esm"), b"DFOB", 0x0000562D)   # our own start (pick F), staged
+            with open(os.path.join(local, "Starfield", "Plugins.txt"), "w", encoding="utf-8") as f:
+                f.write("*FO4Port.esm\n*SFBGS003.esm\n")                       # Other.esm off
+            started = self.pin(bridge=None, experiment_identity={"exp_dir": edir, "plugins": ["FO4SFStart.esm"]})
+            self.assertEqual(started.staged_at_launch(), [("FO4SFStart.esm", os.path.join(edir, "FO4SFStart.esm"))])
+            c = pf.check_start(started)
+            self.assertEqual(c.status, pf.PASS, c.detail)
+            self.assertIn("our own start overrides StartupQuest_DO: FO4SFStart.esm:StartupQuest_DO", c.detail)
+            plugin(os.path.join(edir, "FO4SFStart.esm"), b"GLOB", 0x000A7D31)   # a staged build overriding MQ101Debug
+            c = pf.check_start(started)
+            self.assertEqual(c.status, pf.FAIL)
+            self.assertIn("FO4SFStart.esm:MQ101Debug", c.detail)
             with open(os.path.join(mg, "StarfieldCustom.ini"), "w", encoding="utf-8") as f:
                 f.write("[General]\nsTestFile1=Other.esm\n")
             with open(os.path.join(mg, "Starfield.ccc"), "w", encoding="utf-8") as f:

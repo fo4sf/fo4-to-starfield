@@ -747,6 +747,8 @@ decided the import path); keeping the order as a parameter (two orders in the co
     baseline" (`src/fo4sf/core/papyrus_log.py`).
   - A session counts as vanilla only when its log names none of ours, Plugins.txt shows no plugin the game does not
     ship ticked again, and SFSE wrote no log meanwhile. Otherwise its log is kept aside and the baseline gets none.
+  - While a baseline is open (its note in the runner's state folder names it and its restore has not run), the test
+    runner installs and launches nothing, since a launch would load our plugins into the baseline's session.
   - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7). Their rules are in
     `src/fo4sf/core/loadset.py`, which reads nothing, and `src/fo4sf/launcher/loadprobe.py` reads the PC for them, so
     the core still reads nothing on the PC. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a

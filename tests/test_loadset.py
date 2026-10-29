@@ -123,9 +123,11 @@ class FolderTests(unittest.TestCase):
         write(os.path.join(self.mg, "Data", "Textures", "x.dds"), "DDS ")
         self.assertEqual(lp.shadow_plugins(self.data, [self.mg]),
                          [(os.path.join(self.mg, "Data", "fo4port.esm"), "fo4port.esm")])
-        write(os.path.join(self.game, "Starfield_en.ini"), "[General]\nsTestFile1=Lang.esm\n")   # the language INI
-        self.assertIn((os.path.join(self.game, "Starfield_en.ini"), 2, "sTestFile1", "Lang.esm"),
-                      lp.test_files(self.game, [self.mg]))
+        write(os.path.join(self.game, "Starfield_de.ini"), "[General]\nsTestFile1=Lang.esm\n")   # a language INI
+        write(os.path.join(self.game, "Starfield_backup.ini"), "[General]\nsTestFile1=Old.esm\n")  # not the game's
+        got = lp.test_files(self.game, [self.mg])
+        self.assertIn((os.path.join(self.game, "Starfield_de.ini"), 2, "sTestFile1", "Lang.esm"), got)
+        self.assertNotIn("Old.esm", [x[3] for x in got])
 
     def test_a_linked_my_games_data_holds_no_copies(self):
         plugin(os.path.join(self.data, "FO4Port.esm"))

@@ -176,6 +176,26 @@ class CompareTests(unittest.TestCase):
         ours = [k for k in rep["kinds"] if k["group"] == "ours" and k["ours"] == ["FO4Core_MarkerRef"]]
         self.assertEqual([k["place_count"] for k in ours], [1])
 
+    def test_the_baseline_count_is_beside_each_shared_kind(self):
+        lines = pl.report_lines(self.rep)
+        self.assertIn("     2x error: Cannot call Disable() on a None object, aborting function call at "
+                      "SFBGS003:SFBGS003_ShutdownQuestScript.Shutdown() - \"SFBGS003_ShutdownQuestScript.psc\" Line 51 "
+                      "(baseline 1x)", lines)                                  # both: the same kind's count
+        self.assertTrue(any(ln.startswith("     1x error: Cannot call GetValue()") and ln.endswith("(baseline 1x)")
+                            for ln in lines))                                  # both_place: the lines at its place
+        disable = "\n".join(BASELINE.splitlines()[1:5])                        # the baseline's first error, its stack
+        for n, mark in ((9, "(baseline 1x)"), (10, "(baseline 1x, 10x or more)")):
+            rep = pl.compare(pl.parse("\n".join([disable] * n)), pl.parse(BASELINE))
+            self.assertTrue(any(ln.startswith(f"{n:6}x error: Cannot call Disable()") and ln.endswith(mark)
+                                for ln in pl.report_lines(rep)), n)            # far more often: still ours to look at
+
+    def test_an_unnamed_reference_of_ours_is_not_found_as_ours(self):
+        run = "\n".join(["[1] error: Cannot call Disable() on a None object, aborting function call", "stack:",
+                         "\t[ (0A001234)].SFBGS003:SFBGS003_ShutdownQuestScript.Shutdown() - "
+                         "\"SFBGS003_ShutdownQuestScript.psc\" Line 51", ""])   # no EditorID, so no name
+        rep = pl.compare(pl.parse(run), pl.parse(BASELINE))
+        self.assertEqual([(k["group"], k["ours"]) for k in rep["kinds"] if k["run_count"]], [("both_place", [])])
+
     def test_a_kind_only_the_baseline_has(self):
         rep = pl.compare(pl.parse(""), pl.parse(BASELINE))
         self.assertEqual([k["group"] for k in rep["kinds"]], ["baseline"] * 3)

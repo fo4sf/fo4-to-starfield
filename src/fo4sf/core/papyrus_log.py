@@ -25,7 +25,10 @@ line, from another caller or object) or "starfield" (Starfield's own scripts, bu
 we change). A kind of ours keeps how many baseline lines came at its script line. The baseline's kinds that the run
 does not have, at a script line no "both_place" kind of the run has, are "baseline". Every baseline line is counted
 in one group only. A group says where a message came, not why: a Starfield error only in our run can still be one
-Starfield makes later in its own intro, which the baseline did not reach.
+Starfield makes later in its own intro, which the baseline did not reach. "ours" goes by name: a reference of ours
+with no EditorID prints with no name ("[ (0A001234)]"), so its kind is not found as ours: it is "both_place" at a
+vanilla script line, "starfield" elsewhere. The report gives the baseline's count beside each "both" and "both_place"
+kind, and marks one the run has far more often.
 """
 import json
 import re
@@ -224,10 +227,24 @@ def report_lines(rep, top=12):
             where = f" at {x['place']}" if x["place"] else ""
             here = f"; {x['place_count']} baseline lines at this place" if g == "ours" and x["place_count"] else ""
             mine = f" [ours: {', '.join(x['ours'])}{here}]" if x["ours"] else ""
-            out.append(f"  {n:4}x {x['level']}: {x['text'][:160]}{where}{mine}")
+            out.append(f"  {n:4}x {x['level']}: {x['text'][:160]}{where}{mine}{versus(g, x)}")
         if len(ks) > top:
             out.append(f"  ... and {len(ks) - top} more kinds (all in the JSON report)")
     return out
+
+
+MORE = 10                       # a kind that came this many times as often as in the baseline, or more, is marked
+
+
+def versus(group, x):
+    """The baseline's count beside a run's kind that the baseline also has ("both": the same kind; "both_place": all
+    its lines at that script line), marked when the run has MORE times as many or more: a Starfield error that comes
+    far more often in our run is still ours to look at."""
+    if group not in ("both", "both_place"):
+        return ""
+    base = x["baseline_count"] if group == "both" else x["place_count"]
+    more = f", {MORE}x or more" if x["run_count"] >= MORE * max(base, 1) else ""
+    return f" (baseline {base}x{more})"
 
 
 def write_report(rep, path):

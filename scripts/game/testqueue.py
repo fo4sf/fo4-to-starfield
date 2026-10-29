@@ -60,6 +60,9 @@ when one trips:
     --wait-for-idle the runner waits until the PC has been idle --min-idle seconds instead of stopping; with --refocus it
     then brings ITS OWN game window back to the front once (never another app);
   - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
+  - an open vanilla baseline (docs/testing/baseline.md): while the note in the state folder
+    (baseline-open.json) names a baseline whose restore has not run, no game is launched (it would load our plugins
+    into the baseline's session);
   - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
     set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
     unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
@@ -2680,6 +2683,23 @@ def launch_limit(a, state):
     return None
 
 
+def open_baseline(state_dir):
+    """Why no game may be launched now, else None: a vanilla baseline is open (scripts/game/baseline.py prepare turned
+    our plugins off for one plain session and its restore has not run; prepare's note in the state folder names it).
+    A launch would deploy our plugins into that session. No state folder (a test's controls): None."""
+    if not state_dir:
+        return None
+    import baseline                                       # beside this file (scripts/game)
+    note = baseline.read_json(os.path.join(state_dir, baseline.OPEN_NOTE))
+    if not note or not isinstance(note.get("out"), str):
+        return None
+    rec = baseline.read_json(os.path.join(note["out"], baseline.RECORD))
+    if not rec or not baseline.unrestored(rec):
+        return None
+    return (f"a vanilla baseline is open in {note['out']} (docs/testing/baseline.md), and a launch would load our "
+            f"plugins into its session: restore it first (baseline.py restore --out {note['out']})")
+
+
 def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
     if lease is not None:                                 # the controller lease, only when the runner was given one
         why = lease.blocked()
@@ -3296,6 +3316,10 @@ class Runner:
             why = launch_limit(self.a, self.state)
             if why:
                 return why
+            why = open_baseline(getattr(self.ctl, "state_dir", Controls.state_dir))
+            if why:
+                self.log(f"{why}: stopping")
+                return "stop"
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why

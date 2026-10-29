@@ -21,7 +21,7 @@ in a vanilla game too.
 | `src/fo4sf/core/papyrus_log.py` | Reads a Papyrus log into messages with their stacks, and compares two logs (section 5). |
 | `src/fo4sf/core/loadset.py` | The rules, which read nothing: the plugins the game ships, which plugins and names are ours (they start with FO4 or FOCC), and the start records. |
 | `src/fo4sf/launcher/loadprobe.py` | Reads what Starfield will load on the PC: the built-in plugins, `Starfield.ccc`, `sTestFile`, plugin copies in `My Games\Starfield\Data`, and the plugins that override the start records. |
-| The open-baseline note | `baseline-open.json` in the test runner's state folder (`FO4_AI_TEAM_STATE`, else `%LOCALAPPDATA%\fo4-ai-team\state`). `prepare` writes it when it turns plugins off, and `restore` removes it, so a baseline that was never restored is found wherever its folder is. |
+| The open-baseline note | `baseline-open.json` in the test runner's state folder (`FO4_AI_TEAM_STATE`, else `%LOCALAPPDATA%\fo4-ai-team\state`). `prepare` writes it when it turns plugins off, and `restore` removes it, so a baseline that was never restored is found wherever its folder is. While it names a baseline whose restore has not run, `testqueue.py run` installs and launches nothing. |
 | The gate's `loaders` and `start` checks | `src/fo4sf/core/preflight.py`; the table in docs/ai/leader-core.md section 7. `prepare` runs both, and so does `testqueue.py run --preflight` before every test run. |
 
 ## 2. The owner's line for the Install thread
@@ -31,7 +31,8 @@ in a vanilla game too.
 ## 3. Runbook (Install's session, on the PC)
 
 The game folder below is the PC's (`D:\SteamLibrary\steamapps\common\Starfield`), and the out folder is new for each
-baseline.
+baseline. The out folder is never in the game folder, a My Games folder or Plugins.txt's folder: `collect` and
+`compare` write files there, and they must never write over one of the game's.
 
 1. Close Starfield. Run `python -I scripts\game\baseline.py check --starfield <game dir>`. It must end with
    `check: prepare would go ahead`, and it writes nothing.
@@ -62,18 +63,26 @@ baseline.
 7. For any run of ours, run `python -I scripts\game\baseline.py compare --out <folder> --run-log <the run's
    Papyrus.0.log> --report <folder>\compare_<run>.json`.
 
+While a baseline is open (step 2 done, step 6 not yet), the test runner installs and launches nothing: `testqueue.py
+run` stops with `a vanilla baseline is open in <folder>`. A launch would install our plugins and load them into the
+baseline's session.
+
 ### What `prepare` refuses (nothing is changed)
 
 - Starfield is running, or its state is unknown.
 - The out folder already holds a baseline. When that one was never restored, its record holds the only copy of
   Plugins.txt as it was, so `prepare` says to run `restore` on it first.
+- The out folder is in the game folder, a My Games folder or Plugins.txt's folder.
 - A baseline of the same Plugins.txt was never restored: the one the open-baseline note names, wherever it is, or one
   in a folder next to the out folder (the same parent folder).
-- Nothing is on to turn off, but our plugins are off in Plugins.txt already. That is what an earlier baseline that was
-  never restored leaves behind, when its note is gone too. `--allow-off` goes ahead when no baseline turned them off:
-  the game also adds a new plugin it finds in `Data` unticked (verified, `sfstack.md`).
-- Plugins.txt is read-only, when there is something to turn off.
-- Plugins.txt is not UTF-8 (the game's own file is).
+- None of ours is on, but our plugins are off in Plugins.txt already (another mod may be on). That is what an earlier
+  baseline that was never restored leaves behind, when its note is gone too. `--allow-off` goes ahead when no baseline
+  turned them off: the game also adds a new plugin it finds in `Data` unticked (verified, `sfstack.md`).
+- Plugins.txt is read-only, or a link, when there is something to turn off. `prepare` would put a plain file in the
+  link's place, and `restore` would bring the bytes back but not the link.
+- A line of Plugins.txt would still read as active once unticked, such as `* *Mod.esm`.
+- Plugins.txt is not UTF-8: `prepare` cannot untick bytes it cannot read (that the game writes UTF-8 is a hypothesis,
+  section 6).
 - There is no `Data` folder under `--starfield`, or `LOCALAPPDATA` is not set (not Windows).
 - The `[Papyrus]` logging keys are not in effect. Without them the session writes no log, and
   `scripts/bridge/make_bridge.py ini` sets them.
@@ -81,8 +90,9 @@ baseline.
   `Starfield.ccc` lists a mod (it loads first, whatever Plugins.txt says), a plugin in `My Games\Starfield\Data` is
   named like one in `Data` (unless that folder is linked to `Data` itself, as Vortex can do), or no My Games folder
   was found.
-- `start` fails with the start pinned as vanilla (`start_overrides: []`). That means a plugin that loads anyway (a
-  `.ccc` one) overrides `StartupQuest_DO`, `MQ101` or `MQ101Debug`.
+- `start` fails with the start pinned as vanilla (`start_overrides: []`), or is UNKNOWN. A FAIL means a plugin that
+  loads anyway (a `.ccc` one) overrides `StartupQuest_DO`, `MQ101` or `MQ101Debug`. UNKNOWN means such a plugin cannot
+  be read.
 - Starfield was started while `prepare` read the game folder (hashing the built-in plugins takes a while).
 - The open-baseline note could not be written. The record is removed.
 - Plugins.txt changed between the read and the write. The record and the note are removed, and Plugins.txt keeps the
@@ -101,7 +111,7 @@ plugins (verified: docs/research/framework/launcher-sources/sfstack.md, from Ort
 | As `prepare` wrote it | Writes the recorded bytes back. |
 | Already the recorded bytes | Writes nothing, and records the restore. |
 | Rewritten, with no plugin the game does not ship ticked | Keeps the rewrite as `Plugins.txt.at-restore` in the out folder (it can hold the owner's own edits), then writes the recorded bytes over it. |
-| Gone | Writes the recorded bytes. |
+| Gone | Writes the recorded bytes, and makes its folder again when that is gone too. |
 | With such a plugin ticked again | Refuses and names it (the session may not have been vanilla). `--force` keeps the current file as `Plugins.txt.at-restore`, then writes the recorded bytes. |
 
 Every restore records its time, which ends the time `collect` takes logs from, and the plugins the game does not
@@ -116,6 +126,12 @@ Every write is guarded: the file must still be the one just read (`fo4sf.launche
 Plugins.txt changes during `restore`, or cannot be written, nothing is written, and `restore` says to run it again.
 A restore removes the open-baseline note when it names this baseline. Nothing here touches a plugin, an archive or
 an INI.
+
+Before it writes Plugins.txt, `restore` checks the record's copy against the sha256 `prepare` recorded, and refuses a
+record that was changed or damaged since. Then it notes in the record what it found. When it stops after Plugins.txt
+is back and before the record is updated (the record cannot be written), `status` says so, `collect` refuses, and the
+open-baseline note stays, so the runner still launches nothing. Running `restore` again finishes the record with what
+the first run found.
 
 ## 5. Reading `compare`
 
@@ -133,15 +149,26 @@ one message with one stack, and runtime FF ids are read as `FF??????`.
 Every baseline line counts in one group only, so the groups' baseline lines add up to the baseline's errors and
 warnings.
 
+Beside each `both` and `both_place` kind, the report gives the baseline's count: the same kind's lines for `both`,
+and all the baseline's lines at that script line for `both_place`. A kind that came 10 times as often as in the
+baseline, or more, is marked `10x or more`: a Starfield error that comes far more often in our run is still ours to
+look at.
+
+`ours` goes by name. A reference of ours with no EditorID prints with no name (`[ (0A001234)]`), so its kind is not
+found as ours: it is `both_place` at a script line where vanilla errors too, and `starfield` elsewhere.
+
 A group says where a message came from, not why. A Starfield error that comes only in our run can still be one that
 Starfield makes later in its own opening, if the baseline stopped before that point. That is why step 4 notes where
 the baseline stopped.
 
-`compare` also re-reads the built-in plugins' names and sizes, and says when they differ from the recorded ones (a
-Starfield update, or a new Creation). Then it is time for a new baseline.
+`compare` also re-reads the built-in plugins' names and sizes and Starfield.exe's size and sha256, and says when they
+differ from the recorded ones (a Starfield update, or a new Creation). Then it is time for a new baseline. When the
+baseline also turned off plugins that are not ours (another mod that was on), `compare` names them: in a run with them
+on, their errors count as Starfield's own.
 
-`compare` refuses a run log that is not there, and a `--report` path that is one of the baseline's own files (the
-record, the kept logs, `Plugins.txt.at-restore`), the run's log, Plugins.txt or the open-baseline note.
+`compare` refuses a run log that is not there. Its `--report` must be a `.json` file of its own: never one of the
+baseline's own files (the record, the kept logs, `Plugins.txt.at-restore`), the run's log, Plugins.txt or the
+open-baseline note, and never in the game folder, a My Games folder or Plugins.txt's folder.
 
 ## 6. Assumptions
 
@@ -161,6 +188,11 @@ record, the kept logs, `Plugins.txt.at-restore`), the run's log, Plugins.txt or 
   - SFSE writes its log to `My Games\Starfield\SFSE\Logs` (`sfse.log`, from SFSE's readme as
     sfse/FOCCSidecar/README.md cites it), and so do our SFSE plugins (sfse/FOCCPing/README.md). A plain start writes
     nothing there.
+- **Hypothesis:**
+  - Plugins.txt is UTF-8, as the game writes it. `prepare` refuses a file that is not, and `restore` reads one with
+    the odd bytes replaced.
+  - None of Starfield's EditorIDs or script names starts with FO4 or FOCC (none of its plugins does). The first
+    baseline tests it: `collect` keeps no log that names one as the baseline.
 - **Unknown:**
   - Whether the game writes the end of its log when it is killed instead of quit. Step 4 quits from the game's menu
     for that reason, and `collect` refuses while the game runs.
@@ -168,5 +200,6 @@ record, the kept logs, `Plugins.txt.at-restore`), the run's log, Plugins.txt or 
     mark, so the first name still counts as listed.
   - Whether the game reads the `[Papyrus]` keys from a `StarfieldCustom.ini` saved with a byte-order mark before its
     first line. The check reads a `[Papyrus]` header right after the mark as not there, so `prepare` refuses.
-  - Whether the game reads `sTestFile` from `Starfield_<language>.ini` (`sfstack.md` question 18 lists that INI).
-    The `loaders` check reads it, so it only refuses more.
+  - Whether the game reads `sTestFile` from its language INIs (`sfstack.md` question 18 lists them). The game folder
+    holds `Starfield_de`, `_es`, `_fr`, `_it`, `_ja`, `_pl`, `_ptbr` and `_zhhans.ini` (verified on the owner's
+    1.16.244 install, 29 Oct 2026; English has none). The `loaders` check reads them, so it only refuses more.

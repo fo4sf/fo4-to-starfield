@@ -322,6 +322,11 @@ class CheckTests(unittest.TestCase):
         c = one("start", starts=mine)
         self.assertEqual(c.status, pf.PASS)
         self.assertIn("our own start overrides StartupQuest_DO: FO4SFStart.esm:StartupQuest_DO (not pinned", c.detail)
+        two = ([("FO4SFStart.esm", "StartupQuest_DO", "00562D"),
+                ("FO4SFStartOld.esm", "StartupQuest_DO", "00562D")], [])           # an old start left active too
+        c = one("start", starts=two)
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("more than one plugin of ours overrides StartupQuest_DO", c.detail)
         c = one("start", starts=([("AltStart.esm", "StartupQuest_DO", "00562D")], []))
         self.assertEqual(c.status, pf.FAIL)                                          # another mod's start: not our run
         self.assertIn("AltStart.esm:StartupQuest_DO: a plugin not ours", c.detail)

@@ -114,6 +114,8 @@ class JudgeTests(unittest.TestCase):
 
 
 class FakeControls:
+    state_dir = None                                      # no runner state folder: no open vanilla baseline
+
     def __init__(self):
         self.stop, self.mode, self.idle, self.foreign, self.fg, self.pid = None, "running", 10 ** 6, False, "starfield.exe", 42
         self.last_sent_tick = None
@@ -868,6 +870,44 @@ class PreLaunchTests(unittest.TestCase):
         launched, log = self.run_with([sys.executable, "-c", "import sys; sys.exit(3)"])
         self.assertEqual(launched, [])
         self.assertIn("pre-launch exit 3", log)
+
+
+class OpenBaselineTests(unittest.TestCase):
+    """docs/testing/baseline.md: while a vanilla baseline is open (baseline.py prepare turned our plugins off and its
+    restore has not run; prepare's note in the runner's state folder names it), a launch would load our plugins into
+    the baseline's session, so the runner neither installs nor launches anything."""
+
+    def test_no_install_or_launch_while_a_baseline_is_open(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = jload(os.path.join(d, "queue.json"))
+        marker = os.path.join(d, "installed.txt")
+        q["pre_launch"] = [sys.executable, "-c", f"open({marker!r}, 'w').close()"]
+        jdump(q, os.path.join(d, "queue.json"))
+        out, state = os.path.join(d, "baseline_1"), os.path.join(d, "state")
+        for folder in (out, state):
+            os.makedirs(folder)
+        rec = {"schema": 1, "prepared_sha256": "ab" * 32, "restored_at": None}
+        jdump(rec, os.path.join(out, "baseline.json"))
+        jdump({"schema": 1, "out": out}, os.path.join(state, "baseline-open.json"))
+        ctl = FakeControls()
+        ctl.pid, ctl.state_dir = None, state              # no game yet: the runner would launch
+        launched = []
+
+        def run():
+            r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+            r.pinned_ok = lambda: True
+            r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+            r.run()
+
+        run()
+        self.assertEqual(launched, [])
+        self.assertFalse(os.path.exists(marker))
+        self.assertIn(f"a vanilla baseline is open in {out}", readf(os.path.join(d, "run.log")))
+        jdump(dict(rec, restored_at="2026-10-29T08:00:00+00:00"), os.path.join(out, "baseline.json"))
+        run()                                             # restored: the note is stale, the launch goes ahead
+        self.assertEqual(launched[:1], ["cycle.ps1"])
+        self.assertTrue(os.path.exists(marker))
 
 
 class CellExportTests(unittest.TestCase):

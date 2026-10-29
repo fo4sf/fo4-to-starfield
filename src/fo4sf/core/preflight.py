@@ -335,7 +335,8 @@ def check_start(p):
     2026 our override of MQ101Debug started Starfield's pirate fight instead of our new game). The queue's
     "start_overrides" (["FO4SFStart.esm:StartupQuest_DO", ...]; [] for none) pins the expected ones exactly. Without
     it, only our own start may override, and only StartupQuest_DO (the owner's pick F, 29 Oct 2026: our start replaces
-    Starfield's through that record): it is listed and passes; any other override refuses."""
+    Starfield's through that record), and only one plugin of ours: it is listed and passes; any other override
+    refuses."""
     got = p.start_overrides()
     if got is None:
         return Check("start", UNKNOWN, "Plugins.txt cannot be located (LOCALAPPDATA)")
@@ -367,6 +368,10 @@ def check_start(p):
                                     f"our override of MQ101Debug started Starfield's pirate fight); our own start "
                                     f"overrides {OWN_START} only (pin it in queue.json start_overrides if the run "
                                     f"means it)", None, found)
+    if len(found) > 1:
+        return Check("start", FAIL, f"{', '.join(found)}: more than one plugin of ours overrides {OWN_START}, so the "
+                                    f"run tests whichever loads last (keep one, or pin them in queue.json "
+                                    f"start_overrides)", None, found)
     if found:
         return Check("start", PASS, f"our own start overrides {OWN_START}: {', '.join(found)} (not pinned: queue.json "
                                     f"start_overrides holds it exactly)", None, found)

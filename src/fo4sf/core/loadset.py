@@ -13,8 +13,9 @@ Loader rules (verified: docs/research/framework/launcher-sources/sfstack.md, fro
 Built in here: those names, any SFBGS* plugin (scripts/game/exp_install.py implicit) and any BlueprintShips-* plugin.
 
 Ours: every plugin, EditorID and script name of this project starts with FO4 or FOCC (FO4Port, FO4SF*, FO4Terrain*,
-FO4Actor*, FO4Slice*, the FOCC sidecar), and none of the game's does. fo4sf.core.papyrus_log reads names in a log by
-the same prefixes.
+FO4Actor*, FO4Slice*, the FOCC sidecar), and none of the game's plugins does (built_in). That none of its EditorIDs or
+script names does is a hypothesis, which the first baseline tests: scripts/game/baseline.py collect keeps no log that
+names one as the baseline. fo4sf.core.papyrus_log reads names in a log by the same prefixes.
 
 The start records, all in Starfield.esm (verified): StartupQuest_DO 00562D, the DefaultObject (DFOB) that names MQ101
 as the startup quest (the NG-N4 records report, docs/research/framework/newgame.md); MQ101 003448, the opening (its

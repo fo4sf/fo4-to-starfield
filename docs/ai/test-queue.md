@@ -136,6 +136,9 @@ the walk climbs).
 - STOP file, Resource Guardian mode (`paused` / `stopped`, or an unreadable database) stop the run.
 - The game is launched only after `--min-idle` seconds (default 900) without keyboard or mouse input, and only through
   `cycle.ps1`. A Starfield the runner did not start (the owner's own session) is never touched: the run stops.
+- An open vanilla baseline (docs/testing/baseline.md: `baseline.py prepare` turned our plugins off and its `restore` has
+  not run; its note `baseline-open.json` in the state folder names it) stops the run before any install or launch
+  (`a vanilla baseline is open in <folder>`): a launch would load our plugins into the baseline's session.
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.

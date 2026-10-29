@@ -595,6 +595,8 @@ class ParseNpcTests(unittest.TestCase):
 
 
 class FakeControls:
+    state_dir = None                                      # no runner state folder: no open vanilla baseline
+
     def __init__(self):
         self.last_sent_tick = None
 
