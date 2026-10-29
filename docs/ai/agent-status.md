@@ -12,4 +12,4 @@ docs/CODEX-HANDOFF.md, and `python tools/ai-team/guardian/guardian.py status` fo
 | Grok (remote) | materials/textures, FLOR research, map markers | idle ~5 days; completed gwe lore batch (PR #544); added bgsm-summary CLI; offline since Oct 24 | wake_agent status, #32, 2026-10-29 |
 | ChatGPT (remote) | format research | no recent activity recorded in #32 | #32 scan, 2026-10-29 |
 | fo4-lead (local) | supervisor | this cycle: refreshed agent-status; team board shows 18 grok / 21 codex / 28 claude open items | team.py board, guardian.py status, 2026-10-29 |
-| guardian (local) | admission control | level caution (RAM 87.5%, VRAM 90.7%), mode running; restrict at 88% RAM / 95% VRAM | guardian.py status, 2026-10-29 |
+| guardian (local) | admission control | level caution (RAM 87.5%, VRAM 90.7%), mode running; restrict at 88% RAM / 92% VRAM (model loaded), block at 90% RAM / 95% VRAM | guardian.py status, 2026-10-29 |
