@@ -2,7 +2,7 @@
   "guardian": {
     "max_concurrent_local": 1,
     "caution_pct": 70,
-    "restrict_pct": 85,
+    "restrict_pct": 88,
     "vram_block_pct": 95,
     "ram_block_pct": 90,
     "vram_restrict_with_model_pct": 92,
