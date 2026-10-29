@@ -118,7 +118,8 @@ over 500 m) and reads everything 2, 10, 30 and 60 s later. Each reference gets a
 * **left behind**: found, in another worldspace (for ours: the base probe world the game never plays);
 * **not loaded**: not found, a temporary reference whose cell is not loaded;
 * **not installed**: its plugin is not loaded;
-* **unknown**: the line lacks a value the verdict needs (a cut line).
+* **unknown**: the line lacks a value the verdict needs (a cut line), or the reference and the player are both in
+  interiors (none of the four arrivals is one).
 
 Starfield prints a bool as `true` / `false`, and it can print literal text in another case (both verified: the
 bridge log of 14 Oct and the new game log of 28 Oct, which printed `FO4Port.esm` as `fo4port.esm`). The reader
