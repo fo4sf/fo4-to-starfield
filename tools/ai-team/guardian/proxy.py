@@ -141,6 +141,7 @@ class Handler(BaseHTTPRequestHandler):
             decision = self._wait_for_admission(c, job)
         except Exception as e:                           # a dead waiter must not leave its row queued
             decision = f"error while queued: {type(e).__name__}: {e}"
+            _log(f"job {job} {decision}")
         if decision != "admit":
             c.execute("UPDATE jobs SET status='rejected', finished=?, error=? WHERE id=?",
                       (time.time(), decision, job))
@@ -168,11 +169,11 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     d, lv, why = policy.admit(snap, CFG, STATE["running"])
                 if d == "admit":
-                    STATE["running"] += 1
                     store.log_decision(c, job, "admit", lv, why)
                     c.execute("UPDATE jobs SET status='running', started=?, heartbeat=?, queued_s=? WHERE id=?",
                               (time.time(), time.time(), time.time() - c.execute(
                                   "SELECT created FROM jobs WHERE id=?", (job,)).fetchone()[0], job))
+                    STATE["running"] += 1      # counted only once the row is running, so a failed write can't leak the slot
                     return "admit"
             if (d, lv) != last_logged:
                 store.log_decision(c, job, d, lv, why)
