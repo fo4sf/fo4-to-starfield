@@ -14,7 +14,7 @@ Scriptname FO4SF_PlanetProbeQuest extends Quest
 
 ; ---------------------------------------------------------------- the layout (src/fo4sf/planet/probe.py)
 
-int Version = 1
+int Version = 2             ; 2: the chain line asks each parent about its child and lists each location's parents
 string LogName = "FO4SFPlanetProbe"
 string ProbePlugin = "FO4SFPlanetProbe.esm"
 string PlanetPlugin = "FO4SFPlanet.esm"
@@ -110,20 +110,43 @@ string Function Id(Form f)
     return "" + f.GetFormID()
 EndFunction
 
+string Function Ids(Location[] a)
+    {The array's ids joined by commas, in its order ("<id>,<id>,..."), or "none" when it is empty or None.}
+    if !a || a.Length == 0
+        return "none"
+    endif
+    string s = Id(a[0])
+    int i = 1
+    while i < a.Length
+        s += "," + Id(a[i])
+        i += 1
+    endwhile
+    return s
+EndFunction
+
 Function Chain()
-    {The location chain and the planet as the game resolves them, once at the start.}
+    {The location chain and the planet as the game resolves them, once at the start. IsChild "Returns whether the
+     other location is a child of this one" (Starfield's Location.psc), so each parent is asked about its child:
+     surface_has_probe and planet_has_surface (version 1 asked the child, the wrong way round). probe_parents,
+     surface_parents and planet_parents list every parent the game gives each of our three locations
+     (GetParentLocations with no keyword, in the order it returns them). Starfield's own scripts read that list to
+     find the planet and star system of a site's or an outpost's location, so it may hold every ancestor, not only
+     the direct parent; one list per location lets the reader check each link either way.}
     string line = "chain"
     if ProbeLoc != None && SurfaceLoc != None
-        line += " probe_child_of_surface=" + ProbeLoc.IsChild(SurfaceLoc)
+        line += " surface_has_probe=" + SurfaceLoc.IsChild(ProbeLoc)
     endif
     if SurfaceLoc != None && PlanetLoc != None
-        line += " surface_child_of_planet=" + SurfaceLoc.IsChild(PlanetLoc)
+        line += " planet_has_surface=" + PlanetLoc.IsChild(SurfaceLoc)
     endif
     if ProbeLoc != None
-        line += " probe_planet=" + Id(ProbeLoc.GetCurrentPlanet())
+        line += " probe_parents=" + Ids(ProbeLoc.GetParentLocations()) + " probe_planet=" + Id(ProbeLoc.GetCurrentPlanet())
     endif
     if SurfaceLoc != None
-        line += " surface_planet=" + Id(SurfaceLoc.GetCurrentPlanet())
+        line += " surface_parents=" + Ids(SurfaceLoc.GetParentLocations()) + " surface_planet=" + Id(SurfaceLoc.GetCurrentPlanet())
+    endif
+    if PlanetLoc != None
+        line += " planet_parents=" + Ids(PlanetLoc.GetParentLocations())
     endif
     if ProbePlanet != None
         line += " planet_location=" + Id(ProbePlanet.GetLocation()) + " gravity=" + ProbePlanet.GetGravity() + " day=" + ProbePlanet.GetDayLength() + " temp=" + ProbePlanet.GetTemperature()

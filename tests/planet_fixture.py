@@ -1,7 +1,8 @@
 """A synthetic stand-in for Starfield.esm's galaxy records (tests only; no game data): the keywords, the Universe
-location, a Sol-like star with its system location, a Jemison-like planet (components, master worldspaces, biomes
-with fauna and flora, a unique space cell, the body fields) and its planet / orbit / surface locations, laid out like
-the real records (docs/planet/planet-probe.md). With census=True also the records the census and the probe world
+location, a Sol-like star with its system location, two bodies in Sol (a planet and its moon, ids 3 and 6) and Sol
+locations up to YNAM 7, a Jemison-like planet (components, master worldspaces, biomes with fauna and flora, a unique
+space cell, the body fields) and its planet / orbit / surface locations, laid out like the real records
+(docs/planet/planet-probe.md). With census=True also the records the census and the probe world
 read: LC172World (an overlay world on a Mars stand-in, its persistent COC marker 0010238E and a coc cell
 LC172Ext01), OverlayBlockLC172World, LC172WorldLocation, NewAtlantis (Jemison, a coc cell), TempJemisonWorld, the
 three bases the probe places and Mars's planet record. probe_plugin() writes FO4SFPlanetProbe.esm the way
@@ -17,8 +18,11 @@ SOL_SYSTEM = 0x0
 JEMISON_SYSTEM = 0x0001E0C2
 JEMISON_PLANET = 2
 SOL_STAR = 0x0001D000
+SOL_LOCATION = 0x00018000
 JEMISON = 0x0005E400
 NEW_ATLANTIS = 0x0001251B
+EARTH, LUNA = 0x0005E401, 0x0005E402            # Sol's bodies: (0, 0, 3) and its moon (0, 3, 6)
+SOL_FREE_ID = 8                                 # one above the largest Sol id in use: the YNAM 7 location
 
 
 def z(t):
@@ -83,6 +87,17 @@ def planet(houdini=2048):
     return esm.Record(b"PNDT", JEMISON, subs, flags=esm.COMPRESSED, version=0x245, vc=0x2034C1, unknown=8)
 
 
+def body(fid, edid, name, galaxy):
+    """A minimal planet record: the body markers, its name and GNAM (system, parent, planet)."""
+    return esm.Record(b"PNDT", fid, [(b"EDID", z(edid)), (b"BDST", b""), (b"ANAM", z(name)), (b"CNAM", b"\x02"),
+                                     (b"GNAM", struct.pack("<III", *galaxy)), (b"BDED", b"")], version=0x245)
+
+
+def sol_bodies():
+    return [body(EARTH, "EarthPlanetData", "Earth", (SOL_SYSTEM, 0, 3)),
+            body(LUNA, "LunaPlanetData", "Luna", (SOL_SYSTEM, 3, 6))]
+
+
 def location(fid, edid, keywords, parent, x, y, data=b"\0\0\0\0\xff\x05\x00\x32"):
     return esm.Record(b"LCTN", fid, [(b"EDID", z(edid)), (b"FULL", struct.pack("<I", fid)),
                                      (b"KSIZ", struct.pack("<I", len(keywords))),
@@ -95,8 +110,13 @@ def location(fid, edid, keywords, parent, x, y, data=b"\0\0\0\0\xff\x05\x00\x32"
 def locations():
     k = records.KEYWORDS
     return [esm.Record(b"LCTN", records.UNIVERSE, [(b"EDID", z("Universe"))], version=0x246),
-            location(0x00018000, "SSol", [k["LocTypeStarSystem"]], records.UNIVERSE, SOL_SYSTEM, 0,
+            location(SOL_LOCATION, "SSol", [k["LocTypeStarSystem"]], records.UNIVERSE, SOL_SYSTEM, 0,
                      data=b"\0\0\0\0\xff\x01\x00\x0a"),
+            location(0x00018010, "SSol_PEarth", [k["LocTypePlanet"], k["LocTypeMajorOrbital"]], SOL_LOCATION,
+                     SOL_SYSTEM, 3),
+            location(0x00018011, "SSol_PEarth_PLuna", [k["LocTypeMoon"], k["LocTypeMajorOrbital"]], 0x00018010,
+                     SOL_SYSTEM, 6),
+            location(0x00018012, "SSol_PBelt_Orbit", [k["LocTypeOrbit"]], SOL_LOCATION, SOL_SYSTEM, 7),
             location(0x00018001, "SAlphaCentauri", [k["LocTypeStarSystem"]], records.UNIVERSE, JEMISON_SYSTEM, 0),
             location(0x00018002, "SAlphaCentauri_PJemison", [k["LocTypePlanet"], k["LocTypeMajorOrbital"]],
                      0x00018001, JEMISON_SYSTEM, JEMISON_PLANET, data=b"\0\0\0\0\xff\x02\x00\x0b"),
@@ -109,7 +129,7 @@ def locations():
 def write_starfield(path, houdini=2048, census=False):
     """A Starfield.esm stand-in at path (localized, no masters, like the real file). Returns the writer."""
     w = esm.PluginWriter([], esm.ESM | esm.LOCALIZED)
-    for r in keyword_records() + locations() + [planet(houdini), star(), other_star()]:
+    for r in keyword_records() + locations() + [planet(houdini)] + sol_bodies() + [star(), other_star()]:
         w.add(r)
     if not census:
         w.write(path)
@@ -228,12 +248,24 @@ def census_records():
     return [block, loc] + bases + [mars]
 
 
-def write_creation(path, system_id=0x0001F0F0, position=(40.0, 40.0, 4.0)):
-    """A built-in Creation stand-in (SFBGS*.esm) adding one star."""
+def write_creation(path, system_id=0x0001F0F0, position=(40.0, 40.0, 4.0), bodies=(), system_override=None,
+                   own_index=None):
+    """A built-in Creation stand-in (SFBGS*.esm) adding one star, and the bodies [(EditorID, name, (system, parent,
+    planet))] as its own records (0x801 on; own_index: their form ids' top byte, as SFBGS003.esm writes FD), and with
+    system_override (a location of locations(), with one more keyword) an override of a vanilla star system location,
+    as SFBGS00D.esm overrides SAlgorab."""
     w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
     w.add(esm.Record(b"STDT", w.own(0x800), [(b"EDID", z("CreationStar")), (b"ANAM", z("Creation Star")),
                                              (b"BNAM", struct.pack("<3f", *position)),
                                              (b"DNAM", struct.pack("<I", system_id))], version=0x245))
+    for i, (edid, name, galaxy) in enumerate(bodies, 1):
+        w.add(body(w.own(0x800 + i) if own_index is None else own_index << 24 | 0x800 + i, edid, name, galaxy))
+    if system_override is not None:
+        rec = next(r for r in locations() if r.formid == system_override)
+        kws = records.keywords_of(rec) + [0x00061990]
+        rec.subs = [(s, struct.pack("<I", len(kws)) if s == b"KSIZ" else struct.pack(f"<{len(kws)}I", *kws)
+                     if s == b"KWDA" else d) for s, d in rec.subs]
+        w.add(rec)
     w.write(path)
 
 

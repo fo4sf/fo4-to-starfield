@@ -39,9 +39,8 @@ class PlanetProbeToolTests(unittest.TestCase):
     def run_tool(self, *argv):
         return subprocess.run([self.dotnet, str(self.tool), *map(str, argv)], capture_output=True, text=True)
 
-    def params(self, name, **kw):
-        prm = probe.params(records.DEFAULT_SYSTEM_ID, records.DEFAULT_PLANET_ID, list(range(100, 109)),
-                           templates=TEMPLATES, **kw)
+    def params(self, name, system_id=records.DEFAULT_SYSTEM_ID, planet_id=records.DEFAULT_PLANET_ID, **kw):
+        prm = probe.params(system_id, planet_id, list(range(100, 109)), templates=TEMPLATES, **kw)
         path = self.root / name
         path.write_text(json.dumps(prm), encoding="utf-8")
         return prm, path
@@ -59,6 +58,18 @@ class PlanetProbeToolTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(summary["masters"], ["Starfield.esm", records.MASTER])
         self.assertEqual(len(summary["location"]["lcpr"]), 3)
+
+    def test_route_b_names_sol_and_our_planet_id(self):
+        prm, prm_path = self.params("sol.json", system_id=0, planet_id=8)       # Sol's id and a free one there
+        out = self.root / "sol"
+        self.assertEqual(self.run_tool("build", self.master, prm_path, out).returncode, 0)
+        r = self.run_tool("check", out / probe.PLUGIN, self.master, prm_path)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("overlay system 0 planet 8", r.stdout)
+        problems, summary = probe.check_plugin(str(out / probe.PLUGIN), prm)
+        self.assertEqual(problems, [])
+        self.assertEqual((summary["world"]["overlay"]["SNAM"], summary["world"]["overlay"]["PNAM"]),
+                         ("00000000", "08000000"))
 
     def test_a_template_with_another_editor_id_is_refused(self):
         prm, prm_path = self.params("wrong.json")

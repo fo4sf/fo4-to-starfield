@@ -1,7 +1,7 @@
 """The planet probe's test world (docs/planet/planet-probe.md): the layout dotnet/PlanetProbe writes, its terrain,
 the parameters file the C# tool reads, and the raw (Mutagen-independent) check of the written plugin.
 
-FO4SFPlanetProbe.esm, masters Starfield.esm and FO4SFPlanet.esm (our star system's master, records.py):
+FO4SFPlanetProbe.esm, masters Starfield.esm and FO4SFPlanet.esm (our planet's master, records.py):
   0x800 REFR T1  persistent XMarker in the persistent cell, no location links    our core's markers today
   0x801 REFR T2  persistent XMarker, XLCN = the probe location + an LCPR row      a fix candidate for markers
   0x802 ACHR T3  temporary citizen in the spawn cell, XLCN + LCPR row             how Bethesda's Creations place actors
@@ -11,7 +11,8 @@ FO4SFPlanetProbe.esm, masters Starfield.esm and FO4SFPlanet.esm (our star system
   0x806 REFR     the COC marker (COCMarkerHeading) in the spawn cell, 1 m above the ground, facing north
   0x807 SFBK     the overlay block: our 3 x 3-cell BTD, Absolute alignment (INAM 1, HNAM 0: BTD heights are world z)
   0x808 LCTN     the probe location: LC172WorldLocation's fields (keyword LocTypeOverlay), parent = our surface
-  0x809 WRLD     a copy of LC172World: overlay component = OUR system id, planet id and block; climate kept
+  0x809 WRLD     a copy of LC172World: overlay component = our planet's system id (Sol's in route B), planet id
+                 and block; climate kept
   0x80A CELL     the persistent cell;  0x80B..0x813  the nine exterior cells -1..1, (0, 0) = FO4SF_PlanetProbeSpawn
   0x814 QUST     FO4SF_PlanetProbe: start game enabled, script FO4SF_PlanetProbeQuest, no properties
 The citizen is Starfield.esm's EncCitizen01Template (2B211C), the calm NPC the combined-core probes placed.

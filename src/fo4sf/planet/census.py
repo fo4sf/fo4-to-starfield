@@ -6,6 +6,9 @@ What it reads:
   * the template star and planet (records.describe_star / describe_planet) and every star id in use (Starfield.esm
     and every other plugin in Data: the DLC, the built-in Creations and any mod), so our system id and map position
     are checked against all of them;
+  * Sol (route B, sol_section): its system id and system location, every body and location id in use there (the
+    other plugins' too) and the first free planet id; and the precedent: the bodies the plugins add, each with the
+    largest vanilla id of its system, and what their overrides of a vanilla star system location change;
   * the records the probe world copies (LC172World, OverlayBlockLC172World, LC172WorldLocation) and the bases it
     places (XMarker, COCMarkerHeading, EncCitizen01Template), each checked by EditorID;
   * LC172World's references: how many are persistent, how many carry XLCN / XLRL, whether its persistent COC marker
@@ -122,30 +125,105 @@ def coc_cells(items, cells):
     return out
 
 
-def plugin_stars(data_dir, skip=("starfield.esm", records.MASTER.lower())):
-    """[(source, system id, position)] of every star in every plugin next to Starfield.esm (.esm, .esp, .esl: the
-    DLC such as ShatteredSpace.esm, the built-in Creations, any mod), for build_master's clash check; plus the names
-    read and the ones that could not be read ("name: reason"). Starfield.esm is read on its own, and an installed
-    copy of our own master is skipped (its star is the one being rebuilt)."""
-    out, read, unreadable = [], [], []
+def plugin_bodies(data_dir, skip=("starfield.esm", records.MASTER.lower(), records.REGISTRATION.lower())):
+    """The stars, planets and galaxy locations of every plugin next to Starfield.esm (.esm, .esp, .esl: the DLC such
+    as ShatteredSpace.esm, the built-in Creations, any mod), each plugin read once, for build_master's clash checks:
+    {"stars": [(source, system id, position)], "planets": [(source, EditorID, body name, (system, parent, planet),
+    new)], "locations": [(source, EditorID, XNAM, YNAM, keywords, form id, new)] (the locations with an XNAM),
+    "system_overrides": [(plugin, form id, record)] (overrides of a Starfield.esm star system location), "read":
+    [names], "unreadable": ["name: reason"]}. new: a record of the plugin's own, not an override: its form id's top
+    byte is past the master list (len(masters), or FD as SFBGS003.esm writes its own: verified on its Chop Shop,
+    FD002810, with one master). Starfield.esm is read on its own, and an installed copy of our own master or
+    registration plugin is skipped (their records are the ones being rebuilt)."""
+    out = {"stars": [], "planets": [], "locations": [], "system_overrides": [], "read": [], "unreadable": []}
+    star_system = records.KEYWORDS["LocTypeStarSystem"]
     for name in sorted(os.listdir(data_dir)):
         low = name.lower()
         if not low.endswith(PLUGIN_EXTENSIONS) or low in skip or not os.path.isfile(os.path.join(data_dir, name)):
             continue
         try:
             with esm.Plugin(os.path.join(data_dir, name)) as p:
-                found = [(f"{name} {e or fid(f)}", sid, pos) for f, e, n, sid, pos in records.stars(p)]
+                mine = len(p.masters)
+                vanilla = [i for i, m in enumerate(p.masters) if m.lower() == "starfield.esm"]
+                stars = [(f"{name} {e or fid(f)}", sid, pos) for f, e, n, sid, pos in records.stars(p)]
+                planets = [(name, e, n, g, f >> 24 >= mine) for f, e, n, g in records.planets(p) if g is not None]
+                locs, overrides = [], []
+                for r in p.records("LCTN", [b"LCTN"]):
+                    x, y = records.location_ids(r)
+                    if x is None:
+                        continue
+                    kws = records.keywords_of(r)
+                    locs.append((name, r.edid, x, y, kws, r.formid, r.formid >> 24 >= mine))
+                    if vanilla and r.formid >> 24 == vanilla[0] and (vanilla[0] << 24 | star_system) in kws:
+                        overrides.append((name, r.formid & 0xFFFFFF, r))
         except (esm.EsmError, OSError, struct.error) as e:
-            unreadable.append(f"{name}: {e}")
+            out["unreadable"].append(f"{name}: {e}")
             continue
-        read.append(name)
-        out += found
-    return out, read, unreadable
+        out["read"].append(name)
+        out["stars"] += stars
+        out["planets"] += planets
+        out["locations"] += locs
+        out["system_overrides"] += overrides
+    return out
+
+
+def plugin_stars(data_dir, skip=("starfield.esm", records.MASTER.lower(), records.REGISTRATION.lower())):
+    """plugin_bodies' stars, names read and unreadable names: ([(source, system id, position)], read, unreadable)."""
+    b = plugin_bodies(data_dir, skip)
+    return b["stars"], b["read"], b["unreadable"]
+
+
+def changed_fields(vanilla, override):
+    """The subrecords an override changes: [(signature, the vanilla data's hex, the override's hex)], one per
+    signature whose data differ in any of its copies (None where a side has none), in the override's order and then
+    the vanilla record's."""
+    def by_sig(rec):
+        out = {}
+        for s, d in rec.subs:
+            out.setdefault(s, []).append(bytes(d))
+        return out
+    a, b = by_sig(vanilla), by_sig(override)
+    order = list(dict.fromkeys([s for s, _ in override.subs] + [s for s, _ in vanilla.subs]))
+    return [(s.decode("latin1"), b"".join(a[s]).hex() if s in a else None, b"".join(b[s]).hex() if s in b else None)
+            for s in order if a.get(s) != b.get(s)]
+
+
+def sol_section(sf, kw, bodies, star_name=records.DEFAULT_STAR):
+    """Route B's facts (records.sol_facts) and the precedent for its planet id: each body a plugin adds (not an
+    override) with the largest Starfield.esm body id of its system (a new body one above it follows the rule
+    sol_facts uses; hypothesis until read on the PC), and what each plugin's override of a vanilla star system
+    location changes (changed_fields: what adding a body there may need)."""
+    s = records.sol_facts(sf, kw, star_name, bodies["planets"], bodies["locations"])
+    vanilla_max = {}
+    for _, _, _, g in records.planets(sf):
+        if g is not None:
+            vanilla_max[g[0]] = max(vanilla_max.get(g[0], 0), g[2])
+    added = [(src, e, n, list(g), vanilla_max.get(g[0])) for src, e, n, g, new in bodies["planets"] if new]
+    wanted = {f for _, f, _ in bodies["system_overrides"]}
+    vanilla_locs = find_records(sf, "LCTN", wanted) if wanted else {}
+    overrides = []
+    for src, f, rec in bodies["system_overrides"]:
+        v = vanilla_locs.get(f)
+        overrides.append({"plugin": src, "formid": fid(f), "edid": rec.edid,
+                          "changed": changed_fields(v, rec) if v is not None else "no such Starfield.esm record"})
+    loc = s["location"]
+    return {"star": {"formid": fid(s["star"].formid), "edid": s["star"].edid, "name": records.star_name(s["star"]),
+                     "system_id": s["system_id"]},
+            "system_location": {"formid": fid(loc.formid), "edid": loc.edid,
+                                "parent": fid(u32_or_none(loc.get(b"PNAM"))),
+                                "keywords": [fid(k) for k in records.keywords_of(loc)],
+                                "data": (loc.get(b"DATA") or b"").hex()},
+            "bodies": [(src, e, n, list(g)) for src, e, n, g in s["bodies"]],
+            "location_ynams": sorted({y for _, _, y in s["ynams"]}),
+            "free_planet_id": s["free_planet_id"], "why": s["why"],
+            "precedent": {"bodies_added_by_plugins": added, "system_location_overrides": overrides}}
 
 
 def run(sf_path, data_dir=None, planet_name=records.DEFAULT_PLANET, star_name=records.DEFAULT_STAR):
     """The census as a dict (JSON-ready). Raises CensusError when a record the probe copies is missing or renamed."""
     rep = {"starfield": {"path": os.path.basename(sf_path), "bytes": os.path.getsize(sf_path)}}
+    bodies = plugin_bodies(data_dir) if data_dir else {"stars": [], "planets": [], "locations": [],
+                                                       "system_overrides": [], "read": [], "unreadable": []}
     with esm.Plugin(sf_path) as sf:
         rep["starfield"].update(masters=sf.masters, localized=sf.localized)
         kw_names = records.keyword_edids(sf)
@@ -237,10 +315,17 @@ def run(sf_path, data_dir=None, planet_name=records.DEFAULT_PLANET, star_name=re
             rep["temp_jemison"] = {"world": describe_world(tj), "references": tj_counts,
                                    "cells": len(tj_cells), "coc_cells": coc_cells(tj_items, tj_cells)[:20]}
         rep["planet_biomes"] = [fid(b) for b in planet_biomes]
+        try:
+            rep["sol"] = sol_section(sf, kw, bodies, star_name)
+        except records.PlanetError as e:                    # route B's stage stops on it; route A does not need it
+            rep["sol"] = {"error": str(e)}
     if data_dir:
-        stars, read, unreadable = plugin_stars(data_dir)
-        rep["plugin_stars"] = {"plugins": read, "unreadable": unreadable,
-                               "stars": [(s, sid, list(p) if p else None) for s, sid, p in stars]}
+        rep["plugin_stars"] = {"plugins": bodies["read"], "unreadable": bodies["unreadable"],
+                               "stars": [(s, sid, list(p) if p else None) for s, sid, p in bodies["stars"]]}
+        rep["plugin_bodies"] = {
+            "planets": [(s, e, n, list(g), new) for s, e, n, g, new in bodies["planets"]],
+            "locations": [(s, e, x, y, [fid(k) for k in kws], fid(f), new)
+                          for s, e, x, y, kws, f, new in bodies["locations"]]}
     return rep
 
 

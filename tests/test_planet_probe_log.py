@@ -33,11 +33,22 @@ def b(v):
 
 
 PROBE_WORLD, PROBE_LOC, PLANET = (IDX << 24) | 0x809, (IDX << 24) | 0x808, (OUR << 24) | 0x805
+SURFACE, PLANET_LOC = (OUR << 24) | 0x804, (OUR << 24) | 0x802
 RUNTIME = 0xFF00C482
 MARS, LC172 = 0x03F59A, 0x02DF8C
+SOL_LOC, UNIVERSE = 0x00018000, 0x0001A53A
 PLAN = {"refs": [{"tag": "T1", "pos": [60.0, 50.0, 10.0]}, {"tag": "T3", "pos": [60.0, 64.0, 10.0]}],
-        "merge": {"local": [40.4, 57.2, 7.6]}, "lc172_coc": {"local": [37.4, 57.2, 7.6]},
-        "known_ids": {"Mars": f"{MARS:08X}", "LC172World (Mars)": f"{LC172:08X}"}}
+        "merge": {"local": [40.4, 57.2, 7.6]}, "lc172_coc": {"local": [37.4, 57.2, 7.6]}, "system": "sol",
+        "known_ids": {"Mars": f"{MARS:08X}", "LC172World (Mars)": f"{LC172:08X}",
+                      "SSol system location": f"{SOL_LOC:08X}"}}
+PROBE_UP = f"{sid(SURFACE)},{sid(PLANET_LOC)},{sid(SOL_LOC)},{sid(UNIVERSE)}"   # every ancestor, nearest first
+SURFACE_UP, PLANET_UP = f"{sid(PLANET_LOC)},{sid(SOL_LOC)},{sid(UNIVERSE)}", f"{sid(SOL_LOC)},{sid(UNIVERSE)}"
+CHAIN = (f"chain surface_has_probe=true planet_has_surface=true probe_parents={PROBE_UP} probe_planet={sid(PLANET)} "
+         f"surface_parents={SURFACE_UP} surface_planet={sid(PLANET)} planet_parents={PLANET_UP} "
+         f"planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")
+CHAIN_V1 = (f"chain probe_child_of_surface=false surface_child_of_planet=false probe_planet={sid(PLANET)} "
+            f"surface_planet={sid(PLANET)} planet_location={sid(PLANET_LOC)} gravity=0.63 day=24.0 temp=22.0")
+FLT_MAX = "340282346638528859811704183484516925440.000000"           # as probe run 1's log printed it
 
 
 def ref(n, at, tag, world, x, y, same, found=True, local=0x800, plugin="FO4SFPlanetProbe.esm", rid=None):
@@ -45,20 +56,20 @@ def ref(n, at, tag, world, x, y, same, found=True, local=0x800, plugin="FO4SFPla
     if not found:
         return head + " found=False"                       # literal text in the script
     return (head + f" found=True id={sid(rid or (IDX << 24) | local)} world={sid(world)} cell=none loc=none "
-            f"editorloc={sid(PROBE_LOC)} x={x} y={y} z=10.0 loaded={b(same)} disabled=false dist=12.5 "
-            f"sameworld={b(same)} actor=false")
+            f"editorloc={sid(PROBE_LOC)} x={x} y={y} z=10.0 loaded={b(same)} disabled=false "
+            f"dist={'12.5' if same else FLT_MAX} sameworld={b(same)} actor=false")
 
 
-def log_lines(planet_readings=(2, 10, 30, 60)):
+def log_lines(planet_readings=(2, 10, 30, 60), chain=CHAIN, version=2):
     rt = [0.0]
 
     def line(msg):
         rt[0] += 0.5
         return f"[10/29/2026 - 03:00:00AM] FO4SFPP rt={rt[0]:.6f} {msg}"
-    out = [line(f"init version=1 quest={sid((IDX << 24) | 0x814)} world={sid(PROBE_WORLD)} loc={sid(PROBE_LOC)} "
-                f"planet={sid(PLANET)} surface={sid((OUR << 24) | 0x804)} planetloc={sid((OUR << 24) | 0x802)} merge=true"),
-           line(f"chain probe_child_of_surface=true surface_child_of_planet=true probe_planet={sid(PLANET)} "
-                f"surface_planet={sid(PLANET)} planet_location={sid((OUR << 24) | 0x802)} gravity=0.63 day=24.0 temp=22.0"),
+    out = [line(f"init version={version} quest={sid((IDX << 24) | 0x814)} world={sid(PROBE_WORLD)} "
+                f"loc={sid(PROBE_LOC)} planet={sid(PLANET)} surface={sid(SURFACE)} planetloc={sid(PLANET_LOC)} "
+                "merge=true"),
+           line(chain),
            "some other papyrus line", "FO4SFPP rt=1.0 unknown x=1",
            line(f"arrive n=1 world={sid(RUNTIME)} cell=none x=-462.6 y=-2242.8 z=7.6 probeworld=false")]
     for at in (2, 10, 30, 60):
@@ -167,10 +178,69 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual([a["kind"] for a in got["arrivals"]], [a["kind"] for a in want["arrivals"]])
             self.assertEqual((got["problems"], got["load_index"]), (want["problems"], want["load_index"]))
 
+    def test_the_chain_line(self):
+        s = probe_log.summarize(log_lines(), PLAN)
+        self.assertEqual(s["chain_reading"], {
+            "links": {"surface_has_probe": True, "planet_has_surface": True},
+            "parents": {"the probe location": ["our surface", "our planet location", "SSol system location",
+                                               f"{UNIVERSE:08X}"],
+                        "our surface": ["our planet location", "SSol system location", f"{UNIVERSE:08X}"],
+                        "our planet location": ["SSol system location", f"{UNIVERSE:08X}"]},
+            "holds": {"the probe location under our surface": True, "our surface under our planet location": True,
+                      "our planet location under the system location": True},
+            "ancestors": True})
+        self.assertEqual((s["problems"], s["notes"]), ([], []))
+        # Sol's location missing from our planet location's list: that link is the problem
+        broken = (CHAIN.replace("planet_has_surface=true", "planet_has_surface=false")
+                  .replace(f"planet_parents={PLANET_UP}", f"planet_parents={sid(UNIVERSE)}"))
+        s = probe_log.summarize(log_lines(chain=broken), PLAN)
+        self.assertEqual(s["problems"], ["chain: planet_has_surface is false",
+                                         "chain: the system location is not among our planet location's parents"])
+        # lists of the direct parent only: every link still holds, and the probe location's list stops there
+        direct = (CHAIN.replace(f"probe_parents={PROBE_UP}", f"probe_parents={sid(SURFACE)}")
+                  .replace(f"surface_parents={SURFACE_UP}", f"surface_parents={sid(PLANET_LOC)}")
+                  .replace(f"planet_parents={PLANET_UP}", f"planet_parents={sid(SOL_LOC)}"))
+        s = probe_log.summarize(log_lines(chain=direct), PLAN)
+        self.assertEqual((s["problems"], s["chain_reading"]["ancestors"]), ([], False))
+        self.assertEqual(set(s["chain_reading"]["holds"].values()), {True})
+        # an empty list: that location's own parent is missing, the other links stand
+        empty = CHAIN.replace(f"probe_parents={PROBE_UP}", "probe_parents=none")
+        s = probe_log.summarize(log_lines(chain=empty), PLAN)
+        self.assertEqual(s["chain_reading"]["parents"]["the probe location"], [])
+        self.assertEqual(s["problems"], ["chain: our surface is not among the probe location's parents"])
+        # no plan: the system location is not known, so it is not missed
+        s = probe_log.summarize(log_lines(chain=broken.replace("planet_has_surface=false", "planet_has_surface=true")))
+        self.assertEqual(s["chain_reading"]["holds"]["our planet location under the system location"], None)
+        self.assertEqual(s["problems"], [])
+
+    def test_a_version_1_chain_line_is_no_evidence(self):
+        s = probe_log.summarize(log_lines(chain=CHAIN_V1, version=1), PLAN)
+        self.assertEqual(s["problems"], [])
+        self.assertEqual(len(s["notes"]), 1)
+        self.assertIn("wrong way round", s["notes"][0])
+        self.assertIn("probe_child_of_surface and surface_child_of_planet are no evidence", s["notes"][0])
+        self.assertEqual(s["chain_reading"], {"links": {}})
+        # a route A plan: our own system location, named from the init line's planet location
+        names = probe_log.known_names({"refs": []}, probe_log.summarize(log_lines())["init"])
+        self.assertEqual(names[(OUR << 24) | 0x801], "our system location")
+        self.assertNotIn((OUR << 24) | 0x801, probe_log.known_names(None, probe_log.summarize(log_lines())["init"]))
+
+    def test_the_table_leaves_out_another_worlds_distance_and_minus_zero(self):
+        s = probe_log.summarize(log_lines(), PLAN)
+        t1 = s["arrivals"][0]["refs"]["T1"]
+        self.assertEqual((t1["verdict"], t1["dist"]), ("left behind", float(FLT_MAX)))
+        table = probe_log.verdict_table(s)
+        row = next(r for r in table if r.startswith("T1"))
+        self.assertNotIn("3402823", row)
+        self.assertIn("left behind (0, 0)  ", row + "  ")
+        self.assertIn("with player (-500, -2300) 12 m", table[-1])
+        moved = [x.replace("x=60.0 y=50.0 z=10.0", "x=59.999 y=49.999 z=10.0") for x in log_lines()]
+        self.assertEqual(probe_log.summarize(moved, PLAN)["arrivals"][0]["refs"]["T1"]["offset"], [0.0, 0.0])
+        self.assertNotIn("-0", next(r for r in probe_log.verdict_table(probe_log.summarize(moved, PLAN))
+                                    if r.startswith("T1")))
+
     def test_problems(self):
         self.assertEqual(probe_log.summarize([])["problems"], ["no FO4SFPP line in the log"])
-        lines = [x.replace("probe_child_of_surface=true", "probe_child_of_surface=false") for x in log_lines()]
-        self.assertIn("chain: probe_child_of_surface is false", probe_log.summarize(lines)["problems"])
         mars_only = [x for x in log_lines() if " n=2 " not in x]
         s = probe_log.summarize(mars_only, PLAN)
         self.assertIn("no arrival on our planet", s["problems"])
@@ -198,6 +268,18 @@ class LogCommandTests(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("arrival 2 (our planet)", text)
         self.assertEqual(len(summary["arrivals"]), 2)
+        self.assertIn(f"the probe location's parents: our surface, our planet location, {SOL_LOC:08X}, {UNIVERSE:08X}",
+                      text)                                     # no stage given: Sol's location by its id
+        self.assertIn(f"our planet location's parents: {SOL_LOC:08X}, {UNIVERSE:08X}", text)
+        self.assertIn("the probe location under our surface: yes; our surface under our planet location: yes; "
+                      "our planet location under the system location: not known", text)
+        self.assertIn("the probe location's list goes past its own parent", text)
+
+    def test_a_version_1_log_prints_its_note(self):
+        code, text, _ = self.run_log(log_lines(chain=CHAIN_V1, version=1))
+        self.assertEqual(code, 0, text)
+        self.assertIn("NOTE  chain: this log's script (version 1) asked IsChild the wrong way round", text)
+        self.assertNotIn("PROBLEM", text)
 
     def test_incomplete_run_exits_1(self):
         code, text, _ = self.run_log(log_lines(planet_readings=(2, 10)))

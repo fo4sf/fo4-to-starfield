@@ -1,7 +1,9 @@
 """src/fo4sf/planet/census.py on tests/planet_fixture.py's synthetic Starfield.esm with its worlds, and a synthetic
-built-in Creation (no game data): the records the probe copies, LC172World's references and links, the arrivals."""
+built-in Creation (no game data): the records the probe copies, LC172World's references and links, Sol's ids and
+their precedent, the arrivals."""
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
@@ -21,11 +23,20 @@ class CensusTests(unittest.TestCase):
         os.makedirs(cls.data)
         cls.sf = os.path.join(cls.data, "Starfield.esm")
         pf.write_starfield(cls.sf, census=True)
-        pf.write_creation(os.path.join(cls.data, "SFBGS00X.esm"))
-        # a DLC master and a mod with stars of their own, and our own master from an earlier install (skipped)
+        # a Creation adding a station to Jemison's system and overriding its system location (as SFBGS00D.esm does
+        # Algorab's), a DLC master and a mod with stars of their own (the mod also a moon in Sol), and our own master
+        # and registration from an earlier install (skipped: their records are the ones rebuilt)
+        pf.write_creation(os.path.join(cls.data, "SFBGS00X.esm"),
+                          bodies=[("CreationStationPlanetData", "Creation Station", (pf.JEMISON_SYSTEM, 0, 3))],
+                          system_override=0x00018001)
         pf.write_creation(os.path.join(cls.data, "ShatteredSpace.esm"), system_id=0x1F0F1, position=(41.0, 40.0, 4.0))
-        pf.write_creation(os.path.join(cls.data, "SomeMod.esp"), system_id=0x1F0F2, position=(42.0, 40.0, 4.0))
-        pf.write_creation(os.path.join(cls.data, "FO4SFPlanet.esm"), system_id=0xF04F1, position=(2.0, 2.0, 1.0))
+        pf.write_creation(os.path.join(cls.data, "SomeMod.esp"), system_id=0x1F0F2, position=(42.0, 40.0, 4.0),
+                          bodies=[("ModMoonPlanetData", "Mod Moon", (pf.SOL_SYSTEM, 3, 11))], own_index=0xFD)
+        pf.write_creation(os.path.join(cls.data, "FO4SFPlanet.esm"), system_id=0xF04F1, position=(2.0, 2.0, 1.0),
+                          bodies=[("OldProbePlanetData", "Old Probe", (pf.SOL_SYSTEM, 0, 30))])
+        pf.write_creation(os.path.join(cls.data, "FO4SFPlanetProbe_Reg.esm"), system_id=0xF04F2,
+                          position=(3.0, 2.0, 1.0),
+                          bodies=[("OldProbePlanetData", "Old Probe", (pf.SOL_SYSTEM, 0, 31))])
         for name in ("NotAPlugin.esm", "SFBGS00Y.esm"):
             with open(os.path.join(cls.data, name), "wb") as f:
                 f.write(b"junk")
@@ -73,6 +84,41 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(st["stars"], [("SFBGS00X.esm CreationStar", 0x1F0F0, [40.0, 40.0, 4.0]),
                                        ("ShatteredSpace.esm CreationStar", 0x1F0F1, [41.0, 40.0, 4.0]),
                                        ("SomeMod.esp CreationStar", 0x1F0F2, [42.0, 40.0, 4.0])])
+
+    def test_sol_ids_and_their_precedent(self):
+        sol = self.rep["sol"]
+        self.assertEqual(sol["star"], {"formid": f"{pf.SOL_STAR:08X}", "edid": "Sol", "name": "Sol", "system_id": 0})
+        self.assertEqual((sol["system_location"]["edid"], sol["system_location"]["parent"]), ("SSol", "0001A53A"))
+        self.assertEqual([b[1] for b in sol["bodies"]], ["EarthPlanetData", "LunaPlanetData", "MarsPlanetData",
+                                                         "ModMoonPlanetData"])
+        self.assertEqual((sol["free_planet_id"], sol["why"]), (12, "SomeMod.esp ModMoonPlanetData has planet id 11"))
+        self.assertEqual(sol["location_ynams"], [0, 3, 6, 7])
+        added = sol["precedent"]["bodies_added_by_plugins"]
+        self.assertEqual(added, [("SFBGS00X.esm", "CreationStationPlanetData", "Creation Station",
+                                  [pf.JEMISON_SYSTEM, 0, 3], 2),
+                                 ("SomeMod.esp", "ModMoonPlanetData", "Mod Moon", [0, 3, 11], 6)])
+        self.assertEqual(sol["precedent"]["system_location_overrides"],
+                         [{"plugin": "SFBGS00X.esm", "formid": "00018001", "edid": "SAlphaCentauri",
+                           "changed": [("KSIZ", "01000000", "02000000"), ("KWDA", "9f140000", "9f14000090190600")]}])
+        bodies = self.rep["plugin_bodies"]
+        self.assertEqual(sorted({b[0] for b in bodies["planets"]}), ["SFBGS00X.esm", "SomeMod.esp"])
+        self.assertEqual(bodies["locations"], [("SFBGS00X.esm", "SAlphaCentauri", pf.JEMISON_SYSTEM, 0,
+                                                ["0000149F", "00061990"], "00018001", False)])
+
+    def test_sol_without_a_system_location_is_a_finding_not_a_crash(self):
+        d = os.path.join(self.tmp, "nosol")
+        os.makedirs(d)
+        path = os.path.join(d, "Starfield.esm")
+        with open(self.sf, "rb") as f:
+            raw = f.read()
+        k = struct.pack("<I", 0x0000149F)                 # SSol's keyword turned into another one: no Sol location
+        at = raw.index(b"SSol\0")
+        at = raw.index(k, at)
+        with open(path, "wb") as f:
+            f.write(raw[:at] + struct.pack("<I", 0x00016504) + raw[at + 4:])
+        rep = census.run(path)
+        self.assertIn("0 star system locations with XNAM 0", rep["sol"]["error"])
+        self.assertNotIn("plugin_bodies", rep)
 
     def test_arrivals(self):
         self.assertEqual([(a["label"], a["coc"]) for a in census.arrivals(self.rep)],
