@@ -3,9 +3,27 @@ back into arrivals, readings and a verdict per test reference (docs/planet/plane
 
 Every line the script writes holds "FO4SFPP rt=<real time s> <event> key=value ...", anywhere in the line (the game
 puts a time stamp in front). Values: form ids as Papyrus prints them (signed decimal, so a load index of 0x80 or more
-and the runtime FF ids are negative), floats, bools, and "none" for a None form. Events: init (once per new script
-instance: the quest's own id gives the probe plugin's load index), chain (the location chain as the game resolves
-it), arrive, then player / planet / ref / location lines at 2, 10, 30 and 60 s after each arrival.
+and the runtime FF ids are negative), floats, bools, "none" for a None form, and lists of form ids joined by commas
+("none" for an empty list). Events: init (once per new script instance: the quest's own id gives the probe plugin's
+load index), chain (the location chain as the game resolves it), arrive, then player / planet / ref / location
+lines at 2, 10, 30 and 60 s after each arrival.
+
+The chain line (chain_reading) gives every link of our location chain more than one reading, because two things it
+leans on are untested: which way IsChild reads, and GetParentLocations with no keyword. Starfield's Location.psc says
+IsChild "Returns whether the other location is a child of this one" (ContentResources.zip, read 29 Oct), and
+ObjectReference.IsInLocation calls it so (the parent asks), but some vanilla quest scripts call it the other way (the
+child asks: MQ204_NA_StateChangeHandlerScript, UC04_QuestScript), so version 2 of the script asks it both ways
+(<caller>_ischild_<argument>). It also lists the parents the game gives each of our three locations
+(probe_parents, surface_parents, planet_parents: GetParentLocations with no keyword, a form no vanilla script uses),
+and asks the way SQ_ParentScript finds a planet location's star system and a site's planet and star system
+(planet_systems, probe_orbitals, probe_systems: with LocTypeStarSystem or LocTypeMajorOrbital). The reader looks
+for each location's own parent in our records in that location's own lists, so the answer does not depend on how far
+a list goes. A link is broken (a problem) only when every reading of it says so; readings that disagree are a note.
+The lookups from the probe location (reach) and the way IsChild answered are notes too. Version 2 ends the line with
+end=true; a line without it was cut, so its last value (perhaps a list cut short) is left out. Version 1 (probe run 1,
+29 Oct) asked IsChild one way only, the child about its parent (probe_child_of_surface, surface_child_of_planet):
+those two values settle nothing until a version 2 log shows which way IsChild reads, and the reader says so instead
+of judging them.
 
 Case: Starfield's Papyrus prints a bool as "true" / "false" (verified: the bridge log of 14 Oct and the new game log
 of 28 Oct, docs/ai/test-queue.md and docs/newgame/vault111-start.md), Fallout 4's as "True" / "False". It also keeps
@@ -21,7 +39,8 @@ The verdict a reference gets at an arrival, from its last reading there:
   unknown       the line lacks a value the verdict needs (a cut line), or both are in interiors
 The offset is the reference's position minus its position in the plugin (plan.json "refs" / "merge"): (0, 0) is a
 reference where the plugin put it; a merged reference moves with its world (LC172World's COC marker moved by about
-(-500, -2300) on 11 Oct).
+(-500, -2300) on 11 Oct). The distance is GetDistance to the player; for a reference in another worldspace the game
+returns the largest float, 3.4e38 (verified: probe run 1, 31 of 33 readings), which the table leaves out.
 """
 import re
 
@@ -30,7 +49,24 @@ TOKEN = re.compile(r"(\w+)=(\S*)")
 EVENTS = ("init", "chain", "arrive", "player", "planet", "ref", "location")
 ID_KEYS = {"quest", "world", "loc", "planet", "surface", "planetloc", "cell", "id", "editorloc", "type", "atmos",
            "probe_planet", "surface_planet", "planet_location"}
+LISTS = {"probe_parents": "the probe location's parents",                  # key: the list (GetParentLocations)
+         "surface_parents": "our surface's parents",
+         "planet_parents": "our planet location's parents",
+         "planet_systems": "our planet location's LocTypeStarSystem parents",
+         "probe_orbitals": "the probe location's LocTypeMajorOrbital parents",
+         "probe_systems": "the probe location's LocTypeStarSystem parents"}
+LIST_KEYS = set(LISTS)
+ISCHILD = (("surface_ischild_probe", "probe_ischild_surface"),      # version 2: (the parent asks, the child asks)
+           ("planet_ischild_surface", "surface_ischild_planet"))
+CHAIN_V1 = ("probe_child_of_surface", "surface_child_of_planet")     # version 1: the child asked only; no evidence
+LINKS = (("the probe location under our surface", ISCHILD[0], "our surface", ("probe_parents",)),
+         ("our surface under our planet location", ISCHILD[1], "our planet location", ("surface_parents",)),
+         ("our planet location under the system location", None, "the system location",
+          ("planet_parents", "planet_systems")))         # (link, its IsChild pair, the parent, the lists to hold it)
+REACH = (("the planet lookup from the probe location", "probe_orbitals", "our planet location"),
+         ("the star system lookup from the probe location", "probe_systems", "the system location"))
 READINGS = (2, 10, 30, 60)
+OTHER_WORLD_M = 1e30                     # GetDistance's answer for another worldspace is 3.4e38 (FLT_MAX)
 
 
 def u32(v):
@@ -38,8 +74,27 @@ def u32(v):
     return None if v is None else int(v) & 0xFFFFFFFF
 
 
+def id_list(text):
+    """A list of form ids as the script joins them ("<id>,<id>,...", signed decimal; "none" for an empty list),
+    unsigned; a "none" entry is None and an entry that is no number stays text. An empty value is None, not a list:
+    the script never writes one, so the line was cut there."""
+    if text == "":
+        return None
+    if text.lower() == "none":
+        return []
+    out = []
+    for v in text.split(","):
+        try:
+            out.append(None if v.lower() == "none" else u32(int(v)))
+        except ValueError:
+            out.append(v)
+    return out
+
+
 def value(key, text):
     low = text.lower()
+    if key in LIST_KEYS:
+        return id_list(text)
     if low == "none":
         return None
     if low in ("true", "false"):
@@ -127,7 +182,118 @@ def known_names(plan, init):
         v = (init or {}).get(key)
         if v is not None:
             names[v] = label
+    planetloc = (init or {}).get("planetloc")
+    if planetloc is not None and plan is not None and plan.get("system", "own") == "own":     # a stage before route
+        names[(planetloc & 0xFF000000) | OWN_SYSTEM_LOC] = "our system location"     # B was route A's: in our master
     return names
+
+
+OWN_SYSTEM_LOC = 0x801                   # records.SYSTEM_LOC: route A's system location in FO4SFPlanet.esm
+
+
+def ids_named(names, label):
+    """The ids names gives label; "the system location" is the star system's location under any name (route A's
+    "our system location", from the init line; route B's "<EditorID> system location", from plan.json)."""
+    if label == "the system location":
+        return [f for f, n in names.items() if n.endswith("system location")]
+    return [f for f, n in names.items() if n == label]
+
+
+def list_reading(chain, key, want):
+    """Whether the list under key holds one of want's ids: False for an empty list (it holds no parent at all), None
+    without the list or when want is empty (the id is not known)."""
+    got = chain.get(key)
+    if not isinstance(got, list):
+        return None
+    if not got:
+        return False
+    return any(f in got for f in want) if want else None
+
+
+def ischild_reading(chain, pair):
+    """(the link by IsChild: True when either way answered true, False only when both ways answered false (one way
+    alone settles nothing), else None; the way it answered: "parent asks" as Location.psc's comment reads, "child
+    asks", "both", or None)."""
+    asked = tuple(chain.get(k) if isinstance(chain.get(k), bool) else None for k in pair or ())
+    if True in asked:
+        return True, {(True, False): "parent asks", (False, True): "child asks", (True, True): "both"}.get(asked)
+    if asked and all(v is False for v in asked):
+        return False, None
+    return None, None
+
+
+def chain_reading(chain, names, version=None):
+    """What the chain line shows, None without one: the IsChild answers as logged (ischild); each list by its label
+    (parents); each link with a reading per source (IsChild, a list: True / False, None when the parent's id is not
+    known) and whether it holds (True / False only when every known reading agrees, else None); the way IsChild
+    answered (ischild_reads: "parent asks", "child asks", "both", "mixed" or None); the lookups from the probe
+    location the way SQ_ParentScript does them (reach); whether the probe location's own list goes past its parent
+    (ancestors: None when unknown, or when that list lacks its parent); the key of a cut line's last value, left out
+    (cut); and (problems, notes). version: the script's, from the init line (None: told by the line's keys). A
+    version 2 line without end=true was cut, so its last value is left out (a note), unless it is a bool: a cut "true"
+    or "false" never reads as one, so a bool is whole."""
+    if chain is None:
+        return None, [], []
+    problems, notes, cut = [], [], None
+    if (isinstance(version, int) and version < 2) or any(k in chain for k in CHAIN_V1):
+        if any(k in chain for k in CHAIN_V1):
+            notes.append("chain: this log's script (version 1) asked IsChild one way only, the child about its "
+                         "parent, so " + " and ".join(k for k in CHAIN_V1 if k in chain) + " settle nothing until a "
+                         "version 2 log shows which way IsChild reads")
+    elif "end" not in chain:                         # version 2 ends the line with end=true: the last value may be cut
+        last = [k for k in chain if k not in ("rt", "event")][-1:]
+        if last and not isinstance(chain[last[0]], bool):
+            cut = last[0]
+            chain = {k: v for k, v in chain.items() if k != cut}
+        notes.append("chain: the line is cut (no end=true)" + (f": its last value, {cut}, is left out" if cut else ""))
+    out = {"ischild": {k: chain[k] for pair in ISCHILD for k in pair if k in chain}}
+    out["parents"] = {LISTS[k]: [p if isinstance(p, str) else name_of(p, names) for p in chain[k]]
+                      for k in LISTS if isinstance(chain.get(k), list)}
+    out["links"], ways = {}, {}
+    for label, pair, parent, keys in LINKS:
+        want = ids_named(names, parent)
+        readings = {}
+        held, way = ischild_reading(chain, pair)
+        if held is not None:
+            readings["IsChild"] = held
+        if way:
+            ways[label] = way
+        for k in keys:
+            if k in chain:
+                readings[LISTS[k]] = list_reading(chain, k, want)
+        if not readings:
+            continue
+        known = {v for v in readings.values() if v is not None}
+        holds = next(iter(known)) if len(known) == 1 else None
+        out["links"][label] = {"holds": holds, "readings": readings}
+        if holds is False:
+            problems.append(f"chain: {label}: every reading says no (" + ", ".join(
+                k for k, v in readings.items() if v is not None) + ")")
+        elif len(known) > 1:
+            notes.append(f"chain: {label}: the readings disagree (" + ", ".join(
+                f"{k} {'yes' if v else 'no'}" for k, v in readings.items() if v is not None) + ")")
+    kinds = set(ways.values())
+    out["ischild_reads"] = next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else None
+    if out["ischild_reads"] == "child asks":
+        notes.append("chain: IsChild answered true when the child asks (the caller is the child), as MQ204's and "
+                     "UC04's scripts call it, the other way round from Location.psc's comment")
+    elif out["ischild_reads"] == "both":
+        notes.append("chain: IsChild answered true both ways round")
+    elif out["ischild_reads"] == "mixed":
+        notes.append("chain: IsChild answered differently for the two links (" + "; ".join(
+            f"{k}: {v}" for k, v in ways.items()) + ")")
+    out["reach"] = {}
+    for label, key, target in REACH:
+        if key in chain:
+            found = out["reach"][label] = list_reading(chain, key, ids_named(names, target))
+            if found is False:
+                notes.append(f"chain: {label} does not find {target}")
+    probe = chain.get("probe_parents")
+    parent = ids_named(names, "our surface")
+    has_parent = isinstance(probe, list) and any(f in probe for f in parent)
+    out["ancestors"] = any(f is not None and f not in parent for f in probe) if has_parent else None
+    out["cut"] = cut
+    return out, problems, notes
 
 
 def ref_verdict(r):
@@ -169,6 +335,7 @@ def summarize(lines, plan=None, run=-1):
     init = next((p for p in lines_ if p["event"] == "init"), None)
     chain = next((p for p in lines_ if p["event"] == "chain"), None)
     names = known_names(plan, init)
+    reading, chain_problems, notes = chain_reading(chain, names, (init or {}).get("version"))
     local = local_positions(plan)
     arrivals = {}
     order = []
@@ -209,7 +376,7 @@ def summarize(lines, plan=None, run=-1):
                          pos=list(pos), dist=p.get("dist"), loaded=p.get("loaded"), disabled=p.get("disabled"),
                          actor=p.get("actor"))
                 if tag in local and all(isinstance(v, float) for v in pos[:2]):
-                    r["offset"] = [round(pos[0] - local[tag][0], 2), round(pos[1] - local[tag][1], 2)]
+                    r["offset"] = [round(pos[0] - local[tag][0], 2) + 0.0, round(pos[1] - local[tag][1], 2) + 0.0]
             a["refs"][tag] = r
         elif p["event"] == "location":
             a["location"] = {"at": p.get("at"), "loaded": p.get("loaded"), "actors": p.get("actors")}
@@ -226,14 +393,12 @@ def summarize(lines, plan=None, run=-1):
         problems.append("no init line in this run (the log lost its start)")
     elif init.get("world") is None or init.get("planet") is None:
         problems.append("init: the probe world or our planet was not found by GetFormFromFile")
-    if chain is not None:
-        for k in ("probe_child_of_surface", "surface_child_of_planet"):
-            if chain.get(k) is False:
-                problems.append(f"chain: {k} is false")
+    problems += chain_problems
     if not any(a["kind"] == "our planet" for a in out_arrivals):
         problems.append("no arrival on our planet")
     return {"runs": len(rs), "run": run if run >= 0 else len(rs) + run, "load_index": load_index(init),
-            "init": init, "chain": chain, "arrivals": out_arrivals, "problems": problems}
+            "init": init, "chain": chain, "chain_reading": reading, "arrivals": out_arrivals, "problems": problems,
+            "notes": notes}
 
 
 def verdict_table(summary, tags=None):
@@ -254,7 +419,7 @@ def verdict_table(summary, tags=None):
             cell = r["verdict"]
             if r.get("offset") is not None:
                 cell += f" ({r['offset'][0]:g}, {r['offset'][1]:g})"
-            if r.get("dist") is not None:
+            if isinstance(r.get("dist"), float) and r["dist"] < OTHER_WORLD_M:     # 3.4e38: another worldspace
                 cell += f" {r['dist']:.0f} m"
             row.append(cell)
         rows.append(row)

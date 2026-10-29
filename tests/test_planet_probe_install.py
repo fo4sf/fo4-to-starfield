@@ -137,6 +137,14 @@ class PlanetProbeInstallTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.data, ppi.RECORD)))
         self.assertEqual(self.lines(), ["# header", "*FO4Port.esm", "*FO4TerrainCore.esm"])
 
+    def test_install_checks_the_stage_against_the_games_data(self):
+        seen = []
+        make_planet_probe.verify_stage = lambda d, plan, data=None: seen.append(data) or ["planet id 8 is in use"]
+        code, _ = self.run_main("install", "--dir", self.staged)
+        self.assertEqual(seen, [self.data])
+        self.assertIn("does not match its plan.json or Data (re-stage): planet id 8 is in use", str(code))
+        self.assertFalse(os.path.exists(os.path.join(self.data, ppi.RECORD)))
+
     def test_an_extra_plugin_is_refused(self):
         write(os.path.join(self.staged, "Other.esm"), b"TES4")
         code, _ = self.run_main("install", "--dir", self.staged)

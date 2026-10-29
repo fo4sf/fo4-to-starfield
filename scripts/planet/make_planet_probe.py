@@ -1,5 +1,6 @@
-"""Stage the planet probe (docs/planet/planet-probe.md): our own star system and planet, a 3 x 3-cell test world on
-it with six test references, and the script that logs where they are in game. Offline, from the user's own files.
+"""Stage the planet probe (docs/planet/planet-probe.md): our planet (in Sol by default, or in a star system of our
+own), a 3 x 3-cell test world on it with six test references, and the script that logs where they are in game.
+Offline, from the user's own files.
 
 usage:
   python make_planet_probe.py precheck [--content-resources <zip>] [--out <precheck.json>]
@@ -8,13 +9,17 @@ usage:
   python make_planet_probe.py census --data <Starfield Data> [--out <census.json>]
       read only: the records the probe copies and every fact the plan leans on (census.py), printed and saved.
   python make_planet_probe.py stage --data <Starfield Data> --out <dir> [--content-resources <zip>] [--compiler <exe>]
-                                    [--world-biome planet|keep] [--no-merge-probe] [--mask-writer texconv|builtin]
+                                    [--system sol|own] [--world-biome planet|keep] [--no-merge-probe]
+                                    [--mask-writer texconv|builtin]
       builds in a new <out>.partial-<time>-<pid>, renamed to <out> only when every step passed (an existing <out> is
       refused):
         1. the census (census.json; a record the probe copies that is missing or renamed stops the stage);
-        2. FO4SFPlanet.esm: our star, its system / planet / orbit / surface locations and the planet (records.py),
-           cloned from Starfield.esm's Sol and Jemison, checked against every star of Starfield.esm and the built-in
-           Creations, then read back (check_master);
+        2. FO4SFPlanet.esm (records.py), cloned from Starfield.esm's Jemison and read back (check_master): with
+           --system sol (the default, route B) our planet, its planet / orbit / surface locations under Sol's own
+           system location and the first planet id free in Sol (in Starfield.esm and every other plugin in Data);
+           with --system own (route A) also our star (a clone of Sol's) and its system location, checked against
+           every star of Starfield.esm and the other plugins; what it was built from in master_report.json (Sol's
+           bodies and ids, and the template locations with their parents);
         3. the test world's terrain: Data/Terrain/FO4SF_PlanetProbeWorld.btd (flat ground at 10 m and a 25 m block,
            land textures from the user's terrain/landingoverlay01.btd) and its overlay mask;
         4. probe_params.json, then dotnet/PlanetProbe build and its Mutagen read-back (offline_check_mutagen.txt):
@@ -28,8 +33,10 @@ usage:
         9. the raw check of the probe plugin (probe.py check_plugin) and offline_check.json; plan.json (every staged
            file's SHA-256, the arrivals, the ids the log reader names) and README.txt.
   python make_planet_probe.py check --stage <dir> [--data <Starfield Data>]
-      the install preflight: every staged file is the one plan.json pins, and the three plugins pass their raw checks
-      again; with --data, Starfield.esm is still the file the stage cloned from. Exit 1 on any mismatch: re-stage.
+      the install preflight (planet_probe_install.py install runs it too, with the game's Data): every staged file is
+      the one plan.json pins, and the three plugins pass their raw checks again; with --data, Starfield.esm is still
+      the file the stage cloned from and, in route B, no plugin in Data takes our planet id now or cannot be read
+      (one the stage noted as unreadable aside). Exit 1 on any mismatch: re-stage.
   python make_planet_probe.py log [--file <FO4SFPlanetProbe.0.log>] [--stage <dir>] [--out <summary.json>]
       the run's user log as arrivals and a verdict per test reference (probe_log.py); exit 0 when an arrival on our
       planet has all four readings.
@@ -67,7 +74,7 @@ STAY_S = 75                              # the last reading is 60 s after an arr
 NATIVES = {
     "Debug": ["OpenUserLog", "TraceUser"],
     "Game": ["GetPlayer", "GetFormFromFile", "IsPluginInstalled"],
-    "Location": ["IsChild", "GetCurrentPlanet", "IsLoaded", "CountActors"],
+    "Location": ["IsChild", "GetParentLocations", "GetCurrentPlanet", "IsLoaded", "CountActors"],
     "ObjectReference": ["GetWorldSpace", "GetParentCell", "GetCurrentLocation", "GetEditorLocation",
                         "GetCurrentPlanet", "GetPositionX", "GetPositionY", "GetPositionZ", "Is3DLoaded",
                         "IsDisabled", "GetDistance"],
@@ -243,10 +250,15 @@ def stage_files(out):
     return files
 
 
-def known_ids(rep):
-    """{label: hex id} of the vanilla records the log reader names (Starfield.esm ids load at index 00)."""
+def known_ids(rep, master_report=None):
+    """{label: hex id} of the vanilla records the log reader names (Starfield.esm ids load at index 00): the census's,
+    and with route B the system location our planet names as its parent (route A's is ours: the reader finds it
+    from the init line)."""
     out = {"LC172World (Mars)": f"{census.LC172_WORLD:08X}", "NewAtlantis (Jemison)": f"{census.NEW_ATLANTIS:08X}",
            "Mars": f"{census.MARS_PLANET:08X}"}
+    sys_loc = (master_report or {}).get("system_location") or {}
+    if sys_loc.get("formid") and not sys_loc.get("ours"):
+        out[f"{sys_loc.get('edid') or 'the'} system location"] = sys_loc["formid"]
     tp = rep.get("template_planet") or {}
     if tp.get("formid"):
         out["Jemison"] = tp["formid"] if len(tp["formid"]) == 8 else f"{int(tp['formid'], 16):08X}"
@@ -286,18 +298,31 @@ def stage(a):
     stars = rep.get("plugin_stars") or {}
     other = [(s, sid, tuple(p) if p else None) for s, sid, p in stars.get("stars", [])]
     if stars.get("unreadable"):
-        print(f"note: the star check could not read {stars['unreadable']} (their stars, if any, are not checked)")
+        print(f"note: the star and planet checks could not read {stars['unreadable']} (their stars, planets and "
+              "locations, if any, are not checked)")
+    bodies = rep.get("plugin_bodies") or {}
+    planets = [(s, e, n, tuple(g), new) for s, e, n, g, new in bodies.get("planets", [])]
+    locations = [(s, e, x, y, kws, f, new) for s, e, x, y, kws, f, new in bodies.get("locations", [])]
+    overlays = [tuple(o) for o in (rep.get("sol") or {}).get("overlay_worlds", [])]
+    for key, name in probe.SCRIPT_KEYWORDS.items():           # the script reads these Starfield.esm keywords by id
+        got = (rep.get("keywords") or {}).get(name)
+        if got is None or int(got, 16) != probe.SCRIPT_IDS[key]:
+            sys.exit(f"keyword {name} is {got} in this Starfield.esm, not {probe.SCRIPT_IDS[key]:08X} as {SCRIPT}.psc "
+                     f"reads it ({key}): the script needs the new id; attempt kept in {out}")
 
     # 2. the planet master
     with esm.Plugin(sf_path) as sf:
-        w, master_report = records.build_master(sf, {}, other)
+        w, master_report = records.build_master(sf, {"system": a.system}, other, planets, locations, overlays)
     master_path = os.path.join(out, records.MASTER)
     w.write(master_path)
-    problems, master_summary = records.check_master(master_path, star_name=master_report["star"]["name"],
-                                                    planet_name=master_report["planet"]["name"])
+    system_id, planet_id = int(master_report["system_id"], 16), master_report["planet_id"]
+    problems, master_summary = records.check_master(master_path, system_id, planet_id,
+                                                    star_name=master_report["star"]["name"],
+                                                    planet_name=master_report["planet"]["name"],
+                                                    system_location=host_location(master_report))
     if problems:
         sys.exit(f"{records.MASTER} check: {problems}; attempt kept in {out}")
-    write_json(os.path.join(work, "master_report.json"), master_report)
+    write_json(os.path.join(out, "master_report.json"), master_report)        # kept: not a staged output
     with esm.Plugin(master_path) as m:
         planet = next(r for r in m.records("PNDT") if r.formid == (1 << 24) | records.PLANET)
         our_biomes = [b["biome"] for b in records.biomes(planet)]
@@ -321,8 +346,7 @@ def stage(a):
 
     # 4. the probe plugin
     biome, biome_why = world_biome(rep, a.world_biome)
-    prm = probe.params(records.DEFAULT_SYSTEM_ID, records.DEFAULT_PLANET_ID, overlay.fnam_values(t.heights_raw),
-                       world_biome=biome)
+    prm = probe.params(system_id, planet_id, overlay.fnam_values(t.heights_raw), world_biome=biome)
     params_path = os.path.join(out, "probe_params.json")
     write_json(params_path, prm)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
@@ -387,13 +411,15 @@ def stage(a):
         "outputs": stage_files(out), "inputs": before, "script": {"name": SCRIPT, "pex_sha256": sha256(pex)},
         "options": {"world_biome": a.world_biome, "world_biome_id": probe.key(*biome) if biome else None,
                     "world_biome_why": biome_why, "merge_probe": a.merge_probe, "mask_writer": a.mask_writer},
-        "system_id": f"{records.DEFAULT_SYSTEM_ID:#x}", "planet_id": records.DEFAULT_PLANET_ID,
+        "system": a.system, "system_id": f"{system_id:#x}", "planet_id": planet_id,
+        "system_location": master_report["system_location"], "planet_id_why": (master_report.get("sol") or {}).get(
+            "planet_id_why", "route A's own planet id"),
         "star": master_report["star"]["name"], "planet": planet_name,
         "refs": [{"tag": r["tag"], "local_id": f"{r['id']:06X}", "kind": r["kind"], "persistent": r["persistent"],
                   "linked": r["linked"], "pos": r["pos"], "meaning": r["meaning"]} for r in prm["refs"]],
         "merge": merge, "lc172_coc": {"id": f"{probe.LC172_COC:06X}", "local": marker.get("pos"),
                                       "in_lcpr": marker.get("in_lcpr")},
-        "arrivals": arrivals(rep), "known_ids": known_ids(rep),
+        "arrivals": arrivals(rep), "known_ids": known_ids(rep, master_report),
         "log": f"<My Games>/Starfield/Logs/Script/User/{probe.LOG_NAME}.0.log"}
     write_json(os.path.join(out, "plan.json"), plan)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -403,12 +429,27 @@ def stage(a):
     return 0
 
 
+def host_location(master_report):
+    """The vanilla system location our planet location names (route B: Sol's), as check_master takes it: None when
+    the system location is our own (route A)."""
+    loc = master_report.get("system_location") or {}
+    return None if loc.get("ours", True) else int(loc["formid"], 16)
+
+
 def readme(plan, final):
     arr = "\n".join(f"  {e['order']}. coc {e['coc']}   ({e['label']}: {e['why']}); stay {e['stay_s']} s"
                     for e in plan["arrivals"])
+    loc = plan["system_location"]
+    if plan["system"] == "sol":
+        where = (f"Our planet \"{plan['planet']}\" in {plan['star']} (system id {plan['system_id']}, planet id "
+                 f"{plan['planet_id']}: {plan['planet_id_why']}),\nunder {loc['edid']} {loc['formid']}, Sol's own "
+                 "system location,")
+    else:
+        where = (f"Our star \"{plan['star']}\" (system id {plan['system_id']}) and planet \"{plan['planet']}\" "
+                 f"(planet id {plan['planet_id']}),")
     return f"""Planet probe (Claude-cloud stage, {datetime.date.today().isoformat()}). docs/planet/planet-probe.md
 Plugins, in load order: {', '.join(plan['plugins'])}; their Data files go into "{plan['archive']}".
-Our star "{plan['star']}" (system id {plan['system_id']}) and planet "{plan['planet']}" (planet id {plan['planet_id']}),
+{where}
 cloned from the user's Starfield.esm (sha256 {plan['inputs']['Starfield.esm']['sha256']}): re-stage after a game update.
 Install (game closed, on the owner's line in the Install thread):
   python scripts\\planet\\make_planet_probe.py check --stage "{final}" --data <Starfield>\\Data
@@ -436,7 +477,8 @@ def load_plan(stage_dir):
 
 
 def verify_stage(stage_dir, plan, data=None):
-    """Problems of a stage ([] = none): its files against plan.json, the raw checks again, Starfield.esm's pin."""
+    """Problems of a stage ([] = none): its files against plan.json, the raw checks again, Starfield.esm's pin and, in
+    route B, our planet id against the plugins in Data now (sol_now)."""
     problems = []
     now = stage_files(stage_dir)
     for rel, h in plan["outputs"].items():
@@ -457,15 +499,54 @@ def verify_stage(stage_dir, plan, data=None):
         prm = json.load(f)
     problems += [f"{probe.PLUGIN}: {x}" for x in probe.check_plugin(os.path.join(stage_dir, probe.PLUGIN), prm)[0]]
     master = os.path.join(stage_dir, records.MASTER)
+    route_b = plan.get("system") == "sol"                      # a stage from before route B is route A's
     problems += [f"{records.MASTER}: {x}" for x in records.check_master(
-        master, star_name=plan.get("star", records.DEFAULT_STAR_NAME),
-        planet_name=plan.get("planet", records.DEFAULT_PLANET_NAME))[0]]
+        master, int(plan.get("system_id", f"{records.DEFAULT_SYSTEM_ID:#x}"), 16),
+        plan.get("planet_id", records.DEFAULT_PLANET_ID), star_name=plan.get("star", records.DEFAULT_STAR_NAME),
+        planet_name=plan.get("planet", records.DEFAULT_PLANET_NAME),
+        system_location=int(plan["system_location"]["formid"], 16) if route_b else None)[0]]
     problems += [f"{records.REGISTRATION}: {x}" for x in records.check_registration(
         os.path.join(stage_dir, records.REGISTRATION), probe.PLUGIN, probe.WORLD_ID, master)[0]]
-    if data:
+    if data and not os.path.isfile(os.path.join(data, "Starfield.esm")):
+        problems.append(f"no Starfield.esm in {data}: name the game's Data folder (the install: the game folder)")
+    elif data:
         h = sha256(os.path.join(data, "Starfield.esm"))
         if h != plan["inputs"]["Starfield.esm"]["sha256"]:
             problems.append(f"Starfield.esm changed since the stage (sha256 {h}): re-stage")
+        elif route_b:
+            problems += sol_now(data, plan, stage_dir)
+    return problems
+
+
+def sol_now(data, plan, stage_dir):
+    """Route B's planet id against Data as it is now ([] = still free): a plugin installed or updated after the stage
+    can take it, so every other plugin is read again (census.plugin_bodies and sol_section; our own are skipped), and
+    one that cannot be read now is a problem too, a new one included (its bodies are not checked), unless the stage
+    noted it as unreadable already (the stage's census.json). Starfield.esm itself, and so Sol's system location, is
+    held to the stage by its sha256 first."""
+    try:
+        bodies = census.plugin_bodies(data)
+        with esm.Plugin(os.path.join(data, "Starfield.esm")) as sf:
+            kw, _ = records.check_keywords(records.keyword_edids(sf))
+            sol = census.sol_section(sf, kw, bodies)
+    except (records.PlanetError, esm.EsmError, OSError) as e:
+        return [f"Sol could not be read again ({e}): re-stage"]
+    pid = plan["planet_id"]
+    users = [f"{src} {e or n}" for src, e, n, g in sol["bodies"] if g[2] == pid]
+    users += [f"{src} overlay world {e}" for src, e, _, p in sol["overlay_worlds"] if p == pid]
+    if pid in sol["location_ynams"]:
+        users.append("a location's YNAM")
+    problems = [f"planet id {pid} is in use in Sol now ({', '.join(users)}): re-stage"] if users else []
+    try:
+        with open(os.path.join(stage_dir, "census.json"), encoding="utf-8") as f:
+            before = (json.load(f).get("plugin_stars") or {}).get("unreadable") or []
+    except (OSError, ValueError):
+        before = []
+    known = {u.split(":")[0].lower() for u in before}
+    new = [u for u in bodies["unreadable"] if u.split(":")[0].lower() not in known]
+    if new:
+        problems.append(f"cannot be read now, so a body they add to Sol is not checked against planet id {pid}: "
+                        f"{new} (take them out of Data, or re-stage: the stage notes them and goes on)")
     return problems
 
 
@@ -507,9 +588,28 @@ def log(a):
     print(f"log {path}")
     print(f"runs {s['runs']}, this run's probe load index {s.get('load_index')}")
     if s.get("chain"):
+        cut = (s.get("chain_reading") or {}).get("cut")                  # a cut line's last value: left out
         shown = {k: probe_log.hexid(v) if k in probe_log.ID_KEYS and type(v) is int else v
-                 for k, v in s["chain"].items() if k not in ("rt", "event")}
+                 for k, v in s["chain"].items() if k not in ("rt", "event", "end", cut) and k not in probe_log.LIST_KEYS}
         print("chain " + " ".join(f"{k}={v}" for k, v in shown.items()))
+        reading = s.get("chain_reading") or {}
+        word = {True: "yes", False: "NO", None: "not known"}
+        for label, parents in (reading.get("parents") or {}).items():
+            print(f"  {label}: " + (", ".join(parents) or "none"))
+        for label, link in (reading.get("links") or {}).items():
+            print(f"  {label}: {word[link['holds']]} (" + ", ".join(
+                f"{k} {word[v]}" for k, v in link["readings"].items()) + ")")
+        if reading.get("ischild_reads"):
+            print(f"  IsChild answered: {reading['ischild_reads']}"
+                  + (" (as Location.psc's comment reads it)" if reading["ischild_reads"] == "parent asks" else ""))
+        for label, _, target in probe_log.REACH:
+            if label in (reading.get("reach") or {}):
+                found = reading["reach"][label]
+                print(f"  {label}: " + {True: f"finds {target}", False: f"does NOT find {target}",
+                                        None: f"not known ({target}'s id is not known)"}[found])
+        if reading.get("ancestors") is not None:
+            print("  the probe location's own list " + ("goes past its parent" if reading["ancestors"]
+                                                        else "stops at its parent"))
     for arr in s["arrivals"]:
         pl = arr["player"] or {}
         print(f"arrival {arr['n']} ({arr['kind']}): world {pl.get('world', arr['world'])}, planet {pl.get('planet')}, "
@@ -520,6 +620,8 @@ def log(a):
     print("\n".join(probe_log.verdict_table(s)))
     for x in s["problems"]:
         print("PROBLEM  " + x)
+    for x in s.get("notes", []):
+        print("NOTE  " + x)
     ok = any(arr["kind"] == "our planet" and arr["complete"] for arr in s["arrivals"])
     return 0 if ok else 1
 
@@ -540,6 +642,8 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--content-resources", default=cr)
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
+    s.add_argument("--system", choices=records.SYSTEMS, default=records.DEFAULT_SYSTEM,
+                   help="where our planet goes: sol (route B, the default) or own (route A: a star system of our own)")
     s.add_argument("--world-biome", choices=("planet", "keep"), default="planet",
                    help="the biome the test world names: one of the planet's (default) or the template's Mars biome")
     s.add_argument("--no-merge-probe", dest="merge_probe", action="store_false",
