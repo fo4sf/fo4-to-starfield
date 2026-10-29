@@ -852,6 +852,17 @@ decided the import path); keeping the order as a parameter (two orders in the co
   move, or the fade call) and what the player wears without MQ101 stay open until run 4 (section 13); whether a hand
   back moves the player stays open until a run stands down during the load.
 
+## 2026-10-29: the unattended Lead runs no QA reviews (Claude-cloud)
+- Decision: the prompt in `tools/ai-team/run-lead.ps1` no longer gives the unattended Lead the QA task (needs-qa PRs
+  through fo4-qa, verdicts as `QA (local):`); it says fo4-qa is not called in those sessions. Research, the status
+  refresh and the one comment on #32 stay. `opencode.json`, the fo4-lead and fo4-qa agent files and AGENTS.md are
+  unchanged, so interactive sessions keep fo4-qa.
+- Why: the owner's pick in the thread on 29 Oct, sent with the 128K reload ("128k and drop QA").
+- Alternatives: keep QA and treat its verdicts as drafts for a fresh Claude review to weigh (the owner's other option;
+  not taken).
+- Boundary: a text change, not yet run from the PC checkout; the first unattended session is the check. No merge gate
+  changes: a PR still needs a fresh Claude review and green CI, and the unattended Lead does not merge.
+
 ## 2026-10-29: our planet goes in Sol, under Sol's own system location; the probe asks the location chain both ways round (Claude-cloud)
 - Decision: the planet probe builds route B by default (`stage --system sol`; route A stays as `--system own`).
   FO4SFPlanet.esm adds our planet (a Jemison clone) to Sol with Sol's system id (its star's DNAM, read at stage time)
