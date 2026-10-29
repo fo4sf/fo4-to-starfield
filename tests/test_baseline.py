@@ -758,6 +758,9 @@ class BaselineTests(unittest.TestCase):
         self.prepare()
         self.log(BASE_LOG, 5)
         full = {"ticked": [], "how": "by hand", "sfse": [], "epoch": 1.0, "at": "by hand"}   # restore's own shape
+        bl.write_json(os.path.join(self.out, bl.RECORD), dict(self.record(), restoring=full))
+        self.assertIn("Plugins.txt: as prepared, the plugins off. A restore at by hand stopped",   # it counts, so
+                      self.run_bl("status", "--out", self.out)[1])  # each one below is out of shape by its one change
         for marker in ({}, "by hand", {"how": "by hand"}, dict(full, ticked="FO4Port.esm"), dict(full, sfse=[1]),
                        dict(full, epoch="1.0"), dict(full, epoch=True), dict(full, epoch=float("nan")),
                        dict(full, epoch=1793000000), dict(full, epoch=10 ** 400), dict(full, at=""), dict(full, at=5),
@@ -921,6 +924,8 @@ class BaselineTests(unittest.TestCase):
                                          "already the recorded one (nothing written)")
                         if base is held:
                             self.assertEqual(done["restored_epoch"], stop["epoch"])
+                        self.assertEqual(read(self.pt), ORIGINAL)           # never the damaged copy written over it
+                        self.assertFalse(os.path.exists(os.path.join(self.out, bl.KEPT_AT_RESTORE)))
                         continue
                     for force in ((), ("--force",)):                    # the first refusal names it: --force is no help
                         with self.subTest(stopped=base is held, copy=copy, now=now, force=force), \

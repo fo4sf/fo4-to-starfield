@@ -178,10 +178,13 @@ so the baseline's time still ends at the restore that stopped, not at the rerun.
   writes the recorded one back. Either way, the baseline's time ended at the restore that stopped, with what it found
   then.
 
-A record that was changed or damaged holds no copy of the original to write back. Put Plugins.txt back from a copy of
-your own whose sha256 is the record's `plugins_txt_sha256`, and run `restore` again, which finishes the record. Without
-one, tick your plugins again by hand, remove the open-baseline note once you know no baseline is open, and prepare a
-new baseline.
+A record that was changed or damaged holds no copy of the original to write back. When no restore of it stopped and its
+log is not collected yet, run `collect` first, before anything is ticked again: it does not need the copy. Then put
+Plugins.txt back from a copy of your own whose sha256 is the record's `plugins_txt_sha256`, and run `restore` again,
+which finishes the record. Without such a copy, tick your plugins again by hand, and remove the open-baseline note
+once you know no baseline is open. Then move this baseline's folder out of the folder your baselines are in, or
+prepare the new one in another folder: `prepare` refuses next to a baseline that was never restored (section 3). A log
+the old baseline collected still serves `compare`.
 
 `restore` also closes the note of a baseline whose folder was moved since `prepare`: the note names the same
 Plugins.txt and prepare time. The copy `restore` keeps of the file it writes over is on disk before Plugins.txt is
