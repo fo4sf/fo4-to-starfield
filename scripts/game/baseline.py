@@ -313,9 +313,9 @@ def noted(state):
     """What the open-baseline note in the state folder says, read so that any unknown counts as open: None when it
     names no baseline that may be open (there is no note, the folder it names is there without a record, or that
     record's restore ran; absent(): a lookup that fails counts as there), else (out, rec): the folder it names, None
-    when the note cannot be read, and that folder's
-    record, None when it cannot be read (a drive not there, a damaged or missing file). testqueue.py's runner and
-    prepare read it alike: the note is the only pointer to a baseline whose folder is anywhere."""
+    when the note cannot be read, and that folder's record, None when it cannot be read (a drive not there, a damaged
+    or missing file). testqueue.py's runner and prepare read it alike: the note is the only pointer to a baseline
+    whose folder is anywhere."""
     path = os.path.join(state, OPEN_NOTE)
     if absent(path):
         return None
@@ -567,7 +567,7 @@ def collect(a):
     if rec.get("not_vanilla"):
         raise SystemExit(f"collect: this baseline's session is no baseline ({why_not_vanilla(rec['not_vanilla'])}): "
                          f"restore, then prepare a new one")
-    if rec.get("restoring"):
+    if stopped(rec):
         raise SystemExit("collect: a restore of this baseline stopped before it updated the record: run restore again "
                          "first (it finishes the record), then collect")
     if game_running():
@@ -637,6 +637,13 @@ def recorded_bytes(rec):
     return raw if sha256_bytes(raw) == rec.get("plugins_txt_sha256") else None
 
 
+def stopped(rec):
+    """The note a restore that stopped before its record left there ({ticked, how, sfse, epoch, at}), None when there
+    is none. restore, status and collect read it alike: an empty or hand-edited one counts as none."""
+    done = rec.get("restoring")
+    return done if isinstance(done, dict) and done and rec.get("prepared_sha256") is not None else None
+
+
 def unmark(record, rec):
     """The record back as it was before restore noted what it found there, when restore wrote nothing (best effort: a
     record left with the note only makes collect wait for a restore that finishes)."""
@@ -669,9 +676,7 @@ def restore(a):
     cur = read_bytes(pt)
     now = sha256_bytes(cur)
     ticked = turned_on(cur, tolerant=True)                # the game may write a name in another encoding
-    done = rec.get("restoring") if isinstance(rec.get("restoring"), dict) else None
-    if rec.get("prepared_sha256") is None:
-        done = None
+    done = stopped(rec)
     if done:                                              # a restore that stopped before its record ended the time
         at, at_iso = done.get("epoch") or at, done.get("at") or at_iso
     sfse = sfse_logs(rec.get("my_games") or [], rec["prepared_epoch"], at)   # before a later start rewrites one
@@ -680,7 +685,7 @@ def restore(a):
         found = done.get("ticked") or []
         sfse = list(dict.fromkeys((done.get("sfse") or []) + sfse))
     # since the stopped one, the same plugins on in other bytes: the game's rewrite at startup, another program's order
-    rewritten =bool(done) and cur is not None and now != rec["plugins_txt_sha256"] and same_on(rec, ticked)
+    rewritten = bool(done) and cur is not None and now != rec["plugins_txt_sha256"] and same_on(rec, ticked)
     kept = None
     if rec.get("prepared_sha256") is None:
         how = "nothing to put back (prepare turned nothing off)"
@@ -702,9 +707,9 @@ def restore(a):
             if done:
                 raise SystemExit(f"restore: refused, nothing written: a restore of this baseline at {at_iso} stopped "
                                  f"before it updated the record, and Plugins.txt has changed since: {', '.join(ticked)} "
-                                 f"are ticked now, which are not the plugins prepare turned off; --force keeps the "
-                                 f"current file as {kept} in {out} and writes the recorded one back (the baseline's "
-                                 f"time ended at that restore either way)")
+                                 f"are ticked now, not the same set as the plugins prepare turned off; --force keeps "
+                                 f"the current file as {kept} in {out} and writes the recorded one back (the "
+                                 f"baseline's time ended at that restore either way)")
             raise SystemExit(f"restore: refused, nothing written: since prepare, {', '.join(ticked)} were ticked in "
                              f"Plugins.txt (the baseline session may not have been vanilla); --force keeps the current "
                              f"file as {kept} in {out} and writes the recorded one back")
@@ -782,7 +787,10 @@ def status(a):
     elif rec.get("restored_at"):
         where = "the recorded one" if now == rec["plugins_txt_sha256"] else "changed since the restore"
         print(f"Plugins.txt: restored {rec['restored_at']} ({rec['restore']}); now {where}")
-    elif isinstance(rec.get("restoring"), dict):          # what restore will do, as its own branches read it
+    elif now != rec["plugins_txt_sha256"] and recorded_bytes(rec) is None:   # restore checks it before any write
+        print("Plugins.txt: not the recorded original, and the record's copy of it does not match its sha256 (the "
+              "record was changed or damaged since prepare): restore refuses to write it")
+    elif stopped(rec):                                    # what restore will do, as its own branches read it
         on = turned_on(cur, tolerant=True) if cur is not None else []
         if now == rec["plugins_txt_sha256"]:
             state, then = "back", "finishes the record"
@@ -794,12 +802,12 @@ def status(a):
             state, then = ("the same plugins on in other bytes (the game's rewrite at startup?)",
                            "writes the recorded one back, keeping this file, and finishes the record")
         elif on:
-            state, then = (f"{', '.join(on)} ticked, not the plugins prepare turned off",
+            state, then = (f"{', '.join(on)} ticked, not the same set as the plugins prepare turned off",
                            "refuses unless --force (which keeps this file and writes the recorded one back)")
         else:
             state, then = ("rewritten, with no plugin the game does not ship ticked",
                            "writes the recorded one back, keeping this file, and finishes the record")
-        print(f"Plugins.txt: {state}. A restore at {rec['restoring'].get('at') or 'an unknown time'} stopped before it "
+        print(f"Plugins.txt: {state}. A restore at {stopped(rec).get('at') or 'an unknown time'} stopped before it "
               f"updated the record, and the baseline's time ended then; collect waits for the record: restore again "
               f"{then}")
     elif now == rec["plugins_txt_sha256"]:
@@ -810,8 +818,12 @@ def status(a):
         print("Plugins.txt: gone; restore writes the recorded one back")
     else:
         on = turned_on(cur, tolerant=True)
-        why = f"{', '.join(on)} ticked again" if on else "the game's rewrite at startup, or another tool"
-        print(f"Plugins.txt: changed since prepare ({why}); restore puts it back")
+        if on:
+            print(f"Plugins.txt: changed since prepare ({', '.join(on)} ticked again); restore refuses unless --force "
+                  f"(which keeps this file and writes the recorded one back)")
+        else:
+            print("Plugins.txt: changed since prepare (the game's rewrite at startup, or another tool); restore puts "
+                  "it back, keeping this file")
     if rec.get("ticked_at_restore"):
         print(f"restore found {', '.join(rec['ticked_at_restore'])} ticked: collect takes no log as the baseline "
               f"after it")
@@ -960,10 +972,11 @@ def main(argv=None):
         try:
             os.makedirs(os.path.dirname(lock), exist_ok=True)
             held.enter_context(filelock.locked(lock, timeout_s=LOCK_WAIT_S, stale_s=LOCK_STALE_S))
-        except TimeoutError:
-            raise SystemExit(f"{a.cmd}: another baseline.py prepare, collect or restore is running ({lock}): run this "
+        except TimeoutError as e:
+            raise SystemExit(f"{a.cmd}: another baseline.py prepare, collect or restore is running ({e}): run this "
                              f"again when it is done (the lock of one that stopped is taken over after "
-                             f"{LOCK_STALE_S / 60:.0f} minutes); nothing changed") from None
+                             f"{LOCK_STALE_S / 60:.0f} minutes, unless its age cannot be read: then remove {lock} by "
+                             f"hand once none runs); nothing changed") from None
         except OSError as e:
             raise SystemExit(f"{a.cmd}: the baseline lock {lock} could not be made ({e}); nothing changed") from None
         return run(a)

@@ -21,7 +21,7 @@ def locked(path, timeout_s=5.0, stale_s=30.0, poll_s=0.02):
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             try:
-                age = time.time() - os.stat(path).st_mtime
+                age = time.time() - os.lstat(path).st_mtime    # a link's own time: a dangling one expires too
             except OSError:                                # released between the two calls, or not readable
                 if time.monotonic() > deadline:
                     raise TimeoutError(f"{path}: taken, and its age cannot be read") from None

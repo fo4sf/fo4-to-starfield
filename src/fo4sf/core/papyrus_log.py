@@ -15,12 +15,14 @@ The format (verified: Install's copy of the 28 Oct new game run 3 log, Starfield
   alias ("[alias DerelictShips on quest SFFL_SE_EC08 (01058CDB)]").
 * Form ids print as 8 hex digits. An FF id is made while the game runs, so the same thing gets another id in another
   run: the comparison reads every FF id as FF??????. Other ids are kept.
-Which ids match in two runs follows from the load order (docs/research/framework/launcher-sources/sfstack.md: the
-plugins that load on their own and the Starfield.ccc ones load first). A plugin that loads before every one of ours
-has the same index in our run as in the baseline on the same built-in plugin set, so its ids match
-(scripts/game/baseline.py compare says when the built-in plugins' names or sizes differ from the baseline's). One
-that Plugins.txt lists after one of ours (a Creation enabled there) has another index in our run than in the
-baseline, where ours are off, so a kind that names it is "both_place" at best, not "both"; the counts still add up.
+Which ids match in two runs follows from the load order (a supported hypothesis, from the rules in
+docs/research/framework/launcher-sources/sfstack.md section 2): full, medium (FD) and small (FE) plugins are each
+numbered in load order among their own type, Starfield.ccc's plugins load first, and blueprint masters after all the
+others. A plugin's ids match in the two runs when the plugins of its type that load before it are the same in both.
+The baseline turns off every plugin the game does not ship, ours and any other mod, so a plugin that loads after one
+of those of its type has another index in our run than in the baseline, and a kind that names it is "both_place" at
+best, not "both" (the counts still add up). scripts/game/baseline.py compare says when the built-in plugins' names or
+sizes differ from the baseline's.
 
 A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in the
 first group that fits: "both" (the baseline has the same kind), "ours" (it names one of our records or scripts:

@@ -133,9 +133,9 @@ class LedgerTests(unittest.TestCase):
         os.makedirs(os.path.dirname(lock), exist_ok=True)
         with open(lock, "w") as f:
             f.write("4244 0\n")
-        real, tries = os.stat, []
+        real, tries = os.lstat, []
 
-        def unreadable(path, *a, **k):                                       # a dangling link, a denied lookup
+        def unreadable(path, *a, **k):                                       # a denied lookup
             if path != lock:
                 return real(path, *a, **k)
             tries.append(path)
@@ -143,11 +143,23 @@ class LedgerTests(unittest.TestCase):
                 raise RuntimeError("spun on the lock without waiting")
             raise PermissionError(13, "Access is denied", path)
 
-        with mock.patch.object(filelock.os, "stat", unreadable), self.assertRaises(TimeoutError):
+        with mock.patch.object(filelock.os, "lstat", unreadable), self.assertRaises(TimeoutError):
             with filelock.locked(lock, timeout_s=0.2, poll_s=0.02):
                 pass
         self.assertLess(len(tries), 100)                                     # it slept between tries
         os.unlink(lock)
+
+    def test_a_stale_dangling_link_at_the_lock_is_taken_over(self):
+        lock = self.path + ".lock"
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        try:
+            os.symlink(lock + ".gone", lock)
+            os.utime(lock, (0, 0), follow_symlinks=False)                   # older than stale_s
+        except (OSError, NotImplementedError):
+            self.skipTest("links, or their own times, cannot be made here")
+        with filelock.locked(lock, timeout_s=0.5, poll_s=0.02):
+            self.assertTrue(os.path.isfile(lock) and not os.path.islink(lock))
+        self.assertFalse(os.path.lexists(lock))
 
     def test_corrupt_middle_line_raises(self):
         for bad in ("not json", '{"t": "2026-10-15T12:00:00+00:00", "by": "x"}', "[]", '"ev"'):   # not an event
