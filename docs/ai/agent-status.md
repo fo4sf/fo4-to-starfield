@@ -6,9 +6,10 @@ docs/CODEX-HANDOFF.md, and `python tools/ai-team/guardian/guardian.py status` fo
 
 | Agent | Role | Last known activity | Source, date |
 |---|---|---|---|
-| Claude (remote) | collision/conversion, live game tests | pinned-build route results (V111 12/12, Parsons 11 doors both sides); FO4 dynamic-body rule | #32, git log, 2026-10-10 |
-| Codex (remote) | deployment/recovery, checkpoints, door bridge | PR #34 (QA PASS, awaiting owner merge); PR #35 in progress | gh pr list, 2026-10-10 |
-| Grok (remote) | acceptance oracle | opposite-direction both-sides rule (`1f7e712`) | git log, 2026-10-09 |
-| ChatGPT (remote) | format research | `.af` profile comparison and corrections | git log, 2026-10-09 |
-| fo4-lead (local) | supervisor | woke Codex (2026-10-09); first unattended cycle failed (task_id), fixed `0940d32` | lead-cycles.log, 2026-10-09 |
-| guardian (local) | admission control | paused manually at 23:28 on 2026-10-09; still paused | guardian.py status, 2026-10-10 |
+| Claude (PC) | live game tests, integration, terrain/collision, pipeline | branch cleanup (160 deleted); installed Codsworth keeper mission + V111 start on core v6i; animated-doors port 07756819; probe P10 PASS / P9 FAIL; runner #558/#559 merged; launcher points at FO4 install | #32, 2026-10-28 |
+| Claude-cloud | leader-core, multi-agent offline work | phase 0 done on owner's word (gates 1+2 ticked); newgame_v11 review rounds 2-4 | #32, git log, 2026-10-28 |
+| Codex (remote) | deployment/recovery, checkpoints, door bridge | idle ~24h; owns audits on #457, #382, #367, #365, #280, #226; draft PR #562 lore recovery | wake_agent status, 2026-10-29 |
+| Grok (remote) | materials/textures, FLOR research, map markers | idle ~5 days; completed gwe lore batch (PR #544); added bgsm-summary CLI; offline since Oct 24 | wake_agent status, #32, 2026-10-29 |
+| ChatGPT (remote) | format research | no recent activity recorded in #32 | #32 scan, 2026-10-29 |
+| fo4-lead (local) | supervisor | this cycle: refreshed agent-status; team board shows 18 grok / 21 codex / 28 claude open items | team.py board, guardian.py status, 2026-10-29 |
+| guardian (local) | admission control | level caution (RAM 87.5%, VRAM 90.7%), mode running; restrict at 88% RAM / 95% VRAM | guardian.py status, 2026-10-29 |
