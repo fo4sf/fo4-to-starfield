@@ -21,7 +21,8 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    Starfield's opening (`MQ101`) is running, still below stage 105, where it turns saving back on, and not completed. A
    save the player made always has the opening at 105 or later, so even an early level-1 save stands down (21 Oct
    review). A New Game has the opening running, because its stage 0 is what placed the player before our quest could
-   run (section 11; **unverified** in game until run 3, whose `guard` line prints `opening_running`). A session started with `coc` from the main menu never starts MQ101, so it stands down too
+   run (section 11; **verified** in game, run 3 of 28 Oct: `opening_stage=5 opening_running=true fresh=true`, section
+   12). A session started with `coc` from the main menu never starts MQ101, so it stands down too
    (since newgame_v9: Install's map-test session of 28 Oct on v8 found MQ101 not running, and the quest moved that
    character from Red Rocket into the vault). An existing save that gains the plugin stands the quest down at stage 1 and nothing
    moves. The owner's test saves are safe. The day limit was 0.25 in the first build, which stood every new game down:
@@ -43,8 +44,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    The intro's stage 0 also empties the inventory and equips Starfield's miner spacesuit after its 3D wait; with the
    inventory reset off (the default, section 4c) the player wears it at the pod.
 4. **The cryo pod:** the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`) and stands up one metre
-   in front of their own pod, facing out of it (on the installed port, which has no persistent reference in the cell,
-   the script first loads the cell by centering on it: section 3a). The notification reads "Vault 111" and the objective is "Leave Vault
+   in front of their own pod, facing out of it (with a temporary COC marker the script first loads the cell by
+   centering on it: section 3a; the port of run 3 has the marker persistent). Since newgame_v10 the player is put 0.3 m
+   above the pod's z (`PodLift`) and drops onto the floor: at the pod's own z they sank under it in run 3 and the game
+   stood them on the COC marker 8 m away (section 12). The first tick the player is loaded there logs `pod settle
+   ok=<bool> ...`. The notification reads "Vault 111" and the objective is "Leave Vault
    111" under FO4's quest name for this part (MQ102's name, read from Fallout4.esm by the points step; "Out of
    Time" is only the fallback when it has none).
 5. **Looks:** a message box in the vault asks "Create character" or "Quick start" (NG-6, NG-C9). Create opens
@@ -55,9 +59,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    Confirm, Leave. Confirm writes seven actor values of our own (NG-5, NG-C4; section 4a). The player can skip it and
    ride up; the log then says so (optional script).
 7. **The cog door:** standing at its console opens the cog door (no Pip-Boy needed, unlike FO4).
-8. **The exit:** standing on the elevator platform asks "Ride the elevator up to the surface?". Yes puts the player at
-   FO4's surface arrival of the ride in the Commonwealth core, at the right world position (core-local + the measured
-   merge offset). If the player lands more than 3 m below the arrival, they are put on the Vault 111 map marker's spot.
+8. **The exit:** standing on the elevator platform asks "Ride the elevator up to the surface?". Yes moves the player to
+   the core's Vault 111 map marker and, on a later tick once they are outside and loaded, puts them at FO4's surface
+   arrival of the ride, at the right world position (core-local + the measured merge offset), reading the position
+   back (`surface setposition ok=<bool>`, three tries). Run 3 set it in the move's own tick and the game ignored it
+   (section 12). If the player lands more than 3 m below the arrival, they are put on the Vault 111 map marker's spot.
 9. The quest completes. The player is **silent** (Starfield's player has no voice; nothing to do), and has **no
    Pip-Boy** (section 5). The stages the quest passes through are a published contract (section 9).
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
@@ -150,6 +156,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   temporary, as on the PC) writes a temporary-anchor build and still refuses under `--require-persistent-anchor`, and
   mutations of `AnchorTemporary` and `VaultCell` are rejected.
 - `make_newgame.py log` prints `centered` (the first centering line's text; None in the persistent mode).
+- Run 3 (28 Oct, section 12): the installed port's COC marker `001338` is persistent now (`anchor_temporary=false`), so
+  the persistent mode ran, with no centering.
 
 ## 4. The cryo pod and character creation
 
@@ -160,7 +168,10 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   along its facing. Which of the pod's axes faces out is a **supported hypothesis** (+Y turned by its z rotation); the
   points step prints every candidate pod (on the PC: MQPlayerCryopodREF 0004A011, the player's, and MQPlayerSpousePodREF
   0004A012, which the rule skips), and `--pod-ref` names one if that ever changes. If the move
-  misses the cell, the quest retries each second; the log shows the landing.
+  misses the cell, the quest retries each second; the log shows the landing. The pod's z is under the hall's floor
+  (run 3, section 12: the player sank there), so since newgame_v10 the start is `PodLift` (0.3 m) higher and the
+  `pod settle` line says where the player stands once loaded. Facing out: run 3's bridge read heading 0 after the
+  move, the direction of the step (the start is 1 m along +y from the pod's origin).
 - The opening choice: once the player is in the vault, `FO4SF_NewGameLooks` shows MESG `FO4SF_NewGameStart`
   (FO4SFNewGame.esm 0x802), "Create character" or "Quick start". The owner decided (2026-10-19, NG-C9) that phase 1
   has a preset quick start for replays: button 1 skips the creator and keeps the look the player already has (the
@@ -513,13 +524,92 @@ quest starts; the hold-off's restore of saving and the HUD (section 1, step 3) i
 deleted by MQ101's stage 9000 when we stop it. After its 3D wait the fragment empties the inventory and equips the miner
 suit, which nothing undoes in a default build. The fragment and our first tick both follow the 3D load; entry 2 has no
 stage set or scene after its wait, so the stop cannot be undone by it, and hold-off pass 2's lines for MQ101 would show
-a restart. Run 3 is the first New Game that reaches the hold-off.
+a restart. Run 3 is the first New Game that reaches the hold-off (section 12: the restore and pass 2 held).
 
 **Next on the PC:** after this PR merges, restage newgame_v9 from main against the installed port and core with SPECIAL
 (no `--no-special` unless the precheck still reports a miss), reinstall on the owner's line, start a new game from the
 main menu, then read `make_newgame.py log`. Expected: the `guard` line shows `opening_running=true` and ends
 `mq101debug=0.000000 write_after_hold=2`, then `mq101debug written=2.000000 was=0.000000`; the player stands at the
 pod in the miner spacesuit (the default build has no inventory reset; `--clear-inventory --vault-suit` is the answer).
+
+## 12. In game, run 3 (28 Oct 2026): PASS to stage 200, with two placement defects of ours
+
+**Build:** FO4SFNewGame.esm newgame_v9 (staged from main 4790ebf2 after #573, with SPECIAL; the install record's
+folder `terrain_core64v6i_l125_keeper_newgame9`), the vault anchor FO4Port.esm:001338 persistent. Plugins.txt:
+QuestProbe, Port, Core, Mars, Raider, Mission, NewGame, MapMarkers, Bridge, all active. Starfield 1.16.244, SFSE 0.2.21.
+A New Game from the main menu at 18:07 PC time (00:07 UTC 29 Oct).
+
+**The owner's report:** three hotkey snapshots (`C:\Modding\snapshots\20261028-180758`, `-181101`, `-181340`) with
+their own descriptions (typos fixed, meaning kept): "You fall under at first" (in the vault, 18:07:58); "No Codsworth"
+(Sanctuary, 18:11:01); "Here's showing broken textures, and the Freedom's Call activation didn't work" (Concord,
+18:13:40). The first screenshot shows our "Vault 111" notification and "Mission updated" with the FO4 quest name "Out
+of Time", which the quest posts after `enter vault ok=true` and stage 10.
+
+**The logs (Install's copy, `D:\Modding\testqueue\newgame_20261028_run3\`):** fo4sf_newgame.0.log, the bridge's
+fo4sf.0.log (one line each 0.5 s), Papyrus.0.log, Plugins.txt and `make_newgame.py log`'s summary (exit 0).
+
+**Against section 11's expected lines: PASS.**
+
+| Step | Run 3 | Verdict |
+|---|---|---|
+| Guard | `guard days=0.333526 level=1 opening_stage=5 opening_running=true fresh=true mq101debug=0.000000 write_after_hold=2` | PASS: a New Game has MQ101 running (at 5) |
+| Hold-off | pass 1 held MQ00 and MQ101; pass 2, one tick later, held MQ101PostQuest and MQ_TutorialQuest_Misc04 (what MQ101's stop started); MQ101 not running in pass 2 | PASS: no restart |
+| Write | `mq101debug written=2.000000 was=0.000000` | PASS |
+| Saving, HUD | `saving and HUD restored after the hold-off`; the HUD shows in every screenshot; Papyrus logs a save at 18:11:36 | PASS |
+| Vault | `enter vault ok=true pos=9.204920 -3.086447 -1.044888 target=9.142858 -3.114286 -1.028571`, stage 10 | at the pod, then sank (defect 1) |
+| Looks | `start choice button=1`, `quick start: preset kept, creator skipped`, stage 20 | PASS (quick start) |
+| Cog door | `cog door open_state before=3 after=2`, stage 30 | PASS |
+| SPECIAL | `special skipped: left the vault with SPECIAL unset` | not used by the owner |
+| Ride | `elevator prompt button=0`, `surface moveto`, `surface setposition`, stage 40 | the arrival did not take (defect 2) |
+| End | `fell z=119.384842: fallback pos=-2475.313965 -1394.724243 127.223747`, stage 200 | PASS through the fallback |
+
+The owner then walked to Sanctuary and Concord. Not verified: the miner suit at the pod (first-person screenshots; a
+default build logs no inventory line). The first screenshot also shows "Constellation space helmet removed" and
+"Constellation removed"; no log says what removed them (our build has no inventory reset). The phase 1 exit's quest
+list (no Starfield start quest in it) was not looked at.
+
+**Defect 1, ours: the player sank under the floor at the pod, and the game stood them on the COC marker.** The bridge:
+at rt 43.05 the player is in the intro's cell (66892, pos -21.8 49.4 58.0); our MoveTo at rt 43.59 leaves them at z
+-1.045, at the pod's z (-1.029); the next bridge line, after the vault's load, at rt 45.34, reads pos 9.203 -2.641
+-1.738, 0.69 m lower; at rt 45.98 the player stands at 1.531505 -7.385632 (z -0.815, then -0.851672 from rt 46.65),
+the cell's COC marker FO4Port.esm:001338 at (1.532, -7.386, -0.738) m (newgame.md K4). Nothing in our log moves the
+player then (pass 2 starts at rt 46.04), and no Papyrus entry around it moves the player, so the game itself put them
+on the marker. **Cause (inferred from those numbers):** the pod's z is not the floor's. On the marker the player stood
+at -0.852, so the hall's floor there is about 0.18 m above the pod's z, and a player started under a floor drops
+through it. Whether the floor at the pod is level with the marker's is **unverified**; Install's map test (section 11)
+logged the same `enter vault` position and was not watched after it. **Fix (newgame_v10):** the start is `PodLift`
+(0.3 m) above the pod's z, the marker's own height. The first tick the player is loaded after the move logs `pod
+settle ok=<bool> pos=<x y z> dx=<n> dy=<n> drop=<n>` (ok: within 1 m of the pod's x and y and at most 0.5 m under the
+start), and `make_newgame.py log` prints it as `pod_settle`. It moves nothing: the game's own reset to the marker stays
+the fallback.
+
+**Defect 2, ours: the ride's arrival was set in the move's own tick and ignored.** `surface moveto pos=-1275.313965
+1305.275757 119.384842` (MarsPlanetWorld, runtime FF00C482) is the exit anchor's (FO4TerrainCore.esm 0A775B, the
+Vault 111 map marker) local x and y (-1275.314, 1305.276), 7.8 m under its z (127.211). The `surface setposition` line
+right after reads the same position against the target -2467.781 -1406.925 128.110, so that SetPosition did nothing.
+The bridge has the player on that spot from rt 178.70 to 179.42, after the ride's load. At rt 181.43 the landing check
+read z 119.38, more than 3 m under the arrival, logged `fell` and put the player on the map marker's merged spot with
+its own SetPosition, which took at once. So "fell" here means "not on the arrival", and the player came up 5.7 s
+after the move, next to the marker instead of on the elevator's arrival. **Fix (newgame_v10):** the ride is two ticks,
+in the load door's order (MoveTo, a wait, SetPosition: FO4SF_LoadDoor's `SettleSeconds`). `Surface` only moves;
+`FinishSurface` sets the merged arrival on a later tick, once the player is outside and loaded, reads the position
+back (`surface setposition ok=<bool> set=<n> ...`), and goes on to stage 40 when it took, or after three tries
+(the landing check's fallback then decides). A move that has not left the vault after 10 s is made once more, then
+the elevator asks again.
+
+**Not ours (sent on to their threads, 29 Oct):** Codsworth missing at Sanctuary (the snapshot's bridge position
+-2342.7 -1408.3 112.0; the known Section A item, Codsworth about 3 km away); at Concord, black patches on the church
+and the buildings (textures), and the activator FO4TerrainCore.esm:00DCC6 (0400DCC6 in this load order) runs
+`DefaultActivateLinkedRefOnActivate` with no linked ref (core data); FO4SF_MapMarkers logs
+`FO4Core_CommonwealthLandingPadRedRocketNorth (090008F0): cannot be moved` every few seconds all session (map
+markers). Vanilla noise at the start (SFBGS003 bounty quest errors, MQ101 alias shutdowns from the hold-off's stop)
+moves nobody.
+
+**Next on the PC:** after this PR merges, restage newgame_v10 from main against the installed port and core, reinstall
+on the owner's line, a New Game from the main menu. Expected: `enter vault ok=true ... target=9.142858 -3.114286
+-0.728571`, then `pod settle ok=true` with a drop of about 0.1 m, and no fall; at the ride, `surface setposition
+ok=true set=1` and `landed z=...`, stage 200. A `pod settle ok=false` with the player on the COC marker means the
+floor at the pod is higher than the marker's (or has no collision there), the next thing to read in the port.
 
 ## Sources
 

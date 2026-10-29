@@ -243,7 +243,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
         enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
         self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
-        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
         center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
         self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
@@ -276,6 +276,64 @@ class ContractTests(unittest.TestCase):
         self.assertIn("## 3a. The vault anchor: persistent, or the temporary COC marker", doc)
         self.assertRegex(doc, r"0 persistent references of\s+1,166")
         self.assertIn("`CenterOnCell`", doc)
+
+    def test_the_pod_start_is_lifted_and_checked(self):
+        """Run 3 of 28 Oct (newgame_v9): the MoveTo put the player at the pod's z (-1.029), the bridge saw them 0.69 m
+        lower once the vault had loaded, and 0.64 s later the game stood them on the COC marker 8 m away (no script
+        moved them). On that marker (z -0.738) they stood at -0.852, so the start goes PodLift (0.3) higher, the marker's
+        height, and the first loaded tick after the move logs where the player stands ("pod settle"). The check moves
+        nothing: the game's own reset to the marker is the fallback."""
+        psc = read(PSC)
+        self.assertIn("float Property PodLift = 0.3 Auto Const", psc)
+        self.assertIn("float Property PodRadius = 1.0 Auto Const", psc)
+        self.assertIn("float Property PodDrop = 0.5 Auto Const", psc)
+        self.assertAlmostEqual(-1.029 + 0.3, -0.738, delta=0.01)   # the lifted start is the marker's height
+        enter = psc[psc.index("bool Function EnterVault"):psc.index("Function CheckPod")]
+        self.assertIn('" target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
+        body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
+        ten = body[body.index("elseif stage == 10"):body.index("elseif stage == 20 || stage == 30")]
+        self.assertIn("if !podChecked && player.Is3DLoaded()\n            CheckPod(player)\n        endif", ten)
+        self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
+        check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
+        self.assertIn("podChecked = true", check)
+        self.assertIn("float drop = PodZ + PodLift - player.GetPositionZ()", check)
+        self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
+        self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
+        for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):
+            self.assertNotIn(call, check)                    # evidence only
+        self.assertEqual(psc.count("CheckPod(player)"), 1)
+
+    def test_the_surface_arrival_waits_a_tick(self):
+        """Run 3 of 28 Oct: the ride's SetPosition, called in the MoveTo's own tick, was ignored (the "surface
+        setposition" line read the MoveTo's position, the anchor's local spot 7.8 m under it) and the fall check's
+        SetPosition 5.7 s later took. The ride is now two ticks, like the load door (MoveTo, wait, SetPosition): Surface
+        only moves; FinishSurface sets the merged arrival on a later tick, once the player is outside and loaded, reads
+        the position back, and goes on to stage 40 when it took or after SurfaceTries; a MoveTo that never left the vault
+        is redone once, then the elevator asks again."""
+        psc = read(PSC)
+        self.assertIn("float Property SurfaceWait = 10.0 Auto Const", psc)
+        self.assertIn("int Property SurfaceTries = 3 Auto Const", psc)
+        surface = psc[psc.index("Function Surface(Actor player)"):psc.index("Function FinishSurface")]
+        self.assertEqual(surface.count("player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)"), 1)
+        self.assertNotIn("SetPosition(", surface)
+        self.assertNotIn("AdvanceTo(", surface)
+        self.assertLess(surface.index("player.MoveTo("), surface.index("surfaceMovedAt = Utility.GetCurrentRealTime()"))
+        finish = psc[psc.index("Function FinishSurface"):psc.index("Function CheckLanding")]
+        self.assertNotIn("MoveTo(", finish.replace("Surface(player)", ""))   # its only move is Surface's, once more
+        self.assertLess(finish.index("if player.IsInInterior() || !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
+        self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
+        self.assertIn('Trace("surface setposition ok=" + ok + " set=" + surfaceSets', finish)
+        self.assertIn("if ok || surfaceSets >= SurfaceTries", finish)
+        self.assertLess(finish.index("if ok || surfaceSets >= SurfaceTries"), finish.index("AdvanceTo(40)"))
+        self.assertIn("if surfaceMoves < 2", finish)
+        self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
+        self.assertEqual(psc.count("AdvanceTo(40)"), 1)
+        body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
+        branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
+        self.assertIn("if surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
+        self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
+        land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
+        self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 3.0", land)   # three seconds after the arrival that took
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -941,6 +999,58 @@ class LogTests(unittest.TestCase):
         self.assertFalse(ng.is_new_game(0.333530, 1, max_days=0.25))
         self.assertTrue(ng.is_fresh_start(0, True, False))
         self.assertTrue(ng.is_new_game(0.333530, 1))
+
+    def test_the_owners_run_3_of_28_oct(self):
+        """The third in-game run (fo4sf_newgame.0.log, PC 28 Oct 18:07, newgame_v9, Install's copy
+        D:\\Modding\\testqueue\\newgame_20261028_run3): the whole chain ran, from the guard (opening at 5, running) to stage
+        200, with the quick start and SPECIAL left unset. The surface line shows the SetPosition that did not take (its
+        position is the MoveTo's), and "fell" is the fall check's fallback that moved the player off that spot. A build
+        before newgame_v10 has no "pod settle" line."""
+        text = ("[18:07:37] FO4SF_NEWGAME rt=36.587002 version saved=1.000000 (new game)\n"
+                "[18:07:42] FO4SF_NEWGAME rt=41.694000 init holdoff=4 vault=fo4port.esm:4920 anchor_temporary=false core=fo4terraincore.esm:685915\n"
+                "[18:07:43] FO4SF_NEWGAME rt=42.987003 guard days=0.333526 level=1 opening_stage=5 opening_running=true fresh=true mq101debug=0.000000 write_after_hold=2\n"
+                "[18:07:44] FO4SF_NEWGAME rt=43.064003 held off [mq00questscript <MQ00 (00005790)>] running_after=false pass=1\n"
+                "[18:07:44] FO4SF_NEWGAME rt=43.140003 held off [defaulttutorialquestscript <MQ101 (00003448)>] running_after=false pass=1\n"
+                "[18:07:44] FO4SF_NEWGAME rt=43.254002 mq101debug written=2.000000 was=0.000000\n"
+                "[18:07:44] FO4SF_NEWGAME rt=43.593002 enter vault ok=true pos=9.204920 -3.086447 -1.044888 target=9.142858 -3.114286 -1.028571 cell=[Cell <FO4Port_Vault111Cryo (030011F3)>]\n"
+                "[18:07:44] FO4SF_NEWGAME rt=43.611004 stage 10\n"
+                "[18:07:47] FO4SF_NEWGAME rt=46.120003 held off [Quest <MQ101PostQuest (0006A960)>] running_after=false pass=2\n"
+                "[18:07:47] FO4SF_NEWGAME rt=46.191002 held off [Quest <MQ_TutorialQuest_Misc04 (00021353)>] running_after=false pass=2\n"
+                "[18:07:52] FO4SF_NEWGAME rt=51.499001 looks done: Quick start\n"
+                "[18:07:52] FO4SF_NEWGAME rt=51.533001 stage 20\n"
+                "[18:07:54] FO4SF_NEWGAME rt=53.664001 status stage=20 pos=1.531505 -7.385632 -0.851672 cell=[Cell <FO4Port_Vault111Cryo (030011F3)>] world=None\n"
+                "[18:08:43] FO4SF_NEWGAME rt=90.139008 cog door open_state before=3 after=2\n"
+                "[18:08:43] FO4SF_NEWGAME rt=90.174004 stage 30\n"
+                "[18:10:07] FO4SF_NEWGAME rt=173.281006 elevator prompt button=0\n"
+                "[18:10:09] FO4SF_NEWGAME rt=175.729004 surface moveto pos=-1275.313965 1305.275757 119.384842 world=[WorldSpace <MarsPlanetWorld137917136288 (FF00C482)>]\n"
+                "[18:10:09] FO4SF_NEWGAME rt=175.743011 surface setposition pos=-1275.313965 1305.275757 119.384842 target=-2467.781494 -1406.924927 128.109528\n"
+                "[18:10:09] FO4SF_NEWGAME rt=175.758011 stage 40\n"
+                "[18:10:12] FO4SF_NEWGAME rt=178.517014 special skipped: left the vault with SPECIAL unset\n"
+                "[18:10:15] FO4SF_NEWGAME rt=181.429016 fell z=119.384842: fallback pos=-2475.313965 -1394.724243 127.223747\n"
+                "[18:10:15] FO4SF_NEWGAME rt=181.443008 stage 200\n")
+        code, s = self.run_log(text)
+        self.assertEqual(code, 0)
+        self.assertEqual(s["stages"], [10, 20, 30, 40, 200])
+        self.assertEqual(s["guard"], "days=0.333526 level=1 opening_stage=5 opening_running=true fresh=true mq101debug=0.000000 write_after_hold=2")
+        self.assertEqual(s["mq101debug_written"], "2.000000 was=0.000000")
+        self.assertTrue(s["entered_vault"])
+        self.assertIsNone(s["pod_settle"])
+        self.assertEqual(s["looks_done"], "Quick start")
+        self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
+        self.assertTrue(s["fell"])
+        self.assertIsNone(s["landed"])
+        self.assertIn("pos=-1275.313965 1305.275757 119.384842 target=-2467.781494", s["surfaced"])   # not taken
+        self.assertIsNone(s["centered"])                     # the port's COC marker is persistent now
+        # newgame_v10's lines: the settle check and a surface line that says whether the arrival took
+        v10 = self.run_log("[x] FO4SF_NEWGAME rt=43.6 enter vault ok=true pos=9.2 -3.1 -0.73 target=9.14 -3.11 -0.73 cell=x\n"
+                           "[x] FO4SF_NEWGAME rt=46.2 pod settle ok=true pos=9.2 -3.1 -0.85 dx=0.06 dy=0.01 drop=0.12\n"
+                           "[x] FO4SF_NEWGAME rt=47.2 pod settle ok=false pos=1.5 -7.4 -0.85 dx=-7.6 dy=-4.3 drop=0.12\n"
+                           "[x] FO4SF_NEWGAME rt=178.7 surface setposition ok=true set=1 pos=-2467.78 -1406.92 128.11 target=-2467.78 -1406.92 128.11\n")[1]
+        self.assertEqual(v10["pod_settle"], "ok=true pos=9.2 -3.1 -0.85 dx=0.06 dy=0.01 drop=0.12")   # the first line counts
+        self.assertTrue(v10["surfaced"].startswith("surface setposition ok=true set=1 "))
+        psc = read(PSC)
+        self.assertIn('Trace("pod settle ok=" + ok + " pos="', psc)
+        self.assertIn('Trace("surface setposition ok=" + ok + " set="', psc)
 
     def test_the_owners_run_2_of_28_oct_never_started(self):
         """The second in-game run (fo4sf_newgame.0.log, PC 28 Oct 13:35, build 5167f6aa, MQ101Debug overridden to 2):

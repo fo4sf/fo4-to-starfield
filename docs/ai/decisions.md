@@ -712,3 +712,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
   call, so this list installs nothing.
 - **Boundary:** none of these has been tested on our build. Cassiopeia is not bundled. CommonLibSF's licence is
   checked before anything built on it ships.
+
+## 2026-10-29: the vault start goes 0.3 m above the pod; the ride's arrival waits a tick (Claude-cloud)
+- Decision: newgame_v10 puts the player `PodLift` (0.3 m) above the pod's z and logs a `pod settle` line the first
+  loaded tick after the move, moving nothing again; the elevator ride is two ticks, MoveTo first and the SetPosition on
+  the merged arrival on a later tick once the player is outside and loaded, read back and tried up to three times
+  (docs/newgame/vault111-start.md section 12).
+- Why: the owner's third new game (28 Oct, newgame_v9) reached stage 200, but the player sank under the floor at the
+  pod's own z and the game stood them on the COC marker 8 m away; on that marker they stood 0.18 m above the pod's z,
+  and 0.3 m is the marker's own height. The ride's SetPosition in the MoveTo's tick was ignored, and the landing
+  check's SetPosition 5.7 s later took; the load door already waits between the two.
+- Alternatives: a retry MoveTo when the settle check fails (rejected for now: a second sink would show the owner two
+  falls, and the game's reset to the marker already leaves them standing); the COC marker itself as the start (8 m
+  from the pod; kept as what the game does on a sink).

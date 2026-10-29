@@ -634,7 +634,8 @@ def split_runs(lines, line_re, start="init ", carry=()):
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
-    "entered_vault", "surfaced", "landed", "fell", "stood_down", "guard", "last_status", "runs", "earlier_completed"}.
+    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "guard", "last_status", "runs",
+    "earlier_completed"}.
     "guard" is the guard's readings line ("days=<n> level=<n> opening_stage=<n> opening_running=<bool> fresh=<bool>
     mq101debug=<n> write_after_hold=<n>", written before the verdict since 28 Oct; None in an older build's log).
     "mq101debug_written" is the write right after hold-off pass 1 ("<n> was=<n>"; None when the build writes nothing,
@@ -643,6 +644,10 @@ def summarize(lines):
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
     persistent mode, which never centers, or when the anchor resolved at once).
+    "pod_settle" is where the player stood the first loaded tick after the move into the pod ("ok=<bool> pos=<x y z>
+    dx=<n> dy=<n> drop=<n>"; None in a build before newgame_v10, which had no such line: run 3 of 28 Oct sank under the
+    pod's z and the game put the player on the COC marker). "surfaced" is the last "surface setposition" line: since
+    newgame_v10 it says whether the merged arrival took ("ok=<bool> set=<n> pos=... target=...").
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
     says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
@@ -655,7 +660,7 @@ def summarize(lines):
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
          "inventory_cleared": None, "vault_suit": None, "centered": None,
-         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None, "mq101debug_written": None,
+         "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "guard": None, "mq101debug_written": None,
          "last_status": None, "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
@@ -694,6 +699,9 @@ def summarize(lines):
             # Starfield's Papyrus prints a bool as "true" / "false" (the 28 Oct log: anchor_temporary=true), FO4's
             # tests wrote "True"; both read
             s["entered_vault"] = msg.split()[2].lower() == "ok=true"
+        elif msg.startswith("pod settle "):
+            if s["pod_settle"] is None:                      # the script checks once
+                s["pod_settle"] = msg[len("pod settle "):]
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
