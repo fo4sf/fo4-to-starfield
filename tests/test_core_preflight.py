@@ -314,6 +314,9 @@ class CheckTests(unittest.TestCase):
         c = one("start", starts=newgame)
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("FO4SFNewGame.esm:MQ101Debug: our plugin overrides Starfield's opening itself", c.detail)
+        c = one("start", starts=([("FO4SliceRedRocket.esm", "MQ101", "003448")], []))   # the slice is ours too
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("FO4SliceRedRocket.esm:MQ101: our plugin overrides Starfield's opening itself", c.detail)
         # our own start (pick F) overrides StartupQuest_DO only: listed, and it passes
         mine = ([("FO4SFStart.esm", "StartupQuest_DO", "00562D")], [])
         c = one("start", starts=mine)

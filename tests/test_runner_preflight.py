@@ -249,6 +249,13 @@ class ProbeOnThisBoxTests(unittest.TestCase):
             self.assertIn("Other.esm:StartupQuest_DO: a plugin not ours", c.detail)
             installed = self.pin(port={"mode": "installed", "plugin_sha256": "x"})   # the run loads Data's port
             self.assertEqual(installed.start_overrides()[0], [("Other.esm", "StartupQuest_DO", "00562D")])
+            bdir = os.path.join(self.d, "bridge")                            # bridge_install.py installs it at the launch
+            os.makedirs(bdir)
+            plugin(os.path.join(bdir, "FO4SFBridge.esm"), b"QUST", 0x00003448)
+            bridged = self.pin(bridge={"dir": bdir, "plugin": "FO4SFBridge.esm", "sha256": {}})
+            self.assertEqual(bridged.staged_at_launch()[-1], ("FO4SFBridge.esm", os.path.join(bdir, "FO4SFBridge.esm")))
+            self.assertEqual(bridged.start_overrides()[0], [("Other.esm", "StartupQuest_DO", "00562D"),
+                                                            ("FO4SFBridge.esm", "MQ101", "003448")])
             with open(os.path.join(mg, "StarfieldCustom.ini"), "w", encoding="utf-8") as f:
                 f.write("[General]\nsTestFile1=Other.esm\n")
             with open(os.path.join(mg, "Starfield.ccc"), "w", encoding="utf-8") as f:

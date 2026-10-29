@@ -15,19 +15,24 @@ The format (verified: Install's copy of the 28 Oct new game run 3 log, Starfield
   alias ("[alias DerelictShips on quest SFFL_SE_EC08 (01058CDB)]").
 * Form ids print as 8 hex digits. An FF id is made while the game runs, so the same thing gets another id in another
   run: the comparison reads every FF id as FF??????. Other ids are kept: Bethesda's own plugins load first, in a
-  fixed order, so their ids are the same in two runs on the same built-in plugin set (the preflight's builtins check).
+  fixed order, so their ids are the same in two runs on the same built-in plugin set (scripts/game/baseline.py
+  compare says when the built-in plugins' names or sizes differ from the baseline's).
 
-A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in one
-group: "both" (the baseline has the same kind), "both_place" (the baseline has the same message at the same script
-line, from another caller or object), "ours" (it names one of our records or scripts: every one of them starts with
-FO4 or FOCC) or "starfield" (Starfield's own scripts, but only in this run: the cost of what we change). Kinds only
-the baseline has are "baseline". A group says where a message came, not why: a Starfield error only in our run can
-still be one Starfield makes later in its own intro, which the baseline did not reach.
+A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in the
+first group that fits: "both" (the baseline has the same kind), "ours" (it names one of our records or scripts:
+fo4sf.core.loadset's prefixes, FO4 and FOCC), "both_place" (the baseline has the same message at the same script
+line, from another caller or object) or "starfield" (Starfield's own scripts, but only in this run: the cost of what
+we change). A kind of ours keeps how many baseline lines came at its script line. The baseline's kinds that the run
+does not have, at a script line no "both_place" kind of the run has, are "baseline". Every baseline line is counted
+in one group only. A group says where a message came, not why: a Starfield error only in our run can still be one
+Starfield makes later in its own intro, which the baseline did not reach.
 """
 import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+
+from .loadset import OUR_PREFIXES
 
 LEVELS = ("error", "warning", "note")
 GROUPS = ("ours", "starfield", "both_place", "both", "baseline")
@@ -43,7 +48,7 @@ _FRAME = re.compile(r'^\s*\[(?P<obj>.*?)\]\.(?P<call>\S.*?) - "(?P<file>[^"]*)" 
 _RUNTIME = re.compile(r"(?<![0-9A-Fa-f])FF[0-9A-Fa-f]{6}(?![0-9A-Fa-f])")
 _ID = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{8}(?![0-9A-Za-z])")
 _NUMBER = re.compile(r"(?<![0-9A-Za-z#])\d+(?![0-9A-Za-z])")
-_OURS = re.compile(r"(?<![A-Za-z0-9_])(?:FO4|FOCC)[A-Za-z0-9_]*", re.IGNORECASE)
+_OURS = re.compile(r"(?<![A-Za-z0-9_])(?:" + "|".join(map(re.escape, OUR_PREFIXES)) + r")[A-Za-z0-9_]*", re.IGNORECASE)
 
 
 @dataclass
@@ -72,7 +77,8 @@ class Event:
         return (self.level, template(self.text), where)
 
     def ours(self):
-        """Our names in the message or its stack (sorted, unique): our EditorIDs and scripts start with FO4 or FOCC."""
+        """Our names in the message or its stack (sorted, unique): our EditorIDs and scripts start with FO4 or FOCC
+        (fo4sf.core.loadset.OUR_PREFIXES)."""
         found = set(_OURS.findall(self.text))
         for f in self.frames:
             found.update(_OURS.findall(f))
@@ -140,51 +146,56 @@ def parse(text, path=""):
 
 
 def read(path):
-    """The log at path, read as UTF-8; a byte that does not decode is replaced, so one odd byte never stops the read."""
-    with open(path, encoding="utf-8", errors="replace") as f:
+    """The log at path, read as UTF-8 (a byte-order mark dropped); a byte that does not decode is replaced, so one odd
+    byte never stops the read."""
+    with open(path, encoding="utf-8-sig", errors="replace") as f:
         return parse(f.read(), path)
 
 
 def compare(run, baseline, levels=("error", "warning")):
-    """The run's kinds against the baseline's, as {"kinds": [...], "summary": {...}}. Only the levels given are
-    grouped (notes are counted, not grouped, by default: they are the log's own housekeeping and trace lines)."""
-    rk, bk = run.kinds(), baseline.kinds()
-    rk = {k: v for k, v in rk.items() if k[0] in levels}
-    bk = {k: v for k, v in bk.items() if k[0] in levels}
-    b_places = Counter()
+    """The run's kinds against the baseline's, as {"kinds": [...], "summary": {...}}, each kind in one group (module
+    doc). Only the levels given are grouped (notes are counted, not grouped, by default: they are the log's own
+    housekeeping and trace lines). A kind has run_count and baseline_count, its lines in each log ("both_place": the
+    baseline's lines at its script line), and place_count, the baseline's lines at its script line from kinds the run
+    does not have. A summary's baseline_lines count every baseline line once: the groups add up to the baseline's
+    lines of those levels."""
+    rk = {k: v for k, v in run.kinds().items() if k[0] in levels}
+    bk = {k: v for k, v in baseline.kinds().items() if k[0] in levels}
+    at_place = Counter()                  # the baseline's lines at each place, of the kinds the run does not have
     for k, evs in bk.items():
-        b_places[evs[0].place] += len(evs)
-    r_places = {evs[0].place for evs in rk.values()}
-    kinds = []
+        if k not in rk:
+            at_place[evs[0].place] += len(evs)
+    kinds, shared = [], set()
     for k, evs in rk.items():
         e = evs[0]
+        n = at_place.get(e.place, 0)
         if k in bk:
-            group = "both"
-        elif e.place in b_places:
-            group = "both_place"
+            kinds.append(_kind("both", e, len(evs), len(bk[k]), n))
         elif e.ours():
-            group = "ours"
+            kinds.append(_kind("ours", e, len(evs), 0, n))
+        elif n:
+            kinds.append(_kind("both_place", e, len(evs), n, n))
+            shared.add(e.place)
         else:
-            group = "starfield"
-        kinds.append(_kind(group, e, len(evs), len(bk.get(k, [])) if group == "both" else b_places.get(e.place, 0)
-                           if group == "both_place" else 0))
+            kinds.append(_kind("starfield", e, len(evs), 0, 0))
     for k, evs in bk.items():
-        if k not in rk and evs[0].place not in r_places:
-            kinds.append(_kind("baseline", evs[0], 0, len(evs)))
+        if k not in rk and evs[0].place not in shared:
+            kinds.append(_kind("baseline", evs[0], 0, len(evs), 0))
     order = {g: i for i, g in enumerate(GROUPS)}
     kinds.sort(key=lambda x: (order[x["group"]], -max(x["run_count"], x["baseline_count"]), x["line"]))
     summary = {}
     for g in GROUPS:
         ks = [x for x in kinds if x["group"] == g]
-        summary[g] = {"kinds": len(ks), "run_lines": sum(x["run_count"] for x in ks),
-                      "baseline_lines": sum(x["baseline_count"] for x in ks)}
+        base = sum(at_place[p] for p in shared) if g == "both_place" else sum(x["baseline_count"] for x in ks)
+        summary[g] = {"kinds": len(ks), "run_lines": sum(x["run_count"] for x in ks), "baseline_lines": base}
     return {"run": _about(run), "baseline": _about(baseline), "levels": list(levels), "summary": summary,
             "kinds": kinds}
 
 
-def _kind(group, e, run_count, baseline_count):
+def _kind(group, e, run_count, baseline_count, place_count):
     return {"group": group, "level": e.level, "text": e.text, "frames": list(e.frames), "place": e.place[2],
-            "ours": e.ours(), "run_count": run_count, "baseline_count": baseline_count, "line": e.line}
+            "ours": e.ours(), "run_count": run_count, "baseline_count": baseline_count, "place_count": place_count,
+            "line": e.line}
 
 
 def _about(log):
@@ -210,7 +221,8 @@ def report_lines(rep, top=12):
         for x in ks[:top]:
             n = x["baseline_count"] if g == "baseline" else x["run_count"]
             where = f" at {x['place']}" if x["place"] else ""
-            mine = f" [ours: {', '.join(x['ours'])}]" if x["ours"] else ""
+            here = f"; {x['place_count']} baseline lines at this place" if g == "ours" and x["place_count"] else ""
+            mine = f" [ours: {', '.join(x['ours'])}{here}]" if x["ours"] else ""
             out.append(f"  {n:4}x {x['level']}: {x['text'][:160]}{where}{mine}")
         if len(ks) > top:
             out.append(f"  ... and {len(ks) - top} more kinds (all in the JSON report)")

@@ -2,8 +2,9 @@
 is PASS, or the gate refuses and the ledger says why.
 
 Pure Python: the checks read nothing themselves. A *probe* object supplies the readings (the runner's PreflightProbe
-in scripts/game/testqueue.py reads the PC; the tests use a fake), so the Windows-only parts (Plugins.txt under
-%LOCALAPPDATA%, Starfield.exe's version, the Saves folder, the ini files, the Guardian database) stay in the adapter.
+in scripts/game/testqueue.py reads the PC, through fo4sf.launcher.loadprobe for the loaders and start checks; the
+tests use a fake), so the Windows-only parts (Plugins.txt under %LOCALAPPDATA%, Starfield.exe's version, the Saves
+folder, the ini files, the Guardian database) stay in the adapter.
 A reading the probe cannot give is UNKNOWN, and UNKNOWN refuses exactly like FAIL ("any unknown → refuse").
 
 The probe interface (every method may raise; the gate turns an exception into UNKNOWN for that check):
@@ -26,7 +27,8 @@ The probe interface (every method may raise; the gate turns an exception into UN
   save_present(name)                 True / False, None when the Saves folder is not there
   ini_texts()                        the texts of the ini files that exist, lowest precedence first (the game folder's
                                      Starfield.ini, then StarfieldCustom.ini in My Games, which overrides it)
-  my_games_known()                   True when a My Games\\Starfield folder was found (fo4sf.core.loadset reads the rest)
+  my_games_known()                   True when a My Games\\Starfield folder was found (fo4sf.launcher.loadprobe reads
+                                     the rest)
   ini_test_files()                   [(ini path, line, key, value)] of every sTestFileN set in the game's INIs
   ccc_files()                        [(path, [plugin names])] of every Starfield.ccc, My Games first
   shadow_plugins()                   [(path, name)] of the plugins in My Games\\Starfield\\Data named like one in Data

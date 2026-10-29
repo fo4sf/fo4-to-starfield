@@ -744,10 +744,12 @@ decided the import path); keeping the order as a parameter (two orders in the co
     other byte of Plugins.txt. It records the built-in plugins and Starfield.exe, and after one plain New Game it
     collects the Papyrus log and puts Plugins.txt back byte for byte. `compare` sorts a run's errors into "only ours",
     "only in the run, Starfield's own scripts" and "in both" (`src/fo4sf/core/papyrus_log.py`).
-  - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7), read by
-    `src/fo4sf/core/loadset.py`. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a plugin copy in
-    `My Games\Starfield\Data`. They also refuse an unexpected override of `StartupQuest_DO`, `MQ101` or `MQ101Debug`.
-    Our own start (pick F) may override `StartupQuest_DO` without a pin.
+  - The deployment gate gets two checks (`loaders`, `start`, docs/ai/leader-core.md section 7). Their rules are in
+    `src/fo4sf/core/loadset.py`, which reads nothing, and `src/fo4sf/launcher/loadprobe.py` reads the PC for them, so
+    the core still reads nothing on the PC. They refuse an `sTestFile`, a `Starfield.ccc` that lists a mod, and a
+    plugin copy in `My Games\Starfield\Data`. They also refuse an unexpected override of `StartupQuest_DO`, `MQ101`
+    or `MQ101Debug`. Our own start (pick F) may override `StartupQuest_DO` without a pin. One rule says what is ours,
+    for plugins and for names in a log: it starts with FO4 or FOCC.
 - **Why:** run 3's log (28 Oct) mixes our errors (28 from our map marker script, `FO4SF_MapMarkers.psc`) with errors
   from Starfield's own scripts (SFBGS003's shutdown script among them), and nobody knew which of Starfield's come in a
   vanilla game too. Without a baseline every one of them looks like ours. The 28 Oct pirate fight was our own

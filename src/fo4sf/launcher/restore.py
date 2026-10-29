@@ -376,7 +376,9 @@ def game_running():
 
 
 def write_plugins_txt(path, target_b64, expected_sha256):
-    """Guarded rewrite: refuses if Plugins.txt changed after the plan was made."""
+    """Guarded rewrite: refuses if Plugins.txt changed after the plan was made. A write that fails (a read-only
+    Plugins.txt, or one another program holds open, on Windows) leaves Plugins.txt as it was and removes the temp file,
+    then raises."""
     path = _plugins_txt_path(path)
     cur = _read(path)
     if (None if cur is None else hashlib.sha256(cur).hexdigest()) != expected_sha256:
@@ -386,9 +388,16 @@ def write_plugins_txt(path, target_b64, expected_sha256):
             os.remove(path)
         return
     tmp = f"{path}.fo4sf-restore.tmp"
-    with open(tmp, "wb") as f:
-        f.write(base64.b64decode(target_b64))
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(base64.b64decode(target_b64))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def apply(target, repo, *, port_staging=None, running=game_running, run=subprocess.run, echo=print, watch=()):

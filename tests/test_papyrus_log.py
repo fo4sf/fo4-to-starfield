@@ -97,6 +97,10 @@ class ParseTests(unittest.TestCase):
                 f.write(b"[1] error: bad \xff byte\n")
             log = pl.read(p)
             self.assertEqual((log.path, log.events[0].text), (p, "bad � byte"))
+            with open(p, "wb") as f:                                   # a byte-order mark does not hide the first line
+                f.write(b"\xef\xbb\xbf[05:20:01] Papyrus log opened (PC-64)\n")
+            log = pl.read(p)
+            self.assertEqual((log.unparsed, log.events[0].text), (0, "Papyrus log opened (PC-64)"))
 
 
 class CompareTests(unittest.TestCase):
@@ -120,6 +124,49 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(self.rep["summary"]["ours"], {"kinds": 1, "run_lines": 1, "baseline_lines": 0})
         self.assertEqual(self.rep["run"]["error"], 5)
         self.assertEqual(self.rep["levels"], ["error", "warning"])
+
+    def test_every_baseline_line_is_counted_once(self):
+        rep = self.rep
+        self.assertEqual(sum(g["baseline_lines"] for g in rep["summary"].values()),
+                         rep["baseline"]["error"] + rep["baseline"]["warning"])
+        base = "\n".join([                                            # three lines at one script line, two kinds
+            "[1] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN,
+            "[2] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN, "\t[Q2 (00001234)].Q2Script.Go() - \"Q2Script.psc\" Line 4",
+            "[3] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN, "\t[Q2 (00001234)].Q2Script.Go() - \"Q2Script.psc\" Line 4", ""])
+        run = "\n".join([                                             # the first kind exactly, and two other callers
+            "[1] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN,
+            "[2] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN, "\t[Q3 (00001235)].Q3Script.Go() - \"Q3Script.psc\" Line 9",
+            "[3] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", SHUTDOWN, "\t[Q4 (00001236)].Q4Script.Go() - \"Q4Script.psc\" Line 2", ""])
+        rep = pl.compare(pl.parse(run), pl.parse(base))
+        s = rep["summary"]
+        self.assertEqual([(k["group"], k["baseline_count"]) for k in rep["kinds"]],
+                         [("both_place", 2), ("both_place", 2), ("both", 1)])
+        self.assertEqual((s["both"]["baseline_lines"], s["both_place"]["baseline_lines"], s["baseline"]["kinds"]), (1, 2, 0))
+        only_exact = pl.compare(pl.parse("\n".join(run.splitlines()[:3])), pl.parse(base))
+        self.assertEqual([(k["group"], k["baseline_count"]) for k in only_exact["kinds"]],
+                         [("both", 1), ("baseline", 2)])                 # the other kind at that line is not lost
+        self.assertEqual(sum(g["baseline_lines"] for g in only_exact["summary"].values()), 3)
+
+    def test_ours_comes_before_the_same_script_line(self):
+        run = "\n".join([                                             # our reference, at a line vanilla errors at too
+            "[1] error: Cannot call Disable() on a None object, aborting function call",
+            "stack:", "\t[FO4Core_MarkerRef (0A001234)].SFBGS003:SFBGS003_ShutdownQuestScript.Shutdown() - "
+            "\"SFBGS003_ShutdownQuestScript.psc\" Line 51", ""])
+        rep = pl.compare(pl.parse(run), pl.parse(BASELINE))
+        ours = [k for k in rep["kinds"] if k["group"] == "ours"]
+        self.assertEqual([(k["ours"], k["place_count"]) for k in ours], [(["FO4Core_MarkerRef"], 1)])
+        self.assertEqual(rep["summary"]["ours"], {"kinds": 1, "run_lines": 1, "baseline_lines": 0})
+        self.assertEqual(rep["summary"]["both_place"]["kinds"], 0)
+        self.assertIn("baseline", {k["group"] for k in rep["kinds"]})   # the vanilla kind there is still counted
+        self.assertEqual(sum(g["baseline_lines"] for g in rep["summary"].values()), 3)
+        self.assertTrue(any("[ours: FO4Core_MarkerRef; 1 baseline lines at this place]" in ln
+                            for ln in pl.report_lines(rep)))
 
     def test_a_kind_only_the_baseline_has(self):
         rep = pl.compare(pl.parse(""), pl.parse(BASELINE))

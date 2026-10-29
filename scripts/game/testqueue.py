@@ -2593,16 +2593,21 @@ class PreflightProbe:
 
     def staged_at_launch(self):
         """[(name, staged path)] of the plugins installed at the launch, so the start check reads the file that will
-        load: the pinned experiment's plugins, and the staging's FO4Port.esm unless the queue tests the installed port."""
+        load: the pinned experiment's plugins, the staging's FO4Port.esm unless the queue tests the installed port, and
+        the bridge (bridge_install.py installs it from the queue's bridge dir before every launch)."""
         pin = self.queue.get("experiment_identity") or {}
         out = [(n, os.path.join(pin.get("exp_dir") or "", n)) for n in pin.get("plugins") or []]
         if (self.queue.get("port") or {}).get("mode") != "installed" and self.queue.get("staging"):
             out.append(("FO4Port.esm", os.path.join(self.queue["staging"], "FO4Port.esm")))
+        br = self.queue.get("bridge") or {}
+        if br.get("dir"):
+            name = br.get("plugin") or BRIDGE_PLUGIN
+            out.append((name, os.path.join(br["dir"], name)))
         return out
 
     def load_probe(self):
-        """The loaders and start checks' readings (fo4sf.core.loadset; src is on sys.path once the gate runs)."""
-        from fo4sf.core.loadset import LoadProbe, plugins_txt_path
+        """The loaders and start checks' readings (fo4sf.launcher.loadprobe; src is on sys.path once the gate runs)."""
+        from fo4sf.launcher.loadprobe import LoadProbe, plugins_txt_path
         return LoadProbe(self.starfield, self.my_games(), plugins_txt_path(), self.staged_at_launch(), self.queue)
 
     def my_games_known(self):
