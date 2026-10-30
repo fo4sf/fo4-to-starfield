@@ -16,8 +16,10 @@ class LeadCommitTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
         empty = os.path.join(self.d, "empty.gitconfig")
         open(empty, "w").close()
-        self.env = dict(os.environ, GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
-                        GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        # HOME/XDG_CONFIG_HOME isolate the wrapper's git too (it drops GIT_CONFIG_GLOBAL by design)
+        self.env = dict(os.environ, HOME=self.d, XDG_CONFIG_HOME=self.d, GIT_CONFIG_GLOBAL=empty,
+                        GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
         self.d = os.path.join(self.d, "repo")
         os.makedirs(self.d)
         self.git("init", "-q", "-b", "main")
@@ -108,6 +110,20 @@ class LeadCommitTests(unittest.TestCase):
         self.assertEqual(self.head(), "Lead (local): mine")
         with open(os.path.join(self.d, "docs", "ai", "agent-status.md"), encoding="utf-8") as f:
             self.assertIn("<<<<<<<", f.read())                   # left for a person, not committed
+
+    def test_injected_git_settings_and_planted_hooks_do_not_run(self):
+        hooks = os.path.join(self.d, "docs", "ai", "hooks")
+        os.makedirs(hooks)
+        marker = os.path.join(self.d, "hook-ran")
+        with open(os.path.join(hooks, "pre-commit"), "w", newline="\n") as f:
+            f.write(f"#!/bin/sh\ntouch '{marker}'\n")
+        os.chmod(os.path.join(hooks, "pre-commit"), 0o755)
+        self.write("docs/ai/agent-status.md", "new\n")
+        env = dict(self.env, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath", GIT_CONFIG_VALUE_0="docs/ai/hooks")
+        r = subprocess.run([sys.executable, "-I", SCRIPT, "x"], cwd=self.d, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertFalse(os.path.exists(marker), "a hook ran inside lead_commit.py")
+        self.assertEqual(self.head(), "Lead (local): x")
 
     def test_nothing_to_commit_is_not_an_error(self):
         code, out = self.run_tool("x")

@@ -37,7 +37,7 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, 2>&1): " +
           "each stage of a pipeline is checked separately, the filters are not allowed, and any command containing " +
           "the character > is refused, so do not put that character in comment text either. " +
-          "Commit your own docs/ai edits on this branch with python -P tools/ai-team/lead_commit.py '<what changed>' " +
+          "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py '<what changed>' " +
           "(it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
 $wait = $Interval; $cycle = 0

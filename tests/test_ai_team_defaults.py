@@ -80,8 +80,8 @@ class TeamModelTests(unittest.TestCase):
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))
         lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
-        self.assertRegex(lead, r'"python -P tools/ai-team/lead_commit.py \*": allow')
-        self.assertIn("python -P tools/ai-team/lead_commit.py", read("run-lead.ps1"))
+        self.assertRegex(lead, r'"python -I tools/ai-team/lead_commit.py \*": allow')
+        self.assertIn("python -I tools/ai-team/lead_commit.py", read("run-lead.ps1"))
         self.assertNotRegex(lead, r'"git (add|commit)[^"]*": allow')   # no raw git writes
         self.assertRegex(lead, r'"git push\*": deny')
         self.assertRegex(lead, r'"gh pr review\*": deny')
@@ -147,11 +147,11 @@ class LeadPromptTests(unittest.TestCase):
             return found
         for command in ("gh issue list --state all --limit 15", "gh issue view 32",
                         "python tools/ai-team/guardian/guardian.py status",
-                        "python -P tools/ai-team/lead_commit.py 'refresh agent status'"):
+                        "python -I tools/ai-team/lead_commit.py 'refresh agent status'"):
             self.assertEqual(verdict(command), "allow", command)
         # a redirect behind an allowed command (as OpenCode matches it: the redirect is part of the text) is denied
         for command in ("git log -1 --format=tformat:x > tools/ai-team/argparse.py",
-                        "python -P tools/ai-team/lead_commit.py x > a", "gh issue view 32 2>&1",
+                        "python -I tools/ai-team/lead_commit.py x > a", "gh issue view 32 2>&1",
                         "python tools/ai-team/lead_commit.py x"):
             self.assertIn(verdict(command), ("deny", "ask"), command)
         self.assertEqual(verdict("git log -1 > .git/hooks/pre-commit"), "deny")

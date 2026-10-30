@@ -31,7 +31,7 @@ permission:
     "git log*": allow
     "git diff*": allow
     "git worktree list*": allow
-    "python -P tools/ai-team/lead_commit.py *": allow
+    "python -I tools/ai-team/lead_commit.py *": allow
     "git push*": deny
     "python tools/ai-team/guardian/guardian.py status*": allow
     "python tools/ai-team/guardian/guardian.py report*": allow

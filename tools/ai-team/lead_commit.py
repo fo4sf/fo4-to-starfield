@@ -1,6 +1,9 @@
 """Commit the unattended Lead's own docs/ai edits on its branch, and nothing else (the Lead's only git write).
 
-  python -P tools/ai-team/lead_commit.py "<what changed>"   (-P: the script's folder is not put on sys.path)
+  python -I tools/ai-team/lead_commit.py "<what changed>"   (-I: no script folder on sys.path, PYTHON* ignored)
+
+git runs with every GIT_* variable but the author/committer identity removed, core.hooksPath at the null device and
+core.fsmonitor off, so neither an injected setting nor a planted hook changes what it commits or runs.
 
 Refuses (exit 1) unless the current branch is ai/local-lead, nothing is unmerged, no merge / cherry-pick / revert /
 rebase is in progress, and nothing outside docs/ai/ is staged (renames count as their source and destination);
@@ -20,8 +23,14 @@ PREFIX = "Lead (local): "
 IN_PROGRESS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
 
 
+IDENTITY = {"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"}
+CLEAN_ENV = {k: v for k, v in os.environ.items()                      # no injected git config, dir, index or tree
+             if not k.upper().startswith("GIT_") or k.upper() in IDENTITY}
+NO_HOOKS = ["-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false"]   # nothing configured runs
+
+
 def git(*args):
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    r = subprocess.run(["git", *NO_HOOKS, *args], capture_output=True, text=True, env=CLEAN_ENV)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout
@@ -72,7 +81,7 @@ def main(argv=None):
             print("refused: staged outside docs/ai/: " + ", ".join(outside)); return 1
         if not staged():
             print("nothing to commit in docs/ai/"); return 0
-        git("commit", "--only", "-m", msg, "--", DOCS)     # only docs/ai/, whatever else is staged by then
+        git("commit", "--no-verify", "--only", "-m", msg, "--", DOCS)   # only docs/ai/, whatever else is staged
         print(git("log", "-1", "--format=%h %s").strip())
         return 0
     except RuntimeError as e:

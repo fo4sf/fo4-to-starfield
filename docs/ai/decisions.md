@@ -949,8 +949,9 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - `load_model.py` defaults to 65536 tokens (the SDK's 1 h idle TTL stays); `opencode.json` limits the four agents to
     65536 with an output limit of 16384, so OpenCode compacts a session at about 49K tokens (context minus output)
     rather than 33.5K. A 128K session by hand also needs the limits raised locally.
-  - The Lead's only git write is `python -P tools/ai-team/lead_commit.py "<what changed>"` (`-P`: no script folder on
-    `sys.path`), which commits only `docs/ai/` (`git commit --only -- docs/ai/`) on `ai/local-lead` with a
+  - The Lead's only git write is `python -I tools/ai-team/lead_commit.py "<what changed>"` (`-I`: no script folder on
+    `sys.path`, `PYTHON*` variables ignored; git runs with every `GIT_*` variable removed, `core.hooksPath` at the null
+    device and `--no-verify`), which commits only `docs/ai/` (`git commit --only -- docs/ai/`) on `ai/local-lead` with a
     `Lead (local): ` subject and refuses anything else (another branch or a detached HEAD, unmerged files, a
     merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames counted by their source).
     `fo4-lead.md` allows exactly that command and denies `gh pr review*` and `gh pr comment*` (`gh pr review *
@@ -958,8 +959,8 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - Any command containing `>`, `--output` or `--no-index` is denied: `"*>*"`, `"*--output*"` and `"*--no-index*"`
     are the last bash rules globally (`opencode.json`) and in all four agent files. OpenCode's `evaluate` takes the
     last matching rule in file order (`fromConfig` keeps the order, `merge` concatenates, and an agent file comes
-    after the global block), and a redirect is matched as part of the command's text, so this blocks redirects
-    (including `2>&1`), git's `--output=<file>` and `git diff --no-index` behind every allowed command.
+    after the global block), and a redirect is matched as part of the command's text, so this blocks the plain forms
+    `cmd > file` (including `2>&1`), git's `--output=<file>` and an explicit `git diff --no-index`.
   - `run-lead.ps1`: the prompt points the Lead at the wrapper, asks for gh and git without pipes or redirects and for no
     `>` in comment text, and names docs-only or research issues labelled `agent:local-team` + `ready` as good tasks
     (no code changes, no fo4-implement; research and the status refresh stay, as in the #592 entry). It logs a failed
@@ -986,7 +987,11 @@ decided the import path); keeping the order as a parameter (two orders in the co
     reached).
 - Boundary: the `>` deny also refuses a `>` inside quoted text, such as a #32 comment that says "RAM > 85%".
   fo4-implement may still edit any file through its edit permission; only the prompt keeps the unattended Lead from
-  delegating to it (`task` still allows it). These are pattern rules, not a sandbox: a git option not named here that
-  writes files would get through. Running the Lead as a restricted OS user is the real fix and is a follow-up. 64K makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
+  delegating to it (`task` still allows it). These are pattern rules on single command nodes, not a sandbox, and an
+  independent review of head dbdac7da showed they do not make the shell safe: some command shapes and settings are
+  never checked, and a plain two-path `git diff` reads outside files without `--no-index`. Several of these gaps are
+  already on main. So the unattended Lead must not run on untrusted input (it reads public issues) until a check
+  before every shell call (an OpenCode plugin) or a restricted OS user is in place; it stays paused until then. 64K
+  makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
   connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
   unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.

@@ -122,12 +122,13 @@ command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `
 to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
 outside the worktree. Any command containing `>`, `--output` or `--no-index` is denied: these three are the last
 bash rules of the global block and of every agent file (OpenCode takes the last matching rule, reads the agent file
-after the global block, and matches a redirect as part of the command's text). That closes the paths an independent
-review found for the allowed git commands: a redirect or git's own `--output=<file>` writing a file (for example a
-module that a later `python tools/...` would import, or a git hook), and `git diff --no-index` reading any file on the
-PC. These are pattern rules, not a sandbox; running the Lead as a restricted OS user is the real fix and is a
-follow-up. The Lead commits its own
-`docs/ai` edits only through `python -P tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
+after the global block, and matches a redirect as part of the command's text). That blocks the plain forms an
+independent review found behind the allowed git commands (`cmd > file`, git's `--output=<file>`, an explicit
+`git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
+and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **Do not run the Lead
+unattended on untrusted input (it reads public issues) until a check before every shell call (an OpenCode plugin) or
+a restricted OS user is in place.** The Lead commits its own
+`docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
 (a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
 comments only on #32. `run-lead.ps1` logs a failed pull of main and skips the cycle while the Lead's worktree has
