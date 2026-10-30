@@ -38,18 +38,25 @@ permission:
     "git log*--output*": deny
     "git diff*--output*": deny
     "git diff*--no-index*": deny
+    "git diff*:*": deny
+    "git diff* /*": deny
+    "git diff* ~*": deny
+    "git diff* $*": deny
+    "git diff*../*": deny
     "gh issue comment*--body-file*": deny
-    "gh issue comment*-F*": deny
-    "gh issue comment*-R*": deny
+    "gh issue comment* -F*": deny
+    "gh issue comment* -R*": deny
     "gh issue comment*--repo*": deny
     "gh issue comment*--edit-last*": deny
     "gh issue comment*--delete-last*": deny
     "gh pr review*--body-file*": deny
-    "gh pr review*-F*": deny
-    "gh pr review*-R*": deny
+    "gh pr review* -F*": deny
+    "gh pr review* -R*": deny
     "gh pr review*--repo*": deny
     "gh pr review*--approve*": deny
+    "gh pr review* -a*": deny
     "gh pr review*--request-changes*": deny
+    "gh pr review* -r*": deny
     "*--output*": deny
     "*--no-index*": deny
     "*>*": deny

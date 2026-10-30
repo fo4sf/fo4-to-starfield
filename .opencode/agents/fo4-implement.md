@@ -29,6 +29,11 @@ permission:
     "Remove-Item*": deny
     "git diff*--output*": deny
     "git diff*--no-index*": deny
+    "git diff*:*": deny
+    "git diff* /*": deny
+    "git diff* ~*": deny
+    "git diff* $*": deny
+    "git diff*../*": deny
     "*--output*": deny
     "*--no-index*": deny
     "*>*": deny

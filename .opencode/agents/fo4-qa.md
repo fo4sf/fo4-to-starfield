@@ -18,6 +18,11 @@ permission:
     "gh pr view*": allow
     "git diff*--output*": deny
     "git diff*--no-index*": deny
+    "git diff*:*": deny
+    "git diff* /*": deny
+    "git diff* ~*": deny
+    "git diff* $*": deny
+    "git diff*../*": deny
     "git log*--output*": deny
     "git show*--output*": deny
     "*--output*": deny
