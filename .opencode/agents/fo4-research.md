@@ -15,6 +15,9 @@ permission:
     "git log*": allow
     "git show*": allow
     "gh issue view*": allow
+    "*>*": deny
+    "*--output*": deny
+    "*--no-index*": deny
   webfetch: ask
 ---
 You are the **Research** agent (comment prefix `Research (local):`). Follow AGENTS.md.

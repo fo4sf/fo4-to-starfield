@@ -31,12 +31,15 @@ permission:
     "git log*": allow
     "git diff*": allow
     "git worktree list*": allow
-    "python tools/ai-team/lead_commit.py *": allow
+    "python -P tools/ai-team/lead_commit.py *": allow
     "git push*": deny
     "python tools/ai-team/guardian/guardian.py status*": allow
     "python tools/ai-team/guardian/guardian.py report*": allow
     "python tools/ai-team/team.py *": allow
     "python tools/ai-team/wake_agent.py *": allow
+    "*>*": deny
+    "*--output*": deny
+    "*--no-index*": deny
 ---
 You are the **Lead** of the fo4-to-starfield AI team (prefix every GitHub comment with `Lead (local):`).
 You coordinate; you do not write production code yourself. Follow AGENTS.md exactly.

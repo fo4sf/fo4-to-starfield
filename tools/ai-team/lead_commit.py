@@ -1,6 +1,6 @@
 """Commit the unattended Lead's own docs/ai edits on its branch, and nothing else (the Lead's only git write).
 
-  python tools/ai-team/lead_commit.py "<what changed>"
+  python -P tools/ai-team/lead_commit.py "<what changed>"   (-P: the script's folder is not put on sys.path)
 
 Refuses (exit 1) unless the current branch is ai/local-lead, nothing is unmerged, no merge / cherry-pick / revert /
 rebase is in progress, and nothing outside docs/ai/ is staged (renames count as their source and destination);
@@ -72,7 +72,7 @@ def main(argv=None):
             print("refused: staged outside docs/ai/: " + ", ".join(outside)); return 1
         if not staged():
             print("nothing to commit in docs/ai/"); return 0
-        git("commit", "-m", msg)
+        git("commit", "--only", "-m", msg, "--", DOCS)     # only docs/ai/, whatever else is staged by then
         print(git("log", "-1", "--format=%h %s").strip())
         return 0
     except RuntimeError as e:

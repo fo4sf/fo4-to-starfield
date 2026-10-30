@@ -27,6 +27,9 @@ permission:
     "git reset --hard*": deny
     "rm *": deny
     "Remove-Item*": deny
+    "*>*": deny
+    "*--output*": deny
+    "*--no-index*": deny
 ---
 You are the **Implementation** agent (comment prefix `Implement (local):`). Follow AGENTS.md.
 Work only on the issue, files and branch the Lead gave you; if the brief is unclear, stop and say what is missing.

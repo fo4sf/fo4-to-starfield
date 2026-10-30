@@ -947,20 +947,34 @@ decided the import path); keeping the order as a parameter (two orders in the co
 ## 2026-10-30: the local team runs the 35B at 64K, and the Lead commits only its docs (Claude)
 - Decision:
   - `load_model.py` defaults to 65536 tokens (the SDK's 1 h idle TTL stays); `opencode.json` limits the four agents to
-    65536 (output 32768). `--context 131072` still loads the long window by hand.
-  - The Lead's only git write is `python tools/ai-team/lead_commit.py "<what changed>"`, which commits `docs/ai/`
-    changes on `ai/local-lead` with a `Lead (local): ` subject and refuses anything else (another branch or a detached
-    HEAD, unmerged files, a merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames
-    counted by their source). `fo4-lead.md` allows exactly that command and denies `gh pr review*` and
-    `gh pr comment*` (`gh pr review * --comment*` was still allowed on main; #592 only kept reviews out of the prompt).
-    `run-lead.ps1`'s prompt points the Lead at the wrapper and tells it to run gh and git without pipes or redirects.
-  - `run-lead.ps1` logs a failed `git pull` of main (it was sent to `$null`) and skips the cycle while the Lead's
-    worktree has unmerged files.
+    65536 with an output limit of 16384, so OpenCode compacts a session at about 49K tokens (context minus output)
+    rather than 33.5K. A 128K session by hand also needs the limits raised locally.
+  - The Lead's only git write is `python -P tools/ai-team/lead_commit.py "<what changed>"` (`-P`: no script folder on
+    `sys.path`), which commits only `docs/ai/` (`git commit --only -- docs/ai/`) on `ai/local-lead` with a
+    `Lead (local): ` subject and refuses anything else (another branch or a detached HEAD, unmerged files, a
+    merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames counted by their source).
+    `fo4-lead.md` allows exactly that command and denies `gh pr review*` and `gh pr comment*` (`gh pr review *
+    --comment*` was still allowed on main; #592 only kept reviews out of the prompt).
+  - Any command containing `>`, `--output` or `--no-index` is denied: `"*>*"`, `"*--output*"` and `"*--no-index*"`
+    are the last bash rules globally (`opencode.json`) and in all four agent files. OpenCode's `evaluate` takes the
+    last matching rule in file order (`fromConfig` keeps the order, `merge` concatenates, and an agent file comes
+    after the global block), and a redirect is matched as part of the command's text, so this blocks redirects
+    (including `2>&1`), git's `--output=<file>` and `git diff --no-index` behind every allowed command.
+  - `run-lead.ps1`: the prompt points the Lead at the wrapper, asks for gh and git without pipes or redirects and for no
+    `>` in comment text, and names docs-only or research issues labelled `agent:local-team` + `ready` as good tasks
+    (no code changes, no fo4-implement; research and the status refresh stay, as in the #592 entry). It logs a failed
+    `git pull` of main (it was sent to `$null`), skips the cycle before the pull when the Lead's worktree is not on
+    `ai/local-lead` (so no other branch is rebased), and skips it after the pull while there are unmerged files.
 - Why: the owner's word on 29 Oct ("you can go to 64k but you upload the permissions needed"). At 128K, with the Lead
   working, the PC sat at 87-91% RAM and 92.5% VRAM and the guardian held its requests; at 64K it sat at 78.8% RAM /
-  10.6 GB VRAM. The 18:33 local cycle ran `gh issue view 29 ... 2>&1 | head -200` for #29-#32 and every one was
-  refused at the `head` stage (OpenCode checks each command of a pipeline), so it could not read its issues. The
-  session-1 edit left uncommitted collided with #597 on the next pull, and the pull's error was discarded.
+  10.6 GB VRAM idle after the load and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (job 136 held at 19:43).
+  The 18:33 local cycle ran `gh issue view 29 ... 2>&1 | head -200` for #29-#32 and every one was refused at the
+  `head` stage (OpenCode checks each command of a pipeline), so it could not read its issues. The session-1 edit left
+  uncommitted collided with #597 on the next pull, and the pull's error was discarded. An independent review of head
+  a82e55cb showed that a redirect behind an allowed `git log*` could write a Python file that `lead_commit.py` would
+  import, or a git hook that its commit would run; the next check showed the same through git's `--output=<file>`
+  (no `>` needed), that the subagents' own `git log*` allows came after the global deny, and that the allowed
+  `git diff*` reads any file with `--no-index`.
 - Alternatives:
   - No idle TTL (rejected in review: nothing would free the GPU when a game test starts; with the 64K default the
     hourly reload no longer changes the context).
@@ -968,7 +982,11 @@ decided the import path); keeping the order as a parameter (two orders in the co
     `-f`, `--amend`, `..` and extra pathspecs).
   - Allow the read-only filters `head`, `tail`, `grep` and `wc` (rejected: with a path argument they read any file on
     the PC, which the Lead could then post on #32); the prompt asks for commands without pipes instead.
-- Boundary: not enforced by permissions: OpenCode matches a redirect (`> file`) as part of an allowed command's text
-  (true of `git log*` / `git diff*` before this change too), so writes outside `docs/ai/` rest on the prompt there. A
-  held streaming request whose connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket
-  connection was closed unexpectedly") is what #601 addresses.
+  - Keep the 32768 output limit (rejected: with it OpenCode compacts at about 33.5K, below the 46K the Lead's sessions
+    reached).
+- Boundary: the `>` deny also refuses a `>` inside quoted text, such as a #32 comment that says "RAM > 85%".
+  fo4-implement may still edit any file through its edit permission; only the prompt keeps the unattended Lead from
+  delegating to it (`task` still allows it). These are pattern rules, not a sandbox: a git option not named here that
+  writes files would get through. Running the Lead as a restricted OS user is the real fix and is a follow-up. 64K makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
+  connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
+  unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.

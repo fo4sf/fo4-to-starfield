@@ -30,13 +30,14 @@ $g = Join-Path $repo 'tools\ai-team\guardian\guardian.py'
 # npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
 $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'
 $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS.md). Do at most one task, then stop. " +
-          "Good tasks for this team: open issues labelled agent:local-team and ready; research questions from " +
-          "docs/ai/known-unknowns.md (fo4-research, findings into docs/ai/research-log.md); refreshing " +
-          "docs/ai/agent-status.md from live sources. " +
+          "Good tasks for this team: research questions from docs/ai/known-unknowns.md (fo4-research, findings into " +
+          "docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources; open issues labelled " +
+          "agent:local-team and ready that need only docs/ai edits or research (no code changes, no fo4-implement). " +
           "Do not call fo4-qa in this session: unattended runs take no QA reviews. " +
-          "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, > file): " +
-          "each stage of a pipeline is checked separately, and the filters are not allowed. " +
-          "Commit your own docs/ai edits on this branch with python tools/ai-team/lead_commit.py '<what changed>' " +
+          "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, 2>&1): " +
+          "each stage of a pipeline is checked separately, the filters are not allowed, and any command containing " +
+          "the character > is refused, so do not put that character in comment text either. " +
+          "Commit your own docs/ai edits on this branch with python -P tools/ai-team/lead_commit.py '<what changed>' " +
           "(it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
 $wait = $Interval; $cycle = 0
@@ -52,6 +53,10 @@ try {
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null
     if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
       Log "model not loaded: loading"; & $Python (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
+    }
+    $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()
+    if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no other branch is rebased
+      Log "cycle ${cycle}: skipped: $wt is on '$branch', not ai/local-lead"; Start-Sleep $Interval; continue
     }
     $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1
     if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: git pull of main failed: $(($pull | Out-String).Trim())" }

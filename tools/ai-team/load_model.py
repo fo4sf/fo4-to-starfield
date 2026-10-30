@@ -9,7 +9,8 @@ unloading cuts an active generation.
 
 Qwen3.6-35B-A3B (Q4_K_M, 21.2 GB) does not fit in 12 GB of VRAM, so LM Studio places the layers (no --gpu) and the
 K/V cache stays unquantized. Measured 2026-10-29 at 131072: RAM peak 83.4%, VRAM 10.9 GB at load, but 87-91% RAM and
-92.5% VRAM once the Lead worked, so the guardian held its requests; at 65536 the PC sat at 78.8% RAM / 10.6 GB VRAM.
+92.5% VRAM once the Lead worked, so the guardian held its requests; at 65536 the PC sat at 78.8% RAM / 10.6 GB VRAM
+idle after the load and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked.
 With memory mapping on, 16K alone reached 98.5% RAM. `--context 131072` still loads the long window by hand. The SDK's
 default idle TTL (1 h) stays: it frees the GPU for game tests when the team is idle, and run-lead.ps1's reload comes back
 at this default. The 14B fallback loads as before with `--model qwen3-14b --context 32768 --gpu 1 --kv q8_0` (all on the

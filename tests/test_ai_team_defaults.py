@@ -62,12 +62,26 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(models), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         for name, model in models.items():
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
-            self.assertEqual(model["limit"]["output"], 32768, name)
+            self.assertEqual(model["limit"]["output"], 16384, name)
+            # OpenCode compacts at context minus min(output, 32000); the Lead's sessions reached 46K tokens
+            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 46000, name)
+
+    def test_redirects_and_git_file_options_are_denied_last_everywhere(self):
+        # OpenCode takes the last matching rule (agent file after the global block) and matches a redirect as part of
+        # the command's text; git's --output writes and --no-index reads files without a '>'
+        last = [("*>*", "deny"), ("*--output*", "deny"), ("*--no-index*", "deny")]
+        bash = json.loads(read("opencode.json", ROOT))["permission"]["bash"]
+        self.assertEqual(list(bash.items())[-3:], last)
+        for agent in ("fo4-lead", "fo4-research", "fo4-qa", "fo4-implement"):
+            front = read(os.path.join(".opencode", "agents", agent + ".md"), ROOT).split("\n---", 1)[0]
+            rules = [l.strip() for l in front.split("  bash:", 1)[1].splitlines() if l.startswith("    ")]
+            self.assertEqual(rules[-3:], [f'"{p}": {a}' for p, a in last], agent)
 
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))
         lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
-        self.assertRegex(lead, r'"python tools/ai-team/lead_commit.py \*": allow')
+        self.assertRegex(lead, r'"python -P tools/ai-team/lead_commit.py \*": allow')
+        self.assertIn("python -P tools/ai-team/lead_commit.py", read("run-lead.ps1"))
         self.assertNotRegex(lead, r'"git (add|commit)[^"]*": allow')   # no raw git writes
         self.assertRegex(lead, r'"git push\*": deny')
         self.assertRegex(lead, r'"gh pr review\*": deny')
@@ -79,6 +93,9 @@ class TeamModelTests(unittest.TestCase):
         self.assertNotRegex(script, r"pull[^\n]*2>\$null")          # a failed pull is no longer silent
         self.assertIn("git pull of main failed", script)
         self.assertRegex(script, r"ls-files -u[\s\S]{0,200}skipped: unmerged files")
+        self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
+        # the branch is checked before the pull, so a moved worktree's branch is never rebased
+        self.assertLess(script.index("rev-parse --abbrev-ref HEAD"), script.index("pull -q --rebase"))
 
     def test_start_team_names_the_loaders_context(self):
         self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
@@ -130,8 +147,16 @@ class LeadPromptTests(unittest.TestCase):
             return found
         for command in ("gh issue list --state all --limit 15", "gh issue view 32",
                         "python tools/ai-team/guardian/guardian.py status",
-                        "python tools/ai-team/lead_commit.py 'refresh agent status'"):
+                        "python -P tools/ai-team/lead_commit.py 'refresh agent status'"):
             self.assertEqual(verdict(command), "allow", command)
+        # a redirect behind an allowed command (as OpenCode matches it: the redirect is part of the text) is denied
+        for command in ("git log -1 --format=tformat:x > tools/ai-team/argparse.py",
+                        "python -P tools/ai-team/lead_commit.py x > a", "gh issue view 32 2>&1",
+                        "python tools/ai-team/lead_commit.py x"):
+            self.assertIn(verdict(command), ("deny", "ask"), command)
+        self.assertEqual(verdict("git log -1 > .git/hooks/pre-commit"), "deny")
+        self.assertEqual(verdict("git log -1 --format=tformat:x --output=tools/ai-team/guardian/argparse.py"), "deny")
+        self.assertEqual(verdict("git diff --no-index /dev/null ../../outside/secret.txt"), "deny")
         # pipe filters stay unallowed (with a path argument they would read files outside the worktree); the prompt
         # tells the Lead to run gh and git without pipes instead
         for command in ("head -200", "grep -r token C:/Users"):
