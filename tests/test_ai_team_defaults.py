@@ -86,5 +86,32 @@ class LoadConfigTests(unittest.TestCase):
                                "llamaKCacheQuantizationType": "q8_0", "llamaVCacheQuantizationType": "q8_0"})
 
 
+class LeadPromptTests(unittest.TestCase):
+    def test_the_commands_the_lead_is_told_to_run_are_allowed(self):
+        # An unattended run refuses any command its bash rules do not allow, so the prompt's examples must match them.
+        import fnmatch
+        text = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
+        self.assertIn("Stay in your worktree", text)
+        rules, in_bash = [], False
+        for line in text.split("\n---\n", 1)[0].splitlines():
+            if line == "  bash:":
+                in_bash = True
+            elif in_bash and line.startswith("    "):
+                pattern, _, action = line.strip().partition(":")
+                rules.append((pattern.strip().strip('"'), action.strip()))
+            elif line and not line.startswith(" "):
+                in_bash = False
+
+        def verdict(command):
+            found = "ask"
+            for pattern, action in rules:
+                if fnmatch.fnmatchcase(command, pattern):
+                    found = action
+            return found
+        for command in ("gh issue list --state all --limit 15", "gh issue view 32",
+                        "python tools/ai-team/guardian/guardian.py status"):
+            self.assertEqual(verdict(command), "allow", command)
+
+
 if __name__ == "__main__":
     unittest.main()
