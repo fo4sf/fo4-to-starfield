@@ -37,9 +37,24 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, 2>&1): " +
           "each stage of a pipeline is checked separately, the filters are not allowed, and any command containing " +
           "the character > is refused, so do not put that character in comment text either. " +
-          "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py '<what changed>' " +
-          "(it commits only docs/ai); never push. " +
-          "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
+          "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py 'what changed' " +
+          "(it commits only docs/ai; the message is at most 500 characters); never push. " +
+          "At most one comment on #32, prefixed 'Lead (local):', on one line of at most 1500 characters. The comment " +
+          "and the commit message are plain ASCII text with no quote marks, apostrophes, dollar signs, backslashes, " +
+          "exclamation marks, backticks, ampersands, pipes, carets, percent signs or angle brackets (the guard refuses " +
+          "those), and the comment does not contain -R, -F, --repo, --output, --no-index or --body-file (the rules " +
+          "refuse those). Do not comment on other issues or change labels: name the issue you worked on in the #32 " +
+          "comment, and the owner sets labels. If nothing is ready, say so and stop."
+$env:FO4SF_UNATTENDED = '1'                         # the guard plugin then refuses delegation to fo4-implement
+# The plugin runs its checker with the same Python, as a full path: it starts it from the Lead's worktree.
+$env:FO4SF_PYTHON = (Get-Command $Python -ErrorAction Stop).Source
+function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?
+  try {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
+      -ContentType 'application/json' -TimeoutSec 10 | Out-Null
+    return $false
+  } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }
+}
 $wait = $Interval; $cycle = 0
 try {
   while ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) {
@@ -65,10 +80,21 @@ try {
       Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -join ', '))"; Start-Sleep $Interval; continue
     }
     $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1
-    if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: git pull of main failed: $(($pull | Out-String).Trim())" }
+    $pullFailed = $LASTEXITCODE -ne 0
     $unmerged = git -C $wt ls-files -u
     if ($unmerged) {                                    # an autostash or rebase conflict: a person resolves it
       Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | Out-String).Trim())"; Start-Sleep $Interval; continue
+    }
+    if ($pullFailed) {                                  # an old tree may predate the guard: no session on it
+      Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim())"; Start-Sleep $Interval; continue
+    }
+    if (-not (Test-GuardGate)) {                        # a proxy started before the guard header check serves anyone
+      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without the guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Start-Sleep $Interval; continue
+    }
+    $missing = @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py') |
+               Where-Object { -not (Test-Path (Join-Path $wt $_)) }
+    if ($missing) {                                     # OpenCode would start without the guard (it only logs that)
+      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join ', '), so the guard would be off"; Start-Sleep $Interval; continue
     }
     Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"
     $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
@@ -86,4 +112,8 @@ try {
     if ($MaxCycles -ne 0 -and $cycle -ge $MaxCycles) { break }
     Start-Sleep $wait
   }
-} finally { Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue; Log "run-lead stopped" }
+} finally {
+  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+  Remove-Item Env:FO4SF_UNATTENDED, Env:FO4SF_PYTHON -ErrorAction SilentlyContinue   # in case this ran dot-sourced
+  Log "run-lead stopped"
+}

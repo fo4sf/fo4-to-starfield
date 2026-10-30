@@ -999,3 +999,45 @@ decided the import path); keeping the order as a parameter (two orders in the co
   makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
   connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
   unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.
+
+## 2026-10-30: the unattended Lead's shell calls go through an exact allow-list (Claude-cloud)
+
+- Decision: every shell call the local team makes passes `tools/ai-team/guard/allowlist.py` before it runs. The OpenCode
+  plugin `.opencode/plugin/fo4-guard.js` sends the command text on stdin (no shell involved) and throws unless the
+  checker exits 0. The checker accepts only the argument lists in its docstring and README section, refuses shell
+  syntax, expansions and quote characters outside the allowed forms, and runs commands from the repo root only (an
+  adversarial pass showed a subfolder the agents can write to would let a planted file change what an allowed command
+  runs). Unattended runs (`FO4SF_UNATTENDED=1` from `run-lead.ps1`) also refuse delegation to fo4-implement. Two grants
+  are narrowed: `wake_agent.py codex|grok` is refused, and `team.py *` becomes `board` and `status`.
+- Why: the pattern rules leak in shapes they do not see (git's automatic no-index read outside the repo, a `$(...)`
+  built after the check, a workdir pointing elsewhere), and the Lead reads public issues. An exact list refuses what it
+  does not name instead of trying to name every bad shape. The owner chose A on 30 Oct: build the guard, then turn the
+  Lead on.
+- Alternatives: keep adding pattern denies (rejected: each new shape is a new hole, and that is how #603 came about);
+  a restricted Windows user (B, the strongest boundary, but only the owner can create it; it remains an option on top);
+  stay with the Lead paused (safe, but it does nothing).
+- Review (30 Oct, NOT CLEAR at d0423d43, fixed in the next commit): unittest names now stop at an existing
+  `tests.test_<name>` module (a longer dotted name made unittest call a non-test `main()`); the session's folder must
+  be the worktree root and a workdir only absent, `.` or the root (a session opened in a subfolder ran calls there);
+  OpenCode only logs a plugin that fails to load, so the plugin now adds an `X-FO4SF-Guard` header to every model
+  request and the proxy refuses inference without it, and `run-lead.ps1` skips a cycle when the pull fails or the
+  worktree lacks the plugin or checker; the tests now load the plugin in node. Also: the shell check runs for the
+  `bash` tool only and the fo4-implement rule compares `subagent_type` exactly (a slash-command `task` and a brief
+  mentioning fo4-implement were refused by mistake); quoted `& | ^ % < >`, number-shaped bare arguments and `~` after
+  `=` are refused; `wake_agent.py status` and `guardian.py report --hours <n>` are allowed; the Lead's procedure no
+  longer asks it to wake agents, push or open PRs (claims and labels were still asked for: fixed in the second round).
+- Second round (30 Oct, an independent check of the fixes: the five findings hold, plus small items): tests/ became a
+  package (a `tests` package elsewhere on sys.path won over the folder) and unittest by name runs without `-I`;
+  unittest also takes one TestCase class or test method that the file defines (read from its syntax, so nothing else
+  is called); an empty or `./` workdir counts as the root; tools the guard does not know (an MCP server's, a custom
+  tool) are refused; `run-lead.ps1` skips when the running proxy does not refuse a request without the header (one
+  started before this PR) and hands the plugin a full Python path; the Lead's procedure claims work in its #32 comment
+  and leaves labels to the owner; the tests now pin every refused character, the 15 s cap, `-I`, the proxy's 403 over
+  HTTP and the Windows path rules.
+- Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
+  PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
+  discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must
+  show, before the Lead is turned on: the agent asked to run `git log -1 --format=%H` (allowed by OpenCode's `git log*`
+  rule) gets a tool error saying `guard refused the command`, `git status --short` still runs, and a POST to the
+  proxy without the header fails with (403) Forbidden. A redirect such as `echo x > y` cannot tell the two apart,
+  since OpenCode's own rules refuse it too, and a command typed with `!` in the terminal UI is not a tool call.

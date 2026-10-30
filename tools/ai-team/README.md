@@ -33,7 +33,9 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
    it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
    session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
    that change: the test pins the 64K limits.
-2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
+2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
+   pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`): a running one keeps its old code,
+   and `run-lead.ps1` skips its cycles while the running proxy does not refuse requests without the guard header.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
    the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
@@ -125,17 +127,74 @@ bash rules of the global block and of every agent file (OpenCode takes the last 
 after the global block, and matches a redirect as part of the command's text). That blocks the plain forms an
 independent review found behind the allowed git commands (`cmd > file`, git's `--output=<file>`, an explicit
 `git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
-and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **Do not run the Lead
-unattended on untrusted input (it reads public issues) until a check before every shell call (an OpenCode plugin) or
-a restricted OS user is in place.** The Lead commits its own
+and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **The unattended Lead
+reads public issues, so it runs only with the shell guard below in place, and the Lead stays paused until the owner
+decides the guard is installed and checked on the PC.** The Lead commits its own
 `docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
 (a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
-comments only on #32. `run-lead.ps1` logs a failed pull of main and skips the cycle while the Lead's worktree has
-unmerged files or is not on `ai/local-lead`, so a conflict or a moved worktree waits for a person. The `>` deny
+comments only on #32. `run-lead.ps1` skips the cycle when the pull of main fails, while the Lead's worktree has
+unmerged files or is not on `ai/local-lead`, and when the worktree lacks the guard plugin or its checker, so a
+conflict, a moved worktree or a tree from before the guard waits for a person. The `>` deny
 also refuses a `>` inside quoted text (a #32 comment with "RAM > 85%"); the prompt tells the Lead to avoid the
-character. fo4-implement may still edit any file through its edit permission; the unattended Lead's prompt keeps it
-from delegating to fo4-implement (prompt only: `task` still allows it).
+character. fo4-implement may still edit any file through its edit permission; in unattended runs the guard plugin
+refuses delegation to it (below).
+
+### The shell guard
+
+OpenCode's bash rules match text, one pattern at a time, so some command shapes get past any list of patterns. The
+guard is a second layer that allows only exact argument lists. `.opencode/plugin/fo4-guard.js` sends each shell call
+to `tools/ai-team/guard/allowlist.py` on stdin, and a call goes ahead only if the checker exits 0; a missing Python, a
+timeout or unreadable output all refuse. The checker tokenizes the command the way bash and PowerShell read quotes,
+refuses every shell metacharacter and expansion outside quotes, refuses quote marks, `$`, backticks, backslashes, `!`,
+`&`, `|`, `^`, `%`, `<` and `>` inside quotes, an unquoted comma, a `~` after `=` or `:` (bash expands `x=~`), and a
+bare argument PowerShell would pass on as a different number (`0x10`, `1kb`, `.5`; plain digits pass). Commands run
+from the repo root only: the session's own folder (OpenCode's `directory`) must be the worktree root, and a workdir
+may only be absent, `.` or the root itself, written out, because the agents can write under `docs/ai/` and relative
+script paths, git's repo discovery, gh's choice of repo and unittest discovery all follow the working directory. A
+session opened in a subfolder gets every shell call refused. It then accepts only:
+`gh issue list|view`, `gh pr list|view|diff` (read-only, numbers and the listed flags), `gh issue comment 32 --body
+"Lead (local): ..."`; `git status`, `git log`, `git diff`, `git show`, `git worktree list`, `git branch --show-current`
+and `git rev-parse` with the listed switches, revisions before `--`, and repo-relative paths after it; `python -I
+tools/ai-team/lead_commit.py "<message>"`; `guardian.py status`, `report` and `report --hours <n>`; `team.py
+board|status`; `wake_agent.py status`; `scripts/guard.py`; and `python -m unittest` on `tests.test_<name>` modules
+that exist (nothing after the module name: unittest calls whatever a longer dotted name ends on) or as `discover -s
+tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
+`wake_agent.py codex|grok`, and `python -c`. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
+also refuses a `task` call whose `subagent_type` is fo4-implement, which can edit code and then run the tests it
+edited. Left open on purpose: the #32 comment body is one line of text up to 1500 characters (printable ASCII, none
+of the characters above), so anything the Lead can read inside the repo could be posted there, including an
+@mention or a reference to another repo's issue. The repo is public, and reads outside it stay refused.
+
+The guard covers every OpenCode session in the repo, not only unattended runs: the plugin loads for any session
+here. So fo4-implement's `git add`, `git commit` and `git switch -c ai/*` grants, `git worktree add`, and every other
+command off the list are refused in an interactive session too, and the owner cannot approve them there, because the
+hook runs before OpenCode's ask prompt. The owner's own `!` commands typed in the terminal UI are not tool calls and
+are not checked. Whether the guard should step back when the owner is watching is the owner's choice (asked 30 Oct).
+
+If the plugin is missing or fails to load, OpenCode only logs it and carries on. Two things catch that. The plugin
+marks every model request with an `X-FO4SF-Guard` header (`chat.headers`), and the guardian proxy refuses inference
+without it (HTTP 403, `require_guard_header` in `config.json`), so a session without the guard gets no model and
+makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker,
+or while the running proxy serves a request without the header (a proxy started before this check).
+To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
+example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
+command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a
+tool call), and neither does a redirect such as `echo x > y` (the rules refuse it anyway). To check the proxy's side:
+`Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:1235/v1/chat/completions -Body '{}'
+-ContentType application/json` must fail with (403) Forbidden. To try the checker by hand in PowerShell:
+`Get-Content call.json | python -I tools\ai-team\guard\allowlist.py`.
+
+The guard also refuses any tool it does not know: OpenCode 1.18.35's built-in tools pass (the shell through the
+checker), an MCP server's or a custom tool's calls do not. Unittest by name takes a module, or one TestCase class or
+test method that the file itself defines, without `-I`. `opencode agent create` asks the model outside the session
+path, with no guard header, so it gets HTTP 403 from the guardian: create agents with another provider, or by hand.
+
+Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
+brief, which the unattended Lead may not do, and the owner decides whether it may (`wake_agent.py status` only reads).
+`team.py *` is now `board` and `status`, the only two subcommands it has. Tests: `tests/test_ai_guard.py`, which also
+loads the plugin itself in node and drives its hooks. The guard is one layer: the OpenCode rules above stay in place,
+and both must allow a call.
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 
