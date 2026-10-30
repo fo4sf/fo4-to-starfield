@@ -58,11 +58,17 @@ try {
     if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no other branch is rebased
       Log "cycle ${cycle}: skipped: $wt is on '$branch', not ai/local-lead"; Start-Sleep $Interval; continue
     }
+    $gitDir = "$(git -C $wt rev-parse --absolute-git-dir 2>$null)".Trim()
+    $busy = @('rebase-merge','rebase-apply','MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD') |
+            Where-Object { $gitDir -and (Test-Path (Join-Path $gitDir $_)) }
+    if ($busy) {                                        # a stopped rebase/merge/cherry-pick: let a person resolve it
+      Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -join ', '))"; Start-Sleep $Interval; continue
+    }
     $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1
     if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: git pull of main failed: $(($pull | Out-String).Trim())" }
     $unmerged = git -C $wt ls-files -u
     if ($unmerged) {                                    # an autostash or rebase conflict: a person resolves it
-      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | Out-String).Trim())"; Start-Sleep $Interval; continue
     }
     Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"
     $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))

@@ -31,7 +31,8 @@
       "rm *": "deny", "del *": "deny", "Remove-Item*": "deny", "rmdir*": "deny", "format*": "deny",
       "python tools/ai-team/guardian/guardian.py status*": "allow",
       "python tools/ai-team/guardian/guardian.py report*": "allow",
-      "*>*": "deny", "*--output*": "deny", "*--no-index*": "deny"
+      "git diff*--output*": "deny", "git log*--output*": "deny", "git show*--output*": "deny",
+      "git diff*--no-index*": "deny"
     }
   },
   "agent": {

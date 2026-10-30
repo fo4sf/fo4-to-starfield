@@ -18,6 +18,54 @@ def read(name, root=TEAM):
         return f.read()
 
 
+AGENTS = ("fo4-implement", "fo4-lead", "fo4-qa", "fo4-research")
+
+
+def agent_bash_rules(agent):
+    """The (pattern, action) bash rules in an agent's frontmatter, in file order. Every key is quoted, so the pattern
+    is read from inside the quotes: a pattern may itself contain a colon (git diff*:*), which a split on ':' would
+    mangle into a different rule."""
+    rules, in_bash = [], False
+    for line in read(os.path.join(".opencode", "agents", f"{agent}.md"), ROOT).split("\n---\n", 1)[0].splitlines():
+        if line == "  bash:":
+            in_bash = True
+        elif in_bash and line.startswith("    "):
+            m = re.match(r'\s*"(.*)":\s*(\S+)\s*$', line)
+            self_check = m or line.strip().startswith("#")
+            assert self_check, f"unparsed bash rule: {line!r}"
+            if m:
+                rules.append((m.group(1), m.group(2)))
+        elif line and not line.startswith(" "):
+            in_bash = False
+    return rules
+
+
+def merged_bash_rules(agent):
+    """The root opencode.json bash rules, then the agent's: OpenCode takes the last rule that matches."""
+    return list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items()) + agent_bash_rules(agent)
+
+
+def _opencode_regex(pattern):
+    """OpenCode's wildcard.ts: normalize backslashes, escape regex metacharacters, '*'->'.*', '?'->'.', and treat a
+    trailing ' *' as optional. fnmatch does none of this, so a Windows-only false match would slip past it."""
+    escaped = re.sub(r"[.+^${}()|\[\]\\]", lambda m: "\\" + m.group(0), pattern.replace("\\", "/"))
+    escaped = escaped.replace("*", ".*").replace("?", ".")
+    if escaped.endswith(" .*"):
+        escaped = escaped[:-3] + "( .*)?"
+    return "^" + escaped + "$"
+
+
+def verdict(rules, command, win32=False):
+    """The action of the last rule that matches the command; OpenCode asks when none does. win32=True adds the
+    case-insensitive flag OpenCode uses on Windows, where the team's PC runs (a lowercase -r then matches a -R rule)."""
+    flags = re.DOTALL | (re.IGNORECASE if win32 else 0)
+    found = "ask"
+    for pattern, action in rules:
+        if re.search(_opencode_regex(pattern), command.replace("\\", "/"), flags):
+            found = action
+    return found
+
+
 class TeamModelTests(unittest.TestCase):
     def test_every_agent_uses_the_loaders_default_model(self):
         agents = json.loads(read("config.json"))["agents"]
@@ -66,17 +114,6 @@ class TeamModelTests(unittest.TestCase):
             # OpenCode compacts at context minus min(output, 32000); the Lead's sessions reached 46K tokens
             self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 46000, name)
 
-    def test_redirects_and_git_file_options_are_denied_last_everywhere(self):
-        # OpenCode takes the last matching rule (agent file after the global block) and matches a redirect as part of
-        # the command's text; git's --output writes and --no-index reads files without a '>'
-        last = [("*>*", "deny"), ("*--output*", "deny"), ("*--no-index*", "deny")]
-        bash = json.loads(read("opencode.json", ROOT))["permission"]["bash"]
-        self.assertEqual(list(bash.items())[-3:], last)
-        for agent in ("fo4-lead", "fo4-research", "fo4-qa", "fo4-implement"):
-            front = read(os.path.join(".opencode", "agents", agent + ".md"), ROOT).split("\n---", 1)[0]
-            rules = [l.strip() for l in front.split("  bash:", 1)[1].splitlines() if l.startswith("    ")]
-            self.assertEqual(rules[-3:], [f'"{p}": {a}' for p, a in last], agent)
-
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))
         lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
@@ -88,14 +125,17 @@ class TeamModelTests(unittest.TestCase):
         self.assertRegex(lead, r'"gh pr comment\*": deny')
         self.assertRegex(lead, r'"docs/ai/\*\*": allow')         # the only files it may edit
 
-    def test_run_lead_logs_a_failed_pull_and_skips_on_unmerged_files(self):
+    def test_run_lead_checks_branch_and_in_progress_before_pulling_and_logs_the_pull(self):
         script = read("run-lead.ps1")
         self.assertNotRegex(script, r"pull[^\n]*2>\$null")          # a failed pull is no longer silent
         self.assertIn("git pull of main failed", script)
         self.assertRegex(script, r"ls-files -u[\s\S]{0,200}skipped: unmerged files")
-        self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
-        # the branch is checked before the pull, so a moved worktree's branch is never rebased
+        self.assertRegex(script, r"unmerged files[^\n]*\$pull")     # the stash/pull output is logged on that skip
+        # the branch and the in-progress-operation checks run BEFORE the pull, so no other branch is rebased and no
+        # stopped rebase/merge/cherry-pick starts a session on a half-done state (the pull itself can leave those)
+        self.assertIn("CHERRY_PICK_HEAD", script)
         self.assertLess(script.index("rev-parse --abbrev-ref HEAD"), script.index("pull -q --rebase"))
+        self.assertLess(script.index("CHERRY_PICK_HEAD"), script.index("pull -q --rebase"))
 
     def test_start_team_names_the_loaders_context(self):
         self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
@@ -126,45 +166,85 @@ class LoadConfigTests(unittest.TestCase):
 class LeadPromptTests(unittest.TestCase):
     def test_the_commands_the_lead_is_told_to_run_are_allowed(self):
         # An unattended run refuses any command its bash rules do not allow, so the prompt's examples must match them.
-        import fnmatch
         text = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
         self.assertIn("Stay in your worktree", text)
-        rules, in_bash = [], False
-        for line in text.split("\n---\n", 1)[0].splitlines():
-            if line == "  bash:":
-                in_bash = True
-            elif in_bash and line.startswith("    "):
-                pattern, _, action = line.strip().partition(":")
-                rules.append((pattern.strip().strip('"'), action.strip()))
-            elif line and not line.startswith(" "):
-                in_bash = False
-
-        def verdict(command):
-            found = "ask"
-            for pattern, action in rules:
-                if fnmatch.fnmatchcase(command, pattern):
-                    found = action
-            return found
+        rules = agent_bash_rules("fo4-lead")
         for command in ("gh issue list --state all --limit 15", "gh issue view 32",
                         "python tools/ai-team/guardian/guardian.py status",
                         "python -I tools/ai-team/lead_commit.py 'refresh agent status'"):
-            self.assertEqual(verdict(command), "allow", command)
-        # a redirect behind an allowed command (as OpenCode matches it: the redirect is part of the text) is denied
+            self.assertEqual(verdict(rules, command), "allow", command)
+        # a redirect behind an allowed command (OpenCode matches it as part of the text) is denied, as is lead_commit
+        # without -I and any raw git write
         for command in ("git log -1 --format=tformat:x > tools/ai-team/argparse.py",
                         "python -I tools/ai-team/lead_commit.py x > a", "gh issue view 32 2>&1",
-                        "python tools/ai-team/lead_commit.py x"):
-            self.assertIn(verdict(command), ("deny", "ask"), command)
-        self.assertEqual(verdict("git log -1 > .git/hooks/pre-commit"), "deny")
-        self.assertEqual(verdict("git log -1 --format=tformat:x --output=tools/ai-team/guardian/argparse.py"), "deny")
-        self.assertEqual(verdict("git diff --no-index /dev/null ../../outside/secret.txt"), "deny")
+                        "python tools/ai-team/lead_commit.py x", "git commit -m x"):
+            self.assertIn(verdict(rules, command), ("deny", "ask"), command)
+        self.assertEqual(verdict(rules, "git log -1 > .git/hooks/pre-commit"), "deny")
+        self.assertEqual(verdict(rules, "git log -1 --format=tformat:x --output=tools/ai-team/guardian/argparse.py"), "deny")
+        self.assertEqual(verdict(rules, "git diff --no-index /dev/null ../../outside/secret.txt"), "deny")
         # pipe filters stay unallowed (with a path argument they would read files outside the worktree); the prompt
         # tells the Lead to run gh and git without pipes instead
         for command in ("head -200", "grep -r token C:/Users"):
-            self.assertEqual(verdict(command), "ask", command)
+            self.assertEqual(verdict(rules, command), "ask", command)
         self.assertIn("without pipes", read("run-lead.ps1"))
         for command in ("gh pr review 5 -c -b hi", "gh pr review 5 --approve", "gh pr comment 5 -b hi"):
-            self.assertEqual(verdict(command), "deny", command)
-        self.assertEqual(verdict("git commit -m x"), "ask")    # raw git writes stay unallowed
+            self.assertEqual(verdict(rules, command), "deny", command)
+
+
+class BashRuleTests(unittest.TestCase):
+    # Each command writes a file (a redirect, an --output flag, --no-index) or reads one outside the repo. The last
+    # six reach outside without the --no-index flag: git switches to no-index on its own when a path is outside the
+    # worktree, so a drive-letter path, a leading-slash absolute path, a ~ or $ the shell expands, and a ../ climb all
+    # read an outside file.
+    WRITES_OR_READS = (
+        "git log > x", "git status > x", "git diff >> x", "git log --output=x", "git log -p --output x",
+        "git show --output=x", "git diff --output=x", "git diff --no-index ~/.ssh/config x",
+        "python -m unittest > x", "python scripts/guard.py > x",
+        "python tools/ai-team/team.py status > tools/ai-team/team.py", "python tools/ai-team/team.py status --output x",
+        "git diff C:\\Users\\great\\.ssh\\id_rsa README.md", "git diff /etc/passwd README.md",
+        "git diff ../../other-worktree/secret.txt README.md", "git diff ~/.ssh/id_rsa README.md",
+        "git diff $HOME/.ssh/id_rsa README.md", "git diff $env:USERPROFILE/.ssh/id_rsa README.md",
+    )
+    # gh issue comment and gh pr review: a local file as the body, another repo, an edit, a delete, or an approval or
+    # request-changes through either the long flag or its short form (-a, -r), with --comment only in the body text.
+    POSTS = (
+        "gh issue comment 32 --body-file ~/.ssh/config", "gh issue comment 32 -F secret.txt",
+        "gh issue comment 32 -R other/repo --body hi", "gh issue comment 32 --repo other/repo --body hi",
+        "gh issue comment 32 --body hi --edit-last", "gh issue comment 32 --delete-last --yes",
+        "gh pr review 5 --comment --body-file x", "gh pr review 5 --comment -R other/repo",
+        "gh pr review 5 --comment --approve", "gh pr review 5 -a --body 'looks like --comment'",
+        "gh pr review 5 -r --body 'needs work, see --comment'",
+    )
+
+    def test_no_agent_can_write_a_file_or_read_one_outside_the_repo(self):
+        for agent in AGENTS:
+            for rules in (agent_bash_rules(agent), merged_bash_rules(agent)):
+                for win32 in (False, True):
+                    for command in self.WRITES_OR_READS:
+                        self.assertNotEqual(verdict(rules, command, win32), "allow", (agent, win32, command))
+
+    def test_the_lead_cannot_post_a_local_file_approve_or_target_another_repo(self):
+        for rules in (agent_bash_rules("fo4-lead"), merged_bash_rules("fo4-lead")):
+            for win32 in (False, True):
+                for command in self.POSTS:
+                    self.assertNotEqual(verdict(rules, command, win32), "allow", (win32, command))
+
+    def test_the_lead_can_still_read_and_comment(self):
+        rules = agent_bash_rules("fo4-lead")
+        # A normal comment whose body contains "re-run" must not be caught by the -R/-F denies, on Windows too, where
+        # the match ignores case ("re-run" has "-r" but not " -r", so a leading-space anchor keeps it clear).
+        for win32 in (False, True):
+            for command in ("gh issue list --state all --limit 15", "gh issue view 32",
+                            "gh issue comment 32 --body 'Lead (local): CI failed, I will re-run it'",
+                            "git log --oneline -5", "git diff --stat origin/main",
+                            "git diff origin/main..HEAD", "git diff -- docs/ai/agent-status.md",
+                            "python tools/ai-team/team.py status"):
+                self.assertEqual(verdict(rules, command, win32), "allow", (win32, command))
+
+    def test_each_agent_ends_its_bash_rules_with_the_redirect_deny(self):
+        # The last matching rule wins, so no allow may come after the redirect deny.
+        for agent in AGENTS:
+            self.assertEqual(agent_bash_rules(agent)[-1], ("*>*", "deny"), agent)
 
 
 if __name__ == "__main__":
