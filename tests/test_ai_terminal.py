@@ -269,6 +269,25 @@ class WriteGuardTests(unittest.TestCase):
         self.assertFalse(self.verdict("docs/ai/x.md", "opencode.json"))
         self.assertFalse(self.verdict())
 
+    def test_the_windows_path_rules_for_writes(self):
+        # The PC's case, with Windows path rules (ntpath): case, backslashes and drive paths are all one file to NTFS.
+        import ntpath
+        from unittest import mock
+        root = "D:\\Work\\fo4-to-starfield-wt\\local-terminal"
+
+        def ok(p):
+            with mock.patch.object(allowlist.os, "path", ntpath):
+                try:
+                    allowlist.check({"root": root, "directory": root, "write": [p]})
+                    return True
+                except allowlist.Refused:
+                    return False
+        for good in ("docs\\ai\\x.md", "docs/ai/x.md", root + "\\docs\\ai\\x.md", "src\\fo4sf\\x.py"):
+            self.assertTrue(ok(good), good)
+        for bad in ("OPENCODE.JSON", "Docs\\AI\\Agents.md", "tools\\AI-Team\\x.py", root + "\\.git\\config",
+                    ".OpenCode\\plugin\\x.js", "D:\\Work\\other\\x", "..\\x", "C:\\x", "docs\\..\\opencode.jsonc"):
+            self.assertFalse(ok(bad), bad)
+
     def test_writes_need_a_session_at_the_root(self):
         # A write's relative path follows the session's folder, so a session in a subfolder could reach a guarded file
         # by a path that looks harmless from the root.

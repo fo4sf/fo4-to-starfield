@@ -40,16 +40,27 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, 2>&1): " +
           "each stage of a pipeline is checked separately, the filters are not allowed, and any command containing " +
           "the character > is refused, so do not put that character in comment text either. " +
-          "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py '<what changed>' " +
-          "(it commits only docs/ai); never push. " +
-          "At most one comment on #32, prefixed 'Lead (local):', on one line of plain ASCII text with no quote marks, " +
-          "apostrophes, dollar signs, backslashes, exclamation marks, backticks, ampersands, pipes, carets, percent " +
-          "signs or angle brackets (the guard refuses those). If nothing is ready, say so and stop."
+          "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py 'what changed' " +
+          "(it commits only docs/ai; the message is at most 500 characters); never push. " +
+          "At most one comment on #32, prefixed 'Lead (local):', on one line of at most 1500 characters. The comment " +
+          "and the commit message are plain ASCII text with no quote marks, apostrophes, dollar signs, backslashes, " +
+          "exclamation marks, backticks, ampersands, pipes, carets, percent signs or angle brackets (the guard refuses " +
+          "those), and the comment does not contain -R, -F, --repo, --output, --no-index or --body-file (the rules " +
+          "refuse those). Do not comment on other issues or change labels: name the issue you worked on in the #32 " +
+          "comment, and the owner sets labels. If nothing is ready, say so and stop."
 if ($Brief) {                                       # one line, and no character that ends the quoted argument
   $prompt += " Your task for this session, from the owner or Claude: " + (($Brief -replace '\s+', ' ') -replace '["`$\\]', "'")
 }
 $env:FO4SF_UNATTENDED = '1'                         # the guard plugin then refuses delegation to fo4-implement
-$env:FO4SF_PYTHON = $Python                         # the plugin runs its checker with the same Python
+# The plugin runs its checker with the same Python, as a full path: it starts it from the Lead's worktree.
+$env:FO4SF_PYTHON = (Get-Command $Python -ErrorAction Stop).Source
+function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?
+  try {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
+      -ContentType 'application/json' -TimeoutSec 10 | Out-Null
+    return $false
+  } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }
+}
 Remove-Item Env:FO4SF_OWNER_PRESENT -ErrorAction SilentlyContinue   # and nothing here counts as the owner's terminal
 $env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'         # no skills from ~/.claude or ~/.agents (the claude.ai ones)
 $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'      # the same switch under its older name
@@ -87,6 +98,9 @@ try {
     if ($pullFailed) {                                  # an old tree may predate the guard: no session on it
       Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim())"; Wait-Next; continue
     }
+    if (-not (Test-GuardGate)) {                        # a proxy started before the guard header check serves anyone
+      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without the guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Wait-Next; continue
+    }
     $missing = @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py') |
                Where-Object { -not (Test-Path (Join-Path $wt $_)) }
     if ($missing) {                                     # OpenCode would start without the guard (it only logs that)
@@ -113,6 +127,6 @@ try {
 } finally {
   if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Log "stopped the running Lead session" }
   Remove-Item -LiteralPath $sessionFile, $pidFile -Force -ErrorAction SilentlyContinue
-  Remove-Item Env:FO4SF_UNATTENDED -ErrorAction SilentlyContinue   # in case this ran dot-sourced in an open window
+  Remove-Item Env:FO4SF_UNATTENDED, Env:FO4SF_PYTHON -ErrorAction SilentlyContinue   # in case this ran dot-sourced
   Log "run-lead stopped"
 }

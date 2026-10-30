@@ -1025,13 +1025,22 @@ decided the import path); keeping the order as a parameter (two orders in the co
   `bash` tool only and the fo4-implement rule compares `subagent_type` exactly (a slash-command `task` and a brief
   mentioning fo4-implement were refused by mistake); quoted `& | ^ % < >`, number-shaped bare arguments and `~` after
   `=` are refused; `wake_agent.py status` and `guardian.py report --hours <n>` are allowed; the Lead's procedure no
-  longer asks for commands the guard refuses.
+  longer asks it to wake agents, push or open PRs (claims and labels were still asked for: fixed in the second round).
+- Second round (30 Oct, an independent check of the fixes: the five findings hold, plus small items): tests/ became a
+  package (a `tests` package elsewhere on sys.path won over the folder) and unittest by name runs without `-I`;
+  unittest also takes one TestCase class or test method that the file defines (read from its syntax, so nothing else
+  is called); an empty or `./` workdir counts as the root; tools the guard does not know (an MCP server's, a custom
+  tool) are refused; `run-lead.ps1` skips when the running proxy does not refuse a request without the header (one
+  started before this PR) and hands the plugin a full Python path; the Lead's procedure claims work in its #32 comment
+  and leaves labels to the owner; the tests now pin every refused character, the 15 s cap, `-I`, the proxy's 403 over
+  HTTP and the Windows path rules.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
-  PC. The reviewer read OpenCode 1.18.35's own build: the hook order, the `bash` tool id and its arguments, plugin
-  discovery and `chat.headers` hold there. The install must show, before the Lead is turned on: `git log -1
-  --format=%H` (allowed by OpenCode's `git log*` rule) refused with `guard refused the command`, `git status --short`
-  still running, and a session started without the plugin getting HTTP 403 from the proxy. A redirect such as
-  `echo x > y` cannot tell the two apart, since OpenCode's own rules refuse it too.
+  PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
+  discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must
+  show, before the Lead is turned on: the agent asked to run `git log -1 --format=%H` (allowed by OpenCode's `git log*`
+  rule) gets a tool error saying `guard refused the command`, `git status --short` still runs, and a POST to the
+  proxy without the header fails with (403) Forbidden. A redirect such as `echo x > y` cannot tell the two apart,
+  since OpenCode's own rules refuse it too, and a command typed with `!` in the terminal UI is not a tool call.
 
 ## 2026-10-30: one desktop menu, a guarded terminal for the local agents, and a model pick the whole team follows (Claude-cloud)
 

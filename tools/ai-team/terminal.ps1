@@ -37,6 +37,15 @@ foreach ($f in @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist
   if (-not (Test-Path (Join-Path $wt $f))) { "$wt has no $f, so the guard would be off: not starting"; exit 1 }
 }
 if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) { "OpenCode (opencode) is not on PATH"; exit 1 }
+try {                                                # the proxy must refuse a request with no guard header
+  Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
+    -ContentType 'application/json' -TimeoutSec 10 | Out-Null
+  $gate = $false
+} catch { $gate = $_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403 }
+if (-not $gate) {
+  "The guardian proxy is not running, or serves requests without the guard header (started before the guard)."
+  "Restart the team (FO4SF AI menu: 9, then 1), then open the terminal again. Not starting."; exit 1
+}
 
 Remove-Item Env:FO4SF_UNATTENDED -ErrorAction SilentlyContinue
 $env:FO4SF_OWNER_PRESENT = '1'                      # the guard adds agent_git.py; never set by run-lead.ps1
