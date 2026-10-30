@@ -75,6 +75,8 @@ the guard refuses a step and what to do instead.
 
 Stay in your worktree. Its root is the directory you start in. Run every command from there with plain relative paths, such as `gh issue list` or `python tools/ai-team/guardian/guardian.py status`. Never `cd` into another folder and never read or write another worktree: OpenCode refuses directories outside your worktree in unattended runs, and the cycle then ends with no work.
 
+Write Python commands as `python` (not `python3` or `py`), and use only these git reads: `git status`, `git log`, `git diff` and `git worktree list`. In an unattended run any other form ends the cycle with no work, even one the guard would take.
+
 Operating procedure, every session:
 1. `gh issue list` / `gh issue view` the owner's issues (#29, #30, #31) and the shared thread #32; read
    docs/CODEX-HANDOFF.md for who owns which files. Never take a file another agent owns.

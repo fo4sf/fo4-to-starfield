@@ -211,14 +211,27 @@ class LeadPromptTests(unittest.TestCase):
                 for win32 in (False, True):
                     self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "allow",
                                      (agent, win32, command))
-        # and nothing wider: other scripts, -c, -m, and the agent wakes stay unallowed in either form
-        for python in ("python", "python -I"):
-            for rest in ("-c 'print(1)'", "-m pip list", "docs/ai/x.py", "tools/ai-team/wake_agent.py codex",
-                         "tools/ai-team/load_model.py"):
-                for agent in AGENTS:
-                    self.assertNotEqual(verdict(merged_bash_rules(agent), f"{python} {rest}"), "allow", (agent, rest))
-        # the root config allows the guardian's reads for any agent, both forms
+        # and nothing wider, in either form and with either platform's matching: other scripts, -c, -m, the agent
+        # wakes, the guardian's switches, extra arguments, and a script path that runs on past the allowed file
+        # (Windows drops the .. segments of scripts/guard.py/../../x.py as text and runs x.py)
         root = list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items())
+        wider = ("-c 'print(1)'", "-m pip list", "docs/ai/x.py", "tools/ai-team/load_model.py",
+                 "tools/ai-team/wake_agent.py codex", "tools/ai-team/wake_agent.py grok",
+                 "tools/ai-team/wake_agent.py status codex", "tools/ai-team/guardian/guardian.py stop",
+                 "tools/ai-team/guardian/guardian.py pause", "tools/ai-team/guardian/guardian.py shutdown",
+                 "tools/ai-team/guardian/proxy.py", "scripts/guard.py -v", "scripts/other.py",
+                 "scripts/guard.py/../../tools/ai-team/wake_agent.py codex", "scripts/guard.py/../../docs/ai/x.py",
+                 "scripts/guard.py_x/evil.py", "scripts/guard.py2.py", "tools/ai-team/team.py2.py",
+                 "tools/ai-team/team.py/../x.py", "tools/ai-team/lead_commit.py/../x.py")
+        for python in ("python", "python -I"):
+            for rest in wider:
+                for win32 in (False, True):
+                    for agent in AGENTS:
+                        self.assertNotEqual(verdict(merged_bash_rules(agent), f"{python} {rest}", win32), "allow",
+                                            (agent, win32, rest))
+                    self.assertNotEqual(verdict(root, f"{python} {rest}", win32), "allow", ("root", win32, rest))
+        # the root list on its own (what applies where no agent's rules do: each agent's "*": ask comes after it and
+        # wins) allows the guardian's reads in both forms
         for python in ("python", "python -I"):
             for sub in ("status", "report", "report --hours 24"):
                 command = f"{python} tools/ai-team/guardian/guardian.py {sub}"
