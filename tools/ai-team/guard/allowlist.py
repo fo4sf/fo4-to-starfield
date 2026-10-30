@@ -181,14 +181,27 @@ LOOKALIKES = str.maketrans("01|!i\u0131\u0456\u04cf\u0430\u0435\u043e\u0441\u050
                            "olllllllaeocdoacu")
 
 
+def letters(text):
+    return re.sub(r"[^a-z]", "", text.lower().translate(LOOKALIKES))
+
+
 def is_handoff(text):
     """A comment that reads as a handoff to Claude however it is marked up: with markup a reader does not see taken out
     (a link's target, an HTML tag or comment, an entity) and look-alikes read as the letters they look like, its letters
     alone, lowercased, start with leadlocalforclaude (so **for Claude:**, for-Claude, F O R Claude, [](x)for Claude and
-    for CIaude all count)."""
+    for CIaude all count). A link's target can nest brackets ([](x(y)z) or [](<a)b>)), so the text with every <...> and
+    (...) group taken out, innermost first, counts too: its letters then start with leadforclaude, (local) gone."""
     text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"<!--.*?(?:-->|$)|<[^>]*>|&#?\w+;|\]\([^)]*\)", "", text, flags=re.S)
-    return re.sub(r"[^a-z]", "", text.lower().translate(LOOKALIKES)).startswith("leadlocalforclaude")
+    text = re.sub(r"<!--.*?(?:-->|$)|&#?\w+;", "", text, flags=re.S)
+    if letters(re.sub(r"<[^>]*>|\]\([^)]*\)", "", text)).startswith("leadlocalforclaude"):
+        return True
+    while True:
+        bare = re.sub(r"<[^<>]*>", "", text)
+        if bare == text:
+            bare = re.sub(r"\([^()]*\)", "", text)
+            if bare == text:
+                return letters(bare).startswith("leadforclaude")
+        text = bare
 
 
 def gh(argv, owner_present=False):

@@ -6,9 +6,12 @@ description: "Review work by the fo4 local AI team before any of it is kept - di
 
 1. Get the change. On the PC: `git diff origin/main...ai/<branch>` and `git log --oneline origin/main..ai/<branch>`.
    From the cloud: what was posted on #32, or the PR the owner opened from it.
-2. Check the scope against the brief: only the files it allowed. A change under .opencode/, .claude/, .github/,
-   tools/ai-team/, or to opencode.json, AGENTS.md, docs/CODEX-HANDOFF.md or scripts/guard.py means a write got past
-   the guard: report it as high and say so to the owner.
+2. Check the scope against the brief: only the files it allowed. Then put every changed path through the guard's own
+   write rules, run from main's checkout so main's guard judges:
+   `git diff --no-renames --name-only origin/main...ai/<branch> | python -I tools/ai-team/guard/allowlist.py --refused-writes .`
+   Any path it prints (the team's rules, tools and skills, CI, git's files, an AGENTS.md, CLAUDE.md or CONTEXT.md in
+   any folder, an OpenCode config file, a name that shadows a Python module, and the rest of its list) means a write
+   got past the guard: report it as high and say so to the owner.
 3. Run `python -m unittest discover -s tests` and `python scripts/guard.py` on the branch, and quote any failure.
 4. Research: every finding in docs/ai/research-log.md carries a method, evidence and a class (verified, supported
    hypothesis, unresolved). Check the evidence. A hypothesis stated as fact about Fallout 4 or Starfield formats is a

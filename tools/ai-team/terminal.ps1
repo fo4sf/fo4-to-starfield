@@ -1,10 +1,11 @@
 # Open the local agents' terminal: OpenCode's own terminal UI on the team's agents, for the owner to talk to.
 #   powershell -ExecutionPolicy Bypass -File tools\ai-team\terminal.ps1 [-Agent fo4-lead] [-Continue]
 # It starts the team (guardian proxy, picked model), then runs OpenCode in its own worktree next to the repo
-# (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. A
-# clean worktree goes back to main's newest commit (no branch) at every start unless another terminal window is open
-# on it, so a guard fix on main reaches it, and the terminal does not start while the worktree has a change to a file
-# the guard refuses an agent to write, or is on a branch that differs from main in one. The guard plugin checks each
+# (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. At
+# every start with no other terminal window open on it, the worktree goes back to main's newest commit (no branch),
+# with any uncommitted edits made there with no branch (an agent's branch with uncommitted edits stays as it is), so a
+# guard fix on main reaches it, and the terminal does not start while the worktree has a change to a file the guard
+# refuses an agent to write, or differs from main in one. The guard plugin checks each
 # command and file write an agent makes, as in unattended runs; because the owner is present, it also lets an agent
 # make its own ai/ branch from main and commit named files there (agent_git.py). It cannot check what a test does:
 # the coding agent writes tests, and a test it runs can run any code
@@ -62,16 +63,26 @@ try {
     git -C $repo worktree add -q --detach $wt origin/main
     if ($LASTEXITCODE -ne 0) { "could not make the terminal's worktree ${wt}: not starting"; exit 1 }
     "made the terminal's worktree $wt (main, no branch)"
-  } elseif ($others -or (git -C $wt status --porcelain)) {
-    $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()
-    if ($others) { "note: another terminal window (pid $($others -join ', ')) is open on $wt (on $on), so it stays as it is" }
-    else { "note: $wt has uncommitted changes (on $on), so it stays as it is" }
+  } elseif ($others) {
+    "note: another terminal window (pid $($others -join ', ')) is open on $wt, so it stays as it is"
   } else {
-    # Clean and no other window: back to main. An agent branch made here keeps its commits, and agent_git.py branch
-    # with its name switches back to it; the next new one starts from main.
-    git -C $wt switch -q --detach origin/main
-    if ($LASTEXITCODE -ne 0) { "could not move $wt to main (a stale index.lock?): not starting"; exit 1 }
+    # No other window: back to main's newest commit. An agent branch made here keeps its commits, and agent_git.py
+    # branch with its name switches back to it; the next new one starts from main. Uncommitted edits with no branch (a
+    # Lead's note, say) come along, unless one clashes with a file main has changed since (git then refuses the switch
+    # and leaves everything as it was). Uncommitted edits on an agent's branch stay there, with the branch.
+    $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()
+    $dirty = @(git -C $wt status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or -not $on) { "could not read ${wt}'s state: not starting"; exit 1 }
+    if ($dirty -and $on -ne 'HEAD') { "note: $wt has uncommitted changes on $on, so it stays as it is" }
+    else {
+      git -C $wt switch -q --detach origin/main
+      if ($LASTEXITCODE -ne 0) {
+        if (-not $dirty) { "could not move $wt to main (a stale index.lock?): not starting"; exit 1 }
+        "note: $wt has uncommitted edits that clash with main's newer files, so it stays at its older commit"
+      } elseif ($dirty) { "note: moved $wt to main's newest commit with its uncommitted edits" }
+    }
   }
+  $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()      # HEAD: no branch
   # The guard and OpenCode read their rules, the guard's code and the agents' instructions from the worktree, and a test
   # the coding agent runs can change them (see the top of this file). So the terminal starts only while no file the
   # guard refuses an agent to write is changed or added here (ignored files included, apart from OpenCode's own install
@@ -103,10 +114,16 @@ try {
     exit 1
   }
   if ($refusedBehind) {
-    "$wt is on a branch that differs from main in files an agent may not write, so the terminal does not start:"
+    if ($on -ne 'HEAD') {
+      "$wt is on $on, which differs from main in files an agent may not write, so the terminal does not start:"
+    } else {
+      "$wt sits at an older main that differs from the newest in files an agent may not write, so the terminal"
+      "does not start:"
+    }
     $refusedBehind | Select-Object -First 20 | ForEach-Object { "  $_" }
-    "Have Claude merge main into that branch, or close the other terminal windows and commit or drop the edits so the"
-    "worktree goes back to main, then reopen."
+    if ($others) { "Another terminal window is open on it: close that window, then reopen." }
+    elseif ($on -ne 'HEAD') { "Have Claude merge main into $on, then reopen." }
+    else { "Its uncommitted edits clash with main's: have Claude move them onto a branch or drop them, then reopen." }
     exit 1
   }
 

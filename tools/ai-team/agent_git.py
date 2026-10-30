@@ -7,15 +7,15 @@
 
 git runs as in lead_commit.py: no GIT_* variables but the identity, core.hooksPath at the null device, core.fsmonitor
 off, so no planted hook or injected setting runs. Refuses (exit 1) in an unattended run (FO4SF_UNATTENDED=1), off an
-ai/ branch, on ai/local-lead (the unattended Lead's branch, which commits through lead_commit.py), with a merge,
-rebase, cherry-pick or revert in progress, or for a path the agents may not write (the guard's list: the team's rules,
-tools, skills, CI and git's own files). Paths are literal (no git globs or pathspec magic). A new branch starts from
+ai/ branch, on ai/local-lead (the unattended Lead's branch, which commits through lead_commit.py), with a merge, rebase,
+cherry-pick or revert in progress, or for a path the agents may not write (the guard's list: the team's rules, tools,
+skills, CI and git's own files). Paths are literal (no git globs or pathspec magic). A new branch starts from
 origin/main (terminal.ps1 fetches it), so one issue's branch never carries the last one's commits; uncommitted edits
-come along. The terminal goes back to main whenever it opens on a clean worktree, so `branch` with an existing name
-switches back to that branch, with the uncommitted edits, unless one of them is a file the guard refuses an agent to
-write, or the branch differs from main in such a file: the guard and OpenCode read those from the worktree, so they
-stay main's (the owner has main merged into an older branch first). The message starts with the committing agent's own
-tag.
+come along. The terminal goes back to main (no branch) whenever it opens with no other window open, unless an ai/ branch
+has uncommitted edits, so `branch` with an existing name switches back to that branch, with the uncommitted edits,
+unless one of them is a file the guard refuses an agent to write, or the branch differs from main in such a file: the
+guard and OpenCode read those from the worktree, so they stay main's (the owner has main merged into an older branch
+first). The message starts with the committing agent's own tag.
 The owner's choice J (30 Oct) gives these commits to the coding agent: fo4-implement's rules allow this wrapper, while
 the Lead's ask, so the Lead commits a docs note in the terminal only when the owner approves that call. Never amends,
 never pushes.

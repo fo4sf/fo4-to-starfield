@@ -1120,12 +1120,13 @@ decided the import path); keeping the order as a parameter (two orders in the co
     other models and the last pick, and never touches the owner's pause or stop. A failed load leaves the hold as
     "failed", and the proxy refuses requests until a load works. `run-lead.ps1` loads the pick (`models.py ensure`,
     which also reloads a model at another context) instead of matching one model name.
-  - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) whenever it is clean, and sets
-    `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
-    files (literal paths) on the agent's own `ai/` branch, with no hooks, and the wrapper never pushes (the owner's
-    J), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
-    specialists are `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the
-    team, which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
+  - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) at each start with no other terminal
+    window open, carrying uncommitted edits made with no branch (an agent's branch with uncommitted edits stays), and
+    sets `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
+    files (literal paths) on the agent's own `ai/` branch, with no hooks, and the wrapper never pushes (the owner's J),
+    and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three specialists are
+    `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the team, which keeps
+    one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
   - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
     CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no OpenCode config file or config folder
     (`.opencode`, `.claude`, `.agents`, `.git`, `.github`) in any folder or spelling,
@@ -1193,8 +1194,35 @@ decided the import path); keeping the order as a parameter (two orders in the co
   prove them with tests), the agent read the right files, then thought for 1,119 s and stopped at 16,377 reasoning
   tokens (finish "length"), so it wrote no answer, test or report. The model card recommends 32,768 output tokens.
 - Alternatives: keep 16384 (rejected: hard tasks end before any answer); 128K context with a 32K output (left to the
-  owner: room for both, at about 3.5 points more RAM idle, and the guardian holds requests from 89%).
+  owner: room for both, but at 128K the PC idled at 85-88% RAM against 78-79% at 64K, with 92.5% VRAM while the Lead
+  worked, and the guardian holds requests above 85%; the 3.5-point gap in the README's table is a load peak).
 - Boundary: OpenCode compacts at context minus output, so a session now compacts at about 33.5K tokens instead of
   49K; the Lead's opening prompts (23-26K on 30 Oct) fit, its longer sessions (46K at 128K) compact on the way. The
   earlier entry rejected 32768 for that reason; the hard test showed the thinking room matters more. The owner also
-  chose to hand the local team hard work in smaller steps.
+  chose to hand the local team hard work in smaller steps. The count is the last step's tokens with its thinking, so a
+  step that thinks 28K tokens on a 6K prompt compacts the session even though the next prompt is far smaller. LM Studio
+  0.4.27 (the team PC, default settings, measured 30 Oct) takes a request whose prompt plus `max_tokens` passes the
+  64K window: it counts the whole prompt, stops at the window with finish "length", and returns no error. So the
+  compaction request after such a step (about 34K of history, 32K `max_tokens`) runs, with about 31K left for the
+  summary and its thinking.
+
+## 2026-10-30: a subagent's report survives a compaction right after it (Claude-cloud)
+
+- Decision: `.opencode/plugin/fo4-reports.js`. When OpenCode compacts a subagent's session right after an answer that
+  finished, the plugin turns off OpenCode's "Continue if you have next steps..." message for that session
+  (`experimental.compaction.autocontinue`) and puts the answer back into the task tool's result
+  (`tool.execute.after`), so the Lead gets the subagent's report. A compaction in the middle of a task, one after a
+  step that ran out of room, and any in the owner's own session run as OpenCode makes them.
+- Why: the independent re-review of #619 at 7b3cf388 (medium 2). OpenCode 1.18.35 (read from its code) checks for
+  compaction after a final answer too; with no user message to replay it adds the "Continue" message, and the task tool
+  returns the newest text in the subagent's session, so the Lead would get the reply to "Continue" (or, with that off
+  alone, the compaction's summary) instead of the report. With 32K output and thinking counted, one long final step
+  is enough to trigger it.
+- Alternatives: `limit.input` with `compaction.reserved` to raise the threshold (it only makes the case rarer, and a
+  prompt could then pass the window); `compaction.auto: false` (a session that fills the window would fail instead of
+  compacting); a compaction prompt that copies the report (OpenCode keeps the newest messages out of the summarised
+  part, so the report is often not in what the summary sees).
+- Boundary: the plugin learns which sessions are subagents' from OpenCode's events, so a subagent session that started
+  before OpenCode was restarted is left as OpenCode makes it. The events and hook shapes are 1.18.35's; a newer
+  OpenCode needs them checked again. Nothing here has run in OpenCode yet: the tests drive the plugin with the events
+  and calls read from OpenCode's code.

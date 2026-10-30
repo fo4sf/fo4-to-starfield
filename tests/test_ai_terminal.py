@@ -182,6 +182,31 @@ class ModelPickTests(TempState):
             models.main(["list"])
         self.assertEqual(json.loads(out.getvalue())["lmstudio"], "not reachable (ConnectionRefusedError)")
 
+    def test_list_and_loaded_contexts_read_what_lm_studio_has_loaded(self):
+        import types
+        saved = sys.modules.get("lmstudio")
+        self.addCleanup(lambda: sys.modules.__setitem__("lmstudio", saved) if saved else sys.modules.pop("lmstudio"))
+
+        class Loaded:
+            def __init__(self, identifier, context):
+                self.identifier, self.context = identifier, context
+
+            def get_context_length(self):
+                if self.context is None:
+                    raise AttributeError("an older SDK")
+                return self.context
+
+        loaded = [Loaded("qwen3.6-35b-a3b", 65536), Loaded("qwen3-14b", None)]
+        client = types.SimpleNamespace(llm=types.SimpleNamespace(list_loaded=lambda: loaded))
+        sys.modules["lmstudio"] = types.SimpleNamespace(get_default_client=lambda: client)
+        self.assertEqual(models.loaded_contexts(), {"qwen3.6-35b-a3b": 65536, "qwen3-14b": None})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            models.main(["list"])
+        listed = json.loads(out.getvalue())
+        self.assertEqual(listed["loaded"], ["qwen3.6-35b-a3b", "qwen3-14b"])
+        self.assertNotIn("lmstudio", listed)                 # no error to report
+
 
 class LoadModelSdkTests(unittest.TestCase):
     def test_load_unloads_the_model_and_the_named_ones_only(self):
@@ -468,8 +493,11 @@ class OwnerTerminalCommandTests(unittest.TestCase):
             command = f"gh issue comment 32 --body '{text}'"
             self.assertTrue(allowed(command, owner_present=True), text)
             self.assertFalse(allowed(command), text)
-        for text in ("<b>for</b> Claude", "<!-- x -->for Claude", "for&nbsp;Claude", "for Cl\u0430ude", "\uff46or Claude"):
-            self.assertTrue(allowlist.is_handoff("Lead (local): " + text), text)    # markup and look-alikes
+        for text in ("<b>for</b> Claude", "<!-- x -->for Claude", "for&nbsp;Claude", "for Cl\u0430ude",
+                     "\uff46or Claude", "[](x(y)z)for Claude", "[](<a)b>)for Claude", "[](<a(b>)for Claude", "(#594) for Claude"):
+            self.assertTrue(allowlist.is_handoff("Lead (local): " + text), text)    # markup, look-alikes, nesting
+        for text in ("(#594) refreshed agent status", "status (for Claude) refreshed", "(x)(y) notes for Claude"):
+            self.assertFalse(allowlist.is_handoff("Lead (local): " + text), text)
         self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): refreshed agent status'"))
         self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): formatted the notes for the Claude review'"))
 
@@ -678,6 +706,113 @@ console.log(JSON.stringify(out));
         self.assertEqual(self.hook(calls, FO4SF_OWNER_PRESENT="1", FO4SF_UNATTENDED="1"), ["refuse", "refuse"])
 
 
+class ReportPluginTests(unittest.TestCase):
+    # .opencode/plugin/fo4-reports.js, driven with the events and hook calls OpenCode 1.18.35 makes (read from its code)
+    HARNESS = r"""
+const [url, stepsJson] = process.argv.slice(2);
+const mod = await import(url);
+const out = { exports: Object.entries(mod).map(([k, v]) => [k, typeof v]) };
+const hooks = await mod.default({});
+out.results = [];
+for (const [kind, input, output] of JSON.parse(stepsJson)) {
+  if (kind === "event") { await hooks.event({ event: input }); continue; }
+  if (kind === "autocontinue") {
+    const o = { enabled: true };
+    await hooks["experimental.compaction.autocontinue"](input, o);
+    out.results.push(o.enabled);
+  } else {
+    await hooks["tool.execute.after"](input, output);
+    out.results.push(output.output);
+  }
+}
+console.log(JSON.stringify(out));
+"""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.fail("node is not installed: CI must run the plugin tests")
+
+    def run_steps(self, steps):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        plugin = os.path.join(d, "fo4-reports.mjs")
+        shutil.copy(os.path.join(ROOT, ".opencode", "plugin", "fo4-reports.js"), plugin)
+        harness = os.path.join(d, "harness.mjs")
+        with open(harness, "w") as f:
+            f.write(self.HARNESS)
+        r = subprocess.run(["node", harness, "file://" + plugin, json.dumps(steps)], capture_output=True, text=True,
+                           timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @staticmethod
+    def answer(session, msg, text, finish="stop", summary=False):
+        info = {"id": msg, "sessionID": session, "role": "assistant", **({"summary": True} if summary else {})}
+        return [["event", {"type": "message.updated", "properties": {"sessionID": session, "info": info}}],
+                ["event", {"type": "message.part.updated", "properties": {"sessionID": session, "part": {
+                    "id": msg + "-p", "messageID": msg, "sessionID": session, "type": "text", "text": text}}}],
+                ["event", {"type": "message.updated", "properties": {"sessionID": session,
+                                                                      "info": dict(info, finish=finish)}}]]
+
+    @staticmethod
+    def task(session, text):
+        result = f'<task id="{session}" state="completed">\n\n<task_result>\n\n{text}\n\n</task_result>\n\n</task>'
+        return ["after", {"tool": "task", "sessionID": "lead", "callID": "c1", "args": {}},
+                {"title": "t", "metadata": {"parentSessionId": "lead", "sessionId": session}, "output": result}]
+
+    def start(self, session, parent):
+        info = {"id": session, **({"parentID": parent} if parent else {})}
+        return [["event", {"type": "session.created", "properties": {"sessionID": session, "info": info}}]]
+
+    def test_a_subagents_report_survives_a_compaction_after_it(self):
+        report = "Bugs found: 3. Tests: tests/test_x.py. Odd text: $& $1 </task_result>"
+        steps = (self.start("lead", None) + self.start("sub", "lead") +
+                 self.answer("sub", "m1", "reading files", finish="tool-calls") + self.answer("sub", "m2", report) +
+                 self.answer("sub", "s1", "SUMMARY of the session", summary=True) +
+                 [["autocontinue", {"sessionID": "sub", "agent": "fo4-qa", "overflow": False}],
+                  self.task("sub", "SUMMARY of the session")])
+        got = self.run_steps(steps)
+        self.assertEqual(got["exports"], [["Fo4Reports", "function"], ["default", "function"]])  # plugins only
+        enabled, output = got["results"]
+        self.assertFalse(enabled)                           # no "Continue": the subagent stops, as it had
+        self.assertIn("<task_result>\n" + report + "\n</task_result>", output)
+        self.assertNotIn("SUMMARY", output)
+        self.assertTrue(output.startswith('<task id="sub" state="completed">'))
+
+    def test_every_other_compaction_runs_as_opencode_makes_it(self):
+        steps = (self.start("lead", None) + self.start("sub", "lead") +
+                 # the owner's own session, after an answer
+                 self.answer("lead", "l1", "a reply to the owner") +
+                 [["autocontinue", {"sessionID": "lead", "overflow": False}]] +
+                 # a subagent in the middle of its task, after a step that ran out of room, and an overflow
+                 self.answer("sub", "m1", "reading files", finish="tool-calls") +
+                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
+                 self.answer("sub", "m2", "thinking...", finish="length") +
+                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
+                 self.answer("sub", "m3", "a report") +
+                 [["autocontinue", {"sessionID": "sub", "overflow": True}],
+                  # a session the plugin did not see start
+                  ] + self.answer("old", "o1", "a report") + [["autocontinue", {"sessionID": "old", "overflow": False}],
+                                                               self.task("sub", "the reply to Continue")])
+        got = self.run_steps(steps)["results"]
+        self.assertEqual(got[:5], [True] * 5)
+        self.assertIn("the reply to Continue", got[5])        # nothing kept, so the task's result is OpenCode's
+
+    def test_a_kept_report_is_not_given_for_a_later_task(self):
+        # The task tool's result never came (cancelled), and the Lead resumes the subagent: its new report stands.
+        steps = (self.start("sub", "lead") + self.answer("sub", "m1", "the first report") +
+                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
+                 self.answer("sub", "m2", "the second report") +
+                 [self.task("sub", "the second report"),
+                  ["after", {"tool": "read"},
+                   {"metadata": {"sessionId": "sub"}, "output": "<task_result>x</task_result>"}]])
+        got = self.run_steps(steps)["results"]
+        self.assertFalse(got[0])
+        self.assertIn("the second report", got[1])
+        self.assertNotIn("the first report", got[1])
+        self.assertEqual(got[2], "<task_result>x</task_result>")   # other tools are not touched
+
+
 class TeamSkillAndCommandTests(unittest.TestCase):
     def test_every_example_in_the_teams_skill_is_allowed(self):
         text = read(".opencode", "skills", "fo4-allowed-commands", "SKILL.md")
@@ -772,7 +907,7 @@ class ScriptTests(unittest.TestCase):
         s = self.script("terminal.ps1")
         mine = s.index("$null = New-Item -ItemType File -Force $mine")
         check = s.index("$others += $id")
-        skip = s.index("} elseif ($others -or (git -C $wt status --porcelain)) {")
+        skip = s.index("} elseif ($others) {")
         reset = s.index("git -C $wt switch -q --detach origin/main")
         launch = s.index("& $opencode @argv")
         self.assertLess(s.index("try {"), mine)                 # the file is removed however the script ends
@@ -818,7 +953,7 @@ class ScriptTests(unittest.TestCase):
                      ".opencode/node_modules", "tools/ai-team/__pycache__/x.pyc"):
             self.assertFalse(re.search(pattern, path, re.I), path)
 
-    def test_the_start_check_catches_what_it_is_for(self):
+    def start_check(self):
         # The script's own git listings and filter, and the guard's --refused-writes mode, on a synthetic worktree.
         s = self.script("terminal.ps1")
         listing = {v: re.search(r"\$%s = @\(git -C \$wt ([^)]*)\)" % v, s).group(1).split()
@@ -832,8 +967,11 @@ class ScriptTests(unittest.TestCase):
                    GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
         wt = os.path.join(home, "wt")
 
-        def git(*a):
-            return subprocess.run(["git", "-C", wt, *a], capture_output=True, text=True, check=True, env=env).stdout
+        def git(*a, check=True):
+            r = subprocess.run(["git", "-C", wt, *a], capture_output=True, text=True, env=env)
+            if check:
+                self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout if check else r
 
         def write(rel, text="x\n"):
             os.makedirs(os.path.dirname(os.path.join(wt, rel)) or wt, exist_ok=True)
@@ -856,9 +994,14 @@ class ScriptTests(unittest.TestCase):
         write(".gitignore", "*.log\n")
         write(".opencode/plugin/fo4-guard.js")
         write("src/a.py")
+        write("docs/ai/notes/lead.md")
         git("add", "-A")
         git("commit", "-q", "-m", "base")
         git("update-ref", "refs/remotes/origin/main", "HEAD")
+        return s, git, write, refused
+
+    def test_the_start_check_catches_what_it_is_for(self):
+        s, git, write, refused = self.start_check()
         write("src/a.py", "an agent's edit\n")
         write("tests/test_new.py")
         for rel in (".opencode/node_modules/p/index.js", ".opencode/package.json", ".opencode/bun.lock"):
@@ -874,6 +1017,56 @@ class ScriptTests(unittest.TestCase):
         write(".opencode/plugin/fo4-guard.js", "older\n")
         git("commit", "-qam", "on the branch")
         self.assertIn(".opencode/plugin/fo4-guard.js", refused()["behind"])
+
+    def test_an_uncommitted_note_with_no_branch_moves_to_main_with_the_worktree(self):
+        # The case that locked the terminal: no branch, a Lead's uncommitted note, and main has since changed a file
+        # the guard protects. The script's own switch carries the note to main's newest commit, and the start check
+        # then passes; a note that clashes with main's newer copy stays, and the switch leaves it as it was.
+        s, git, write, refused = self.start_check()
+        switch = re.search(r"git -C \$wt (switch -q --detach origin/main)", s).group(1).split()
+        git("switch", "-q", "--detach", "HEAD")
+        write("docs/ai/notes/lead.md", "the Lead's note\n")
+        write("docs/ai/notes/new.md", "a new note\n")
+        git("switch", "-q", "-c", "newer-main")
+        write(".opencode/plugin/fo4-guard.js", "newer\n")
+        git("commit", "-q", "-m", "main moves on", "--", ".opencode/plugin/fo4-guard.js")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("switch", "-q", "--detach", "HEAD~1")
+        self.assertEqual(refused()["here"], "")                          # a note is an agent's own work
+        self.assertIn(".opencode/plugin/fo4-guard.js", refused()["behind"])   # what locked the terminal
+        git(*switch)
+        self.assertEqual(git("rev-parse", "HEAD"), git("rev-parse", "origin/main"))
+        self.assertEqual(refused(), {"here": "", "behind": ""})
+        self.assertEqual(git("status", "--porcelain").split(),
+                         ["M", "docs/ai/notes/lead.md", "??", "docs/ai/notes/new.md"])
+        # a clash: main changes the note too, so git refuses the switch and nothing moves
+        write("docs/ai/notes/lead.md", "main's copy\n")
+        git("commit", "-q", "-m", "main changes the note", "--", "docs/ai/notes/lead.md")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("switch", "-q", "--detach", "HEAD~1")
+        write("docs/ai/notes/lead.md", "the Lead's note\n")
+        before = git("rev-parse", "HEAD")
+        self.assertNotEqual(git(*switch, check=False).returncode, 0)
+        self.assertEqual(git("rev-parse", "HEAD"), before)
+        with open(os.path.join(git("rev-parse", "--show-toplevel").strip(), "docs/ai/notes/lead.md")) as f:
+            self.assertEqual(f.read(), "the Lead's note\n")
+
+    def test_the_worktree_moves_only_with_no_branch_and_no_other_window(self):
+        s = self.script("terminal.ps1")
+        block = s[s.index("} elseif ($others) {"):s.index("# HEAD: no branch")]
+        at = [block.index(x) for x in (
+            "$on = \"$(git -C $wt rev-parse --abbrev-ref HEAD)\".Trim()", "$dirty = @(git -C $wt status --porcelain)",
+            "if ($LASTEXITCODE -ne 0 -or -not $on) {", "if ($dirty -and $on -ne 'HEAD') {",
+            "git -C $wt switch -q --detach origin/main", "if ($LASTEXITCODE -ne 0) {",
+            "if (-not $dirty) {", "a stale index.lock?): not starting\"; exit 1", "clash with main's newer files",
+            "} elseif ($dirty) {")]
+        self.assertEqual(at, sorted(at))      # read the state, keep a branch's edits, move, and say what happened
+        refusal = s[s.index("if ($refusedBehind) {"):]
+        refusal = refusal[:refusal.index("exit 1")]
+        for case in ("if ($on -ne 'HEAD') {", "$wt is on $on", "sits at an older main", "if ($others) {",
+                     "close that window", "elseif ($on -ne 'HEAD') {", "merge main into $on",
+                     "move them onto a branch or drop them"):
+            self.assertIn(case, refusal)      # the message names a branch only when there is one
 
     def test_the_menu_stops_the_loop_before_its_session(self):
         s = self.script("menu.ps1")

@@ -71,18 +71,19 @@ it is running), pause or resume, stop.
 
 The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
 team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
-the unattended Lead are never touched. A clean worktree goes back to main's newest commit, with no branch, at every
-start (unless another terminal window is open on it), so a guard fix on main always reaches it; one with uncommitted
-work stays as it is. The terminal does not start while the worktree has a change or an extra file (ignored ones too,
-apart from OpenCode's own install files in `.opencode`) that the guard refuses an agent to write, or is on a branch that
-differs from main in such a file; the main checkout's guard judges. The guard checks every command
-and write an agent makes, as in unattended runs. Because the owner is watching, it also allows `agent_git.py`: an agent
-makes its own `ai/<issue>-<slug>` branch, which starts from main, and commits named files there (literal paths), with
-no hooks, never on `ai/local-lead`, and the wrapper never pushes. The same `branch` command with an existing name
-switches back to that branch after the terminal reopens, with any uncommitted edits, unless one of them is a file the
-guard refuses an agent to write or the branch differs from main in one (then the owner has main merged into it). Only
-this terminal may post a
-`Lead (local): for Claude:` comment.
+the unattended Lead are never touched. At every start (unless another terminal window is open on it) the worktree goes
+back to main's newest commit, with no branch, so a guard fix on main always reaches it. Uncommitted edits made with no
+branch (a Lead's note, say) come along, unless one clashes with a file main has changed since: then nothing moves, and
+if main has also changed a guard-protected file the terminal says so and waits for Claude to move the edits onto a
+branch. An agent's branch with uncommitted edits stays as it is. The terminal does not start while the worktree has a
+change or an extra file (ignored ones too, apart from OpenCode's own install files in `.opencode`) that the guard
+refuses an agent to write, or is on a branch that differs from main in such a file; the main checkout's guard judges.
+The guard checks every command and write an agent makes, as in unattended runs. Because the owner is watching, it also
+allows `agent_git.py`: an agent makes its own `ai/<issue>-<slug>` branch, which starts from main, and commits named
+files there (literal paths), with no hooks, never on `ai/local-lead`, and the wrapper never pushes. The same `branch`
+command with an existing name switches back to that branch after the terminal reopens, with any uncommitted edits,
+unless one of them is a file the guard refuses an agent to write or the branch differs from main in one (then the owner
+has main merged into it). Only this terminal may post a `Lead (local): for Claude:` comment.
 
 **What the guard cannot hold in the terminal.** The coding agent writes tests and runs them, and a test is code: it
 can run anything the owner's account can, including `git push` or `gh pr create` with their login, or a change to the
@@ -180,12 +181,19 @@ tests when the team is idle.
 The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
 92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
 at 78.8% RAM and 10.6 GB VRAM idle after the load, and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (one
-request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus
-the output limit, which OpenCode itself caps at 32000. The output limit is 32000 since 30 Oct (owner's word): at 16384
-the model's thinking, which counts as output, ran out before a hard review was answered. So a session compacts at
-about 33.5K tokens, and the Lead's longer sessions (46K at 128K) compact on the way; 128K would give room for both, at
-about 3.5 points more RAM. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
-request outlast the guardian's 600 s hold, and the Lead stays in its own worktree (#602). OpenCode checks each
+request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus the
+output limit, which OpenCode itself caps at 32000. The output limit is 32000 since 30 Oct (owner's word): at 16384 the
+model's thinking, which counts as output, ran out before a hard review was answered. So a session compacts at about
+33.5K tokens, counted on the last step with its thinking (a step that thinks 28K tokens on a 6K prompt is enough), and
+the Lead's longer sessions (46K at 128K) compact on the way. A compaction right after a subagent's report would hand the
+Lead OpenCode's "Continue" reply in its place; `.opencode/plugin/fo4-reports.js` keeps the report. LM Studio 0.4.27
+takes a request whose prompt plus 32K passes the window and stops at the window with finish "length" (measured 30 Oct),
+so the compaction request after a long step still runs. 128K would leave room for long sessions and long thinking, but
+at 128K the PC idled at 85-88% RAM against 78.8% at 64K, and sat at 87-91% RAM and 92.5% VRAM while the Lead worked; the
+3.5-point gap in the table is a load peak, not the idle cost. At the 14.6 tok/s of the 30 Oct hard test, a step that
+uses the whole 32K takes about 36 minutes of `run-lead.ps1`'s 45-minute (2,700 s) cycle cap. `opencode.json`'s
+`headerTimeout` (900000 ms, #600) lets a request outlast the guardian's 600 s hold, and the Lead stays in its own
+worktree (#602). OpenCode checks each
 command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `run-lead.ps1`'s prompt tells the Lead
 to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
 outside the worktree. Any command containing `>`, `--output` or `--no-index` is denied: these three are the last

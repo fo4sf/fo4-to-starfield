@@ -123,8 +123,9 @@ class TeamModelTests(unittest.TestCase):
             # The model thinks before every answer, and the thinking counts as output: at 16384 a hard review (30 Oct)
             # spent 16,377 tokens thinking and was cut off before it answered. 32000 is OpenCode 1.18.35's own cap.
             self.assertEqual(model["limit"]["output"], 32000, name)
-            # OpenCode compacts at context minus min(output, 32000): the room left still holds the Lead's opening
-            # prompts (23-26K tokens on 30 Oct), though its longer sessions (46K at 128K) now compact sooner
+            # OpenCode compacts at context minus min(output, 32000), counting the last step's thinking too: the room
+            # left still holds the Lead's opening prompts (23-26K tokens on 30 Oct), though its longer sessions (46K at
+            # 128K) and any step that thinks long now compact sooner (fo4-reports.js keeps a subagent's report then)
             self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 33000, name)
 
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
