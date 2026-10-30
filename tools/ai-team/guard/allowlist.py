@@ -258,15 +258,13 @@ TEAM_SCRIPTS = (
 # A test by name: a module that exists as tests/test_<name>.py, optionally one TestCase class in it and one test method
 # of that class. unittest calls whatever a longer dotted name ends on (tests.test_x.some_module.main would run main(),
 # and a plain class would be instantiated), so a class must be a TestCase defined in that file (test_case_classes) and a
-# method one defined in its body; nothing else is allowed after the module name.
+# method one defined in its body; nothing else is allowed after the module name. Discovery imports test files only.
+# Unittest never runs with -I: that drops the repo folder from sys.path, so `tests` could be a package from elsewhere.
 TEST_NAME = re.compile(r"tests\.(test_[a-z0-9_]+)(?:\.([A-Za-z_][A-Za-z0-9_]*)(?:\.(test[A-Za-z0-9_]*))?)?")
 
 
-UNITTEST_DECORATORS = ("skip", "skipIf", "skipUnless", "expectedFailure")
-
-
 def bound_names(node):
-    """The names a statement binds in the scope it sits in."""
+    """The names a top-level statement binds directly (a def, a class, an import, an assignment's targets)."""
     if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
         return [node.name]
     if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -275,45 +273,144 @@ def bound_names(node):
     return [n.id for t in targets if t is not None for n in ast.walk(t) if isinstance(n, ast.Name)]
 
 
+def scope_bindings(body, tree=None):
+    """How many times each name is bound in one scope (a module, or a class body), counting every binding and not only
+    the top-level statements: names stored or deleted anywhere in the scope's statements (inside if, try, with, for,
+    while and match blocks, comprehensions and walrus targets too), except-as and match-capture names, imports, and the
+    names of defs and classes. Function, lambda and class bodies are scopes of their own and are not entered, but for
+    a module (tree given) a `global` in any function counts as a binding. A star import binds an unknown set of names:
+    it counts as the name '*'. Counting too much only refuses a name, never allows one."""
+    counts = {}
+
+    def add(name):
+        counts[name] = counts.get(name, 0) + 1
+
+    def outside(node):                              # what a def, lambda or class evaluates in the enclosing scope
+        args = getattr(node, "args", None)
+        found = list(getattr(node, "decorator_list", [])) + list(getattr(node, "bases", [])) + \
+            [k.value for k in getattr(node, "keywords", [])]
+        if args is not None:
+            found += list(args.defaults) + [d for d in args.kw_defaults if d is not None]
+            found += [a.annotation for a in args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
+                      if a is not None and a.annotation is not None]
+        if getattr(node, "returns", None) is not None:
+            found.append(node.returns)
+        return found
+
+    def visit(node):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            if not isinstance(node, ast.Lambda):
+                add(node.name)
+            for child in outside(node):
+                visit(child)
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                add("*" if a.name == "*" else (a.asname or a.name).split(".")[0])
+            return
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            add(node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            add(node.name)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            add(node.rest)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+    for stmt in body:
+        visit(stmt)
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                for n in node.names:
+                    add(n)
+    return counts
+
+
 def test_case_classes(source):
     """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
-    counts if it is bound once at module level, its bases are unittest.TestCase (or TestCase imported from unittest, or
-    such a class of the same file) and its only decorators are unittest's skip marks; a method if the class body binds
-    its name once, with a plain def. Anything else could be a callable unittest would call."""
+    counts if it is bound once in the module, one of its bases is unittest.TestCase (or TestCase imported from
+    unittest, or such a class of the same file), its other bases are plain mixin classes of the same file, and its only
+    decorators are unittest's skip marks; a method if the class body binds its name once, with a def whose only
+    decorators are those marks. Anything else could be a callable unittest would call. Methods a class inherits are
+    not counted: run them through the class or the module."""
     with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
         warnings.simplefilter("ignore")
         tree = ast.parse(source)
+    counts = scope_bindings(tree.body, tree)
+    if "*" in counts:                              # a star import could rebind any name
+        return {}
     bound = {}
     for node in tree.body:
         for n in bound_names(node):
             bound.setdefault(n, []).append(node)
-    one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1}
-    imported_case = isinstance(one.get("TestCase"), ast.ImportFrom) and one["TestCase"].module == "unittest"
-    unittest_module = isinstance(one.get("unittest"), ast.Import)
+    one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1 and counts.get(n) == 1}
+    case_import = one.get("TestCase")
+    imported_case = isinstance(case_import, ast.ImportFrom) and case_import.module == "unittest" \
+        and case_import.level == 0 and any(a.name == "TestCase" for a in case_import.names
+                                           if (a.asname or a.name) == "TestCase")
+    # `import unittest` and `import unittest.mock` both bind the name unittest to the unittest package, so a file may
+    # have both; any other binding of the name (an `as unittest`, an assignment, one inside a block) makes it something
+    # else.
+    unittest_module = 0 < len(bound.get("unittest", [])) == counts.get("unittest") and all(
+        isinstance(node, ast.Import) and all(a.asname is None and a.name.split(".")[0] == "unittest"
+                                             for a in node.names if (a.asname or a.name).split(".")[0] == "unittest")
+        for node in bound["unittest"])
 
     def unittest_attr(node, names):
         return unittest_module and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
             and node.value.id == "unittest" and node.attr in names
 
+    def skip_mark(d):
+        # unittest's marks as they are written: skip, skipIf and skipUnless called with their reason, expectedFailure
+        # bare (expectedFailure(x) returns x, so x would be the real decorator)
+        if isinstance(d, ast.Call):
+            return unittest_attr(d.func, ("skip", "skipIf", "skipUnless"))
+        return unittest_attr(d, ("expectedFailure",))
+
+    def skip_marks_only(node):
+        return all(skip_mark(d) for d in node.decorator_list)
+
+    def plain_body(node):
+        # a docstring, pass, and plain defs with ordinary names: no class attributes or decorators, and no dunder hook
+        # (__init_subclass__ could rewrite a test method of the class that uses the mixin)
+        for i, item in enumerate(node.body):
+            if i == 0 and isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant) \
+                    and isinstance(item.value.value, str):
+                continue
+            if isinstance(item, ast.Pass) or (isinstance(item, ast.FunctionDef) and not item.decorator_list
+                                              and not (item.name.startswith("__") and item.name.endswith("__"))):
+                continue
+            return False
+        return True
+
+    def is_mixin(name, seen=()):
+        # A plain class of the same file that only adds methods: no bases but other such classes (or object), no
+        # keywords (so no metaclass), no decorators, a plain body.
+        node = one.get(name)
+        if not isinstance(node, ast.ClassDef) or name in seen or node.keywords or node.decorator_list \
+                or not plain_body(node):
+            return False
+        return all(isinstance(b, ast.Name) and ((b.id == "object" and "object" not in counts)
+                                                or is_mixin(b.id, seen + (name,))) for b in node.bases)
+
     def is_case(name, seen=()):
         node = one.get(name)
         if not isinstance(node, ast.ClassDef) or name in seen or not node.bases or node.keywords:
             return False
-        if not all(unittest_attr(d.func if isinstance(d, ast.Call) else d, UNITTEST_DECORATORS)
-                   for d in node.decorator_list):
+        if not skip_marks_only(node) or "__init_subclass__" in scope_bindings(node.body):
             return False
-        return all(unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
-            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,)))) for b in node.bases)
+        cases = [b for b in node.bases if unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
+            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,))))]
+        return bool(cases) and all(b in cases or (isinstance(b, ast.Name) and is_mixin(b.id)) for b in node.bases)
 
     out = {}
     for name, node in one.items():
         if is_case(name):
-            uses = {}
-            for item in node.body:
-                for n in bound_names(item):
-                    uses.setdefault(n, []).append(item)
-            out[name] = {n for n, items in uses.items() if len(items) == 1 and isinstance(items[0], ast.FunctionDef)
-                         and not items[0].decorator_list}
+            times = scope_bindings(node.body)
+            out[name] = {item.name for item in node.body if isinstance(item, ast.FunctionDef)
+                         and times.get(item.name) == 1 and skip_marks_only(item)}
     return out
 
 
@@ -354,6 +451,8 @@ def python(argv, root=None):
             and digits(rest[3]):
         return
     if rest[:2] == ["-m", "unittest"]:
+        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
+            raise Refused("unittest runs without -I: python -m unittest tests.test_<name>, or discover -s tests")
         args = [a for a in rest[2:] if a not in ("-v", "-q")]
         if args[:1] == ["discover"]:
             if args != ["discover", "-s", "tests"]:
@@ -362,8 +461,6 @@ def python(argv, root=None):
         if not args or not all(test_name_ok(a, root) for a in args):
             raise Refused("unittest takes tests.test_<name> modules that exist (or one TestCase class or test method in "
                           "one), or discover -s tests")
-        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
-            raise Refused("unittest by name runs without -I: python -m unittest tests.test_<name>")
         return
     raise Refused("this python command is not on the list")
 

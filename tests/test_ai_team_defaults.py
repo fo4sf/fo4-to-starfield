@@ -21,21 +21,21 @@ def read(name, root=TEAM):
 AGENTS = ("fo4-implement", "fo4-lead", "fo4-qa", "fo4-research")
 
 
-def agent_bash_rules(agent):
+def agent_bash_rules(agent, section="bash"):
     """The (pattern, action) bash rules in an agent's frontmatter, in file order. Every key is quoted, so the pattern
     is read from inside the quotes: a pattern may itself contain a colon (git diff*:*), which a split on ':' would
-    mangle into a different rule."""
+    mangle into a different rule. section="edit" reads the edit rules the same way."""
     rules, in_bash = [], False
     for line in read(os.path.join(".opencode", "agents", f"{agent}.md"), ROOT).split("\n---\n", 1)[0].splitlines():
-        if line == "  bash:":
+        if line == f"  {section}:":
             in_bash = True
         elif in_bash and line.startswith("    "):
             m = re.match(r'\s*"(.*)":\s*(\S+)\s*$', line)
             self_check = m or line.strip().startswith("#")
-            assert self_check, f"unparsed bash rule: {line!r}"
+            assert self_check, f"unparsed {section} rule: {line!r}"
             if m:
                 rules.append((m.group(1), m.group(2)))
-        elif line and not line.startswith(" "):
+        elif line and not line.startswith("    "):
             in_bash = False
     return rules
 
@@ -242,6 +242,25 @@ class BashRuleTests(unittest.TestCase):
                             "git diff origin/main..HEAD", "git diff -- docs/ai/agent-status.md",
                             "python tools/ai-team/team.py status"):
                 self.assertEqual(verdict(rules, command, win32), "allow", (win32, command))
+
+    def test_no_agent_that_edits_can_write_a_config_folder_or_file_anywhere(self):
+        # OpenCode loads a .opencode folder and an opencode.json from the folder it starts in and each folder above it,
+        # so a nested one (docs/ai/.opencode/plugin/x.js) would load in a session started there
+        nested = ("docs/ai/.opencode/plugin/x.js", "docs/ai/.opencode/agents/fo4-lead.md", "docs/ai/a/.opencode/x",
+                  "src/.opencode/plugin/x.js", "docs/ai/opencode.json", "docs/ai/x/opencode.jsonc",
+                  ".opencode/plugin/x.js", "opencode.json")
+        for agent, still in (("fo4-lead", "docs/ai/research-log.md"), ("fo4-implement", "src/x.py")):
+            rules = agent_bash_rules(agent, "edit")
+            for win32 in (False, True):
+                for p in nested:
+                    self.assertEqual(verdict(rules, p, win32), "deny", (agent, win32, p))
+                self.assertEqual(verdict(rules, still, win32), "allow", (agent, win32))
+            self.assertEqual(verdict(rules, "docs/ai/.OpenCode/plugin/x.js", True), "deny", agent)   # Windows: any case
+        # fo4-research edits two named files only, and fo4-qa nothing
+        self.assertEqual(agent_bash_rules("fo4-research", "edit"), [
+            ("*", "deny"), ("docs/ai/research-log.md", "allow"), ("docs/ai/known-unknowns.md", "allow")])
+        self.assertEqual(agent_bash_rules("fo4-qa", "edit"), [])
+        self.assertRegex(read(os.path.join(".opencode", "agents", "fo4-qa.md"), ROOT), r"\n  edit: deny\n")
 
     def test_each_agent_ends_its_bash_rules_with_the_redirect_deny(self):
         # The last matching rule wins, so no allow may come after the redirect deny.

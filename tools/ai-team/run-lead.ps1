@@ -1,5 +1,5 @@
 # Run the local Lead in cycles (interactive; not a Windows service or scheduled task). Stop with Ctrl+C,
-# `guardian.py stop` (exits at the next check) or by deleting the pid file.
+# `guardian.py stop` or by deleting the pid file (both take effect at the next cycle).
 #   powershell -File tools\ai-team\run-lead.ps1 [-Interval 1800] [-MaxCycles 0] [-SessionTimeout 2700]
 # Each cycle: skip if Starfield runs or the guardian is paused/stopped/blocked; make sure the guardian proxy and the
 # model are up; run ONE Lead session in the Lead's own worktree (branch ai/local-lead, so its doc edits never collide
@@ -13,22 +13,23 @@ $log = Join-Path $state 'lead-cycles.log'
 $pidFile = Join-Path $state 'run-lead.pid'
 function Log($m) { $l = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss ') + $m; $l; Add-Content $log $l }
 
+# Both resolved first, so a bad -Python or a missing OpenCode stops the script before it writes the pid file or sets
+# anything. The plugin runs its checker with this Python, as a full path: it starts it from the Lead's worktree. Only
+# programs count: an alias or function of the same name (from a profile) has no path.
+$pythonPath = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+if (-not [IO.Path]::IsPathRooted("$pythonPath")) { throw "-Python $Python is not a program with a full path" }
+# npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
+$shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorAction Stop | Select-Object -First 1
+$opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\opencode.exe'
+if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode.exe at $opencode (install OpenCode with npm)" }
+
 if (Test-Path $pidFile) {                                   # single instance
   $old = [int](Get-Content $pidFile)
   if (Get-Process -Id $old -ErrorAction SilentlyContinue) { "run-lead already running (pid $old)"; exit 1 }
 }
-$PID | Set-Content $pidFile
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-lead'
-if (-not (Test-Path $wt)) {
-  git -C $repo fetch -q origin main
-  if (git -C $repo branch --list ai/local-lead) { git -C $repo worktree add $wt ai/local-lead | Out-Null }
-  else { git -C $repo worktree add -b ai/local-lead $wt origin/main | Out-Null }
-  Log "created Lead worktree $wt (branch ai/local-lead)"
-}
 $g = Join-Path $repo 'tools\ai-team\guardian\guardian.py'
-# npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
-$opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'
 $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS.md). Do at most one task, then stop. " +
           "Good tasks for this team: research questions from docs/ai/known-unknowns.md (fo4-research, findings into " +
           "docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources; open issues labelled " +
@@ -42,12 +43,11 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "At most one comment on #32, prefixed 'Lead (local):', on one line of at most 1500 characters. The comment " +
           "and the commit message are plain ASCII text with no quote marks, apostrophes, dollar signs, backslashes, " +
           "exclamation marks, backticks, ampersands, pipes, carets, percent signs or angle brackets (the guard refuses " +
-          "those), and the comment does not contain -R, -F, --repo, --output, --no-index or --body-file (the rules " +
-          "refuse those). Do not comment on other issues or change labels: name the issue you worked on in the #32 " +
-          "comment, and the owner sets labels. If nothing is ready, say so and stop."
-$env:FO4SF_UNATTENDED = '1'                         # the guard plugin then refuses delegation to fo4-implement
-# The plugin runs its checker with the same Python, as a full path: it starts it from the Lead's worktree.
-$env:FO4SF_PYTHON = (Get-Command $Python -ErrorAction Stop).Source
+          "those), and the comment does not contain -R or -F, --repo, --output, --no-index, --body-file, --edit-last " +
+          "or --delete-last, in any letter case (the rules refuse those); nor does the commit message contain " +
+          "--output or --no-index. Do not comment on other issues or " +
+          "change labels: name the issue you worked on in the #32 comment, and the owner sets labels. If nothing is " +
+          "ready, say so and stop."
 function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?
   try {
     Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
@@ -55,11 +55,24 @@ function Test-GuardGate {                           # does the running proxy ref
     return $false
   } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }
 }
+$saved = @{ FO4SF_UNATTENDED = $env:FO4SF_UNATTENDED; FO4SF_PYTHON = $env:FO4SF_PYTHON }   # put back at the end
 $wait = $Interval; $cycle = 0
 try {
+  $PID | Set-Content $pidFile
+  if (-not (Test-Path $wt)) {
+    git -C $repo fetch -q origin main
+    if (git -C $repo branch --list ai/local-lead) { git -C $repo worktree add $wt ai/local-lead | Out-Null }
+    else { git -C $repo worktree add -b ai/local-lead $wt origin/main | Out-Null }
+    Log "created Lead worktree $wt (branch ai/local-lead)"
+  }
+  $env:FO4SF_UNATTENDED = '1'                       # the guard plugin then refuses delegation to fo4-implement
+  $env:FO4SF_PYTHON = $pythonPath
   while ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) {
+    if ("$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim() -ne "$PID") {
+      Log "the pid file is gone or names another run: exiting"; break
+    }
     $cycle++
-    $st = & $Python $g status | ConvertFrom-Json
+    $st = & $pythonPath $g status | ConvertFrom-Json
     if ($st.mode -eq 'stopped') { Log "guardian mode stopped: exiting"; break }
     $game = Get-Process Starfield, Fallout4 -ErrorAction SilentlyContinue
     if ($st.mode -eq 'paused' -or $game -or $st.level -eq 'block') {
@@ -67,7 +80,7 @@ try {
     }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null
     if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
-      Log "model not loaded: loading"; & $Python (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
+      Log "model not loaded: loading"; & $pythonPath (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
     }
     $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()
     if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no other branch is rebased
@@ -113,7 +126,11 @@ try {
     Start-Sleep $wait
   }
 } finally {
-  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-  Remove-Item Env:FO4SF_UNATTENDED, Env:FO4SF_PYTHON -ErrorAction SilentlyContinue   # in case this ran dot-sourced
+  if ("$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim() -eq "$PID") {   # ours, not a later run's
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($k in $saved.Keys) {                     # in case this ran dot-sourced: the window gets its own values back
+    if ($null -eq $saved[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item "Env:$k" $saved[$k] }
+  }
   Log "run-lead stopped"
 }
