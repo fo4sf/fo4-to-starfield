@@ -35,6 +35,24 @@ permission:
     "python tools/ai-team/guardian/guardian.py report*": allow
     "python tools/ai-team/team.py *": allow
     "python tools/ai-team/wake_agent.py *": allow
+    "git log*--output*": deny
+    "git diff*--output*": deny
+    "git diff*--no-index*": deny
+    "gh issue comment*--body-file*": deny
+    "gh issue comment*-F*": deny
+    "gh issue comment*-R*": deny
+    "gh issue comment*--repo*": deny
+    "gh issue comment*--edit-last*": deny
+    "gh issue comment*--delete-last*": deny
+    "gh pr review*--body-file*": deny
+    "gh pr review*-F*": deny
+    "gh pr review*-R*": deny
+    "gh pr review*--repo*": deny
+    "gh pr review*--approve*": deny
+    "gh pr review*--request-changes*": deny
+    "*--output*": deny
+    "*--no-index*": deny
+    "*>*": deny
 ---
 You are the **Lead** of the fo4-to-starfield AI team (prefix every GitHub comment with `Lead (local):`).
 You coordinate; you do not write production code yourself. Follow AGENTS.md exactly.

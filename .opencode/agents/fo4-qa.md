@@ -16,6 +16,13 @@ permission:
     "git show*": allow
     "gh pr diff*": allow
     "gh pr view*": allow
+    "git diff*--output*": deny
+    "git diff*--no-index*": deny
+    "git log*--output*": deny
+    "git show*--output*": deny
+    "*--output*": deny
+    "*--no-index*": deny
+    "*>*": deny
 ---
 You are the **QA** agent (comment prefix `QA (local):`). Follow AGENTS.md. You may not edit files.
 Review the given diff adversarially: unsupported format assumptions, missing or weak tests, regressions, files

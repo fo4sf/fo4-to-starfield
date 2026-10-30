@@ -1,6 +1,7 @@
 """The local team's model settings agree: config.json's agents, run-lead.ps1's loaded-model check, opencode.json's limits
 and load_model.py's defaults name one model at one context, loaded without memory mapping. Text and pure functions only;
 no LM Studio."""
+import fnmatch
 import json
 import os
 import re
@@ -16,6 +17,37 @@ import load_model  # noqa: E402  (imports without the lmstudio SDK; main() impor
 def read(name, root=TEAM):
     with open(os.path.join(root, name), encoding="utf-8") as f:
         return f.read()
+
+
+AGENTS = ("fo4-implement", "fo4-lead", "fo4-qa", "fo4-research")
+
+
+def agent_bash_rules(agent):
+    """The (pattern, action) bash rules in an agent's frontmatter, in file order."""
+    rules, in_bash = [], False
+    for line in read(os.path.join(".opencode", "agents", f"{agent}.md"), ROOT).split("\n---\n", 1)[0].splitlines():
+        if line == "  bash:":
+            in_bash = True
+        elif in_bash and line.startswith("    "):
+            pattern, _, action = line.strip().partition(":")
+            rules.append((pattern.strip().strip('"'), action.strip()))
+        elif line and not line.startswith(" "):
+            in_bash = False
+    return rules
+
+
+def merged_bash_rules(agent):
+    """The root opencode.json bash rules, then the agent's: OpenCode takes the last rule that matches."""
+    return list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items()) + agent_bash_rules(agent)
+
+
+def verdict(rules, command):
+    """The action of the last rule that matches the command; OpenCode asks when none does."""
+    found = "ask"
+    for pattern, action in rules:
+        if fnmatch.fnmatchcase(command, pattern):
+            found = action
+    return found
 
 
 class TeamModelTests(unittest.TestCase):
@@ -89,28 +121,53 @@ class LoadConfigTests(unittest.TestCase):
 class LeadPromptTests(unittest.TestCase):
     def test_the_commands_the_lead_is_told_to_run_are_allowed(self):
         # An unattended run refuses any command its bash rules do not allow, so the prompt's examples must match them.
-        import fnmatch
         text = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
         self.assertIn("Stay in your worktree", text)
-        rules, in_bash = [], False
-        for line in text.split("\n---\n", 1)[0].splitlines():
-            if line == "  bash:":
-                in_bash = True
-            elif in_bash and line.startswith("    "):
-                pattern, _, action = line.strip().partition(":")
-                rules.append((pattern.strip().strip('"'), action.strip()))
-            elif line and not line.startswith(" "):
-                in_bash = False
-
-        def verdict(command):
-            found = "ask"
-            for pattern, action in rules:
-                if fnmatch.fnmatchcase(command, pattern):
-                    found = action
-            return found
+        rules = agent_bash_rules("fo4-lead")
         for command in ("gh issue list --state all --limit 15", "gh issue view 32",
                         "python tools/ai-team/guardian/guardian.py status"):
-            self.assertEqual(verdict(command), "allow", command)
+            self.assertEqual(verdict(rules, command), "allow", command)
+
+
+class BashRuleTests(unittest.TestCase):
+    # Each command writes a file (a redirect, an --output flag, --no-index) or reads one outside the repo.
+    WRITES_OR_READS = (
+        "git log > x", "git status > x", "git diff >> x", "git log --output=x", "git log -p --output x",
+        "git show --output=x", "git diff --output=x", "git diff --no-index ~/.ssh/config x",
+        "python -m unittest > x", "python scripts/guard.py > x",
+        "python tools/ai-team/team.py status > tools/ai-team/team.py", "python tools/ai-team/team.py status --output x",
+    )
+    # gh issue comment and gh pr review: a local file as the body, another repo, an edit, a delete or an approval.
+    POSTS = (
+        "gh issue comment 32 --body-file ~/.ssh/config", "gh issue comment 32 -F secret.txt",
+        "gh issue comment 32 -R other/repo --body hi", "gh issue comment 32 --repo other/repo --body hi",
+        "gh issue comment 32 --body hi --edit-last", "gh issue comment 32 --delete-last --yes",
+        "gh pr review 5 --comment --body-file x", "gh pr review 5 --comment -R other/repo",
+        "gh pr review 5 --comment --approve",
+    )
+
+    def test_no_agent_can_write_a_file_or_read_one_outside_the_repo(self):
+        for agent in AGENTS:
+            for rules in (agent_bash_rules(agent), merged_bash_rules(agent)):
+                for command in self.WRITES_OR_READS:
+                    self.assertNotEqual(verdict(rules, command), "allow", (agent, command))
+
+    def test_the_lead_cannot_post_a_local_file_or_to_another_repo(self):
+        for rules in (agent_bash_rules("fo4-lead"), merged_bash_rules("fo4-lead")):
+            for command in self.POSTS:
+                self.assertNotEqual(verdict(rules, command), "allow", command)
+
+    def test_the_lead_can_still_read_and_comment(self):
+        rules = agent_bash_rules("fo4-lead")
+        for command in ("gh issue list --state all --limit 15", "gh issue view 32",
+                        "gh issue comment 32 --body 'Lead (local): done'", "git log --oneline -5",
+                        "git diff --stat origin/main", "python tools/ai-team/team.py status"):
+            self.assertEqual(verdict(rules, command), "allow", command)
+
+    def test_each_agent_ends_its_bash_rules_with_the_redirect_deny(self):
+        # The last matching rule wins, so no allow may come after the redirect deny.
+        for agent in AGENTS:
+            self.assertEqual(agent_bash_rules(agent)[-1], ("*>*", "deny"), agent)
 
 
 if __name__ == "__main__":
