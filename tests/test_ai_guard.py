@@ -1,5 +1,6 @@
 """The unattended Lead's shell guard (tools/ai-team/guard/allowlist.py) allows exactly the listed commands and refuses
 everything else, including the shapes OpenCode's text rules let through. Pure checks, no LM Studio, no git."""
+import ast
 import http.client
 import json
 import ntpath
@@ -292,6 +293,69 @@ REFUSED_BECAUSE = (
                     "1E3", "-0x10"))
 
 
+# run-lead.ps1's cycle, from $cycle++ to the session launch, as written: PowerShell is not run here, so the order of
+# the checks, each skip's condition and its continue, and the one launch are pinned as text
+RUN_LEAD_CYCLE = (
+    '    $cycle++\n'
+    '    $st = & $pythonPath $g status | ConvertFrom-Json\n'
+    '    if ($st.mode -eq \'stopped\') { Log "guardian mode stopped: exiting"; break }\n'
+    '    $game = Get-Process Starfield, Fallout4 -ErrorAction SilentlyContinue\n'
+    "    if ($st.mode -eq 'paused' -or $game -or $st.level -eq 'block') {\n"
+    '      Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)'
+    '"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    "    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null\n"
+    "    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\\.6-35b-a3b')) {\n"
+    '      Log "model not loaded: loading"; & $pythonPath (Join-Path $PSScriptRoot \'load_model.py\') | Out-Null\n'
+    '    }\n'
+    '    $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()\n'
+    "    if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no o"
+    'ther branch is rebased\n'
+    '      Log "cycle ${cycle}: skipped: $wt is on \'$branch\', not ai/local-lead"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    '    $gitDir = "$(git -C $wt rev-parse --absolute-git-dir 2>$null)".Trim()\n'
+    "    $busy = @('rebase-merge','rebase-apply','MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD') |\n"
+    '            Where-Object { $gitDir -and (Test-Path (Join-Path $gitDir $_)) }\n'
+    '    if ($busy) {                                        # a stopped rebase/merge/cherry-pi'
+    'ck: let a person resolve it\n'
+    '      Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -joi'
+    'n \', \'))"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    '    $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1\n'
+    '    $pullFailed = $LASTEXITCODE -ne 0\n'
+    '    $unmerged = git -C $wt ls-files -u\n'
+    '    if ($unmerged) {                                    # an autostash or rebase conflict:'
+    ' a person resolves it\n'
+    '      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | O'
+    'ut-String).Trim())"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    '    if ($pullFailed) {                                  # an old tree may predate the guard: no session on it\n'
+    '      Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim()'
+    ')"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    '    if (-not (Test-GuardGate)) {                        # a proxy started before the guard'
+    ' header check serves anyone\n'
+    '      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without th'
+    'e guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    "    $missing = @('.opencode\\plugin\\fo4-guard.js', 'tools\\ai-team\\guard\\allowlist.py') |\n"
+    '               Where-Object { -not (Test-Path (Join-Path $wt $_)) }\n'
+    '    if ($missing) {                                     # OpenCode would start without the'
+    ' guard (it only logs that)\n'
+    '      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join \', \'), so the guard wou'
+    'ld be off"; Start-Sleep $Interval; continue\n'
+    '    }\n'
+    '    Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"\n'
+    '    $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format \'yyyyMMdd-HHmmss\'))\n'
+    '    $p = Start-Process -FilePath $opencode -ArgumentList @(\'run\', \'--agent\', \'fo4-lead\', "'
+    '`"$prompt`"") `\n'
+    '         -WorkingDirectory $wt -WindowStyle Hidden -PassThru -RedirectStandardOutput $out '
+    '-RedirectStandardError "$out.err"\n'
+    '    $null = $p.Handle                                   # hold the handle, or ExitCode is '
+    'lost (redirected Start-Process)\n'
+)
+
+
 class GuardTests(unittest.TestCase):
     def test_a_call_without_its_root_or_with_an_empty_folder_is_refused(self):
         for call in ({"command": "git status"}, {"root": "", "command": "git status"},
@@ -496,8 +560,32 @@ class GuardTests(unittest.TestCase):
                       "@(Foo := print)\ndef g(): pass\n", "def g(x=(Foo := print)): pass\n",
                       "def g(*, x=(Foo := print)): pass\n", "(lambda x=(Foo := print): x)\n",
                       "class G((Foo := object)): pass\n", "class G(metaclass=(Foo := type)): pass\n",
-                      "@(Foo := print)\nclass G: pass\n"):
+                      "@(Foo := print)\nclass G: pass\n", "match []:\n    case [*Foo]:\n        pass\n",
+                      "def g(x: (Foo := print)): pass\n", "def g() -> (Foo := print): pass\n"):
+            try:
+                ast.parse(later)
+            except SyntaxError:                  # a Python that defers annotations refuses a walrus in one
+                continue
             self.assertEqual(allowlist.test_case_classes("import unittest\n" + case + later), {}, later)
+        # unittest itself must be the package, imported as itself
+        for head in ("from mylib import unittest\n", "import mylib as unittest\n", "unittest = __import__('unittest')\n"):
+            self.assertEqual(allowlist.test_case_classes(head + case), {}, head)
+        # a same-file base counts only when it is defined above the class: below it, the name is still a builtin
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass C(Warning):\n    def test_a(self): pass\nclass Warning(unittest.TestCase):\n    pass\n"),
+            {"Warning": set()})
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass C(M, unittest.TestCase):\n    def test_a(self): pass\nclass M:\n    pass\n"), {})
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass M:\n    pass\nclass B(unittest.TestCase):\n    pass\n"
+            "class C(M, B):\n    def test_a(self): pass\n"), {"B": set(), "C": {"test_a"}})
+        # a method's marks are looked up in the class body first, and a class-body global sends a def to the module
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass Foo(unittest.TestCase):\n    unittest = None\n    @unittest.skip('x')\n"
+            "    def test_a(self): pass\n    def test_b(self): pass\n"), {"Foo": {"test_b"}})
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass Foo(unittest.TestCase):\n    global test_a\n    def test_a(self): pass\n"
+            "    def test_b(self): pass\n"), {"Foo": {"test_b"}})
         # a def's or a class's own body is its own scope: a name bound there is not the module's
         for inner in ("def g():\n    Foo = print\n", "class G:\n    Foo = print\n", "(lambda Foo: Foo)\n",
                       "def g(Foo=1): pass\n"):
@@ -526,9 +614,12 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(allowlist.test_case_classes(
             "import unittest\nclass M:\n    'docs'\n    def helper(self): pass\n    pass\n"
             "class C(M, unittest.TestCase):\n    def test_a(self): pass\n"), {"C": {"test_a"}})
-        self.assertEqual(allowlist.test_case_classes(
-            "import unittest\nclass B(unittest.TestCase):\n    def __init_subclass__(cls): pass\n"
-            "class C(B):\n    def test_a(self): pass\n"), {})
+        for hook in ("    def __init_subclass__(cls): pass\n",
+                     "    __init_subclass__ = classmethod(lambda cls: None)\n",
+                     "    if True:\n        def __init_subclass__(cls): pass\n"):
+            self.assertEqual(allowlist.test_case_classes(
+                "import unittest\nclass B(unittest.TestCase):\n" + hook + "class C(B):\n    def test_a(self): pass\n"),
+                {}, hook)
 
     def test_run_lead_marks_the_run_unattended_and_needs_the_guard(self):
         # PowerShell is not run here, so the lines that matter are pinned as written, in order.
@@ -549,9 +640,13 @@ class GuardTests(unittest.TestCase):
                       r"\| Select-Object -First 1\n"
                       r"\$opencode = Join-Path \(Split-Path \$shim\.Source\) 'node_modules\\opencode-ai\\bin\\opencode\.exe'\n"
                       r"if \(-not \(Test-Path -LiteralPath \$opencode -PathType Leaf\)\) \{ throw [^\n]*\}$")
+        # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process
         single = at(r"^if \(Test-Path \$pidFile\) \{ +# single instance\n"
-                    r"  \$old = \[int\]\(Get-Content \$pidFile\)\n"
-                    r"  if \(Get-Process -Id \$old -ErrorAction SilentlyContinue\) \{ \"[^\n]*\"; exit 1 \}\n\}$")
+                    r"  \$old = \"\$\(Get-Content -LiteralPath \$pidFile -ErrorAction SilentlyContinue\)\"\.Trim\(\)\n"
+                    r"  # [^\n]*\n"
+                    r"  if \(\$old -match '\^\[1-9\]\[0-9\]\{0,8\}\$' -and "
+                    r"\(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue\)\) \{\n"
+                    r"    \"run-lead already running \(pid \$old\)\"; exit 1\n  \}\n\}$")
         self.assertLess(resolve, opencode)
         self.assertLess(opencode, single)
         saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON \}")
@@ -586,19 +681,28 @@ class GuardTests(unittest.TestCase):
                      r"\"`\"\$prompt`\"\"\) `\n"
                      r"         -WorkingDirectory \$wt -WindowStyle Hidden -PassThru -RedirectStandardOutput \$out "
                      r"-RedirectStandardError \"\$out\.err\"$")
-        self.assertEqual(len(re.findall(r"^[^#\n]*Start-Process", script, re.M)), 1)
-        # each guard check runs before the session, reads the right value and skips the cycle
-        checks = (
-            r"^    \$pull = git -C \$wt pull -q --rebase --autostash origin main 2>&1\n    \$pullFailed = \$LASTEXITCODE -ne 0$",
-            r"^    if \(\$pullFailed\) \{[^\n]*\n      Log \"[^\n]*skipped: git pull of main failed[^\n]*; continue$",
-            r"^    if \(-not \(Test-GuardGate\)\) \{[^\n]*\n      Log \"[^\n]*does not refuse requests without[^\n]*; continue$",
-            r"^    \$missing = @\('\.opencode\\plugin\\fo4-guard\.js', 'tools\\ai-team\\guard\\allowlist\.py'\) \|\n"
-            r"\s+Where-Object \{ -not \(Test-Path \(Join-Path \$wt \$_\)\) \}\n"
-            r"    if \(\$missing\) \{[^\n]*\n      Log \"[^\n]*so the guard would be off\"; [^\n]*; continue$",
-        )
-        for line in checks:
-            self.assertLess(mine, at(line), line)
-            self.assertLess(at(line), session, line)
+        # the cycle as written: every check skips the cycle (or ends the run) before the one launch, the guard files
+        # are looked for in the tree the pull just made, and the guardian is asked with the resolved Python
+        cycle = "".join(RUN_LEAD_CYCLE)
+        self.assertEqual(script.count(cycle), 1)
+        self.assertEqual(script.index(cycle), mine + script[mine:].index("    $cycle++\n"))
+        self.assertLess(script.index(cycle), session)
+        self.assertLess(session, script.index(cycle) + len(cycle))
+        # nothing else starts a program the guard does not cover: the code (comments left out) has one launch, the
+        # call operator only runs the resolved Python, and OpenCode is named only where it is resolved and started
+        code = "\n".join(re.sub(r"\s+# [^\"']*$", "", line) for line in script.split("\n")
+                         if not line.lstrip().startswith("#"))
+        words = re.sub(r"'[^'\n]*'", "''", re.sub(r'"[^"\n]*"', '""', code))      # string contents left out
+        launches = re.findall(r"(?i)Start-Process|(?<![\w-])(?:start|saps|iex|ii|icm|sajb|cmd|wmic)(?![\w-])"
+                              r"|Invoke-(?:Expression|Item|Command)|Start-(?:Job|ThreadJob)|Diagnostics\.Process"
+                              r"|Win32_Process|\[\s*Activator\s*\]", words)
+        self.assertEqual(launches, ["Start-Process"])
+        self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath", "$pythonPath"])
+        self.assertEqual(len(re.findall(r"(?i)\$opencode\b", code)), 4)
+        self.assertEqual(len(re.findall(r"(?i)\$opencode\s*=", code)), 1)
+        self.assertEqual(len([line for line in code.split("\n") if re.search(r"(?i)opencode", line)]), 5)
+        # and the environment changes only on the pinned lines: no Env: drive use but the finally's restore
+        self.assertEqual(re.findall(r"(?i)(?<!\$)(?<!\{)env:\S*", code), ['Env:$k"', 'Env:$k"'])
         # the gate probe: a POST with no header must come back 403, and only a 403 counts
         gate = script[script.index("function Test-GuardGate"):]
         gate = gate[:gate.index("\n}\n") + 3]
@@ -634,6 +738,39 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(script.count("Remove-Item -LiteralPath $pidFile"), 1)
         # the loop's Python is the resolved one
         self.assertIsNone(re.search(r"& \$Python\b", script))
+
+    def test_every_session_talks_to_the_guardian_proxy(self):
+        # The header check and run-lead's 403 gate mean something only while OpenCode's one provider is the proxy:
+        # pointed at LM Studio's :1234, every session would get a model with no check at all
+        with open(os.path.join(ROOT, "opencode.json"), encoding="utf-8") as f:
+            config = json.load(f)
+        self.assertEqual(list(config["provider"]), ["guardian"])
+        base = config["provider"]["guardian"]["options"]["baseURL"]
+        self.assertEqual(base, "http://127.0.0.1:1235/v1")
+
+        def models(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k in ("model", "small_model"):
+                        yield v
+                    yield from models(v)
+            elif isinstance(node, list):
+                for v in node:
+                    yield from models(v)
+        found = list(models({k: v for k, v in config.items() if k != "provider"}))
+        for agent in ("fo4-lead", "fo4-implement", "fo4-research", "fo4-qa"):
+            with open(os.path.join(ROOT, ".opencode", "agents", f"{agent}.md"), encoding="utf-8") as f:
+                found += re.findall(r"^model:\s*(\S+)\s*$", f.read().split("\n---\n", 1)[0], re.M)
+        self.assertGreaterEqual(len(found), 5)
+        for model in found:
+            self.assertTrue(model.startswith("guardian/"), model)
+        # the gate probes that same address, the proxy listens there and start-team starts it there
+        with open(os.path.join(ROOT, "tools", "ai-team", "run-lead.ps1"), encoding="utf-8") as f:
+            self.assertIn(f"-Uri '{base}/chat/completions'", f.read())
+        with open(os.path.join(ROOT, "tools", "ai-team", "start-team.ps1"), encoding="utf-8") as f:
+            self.assertRegex(f.read(), r"\[int\]\$Port = 1235\)")
+        with open(os.path.join(ROOT, "tools", "ai-team", "guardian", "proxy.py"), encoding="utf-8") as f:
+            self.assertIn('ap.add_argument("--port", type=int, default=1235)', f.read())
 
     def test_the_proxy_serves_only_sessions_whose_guard_loaded(self):
         on, off = {"require_guard_header": True}, {"require_guard_header": False}

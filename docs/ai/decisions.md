@@ -1049,11 +1049,23 @@ decided the import path); keeping the order as a parameter (two orders in the co
   command. A second self-check then tightened what counts as a test: a name bound anywhere else in the file (in a
   block, by a `global`, an except-as or a match capture, or a star import) no longer counts; only unittest's own
   marks in their own form do (`expectedFailure(x)` returns `x`); and no mixin or case may define
-  `__init_subclass__` or other hooks that could rewrite a test. `run-lead.ps1` takes only programs for Python and
-  OpenCode, ends a run whose pid file is deleted or taken over, and removes the pid file only while it is its own.
+  `__init_subclass__`, nor a mixin any dunder method. `run-lead.ps1` takes only files found on the path for Python
+  and OpenCode (no alias or function; a `.bat` or `.cmd` matches too and then fails closed), ends a run whose pid file is deleted or taken over, and removes the pid file only while it is its own.
   The Lead and fo4-implement may not write a nested `.opencode/` folder or `opencode.json`. More tests: a program
   named by a path or with an extension, every PowerShell number form, `-I` against a `json.py` beside the checker,
   every working-directory argument name, a 1 s timeout that really takes about 1 s, and a 16 s checker past the cap.
+- Second follow-up (30 Oct, the review of #606 at a0c9e48b was CLEAR with six low notes, all taken): the test-name
+  rule now reads only same-file bases defined above the class (below it, `class C(Warning)` would subclass the
+  builtin), counts a class-body `global`, and drops a method's marks when the class body binds `unittest` itself; it
+  reads syntax only and trusts the repo's own test files, with the runtime scan as the evidence. fo4-implement may not
+  write a root `opencode.jsonc` either. `run-lead.ps1` treats an empty or garbled pid file as stale (`[int]''` is 0,
+  the Idle process). New tests: the cycle from `$cycle++` to the launch pinned as text (each skip and its `continue`,
+  the guard files read after the pull), one program launch in the whole script and the call operator only on the
+  resolved Python, no `Env:` change but the final restore, the provider address `:1235` and every agent model on it,
+  and the reviewer's five test-name shapes. The Lead's prompt and agent file give the exact #32 comment and
+  lead_commit forms; the README says which test modules import only under discovery. Two notes were checked and kept
+  as they were: OpenCode's matcher flags are fixed per build (`s` in the 1.18.35 Linux build, `si` on Windows), and
+  the plugin tests skip without node unless `CI` is set.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must

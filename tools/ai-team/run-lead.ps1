@@ -24,8 +24,11 @@ $opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\op
 if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode.exe at $opencode (install OpenCode with npm)" }
 
 if (Test-Path $pidFile) {                                   # single instance
-  $old = [int](Get-Content $pidFile)
-  if (Get-Process -Id $old -ErrorAction SilentlyContinue) { "run-lead already running (pid $old)"; exit 1 }
+  $old = "$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim()
+  # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process)
+  if ($old -match '^[1-9][0-9]{0,8}$' -and (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue)) {
+    "run-lead already running (pid $old)"; exit 1
+  }
 }
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-lead'
@@ -45,7 +48,9 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "exclamation marks, backticks, ampersands, pipes, carets, percent signs or angle brackets (the guard refuses " +
           "those), and the comment does not contain -R or -F, --repo, --output, --no-index, --body-file, --edit-last " +
           "or --delete-last, in any letter case (the rules refuse those); nor does the commit message contain " +
-          "--output or --no-index. Do not comment on other issues or " +
+          "--output or --no-index. Write the comment as gh issue comment 32 --body followed by the quoted text (not -b, " +
+          "not --body=), and the commit message as one quoted argument that does not start with a dash. " +
+          "Do not comment on other issues or " +
           "change labels: name the issue you worked on in the #32 comment, and the owner sets labels. If nothing is " +
           "ready, say so and stop."
 function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?

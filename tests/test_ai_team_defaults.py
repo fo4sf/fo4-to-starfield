@@ -57,7 +57,9 @@ def _opencode_regex(pattern):
 
 def verdict(rules, command, win32=False):
     """The action of the last rule that matches the command; OpenCode asks when none does. win32=True adds the
-    case-insensitive flag OpenCode uses on Windows, where the team's PC runs (a lowercase -r then matches a -R rule)."""
+    case-insensitive flag of OpenCode's Windows build, where the team's PC runs (a lowercase -r then matches a -R rule).
+    The flag is fixed when OpenCode is built for a platform: its 1.18.35 Linux build matches with "s" only, its Windows
+    build with "si"; the tests check both."""
     flags = re.DOTALL | (re.IGNORECASE if win32 else 0)
     found = "ask"
     for pattern, action in rules:
@@ -248,7 +250,7 @@ class BashRuleTests(unittest.TestCase):
         # so a nested one (docs/ai/.opencode/plugin/x.js) would load in a session started there
         nested = ("docs/ai/.opencode/plugin/x.js", "docs/ai/.opencode/agents/fo4-lead.md", "docs/ai/a/.opencode/x",
                   "src/.opencode/plugin/x.js", "docs/ai/opencode.json", "docs/ai/x/opencode.jsonc",
-                  ".opencode/plugin/x.js", "opencode.json")
+                  ".opencode/plugin/x.js", "opencode.json", "opencode.jsonc")
         for agent, still in (("fo4-lead", "docs/ai/research-log.md"), ("fo4-implement", "src/x.py")):
             rules = agent_bash_rules(agent, "edit")
             for win32 in (False, True):
