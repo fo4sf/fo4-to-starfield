@@ -23,15 +23,16 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 ## Start
 
 1. LM Studio server on (`lms server start` or the app), Starfield closed. Load the model:
-   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 128K context, K/V cache unquantized, LM Studio places
-   the layers, no memory mapping). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
+   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 64K context, K/V cache unquantized, LM Studio places
+   the layers, no memory mapping; `--context 131072` loads the long window by hand, and a 128K session also needs the
+   four `limit.context` values in `opencode.json` set to 131072 locally, not committed). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
    the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
    The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
    it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
    session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
-   that change: the test pins the 128K limits.
+   that change: the test pins the 64K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
@@ -62,7 +63,7 @@ Local inference is **blocked while Starfield runs** (the GPU is needed for game 
 ## What is enforced, and what isn't
 
 Enforced by code (proxy): max 1 concurrent local inference request; resource check before each admission
-(RAM 70/88/90%, VRAM 95% block, 94% restrict with a resident model, otherwise the same 88% restrict level also applies to VRAM, game running = block, LM Studio down =
+(RAM 70/89/90%, VRAM 95% block, 94% restrict with a resident model, otherwise the same 89% restrict level also applies to VRAM, game running = block, LM Studio down =
 block); queue with a bounded wait (600 s) then HTTP 503; bounded upstream retries (2, backoff 2 s / 4 s) only
 before any output was sent; request timeout 900 s; pause / stop switch; every decision logged.
 Resources are sampled fresh at every admission attempt (`proxy.py`, `_wait_for_admission`), not taken from an
@@ -106,8 +107,35 @@ numbers need a re-measure. Each size was loaded in ~17 s and answered a short pr
 128K is the model card's advice for keeping its thinking; 256K would need ~4 GB more and cross the guardian's 90% RAM
 block. The model thinks before every answer (3,000-6,300 reasoning tokens on 1.5-4K-token prompts, ~20 tok/s);
 with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned reasoning (316 tokens against 733
-on the same short prompt). LM Studio's own idle TTL (1 h on this PC) can
-unload the model between cycles; `run-lead.ps1` reloads it.
+on the same short prompt). The LM Studio SDK's default idle TTL (1 h, `DEFAULT_TTL` in the SDK) can unload the model
+between cycles (after an hour idle, for example during a failure back-off or a pause); `run-lead.ps1` reloads it at
+`load_model.py`'s default. The TTL is kept on purpose: it frees the GPU
+for game tests when the team is idle.
+
+The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
+92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
+at 78.8% RAM and 10.6 GB VRAM idle after the load, and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (one
+request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus
+the output limit (`limit.output` 16384, so about 49K tokens); the Lead's sessions reached 46K tokens at 128K. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
+request outlast the guardian's 600 s hold, and the Lead stays in its own worktree (#602). OpenCode checks each
+command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `run-lead.ps1`'s prompt tells the Lead
+to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
+outside the worktree. Any command containing `>`, `--output` or `--no-index` is denied: these three are the last
+bash rules of the global block and of every agent file (OpenCode takes the last matching rule, reads the agent file
+after the global block, and matches a redirect as part of the command's text). That blocks the plain forms an
+independent review found behind the allowed git commands (`cmd > file`, git's `--output=<file>`, an explicit
+`git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
+and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **Do not run the Lead
+unattended on untrusted input (it reads public issues) until a check before every shell call (an OpenCode plugin) or
+a restricted OS user is in place.** The Lead commits its own
+`docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
+is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
+(a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
+comments only on #32. `run-lead.ps1` logs a failed pull of main and skips the cycle while the Lead's worktree has
+unmerged files or is not on `ai/local-lead`, so a conflict or a moved worktree waits for a person. The `>` deny
+also refuses a `>` inside quoted text (a #32 comment with "RAM > 85%"); the prompt tells the Lead to avoid the
+character. fo4-implement may still edit any file through its edit permission; the unattended Lead's prompt keeps it
+from delegating to fo4-implement (prompt only: `task` still allows it).
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 

