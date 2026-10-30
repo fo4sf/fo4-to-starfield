@@ -9,8 +9,9 @@ ai/ branch, on ai/local-lead (the unattended Lead's branch, which commits throug
 rebase, cherry-pick or revert in progress, or for a path the agents may not write (the guard's list: the team's rules,
 tools, skills, CI and git's own files). Paths are literal (no git globs or pathspec magic). A new branch starts from
 origin/main (terminal.ps1 fetches it), so one issue's branch never carries the last one's commits; uncommitted edits
-come along. A subject without a local role prefix gets "Implement (local): " (the Lead writes "Lead (local): ", for
-its docs/ai notes in the terminal). Never amends, never pushes.
+come along. A subject without a local role prefix gets "Implement (local): ". The owner's choice J (30 Oct) gives these
+commits to the coding agent: fo4-implement's rules allow this wrapper, while the Lead's ask, so in the terminal OpenCode
+asks the owner before each Lead call. Never amends, never pushes.
 """
 import os
 import sys

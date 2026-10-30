@@ -296,6 +296,18 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
 
 
+def load_cfg():
+    """The guardian's settings plus config.json's agent map and model presets: the pick serves every agent, but only
+    when it names a preset's model (_agent_and_model)."""
+    cfg = guardian.load_config()
+    if os.path.exists(guardian.CONFIG):
+        with open(guardian.CONFIG, encoding="utf-8") as f:
+            data = json.load(f)
+        cfg["agents"] = data.get("agents", {})
+        cfg["models"] = data.get("models", {})
+    return cfg
+
+
 def main():
     global CFG, UPSTREAM
     ap = argparse.ArgumentParser()
@@ -305,10 +317,7 @@ def main():
     ap.add_argument("--queue-wait", type=float, default=None, help="override queue_wait_s (tests)")
     ap.add_argument("--no-game-block", action="store_true", help="tests only: ignore the running-game rule")
     a = ap.parse_args()
-    CFG = guardian.load_config()
-    if os.path.exists(guardian.CONFIG):
-        with open(guardian.CONFIG, encoding="utf-8") as f:
-            CFG["agents"] = json.load(f).get("agents", {})
+    CFG = load_cfg()
     CFG["simulate"] = guardian.parse_sim(a.simulate)
     if a.queue_wait is not None:
         CFG["queue_wait_s"] = a.queue_wait

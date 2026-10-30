@@ -155,9 +155,9 @@ numbers need a re-measure. Each size was loaded in ~17 s and answered a short pr
 block. The model thinks before every answer (3,000-6,300 reasoning tokens on 1.5-4K-token prompts, ~20 tok/s);
 with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned reasoning (316 tokens against 733
 on the same short prompt). The LM Studio SDK's default idle TTL (1 h, `DEFAULT_TTL` in the SDK) can unload the model
-between cycles (after an hour idle, for example during a failure back-off or a pause); `run-lead.ps1` reloads it at
-`load_model.py`'s default. The TTL is kept on purpose: it frees the GPU
-for game tests when the team is idle.
+between cycles (after an hour idle, for example during a failure back-off or a pause); `run-lead.ps1` and
+`terminal.ps1` reload the picked preset (`models.py ensure`). The TTL is kept on purpose: it frees the GPU for game
+tests when the team is idle.
 
 The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
 92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat

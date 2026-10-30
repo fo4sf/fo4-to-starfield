@@ -94,11 +94,11 @@ class ModelPickTests(TempState):
         self.assertIsNone(store.picked_model())
 
     def test_a_pick_reaches_the_proxy_and_opencode(self):
-        self.assertEqual(models.main(["pick", "qwen3-14b", "--no-load"]), 0)
+        models.save(models.preset("qwen3-14b"))           # what a load that worked saves (ModelLoadTests)
         self.assertEqual(store.picked_model(), "qwen3-14b")
         saved = proxy.CFG
         self.addCleanup(setattr, proxy, "CFG", saved)
-        proxy.CFG = {"agents": {a: "qwen3.6-35b-a3b" for a in AGENTS}, "models": models.read_config()["models"]}
+        proxy.CFG = proxy.load_cfg()                     # what the running proxy reads at start (main)
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3-14b"))
         self.assertEqual(proxy._agent_and_model("other-model"), ("unknown", "other-model"))
         oc = models.opencode_config(models.current())
@@ -114,10 +114,9 @@ class ModelPickTests(TempState):
     def test_only_the_two_presets_can_be_picked(self):
         # the owner's choice (30 Oct): the measured setups only, the 35B at 64K and the 14B fallback
         self.assertEqual(sorted(models.read_config()["models"]), ["qwen3-14b", "qwen3.6-35b"])
-        self.assertEqual(models.main(["pick", "qwen3-14b", "--no-load"]), 0)
-        for bad in (["pick", "--model", "qwen/qwen3-8b", "--context", "16384", "--no-load"],
-                    ["pick", "qwen3.6-35b-128k", "--no-load"], ["pick", "no-such-preset", "--no-load"],
-                    ["pick", "--no-load"]):
+        models.save(models.preset("qwen3-14b"))
+        for bad in (["pick", "--model", "qwen/qwen3-8b", "--context", "16384"], ["pick", "qwen3.6-35b-128k"],
+                    ["pick", "no-such-preset"], ["pick"], ["pick", "qwen3-14b", "--no-load"]):
             with contextlib.redirect_stderr(io.StringIO()):
                 try:
                     code = models.main(bad)
@@ -133,7 +132,7 @@ class ModelPickTests(TempState):
         self.assertEqual(models.current()["preset"], "qwen3.6-35b")
         saved = proxy.CFG
         self.addCleanup(setattr, proxy, "CFG", saved)
-        proxy.CFG = {"agents": {"fo4-lead": "qwen3.6-35b-a3b"}, "models": models.read_config()["models"]}
+        proxy.CFG = proxy.load_cfg()
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
 
     def test_a_load_waits_for_running_requests(self):
@@ -270,7 +269,8 @@ class WriteGuardTests(unittest.TestCase):
 
     def test_the_agents_own_files_are_writable(self):
         for p in ("docs/ai/agent-status.md", "docs/ai/research-log.md", "src/fo4sf/x.py", "tests/test_x.py",
-                  "./docs/ai/x.md", "docs/ai/opencode-notes.md", "docs/ai/git-notes.md", "docs/ai/x.opencode.md"):
+                  "./docs/ai/x.md", "docs/ai/opencode-notes.md", "docs/ai/git-notes.md", "docs/ai/x.opencode.md",
+                  "docs/ai/pr-drafts/618.md", "docs/ai/summaries/2026-10-28-to-30.md"):
             self.assertTrue(self.verdict(p), p)
 
     def test_the_teams_rules_and_tools_and_anything_outside_are_refused(self):
@@ -284,7 +284,10 @@ class WriteGuardTests(unittest.TestCase):
                   # nested config: OpenCode loads it in a session started there or below
                   "docs/ai/.opencode/plugin/x.js", "src/.OpenCode/agents/x.md", "docs/ai/opencode.json",
                   "docs/ai/x/OpenCode.jsonc", "docs/ai/tui.json", "docs/ai/.claude/settings.json",
-                  "src/.github/workflows/x.yml", "docs/ai/.git/hooks/pre-commit", "docs/ai/.agents/skills/x/SKILL.md"):
+                  "src/.github/workflows/x.yml", "docs/ai/.git/hooks/pre-commit", "docs/ai/.agents/skills/x/SKILL.md",
+                  # names NTFS reads as another file, and anything outside the repo's own name characters
+                  "src/AGENTS.md::$DATA", "src/AGENTS.md:x", "opencode.jsonc.", "docs/AGENTS.md ", "docs/ai/x.md.",
+                  "docs/ai/a b.md", "docs/ai/x~1.md", "docs/ai/\u00fc.md", "docs/ai/x\n.md", "docs/ai/.hidden"):
             self.assertFalse(self.verdict(p), p)
         self.assertFalse(self.verdict("docs/ai/x.md", "opencode.json"))
         self.assertFalse(self.verdict())
@@ -305,7 +308,11 @@ class WriteGuardTests(unittest.TestCase):
         for good in ("docs\\ai\\x.md", "docs/ai/x.md", root + "\\docs\\ai\\x.md", "src\\fo4sf\\x.py"):
             self.assertTrue(ok(good), good)
         for bad in ("OPENCODE.JSON", "Docs\\AI\\Agents.md", "tools\\AI-Team\\x.py", root + "\\.git\\config",
-                    ".OpenCode\\plugin\\x.js", "D:\\Work\\other\\x", "..\\x", "C:\\x", "docs\\..\\opencode.jsonc"):
+                    ".OpenCode\\plugin\\x.js", "D:\\Work\\other\\x", "..\\x", "C:\\x", "docs\\..\\opencode.jsonc",
+                    # names NTFS reads as another file: a stream, a trailing dot or space (dropped), a short-name tilde
+                    "src\\AGENTS.md::$DATA", "src\\AGENTS.md:x", "AGENTS.md::$DATA", "opencode.jsonc.", "tui.json ",
+                    "docs\\AGENTS.md ", "src\\CONTEXT.md.", "docs\\ai\\x.md.", "docs\\ai\\AGENTS~1.MD",
+                    root + "\\src\\CLAUDE.md::$DATA", "docs\\ai\\x.md\t", "docs\\ai\\\u00fc.md", "docs\\ai\\.hidden"):
             self.assertFalse(ok(bad), bad)
 
     def test_writes_need_a_session_at_the_root(self):
@@ -580,6 +587,23 @@ class ScriptTests(unittest.TestCase):
             self.assertLess(s.index(line), launch, line)
         self.assertIn("switch -q --detach origin/main", s)      # a clean terminal worktree goes back to main
         self.assertNotIn("ai/local-terminal", s)                # no branch of its own that could fall behind main
+
+    def test_a_second_terminal_window_leaves_the_worktree_where_it_is(self):
+        # The menu can open several windows on the one worktree; a reset to main under an open window would move its
+        # agent off the branch it is committing on.
+        s = self.script("terminal.ps1")
+        mine = s.index("$null = New-Item -ItemType File -Force $mine")
+        check = s.index("$others += $id")
+        skip = s.index("} elseif ($others -or (git -C $wt status --porcelain)) {")
+        reset = s.index("git -C $wt switch -q --detach origin/main")
+        launch = s.index("& $opencode @argv")
+        self.assertLess(s.index("try {"), mine)                 # the file is removed however the script ends
+        self.assertTrue(mine < check < skip < reset < launch)
+        self.assertEqual(s.count("switch -q --detach"), 1)      # the reset only in the last branch
+        self.assertIn("Where-Object { $_.ProcessName -in 'powershell', 'pwsh' }", s)   # a reused pid is not a window
+        tail = s[launch:]
+        self.assertIn("} finally {", tail)
+        self.assertIn("Remove-Item -LiteralPath $mine", tail[tail.index("} finally {"):])
 
     def test_unattended_runs_never_count_as_the_owners_terminal(self):
         s = self.script("run-lead.ps1")

@@ -1144,3 +1144,10 @@ decided the import path); keeping the order as a parameter (two orders in the co
   `run-lead.ps1` keeps main's single-instance check, environment restore and pinned cycle, with the pick, the session
   pid file for the menu, `-Brief` and the skip without a wait in the last cycle added. The proxy follows a pick only
   when it names a preset's model.
+- Second self-check (30 Oct, after the merge): the proxy read only the guardian's config, so it had no presets and
+  never followed a pick (it now reads the models from `config.json` too); `models.py pick` always loads (no
+  `--no-load`, which could leave a pick that was never loaded); a written file's path takes letters, digits and
+  `._@+=,-` only, with no part that starts or ends with a dot (Windows drops trailing dots and spaces, and `::$DATA`
+  writes the file itself); only the coding agent commits (`agent_git.py` is gone from the Lead's rules, per J);
+  `run-lead.ps1` waits for a session one second at a time, so Ctrl+C stops it, and forgets the last cycle's session;
+  and `terminal.ps1` leaves the worktree where it is while another terminal window is open on it.

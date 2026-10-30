@@ -83,7 +83,7 @@ $saved = @{ FO4SF_UNATTENDED = $env:FO4SF_UNATTENDED; FO4SF_PYTHON = $env:FO4SF_
             FO4SF_OWNER_PRESENT = $env:FO4SF_OWNER_PRESENT; OPENCODE_CONFIG_CONTENT = $env:OPENCODE_CONFIG_CONTENT;
             OPENCODE_DISABLE_EXTERNAL_SKILLS = $env:OPENCODE_DISABLE_EXTERNAL_SKILLS;
             OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS }
-$wait = $Interval; $cycle = 0
+$wait = $Interval; $cycle = 0; $p = $null          # $p: this run's session only, never a caller's variable
 try {
   $PID | Set-Content $pidFile
   if (-not (Test-Path $wt)) {
@@ -145,7 +145,11 @@ try {
          -WorkingDirectory $wt -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError "$out.err"
     $null = $p.Handle                                   # hold the handle, or ExitCode is lost (redirected Start-Process)
     $p.Id | Set-Content $sessionFile
-    if (-not $p.WaitForExit($SessionTimeout * 1000)) {
+    # one-second waits, so Ctrl+C here is seen between them and the finally stops the session (one long wait holds
+    # Ctrl+C until the session ends, and the session has its own hidden console)
+    $deadline = (Get-Date).AddSeconds($SessionTimeout)
+    while (-not $p.HasExited -and (Get-Date) -lt $deadline) { $null = $p.WaitForExit(1000) }
+    if (-not $p.HasExited) {
       Stop-Process -Id $p.Id -Force -Confirm:$false; Log "cycle ${cycle}: session timed out, stopped"
       $wait = [Math]::Min($wait * 2, 14400)
     } elseif ($p.ExitCode -ne 0) {

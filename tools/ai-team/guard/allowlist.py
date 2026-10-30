@@ -544,6 +544,11 @@ PROTECTED = (".opencode/", ".claude/", ".agents/", ".git/", ".github/", "tools/a
 ROOT_CONFIG = re.compile(r"(?:opencode|tui)\.jsonc?")
 INSTRUCTION_NAMES = ("agents.md", "claude.md", "context.md")
 CONFIG_FOLDERS = (".opencode", ".claude", ".agents", ".git", ".github")
+# Each part of a written path must be a name NTFS reads the way this check does. A ':' names a stream (AGENTS.md::$DATA
+# writes AGENTS.md itself), a trailing dot or space is dropped (opencode.jsonc. is opencode.jsonc), and realpath keeps a
+# file that does not exist yet exactly as typed. So only the characters the repo's own file names use are taken: letters,
+# digits and ._@+=,- , not starting or ending with a dot (no hidden files either).
+SAFE_NAME = re.compile(r"[A-Za-z0-9_@+=,-](?:[A-Za-z0-9._@+=,-]*[A-Za-z0-9_@+=,-])?")
 
 
 def check_write(root, paths):
@@ -562,6 +567,9 @@ def check_write(root, paths):
             raise Refused(f"writes stay inside the repo: {p}")
         if rel == "." or rel == ".." or rel.startswith("../") or os.path.isabs(rel):
             raise Refused(f"writes stay inside the repo: {p}")
+        if not all(SAFE_NAME.fullmatch(part) for part in rel.split("/")):
+            raise Refused("a written file's path takes letters, digits and ._@+=,- only, with no part that starts or ends "
+                          f"with a dot: {rel!r}")
         low = rel.lower()                           # Windows paths ignore case
         parts = low.split("/")
         if any(low == x.rstrip("/") or (x.endswith("/") and low.startswith(x)) for x in PROTECTED) \

@@ -1001,9 +1001,17 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         known.append(["apply_patch", {"patchText": "*** Begin Patch\n*** Add File: docs/ai/x.md\n+x\n*** End Patch"}])
         self.assertEqual(self.hook(known)["out"], ["allow"] * len(known))
         unknown = [[t, {"command": "rm -rf docs"}]
-                   for t in ("mcp_run", "my_tool", "shell", "Bash", "powershell", "exec", "multiedit", "patch", "list",
-                             "Read", "")]
+                   for t in ("mcp_run", "my_tool", "shell", "Bash", "powershell", "exec", "list", "Read", "")]
         self.assertEqual(self.hook(unknown)["out"], ["refuse"] * len(unknown))
+
+    def test_other_write_tools_are_checked_as_writes(self):
+        # multiedit and patch are not OpenCode 1.18.35 tools, but a later version or a plugin may name them: they get
+        # the write check, not the unknown-tool refusal, so a written file is checked whatever tool writes it.
+        patch = "*** Begin Patch\n*** Add File: {}\n+x\n*** End Patch"
+        calls = [["multiedit", {"filePath": "docs/ai/x.md"}], ["patch", {"patchText": patch.format("docs/ai/x.md")}],
+                 ["multiedit", {"filePath": "AGENTS.md"}], ["patch", {"patchText": patch.format("opencode.json")}],
+                 ["multiedit", {"command": "rm -rf docs"}], ["patch", {"patchText": "no file named"}]]
+        self.assertEqual(self.hook(calls)["out"], ["allow", "allow", "refuse", "refuse", "refuse", "refuse"])
 
     def test_the_checker_runs_isolated(self):
         # A json.py on PYTHONPATH that answers allowed would allow everything if the checker ran without -I.

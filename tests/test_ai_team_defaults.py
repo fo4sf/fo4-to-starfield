@@ -239,6 +239,14 @@ class BashRuleTests(unittest.TestCase):
                 for command in self.POSTS:
                     self.assertNotEqual(verdict(rules, command, win32), "allow", (win32, command))
 
+    def test_only_the_coding_agent_commits_in_the_owners_terminal_without_a_prompt(self):
+        # the owner's choice J (30 Oct): the coding agent commits on its own ai/ branch; the Lead's call asks the owner
+        command = "python -I tools/ai-team/agent_git.py commit 'Implement (local): x' src/a.py"
+        for win32 in (False, True):
+            self.assertEqual(verdict(merged_bash_rules("fo4-implement"), command, win32), "allow", win32)
+            for agent in ("fo4-lead", "fo4-qa", "fo4-research"):
+                self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "ask", (agent, win32))
+
     def test_the_lead_can_still_read_and_comment(self):
         rules = agent_bash_rules("fo4-lead")
         # A normal comment whose body contains "re-run" must not be caught by the -R/-F denies, on Windows too, where

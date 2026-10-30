@@ -2,7 +2,8 @@
 
   python models.py list                     the presets (config.json "models"), the pick, and what LM Studio has
                                             loaded; JSON
-  python models.py pick <preset> [--no-load]
+  python models.py pick <preset>             load a preset and make it the pick (the proxy follows the pick at once,
+                                            so the pick changes only with a load that worked)
   python models.py ensure                   load the pick unless LM Studio already has it loaded at its context
   python models.py opencode                 OpenCode's inline config for the pick (OPENCODE_CONFIG_CONTENT): the four
                                             agents' context and output limits
@@ -154,7 +155,6 @@ def main(argv=None):
     sub.add_parser("list")
     p = sub.add_parser("pick")
     p.add_argument("preset")
-    p.add_argument("--no-load", action="store_true")
     p.add_argument("--force", action="store_true", help="load even while requests run (cuts them)")
     e = sub.add_parser("ensure")
     e.add_argument("--force", action="store_true")
@@ -181,11 +181,7 @@ def main(argv=None):
             print(json.dumps(out, indent=1))
         elif a.cmd == "pick":
             s = preset(a.preset, cfg)
-            if a.no_load:
-                save(s)
-                print(json.dumps({"picked": s, "loaded": None}))
-            else:
-                print(json.dumps({"picked": s, "loaded": load(s, cfg, a.force)}))
+            print(json.dumps({"picked": s, "loaded": load(s, cfg, a.force)}))
         else:                                      # ensure
             s = current(cfg)
             c = store.connect()
