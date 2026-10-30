@@ -6,9 +6,10 @@ check, and a workdir can point anywhere. This guard reads a command the way bash
 shell metacharacter and expansion, and accepts only the argument lists below. Anything else is refused.
 
 The OpenCode plugin .opencode/plugin/fo4-guard.js runs this before each shell call. It passes one JSON object on stdin:
-  {"root": "<repo root>", "command": "<the command text>", "workdir": "<optional directory>"}
+  {"root": "<worktree root>", "directory": "<the session's folder>", "command": "<the command text>",
+   "workdir": "<optional directory>"}
 Exit 0 means allowed. Exit 1 means refused, with {"allowed": false, "reason": "..."} on stdout. Anything unreadable is a
-refusal too. Run it as:  python -I tools/ai-team/guard/allowlist.py < call.json
+refusal too. Run it by hand (PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
 """
 import json
 import os
@@ -23,9 +24,14 @@ class Refused(Exception):
 # Shell syntax outside quotes: separators, redirects, expansions, globs, comments, escapes, history expansion. The comma
 # is here too: PowerShell splits an unquoted a,b into two arguments, so a value with a comma must be quoted.
 BAD_BARE = set(";&|<>$`(){}[]*?%@#!\\,")
-# What bash or PowerShell expands inside double quotes, and quote characters that Windows argument passing mangles;
-# refused in any quoted argument, to keep one rule.
-BAD_QUOTED = set("$`\\!'\"")
+# What bash or PowerShell expands inside double quotes, quote characters that Windows argument passing mangles, and what
+# cmd.exe would read as syntax if a program on the list ever resolved to a .bat or .cmd shim; refused in any quoted
+# argument, to keep one rule.
+BAD_QUOTED = set("$`\\!'\"&|^%<>")
+# PowerShell turns a bare argument that reads as a number into that number, then passes its own text of it: 0x10 reaches
+# the program as 16, 1kb as 1024, .5 as 0.5. Only plain digits pass through unchanged.
+PS_NUMBER = re.compile(r"(?:0x[0-9a-f]+|0b[01]+|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)"
+                       r"(?:[lduysn]|ul|us|uy|un)?(?:kb|mb|gb|tb|pb)?", re.IGNORECASE)
 
 WORD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/,+=-]{0,199}")
 DIGITS = re.compile(r"[0-9]{1,4}")
@@ -44,7 +50,7 @@ def tokenize(command):
         c = command[i]
         if c == " ":
             if word is not None:
-                tokens.append("".join(word))
+                tokens.append(bare_word(word))
                 word = None
             i += 1
         elif c in "'\"":
@@ -55,7 +61,8 @@ def tokenize(command):
                 raise Refused("unterminated quote")
             body = command[i + 1:end]
             if any(x in BAD_QUOTED or x == "\n" for x in body):
-                raise Refused("a quoted argument may not contain $, a backtick, a backslash, ! or a quote")
+                raise Refused("a quoted argument may not contain a quote mark, $, a backtick, a backslash, !, &, |, ^, %, "
+                              "< or >")
             tokens.append(body)
             i = end + 1
             if i < len(command) and command[i] != " ":
@@ -63,6 +70,8 @@ def tokenize(command):
         elif c in "~^":
             if word is None:
                 raise Refused(f"{c} is not allowed at the start of an argument")
+            if c == "~" and ("=" in word or ":" in word):     # bash expands x=~ and x=a:~ to the home folder
+                raise Refused("~ is not allowed after = or :")
             word.append(c)
             i += 1
         elif c in BAD_BARE:
@@ -73,10 +82,19 @@ def tokenize(command):
             word.append(c)
             i += 1
     if word is not None:
-        tokens.append("".join(word))
+        tokens.append(bare_word(word))
     if not tokens:
         raise Refused("empty command")
     return tokens
+
+
+def bare_word(word):
+    """Close a bare argument: one PowerShell would pass on as a different number is refused."""
+    text = "".join(word)
+    core = text[1:] if text[:1] in "+-" else text
+    if PS_NUMBER.fullmatch(core) and not (core.isdigit() and text[:1] != "+"):
+        raise Refused(f"PowerShell would pass {text!r} on as a number: write plain digits, or quote it")
+    return text
 
 
 def digits(value):
@@ -230,14 +248,17 @@ TEAM_SCRIPTS = (
     ["tools/ai-team/guardian/guardian.py", "report"],
     ["tools/ai-team/team.py", "board"],
     ["tools/ai-team/team.py", "status"],
+    ["tools/ai-team/wake_agent.py", "status"],
     ["scripts/guard.py"],
 )
-# The Codex and Grok wakes are refused: wake_agent.py starts an agent with approvals on a brief, which the unattended
-# Lead may not do. The owner decides whether it may.
-TEST_ARGS = re.compile(r"tests\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*")
+# The Codex and Grok wakes are refused: wake_agent.py codex|grok starts an agent with approvals on a brief, which the
+# unattended Lead may not do. The owner decides whether it may. `wake_agent.py status` only reads idle times.
+# A test module by name, and only one that exists as tests/test_<name>.py: unittest calls whatever a longer dotted name
+# ends on (tests.test_x.some_module.main would run main()), so nothing after the module name is allowed.
+TEST_MODULE = re.compile(r"tests\.(test_[a-z0-9_]+)")
 
 
-def python(argv):
+def python(argv, root=None):
     rest = argv[1:]
     isolated = rest[:1] == ["-I"]
     if isolated:
@@ -250,26 +271,31 @@ def python(argv):
         return
     if rest in [list(s) for s in TEAM_SCRIPTS]:
         return
+    if rest[:2] == ["tools/ai-team/guardian/guardian.py", "report"] and len(rest) == 4 and rest[2] == "--hours" \
+            and digits(rest[3]):
+        return
     if rest[:2] == ["-m", "unittest"]:
         args = [a for a in rest[2:] if a not in ("-v", "-q")]
         if args[:1] == ["discover"]:
             if args != ["discover", "-s", "tests"]:
                 raise Refused("unittest discovery runs only as: discover -s tests")
             return
-        if not args or not all(TEST_ARGS.fullmatch(a) for a in args):
-            raise Refused("unittest takes test modules named tests.<module>, or discover -s tests")
+        names = [TEST_MODULE.fullmatch(a) for a in args]
+        if not args or not all(names) or not isinstance(root, str) or not all(
+                os.path.isfile(os.path.join(root, "tests", m.group(1) + ".py")) for m in names):
+            raise Refused("unittest takes test modules named tests.test_<name> that exist, or discover -s tests")
         return
     raise Refused("this python command is not on the list")
 
 
-def dispatch(argv):
+def dispatch(argv, root=None):
     exe = argv[0].lower()
     if exe == "gh":
         return gh(argv)
     if exe == "git":
         return git(argv)
     if exe in ("python", "python3"):
-        return python(argv)
+        return python(argv, root)
     raise Refused(f"command is not on the list: {exe}")
 
 
@@ -279,16 +305,27 @@ def check(call):
     command = call.get("command")
     if not isinstance(command, str):
         raise Refused("no command text")
-    root, workdir = call.get("root"), call.get("workdir")
-    if workdir is not None:
-        # Commands run from the repo root only. A subfolder is refused too: the agents can write files under docs/ai/,
-        # and relative script paths, git's repo discovery, gh's choice of repo and unittest's discovery all follow the
-        # working directory, so a planted folder there could change what an allowed command runs.
-        if not isinstance(root, str) or not root or not isinstance(workdir, str):
-            raise Refused("a workdir needs the repo root")
-        if os.path.realpath(os.path.join(root, workdir)) != os.path.realpath(root):
-            raise Refused("commands run from the repo root only")
-    dispatch(tokenize(command))
+    root = call.get("root")
+    # Commands run from the repo root only. A subfolder is refused too: the agents can write files under docs/ai/, and
+    # relative script paths, git's repo discovery, gh's choice of repo and unittest's discovery all follow the working
+    # directory, so a planted folder there could change what an allowed command runs. OpenCode runs a call in the
+    # session's folder (directory), or in its workdir resolved against that folder, so both must be the root itself.
+    if not isinstance(root, str) or not root:
+        raise Refused("no repo root")
+    directory, workdir = call.get("directory"), call.get("workdir")
+    if directory is not None and not same_folder(directory, root):
+        raise Refused("the session runs in a subfolder or elsewhere: start OpenCode at the repo root")
+    if workdir is not None and workdir != "." and not same_folder(workdir, root):
+        raise Refused("commands run from the repo root only")
+    dispatch(tokenize(command), root)
+
+
+def same_folder(path, root):
+    """The exact root, written as an absolute path (separators, a trailing slash and, on Windows, case may differ). No
+    '..' segment and no other spelling: OpenCode maps /d/ and /mnt/d/ to D:\\ on Windows, which a resolve here would not."""
+    if not isinstance(path, str) or not os.path.isabs(path) or ".." in path.replace("\\", "/").split("/"):
+        return False
+    return os.path.normcase(os.path.normpath(path)) == os.path.normcase(os.path.normpath(root))
 
 
 def main():

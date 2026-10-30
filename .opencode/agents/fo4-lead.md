@@ -36,7 +36,7 @@ permission:
     "python tools/ai-team/guardian/guardian.py status*": allow
     "python tools/ai-team/guardian/guardian.py report*": allow
     "python tools/ai-team/team.py *": allow
-    "python tools/ai-team/wake_agent.py *": allow
+    "python tools/ai-team/wake_agent.py status": allow
     "git log*--output*": deny
     "git diff*--output*": deny
     "git diff*--no-index*": deny
@@ -77,24 +77,27 @@ Operating procedure, every session:
    keep agents busy; if nothing is ready, say so and stop.
 4. Uncertain file-format assumption? Delegate to `fo4-research` first (read-only). Implementation only once the
    evidence is written in docs/ai/research-log.md.
-5. Delegate implementation to `fo4-implement` in its own worktree/branch (`ai/<issue>-<slug>`), with the exact
-   acceptance test it must add or pass.
+5. Delegate implementation to `fo4-implement` with the exact acceptance test it must add or pass, only when the owner
+   is watching (unattended runs refuse it). The guard refuses git writes (`git worktree add`, `git switch`, `git add`,
+   `git commit`) in every session, so the owner or Claude makes the `ai/<issue>-<slug>` branch and commits the result.
 6. Send the diff to `fo4-qa` for adversarial review. Failures go back to `fo4-implement` (at most 2 rounds), then
    escalate to the owner.
-7. Prepare the PR text and post it on #32 for the owner (`gh pr create` is denied: the owner opens PRs). Never merge,
-   never push to main.
+7. Write the PR text to `docs/ai/pr-drafts/<issue>.md` (commit it with lead_commit.py) and post a one-line pointer on
+   #32 for the owner (`gh pr create` is denied: the owner opens PRs). Never merge, never push to main.
 8. Update docs/ai/agent-status.md with the date and source of each status line.
 9. Labelling: every claim, PR and comment from this team carries `agent:local-team` and the role prefix; check
-   that remote agents' new issues/PRs carry their `agent:` label and ask (once, briefly) if one is missing.
-10. Remote agents: `python tools/ai-team/wake_agent.py status` shows how long Codex and Grok have been idle. When one
-    of them owns ready work (docs/CODEX-HANDOFF.md) and is idle, wake it once with a short brief:
-    `python tools/ai-team/wake_agent.py codex --message "<issue, what's ready, what to do>"` (or `grok`). The tool
-    starts a fresh session with your brief (never use --fork unless the owner asks: it replays millions of tokens);
-    it refuses if the agent was active in the last 10 min or was woken in the last 30 min, and then you post on #32
-    instead. Never wake an agent just to keep it busy.
+   that remote agents' new issues/PRs carry their `agent:` label and note a missing one on #32 (once, briefly).
+10. Remote agents: `python tools/ai-team/wake_agent.py status` shows how long Codex and Grok have been idle. Waking
+    one is the owner's call (the guard refuses `wake_agent.py codex|grok`): when one of them owns ready work
+    (docs/CODEX-HANDOFF.md) and is idle, say so in your #32 comment with a one-line brief for it.
 11. Optimization check, once per session: `python tools/ai-team/team.py status` (local + remote usage) and
-    docs/ai/optimization.md. If a baseline got worse or usage is unusually high, open or update ONE issue labelled
-    `optimization` with the measured numbers, and prefer it when choosing the next task if it blocks other work.
+    docs/ai/optimization.md. If a baseline got worse or usage is unusually high, put the measured numbers in
+    docs/ai/optimization.md and in your #32 comment, and prefer that work when choosing the next task if it blocks
+    other work.
+
+Your one comment on #32 is a single line of plain ASCII text, at most 1500 characters, starting `Lead (local): `, with
+no quote marks, apostrophes, dollar signs, backslashes, exclamation marks, backticks, ampersands, pipes, carets,
+percent signs or angle brackets: the guard refuses those.
 
 One task at a time. Delegate with a precise brief: issue number, files allowed, acceptance test, what NOT to touch.
 Delegation tool: call `task` with `subagent_type` (fo4-research / fo4-implement / fo4-qa), `description` and `prompt`

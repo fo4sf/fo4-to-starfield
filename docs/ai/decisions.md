@@ -1016,6 +1016,19 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: keep adding pattern denies (rejected: each new shape is a new hole, and that is how #603 came about);
   a restricted Windows user (B, the strongest boundary, but only the owner can create it; it remains an option on top);
   stay with the Lead paused (safe, but it does nothing).
-- Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`), not on the PC. The plugin hook
-  (`tool.execute.before`) is read from the 1.19.5 type definitions, and the PC runs 1.18.35. The install must confirm
-  the plugin loads and refuses a canary command (for example `echo guard-canary > x`) before the Lead is turned on.
+- Review (30 Oct, NOT CLEAR at d0423d43, fixed in the next commit): unittest names now stop at an existing
+  `tests.test_<name>` module (a longer dotted name made unittest call a non-test `main()`); the session's folder must
+  be the worktree root and a workdir only absent, `.` or the root (a session opened in a subfolder ran calls there);
+  OpenCode only logs a plugin that fails to load, so the plugin now adds an `X-FO4SF-Guard` header to every model
+  request and the proxy refuses inference without it, and `run-lead.ps1` skips a cycle when the pull fails or the
+  worktree lacks the plugin or checker; the tests now load the plugin in node. Also: the shell check runs for the
+  `bash` tool only and the fo4-implement rule compares `subagent_type` exactly (a slash-command `task` and a brief
+  mentioning fo4-implement were refused by mistake); quoted `& | ^ % < >`, number-shaped bare arguments and `~` after
+  `=` are refused; `wake_agent.py status` and `guardian.py report --hours <n>` are allowed; the Lead's procedure no
+  longer asks for commands the guard refuses.
+- Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
+  PC. The reviewer read OpenCode 1.18.35's own build: the hook order, the `bash` tool id and its arguments, plugin
+  discovery and `chat.headers` hold there. The install must show, before the Lead is turned on: `git log -1
+  --format=%H` (allowed by OpenCode's `git log*` rule) refused with `guard refused the command`, `git status --short`
+  still running, and a session started without the plugin getting HTTP 403 from the proxy. A redirect such as
+  `echo x > y` cannot tell the two apart, since OpenCode's own rules refuse it too.
