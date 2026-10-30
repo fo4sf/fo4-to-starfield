@@ -10,9 +10,11 @@ permission:
     "*": allow
     "docs/CODEX-HANDOFF.md": deny
     "AGENTS.md": deny
-    "opencode.json": deny
+    "opencode.json*": deny
     ".opencode/**": deny
     "tools/ai-team/**": deny
+    "*/.opencode/*": deny
+    "*/opencode.json*": deny
   bash:
     "*": ask
     "python -m unittest*": allow

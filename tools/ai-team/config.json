@@ -23,8 +23,6 @@
   "models": {
     "qwen3.6-35b":      {"model": "qwen3.6-35b-a3b", "context": 65536,  "output": 16384, "kv": "f16",  "gpu": null,
                          "note": "the default: 78.8% RAM idle, up to 90.3% while the Lead works (measured 2026-10-29)"},
-    "qwen3.6-35b-128k": {"model": "qwen3.6-35b-a3b", "context": 131072, "output": 16384, "kv": "f16",  "gpu": null,
-                         "note": "long window: 87-91% RAM while working, so the guardian holds requests (2026-10-29)"},
     "qwen3-14b":        {"model": "qwen3-14b",       "context": 32768,  "output": 8192,  "kv": "q8_0", "gpu": 1.0,
                          "note": "the fallback: all on the GPU, q8 K/V cache, flash attention"}
   }

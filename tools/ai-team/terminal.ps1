@@ -11,9 +11,20 @@ param([string]$Agent = 'fo4-lead', [switch]$Continue,
 $repo = Split-Path (Split-Path $PSScriptRoot)
 $Host.UI.RawUI.WindowTitle = "FO4SF local agents ($Agent)"
 $models = Join-Path $PSScriptRoot 'models.py'
+# The guard plugin runs its checker with this Python, as a full path, so it is resolved first, as run-lead.ps1 does:
+# a program (not an alias or function from a profile), then the program Python says it runs as. The Microsoft Store's
+# python.exe alias is refused: OpenCode cannot start it, so every guarded call would come back "no verdict".
+$pythonPath = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+if (-not [IO.Path]::IsPathRooted("$pythonPath")) { throw "-Python $Python is not a program with a full path" }
+$pythonPath = "$(& $pythonPath -I -c 'import sys; print(sys.executable)')".Trim()
+if (-not [IO.Path]::IsPathRooted($pythonPath) -or $pythonPath -match '\\WindowsApps\\' -or
+    -not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+  throw ("-Python $Python runs as '$pythonPath', which OpenCode cannot start: pass -Python with the full path " +
+         "of a python.exe from python.org or the Python install manager")
+}
 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1')
-$ensure = (& $Python $models ensure | Out-String).Trim()
+$ensure = (& $pythonPath $models ensure | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { "WARNING: the picked model is not loaded ($ensure). Pick one in the FO4SF AI menu." }
 else { try { "model: $(($ensure | ConvertFrom-Json).picked.model)" } catch { $ensure } }
 
@@ -48,10 +59,11 @@ if (-not $gate) {
 }
 
 Remove-Item Env:FO4SF_UNATTENDED -ErrorAction SilentlyContinue
+$env:FO4SF_PYTHON = $pythonPath                     # the guard's checker: a full path, never a name looked up later
 $env:FO4SF_OWNER_PRESENT = '1'                      # the guard adds agent_git.py; never set by run-lead.ps1
 $env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'         # no skills from ~/.claude or ~/.agents (the claude.ai ones)
 $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'      # the same switch under its older name
-$env:OPENCODE_CONFIG_CONTENT = (& $Python $models opencode | Out-String).Trim()   # OpenCode's limits = the loaded window
+$env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode | Out-String).Trim()   # OpenCode's limits = the loaded window
 
 # npm installs a .ps1 shim; use the real binary behind it, as run-lead.ps1 does
 $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'

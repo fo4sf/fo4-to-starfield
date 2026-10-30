@@ -1,6 +1,6 @@
 ---
 name: local-team-models
-description: "Check or switch the model the fo4 local AI team runs on (the LM Studio presets, or any downloaded model) with tools/ai-team/models.py - on the owner's PC only, never during a running request, and only when the owner asked."
+description: "Check or switch the model the fo4 local AI team runs on (its two presets in config.json, nothing else) with tools/ai-team/models.py - on the owner's PC only, never during a running request, and only when the owner asked."
 ---
 # Switch the local team's model
 
@@ -10,9 +10,7 @@ game needs too.
 ```
 python tools/ai-team/models.py list
 python tools/ai-team/models.py pick qwen3.6-35b
-python tools/ai-team/models.py pick qwen3.6-35b-128k
 python tools/ai-team/models.py pick qwen3-14b
-python tools/ai-team/models.py pick --model <an id from list> --context 32768
 ```
 
 - `pick` refuses while a request runs or another load is under way (`python tools/ai-team/guardian/guardian.py
@@ -23,9 +21,8 @@ python tools/ai-team/models.py pick --model <an id from list> --context 32768
   works, so run `python tools/ai-team/models.py ensure` or pick another model, and tell the owner what failed.
 - The proxy sends every agent to the pick at once. A terminal or Lead session opened before the switch keeps the old
   window and output limits until it is reopened: terminal.ps1 and run-lead.ps1 pass the pick's limits at start.
-- The presets and their measured RAM and VRAM are in tools/ai-team/config.json under "models". The 128K window held
-  requests at 87-91% RAM. A new preset goes into config.json with its measurements, by PR.
-- A model outside the presets must call tools (OpenCode needs tool calls), and its output limit stays at or below
-  half its context; `pick` checks the numbers, not the model.
+- Only the presets in tools/ai-team/config.json "models" can be picked, with their measured RAM and VRAM: the 35B at
+  64K (the default) and the 14B fallback (the owner's choice, 30 Oct). The 128K window was dropped: it held requests at
+  87-91% RAM. A new preset goes into config.json with its measurements, by PR, and only when the owner asks.
 - While Starfield or Fallout 4 runs, the guardian blocks inference; free the GPU for a game test only when the owner
   asks (stop-team.ps1 says how).

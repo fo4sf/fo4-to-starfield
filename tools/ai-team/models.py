@@ -1,16 +1,16 @@
 """Pick the model the local team runs on, and load it in LM Studio (LM Studio Python SDK, `pip install --user lmstudio`).
 
   python models.py list                     the presets (config.json "models"), the pick, and what LM Studio has
-                                            loaded and downloaded; JSON
+                                            loaded; JSON
   python models.py pick <preset> [--no-load]
-  python models.py pick --model <id> --context <tokens> [--output <tokens>] [--kv f16|q8_0] [--gpu <0..1>] [--no-load]
-                                            any other model LM Studio has downloaded (`list` names them)
   python models.py ensure                   load the pick unless LM Studio already has it loaded at its context
   python models.py opencode                 OpenCode's inline config for the pick (OPENCODE_CONFIG_CONTENT): the four
                                             agents' context and output limits
 
 The pick is a row in the guardian's database (store.PICK, in the team's state folder); with no pick the default preset
-is used. The guardian proxy sends every agent's requests to the picked model, and terminal.ps1 and run-lead.ps1 hand
+is used. Only the presets can be picked (the owner's choice, 30 Oct: the measured setups only), and the row holds the
+preset's name: its numbers are read from config.json each time, so a row from an older build or another name falls
+back to the default. The guardian proxy sends every agent's requests to the picked model, and terminal.ps1 and run-lead.ps1 hand
 the pick's limits to OpenCode, so OpenCode compacts at the window that is loaded and asks for no more output than fits.
 
 A load holds the proxy while the model changes (store.HOLD): new requests wait in its queue and go to the new model
@@ -72,13 +72,12 @@ def preset(name, cfg=None):
 
 
 def current(cfg=None, c=None):
-    """The picked setup, or the default preset when there is no pick or the row does not hold a valid one."""
+    """The picked preset, or the default preset when there is no pick or the row does not name a preset."""
     cfg = cfg or read_config()
     own = c is None
     c = store.connect() if own else c
     try:
-        p = store.get_pick(c)
-        return setup(p["model"], p["context"], p["output"], p["kv"], p["gpu"], p.get("preset"))
+        return preset(store.get_pick(c)["preset"], cfg)
     except (KeyError, TypeError, PickError):
         return preset(cfg["default_model"], cfg)
     finally:
@@ -134,7 +133,7 @@ def load(s, cfg, force=False):
             store.clear_hold(c)
             raise PickError(f"{busy} request(s) running: load when they finish (guardian.py status), or pass --force "
                             "to cut them")
-        unload = (team_models(cfg) | {current(cfg, c)["model"]}) - {s["model"]}   # the last pick, even a custom one
+        unload = (team_models(cfg) | {current(cfg, c)["model"]}) - {s["model"]}
         try:
             loaded = load_model.load(s["model"], load_model.load_config(s["context"], s["kv"], s["gpu"]), unload=unload)
         except Exception as err:
@@ -154,12 +153,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list")
     p = sub.add_parser("pick")
-    p.add_argument("preset", nargs="?")
-    p.add_argument("--model")
-    p.add_argument("--context", type=int)
-    p.add_argument("--output", type=int)
-    p.add_argument("--kv", default="f16")
-    p.add_argument("--gpu", type=float)
+    p.add_argument("preset")
     p.add_argument("--no-load", action="store_true")
     p.add_argument("--force", action="store_true", help="load even while requests run (cuts them)")
     e = sub.add_parser("ensure")
@@ -182,19 +176,11 @@ def main(argv=None):
                 import lmstudio as lms
                 client = lms.get_default_client()
                 out["loaded"] = [m.identifier for m in client.llm.list_loaded()]
-                out["downloaded"] = sorted(m.model_key for m in client.llm.list_downloaded())
             except Exception as err:               # LM Studio off or the SDK missing: the presets still list
                 out["lmstudio"] = f"not reachable ({type(err).__name__})"
             print(json.dumps(out, indent=1))
         elif a.cmd == "pick":
-            if bool(a.preset) == bool(a.model):
-                raise PickError("pick takes a preset name, or --model with --context")
-            if a.preset:
-                s = preset(a.preset, cfg)
-            else:
-                if a.context is None:
-                    raise PickError("--model needs --context")
-                s = setup(a.model, a.context, a.output, a.kv, a.gpu)
+            s = preset(a.preset, cfg)
             if a.no_load:
                 save(s)
                 print(json.dumps({"picked": s, "loaded": None}))

@@ -1034,21 +1034,76 @@ decided the import path); keeping the order as a parameter (two orders in the co
   started before this PR) and hands the plugin a full Python path; the Lead's procedure claims work in its #32 comment
   and leaves labels to the owner; the tests now pin every refused character, the 15 s cap, `-I`, the proxy's 403 over
   HTTP and the Windows path rules.
+- Follow-up (30 Oct, the re-review at 8457816c was CLEAR with nine low notes, all taken): unittest names now accept
+  unittest's skip marks on methods, `import unittest.mock` next to `import unittest`, and same-file mixin bases (a scan
+  of all 704 runtime TestCase classes and the 3848 test methods defined in their bodies found none refused, and
+  nothing allowed that unittest would not treat as a test; before, 15 classes with their 151 methods and 17 more
+  methods, 168 names in all, were refused; the 157 test ids a class inherits stay refused and run through the class
+  or the module); `-I` is refused for discovery too;
+  `run-lead.ps1` resolves Python and OpenCode before it writes the pid file or sets the environment, does both inside
+  its `try`, and gives a dot-sourced window its own `FO4SF_*` values back; the Lead's comment rules list everything
+  OpenCode's own denies match (`-r` and `-f` in either case, `--edit-last`, `--delete-last`); the plugin tests fail
+  in CI without node instead of skipping, and their timeout cases use a Python sleeper so they run on Windows too; new
+  tests cover a subfolder session with a relative workdir, the exact list of known tools, the header for every agent,
+  a header-bearing request reaching the model, the run-lead lines exactly, and one step looser for each allowed
+  command. A second self-check then tightened what counts as a test: a name bound anywhere else in the file (in a
+  block, by a `global`, an except-as or a match capture, or a star import) no longer counts; only unittest's own
+  marks in their own form do (`expectedFailure(x)` returns `x`); and no mixin or case may define
+  `__init_subclass__`, nor a mixin any dunder method. `run-lead.ps1` takes only files found on the path for Python
+  and OpenCode (no alias or function; a `.bat` or `.cmd` matches too and then fails closed), ends a run whose pid file is deleted or taken over, and removes the pid file only while it is its own.
+  The Lead and fo4-implement may not write a nested `.opencode/` folder or `opencode.json`. More tests: a program
+  named by a path or with an extension, every PowerShell number form, `-I` against a `json.py` beside the checker,
+  every working-directory argument name, a 1 s timeout that really takes about 1 s, and a 16 s checker past the cap.
+- Second follow-up (30 Oct, the review of #606 at a0c9e48b was CLEAR with six low notes, all taken): the test-name
+  rule now reads only same-file bases defined above the class (below it, `class C(Warning)` would subclass the
+  builtin), counts a class-body `global`, and drops a method's marks when the class body binds `unittest` itself; it
+  reads syntax only and trusts the repo's own test files, with the runtime scan as the evidence. fo4-implement may not
+  write a root `opencode.jsonc` either. `run-lead.ps1` treats an empty or garbled pid file as stale (`[int]''` is 0,
+  the Idle process), and one whose pid now belongs to a process that is not PowerShell, or to itself. New tests: the cycle from `$cycle++` to the launch pinned as text (each skip and its `continue`,
+  the guard files read after the pull); elsewhere in the script one Start-Process-style launch, the call operator
+  only on the resolved Python, no dot-source call, and no environment change but the pinned lines and the final
+  restore (a regression net for reviewed edits, not a PowerShell parser); the provider address `:1235`, every agent
+  model on it, and no other config or agent file in the repo that OpenCode would merge; and the reviewer's five
+  test-name shapes. The Lead's prompt and agent file give the #32 comment and lead_commit forms the guard takes; the
+  README says that some test modules import only under discovery. Two notes were checked and kept
+  as they were: OpenCode's matcher flags are fixed per build (`s` in the 1.18.35 Linux build, `si` on Windows), and
+  the plugin tests skip without node unless `CI` is set.
+- PC check (30 Oct, owner's go, main a9921b46): the proxy refused a POST without the header with (403) Forbidden, and
+  the plugin loaded (no load error; model requests passed the gate). With `FO4SF_PYTHON` set to the real
+  `python.exe` (Python 3.14 from the install manager), `git status --short` ran and `git log -1 --format=%H` was
+  refused with `shell syntax is not allowed: %`; `git rev-parse HEAD` passed the guard and OpenCode's own rules then
+  refused it. With the plain `python` on that PC, the Microsoft Store alias, every call came back `no verdict from the
+  guard`: Bun cannot start the alias (node can). One call, a backtick in a `--format`, also came back with no verdict
+  under OpenCode while node gets the checker's refusal; not reproduced. Every case failed closed. So `run-lead.ps1`
+  now passes Python's own `sys.executable` and refuses an alias, the plugin refuses an alias path with the fix, and a
+  no-verdict refusal names the Python and what became of it. The Lead stays paused until the check passes with
+  `run-lead.ps1`'s own resolution.
+- Third follow-up (30 Oct, the review of #607 at d7890d39 was CLEAR with three low notes, all taken): the plugin no
+  longer falls back to a bare `python`. It refuses every shell call while `FO4SF_PYTHON` is unset or not a full path,
+  because a bare name is looked up at start, and on Windows that lookup may try the session's folder (the repo) before
+  PATH. `run-lead.ps1` always passes a full path, so the unattended Lead is unchanged, and any other session sets the
+  variable. The checker now prints `{"allowed": true}` with exit 0, and the plugin needs both, so a wrong program
+  behind `FO4SF_PYTHON` that only exits 0 refuses too. A test covers a refusal with no usable reason.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must
   show, before the Lead is turned on: the agent asked to run `git log -1 --format=%H` (allowed by OpenCode's `git log*`
   rule) gets a tool error saying `guard refused the command`, `git status --short` still runs, and a POST to the
-  proxy without the header fails with (403) Forbidden. A redirect such as `echo x > y` cannot tell the two apart,
-  since OpenCode's own rules refuse it too, and a command typed with `!` in the terminal UI is not a tool call.
+  proxy without the header fails with (403) Forbidden. A redirect such as `echo x > y` is a poor check: OpenCode's
+  own rules refuse it too, so only the error's wording would show which layer did. A command typed with `!` in the
+  terminal UI is not a tool call.
 
 ## 2026-10-30: one desktop menu, a guarded terminal for the local agents, and a model pick the whole team follows (Claude-cloud)
 
 - Decision: the owner chose A, C and E on 30 Oct: OpenCode's own terminal UI on the team's agents with the guard on
   (A), one "FO4SF AI" desktop menu to start the team, open its terminal, start Claude Code, show status, pick a model
-  and stop (C), and Claude-cloud builds it in the repo while the PC session only installs and tests (E).
-  - `models.py` keeps one pick (a preset from `config.json` "models", or any downloaded model) in `guardian.db`. The
-    guardian proxy sends every agent to the pick, read when a request is admitted, and `terminal.ps1` and
+  and stop (C), and Claude-cloud builds it in the repo while the PC session only installs and tests (E). Their
+  answers at 18:31Z and 18:36Z set the rest: J (the coding agent commits on its own `ai/` branch in their terminal,
+  never pushes), L (the terminal has its own worktree), P (only the measured setups can be picked), Q (the guard
+  checks every session, as it does now), and A (two models only: the 35B at 64K and the 14B; the 128K window is
+  dropped).
+  - `models.py` keeps one pick (one of the two presets in `config.json` "models", by name) in `guardian.db`. The
+    guardian proxy sends every agent to the pick's model when it is a preset's, read when a request is admitted, and `terminal.ps1` and
     `run-lead.ps1` pass its limits to OpenCode through `OPENCODE_CONFIG_CONTENT`. A load takes a hold on the proxy
     (one load at a time; the proxy starts no job while it stands), refuses while a request runs, unloads the team's
     other models and the last pick, and never touches the owner's pause or stop. A failed load leaves the hold as
@@ -1056,12 +1111,12 @@ decided the import path); keeping the order as a parameter (two orders in the co
     which also reloads a model at another context) instead of matching one model name.
   - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) whenever it is clean, and sets
     `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
-    files (literal paths) on the agent's own `ai/` branch, with no hooks, and never a push (pick J, offered to the owner
-    with K, strict), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
+    files (literal paths) on the agent's own `ai/` branch, with no hooks, and never a push (the owner's J), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
     specialists are `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the
     team, which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
   - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
-    CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no root OpenCode config in any spelling,
+    CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no OpenCode config file or config folder
+    (`.opencode`, `.claude`, `.agents`, `.git`, `.github`) in any folder or spelling,
     no folder in place of a file, and only from a session at the repo root. The agents' edit rules said most of it
     already; the checker holds where a pattern misses.
   - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
@@ -1083,3 +1138,9 @@ decided the import path); keeping the order as a parameter (two orders in the co
   branch stopped following main after its first commit, so guard fixes never reached it, and agent branches stacked
   (now main with no branch, and branches from main); `-Agent` opened the Lead (subagent-only mode); `/review` ran the
   tests on the wrong checkout; YAML cut descriptions at ` #32`; anyone could post a `for Claude:` handoff.
+- Brought up to main after the guard's follow-ups (#606 to #608): the plugin checks a file write with the same
+  checker call as a shell command (a full-path `FO4SF_PYTHON`, exit 0 together with `{"allowed": true}`);
+  `terminal.ps1` resolves the real `python.exe` the way `run-lead.ps1` does and refuses the Store alias; and
+  `run-lead.ps1` keeps main's single-instance check, environment restore and pinned cycle, with the pick, the session
+  pid file for the menu, `-Brief` and the skip without a wait in the last cycle added. The proxy follows a pick only
+  when it names a preset's model.

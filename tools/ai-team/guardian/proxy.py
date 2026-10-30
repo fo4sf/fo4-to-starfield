@@ -78,7 +78,11 @@ def guard_header_ok(headers, cfg):
 def _agent_and_model(name, c=None):
     agents = CFG.get("agents", {})
     if name in agents:
-        return name, store.picked_model(c) or agents[name]    # models.py's pick serves every agent: one model loaded
+        # models.py's pick serves every agent (one model loaded), but only a preset's model: a row naming another one
+        # (an older build's custom pick) falls back to config.json's map, as models.py's current() does
+        picked = store.picked_model(c)
+        presets = {p.get("model") for p in CFG.get("models", {}).values() if isinstance(p, dict)}
+        return name, picked if picked in presets else agents[name]
     return "unknown", name
 
 

@@ -1,6 +1,8 @@
 """The owner's side of the local team: the model pick (models.py) that the proxy and OpenCode follow, the guard's file
 write checks and the owner's-terminal commit wrapper (agent_git.py), the terminal and menu scripts, the team's commands
 and skill, and Claude Code's skills. Temp folders and synthetic git repos; no LM Studio, no network."""
+import contextlib
+import io
 import json
 import os
 import re
@@ -96,7 +98,7 @@ class ModelPickTests(TempState):
         self.assertEqual(store.picked_model(), "qwen3-14b")
         saved = proxy.CFG
         self.addCleanup(setattr, proxy, "CFG", saved)
-        proxy.CFG = {"agents": {a: "qwen3.6-35b-a3b" for a in AGENTS}}
+        proxy.CFG = {"agents": {a: "qwen3.6-35b-a3b" for a in AGENTS}, "models": models.read_config()["models"]}
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3-14b"))
         self.assertEqual(proxy._agent_and_model("other-model"), ("unknown", "other-model"))
         oc = models.opencode_config(models.current())
@@ -109,16 +111,30 @@ class ModelPickTests(TempState):
         proxy.CFG = {"agents": {"fo4-lead": "qwen3.6-35b-a3b"}}
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
 
-    def test_any_downloaded_model_with_checked_numbers(self):
-        self.assertEqual(models.main(["pick", "--model", "qwen/qwen3-8b", "--context", "16384", "--no-load"]), 0)
-        self.assertEqual(models.current()["output"], 4096)
-        for bad in (["pick", "--model", "a;b", "--context", "16384", "--no-load"],
-                    ["pick", "--model", "x", "--context", "1024", "--no-load"],
-                    ["pick", "--model", "x", "--context", "16384", "--output", "9000", "--no-load"],
-                    ["pick", "--model", "x", "--no-load"],
-                    ["pick", "no-such-preset", "--no-load"]):
-            self.assertEqual(models.main(bad), 1, bad)
-        self.assertEqual(store.picked_model(), "qwen/qwen3-8b")         # a refused pick keeps the last good one
+    def test_only_the_two_presets_can_be_picked(self):
+        # the owner's choice (30 Oct): the measured setups only, the 35B at 64K and the 14B fallback
+        self.assertEqual(sorted(models.read_config()["models"]), ["qwen3-14b", "qwen3.6-35b"])
+        self.assertEqual(models.main(["pick", "qwen3-14b", "--no-load"]), 0)
+        for bad in (["pick", "--model", "qwen/qwen3-8b", "--context", "16384", "--no-load"],
+                    ["pick", "qwen3.6-35b-128k", "--no-load"], ["pick", "no-such-preset", "--no-load"],
+                    ["pick", "--no-load"]):
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    code = models.main(bad)
+                except SystemExit as stop:               # argparse refuses an unknown option or a missing name
+                    code = stop.code
+            self.assertNotEqual(code, 0, bad)
+        self.assertEqual(store.picked_model(), "qwen3-14b")             # a refused pick keeps the last good one
+        # a row that names no preset (an older build's custom pick) reads as the default preset
+        c = store.connect()
+        self.addCleanup(c.close)
+        store.set_pick(c, {"preset": None, "model": "qwen/qwen3-8b", "context": 16384, "output": 4096, "kv": "f16",
+                           "gpu": None})
+        self.assertEqual(models.current()["preset"], "qwen3.6-35b")
+        saved = proxy.CFG
+        self.addCleanup(setattr, proxy, "CFG", saved)
+        proxy.CFG = {"agents": {"fo4-lead": "qwen3.6-35b-a3b"}, "models": models.read_config()["models"]}
+        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
 
     def test_a_load_waits_for_running_requests(self):
         c = store.connect()
@@ -179,10 +195,10 @@ class ModelLoadTests(TempState):
         self.assertIn("qwen3.6-35b-a3b", unload)
         self.assertNotIn("qwen3-14b", unload)
 
-    def test_switching_away_from_a_custom_pick_unloads_it(self):
-        models.save(models.setup("qwen/qwen3-8b", 16384))
+    def test_switching_presets_unloads_the_other_one(self):
+        models.save(models.preset("qwen3.6-35b"))
         models.load(models.preset("qwen3-14b"), self.cfg)
-        self.assertIn("qwen/qwen3-8b", self.calls[0][2])
+        self.assertEqual(set(self.calls[0][2]), {"qwen3.6-35b-a3b"})
 
     def test_the_owners_pause_or_stop_during_a_load_stays(self):
         for mode in ("paused", "stopped"):
@@ -254,7 +270,7 @@ class WriteGuardTests(unittest.TestCase):
 
     def test_the_agents_own_files_are_writable(self):
         for p in ("docs/ai/agent-status.md", "docs/ai/research-log.md", "src/fo4sf/x.py", "tests/test_x.py",
-                  "./docs/ai/x.md"):
+                  "./docs/ai/x.md", "docs/ai/opencode-notes.md", "docs/ai/git-notes.md", "docs/ai/x.opencode.md"):
             self.assertTrue(self.verdict(p), p)
 
     def test_the_teams_rules_and_tools_and_anything_outside_are_refused(self):
@@ -264,7 +280,11 @@ class WriteGuardTests(unittest.TestCase):
                   ".OpenCode/agents/fo4-lead.md", ".opencode/commands/next.md", ".claude/skills/x/SKILL.md",
                   ".github/workflows/ci.yml", ".git/config", "tools/ai-team/guard/allowlist.py",
                   "tools/ai-team/run-lead.ps1", "Tools/AI-Team/menu.ps1", "scripts/guard.py",
-                  "docs/CODEX-HANDOFF.md", "docs/../opencode.json", "../elsewhere/x", "/etc/passwd", ".", ""):
+                  "docs/CODEX-HANDOFF.md", "docs/../opencode.json", "../elsewhere/x", "/etc/passwd", ".", "",
+                  # nested config: OpenCode loads it in a session started there or below
+                  "docs/ai/.opencode/plugin/x.js", "src/.OpenCode/agents/x.md", "docs/ai/opencode.json",
+                  "docs/ai/x/OpenCode.jsonc", "docs/ai/tui.json", "docs/ai/.claude/settings.json",
+                  "src/.github/workflows/x.yml", "docs/ai/.git/hooks/pre-commit", "docs/ai/.agents/skills/x/SKILL.md"):
             self.assertFalse(self.verdict(p), p)
         self.assertFalse(self.verdict("docs/ai/x.md", "opencode.json"))
         self.assertFalse(self.verdict())
@@ -554,7 +574,7 @@ class ScriptTests(unittest.TestCase):
         s = self.script("terminal.ps1")
         launch = s.index("& $opencode @argv")
         for line in ("Remove-Item Env:FO4SF_UNATTENDED", "$env:FO4SF_OWNER_PRESENT = '1'",
-                     "$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", "$env:OPENCODE_CONFIG_CONTENT = (& $Python $models opencode",
+                     "$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", "$env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode",
                      "fo4-to-starfield-wt\\local-terminal", "Set-Location $wt"):
             self.assertIn(line, s)
             self.assertLess(s.index(line), launch, line)
@@ -563,8 +583,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_unattended_runs_never_count_as_the_owners_terminal(self):
         s = self.script("run-lead.ps1")
-        self.assertNotIn("$env:FO4SF_OWNER_PRESENT =", s)
-        self.assertIn("Remove-Item Env:FO4SF_OWNER_PRESENT", s)
+        self.assertEqual(re.findall(r"\$env:FO4SF_OWNER_PRESENT = (\S+)", s), ["$null"])   # removed, never set
         self.assertIn("$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", s)
         self.assertIn("-replace '[\"`$\\\\]'", s)              # a brief cannot end the quoted prompt argument
         self.assertNotIn("Start-Sleep $Interval; continue", s)  # a skip in the last cycle exits without the wait

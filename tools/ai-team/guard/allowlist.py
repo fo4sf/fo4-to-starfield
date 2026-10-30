@@ -12,9 +12,9 @@ JSON object on stdin, for a shell call:
 and for a file write (edit, write, multiedit, patch, apply_patch), the paths the tool would write:
   {"root": "<worktree root>", "write": ["<path>", ...]}
 owner_present is true only in the owner's terminal (terminal.ps1), never in an unattended run: it adds the implementation
-agent's branch and commit wrapper (agent_git.py). Exit 0 means allowed. Exit 1 means refused, with
-{"allowed": false, "reason": "..."} on stdout. Anything unreadable is a refusal too.
-Run it by hand (PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
+agent's branch and commit wrapper (agent_git.py). Allowed is exit 0 with {"allowed": true} on stdout; the plugin needs
+both, so a wrong program that only exits 0 refuses too. Refused is exit 1 with {"allowed": false, "reason": "..."}.
+Anything unreadable is a refusal too. Run it by hand (PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
 """
 import ast
 import json
@@ -274,15 +274,13 @@ TEAM_SCRIPTS = (
 # A test by name: a module that exists as tests/test_<name>.py, optionally one TestCase class in it and one test method
 # of that class. unittest calls whatever a longer dotted name ends on (tests.test_x.some_module.main would run main(),
 # and a plain class would be instantiated), so a class must be a TestCase defined in that file (test_case_classes) and a
-# method one defined in its body; nothing else is allowed after the module name.
+# method one defined in its body; nothing else is allowed after the module name. Discovery imports test files only.
+# Unittest never runs with -I: that drops the repo folder from sys.path, so `tests` could be a package from elsewhere.
 TEST_NAME = re.compile(r"tests\.(test_[a-z0-9_]+)(?:\.([A-Za-z_][A-Za-z0-9_]*)(?:\.(test[A-Za-z0-9_]*))?)?")
 
 
-UNITTEST_DECORATORS = ("skip", "skipIf", "skipUnless", "expectedFailure")
-
-
 def bound_names(node):
-    """The names a statement binds in the scope it sits in."""
+    """The names a top-level statement binds directly (a def, a class, an import, an assignment's targets)."""
     if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
         return [node.name]
     if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -291,45 +289,161 @@ def bound_names(node):
     return [n.id for t in targets if t is not None for n in ast.walk(t) if isinstance(n, ast.Name)]
 
 
+def scope_bindings(body, tree=None):
+    """How many times each name is bound in one scope (a module, or a class body), counting every binding and not only
+    the top-level statements: names stored or deleted anywhere in the scope's statements (inside if, try, with, for,
+    while and match blocks, comprehensions and walrus targets too), except-as and match-capture names, imports, and the
+    names of defs and classes, and `global` declarations. Function, lambda and class bodies are scopes of their own and
+    are not entered, but for a module (tree given) a `global` anywhere in the file counts as a binding. A star import
+    binds an unknown set of names: it counts as the name '*'. Counting too much only refuses a name, never allows one.
+    This reads syntax only: setattr, globals(), exec and the like are not seen, so it trusts the repo's own test files
+    not to rebind their names at run time."""
+    counts = {}
+
+    def add(name):
+        counts[name] = counts.get(name, 0) + 1
+
+    def outside(node):                              # what a def, lambda or class evaluates in the enclosing scope
+        args = getattr(node, "args", None)
+        found = list(getattr(node, "decorator_list", [])) + list(getattr(node, "bases", [])) + \
+            [k.value for k in getattr(node, "keywords", [])]
+        if args is not None:
+            found += list(args.defaults) + [d for d in args.kw_defaults if d is not None]
+            found += [a.annotation for a in args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
+                      if a is not None and a.annotation is not None]
+        if getattr(node, "returns", None) is not None:
+            found.append(node.returns)
+        return found
+
+    def visit(node):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            if not isinstance(node, ast.Lambda):
+                add(node.name)
+            for child in outside(node):
+                visit(child)
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                add("*" if a.name == "*" else (a.asname or a.name).split(".")[0])
+            return
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            add(node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            add(node.name)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            add(node.rest)
+        elif isinstance(node, ast.Global):          # in a class body: the def that follows binds the module's name
+            for n in node.names:
+                add(n)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+    for stmt in body:
+        visit(stmt)
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                for n in node.names:
+                    add(n)
+    return counts
+
+
 def test_case_classes(source):
     """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
-    counts if it is bound once at module level, its bases are unittest.TestCase (or TestCase imported from unittest, or
-    such a class of the same file) and its only decorators are unittest's skip marks; a method if the class body binds
-    its name once, with a plain def. Anything else could be a callable unittest would call."""
+    counts if the file binds its name once, one of its bases is unittest.TestCase (or TestCase imported from unittest,
+    or such a class of the same file defined above it), its other bases are plain mixin classes of the same file
+    defined above it, it takes no keywords and no __init_subclass__, and its only decorators are unittest's own marks.
+    A method counts if the class body binds its name once (a class-body global counts), with a def whose only
+    decorators are those marks, and with none at all if the class body binds `unittest` itself. Anything else could be
+    a callable unittest would call. Methods a class inherits are not counted: run them through the class or the
+    module. Syntax only: see scope_bindings."""
     with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
         warnings.simplefilter("ignore")
         tree = ast.parse(source)
+    counts = scope_bindings(tree.body, tree)
+    if "*" in counts:                              # a star import could rebind any name
+        return {}
     bound = {}
     for node in tree.body:
         for n in bound_names(node):
             bound.setdefault(n, []).append(node)
-    one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1}
-    imported_case = isinstance(one.get("TestCase"), ast.ImportFrom) and one["TestCase"].module == "unittest"
-    unittest_module = isinstance(one.get("unittest"), ast.Import)
+    one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1 and counts.get(n) == 1}
+    case_import = one.get("TestCase")
+    imported_case = isinstance(case_import, ast.ImportFrom) and case_import.module == "unittest" \
+        and case_import.level == 0 and any(a.name == "TestCase" for a in case_import.names
+                                           if (a.asname or a.name) == "TestCase")
+    # `import unittest` and `import unittest.mock` both bind the name unittest to the unittest package, so a file may
+    # have both; any other binding of the name (an `as unittest`, an assignment, one inside a block) makes it something
+    # else.
+    unittest_module = 0 < len(bound.get("unittest", [])) == counts.get("unittest") and all(
+        isinstance(node, ast.Import) and all(a.asname is None and a.name.split(".")[0] == "unittest"
+                                             for a in node.names if (a.asname or a.name).split(".")[0] == "unittest")
+        for node in bound["unittest"])
 
     def unittest_attr(node, names):
         return unittest_module and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
             and node.value.id == "unittest" and node.attr in names
 
+    def skip_mark(d):
+        # unittest's marks as they are written: skip, skipIf and skipUnless called with their reason, expectedFailure
+        # bare (expectedFailure(x) returns x, so x would be the real decorator)
+        if isinstance(d, ast.Call):
+            return unittest_attr(d.func, ("skip", "skipIf", "skipUnless"))
+        return unittest_attr(d, ("expectedFailure",))
+
+    def skip_marks_only(node):
+        return all(skip_mark(d) for d in node.decorator_list)
+
+    def plain_body(node):
+        # a docstring, pass, and plain defs with ordinary names: no class attributes or decorators, and no dunder hook
+        # (__init_subclass__ could rewrite a test method of the class that uses the mixin)
+        for i, item in enumerate(node.body):
+            if i == 0 and isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant) \
+                    and isinstance(item.value.value, str):
+                continue
+            if isinstance(item, ast.Pass) or (isinstance(item, ast.FunctionDef) and not item.decorator_list
+                                              and not (item.name.startswith("__") and item.name.endswith("__"))):
+                continue
+            return False
+        return True
+
+    def above(base, node):
+        # a same-file base is the class only once its statement has run: one defined below is still a builtin of that
+        # name (class C(Warning) above class Warning(...)) when this class is made
+        found = one.get(base.id) if isinstance(base, ast.Name) else None
+        return isinstance(found, ast.ClassDef) and found.lineno < node.lineno
+
+    def is_mixin(name, seen=()):
+        # A plain class of the same file that only adds methods: no bases but other such classes (or object), no
+        # keywords (so no metaclass), no decorators, a plain body.
+        node = one.get(name)
+        if not isinstance(node, ast.ClassDef) or name in seen or node.keywords or node.decorator_list \
+                or not plain_body(node):
+            return False
+        return all(isinstance(b, ast.Name) and ((b.id == "object" and "object" not in counts)
+                                                or (above(b, node) and is_mixin(b.id, seen + (name,))))
+                   for b in node.bases)
+
     def is_case(name, seen=()):
         node = one.get(name)
         if not isinstance(node, ast.ClassDef) or name in seen or not node.bases or node.keywords:
             return False
-        if not all(unittest_attr(d.func if isinstance(d, ast.Call) else d, UNITTEST_DECORATORS)
-                   for d in node.decorator_list):
+        if not skip_marks_only(node) or "__init_subclass__" in scope_bindings(node.body):
             return False
-        return all(unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
-            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,)))) for b in node.bases)
+        cases = [b for b in node.bases if unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
+            (b.id == "TestCase" and imported_case) or (above(b, node) and is_case(b.id, seen + (name,)))))]
+        return bool(cases) and all(b in cases or (above(b, node) and is_mixin(b.id)) for b in node.bases)
 
     out = {}
     for name, node in one.items():
         if is_case(name):
-            uses = {}
-            for item in node.body:
-                for n in bound_names(item):
-                    uses.setdefault(n, []).append(item)
-            out[name] = {n for n, items in uses.items() if len(items) == 1 and isinstance(items[0], ast.FunctionDef)
-                         and not items[0].decorator_list}
+            times = scope_bindings(node.body)
+            # a method's decorators look names up in the class body first, so `unittest = ...` there would make
+            # @unittest.skip(...) something else
+            marks_ok = "unittest" not in times
+            out[name] = {item.name for item in node.body if isinstance(item, ast.FunctionDef)
+                         and times.get(item.name) == 1 and (not item.decorator_list or marks_ok and skip_marks_only(item))}
     return out
 
 
@@ -395,6 +509,8 @@ def python(argv, root=None, owner_present=False):
             and digits(rest[3]):
         return
     if rest[:2] == ["-m", "unittest"]:
+        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
+            raise Refused("unittest runs without -I: python -m unittest tests.test_<name>, or discover -s tests")
         args = [a for a in rest[2:] if a not in ("-v", "-q")]
         if args[:1] == ["discover"]:
             if args != ["discover", "-s", "tests"]:
@@ -403,8 +519,6 @@ def python(argv, root=None, owner_present=False):
         if not args or not all(test_name_ok(a, root) for a in args):
             raise Refused("unittest takes tests.test_<name> modules that exist (or one TestCase class or test method in "
                           "one), or discover -s tests")
-        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
-            raise Refused("unittest by name runs without -I: python -m unittest tests.test_<name>")
         return
     raise Refused("this python command is not on the list")
 
@@ -424,10 +538,12 @@ def dispatch(argv, root=None, owner_present=False):
 
 PROTECTED = (".opencode/", ".claude/", ".agents/", ".git/", ".github/", "tools/ai-team/", "scripts/guard.py",
              "agents.md", "contributing.md", "docs/codex-handoff.md")
-# OpenCode reads opencode.json and opencode.jsonc (and tui.json) at the root as config, and an AGENTS.md, CLAUDE.md or
-# CONTEXT.md in ANY folder as instructions for files read below it, so those names are refused wherever they are.
+# OpenCode reads opencode.json and opencode.jsonc (and tui.json) and a .opencode folder as config in the folder it
+# starts in and each one above it, and an AGENTS.md, CLAUDE.md or CONTEXT.md in ANY folder as instructions for files
+# read below it, so those names are refused wherever they are, as are the other tools' config folders and git's own.
 ROOT_CONFIG = re.compile(r"(?:opencode|tui)\.jsonc?")
 INSTRUCTION_NAMES = ("agents.md", "claude.md", "context.md")
+CONFIG_FOLDERS = (".opencode", ".claude", ".agents", ".git", ".github")
 
 
 def check_write(root, paths):
@@ -447,8 +563,10 @@ def check_write(root, paths):
         if rel == "." or rel == ".." or rel.startswith("../") or os.path.isabs(rel):
             raise Refused(f"writes stay inside the repo: {p}")
         low = rel.lower()                           # Windows paths ignore case
+        parts = low.split("/")
         if any(low == x.rstrip("/") or (x.endswith("/") and low.startswith(x)) for x in PROTECTED) \
-                or ROOT_CONFIG.fullmatch(low) or low.rsplit("/", 1)[-1] in INSTRUCTION_NAMES:
+                or ROOT_CONFIG.fullmatch(parts[-1]) or parts[-1] in INSTRUCTION_NAMES \
+                or any(part in CONFIG_FOLDERS for part in parts):
             raise Refused(f"the team's own rules, tools and instructions are not written by an agent: {rel}")
         if os.path.isdir(target):
             raise Refused(f"name each file, not a folder: {rel}")
@@ -501,6 +619,7 @@ def main():
     except Exception as err:                       # unreadable input fails closed
         print(json.dumps({"allowed": False, "reason": f"guard error ({type(err).__name__})"}))
         return 1
+    print(json.dumps({"allowed": True}))
     return 0
 
 

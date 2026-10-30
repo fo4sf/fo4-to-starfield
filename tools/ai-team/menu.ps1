@@ -52,15 +52,9 @@ function Pick-Model {
     $m = $p.presets.($names[$i])
     "  $($i + 1)  $($names[$i]): $($m.model) at $($m.context / 1024)K. $($m.note)"
   }
-  "  o  another model LM Studio has downloaded"
   $c = Read-Host 'Pick (Enter to go back)'
   if ($c -match '^[0-9]+$' -and [int]$c -ge 1 -and [int]$c -le $names.Count) {
     & $Python $models pick $names[[int]$c - 1]
-  } elseif ($c -eq 'o') {
-    if ($p.downloaded) { "downloaded:"; $p.downloaded | ForEach-Object { "  $_" } } else { "LM Studio: $($p.lmstudio)" }
-    $id = Read-Host 'Model id (as listed)'
-    $ctx = Read-Host 'Context in tokens (for example 32768)'
-    if ($id -and $ctx -match '^[0-9]+$') { & $Python $models pick --model $id --context ([int]$ctx) }
   }
   "Open terminals keep the old limits: close them and open a new one."
 }

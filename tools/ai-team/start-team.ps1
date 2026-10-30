@@ -2,7 +2,7 @@
 #   1. checks LM Studio's server (:1234) and the loaded model
 #   2. starts the Resource Guardian proxy (:1235) if it isn't running (single instance)
 #   3. prints the team status
-# Then run `opencode` in the repository (the Lead is the default agent).
+# Then set FO4SF_PYTHON to the real python.exe (README, Start step 3) and run `opencode` in the repository.
 param([string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }), [int]$Port = 1235)
 $here = $PSScriptRoot
 $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }   # outside the repo (guard.py scans the tree)
