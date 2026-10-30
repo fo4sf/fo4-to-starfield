@@ -75,7 +75,7 @@ export const Fo4Guard = async ({ worktree, directory }) => {
       }
       // the exit code and the checker's own verdict, so a wrong program that exits 0 refuses too
       if (run.status === 0 && verdict?.allowed === true) return;
-      let reason = typeof verdict?.reason === "string" && verdict.reason ? verdict.reason : null;
+      let reason = typeof verdict?.reason === "string" ? verdict.reason : null;   // "" is no reason either
       if (!reason) {
         // the guard failed closed; say what became of the checker, so a broken Python can be told from a refusal
         const how = run.error ? run.error.code || run.error.message
