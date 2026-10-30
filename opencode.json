@@ -30,7 +30,9 @@
       "gh pr merge*": "deny", "gh repo delete*": "deny", "gh api*": "ask",
       "rm *": "deny", "del *": "deny", "Remove-Item*": "deny", "rmdir*": "deny", "format*": "deny",
       "python tools/ai-team/guardian/guardian.py status*": "allow",
-      "python tools/ai-team/guardian/guardian.py report*": "allow"
+      "python tools/ai-team/guardian/guardian.py report*": "allow",
+      "git diff*--output*": "deny", "git log*--output*": "deny", "git show*--output*": "deny",
+      "git diff*--no-index*": "deny"
     }
   },
   "agent": {
