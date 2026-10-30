@@ -8,12 +8,12 @@
     "guardian": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LM Studio via Resource Guardian (local)",
-      "options": { "baseURL": "http://127.0.0.1:1235/v1" },
+      "options": { "baseURL": "http://127.0.0.1:1235/v1", "timeout": false, "headerTimeout": 900000, "chunkTimeout": 660000 },
       "models": {
-        "fo4-lead":      { "name": "Lead (local)",           "tool_call": true, "limit": { "context": 131072, "output": 32768 } },
-        "fo4-implement": { "name": "Implementation (local)", "tool_call": true, "limit": { "context": 131072, "output": 32768 } },
-        "fo4-research":  { "name": "Research (local)",       "tool_call": true, "limit": { "context": 131072, "output": 32768 } },
-        "fo4-qa":        { "name": "QA (local)",             "tool_call": true, "limit": { "context": 131072, "output": 32768 } }
+        "fo4-lead":      { "name": "Lead (local)",           "tool_call": true, "limit": { "context": 65536, "output": 32768 } },
+        "fo4-implement": { "name": "Implementation (local)", "tool_call": true, "limit": { "context": 65536, "output": 32768 } },
+        "fo4-research":  { "name": "Research (local)",       "tool_call": true, "limit": { "context": 65536, "output": 32768 } },
+        "fo4-qa":        { "name": "QA (local)",             "tool_call": true, "limit": { "context": 65536, "output": 32768 } }
       }
     }
   },

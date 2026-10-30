@@ -916,3 +916,38 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Alternatives: load at 64K (RAM about 78% working; the owner keeps 128K); restrict at 90% (would equal the block and
   remove the warning band); raise OpenCode's provider timeout above the guardian's 600 s queue wait (not done here).
 - Boundary: one point of headroom before the 90% block; working peaks of 90.3% still block briefly.
+
+## 2026-10-29: the local team runs the 35B at 64K, OpenCode waits for the guardian, the Lead commits only its docs (Claude)
+- Decision:
+  - `load_model.py` defaults to 65536 tokens (the SDK's 1 h idle TTL stays); `opencode.json` limits the four agents to
+    65536 (output 32768) and sets the guardian provider's `headerTimeout` to 900000 ms, `chunkTimeout` to 660000 ms and
+    `timeout` to false.
+  - The unattended Lead (`run-lead.ps1`'s prompt) runs every command from its worktree and never `cd`s. Its only git
+    write is `python tools/ai-team/lead_commit.py "<what changed>"`, which commits `docs/ai/` changes on
+    `ai/local-lead` with a `Lead (local): ` subject and refuses anything else (another branch or a detached HEAD,
+    unmerged files, a merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames counted
+    by their source); `fo4-lead.md` allows exactly that command and denies `gh pr review*` and `gh pr comment*`
+    (`gh pr review * --comment*` was still allowed on main; #592 only kept reviews out of the prompt).
+  - `run-lead.ps1` logs a failed `git pull` of main (it was sent to `$null`) and skips the cycle while the Lead's
+    worktree has unmerged files.
+- Why: the owner's word on 29 Oct ("you can go to 64k but you upload the permissions needed"). At 128K, with the Lead
+  working, the PC sat at 87-91% RAM and 92.5% VRAM, so the guardian held requests and OpenCode gave up after its
+  default 300 s ("Provider response headers timed out after 300000ms", session of 16:00); the 16:54 session ended on a
+  closed connection while held, and the 18:02 session ran `cd <worktree parent> && gh issue list`, which its
+  permissions refused, so it did nothing. The session-1 edit left uncommitted collided with #597 on the next pull. At
+  64K the PC sat at 78.8% RAM / 10.6 GB VRAM.
+- Alternatives:
+  - No idle TTL (rejected in review: nothing would free the GPU when a game test starts; with the 64K default the
+    hourly reload no longer changes the context).
+  - Raw `git add docs/ai/*` / `git commit -m *` allows (rejected in review: OpenCode's wildcard also matches `-a`,
+    `-f`, `--amend`, `..` and extra pathspecs).
+  - Stay at 128K with the guardian's lines raised further (rejected: the 90% RAM block is the margin against paging and
+    commit exhaustion); widen the Lead's directory permission instead of forbidding `cd` (rejected: its reviews are not
+    trusted, so it stays inside its worktree).
+- Boundary: `headerTimeout` is read from the installed OpenCode 1.18.35 (`$.headerTimeout??300000` raises the header
+  error; `chunkTimeout` applies only to the body after headers), checked by an independent review; it is confirmed in
+  use once a guardian-held request survives more than 300 s. Not enforced by permissions: OpenCode matches a redirect
+  (`> file`) as part of an allowed command's text (true of `git log*` / `git diff*` before this change too), so writes
+  outside `docs/ai/` rest on the prompt there. A held streaming request whose connection
+  was closed without a response (job 79 at 12:44, and the 16:54 session's "socket connection was closed unexpectedly")
+  is a separate guardian issue.

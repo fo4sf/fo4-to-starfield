@@ -23,15 +23,15 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 ## Start
 
 1. LM Studio server on (`lms server start` or the app), Starfield closed. Load the model:
-   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 128K context, K/V cache unquantized, LM Studio places
-   the layers, no memory mapping). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
+   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 64K context, K/V cache unquantized, LM Studio places
+   the layers, no memory mapping; `--context 131072` loads the long window by hand). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
    the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
    The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
    it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
    session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
-   that change: the test pins the 128K limits.
+   that change: the test pins the 64K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
@@ -106,8 +106,23 @@ numbers need a re-measure. Each size was loaded in ~17 s and answered a short pr
 128K is the model card's advice for keeping its thinking; 256K would need ~4 GB more and cross the guardian's 90% RAM
 block. The model thinks before every answer (3,000-6,300 reasoning tokens on 1.5-4K-token prompts, ~20 tok/s);
 with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned reasoning (316 tokens against 733
-on the same short prompt). LM Studio's own idle TTL (1 h on this PC) can
-unload the model between cycles; `run-lead.ps1` reloads it.
+on the same short prompt). The LM Studio SDK's default idle TTL (1 h, `DEFAULT_TTL` in the SDK) unloads the model
+between cycles; `run-lead.ps1` reloads it at `load_model.py`'s default. The TTL is kept on purpose: it frees the GPU
+for game tests when the team is idle.
+
+The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
+92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
+at 78.8% RAM and 10.6 GB VRAM; 45K-token jobs still fit. `opencode.json` waits for the guardian: `headerTimeout`
+900000 ms (OpenCode's default of 300000 gave up with "Provider response headers timed out" on requests the guardian
+was still holding; the guardian sends no headers until it admits a job, up to 600 s, and prefill comes after that),
+`chunkTimeout` 660000 ms between streamed chunks, and no total `timeout`, since a long answer can stream for half an
+hour. The unattended Lead runs every command from its own worktree (a `cd` elsewhere is refused) and commits its own
+`docs/ai` edits only through `python tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
+is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
+(a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
+comments only on #32. `run-lead.ps1` logs a failed pull of main and skips the cycle while the Lead's worktree has
+unmerged files, so a conflict waits for a person. Not enforced: OpenCode matches a redirect (`> file`) as part of an
+allowed command's text, so an allowed command can write a file anywhere; the prompt forbids it, the permissions do not.
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 

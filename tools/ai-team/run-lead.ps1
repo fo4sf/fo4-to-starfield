@@ -33,6 +33,9 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Good tasks for this team: research questions from docs/ai/known-unknowns.md " +
           "(fo4-research, findings into docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources. " +
           "Do not call fo4-qa in this session: unattended runs take no QA reviews. " +
+          "Run every command from your current working directory and never cd anywhere: a command that starts with cd " +
+          "is refused. Do not touch any path outside this worktree. Commit your own docs/ai edits on this branch with " +
+          "python tools/ai-team/lead_commit.py '<what changed>' (it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
 $wait = $Interval; $cycle = 0
 try {
@@ -48,7 +51,12 @@ try {
     if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
       Log "model not loaded: loading"; & $Python (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
     }
-    git -C $wt pull -q --rebase --autostash origin main 2>$null
+    $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1
+    if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: git pull of main failed: $(($pull | Out-String).Trim())" }
+    $unmerged = git -C $wt ls-files -u
+    if ($unmerged) {                                    # an autostash or rebase conflict: a person resolves it
+      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main"; Start-Sleep $Interval; continue
+    }
     Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"
     $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $p = Start-Process -FilePath $opencode -ArgumentList @('run', '--agent', 'fo4-lead', "`"$prompt`"") `

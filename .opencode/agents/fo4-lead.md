@@ -22,7 +22,8 @@ permission:
     "gh pr diff*": allow
     "gh issue comment*": ask
     "gh issue comment 32 *": allow
-    "gh pr review * --comment*": allow
+    "gh pr review*": deny
+    "gh pr comment*": deny
     "gh issue edit*": ask
     "gh pr create*": deny
     "gh pr merge*": deny
@@ -30,6 +31,7 @@ permission:
     "git log*": allow
     "git diff*": allow
     "git worktree list*": allow
+    "python tools/ai-team/lead_commit.py *": allow
     "git push*": deny
     "python tools/ai-team/guardian/guardian.py status*": allow
     "python tools/ai-team/guardian/guardian.py report*": allow

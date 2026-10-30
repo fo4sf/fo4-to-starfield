@@ -64,12 +64,40 @@ class TeamModelTests(unittest.TestCase):
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
             self.assertEqual(model["limit"]["output"], 32768, name)
 
+    def test_opencode_waits_longer_than_the_guardian_holds_a_request(self):
+        options = json.loads(read("opencode.json", ROOT))["provider"]["guardian"]["options"]
+        queue_wait_ms = json.loads(read("config.json"))["guardian"]["queue_wait_s"] * 1000
+        # the guardian sends no headers until it admits a job (up to queue_wait_s), then the prompt is read
+        self.assertGreater(options["headerTimeout"], queue_wait_ms + 120000)
+        self.assertGreater(options["chunkTimeout"], queue_wait_ms)
+        self.assertIs(options["timeout"], False)          # a long answer streams for longer than any fixed total
+
+    def test_the_unattended_lead_stays_in_its_worktree_and_commits_only_through_the_wrapper(self):
+        self.assertIn("never cd anywhere", read("run-lead.ps1"))
+        self.assertIn("lead_commit.py", read("run-lead.ps1"))
+        lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
+        self.assertRegex(lead, r'"python tools/ai-team/lead_commit.py \*": allow')
+        self.assertNotRegex(lead, r'"git (add|commit)[^"]*": allow')   # no raw git writes
+        self.assertRegex(lead, r'"git push\*": deny')
+        self.assertRegex(lead, r'"gh pr review\*": deny')
+        self.assertRegex(lead, r'"gh pr comment\*": deny')
+        self.assertRegex(lead, r'"docs/ai/\*\*": allow')         # the only files it may edit
+
+    def test_run_lead_logs_a_failed_pull_and_skips_on_unmerged_files(self):
+        script = read("run-lead.ps1")
+        self.assertNotRegex(script, r"pull[^\n]*2>\$null")          # a failed pull is no longer silent
+        self.assertIn("git pull of main failed", script)
+        self.assertRegex(script, r"ls-files -u[\s\S]{0,200}skipped: unmerged files")
+
+    def test_start_team_names_the_loaders_context(self):
+        self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
+
 
 class LoadConfigTests(unittest.TestCase):
-    def test_defaults_are_128k_unquantized_and_unmapped(self):
+    def test_defaults_are_64k_unquantized_and_unmapped(self):
         self.assertEqual(load_model.DEFAULT_MODEL, "qwen3.6-35b-a3b")
         cfg = load_model.load_config()
-        self.assertEqual(cfg, {"contextLength": 131072, "tryMmap": False, "keepModelInMemory": False,
+        self.assertEqual(cfg, {"contextLength": 65536, "tryMmap": False, "keepModelInMemory": False,
                                "flashAttention": True, "llamaKCacheQuantizationType": "f16",
                                "llamaVCacheQuantizationType": "f16"})
 
