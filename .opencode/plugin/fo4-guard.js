@@ -1,7 +1,8 @@
 // Refuses every shell call that tools/ai-team/guard/allowlist.py does not allow. OpenCode runs the "tool.execute.before"
 // hook before a tool call (and before its own permission check), and a throw there stops the call. The checker is a
-// separate process that reads the command on stdin (no shell is involved), and only an exit code of 0 lets a call
-// through: a missing Python, a timeout or unreadable output all refuse.
+// separate process that reads the command on stdin (no shell is involved), and only an exit code of 0 together with its
+// {"allowed": true} lets a call through: a missing Python, a timeout, unreadable output or a program that only exits 0
+// all refuse.
 //
 // OpenCode only logs a plugin that fails to load and carries on without it. So the plugin also marks every model request
 // with a header (chat.headers), and the guardian proxy refuses inference without it (config.json "require_guard_header"):
@@ -45,12 +46,18 @@ export const Fo4Guard = async ({ worktree, directory }) => {
       // The working-directory argument's name is not pinned across OpenCode versions, so check whichever one is set.
       const workdir = args.workdir ?? args.cwd ?? args.dir ?? args.directory;
       const call = { root, directory, command: args.command, workdir };
-      const python = process.env.FO4SF_PYTHON || "python";
+      const python = process.env.FO4SF_PYTHON || "";
       // OpenCode runs on Bun, which cannot start the Microsoft Store's python.exe alias: every call would come back
       // with no verdict, so say what to fix instead
       if (/[\\/]WindowsApps[\\/]/i.test(python)) {
         throw new Error("guard refused the command: FO4SF_PYTHON is the Microsoft Store python alias, which OpenCode " +
           "cannot start: set it to the python.exe that python -c \"import sys; print(sys.executable)\" prints");
+      }
+      // Only a full path: a bare name is looked up when the checker starts, and on Windows that lookup may try the
+      // session's folder (the repo, which agents can write) before PATH. run-lead.ps1 always passes one.
+      if (!path.isAbsolute(python)) {
+        throw new Error(`guard refused the command: FO4SF_PYTHON ${python ? "is not a full path" : "is not set"}: set ` +
+          "it to the python.exe that python -c \"import sys; print(sys.executable)\" prints");
       }
       const run = spawnSync(python, ["-I", checker], {
         input: JSON.stringify(call),
@@ -58,13 +65,15 @@ export const Fo4Guard = async ({ worktree, directory }) => {
         timeout,
         windowsHide: true,
       });
-      if (run.status === 0) return;
-      let reason = null;
+      let verdict = null;
       try {
-        reason = JSON.parse(run.stdout).reason || null;
+        verdict = JSON.parse(run.stdout);
       } catch {
         // no verdict: described below
       }
+      // the exit code and the checker's own verdict, so a wrong program that exits 0 refuses too
+      if (run.status === 0 && verdict?.allowed === true) return;
+      let reason = typeof verdict?.reason === "string" && verdict.reason ? verdict.reason : null;
       if (!reason) {
         // the guard failed closed; say what became of the checker, so a broken Python can be told from a refusal
         const how = run.error ? run.error.code || run.error.message

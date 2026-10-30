@@ -897,6 +897,7 @@ class GuardTests(unittest.TestCase):
             return subprocess.run([sys.executable, "-I", script], input=payload, capture_output=True, text=True)
         allowed = run(json.dumps({"root": ROOT, "command": "git status --short"}))
         self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+        self.assertEqual(json.loads(allowed.stdout), {"allowed": True})     # the plugin needs this as well as exit 0
         refused = run(json.dumps({"root": ROOT, "command": "git log > x"}))
         self.assertEqual(refused.returncode, 1)
         self.assertFalse(json.loads(refused.stdout)["allowed"])
@@ -951,6 +952,7 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
             f.write(self.HARNESS)
         e = {k: v for k, v in os.environ.items() if not k.startswith("FO4SF_")}
         e.update({"FO4SF_PYTHON": sys.executable, **env})
+        e = {k: v for k, v in e.items() if v is not None}  # None: not set at all
         url = pathlib.Path(plugin).as_uri()                # file:///C:/... on Windows, which node needs
         r = subprocess.run([NODE, harness, url, worktree, directory or worktree, json.dumps(calls)],
                            capture_output=True, text=True, env=e, timeout=120)
@@ -979,11 +981,12 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         self.assertEqual(self.hook(unknown)["out"], ["refuse"] * len(unknown))
 
     def test_the_checker_runs_isolated(self):
-        # A json.py on PYTHONPATH that exits 0 would allow everything if the checker ran without -I.
+        # A json.py on PYTHONPATH that answers allowed would allow everything if the checker ran without -I.
+        planted = "import sys\nsys.stdout.write('{\"allowed\": true}')\nsys.exit(0)\n"
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         with open(os.path.join(d, "json.py"), "w") as f:
-            f.write("import sys\nsys.exit(0)\n")
+            f.write(planted)
         self.assertEqual(self.hook([["bash", {"command": "git push"}]], PYTHONPATH=d)["out"], ["refuse"])
         # and one beside the checker itself: Python puts the script's folder first on the path unless run with -I
         # (-E would not stop this one)
@@ -993,7 +996,7 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         os.makedirs(guard)
         shutil.copy(os.path.join(GUARD, "allowlist.py"), guard)
         with open(os.path.join(guard, "json.py"), "w") as f:
-            f.write("import sys\nsys.exit(0)\n")
+            f.write(planted)
         self.assertEqual(self.hook([["bash", {"command": "git push"}]], worktree=wt)["out"], ["refuse"])
         os.remove(os.path.join(guard, "json.py"))            # the copy itself works there: git status goes through
         self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=wt)["out"], ["allow"])
@@ -1005,14 +1008,18 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         for h in got:
             self.assertEqual(h, {proxy.GUARD_HEADER: proxy.GUARD_VALUE})
 
-    def slow_checker(self, seconds):
-        """A worktree whose checker sleeps, then answers allowed: a Python script, so it also runs on Windows."""
+    def fake_checker(self, source):
+        """A worktree whose checker is the given Python source: a Python script, so it also runs on Windows."""
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         os.makedirs(os.path.join(d, "tools", "ai-team", "guard"))
         with open(os.path.join(d, "tools", "ai-team", "guard", "allowlist.py"), "w") as f:
-            f.write(f"import sys, time\ntime.sleep({seconds})\nsys.exit(0)\n")
+            f.write(source)
         return d
+
+    def slow_checker(self, seconds):
+        """A worktree whose checker sleeps, then answers allowed."""
+        return self.fake_checker(f"import sys, time\ntime.sleep({seconds})\nprint('{{\"allowed\": true}}')\nsys.exit(0)\n")
 
     def test_no_python_or_a_hung_checker_refuses(self):
         missing = os.path.join(ROOT, "no-such-python")
@@ -1029,11 +1036,8 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         self.assertIn("ETIMEDOUT", got["messages"][0])
 
     def test_a_checker_that_dies_says_how(self):
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        os.makedirs(os.path.join(d, "tools", "ai-team", "guard"))
-        with open(os.path.join(d, "tools", "ai-team", "guard", "allowlist.py"), "w") as f:
-            f.write("import sys\nsys.stdout.write('not json')\nsys.stderr.write('boom\\n\\x1b[31m' + 'x' * 400)\nsys.exit(3)\n")
+        d = self.fake_checker("import sys\nsys.stdout.write('not json')\nsys.stderr.write('boom\\n\\x1b[31m' + 'x' * 400)\n"
+                              "sys.exit(3)\n")
         msg = self.hook([["bash", {"command": "git status"}]], worktree=d)["messages"][0]
         self.assertTrue(msg.startswith(f"guard refused the command: no verdict from the guard ({sys.executable}: exit 3; boom"), msg)
         self.assertTrue(msg.isprintable() and msg.isascii(), msg)
@@ -1041,6 +1045,39 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         # a checker's own refusal keeps its own reason
         self.assertEqual(self.hook([["bash", {"command": "git push"}]])["messages"],
                          ["guard refused the command: git push is not on the list"])
+
+    def test_exit_0_alone_is_not_an_allow(self):
+        # A wrong program behind FO4SF_PYTHON that exits 0 must not allow every command: the checker's own verdict counts
+        # too, written exactly as the checker writes it.
+        def run(out, code):
+            src = f"import sys\nsys.stdout.write({out!r})\nsys.exit({code})\n"
+            got = self.hook([["bash", {"command": "git status"}]], worktree=self.fake_checker(src))
+            return got["out"][0], (got["messages"] or [None])[0]
+        no_verdict = "guard refused the command: no verdict from the guard ({}: exit {})".format
+        self.assertEqual(run('{"allowed": true}', 0), ("allow", None))
+        self.assertEqual(run('{"allowed": true}\n', 0), ("allow", None))
+        for out in ("", "ok", "true", "null", "1", '[{"allowed": true}]', '{"allowed": "true"}', '{"allowed": 1}',
+                    '{"Allowed": true}', '{"allowed": true'):
+            self.assertEqual(run(out, 0), ("refuse", no_verdict(sys.executable, 0)), out)
+        self.assertEqual(run('{"allowed": false, "reason": "said no"}', 0), ("refuse", "guard refused the command: said no"))
+        self.assertEqual(run('{"allowed": true}', 1), ("refuse", no_verdict(sys.executable, 1)))
+        # a refusal with no usable reason still says what became of the checker
+        for out in ('{"allowed": false}', '{"allowed": false, "reason": ""}', '{"allowed": false, "reason": 5}',
+                    '{"allowed": false, "reason": ["x"]}', '{"allowed": false, "reason": null}'):
+            self.assertEqual(run(out, 1), ("refuse", no_verdict(sys.executable, 1)), out)
+
+    def test_only_a_full_path_to_python_starts_the_checker(self):
+        # A bare name is looked up when the checker starts (on Windows maybe in the repo first), so none is started.
+        fix = 'set it to the python.exe that python -c "import sys; print(sys.executable)" prints'
+        for value, how in ((None, "is not set"), ("", "is not set"), ("python", "is not a full path"),
+                           ("python3", "is not a full path"), (os.path.basename(sys.executable), "is not a full path"),
+                           ("./python", "is not a full path"), ("bin/python3", "is not a full path"),
+                           ("py\\python.exe", "is not a full path")):
+            got = self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=value)
+            self.assertEqual(got["out"], ["refuse"], value)
+            self.assertEqual(got["messages"], [f"guard refused the command: FO4SF_PYTHON {how}: {fix}"], value)
+        # the full path of the same Python does start it
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=sys.executable)["out"], ["allow"])
 
     def test_the_store_python_alias_is_refused_with_its_fix(self):
         # OpenCode (Bun) cannot start the Microsoft Store's python.exe alias, so every call would get no verdict

@@ -144,8 +144,8 @@ refuses delegation to it (below).
 
 OpenCode's bash rules match text, one pattern at a time, so some command shapes get past any list of patterns. The
 guard is a second layer that allows only exact argument lists. `.opencode/plugin/fo4-guard.js` sends each shell call
-to `tools/ai-team/guard/allowlist.py` on stdin, and a call goes ahead only if the checker exits 0; a missing Python, a
-timeout or unreadable output all refuse. The checker tokenizes the command the way bash and PowerShell read quotes,
+to `tools/ai-team/guard/allowlist.py` on stdin, and a call goes ahead only if the checker exits 0 with
+`{"allowed": true}`; a missing Python, a timeout, unreadable output or a bare exit 0 all refuse. The checker tokenizes the command the way bash and PowerShell read quotes,
 refuses every shell metacharacter and expansion outside quotes, refuses quote marks, `$`, backticks, backslashes, `!`,
 `&`, `|`, `^`, `%`, `<` and `>` inside quotes, an unquoted comma, a `~` after `=` or `:` (bash expands `x=~`), and a
 bare argument PowerShell would pass on as a different number (`0x10`, `1kb`, `.5`; plain digits pass). Commands run
@@ -181,13 +181,17 @@ marks every model request with an `X-FO4SF-Guard` header (`chat.headers`), and t
 without it (HTTP 403, `require_guard_header` in `config.json`), so a session without the guard gets no model and
 makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker,
 or while the running proxy serves a request without the header (a proxy started before this check).
-The plugin starts the checker with `FO4SF_PYTHON`, or `python` when that is not set, and it must be a real
-`python.exe`: OpenCode runs on Bun, which cannot start the Microsoft Store's `python.exe` alias in
-`%LOCALAPPDATA%\Microsoft\WindowsApps`, so with the alias every shell call is refused (the PC check on 30 Oct showed
-this). `run-lead.ps1` asks Python for `sys.executable`, passes that on, and refuses an alias. For any other OpenCode
-session in the repo, set `FO4SF_PYTHON` to the path `python -c "import sys; print(sys.executable)"` prints; the
-plugin refuses an alias path with that advice. When the checker gives no verdict, the refusal says which Python ran
-and what became of it (a missing program, a timeout, an exit code, the start of its error output).
+The plugin starts the checker with the program `FO4SF_PYTHON` names, and it must be the full path of a real
+`python.exe`. With the variable unset, or set to a bare name such as `python`, every shell call is refused: a bare
+name is looked up when the checker starts, and on Windows that lookup may try the session's folder, the repo, before
+PATH (libuv, which node uses, does; Bun's lookup was not checked). OpenCode runs on Bun, which cannot start the
+Microsoft Store's `python.exe` alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`, so with the alias every shell call
+is refused too (the PC check on 30 Oct showed this). `run-lead.ps1` asks Python for `sys.executable`, passes that
+on, and refuses an alias. For any other OpenCode session in the repo, set `FO4SF_PYTHON` to the path
+`python -c "import sys; print(sys.executable)"` prints; the plugin refuses a missing, bare or alias path with that
+advice. The checker answers `{"allowed": true}` with exit 0, and the plugin needs both, so a wrong program that only
+exits 0 refuses every call as well. When the checker gives no verdict, the refusal says which Python ran and what
+became of it (a missing program, a timeout, an exit code, the start of its error output).
 
 On its first start in a worktree, OpenCode itself installs `@opencode-ai/plugin` and its dependencies from npm into
 `.opencode/node_modules` (git-ignored, with its own `package.json`). That is OpenCode's own step for a config folder
