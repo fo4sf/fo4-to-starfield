@@ -33,7 +33,9 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
    it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
    session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
    that change: the test pins the 64K limits.
-2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
+2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
+   pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`): a running one keeps its old code,
+   and `run-lead.ps1` skips its cycles while the running proxy does not refuse requests without the guard header.
 3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
    the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
@@ -173,11 +175,20 @@ are not checked. Whether the guard should step back when the owner is watching i
 If the plugin is missing or fails to load, OpenCode only logs it and carries on. Two things catch that. The plugin
 marks every model request with an `X-FO4SF-Guard` header (`chat.headers`), and the guardian proxy refuses inference
 without it (HTTP 403, `require_guard_header` in `config.json`), so a session without the guard gets no model and
-makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker.
-To check the guard on the PC, run a command OpenCode's own rules allow but the guard refuses, for example
-`git log -1 --format=%H` (the rules allow `git log*`): the error must say `guard refused the command`, while
-`git status --short` still runs. A redirect such as `echo x > y` proves nothing, since the rules refuse it anyway.
-To try the checker by hand in PowerShell: `Get-Content call.json | python -I tools\ai-team\guard\allowlist.py`.
+makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker,
+or while the running proxy serves a request without the header (a proxy started before this check).
+To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
+example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
+command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a
+tool call), and neither does a redirect such as `echo x > y` (the rules refuse it anyway). To check the proxy's side:
+`Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:1235/v1/chat/completions -Body '{}'
+-ContentType application/json` must fail with (403) Forbidden. To try the checker by hand in PowerShell:
+`Get-Content call.json | python -I tools\ai-team\guard\allowlist.py`.
+
+The guard also refuses any tool it does not know: OpenCode 1.18.35's built-in tools pass (the shell through the
+checker), an MCP server's or a custom tool's calls do not. Unittest by name takes a module, or one TestCase class or
+test method that the file itself defines, without `-I`. `opencode agent create` asks the model outside the session
+path, with no guard header, so it gets HTTP 403 from the guardian: create agents with another provider, or by hand.
 
 Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
 brief, which the unattended Lead may not do, and the owner decides whether it may (`wake_agent.py status` only reads).

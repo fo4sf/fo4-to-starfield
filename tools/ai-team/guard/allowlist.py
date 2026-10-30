@@ -11,10 +11,12 @@ The OpenCode plugin .opencode/plugin/fo4-guard.js runs this before each shell ca
 Exit 0 means allowed. Exit 1 means refused, with {"allowed": false, "reason": "..."} on stdout. Anything unreadable is a
 refusal too. Run it by hand (PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
 """
+import ast
 import json
 import os
 import re
 import sys
+import warnings
 
 
 class Refused(Exception):
@@ -253,9 +255,84 @@ TEAM_SCRIPTS = (
 )
 # The Codex and Grok wakes are refused: wake_agent.py codex|grok starts an agent with approvals on a brief, which the
 # unattended Lead may not do. The owner decides whether it may. `wake_agent.py status` only reads idle times.
-# A test module by name, and only one that exists as tests/test_<name>.py: unittest calls whatever a longer dotted name
-# ends on (tests.test_x.some_module.main would run main()), so nothing after the module name is allowed.
-TEST_MODULE = re.compile(r"tests\.(test_[a-z0-9_]+)")
+# A test by name: a module that exists as tests/test_<name>.py, optionally one TestCase class in it and one test method
+# of that class. unittest calls whatever a longer dotted name ends on (tests.test_x.some_module.main would run main(),
+# and a plain class would be instantiated), so a class must be a TestCase defined in that file (test_case_classes) and a
+# method one defined in its body; nothing else is allowed after the module name.
+TEST_NAME = re.compile(r"tests\.(test_[a-z0-9_]+)(?:\.([A-Za-z_][A-Za-z0-9_]*)(?:\.(test[A-Za-z0-9_]*))?)?")
+
+
+UNITTEST_DECORATORS = ("skip", "skipIf", "skipUnless", "expectedFailure")
+
+
+def bound_names(node):
+    """The names a statement binds in the scope it sits in."""
+    if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        return [node.name]
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [(a.asname or a.name).split(".")[0] for a in node.names]
+    targets = getattr(node, "targets", None) or [getattr(node, "target", None)]
+    return [n.id for t in targets if t is not None for n in ast.walk(t) if isinstance(n, ast.Name)]
+
+
+def test_case_classes(source):
+    """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
+    counts if it is bound once at module level, its bases are unittest.TestCase (or TestCase imported from unittest, or
+    such a class of the same file) and its only decorators are unittest's skip marks; a method if the class body binds
+    its name once, with a plain def. Anything else could be a callable unittest would call."""
+    with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
+        warnings.simplefilter("ignore")
+        tree = ast.parse(source)
+    bound = {}
+    for node in tree.body:
+        for n in bound_names(node):
+            bound.setdefault(n, []).append(node)
+    one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1}
+    imported_case = isinstance(one.get("TestCase"), ast.ImportFrom) and one["TestCase"].module == "unittest"
+    unittest_module = isinstance(one.get("unittest"), ast.Import)
+
+    def unittest_attr(node, names):
+        return unittest_module and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+            and node.value.id == "unittest" and node.attr in names
+
+    def is_case(name, seen=()):
+        node = one.get(name)
+        if not isinstance(node, ast.ClassDef) or name in seen or not node.bases or node.keywords:
+            return False
+        if not all(unittest_attr(d.func if isinstance(d, ast.Call) else d, UNITTEST_DECORATORS)
+                   for d in node.decorator_list):
+            return False
+        return all(unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
+            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,)))) for b in node.bases)
+
+    out = {}
+    for name, node in one.items():
+        if is_case(name):
+            uses = {}
+            for item in node.body:
+                for n in bound_names(item):
+                    uses.setdefault(n, []).append(item)
+            out[name] = {n for n, items in uses.items() if len(items) == 1 and isinstance(items[0], ast.FunctionDef)
+                         and not items[0].decorator_list}
+    return out
+
+
+def test_name_ok(name, root):
+    m = TEST_NAME.fullmatch(name)
+    if not m or not isinstance(root, str):
+        return False
+    module, cls, method = m.groups()
+    file = os.path.join(root, "tests", module + ".py")
+    if not os.path.isfile(file):
+        return False
+    if cls is None:
+        return True
+    try:
+        with open(file, "rb") as f:
+            cases = test_case_classes(f.read())
+    except (OSError, SyntaxError, ValueError):
+        return False
+    return cls in cases and (method is None or method in cases[cls])
 
 
 def python(argv, root=None):
@@ -266,8 +343,10 @@ def python(argv, root=None):
     if rest[:1] == ["tools/ai-team/lead_commit.py"]:
         if not isolated:
             raise Refused('lead_commit runs as: python -I tools/ai-team/lead_commit.py "<what changed>"')
-        if len(rest) != 2 or rest[1].startswith("-") or not rest[1].strip() or len(rest[1]) > 500:
+        if len(rest) != 2 or rest[1].startswith("-") or not rest[1].strip():
             raise Refused("lead_commit takes one message that does not start with -")
+        if len(rest[1]) > 500:
+            raise Refused("the lead_commit message is at most 500 characters")
         return
     if rest in [list(s) for s in TEAM_SCRIPTS]:
         return
@@ -280,10 +359,11 @@ def python(argv, root=None):
             if args != ["discover", "-s", "tests"]:
                 raise Refused("unittest discovery runs only as: discover -s tests")
             return
-        names = [TEST_MODULE.fullmatch(a) for a in args]
-        if not args or not all(names) or not isinstance(root, str) or not all(
-                os.path.isfile(os.path.join(root, "tests", m.group(1) + ".py")) for m in names):
-            raise Refused("unittest takes test modules named tests.test_<name> that exist, or discover -s tests")
+        if not args or not all(test_name_ok(a, root) for a in args):
+            raise Refused("unittest takes tests.test_<name> modules that exist (or one TestCase class or test method in "
+                          "one), or discover -s tests")
+        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
+            raise Refused("unittest by name runs without -I: python -m unittest tests.test_<name>")
         return
     raise Refused("this python command is not on the list")
 
@@ -315,9 +395,15 @@ def check(call):
     directory, workdir = call.get("directory"), call.get("workdir")
     if directory is not None and not same_folder(directory, root):
         raise Refused("the session runs in a subfolder or elsewhere: start OpenCode at the repo root")
-    if workdir is not None and workdir != "." and not same_folder(workdir, root):
+    # OpenCode treats an empty workdir as none, and resolves a relative one against the session's folder (the root).
+    if workdir not in (None, "") and not same_folder(workdir, root) and not here(workdir):
         raise Refused("commands run from the repo root only")
     dispatch(tokenize(command), root)
+
+
+def here(workdir):
+    """A relative spelling of the session's own folder: '.', './', '.\\' (no '..' segment, nothing else)."""
+    return isinstance(workdir, str) and set(workdir) <= set("./\\") and ".." not in workdir and workdir.startswith(".")
 
 
 def same_folder(path, root):
