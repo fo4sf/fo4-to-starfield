@@ -277,9 +277,11 @@ def scope_bindings(body, tree=None):
     """How many times each name is bound in one scope (a module, or a class body), counting every binding and not only
     the top-level statements: names stored or deleted anywhere in the scope's statements (inside if, try, with, for,
     while and match blocks, comprehensions and walrus targets too), except-as and match-capture names, imports, and the
-    names of defs and classes. Function, lambda and class bodies are scopes of their own and are not entered, but for
-    a module (tree given) a `global` in any function counts as a binding. A star import binds an unknown set of names:
-    it counts as the name '*'. Counting too much only refuses a name, never allows one."""
+    names of defs and classes, and `global` declarations. Function, lambda and class bodies are scopes of their own and
+    are not entered, but for a module (tree given) a `global` anywhere in the file counts as a binding. A star import
+    binds an unknown set of names: it counts as the name '*'. Counting too much only refuses a name, never allows one.
+    This reads syntax only: setattr, globals(), exec and the like are not seen, so it trusts the repo's own test files
+    not to rebind their names at run time."""
     counts = {}
 
     def add(name):
@@ -316,6 +318,9 @@ def scope_bindings(body, tree=None):
             add(node.name)
         elif isinstance(node, ast.MatchMapping) and node.rest:
             add(node.rest)
+        elif isinstance(node, ast.Global):          # in a class body: the def that follows binds the module's name
+            for n in node.names:
+                add(n)
         for child in ast.iter_child_nodes(node):
             visit(child)
     for stmt in body:
@@ -330,11 +335,13 @@ def scope_bindings(body, tree=None):
 
 def test_case_classes(source):
     """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
-    counts if it is bound once in the module, one of its bases is unittest.TestCase (or TestCase imported from
-    unittest, or such a class of the same file), its other bases are plain mixin classes of the same file, and its only
-    decorators are unittest's skip marks; a method if the class body binds its name once, with a def whose only
-    decorators are those marks. Anything else could be a callable unittest would call. Methods a class inherits are
-    not counted: run them through the class or the module."""
+    counts if the file binds its name once, one of its bases is unittest.TestCase (or TestCase imported from unittest,
+    or such a class of the same file defined above it), its other bases are plain mixin classes of the same file
+    defined above it, it takes no keywords and no __init_subclass__, and its only decorators are unittest's own marks.
+    A method counts if the class body binds its name once (a class-body global counts), with a def whose only
+    decorators are those marks, and with none at all if the class body binds `unittest` itself. Anything else could be
+    a callable unittest would call. Methods a class inherits are not counted: run them through the class or the
+    module. Syntax only: see scope_bindings."""
     with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
         warnings.simplefilter("ignore")
         tree = ast.parse(source)
@@ -385,6 +392,12 @@ def test_case_classes(source):
             return False
         return True
 
+    def above(base, node):
+        # a same-file base is the class only once its statement has run: one defined below is still a builtin of that
+        # name (class C(Warning) above class Warning(...)) when this class is made
+        found = one.get(base.id) if isinstance(base, ast.Name) else None
+        return isinstance(found, ast.ClassDef) and found.lineno < node.lineno
+
     def is_mixin(name, seen=()):
         # A plain class of the same file that only adds methods: no bases but other such classes (or object), no
         # keywords (so no metaclass), no decorators, a plain body.
@@ -393,7 +406,8 @@ def test_case_classes(source):
                 or not plain_body(node):
             return False
         return all(isinstance(b, ast.Name) and ((b.id == "object" and "object" not in counts)
-                                                or is_mixin(b.id, seen + (name,))) for b in node.bases)
+                                                or (above(b, node) and is_mixin(b.id, seen + (name,))))
+                   for b in node.bases)
 
     def is_case(name, seen=()):
         node = one.get(name)
@@ -402,15 +416,18 @@ def test_case_classes(source):
         if not skip_marks_only(node) or "__init_subclass__" in scope_bindings(node.body):
             return False
         cases = [b for b in node.bases if unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
-            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,))))]
-        return bool(cases) and all(b in cases or (isinstance(b, ast.Name) and is_mixin(b.id)) for b in node.bases)
+            (b.id == "TestCase" and imported_case) or (above(b, node) and is_case(b.id, seen + (name,)))))]
+        return bool(cases) and all(b in cases or (above(b, node) and is_mixin(b.id)) for b in node.bases)
 
     out = {}
     for name, node in one.items():
         if is_case(name):
             times = scope_bindings(node.body)
+            # a method's decorators look names up in the class body first, so `unittest = ...` there would make
+            # @unittest.skip(...) something else
+            marks_ok = "unittest" not in times
             out[name] = {item.name for item in node.body if isinstance(item, ast.FunctionDef)
-                         and times.get(item.name) == 1 and skip_marks_only(item)}
+                         and times.get(item.name) == 1 and (not item.decorator_list or marks_ok and skip_marks_only(item))}
     return out
 
 

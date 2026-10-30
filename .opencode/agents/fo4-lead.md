@@ -107,7 +107,9 @@ percent signs or angle brackets: the guard refuses those. The rules above also r
 or `-F` (in either case: they match ` -r` and ` -f` too), `--repo`, `--output`, `--no-index`, `--body-file`,
 `--edit-last` or `--delete-last`, in any mix of capital and small letters, so leave those out of the text. A
 lead_commit.py message has the same character limits, is at most 500 characters, and may not contain `--output`
-or `--no-index` (in any letters) either.
+or `--no-index` (in any letters) either. Write them in these forms:
+`gh issue comment 32 --body 'Lead (local): <text>'` and `python -I tools/ai-team/lead_commit.py '<message>'`. The
+guard refuses `-b` and `--body=` for the comment, and a message that starts with `-`.
 
 One task at a time. Delegate with a precise brief: issue number, files allowed, acceptance test, what NOT to touch.
 Delegation tool: call `task` with `subagent_type` (fo4-research / fo4-implement / fo4-qa), `description` and `prompt`

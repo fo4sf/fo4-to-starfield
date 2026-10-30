@@ -18,14 +18,28 @@ function Log($m) { $l = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss ') + $m; $l; Add-
 # programs count: an alias or function of the same name (from a profile) has no path.
 $pythonPath = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 if (-not [IO.Path]::IsPathRooted("$pythonPath")) { throw "-Python $Python is not a program with a full path" }
+# That may be the Microsoft Store's python.exe alias (%LOCALAPPDATA%\Microsoft\WindowsApps), which PowerShell can start
+# but OpenCode cannot: every guarded call would come back "no verdict" (seen on the PC, 30 Oct). So the plugin gets the
+# program Python itself says it runs as, and an alias is refused.
+$pythonPath = "$(& $pythonPath -I -c 'import sys; print(sys.executable)')".Trim()
+if (-not [IO.Path]::IsPathRooted($pythonPath) -or $pythonPath -match '\\WindowsApps\\' -or
+    -not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+  throw ("-Python $Python runs as '$pythonPath', which OpenCode cannot start: pass -Python with the full path " +
+         "of a python.exe from python.org or the Python install manager")
+}
 # npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
 $shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorAction Stop | Select-Object -First 1
 $opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\opencode.exe'
 if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode.exe at $opencode (install OpenCode with npm)" }
 
 if (Test-Path $pidFile) {                                   # single instance
-  $old = [int](Get-Content $pidFile)
-  if (Get-Process -Id $old -ErrorAction SilentlyContinue) { "run-lead already running (pid $old)"; exit 1 }
+  $old = "$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim()
+  # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process), and so is one
+  # whose pid Windows has since given to this or another kind of process (a run that never reached its finally)
+  if ($old -match '^[1-9][0-9]{0,8}$' -and [int]$old -ne $PID -and
+      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'powershell', 'pwsh' })) {
+    "run-lead already running (pid $old)"; exit 1
+  }
 }
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-lead'
@@ -45,7 +59,9 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "exclamation marks, backticks, ampersands, pipes, carets, percent signs or angle brackets (the guard refuses " +
           "those), and the comment does not contain -R or -F, --repo, --output, --no-index, --body-file, --edit-last " +
           "or --delete-last, in any letter case (the rules refuse those); nor does the commit message contain " +
-          "--output or --no-index. Do not comment on other issues or " +
+          "--output or --no-index. Write the comment as gh issue comment 32 --body followed by the quoted text (not -b, " +
+          "not --body=), and the commit message as one quoted argument that does not start with a dash. " +
+          "Do not comment on other issues or " +
           "change labels: name the issue you worked on in the #32 comment, and the owner sets labels. If nothing is " +
           "ready, say so and stop."
 function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?

@@ -160,7 +160,10 @@ tools/ai-team/lead_commit.py "<message>"`; `guardian.py status`, `report` and `r
 board|status`; `wake_agent.py status`; `scripts/guard.py`; and `python -m unittest`, without `-I`, on
 `tests.test_<name>` modules that exist, or one TestCase class the file itself defines, or a test method defined in
 that class's own body (unittest calls whatever a dotted name ends on, so nothing else may follow the module name;
-the rules are below), or as `discover -s tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
+the rules are below), or as `discover -s tests`. Some test modules import only under discovery, which puts `tests/`
+and `src/` on `sys.path`: by name they fail with an import error (not a refusal), so run those as `discover -s tests`.
+The #32 comment is taken only as `gh issue comment 32 --body` and one quoted argument (`-b` and `--body=` are
+refused), and a lead_commit message is one argument that does not start with `-`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
 `wake_agent.py codex|grok`, and `python -c`. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
 also refuses a `task` call whose `subagent_type` is fo4-implement, which can edit code and then run the tests it
 edited. Left open on purpose: the #32 comment body is one line of text up to 1500 characters (printable ASCII, none
@@ -178,6 +181,18 @@ marks every model request with an `X-FO4SF-Guard` header (`chat.headers`), and t
 without it (HTTP 403, `require_guard_header` in `config.json`), so a session without the guard gets no model and
 makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker,
 or while the running proxy serves a request without the header (a proxy started before this check).
+The plugin starts the checker with `FO4SF_PYTHON`, or `python` when that is not set, and it must be a real
+`python.exe`: OpenCode runs on Bun, which cannot start the Microsoft Store's `python.exe` alias in
+`%LOCALAPPDATA%\Microsoft\WindowsApps`, so with the alias every shell call is refused (the PC check on 30 Oct showed
+this). `run-lead.ps1` asks Python for `sys.executable`, passes that on, and refuses an alias. For any other OpenCode
+session in the repo, set `FO4SF_PYTHON` to the path `python -c "import sys; print(sys.executable)"` prints; the
+plugin refuses an alias path with that advice. When the checker gives no verdict, the refusal says which Python ran
+and what became of it (a missing program, a timeout, an exit code, the start of its error output).
+
+On its first start in a worktree, OpenCode itself installs `@opencode-ai/plugin` and its dependencies from npm into
+`.opencode/node_modules` (git-ignored, with its own `package.json`). That is OpenCode's own step for a config folder
+that has a plugin; the guard plugin imports nothing from it, only Node's built-in modules.
+
 To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
 example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
 command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a
@@ -189,24 +204,29 @@ would show which one did. To check the proxy's side:
 
 The guard also refuses any tool it does not know: OpenCode 1.18.35's built-in tools pass (the shell through the
 checker), an MCP server's or a custom tool's calls do not. The plugin goes by the tool's name, so a custom tool whose
-file is named after a built-in one (`.opencode/tool/grep.js`) would pass unchecked. No agent can make one: the Lead
-and fo4-implement are denied writes to any `.opencode/` folder and any `opencode.json`, nested ones included
-(`*/.opencode/*`), fo4-research edits two named files and fo4-qa none, so only the owner could. OpenCode also reads a
-`.opencode/` folder and an `opencode.json` from the folder it starts in and each folder above it, so start it at the
-repo root (a session opened in a subfolder gets every shell call refused anyway). `opencode agent create` asks the
+file is named after a built-in one (`.opencode/tool/grep.js`) would pass unchecked. No agent's edit rules allow one:
+the Lead and fo4-implement are denied writes to any `.opencode/` folder and any `opencode.json` or `opencode.jsonc`,
+at the root and nested (`*/.opencode/*`, `*/opencode.json*`), fo4-research edits two named files and fo4-qa none.
+That holds for edits only: fo4-implement can still change code and tests that it then runs, which is why unattended
+runs refuse it. OpenCode also reads a `.opencode/` folder and an `opencode.json` from the folder it starts in and each
+folder above it, so start it at the repo root (a session opened in a subfolder gets every shell call refused
+anyway). `opencode agent create` asks the
 model outside the session path, with no guard header, so it gets HTTP 403 from the guardian: create agents with
 another provider, or by hand.
 
 Unittest by name, never with `-I`, takes a module, one TestCase class, or one test method, read from the file's
-syntax (it is not imported). A class counts when the file binds its name once, at the top level and nowhere else,
-and its bases are `unittest.TestCase` (from `import unittest`, or `from unittest import TestCase`, each name bound
-only by that import), other such classes of the file, or mixins: plain classes of the file with only a docstring,
-`pass` and undecorated methods with ordinary (not `__dunder__`) names. A class takes no keywords (so no metaclass),
-no `__init_subclass__`, and no decorators but unittest's own marks written as `unittest.skip(...)`,
+syntax (it is not imported). A class counts when the file's syntax binds its name once, at the top level, and its
+bases are `unittest.TestCase` (from `import unittest`, or `from unittest import TestCase`, each name bound only by that
+import), other such classes of the file defined above it, or mixins defined above it: plain classes of the file with
+only a docstring, `pass` and undecorated methods with ordinary (not `__dunder__`) names. A class takes no keywords
+(so no metaclass), no `__init_subclass__`, and no decorators but unittest's own marks written as `unittest.skip(...)`,
 `unittest.skipIf(...)`, `unittest.skipUnless(...)` and a bare `unittest.expectedFailure`. A method counts when it
-is a `def` in that class's own body whose name the body binds only once, with only those marks. A star import
-makes no class count. Methods a class inherits are not names on their own: run them through the class or the
-module. In the repo's tests that admits all 704 TestCase classes and every test method defined in a class body,
+is a `def` in that class's own body whose name the body binds only once (a `global` for it counts), with only those
+marks, and with no marks at all if the class body binds `unittest` itself. A star import makes no class count.
+Methods a class inherits are not names on their own: run them through the class or the module. The rule reads
+syntax only: `setattr`, `globals()`, `exec` and the like are not seen, so it trusts the repo's own test files not to
+rebind their names at run time (the unattended team cannot write under `tests/`). The evidence for today's files is a
+runtime scan: in the repo's tests it admits all 704 TestCase classes and every test method defined in a class body,
 and nothing unittest would not run as a test.
 
 Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
