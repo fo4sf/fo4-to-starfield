@@ -161,6 +161,15 @@ REFUSED = (
     "curl http://x",
     "rm -rf x",
     "python -c 'import os'",
+    # -i runs the script, then whatever comes in on stdin as code; OpenCode's Windows build matches its -I rules
+    # without regard to case, so only the guard tells the two apart
+    "python -i scripts/guard.py",
+    "python -i tools/ai-team/team.py status",
+    "python -i tools/ai-team/lead_commit.py x",
+    # a script path that runs on through guard.py as a folder: Windows drops the .. segments as text
+    "python -I scripts/guard.py/../../tools/ai-team/wake_agent.py codex",
+    "python scripts/guard.py/../../docs/ai/x.py",
+    "python -I scripts/guard.py2.py",
     "python tools/ai-team/wake_agent.py codex --message x",
     "python tools/ai-team/wake_agent.py grok",
     "python -I tools/ai-team/lead_commit.py",
