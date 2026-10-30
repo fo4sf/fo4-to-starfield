@@ -1,6 +1,6 @@
 ---
 description: Implementation agent. Writes and fixes code and tests for one assigned issue, only in its assigned worktree/branch. Invoked by the Lead.
-mode: subagent
+mode: all
 model: guardian/fo4-implement
 temperature: 0.1
 steps: 60

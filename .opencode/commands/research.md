@@ -1,5 +1,5 @@
 ---
-description: Hand a question to the research agent - findings go to docs/ai/research-log.md with evidence
+description: "Hand a question to the research agent - findings go to docs/ai/research-log.md with evidence"
 agent: fo4-research
 subtask: true
 ---

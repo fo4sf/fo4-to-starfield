@@ -1,14 +1,16 @@
 """The implementation agent's own branch and commits, in the owner's terminal only (terminal.ps1).
 
-  python -I tools/ai-team/agent_git.py branch ai/<name>                 new branch from HEAD, switched to
+  python -I tools/ai-team/agent_git.py branch ai/<name>                 new branch from origin/main, switched to
   python -I tools/ai-team/agent_git.py commit "<what changed>" <paths>  commit exactly these paths on the ai/ branch
 
 git runs as in lead_commit.py: no GIT_* variables but the identity, core.hooksPath at the null device, core.fsmonitor
 off, so no planted hook or injected setting runs. Refuses (exit 1) in an unattended run (FO4SF_UNATTENDED=1), off an
 ai/ branch, on ai/local-lead (the unattended Lead's branch, which commits through lead_commit.py), with a merge,
 rebase, cherry-pick or revert in progress, or for a path the agents may not write (the guard's list: the team's rules,
-tools, skills, CI and git's own files). A subject without a local role prefix gets "Implement (local): " (the Lead
-writes "Lead (local): ", for its docs/ai notes in the terminal). Never amends, never pushes.
+tools, skills, CI and git's own files). Paths are literal (no git globs or pathspec magic). A new branch starts from
+origin/main (terminal.ps1 fetches it), so one issue's branch never carries the last one's commits; uncommitted edits
+come along. A subject without a local role prefix gets "Implement (local): " (the Lead writes "Lead (local): ", for
+its docs/ai notes in the terminal). Never amends, never pushes.
 """
 import os
 import sys
@@ -45,7 +47,7 @@ def main(argv=None):
         if len(argv) == 2 and argv[0] == "branch":
             if not allowlist.AGENT_BRANCH.fullmatch(argv[1]) or argv[1] == LEAD_BRANCH:
                 print("refused: the branch is ai/<lowercase-name>, and not ai/local-lead"); return 1
-            git("switch", "-c", argv[1])
+            git("switch", "--no-track", "-c", argv[1], "origin/main")
             print(f"on new branch {argv[1]}")
             return 0
         if len(argv) >= 3 and argv[0] == "commit":
@@ -61,8 +63,8 @@ def main(argv=None):
                 print(f"refused: {reason}"); return 1
             if not msg.startswith(ROLES):
                 msg = PREFIX + msg
-            git("add", "--", *paths)
-            git("commit", "--no-verify", "--only", "-m", msg, "--", *paths)   # only these paths, whatever else is staged
+            git("--literal-pathspecs", "add", "--", *paths)
+            git("--literal-pathspecs", "commit", "--no-verify", "--only", "-m", msg, "--", *paths)   # only these paths
             print(git("log", "-1", "--format=%h %s").strip())
             return 0
         print('usage: agent_git.py branch ai/<name> | commit "<what changed>" <paths>'); return 1

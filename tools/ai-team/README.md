@@ -33,11 +33,15 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
 1. LM Studio server on (`lms server start` or the app), Starfield closed. Pick and load the model:
    `python tools\ai-team\models.py pick qwen3.6-35b` (the default: 64K context, K/V cache unquantized, LM Studio
    places the layers, no memory mapping), `qwen3.6-35b-128k` (the long window), `qwen3-14b` (the fallback: 32K, all on
-   the GPU, q8 K/V cache), or any downloaded model with `pick --model <id> --context <tokens>`. The pick is saved in the
-   state dir: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and output
-   limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another window.
-   `pick` refuses while requests run, pauses the guardian during the load and unloads the team's other models first
-   (only ids a preset names). `load_model.py` still loads one model by hand. It needs LM Studio 0.4.27 or newer: the
+   the GPU, q8 K/V cache), or any downloaded model with `pick --model <id> --context <tokens>`. The pick is saved in
+   `guardian.db`: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and
+   output limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another
+   window. `pick` refuses while a request runs or another load is under way. During the load it holds the proxy (new
+   requests wait, then go to the new model) and unloads the team's other models and the last pick (a model loaded by
+   hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the hold as
+   "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py ensure`), so
+   none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at another
+   context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or newer: the
    0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
@@ -45,25 +49,32 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
 3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
    the guardian is paused/blocked; loads the picked model if LM Studio unloaded it (`models.py ensure`). `-MaxCycles 1
-   -Brief "<task>"` runs one session on one task. Log `lead-cycles.log` in the state dir.
+   -Brief "<task>"` runs one session on one task, and exits after a skip without the wait. Log `lead-cycles.log` in
+   the state dir; the running session's pid is in `lead-session.pid`, so the menu can show and stop it.
    One OpenCode session at a time.
 
 ## The FO4SF AI menu and the agents' terminal
 
 `powershell -File tools\ai-team\install-shortcut.ps1` puts an "FO4SF AI" shortcut on the desktop (run once). It opens
 `menu.ps1`: start the local team, talk to the Lead or one agent, start Claude Code in the repo (Opus, Sonnet or Haiku),
-status, pick a model, start the unattended Lead in its own window, pause or resume, stop.
+status, pick a model, start or stop the unattended Lead (it runs in its own window; stopping it also stops the session
+it is running), pause or resume, stop.
 
 The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
-team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`, branch
-`ai/local-terminal`; a clean one follows main), so the main checkout and the unattended Lead are never touched. The
-guard checks every command and write as in unattended runs. Because the owner is watching, it also allows
-`agent_git.py`: the implementation agent makes its own `ai/<issue>-<slug>` branch and commits named files there, with
-no hooks, never on `ai/local-lead`, never a push. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are
-hidden (`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
+team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
+the unattended Lead are never touched. A clean worktree goes back to main's newest commit, with no branch, at every
+start, so a guard fix on main always reaches it; one with uncommitted work stays as it is, and the terminal warns when
+its guard or agent files are not main's. The guard checks every command and write as in unattended runs. Because the
+owner is watching, it also allows `agent_git.py`: an agent makes its own `ai/<issue>-<slug>` branch, which starts from
+main, and commits named files there (literal paths), with no hooks, never on `ai/local-lead`, never a push. Only this
+terminal may post a `Lead (local): for Claude:` comment. The research, implementation and QA agents are `mode: all`, so
+`-Agent` opens them as the terminal's own agent (OpenCode falls back to the Lead for a subagent-only one) and the Lead
+still delegates to them. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are hidden
+(`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
 
-The team's commands in the terminal: `/status`, `/board`, `/next [focus]` (one Lead session; it asks before handing
-work to fo4-implement), `/research <question>`, `/review <PR number>` (QA, no edits, no posts), `/handoff <what>`
+The team's commands in the terminal: `/team` (OpenCode's own `/status` shows its config), `/board`, `/next [focus]`
+(one Lead session; it asks before handing work to fo4-implement), `/research <question>`, `/review <PR number>` (QA
+reads the diff and the PR's CI checks; no edits, no posts, no test run on this checkout), `/handoff <what>`
 (a `Lead (local): for Claude:` comment on #32 that Claude reads). Claude's side is in `.claude/skills/`:
 `local-team-delegate` (issue labelled `agent:local-team` + `ready`, or one `run-lead.ps1 -Brief` session on the PC),
 `local-team-check` (#32, logs, local branches), `local-team-review` (local output is a draft until it passes),

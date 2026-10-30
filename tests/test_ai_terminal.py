@@ -29,10 +29,22 @@ def read(*parts):
 
 
 def frontmatter(text):
-    """The simple key: value lines between the leading --- markers."""
+    """The simple key: value lines between the leading --- markers. A value is one double-quoted string, or a plain one
+    with nothing YAML reads differently: ' #' starts a comment there and a second ': ' is an error."""
     head = text.split("\n---\n", 1)[0]
     assert head.startswith("---\n"), "no frontmatter"
-    return dict(line.split(": ", 1) for line in head[4:].splitlines() if ": " in line and not line.startswith(" "))
+    out = {}
+    for line in head[4:].splitlines():
+        if ": " not in line or line.startswith(" "):
+            continue
+        key, value = line.split(": ", 1)
+        if value.startswith('"'):
+            assert value.endswith('"') and '"' not in value[1:-1] and "\\" not in value, line
+            value = value[1:-1]
+        else:
+            assert " #" not in value and ": " not in value and not value.startswith(("'", "[", "{", "&", "*", "!")), line
+        out[key] = value
+    return out
 
 
 def allowed(command, owner_present=False):
@@ -69,12 +81,14 @@ class ModelPickTests(TempState):
         for agent in AGENTS:
             self.assertEqual(provider[agent]["limit"], {"context": default["context"], "output": default["output"]})
 
-    def test_no_pick_means_the_default_and_a_broken_file_too(self):
+    def test_no_pick_means_the_default_and_a_broken_row_too(self):
         cfg = models.read_config()
         self.assertEqual(models.current(cfg)["preset"], cfg["default_model"])
-        with open(os.path.join(self.state, store.PICK), "w") as f:
-            f.write("{not json")
-        self.assertEqual(models.current(cfg)["preset"], cfg["default_model"])
+        c = store.connect()
+        self.addCleanup(c.close)
+        for bad in ("{not json", '"a string"', '{"model": "x"}'):
+            c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, 0)", (store.PICK, bad))
+            self.assertEqual(models.current(cfg)["preset"], cfg["default_model"], bad)
         self.assertIsNone(store.picked_model())
 
     def test_a_pick_reaches_the_proxy_and_opencode(self):
@@ -108,11 +122,126 @@ class ModelPickTests(TempState):
 
     def test_a_load_waits_for_running_requests(self):
         c = store.connect()
+        self.addCleanup(c.close)
         c.execute("INSERT INTO jobs (agent, model, kind, status, created) VALUES ('fo4-lead', 'm', 'chat', 'running', 0)")
         with self.assertRaises(models.PickError):
             models.load(models.preset("qwen3-14b"), models.read_config())
-        self.assertEqual(store.get_mode(c), "running")                  # refused before pausing anything
+        self.assertIsNone(store.get_hold(c))                            # the hold is let go again
         self.assertIsNone(store.picked_model())
+
+
+def admission(c, snapshot=lambda *_: {}):
+    """The proxy's decision for one new job, with the resource policy set to admit and no queue wait."""
+    saved = dict(proxy.CFG), proxy.policy.admit, proxy.resources.snapshot
+    proxy.CFG.clear()
+    proxy.CFG.update(queue_wait_s=0)
+    proxy.policy.admit = lambda *_: ("admit", "normal", [])
+    proxy.resources.snapshot = snapshot
+    try:
+        job = c.execute("INSERT INTO jobs (agent, model, kind, status, created, heartbeat) "
+                        "VALUES ('fo4-lead', 'm', 'chat', 'queued', 0, 0)").lastrowid
+        decision = proxy.Handler._wait_for_admission(None, c, job)
+        if decision == "admit":
+            proxy.STATE["running"] -= 1
+        return decision
+    finally:
+        proxy.CFG.clear()
+        proxy.CFG.update(saved[0])
+        proxy.policy.admit, proxy.resources.snapshot = saved[1], saved[2]
+
+
+class ModelLoadTests(TempState):
+    """models.load with LM Studio replaced by a fake that records what it was asked to do."""
+    def setUp(self):
+        super().setUp()
+        self.c = store.connect()
+        self.addCleanup(self.c.close)
+        self.cfg = models.read_config()
+        self.calls, self.during = [], None
+        saved = models.load_model.load
+        self.addCleanup(setattr, models.load_model, "load", saved)
+        models.load_model.load = self.fake_load
+
+    def fake_load(self, model, cfg_lm, unload=()):
+        self.calls.append((model, cfg_lm["contextLength"], set(unload)))
+        self.hold_during = store.get_hold(self.c)
+        if self.during:
+            self.during()
+        return model
+
+    def test_a_load_holds_the_proxy_saves_the_pick_and_lets_go(self):
+        self.assertEqual(models.load(models.preset("qwen3-14b"), self.cfg), "qwen3-14b")
+        self.assertEqual(self.hold_during[0], "loading")
+        self.assertIsNone(store.get_hold(self.c))
+        self.assertEqual(store.picked_model(), "qwen3-14b")
+        model, context, unload = self.calls[0]
+        self.assertEqual((model, context), ("qwen3-14b", 32768))
+        self.assertIn("qwen3.6-35b-a3b", unload)
+        self.assertNotIn("qwen3-14b", unload)
+
+    def test_switching_away_from_a_custom_pick_unloads_it(self):
+        models.save(models.setup("qwen/qwen3-8b", 16384))
+        models.load(models.preset("qwen3-14b"), self.cfg)
+        self.assertIn("qwen/qwen3-8b", self.calls[0][2])
+
+    def test_the_owners_pause_or_stop_during_a_load_stays(self):
+        for mode in ("paused", "stopped"):
+            store.set_mode(self.c, "running")
+            self.during = lambda m=mode: store.set_mode(self.c, m)
+            models.load(models.preset("qwen3-14b"), self.cfg)
+            self.assertEqual(store.get_mode(self.c), mode)
+
+    def test_a_failed_load_keeps_the_old_pick_and_the_proxy_refuses(self):
+        models.save(models.preset("qwen3.6-35b"))
+
+        def boom():
+            raise RuntimeError("out of memory")
+        self.during = boom
+        with self.assertRaises(models.PickError) as e:
+            models.load(models.preset("qwen3-14b"), self.cfg)
+        self.assertIn("out of memory", str(e.exception))
+        hold = store.get_hold(self.c)
+        self.assertEqual(hold[0], "failed")
+        self.assertIn("out of memory", hold[1])
+        self.assertEqual(store.picked_model(), "qwen3.6-35b-a3b")
+        self.assertIn("not loaded", admission(self.c))
+        self.during = None                                              # the next load that works clears it
+        models.load(models.preset("qwen3-14b"), self.cfg)
+        self.assertIsNone(store.get_hold(self.c))
+        self.assertEqual(admission(self.c), "admit")
+
+    def test_one_load_at_a_time_and_a_dead_loaders_hold_expires(self):
+        self.assertTrue(store.take_hold(self.c, "qwen3-14b"))
+        with self.assertRaises(models.PickError):
+            models.load(models.preset("qwen3-14b"), self.cfg)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(admission(self.c).startswith("rejected (waited"))  # a live load: requests wait
+        self.c.execute("UPDATE control SET t=t-? WHERE key=?", (store.HOLD_FRESH_S + 1, store.HOLD))
+        self.assertEqual(store.get_hold(self.c)[0], "failed")
+        self.assertIn("did not finish", admission(self.c))
+        models.load(models.preset("qwen3-14b"), self.cfg)
+        self.assertIsNone(store.get_hold(self.c))
+
+    def test_a_job_cannot_start_once_the_hold_is_in(self):
+        # The hold lands after the proxy's own hold check, before its update: the conditional update still refuses.
+        self.assertTrue(admission(self.c, lambda *_: (store.take_hold(self.c, "m"), {})[1]).startswith("rejected (waited"))
+        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM jobs WHERE status='running'").fetchone()[0], 0)
+
+    def test_ensure_reloads_a_model_loaded_at_another_context(self):
+        saved = models.loaded_contexts
+        self.addCleanup(setattr, models, "loaded_contexts", saved)
+        models.save(models.preset("qwen3-14b"))
+        for loaded, reloads in (({"qwen3-14b": 32768}, False), ({"qwen3-14b": 4096}, True), ({}, True),
+                                ({"qwen3-14b": None}, False)):
+            self.calls.clear()
+            models.loaded_contexts = lambda loaded=loaded: dict(loaded)
+            self.assertEqual(models.main(["ensure"]), 0)
+            self.assertEqual(bool(self.calls), reloads, loaded)
+        store.fail_hold(self.c, "x")                                    # after a failed load, ensure loads again
+        self.calls.clear()
+        models.loaded_contexts = lambda: {"qwen3-14b": 32768}
+        self.assertEqual(models.main(["ensure"]), 0)
+        self.assertTrue(self.calls)
 
 
 class WriteGuardTests(unittest.TestCase):
@@ -129,7 +258,9 @@ class WriteGuardTests(unittest.TestCase):
             self.assertTrue(self.verdict(p), p)
 
     def test_the_teams_rules_and_tools_and_anything_outside_are_refused(self):
-        for p in ("opencode.json", "OpenCode.json", "AGENTS.md", "agents.md", ".opencode/plugin/fo4-guard.js",
+        for p in ("docs/ai/AGENTS.md", "src/CLAUDE.md", "docs/Context.md", "opencode.jsonc", "tui.json", "tools",
+                  "docs/ai", "tools/ai-team/", "docs/..", "opencode.json", "OpenCode.json", "AGENTS.md", "agents.md",
+                  ".opencode/plugin/fo4-guard.js",
                   ".OpenCode/agents/fo4-lead.md", ".opencode/commands/next.md", ".claude/skills/x/SKILL.md",
                   ".github/workflows/ci.yml", ".git/config", "tools/ai-team/guard/allowlist.py",
                   "tools/ai-team/run-lead.ps1", "Tools/AI-Team/menu.ps1", "scripts/guard.py",
@@ -137,6 +268,16 @@ class WriteGuardTests(unittest.TestCase):
             self.assertFalse(self.verdict(p), p)
         self.assertFalse(self.verdict("docs/ai/x.md", "opencode.json"))
         self.assertFalse(self.verdict())
+
+    def test_writes_need_a_session_at_the_root(self):
+        # A write's relative path follows the session's folder, so a session in a subfolder could reach a guarded file
+        # by a path that looks harmless from the root.
+        for directory, ok in ((ROOT, True), (os.path.join(ROOT, ".opencode"), False), (os.path.join(ROOT, "docs"), False)):
+            try:
+                allowlist.check({"root": ROOT, "directory": directory, "write": ["plugin/x.js"]})
+                self.assertTrue(ok, directory)
+            except allowlist.Refused:
+                self.assertFalse(ok, directory)
 
 
 class OwnerTerminalCommandTests(unittest.TestCase):
@@ -159,6 +300,13 @@ class OwnerTerminalCommandTests(unittest.TestCase):
                         "python -I tools/ai-team/agent_git.py push",
                         "git commit -m x", "git add -A", "git switch -c ai/x", "git push"):
             self.assertFalse(allowed(command, owner_present=True), command)
+
+    def test_a_handoff_to_claude_comes_only_from_the_owners_terminal(self):
+        for text in ("Lead (local): for Claude: done", "Lead (local): For  claude: done", "Lead (local):  FOR Claude x"):
+            command = f"gh issue comment 32 --body '{text}'"
+            self.assertTrue(allowed(command, owner_present=True), text)
+            self.assertFalse(allowed(command), text)
+        self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): refreshed agent status'"))
 
     def test_owner_present_must_be_true_not_just_present(self):
         try:
@@ -186,6 +334,7 @@ class AgentGitTests(unittest.TestCase):
         self.write("opencode.json", "{}\n")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "base")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")      # as fetched: new branches start here
 
     def git(self, *a):
         return subprocess.run(["git", "-C", self.d, *a], capture_output=True, text=True, check=True, env=self.env).stdout
@@ -214,13 +363,25 @@ class AgentGitTests(unittest.TestCase):
         self.assertIn("src/c.py", self.git("status", "--porcelain"))
         self.assertEqual(self.run_tool("commit", "Lead (local): notes", "src/c.py")[0], 0)
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "Lead (local): notes")
+        # The next issue's branch starts from main, not from this one.
+        self.assertEqual(self.run_tool("branch", "ai/8-next")[0], 0)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "origin/main"))
+
+    def test_paths_are_literal(self):
+        self.git("checkout", "-q", "-b", "ai/9-x")
+        self.write("opencode.json", '{"x": 1}\n')
+        self.write("src/a.py", "new\n")
+        for spec in ("*.json", ":/opencode.json", ":(glob)*.json", "src/*"):
+            self.assertEqual(self.run_tool("commit", "x", spec)[0], 1, spec)
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "base")
 
     def test_refusals(self):
         self.write("src/a.py", "new\n")
         self.assertEqual(self.run_tool("commit", "x", "src/a.py")[0], 1)                 # on main
+        self.assertEqual(self.run_tool("branch", "ai/local-lead")[0], 1)                 # before it exists
+        self.assertNotIn("ai/local-lead", self.git("branch", "--list"))
         self.git("checkout", "-q", "-b", "ai/local-lead")
         self.assertEqual(self.run_tool("commit", "x", "src/a.py")[0], 1)                 # the Lead's branch
-        self.assertEqual(self.run_tool("branch", "ai/local-lead")[0], 1)
         self.git("checkout", "-q", "-b", "ai/8-x")
         self.write("opencode.json", '{"x": 1}\n')
         self.assertEqual(self.run_tool("commit", "x", "opencode.json")[0], 1)            # a protected path
@@ -244,7 +405,7 @@ class PluginTests(unittest.TestCase):
     """The real plugin, loaded in node and driven through its hook, with the real checker behind it."""
     HARNESS = """
 const mod = await import(process.argv[2]);
-const hooks = await mod.default({ worktree: process.argv[3] });
+const hooks = await mod.default({ worktree: process.argv[3], directory: process.argv[5] || process.argv[3] });
 const out = [];
 for (const [tool, args] of JSON.parse(process.argv[4])) {
   try { await hooks["tool.execute.before"]({ tool }, { args }); out.push("allow"); }
@@ -253,7 +414,7 @@ for (const [tool, args] of JSON.parse(process.argv[4])) {
 console.log(JSON.stringify(out));
 """
 
-    def hook(self, calls, **env):
+    def hook(self, calls, directory=None, **env):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         plugin = os.path.join(d, "fo4-guard.mjs")          # .mjs: node loads it as a module whatever its version
@@ -263,8 +424,8 @@ console.log(JSON.stringify(out));
             f.write(self.HARNESS)
         e = {k: v for k, v in os.environ.items() if not k.startswith("FO4SF_")}
         e.update(FO4SF_PYTHON=sys.executable, **env)
-        r = subprocess.run(["node", harness, "file://" + plugin, ROOT, json.dumps(calls)], capture_output=True,
-                           text=True, env=e, timeout=120)
+        r = subprocess.run(["node", harness, "file://" + plugin, ROOT, json.dumps(calls), directory or ROOT],
+                           capture_output=True, text=True, env=e, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
@@ -275,9 +436,16 @@ console.log(JSON.stringify(out));
                  ["apply_patch", {"patchText": "*** Begin Patch\n*** Update File: src/a.py\n*** End Patch"}],
                  ["apply_patch", {"patchText": "*** Begin Patch\n*** Update File: src/a.py\n"
                                                "*** Move to: tools/ai-team/x.py\n*** End Patch"}],
-                 ["apply_patch", {"patchText": "no file named"}], ["read", {"filePath": "opencode.json"}]]
+                 ["apply_patch", {"patchText": "no file named"}], ["read", {"filePath": "opencode.json"}],
+                 ["apply_patch", {"patchText": "*** Begin Patch\n***Update File:tools/ai-team/x.py\n*** End Patch"}],
+                 ["apply_patch", {"patchText": "*** Begin Patch\n  *** add file :  AGENTS.md  \n*** End Patch"}]]
         self.assertEqual(self.hook(calls), ["allow", "refuse", "allow", "refuse", "refuse", "allow", "refuse",
-                                            "refuse", "allow"])
+                                            "refuse", "allow", "refuse", "refuse"])
+
+    def test_a_write_from_a_session_in_a_subfolder_is_refused(self):
+        calls = [["write", {"filePath": "plugin/x.js"}], ["edit", {"filePath": "x.md"}]]
+        self.assertEqual(self.hook(calls, directory=os.path.join(ROOT, ".opencode")), ["refuse", "refuse"])
+        self.assertEqual(self.hook(calls[1:]), ["allow"])
 
     def test_the_wrapper_only_with_the_owner_and_never_unattended(self):
         calls = [["bash", {"command": OwnerTerminalCommandTests.WRAPPER[0]}],
@@ -315,7 +483,7 @@ class TeamSkillAndCommandTests(unittest.TestCase):
     def test_commands_name_a_team_agent_and_only_allowed_commands(self):
         folder = os.path.join(ROOT, ".opencode", "commands")
         names = sorted(f[:-3] for f in os.listdir(folder))
-        self.assertEqual(names, ["board", "handoff", "next", "research", "review", "status"])
+        self.assertEqual(names, ["board", "handoff", "next", "research", "review", "team"])   # no clash with /status
         for n in names:
             text = read(".opencode", "commands", n + ".md")
             meta = frontmatter(text)
@@ -324,7 +492,33 @@ class TeamSkillAndCommandTests(unittest.TestCase):
             self.assertNotIn("!`", text, n)                     # no shell injection: every command passes the guard
             for command in re.findall(r"`((?:gh|git|python) [^`]*)`", text):
                 filled = re.sub(r"<[^>]*>", "x", " ".join(command.split())).replace("$1", "605")
-                self.assertTrue(allowed(filled, owner_present="agent_git.py" in filled), (n, filled))
+                owner_only = "agent_git.py" in filled or "for Claude" in filled
+                self.assertTrue(allowed(filled, owner_present=owner_only), (n, filled))
+                self.assertEqual(allowed(filled), not owner_only, (n, filled))
+
+
+class CommandTextTests(unittest.TestCase):
+    def test_review_reads_the_pr_and_its_ci_and_does_not_run_tests_here(self):
+        text = read(".opencode", "commands", "review.md")
+        self.assertIn("gh pr checks $1", text)
+        self.assertNotIn("unittest", text)
+
+    def test_the_handoff_names_every_character_the_guard_refuses(self):
+        for name in (("commands", "handoff.md"), ("skills", "fo4-allowed-commands", "SKILL.md")):
+            text = " ".join(read(".opencode", *name).split())
+            for word in ("apostrophe", "ampersand", "pipe", "caret", "percent", "angle bracket", "backtick"):
+                self.assertIn(word, text, (name, word))
+
+    def test_next_makes_a_branch_from_main_before_committing(self):
+        text = read(".opencode", "commands", "next.md")
+        self.assertLess(text.index("agent_git.py branch"), text.index("agent_git.py commit"))
+
+    def test_the_terminal_can_open_each_agent(self):
+        # OpenCode's --agent falls back to the default agent for a subagent-only mode, so the three the menu offers
+        # are "all": a primary agent in the terminal and a subagent for the Lead.
+        for agent in AGENTS:
+            meta = frontmatter(read(".opencode", "agents", agent + ".md"))
+            self.assertEqual(meta["mode"], "primary" if agent == "fo4-lead" else "all", agent)
 
 
 class ScriptTests(unittest.TestCase):
@@ -345,7 +539,8 @@ class ScriptTests(unittest.TestCase):
                      "fo4-to-starfield-wt\\local-terminal", "Set-Location $wt"):
             self.assertIn(line, s)
             self.assertLess(s.index(line), launch, line)
-        self.assertIn("--ff-only origin/main", s)               # a clean terminal worktree follows main
+        self.assertIn("switch -q --detach origin/main", s)      # a clean terminal worktree goes back to main
+        self.assertNotIn("ai/local-terminal", s)                # no branch of its own that could fall behind main
 
     def test_unattended_runs_never_count_as_the_owners_terminal(self):
         s = self.script("run-lead.ps1")
@@ -353,15 +548,20 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("Remove-Item Env:FO4SF_OWNER_PRESENT", s)
         self.assertIn("$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", s)
         self.assertIn("-replace '[\"`$\\\\]'", s)              # a brief cannot end the quoted prompt argument
+        self.assertNotIn("Start-Sleep $Interval; continue", s)  # a skip in the last cycle exits without the wait
+        self.assertIn("Wait-Next; continue", s)
 
     def test_the_menu_offers_what_the_owner_asked_for(self):
         s = self.script("menu.ps1")
         for item in ("Start the local team", "Talk to the local agents", "Talk to one agent", "Start Claude Code",
-                     "Status", "Pick a model", "Start the unattended Lead", "Pause or resume", "Stop the local team"):
+                     "Status", "Pick a model", "Start or stop the unattended Lead", "Pause or resume",
+                     "Stop the local team"):
             self.assertIn(item, s)
         for model in ("'opus'", "'sonnet'", "'haiku'"):
             self.assertIn(model, s)
         self.assertIn("Type yes to start the unattended Lead", s)
+        self.assertIn("Type stop to stop the unattended Lead and the session it is running", s)
+        self.assertIn("lead-session.pid", self.script("run-lead.ps1"))   # the session the menu stops
         self.assertIn("'menu.ps1'", self.script("install-shortcut.ps1"))
 
 

@@ -172,7 +172,10 @@ VIEW_OPTS = {"--comments": None, "--json": word}
 DIFF_OPTS = {"--name-only": None}
 
 
-def gh(argv):
+HANDOFF = re.compile(r"\s*Lead\s*\(local\)\s*:\s*for\s+claude", re.I)
+
+
+def gh(argv, owner_present=False):
     head = argv[1:3]
     if head in (["issue", "list"], ["pr", "list"]):
         positional, _ = take_options(argv[3:], LIST_OPTS)
@@ -189,10 +192,17 @@ def gh(argv):
         if len(positional) != 1 or not digits(positional[0]):
             raise Refused("gh pr diff takes one PR number")
         return
+    if head == ["pr", "checks"]:
+        if len(argv) != 4 or not digits(argv[3]):
+            raise Refused("gh pr checks takes one PR number")
+        return
     if argv[1:5] == ["issue", "comment", "32", "--body"] and len(argv) == 6:
         text = argv[5]
         if not text.startswith("Lead (local): ") or len(text) > 1500:
             raise Refused("the Lead's comment on #32 starts with 'Lead (local): ' and is at most 1500 characters")
+        # Claude reads a "for Claude" comment as a handoff the owner started (/handoff), so only their terminal posts one.
+        if HANDOFF.match(text) and not owner_present:
+            raise Refused("a handoff to Claude (Lead (local): for Claude: ...) is posted from the owner's terminal only")
         return
     raise Refused("this gh command is not on the list")
 
@@ -322,7 +332,7 @@ def python(argv, root=None, owner_present=False):
 def dispatch(argv, root=None, owner_present=False):
     exe = argv[0].lower()
     if exe == "gh":
-        return gh(argv)
+        return gh(argv, owner_present)
     if exe == "git":
         return git(argv)
     if exe in ("python", "python3"):

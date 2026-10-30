@@ -1,6 +1,6 @@
 ---
 name: fo4-allowed-commands
-description: The exact shell commands the fo4 team's guard lets through, and how to write a command so it is not refused. Load it before your first command in a session, and after any "guard refused the command" error.
+description: "The exact shell commands the fo4 team's guard lets through, and how to write a command so it is not refused. Load it before your first command in a session, and after any guard refused the command error."
 ---
 Every shell command goes through the guard (tools/ai-team/guard/allowlist.py), in the unattended runs and in the
 owner's terminal alike. It runs commands from the repo root only and allows exactly the shapes below. Anything else is
@@ -15,6 +15,7 @@ gh issue view 32 --comments
 gh pr list --state open
 gh pr view 605 --json 'title,state,files'
 gh pr diff 605 --name-only
+gh pr checks 605
 gh issue comment 32 --body 'Lead (local): CI on 605 is green, ready for review'
 git status --short
 git log --oneline -10
@@ -35,7 +36,9 @@ python -I tools/ai-team/lead_commit.py 'Lead (local): refresh agent status'
 
 The unattended Lead commits its docs/ai notes with lead_commit.py, on its branch ai/local-lead only.
 
-In the owner's terminal only, the implementation agent (and the Lead, for docs/ai notes) also has the commit wrapper:
+In the owner's terminal only, the implementation agent (and the Lead, for docs/ai notes) also has the commit wrapper.
+The terminal starts on main with no branch: make the task's branch first (it starts from main), then commit there.
+Only this terminal can post a #32 comment that starts `Lead (local): for Claude:` (the /handoff command).
 
 ```text
 python -I tools/ai-team/agent_git.py branch ai/123-short-name
@@ -47,8 +50,8 @@ python -I tools/ai-team/agent_git.py commit 'Implement (local): what changed' sr
 - Pipes, redirects, `;` and `&&`: run each command on its own and read its whole output (`git log --oneline -20`,
   not `git log | head`).
 - An unquoted comma: quote the value (`--json 'title,state'`).
-- A quote mark, dollar sign, backslash, exclamation mark or backtick inside a quoted value: write the text
-  without them.
+- A quote mark, apostrophe, dollar sign, backslash, exclamation mark, backtick, ampersand, pipe, caret, percent
+  sign or angle bracket inside a quoted value, or the character > anywhere: write the text without them.
 - `cd`, or a working directory other than the repo root: run from the root with relative paths.
 - `git add`, `git commit`, `git switch`, `git push`: use the wrappers above. Nobody on the team pushes.
 - A GitHub comment anywhere but #32, a review approval, a merge, `gh api`: not for the team.

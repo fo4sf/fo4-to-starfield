@@ -1038,16 +1038,23 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Decision: the owner chose A, C and E on 30 Oct: OpenCode's own terminal UI on the team's agents with the guard on
   (A), one "FO4SF AI" desktop menu to start the team, open its terminal, start Claude Code, show status, pick a model
   and stop (C), and Claude-cloud builds it in the repo while the PC session only installs and tests (E).
-  - `models.py` keeps one pick (a preset from `config.json` "models", or any downloaded model) in the state dir. The
-    guardian proxy sends every agent to the pick, and `terminal.ps1` and `run-lead.ps1` pass its limits to OpenCode
-    through `OPENCODE_CONFIG_CONTENT`. A load refuses while requests run, pauses the guardian and unloads the team's
-    other models first. `run-lead.ps1` loads the pick (`models.py ensure`) instead of matching one model name.
-  - `terminal.ps1` runs in its own worktree (`ai/local-terminal`) and sets `FO4SF_OWNER_PRESENT=1`. With it, the guard
-    also allows `agent_git.py`: a branch and commits of named files on the agent's own `ai/` branch, with no hooks, and
-    never a push (pick J, offered to the owner with K, strict). Skills from outside the repo stay hidden from the team,
-    which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
+  - `models.py` keeps one pick (a preset from `config.json` "models", or any downloaded model) in `guardian.db`. The
+    guardian proxy sends every agent to the pick, read when a request is admitted, and `terminal.ps1` and
+    `run-lead.ps1` pass its limits to OpenCode through `OPENCODE_CONFIG_CONTENT`. A load takes a hold on the proxy
+    (one load at a time; the proxy starts no job while it stands), refuses while a request runs, unloads the team's
+    other models and the last pick, and never touches the owner's pause or stop. A failed load leaves the hold as
+    "failed", and the proxy refuses requests until a load works. `run-lead.ps1` loads the pick (`models.py ensure`,
+    which also reloads a model at another context) instead of matching one model name.
+  - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) whenever it is clean, and sets
+    `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
+    files (literal paths) on the agent's own `ai/` branch, with no hooks, and never a push (pick J, offered to the owner
+    with K, strict), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
+    specialists are `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the
+    team, which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
   - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
-    CI or git's files. The agents' edit rules said most of it already; the checker holds where a pattern misses.
+    CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no root OpenCode config in any spelling,
+    no folder in place of a file, and only from a session at the repo root. The agents' edit rules said most of it
+    already; the checker holds where a pattern misses.
   - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
     `run-lead.ps1 -MaxCycles 1 -Brief` session on the PC), and the Lead's `/handoff` posts a `Lead (local): for
     Claude:` comment on #32. Claude Code's side is four skills in `.claude/skills/`.
@@ -1059,5 +1066,11 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Not yet true: none of it has run on the PC. PowerShell 5.1 was not available here to parse the scripts, and the
   OpenCode switches (`OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `permission.skill`, the
   `.opencode/commands/` and `.opencode/skills/` folders) are taken from the current OpenCode docs, while the PC runs
-  1.18.35. The install must show the menu, the terminal on the picked model, a refused write to `opencode.json`, and
-  `opencode debug skill` listing only `fo4-allowed-commands`.
+  1.18.35. The install must show the menu, the terminal on the picked model (and option 3 opening the agent asked
+  for), a refused write to `opencode.json`, and `opencode debug skill` listing only `fo4-allowed-commands`.
+- Self-review (30 Oct, before the PR): a multi-agent review with a skeptic per finding confirmed 32 findings, fixed in
+  the commit after the merge of #605's fixes. The main ones: a load that failed after the unload resumed the guardian
+  with no model, and the load's finally overwrote a pause the owner set meanwhile (now the hold); the terminal's own
+  branch stopped following main after its first commit, so guard fixes never reached it, and agent branches stacked
+  (now main with no branch, and branches from main); `-Agent` opened the Lead (subagent-only mode); `/review` ran the
+  tests on the wrong checkout; YAML cut descriptions at ` #32`; anyone could post a `for Claude:` handoff.

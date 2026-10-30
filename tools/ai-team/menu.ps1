@@ -14,6 +14,19 @@ function Open-Window($file, [string[]]$more = @()) {
     '-File', "`"$(Join-Path $here $file)`"") + $more)
 }
 
+$state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }
+
+function Get-PidFrom($name, [string[]]$process) {   # the process a pid file names, if it still runs and is ours
+  $f = Join-Path $state $name
+  $id = if (Test-Path $f) { "$(Get-Content $f -ErrorAction SilentlyContinue)".Trim() } else { '' }
+  if ($id -notmatch '^[0-9]+$') { return $null }
+  Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue | Where-Object { $process -contains $_.ProcessName }
+}
+
+function Get-Lead {                          # run-lead.ps1 itself (a PowerShell window) and its running OpenCode session
+  @{ loop = Get-PidFrom 'run-lead.pid' @('powershell', 'pwsh'); session = Get-PidFrom 'lead-session.pid' @('opencode') }
+}
+
 function Show-Status {
   $g = & $Python $guardian status | Out-String | ConvertFrom-Json
   $p = (& $Python $models list | Out-String | ConvertFrom-Json)
@@ -21,15 +34,13 @@ function Show-Status {
   "guardian: level $($g.level), mode $($g.mode); RAM $($s.ram.used_pct)%, VRAM $($s.gpu.vram_pct)%"
   if ($g.reasons) { "  why: $($g.reasons -join '; ')" }
   "requests: $(@($g.running).Count) running, $(@($g.queued).Count) queued"
+  if ($g.model_hold) { "model swap: $($g.model_hold.state): $($g.model_hold.detail)" }
   $pick = $p.picked
   "model picked: $($pick.model) at $($pick.context / 1024)K$(if ($pick.preset) { " (preset $($pick.preset))" })"
   if ($p.loaded) { "LM Studio has loaded: $($p.loaded -join ', ')" } elseif ($p.lmstudio) { "LM Studio: $($p.lmstudio)" }
   else { "LM Studio has no model loaded" }
-  $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }
-  $pidFile = Join-Path $state 'run-lead.pid'
-  $leadPid = if (Test-Path $pidFile) { "$(Get-Content $pidFile -ErrorAction SilentlyContinue)".Trim() } else { '' }
-  $lead = ($leadPid -match '^[0-9]+$') -and (Get-Process -Id ([int]$leadPid) -ErrorAction SilentlyContinue)
-  "unattended Lead: $(if ($lead) { 'running' } else { 'not running' })"
+  $lead = Get-Lead
+  "unattended Lead: $(if ($lead.loop) { 'running' } else { 'not running' })$(if ($lead.session) { ', a session is working' })"
   $log = Join-Path $state 'lead-cycles.log'
   if (Test-Path $log) { "last Lead log lines:"; Get-Content $log -Tail 3 | ForEach-Object { "  $_" } }
 }
@@ -72,7 +83,7 @@ while ($true) {
   '  4  Start Claude Code in the repo'
   '  5  Status'
   '  6  Pick a model'
-  '  7  Start the unattended Lead (its own window; close the window to stop it)'
+  '  7  Start or stop the unattended Lead (it runs in its own window)'
   '  8  Pause or resume the local team'
   '  9  Stop the local team'
   '  0  Close this menu'
@@ -87,7 +98,14 @@ while ($true) {
     '5' { Show-Status }
     '6' { Pick-Model }
     '7' {
-      if ((Read-Host 'Type yes to start the unattended Lead') -eq 'yes') { Open-Window 'run-lead.ps1' }
+      $lead = Get-Lead
+      if ($lead.loop -or $lead.session) {
+        if ((Read-Host 'Type stop to stop the unattended Lead and the session it is running') -eq 'stop') {
+          foreach ($p in @($lead.session, $lead.loop)) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
+          Remove-Item (Join-Path $state 'lead-session.pid'), (Join-Path $state 'run-lead.pid') -ErrorAction SilentlyContinue
+          'stopped'
+        }
+      } elseif ((Read-Host 'Type yes to start the unattended Lead') -eq 'yes') { Open-Window 'run-lead.ps1' }
     }
     '8' {
       $mode = (& $Python $guardian status | Out-String | ConvertFrom-Json).mode

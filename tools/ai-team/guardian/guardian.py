@@ -46,7 +46,9 @@ def status(args):
     queued = c.execute("SELECT id, agent, model, created FROM jobs WHERE status='queued'").fetchall()
     recent_fail = c.execute("SELECT id, agent, status, error, finished FROM jobs WHERE status IN "
                             "('failed','timeout','rejected','abandoned') ORDER BY id DESC LIMIT 5").fetchall()
+    hold = store.get_hold(c)
     out = {"level": lv, "reasons": reasons, "mode": store.get_mode(c),
+           "model_hold": None if hold is None else {"state": hold[0], "detail": hold[1], "age_s": round(hold[2])},
            "admission_if_new_job": policy.admit(snap, cfg, len(running))[0],
            "limits": {k: cfg[k] for k in ("max_concurrent_local", "caution_pct", "restrict_pct", "vram_block_pct",
                                           "ram_block_pct", "vram_restrict_with_model_pct", "game_blocks_inference")},

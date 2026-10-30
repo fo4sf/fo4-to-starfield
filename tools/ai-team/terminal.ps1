@@ -1,10 +1,11 @@
 # Open the local agents' terminal: OpenCode's own terminal UI on the team's agents, for the owner to talk to.
 #   powershell -ExecutionPolicy Bypass -File tools\ai-team\terminal.ps1 [-Agent fo4-lead] [-Continue]
 # It starts the team (guardian proxy, picked model), then runs OpenCode in its own worktree next to the repo
-# (fo4-to-starfield-wt\local-terminal, branch ai/local-terminal), so the main checkout and the unattended Lead's worktree
-# are never touched. The guard plugin checks every command and file write as in unattended runs; because the owner is
-# present, it also lets the implementation agent make its own ai/ branch and commit there (agent_git.py). Nothing
-# pushes. Skills from ~/.claude and ~/.agents (the claude.ai ones) stay hidden from the agents.
+# (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. A
+# clean worktree goes back to main's newest commit (no branch) at every start, so a guard fix on main reaches it. The
+# guard plugin checks every command and file write as in unattended runs; because the owner is present, it also lets an
+# agent make its own ai/ branch from main and commit named files there (agent_git.py). Nothing pushes. Skills from
+# ~/.claude and ~/.agents (the claude.ai ones) stay hidden from the agents.
 param([string]$Agent = 'fo4-lead', [switch]$Continue,
       [string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }))
 $repo = Split-Path (Split-Path $PSScriptRoot)
@@ -18,15 +19,18 @@ else { try { "model: $(($ensure | ConvertFrom-Json).picked.model)" } catch { $en
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-terminal'
 git -C $repo fetch -q origin main
+if ($LASTEXITCODE -ne 0) { "note: could not fetch main (offline?): the terminal opens on the last main fetched" }
 if (-not (Test-Path $wt)) {
-  if (git -C $repo branch --list ai/local-terminal) { git -C $repo worktree add $wt ai/local-terminal | Out-Null }
-  else { git -C $repo worktree add -b ai/local-terminal $wt origin/main | Out-Null }
-  "made the terminal's worktree $wt (branch ai/local-terminal)"
-} elseif (-not (git -C $wt status --porcelain) -and "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim() -eq 'ai/local-terminal') {
-  git -C $wt merge -q --ff-only origin/main 2>$null                    # a clean worktree follows main
-  if ($LASTEXITCODE -ne 0) { "note: ai/local-terminal has its own commits, so it stays where it is" }
+  git -C $repo worktree add -q --detach $wt origin/main
+  "made the terminal's worktree $wt (main, no branch)"
+} elseif (-not (git -C $wt status --porcelain)) {
+  # Clean: back to main. An agent branch made here keeps its commits; the next one starts from main (agent_git.py).
+  git -C $wt switch -q --detach origin/main
 } else {
-  "note: $wt has changes or another branch checked out ($("$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim())); left as it is"
+  "note: $wt has uncommitted changes (on $("$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim())), so it stays as it is"
+  if (git -C $wt diff --name-only origin/main -- .opencode opencode.json tools/ai-team AGENTS.md) {
+    "WARNING: its guard or agent files are not main's. Have the agent commit its work (or drop it), then reopen."
+  }
 }
 
 foreach ($f in @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py')) {
@@ -46,6 +50,6 @@ if (-not (Test-Path $opencode)) { $opencode = 'opencode' }
 $argv = @()
 if ($Agent -ne 'fo4-lead') { $argv += @('--agent', $Agent) }
 if ($Continue) { $argv += '--continue' }
-"Type /help for OpenCode's commands, or /status, /board, /next, /research, /review, /handoff for the team's."
+"Type /help for OpenCode's commands, or /team, /board, /next, /research, /review, /handoff for the team's."
 Set-Location $wt
 & $opencode @argv

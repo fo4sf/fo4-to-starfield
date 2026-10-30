@@ -1,6 +1,6 @@
 ---
 name: local-team-review
-description: Review work by the fo4 local AI team before any of it is kept - diff its branch against main, rerun the tests and the repo guard, check each claim against its source, and report findings with severity. Local-team output stays a draft until this review passes.
+description: "Review work by the fo4 local AI team before any of it is kept - diff its branch against main, rerun the tests and the repo guard, check each claim against its source, and report findings with severity. Local-team output stays a draft until this review passes."
 ---
 # Review the local team's work
 

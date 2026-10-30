@@ -145,8 +145,8 @@ class TeamModelTests(unittest.TestCase):
         # the worktree must be ON ai/local-lead and SKIP otherwise, so a moved worktree's other branch is never rebased
         self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
 
-    def test_start_team_names_the_loaders_context(self):
-        self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
+    def test_start_team_points_to_the_picked_model(self):
+        self.assertIn("models.py ensure", read("start-team.ps1"))   # the pick's own window, not a fixed one
 
     def test_provider_header_timeout_outlasts_guardians_queue_wait(self):
         # OpenCode gives up when response headers take longer than headerTimeout. Guardian holds a queued request

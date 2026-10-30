@@ -12,7 +12,9 @@ import time
 STATE = os.environ.get("FO4_AI_TEAM_STATE") or os.path.join(
     os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "fo4-ai-team", "state")
 DB = os.path.join(STATE, "guardian.db")
-PICK = "model.json"                   # the model the team runs on; tools/ai-team/models.py writes it
+PICK = "model_pick"                   # control rows tools/ai-team/models.py writes: the team's model,
+HOLD = "model_hold"                   # and the swap that holds the proxy while the model changes
+HOLD_FRESH_S = 900                    # a load takes a few minutes; a "loading" hold older than this lost its loader
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -46,15 +48,77 @@ def set_mode(c, mode):
     c.execute("INSERT OR REPLACE INTO control VALUES ('mode', ?, ?)", (mode, time.time()))
 
 
-def picked_model():
-    """The LM Studio model id models.py picked, or None (no pick yet, or a file it cannot read): the proxy then keeps
-    config.json's agent map."""
+def get_pick(c):
+    """The setup tools/ai-team/models.py picked (a dict), or None: no pick yet, or a row it cannot read."""
+    r = c.execute("SELECT value FROM control WHERE key=?", (PICK,)).fetchone()
     try:
-        with open(os.path.join(STATE, PICK), encoding="utf-8") as f:
-            model = json.load(f).get("model")
-    except (OSError, ValueError, AttributeError):
+        pick = json.loads(r[0]) if r else None
+    except ValueError:
         return None
+    if not isinstance(pick, dict) or not {"model", "context", "output", "kv", "gpu"} <= pick.keys():
+        return None                                 # then models.py and the proxy both fall back to the default
+    return pick
+
+
+def set_pick(c, pick):
+    c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, ?)", (PICK, json.dumps(pick), time.time()))
+
+
+def picked_model(c=None):
+    """The LM Studio model id models.py picked, or None: the proxy then keeps config.json's agent map."""
+    own = c is None
+    c = connect() if own else c
+    try:
+        model = (get_pick(c) or {}).get("model")
+    finally:
+        if own:
+            c.close()
     return model if isinstance(model, str) and model else None
+
+
+def get_hold(c):
+    """models.py's model swap: None, or (state, detail, age in s). "loading" while a load runs (the proxy queues),
+    "failed" after a load that did not work (the proxy refuses until a load works). A "loading" hold older than
+    HOLD_FRESH_S is a loader that died mid-load: it counts as failed, since the old model may already be unloaded."""
+    r = c.execute("SELECT value, t FROM control WHERE key=?", (HOLD,)).fetchone()
+    if not r:
+        return None
+    try:
+        h = json.loads(r[0])
+        state, detail = h["state"], str(h.get("detail", ""))
+    except (ValueError, KeyError, TypeError):
+        return "failed", "unreadable model hold", 0.0
+    age = time.time() - r[1]
+    if state == "loading" and age > HOLD_FRESH_S:
+        return "failed", f"a load of {detail} did not finish (the loader stopped)", age
+    return state, detail, age
+
+
+def take_hold(c, model):
+    """Start a swap: True, or False while another loader's fresh "loading" hold stands (one load at a time). One
+    transaction, so two loaders cannot both take it."""
+    c.execute("BEGIN IMMEDIATE")
+    try:
+        h = get_hold(c)
+        if h and h[0] == "loading":
+            c.execute("ROLLBACK")
+            return False
+        c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, ?)",
+                  (HOLD, json.dumps({"state": "loading", "detail": model}), time.time()))
+        c.execute("COMMIT")
+        return True
+    except BaseException:
+        c.execute("ROLLBACK")
+        raise
+
+
+def fail_hold(c, detail):
+    c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, ?)",
+              (HOLD, json.dumps({"state": "failed", "detail": detail}), time.time()))
+
+
+def clear_hold(c):
+    c.execute("DELETE FROM control WHERE key=?", (HOLD,))
 
 
 def log_decision(c, job_id, decision, lv, reasons):
