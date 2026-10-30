@@ -335,11 +335,13 @@ def scope_bindings(body, tree=None):
 
 def test_case_classes(source):
     """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
-    counts if it is bound once in the module, one of its bases is unittest.TestCase (or TestCase imported from
-    unittest, or such a class of the same file), its other bases are plain mixin classes of the same file, and its only
-    decorators are unittest's skip marks; a method if the class body binds its name once, with a def whose only
-    decorators are those marks. Anything else could be a callable unittest would call. Methods a class inherits are
-    not counted: run them through the class or the module."""
+    counts if the file binds its name once, one of its bases is unittest.TestCase (or TestCase imported from unittest,
+    or such a class of the same file defined above it), its other bases are plain mixin classes of the same file
+    defined above it, it takes no keywords and no __init_subclass__, and its only decorators are unittest's own marks.
+    A method counts if the class body binds its name once (a class-body global counts), with a def whose only
+    decorators are those marks, and with none at all if the class body binds `unittest` itself. Anything else could be
+    a callable unittest would call. Methods a class inherits are not counted: run them through the class or the
+    module. Syntax only: see scope_bindings."""
     with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
         warnings.simplefilter("ignore")
         tree = ast.parse(source)

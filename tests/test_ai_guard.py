@@ -576,6 +576,9 @@ class GuardTests(unittest.TestCase):
             {"Warning": set()})
         self.assertEqual(allowlist.test_case_classes(
             "import unittest\nclass C(M, unittest.TestCase):\n    def test_a(self): pass\nclass M:\n    pass\n"), {})
+        self.assertEqual(allowlist.test_case_classes(                 # a mixin's own base, too
+            "import unittest\nclass M(Warning):\n    pass\nclass Warning:\n    pass\n"
+            "class C(M, unittest.TestCase):\n    def test_a(self): pass\n"), {})
         self.assertEqual(allowlist.test_case_classes(
             "import unittest\nclass M:\n    pass\nclass B(unittest.TestCase):\n    pass\n"
             "class C(M, B):\n    def test_a(self): pass\n"), {"B": set(), "C": {"test_a"}})
@@ -643,9 +646,10 @@ class GuardTests(unittest.TestCase):
         # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process
         single = at(r"^if \(Test-Path \$pidFile\) \{ +# single instance\n"
                     r"  \$old = \"\$\(Get-Content -LiteralPath \$pidFile -ErrorAction SilentlyContinue\)\"\.Trim\(\)\n"
-                    r"  # [^\n]*\n"
-                    r"  if \(\$old -match '\^\[1-9\]\[0-9\]\{0,8\}\$' -and "
-                    r"\(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue\)\) \{\n"
+                    r"  # [^\n]*\n  # [^\n]*\n"
+                    r"  if \(\$old -match '\^\[1-9\]\[0-9\]\{0,8\}\$' -and \[int\]\$old -ne \$PID -and\n"
+                    r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| "
+                    r"Where-Object \{ \$_\.ProcessName -in 'powershell', 'pwsh' \}\)\) \{\n"
                     r"    \"run-lead already running \(pid \$old\)\"; exit 1\n  \}\n\}$")
         self.assertLess(resolve, opencode)
         self.assertLess(opencode, single)
@@ -688,8 +692,9 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(script.index(cycle), mine + script[mine:].index("    $cycle++\n"))
         self.assertLess(script.index(cycle), session)
         self.assertLess(session, script.index(cycle) + len(cycle))
-        # nothing else starts a program the guard does not cover: the code (comments left out) has one launch, the
-        # call operator only runs the resolved Python, and OpenCode is named only where it is resolved and started
+        # outside the pinned cycle, the launch forms this test knows: one Start-Process-style launch in the code
+        # (comments left out), the call operator only on the resolved Python, no dot-source call, and OpenCode named
+        # only where it is resolved and started (a regression net for reviewed edits, not a PowerShell parser)
         code = "\n".join(re.sub(r"\s+# [^\"']*$", "", line) for line in script.split("\n")
                          if not line.lstrip().startswith("#"))
         words = re.sub(r"'[^'\n]*'", "''", re.sub(r'"[^"\n]*"', '""', code))      # string contents left out
@@ -698,10 +703,14 @@ class GuardTests(unittest.TestCase):
                               r"|Win32_Process|\[\s*Activator\s*\]", words)
         self.assertEqual(launches, ["Start-Process"])
         self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath", "$pythonPath"])
+        self.assertEqual(re.findall(r"(?m)(?:^|[;{(|]\s*|\s)\.\s+[$(]", code), [])
+        self.assertEqual(len(re.findall(r"(?i)\$shim\b", code)), 2)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\b", code)), 4)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\s*=", code)), 1)
         self.assertEqual(len([line for line in code.split("\n") if re.search(r"(?i)opencode", line)]), 5)
-        # and the environment changes only on the pinned lines: no Env: drive use but the finally's restore
+        # and the environment changes only on the pinned lines: no other $env: assignment, and no Env: drive use
+        # but the finally's restore
+        self.assertEqual(re.findall(r"(?i)\$\{?env:(\w+)\}?\s*[-+*/]?=(?!=)", code), ["FO4SF_UNATTENDED", "FO4SF_PYTHON"])
         self.assertEqual(re.findall(r"(?i)(?<!\$)(?<!\{)env:\S*", code), ['Env:$k"', 'Env:$k"'])
         # the gate probe: a POST with no header must come back 403, and only a 403 counts
         gate = script[script.index("function Test-GuardGate"):]
@@ -745,6 +754,18 @@ class GuardTests(unittest.TestCase):
         with open(os.path.join(ROOT, "opencode.json"), encoding="utf-8") as f:
             config = json.load(f)
         self.assertEqual(list(config["provider"]), ["guardian"])
+        # OpenCode 1.18.35 also merges a root opencode.jsonc after it, then each .opencode folder's opencode.json and
+        # opencode.jsonc, and loads agents from .opencode/{agent,agents}/**/*.md and {mode,modes}/*.md: the repo has
+        # none of those config files, and only the four agent files (a user-level config is the owner's own)
+        for name in ("opencode.jsonc", os.path.join(".opencode", "opencode.json"),
+                     os.path.join(".opencode", "opencode.jsonc")):
+            self.assertFalse(os.path.exists(os.path.join(ROOT, name)), name)
+        agent_files = sorted(
+            os.path.relpath(os.path.join(d, n), os.path.join(ROOT, ".opencode")).replace(os.sep, "/")
+            for top in ("agent", "agents", "mode", "modes")
+            for d, _, files in os.walk(os.path.join(ROOT, ".opencode", top)) for n in files if n.endswith(".md"))
+        self.assertEqual(agent_files, ["agents/fo4-implement.md", "agents/fo4-lead.md", "agents/fo4-qa.md",
+                                       "agents/fo4-research.md"])
         base = config["provider"]["guardian"]["options"]["baseURL"]
         self.assertEqual(base, "http://127.0.0.1:1235/v1")
 

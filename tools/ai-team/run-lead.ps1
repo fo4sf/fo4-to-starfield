@@ -25,8 +25,10 @@ if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode
 
 if (Test-Path $pidFile) {                                   # single instance
   $old = "$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim()
-  # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process)
-  if ($old -match '^[1-9][0-9]{0,8}$' -and (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue)) {
+  # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process), and so is one
+  # whose pid Windows has since given to this or another kind of process (a run that never reached its finally)
+  if ($old -match '^[1-9][0-9]{0,8}$' -and [int]$old -ne $PID -and
+      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'powershell', 'pwsh' })) {
     "run-lead already running (pid $old)"; exit 1
   }
 }

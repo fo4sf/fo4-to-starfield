@@ -1059,11 +1059,13 @@ decided the import path); keeping the order as a parameter (two orders in the co
   builtin), counts a class-body `global`, and drops a method's marks when the class body binds `unittest` itself; it
   reads syntax only and trusts the repo's own test files, with the runtime scan as the evidence. fo4-implement may not
   write a root `opencode.jsonc` either. `run-lead.ps1` treats an empty or garbled pid file as stale (`[int]''` is 0,
-  the Idle process). New tests: the cycle from `$cycle++` to the launch pinned as text (each skip and its `continue`,
-  the guard files read after the pull), one program launch in the whole script and the call operator only on the
-  resolved Python, no `Env:` change but the final restore, the provider address `:1235` and every agent model on it,
-  and the reviewer's five test-name shapes. The Lead's prompt and agent file give the exact #32 comment and
-  lead_commit forms; the README says which test modules import only under discovery. Two notes were checked and kept
+  the Idle process), and one whose pid now belongs to a process that is not PowerShell, or to itself. New tests: the cycle from `$cycle++` to the launch pinned as text (each skip and its `continue`,
+  the guard files read after the pull); elsewhere in the script one Start-Process-style launch, the call operator
+  only on the resolved Python, no dot-source call, and no environment change but the pinned lines and the final
+  restore (a regression net for reviewed edits, not a PowerShell parser); the provider address `:1235`, every agent
+  model on it, and no other config or agent file in the repo that OpenCode would merge; and the reviewer's five
+  test-name shapes. The Lead's prompt and agent file give the #32 comment and lead_commit forms the guard takes; the
+  README says that some test modules import only under discovery. Two notes were checked and kept
   as they were: OpenCode's matcher flags are fixed per build (`s` in the 1.18.35 Linux build, `si` on Windows), and
   the plugin tests skip without node unless `CI` is set.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
