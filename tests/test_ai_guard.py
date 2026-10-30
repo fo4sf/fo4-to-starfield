@@ -267,14 +267,15 @@ class GuardTests(unittest.TestCase):
             self.assertIn(why, got, command)
 
     def test_every_shell_character_outside_quotes_is_refused(self):
-        # lead_commit takes any one word, so only the character rule stands between these and the shell.
-        for c in sorted(allowlist.BAD_BARE):
+        # lead_commit takes any one word, so only the character rule stands between these and the shell. The list is
+        # written out here, not read from allowlist.py, so a character dropped there fails this test.
+        for c in ";&|<>$`(){}[]*?%@#!\\,":
             got = reason(f"python -I tools/ai-team/lead_commit.py a{c}b")
             self.assertIsNotNone(got, c)
             self.assertIn("shell syntax is not allowed", got, c)
 
     def test_every_character_refused_inside_quotes_is_refused(self):
-        for c in sorted(allowlist.BAD_QUOTED):
+        for c in "$`\\!'\"&|^%<>":
             quote = '"' if c == "'" else "'"
             got = reason(f"gh issue comment 32 --body {quote}Lead (local): a{c}b{quote}")
             self.assertIsNotNone(got, c)
