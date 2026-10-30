@@ -45,18 +45,32 @@ export const Fo4Guard = async ({ worktree, directory }) => {
       // The working-directory argument's name is not pinned across OpenCode versions, so check whichever one is set.
       const workdir = args.workdir ?? args.cwd ?? args.dir ?? args.directory;
       const call = { root, directory, command: args.command, workdir };
-      const run = spawnSync(process.env.FO4SF_PYTHON || "python", ["-I", checker], {
+      const python = process.env.FO4SF_PYTHON || "python";
+      // OpenCode runs on Bun, which cannot start the Microsoft Store's python.exe alias: every call would come back
+      // with no verdict, so say what to fix instead
+      if (/[\\/]WindowsApps[\\/]/i.test(python)) {
+        throw new Error("guard refused the command: FO4SF_PYTHON is the Microsoft Store python alias, which OpenCode " +
+          "cannot start: set it to the python.exe that python -c \"import sys; print(sys.executable)\" prints");
+      }
+      const run = spawnSync(python, ["-I", checker], {
         input: JSON.stringify(call),
         encoding: "utf8",
         timeout,
         windowsHide: true,
       });
       if (run.status === 0) return;
-      let reason = "no verdict from the guard";
+      let reason = null;
       try {
-        reason = JSON.parse(run.stdout).reason || reason;
+        reason = JSON.parse(run.stdout).reason || null;
       } catch {
-        // keep the default reason: the guard failed closed
+        // no verdict: described below
+      }
+      if (!reason) {
+        // the guard failed closed; say what became of the checker, so a broken Python can be told from a refusal
+        const how = run.error ? run.error.code || run.error.message
+          : run.signal ? `stopped by ${run.signal}` : `exit ${run.status}`;
+        const err = String(run.stderr || "").replace(/[^\x20-\x7e]+/g, " ").trim().slice(0, 300);
+        reason = `no verdict from the guard (${python}: ${how}${err ? "; " + err : ""})`;
       }
       throw new Error(`guard refused the command: ${reason}`);
     },

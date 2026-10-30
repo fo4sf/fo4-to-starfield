@@ -181,6 +181,18 @@ marks every model request with an `X-FO4SF-Guard` header (`chat.headers`), and t
 without it (HTTP 403, `require_guard_header` in `config.json`), so a session without the guard gets no model and
 makes no tool call. And `run-lead.ps1` does not start a session in a worktree that lacks the plugin or the checker,
 or while the running proxy serves a request without the header (a proxy started before this check).
+The plugin starts the checker with `FO4SF_PYTHON`, or `python` when that is not set, and it must be a real
+`python.exe`: OpenCode runs on Bun, which cannot start the Microsoft Store's `python.exe` alias in
+`%LOCALAPPDATA%\Microsoft\WindowsApps`, so with the alias every shell call is refused (the PC check on 30 Oct showed
+this). `run-lead.ps1` asks Python for `sys.executable`, passes that on, and refuses an alias. For any other OpenCode
+session in the repo, set `FO4SF_PYTHON` to the path `python -c "import sys; print(sys.executable)"` prints; the
+plugin refuses an alias path with that advice. When the checker gives no verdict, the refusal says which Python ran
+and what became of it (a missing program, a timeout, an exit code, the start of its error output).
+
+On its first start in a worktree, OpenCode itself installs `@opencode-ai/plugin` and its dependencies from npm into
+`.opencode/node_modules` (git-ignored, with its own `package.json`). That is OpenCode's own step for a config folder
+that has a plugin; the guard plugin imports nothing from it, only Node's built-in modules.
+
 To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
 example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
 command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a

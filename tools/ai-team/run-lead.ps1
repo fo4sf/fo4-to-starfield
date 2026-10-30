@@ -18,6 +18,15 @@ function Log($m) { $l = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss ') + $m; $l; Add-
 # programs count: an alias or function of the same name (from a profile) has no path.
 $pythonPath = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 if (-not [IO.Path]::IsPathRooted("$pythonPath")) { throw "-Python $Python is not a program with a full path" }
+# That may be the Microsoft Store's python.exe alias (%LOCALAPPDATA%\Microsoft\WindowsApps), which PowerShell can start
+# but OpenCode cannot: every guarded call would come back "no verdict" (seen on the PC, 30 Oct). So the plugin gets the
+# program Python itself says it runs as, and an alias is refused.
+$pythonPath = "$(& $pythonPath -I -c 'import sys; print(sys.executable)')".Trim()
+if (-not [IO.Path]::IsPathRooted($pythonPath) -or $pythonPath -match '\\WindowsApps\\' -or
+    -not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+  throw ("-Python $Python runs as '$pythonPath', which OpenCode cannot start: pass -Python with the full path " +
+         "of a python.exe from python.org or the Python install manager")
+}
 # npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
 $shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorAction Stop | Select-Object -First 1
 $opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\opencode.exe'

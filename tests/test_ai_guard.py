@@ -639,6 +639,11 @@ class GuardTests(unittest.TestCase):
         resolve = at(r"^\$pythonPath = \(Get-Command \$Python -CommandType Application -ErrorAction Stop "
                      r"\| Select-Object -First 1\)\.Source\n"
                      r"if \(-not \[IO\.Path\]::IsPathRooted\(\"\$pythonPath\"\)\) \{ throw [^\n]*\}$")
+        # then the program Python says it runs as: the Store's python.exe alias, which OpenCode cannot start, is refused
+        real = at(r"^\$pythonPath = \"\$\(& \$pythonPath -I -c 'import sys; print\(sys\.executable\)'\)\"\.Trim\(\)\n"
+                  r"if \(-not \[IO\.Path\]::IsPathRooted\(\$pythonPath\) -or \$pythonPath -match '\\\\WindowsApps\\\\' -or\n"
+                  r"    -not \(Test-Path -LiteralPath \$pythonPath -PathType Leaf\)\) \{\n  throw [^\n]*\n[^\n]*\n\}$")
+        self.assertLess(resolve, real)
         opencode = at(r"^\$shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorAction Stop "
                       r"\| Select-Object -First 1\n"
                       r"\$opencode = Join-Path \(Split-Path \$shim\.Source\) 'node_modules\\opencode-ai\\bin\\opencode\.exe'\n"
@@ -651,7 +656,7 @@ class GuardTests(unittest.TestCase):
                     r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| "
                     r"Where-Object \{ \$_\.ProcessName -in 'powershell', 'pwsh' \}\)\) \{\n"
                     r"    \"run-lead already running \(pid \$old\)\"; exit 1\n  \}\n\}$")
-        self.assertLess(resolve, opencode)
+        self.assertLess(real, opencode)
         self.assertLess(opencode, single)
         saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON \}")
         # one try, at the top level: the pid file and the environment are set inside it, so the finally always
@@ -702,12 +707,12 @@ class GuardTests(unittest.TestCase):
                               r"|Invoke-(?:Expression|Item|Command)|Start-(?:Job|ThreadJob)|Diagnostics\.Process"
                               r"|Win32_Process|\[\s*Activator\s*\]", words)
         self.assertEqual(launches, ["Start-Process"])
-        self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath", "$pythonPath"])
+        self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath"] * 3)
         self.assertEqual(re.findall(r"(?m)(?:^|[;{(|]\s*|\s)\.\s+[$(]", code), [])
         self.assertEqual(len(re.findall(r"(?i)\$shim\b", code)), 2)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\b", code)), 4)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\s*=", code)), 1)
-        self.assertEqual(len([line for line in code.split("\n") if re.search(r"(?i)opencode", line)]), 5)
+        self.assertEqual(len([line for line in words.split("\n") if re.search(r"(?i)opencode", line)]), 4)
         # and the environment changes only on the pinned lines: no other $env: assignment, and no Env: drive use
         # but the finally's restore
         self.assertEqual(re.findall(r"(?i)\$\{?env:(\w+)\}?\s*[-+*/]?=(?!=)", code), ["FO4SF_UNATTENDED", "FO4SF_PYTHON"])
@@ -913,13 +918,14 @@ class PluginTests(unittest.TestCase):
     """The plugin itself, loaded in node and driven through its hooks, with the real checker behind it."""
     HARNESS = """
 const [, , plugin, worktree, directory, callsJson] = process.argv;
-const out = [];
+const out = [], messages = [];
 let hooks;
 try { hooks = await (await import(plugin)).default({ worktree, directory }); }
 catch (e) { console.log(JSON.stringify({ init: "failed", error: String(e.message) })); process.exit(0); }
 for (const [tool, args] of JSON.parse(callsJson)) {
   try { await hooks["tool.execute.before"]({ tool, sessionID: "s", callID: "c" }, { args }); out.push("allow"); }
-  catch (e) { out.push(e.message.startsWith("guard refused the command") ? "refuse" : "error: " + e.message); }
+  catch (e) { out.push(e.message.startsWith("guard refused the command") ? "refuse" : "error: " + e.message);
+              messages.push(e.message); }
 }
 const headers = [];
 const agents = ["fo4-lead", "fo4-research", "fo4-qa", "fo4-implement", "title", "compaction", "summary", undefined];
@@ -928,7 +934,7 @@ for (const agent of agents) {
   await hooks["chat.headers"]({ sessionID: "s", agent }, { headers: h });
   headers.push(h);
 }
-console.log(JSON.stringify({ init: "ok", out, headers }));
+console.log(JSON.stringify({ init: "ok", out, messages, headers }));
 """
 
     def setUp(self):
@@ -1009,13 +1015,41 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
         return d
 
     def test_no_python_or_a_hung_checker_refuses(self):
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]],
-                                   FO4SF_PYTHON=os.path.join(ROOT, "no-such-python"))["out"], ["refuse"])
+        missing = os.path.join(ROOT, "no-such-python")
+        got = self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=missing)
+        self.assertEqual(got["out"], ["refuse"])
+        # with no verdict, the refusal says which Python and what became of it
+        self.assertEqual(got["messages"], [f"guard refused the command: no verdict from the guard ({missing}: ENOENT)"])
         # the test's own wait: refused after about 1 s, not at the 15 s cap or when the checker ends
         start = time.monotonic()
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(30),
-                                   FO4SF_GUARD_TIMEOUT_MS="1000")["out"], ["refuse"])
+        got = self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(30), FO4SF_GUARD_TIMEOUT_MS="1000")
+        self.assertEqual(got["out"], ["refuse"])
         self.assertLess(time.monotonic() - start, 10)
+        self.assertIn("no verdict from the guard (", got["messages"][0])
+        self.assertIn("ETIMEDOUT", got["messages"][0])
+
+    def test_a_checker_that_dies_says_how(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        os.makedirs(os.path.join(d, "tools", "ai-team", "guard"))
+        with open(os.path.join(d, "tools", "ai-team", "guard", "allowlist.py"), "w") as f:
+            f.write("import sys\nsys.stdout.write('not json')\nsys.stderr.write('boom\\n\\x1b[31m' + 'x' * 400)\nsys.exit(3)\n")
+        msg = self.hook([["bash", {"command": "git status"}]], worktree=d)["messages"][0]
+        self.assertTrue(msg.startswith(f"guard refused the command: no verdict from the guard ({sys.executable}: exit 3; boom"), msg)
+        self.assertTrue(msg.isprintable() and msg.isascii(), msg)
+        self.assertLess(len(msg), 300 + len(sys.executable) + 80)
+        # a checker's own refusal keeps its own reason
+        self.assertEqual(self.hook([["bash", {"command": "git push"}]])["messages"],
+                         ["guard refused the command: git push is not on the list"])
+
+    def test_the_store_python_alias_is_refused_with_its_fix(self):
+        # OpenCode (Bun) cannot start the Microsoft Store's python.exe alias, so every call would get no verdict
+        for alias in ("Q:\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",     # %LOCALAPPDATA%'s alias folder
+                      "q:/appdata/local/microsoft/windowsapps/python3.exe"):
+            got = self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=alias)
+            self.assertEqual(got["out"], ["refuse"], alias)
+            self.assertIn("Microsoft Store python alias", got["messages"][0])
+            self.assertIn("sys.executable", got["messages"][0])
 
     def test_the_wait_for_the_checker_is_never_longer_than_15_s(self):
         # A checker that answers "allowed" after 16 s: with a cap of 16 s or more the call would go through.

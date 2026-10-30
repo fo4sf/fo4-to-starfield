@@ -1068,6 +1068,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
   README says that some test modules import only under discovery. Two notes were checked and kept
   as they were: OpenCode's matcher flags are fixed per build (`s` in the 1.18.35 Linux build, `si` on Windows), and
   the plugin tests skip without node unless `CI` is set.
+- PC check (30 Oct, owner's go, main a9921b46): the proxy refused a POST without the header with (403) Forbidden, and
+  the plugin loaded (no load error; model requests passed the gate). With `FO4SF_PYTHON` set to the real
+  `python.exe` (Python 3.14 from the install manager), `git status --short` ran and `git log -1 --format=%H` was
+  refused with `shell syntax is not allowed: %`; `git rev-parse HEAD` passed the guard and OpenCode's own rules then
+  refused it. With the plain `python` on that PC, the Microsoft Store alias, every call came back `no verdict from the
+  guard`: Bun cannot start the alias (node can). One call, a backtick in a `--format`, also came back with no verdict
+  under OpenCode while node gets the checker's refusal; not reproduced. Every case failed closed. So `run-lead.ps1`
+  now passes Python's own `sys.executable` and refuses an alias, the plugin refuses an alias path with the fix, and a
+  no-verdict refusal names the Python and what became of it. The Lead stays paused until the check passes with
+  `run-lead.ps1`'s own resolution.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must
