@@ -30,12 +30,14 @@ $g = Join-Path $repo 'tools\ai-team\guardian\guardian.py'
 # npm installs a .ps1 shim that Start-Process can't run: use the real binary behind it
 $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'
 $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS.md). Do at most one task, then stop. " +
-          "Good tasks for this team: research questions from docs/ai/known-unknowns.md " +
-          "(fo4-research, findings into docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources. " +
+          "Good tasks for this team: open issues labelled agent:local-team and ready; research questions from " +
+          "docs/ai/known-unknowns.md (fo4-research, findings into docs/ai/research-log.md); refreshing " +
+          "docs/ai/agent-status.md from live sources. " +
           "Do not call fo4-qa in this session: unattended runs take no QA reviews. " +
-          "Run every command from your current working directory and never cd anywhere: a command that starts with cd " +
-          "is refused. Do not touch any path outside this worktree. Commit your own docs/ai edits on this branch with " +
-          "python tools/ai-team/lead_commit.py '<what changed>' (it commits only docs/ai); never push. " +
+          "Run gh and git commands on their own, without pipes or redirects (no | head, | tail, | grep, > file): " +
+          "each stage of a pipeline is checked separately, and the filters are not allowed. " +
+          "Commit your own docs/ai edits on this branch with python tools/ai-team/lead_commit.py '<what changed>' " +
+          "(it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
 $wait = $Interval; $cycle = 0
 try {

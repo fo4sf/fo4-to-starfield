@@ -112,11 +112,11 @@ for game tests when the team is idle.
 
 The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
 92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
-at 78.8% RAM and 10.6 GB VRAM; 45K-token jobs still fit. `opencode.json` waits for the guardian: `headerTimeout`
-900000 ms (OpenCode's default of 300000 gave up with "Provider response headers timed out" on requests the guardian
-was still holding; the guardian sends no headers until it admits a job, up to 600 s, and prefill comes after that),
-`chunkTimeout` 660000 ms between streamed chunks, and no total `timeout`, since a long answer can stream for half an
-hour. The unattended Lead runs every command from its own worktree (a `cd` elsewhere is refused) and commits its own
+at 78.8% RAM and 10.6 GB VRAM; 45K-token jobs still fit. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
+request outlast the guardian's 600 s hold, and the Lead stays in its own worktree (#602). OpenCode checks each
+command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `run-lead.ps1`'s prompt tells the Lead
+to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
+outside the worktree. The Lead commits its own
 `docs/ai` edits only through `python tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
 (a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it

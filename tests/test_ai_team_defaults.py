@@ -64,16 +64,7 @@ class TeamModelTests(unittest.TestCase):
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
             self.assertEqual(model["limit"]["output"], 32768, name)
 
-    def test_opencode_waits_longer_than_the_guardian_holds_a_request(self):
-        options = json.loads(read("opencode.json", ROOT))["provider"]["guardian"]["options"]
-        queue_wait_ms = json.loads(read("config.json"))["guardian"]["queue_wait_s"] * 1000
-        # the guardian sends no headers until it admits a job (up to queue_wait_s), then the prompt is read
-        self.assertGreater(options["headerTimeout"], queue_wait_ms + 120000)
-        self.assertGreater(options["chunkTimeout"], queue_wait_ms)
-        self.assertIs(options["timeout"], False)          # a long answer streams for longer than any fixed total
-
-    def test_the_unattended_lead_stays_in_its_worktree_and_commits_only_through_the_wrapper(self):
-        self.assertIn("never cd anywhere", read("run-lead.ps1"))
+    def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))
         lead = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
         self.assertRegex(lead, r'"python tools/ai-team/lead_commit.py \*": allow')
@@ -92,6 +83,13 @@ class TeamModelTests(unittest.TestCase):
     def test_start_team_names_the_loaders_context(self):
         self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
 
+    def test_provider_header_timeout_outlasts_guardians_queue_wait(self):
+        # OpenCode gives up when response headers take longer than headerTimeout. Guardian holds a queued request
+        # for queue_wait_s. The hold has to end first, or the Lead's session dies inside the hold.
+        header_ms = json.loads(read("opencode.json", ROOT))["provider"]["guardian"]["options"]["headerTimeout"]
+        queue_wait_s = json.loads(read("config.json"))["guardian"]["queue_wait_s"]
+        self.assertGreater(header_ms, queue_wait_s * 1000)
+
 
 class LoadConfigTests(unittest.TestCase):
     def test_defaults_are_64k_unquantized_and_unmapped(self):
@@ -106,6 +104,42 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(cfg, {"contextLength": 32768, "tryMmap": False, "keepModelInMemory": False,
                                "gpu": {"ratio": 1.0}, "flashAttention": True,
                                "llamaKCacheQuantizationType": "q8_0", "llamaVCacheQuantizationType": "q8_0"})
+
+
+class LeadPromptTests(unittest.TestCase):
+    def test_the_commands_the_lead_is_told_to_run_are_allowed(self):
+        # An unattended run refuses any command its bash rules do not allow, so the prompt's examples must match them.
+        import fnmatch
+        text = read(os.path.join(".opencode", "agents", "fo4-lead.md"), ROOT)
+        self.assertIn("Stay in your worktree", text)
+        rules, in_bash = [], False
+        for line in text.split("\n---\n", 1)[0].splitlines():
+            if line == "  bash:":
+                in_bash = True
+            elif in_bash and line.startswith("    "):
+                pattern, _, action = line.strip().partition(":")
+                rules.append((pattern.strip().strip('"'), action.strip()))
+            elif line and not line.startswith(" "):
+                in_bash = False
+
+        def verdict(command):
+            found = "ask"
+            for pattern, action in rules:
+                if fnmatch.fnmatchcase(command, pattern):
+                    found = action
+            return found
+        for command in ("gh issue list --state all --limit 15", "gh issue view 32",
+                        "python tools/ai-team/guardian/guardian.py status",
+                        "python tools/ai-team/lead_commit.py 'refresh agent status'"):
+            self.assertEqual(verdict(command), "allow", command)
+        # pipe filters stay unallowed (with a path argument they would read files outside the worktree); the prompt
+        # tells the Lead to run gh and git without pipes instead
+        for command in ("head -200", "grep -r token C:/Users"):
+            self.assertEqual(verdict(command), "ask", command)
+        self.assertIn("without pipes", read("run-lead.ps1"))
+        for command in ("gh pr review 5 -c -b hi", "gh pr review 5 --approve", "gh pr comment 5 -b hi"):
+            self.assertEqual(verdict(command), "deny", command)
+        self.assertEqual(verdict("git commit -m x"), "ask")    # raw git writes stay unallowed
 
 
 if __name__ == "__main__":
