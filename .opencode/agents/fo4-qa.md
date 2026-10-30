@@ -9,7 +9,7 @@ permission:
   edit: deny
   bash:
     "*": ask
-    "python -m unittest*": allow
+    "python -m unittest*": ask
     "python scripts/guard.py": allow
     "python -I scripts/guard.py": allow
     "git diff*": allow

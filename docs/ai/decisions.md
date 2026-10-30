@@ -1122,20 +1122,28 @@ decided the import path); keeping the order as a parameter (two orders in the co
     which also reloads a model at another context) instead of matching one model name.
   - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) whenever it is clean, and sets
     `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
-    files (literal paths) on the agent's own `ai/` branch, with no hooks, and never a push (the owner's J), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
+    files (literal paths) on the agent's own `ai/` branch, with no hooks, and the wrapper never pushes (the owner's
+    J), and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three
     specialists are `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the
     team, which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
   - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
     CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no OpenCode config file or config folder
     (`.opencode`, `.claude`, `.agents`, `.git`, `.github`) in any folder or spelling,
     no folder in place of a file, and only from a session at the repo root. The agents' edit rules said most of it
-    already; the checker holds where a pattern misses.
+    already; the checker holds where a pattern misses, for the writes and commands an agent makes itself.
+  - What it cannot hold in the terminal: the coding agent writes tests and runs them, and a test can run any code with
+    the owner's rights (a push with their login, or a change to the guard's files in the worktree). No allow-list can
+    fence a test runner, so there OpenCode asks the owner before every `python -m unittest` run (fo4-implement's and
+    fo4-qa's rules), the terminal does not start while the worktree's guard or agent files are not main's, and "never
+    pushes" in the terminal rests on the model and on the owner reading those prompts. Unattended runs are unchanged:
+    they refuse fo4-implement and take no QA reviews, so no agent there writes and runs a test.
   - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
     `run-lead.ps1 -MaxCycles 1 -Brief` session on the PC), and the Lead's `/handoff` posts a `Lead (local): for
     Claude:` comment on #32. Claude Code's side is four skills in `.claude/skills/`.
 - Why: the owner asked for a terminal to talk to the team when Claude is away, a desktop start for the team and for
   Claude Code, more models, and skills for control and delegation both ways. A pick the proxy and OpenCode both read
-  replaces the hand edits of `opencode.json` that the 14B and 128K setups needed, which the review of #587 flagged.
+  replaces, for the terminal and the Lead, the hand edits of `opencode.json` that the 14B and 128K setups needed, which
+  the review of #587 flagged (a plain `opencode` still has `opencode.json`'s 64K limits).
 - Alternatives: the PC session building its own guard and commands (dropped by the owner's E); a web UI (`opencode
   web`, more moving parts); committing per-model `opencode.json` files (one would always be stale).
 - Not yet true: none of it has run on the PC. PowerShell 5.1 was not available here to parse the scripts, and the
@@ -1159,6 +1167,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
   never followed a pick (it now reads the models from `config.json` too); `models.py pick` always loads (no
   `--no-load`, which could leave a pick that was never loaded); a written file's path takes letters, digits and
   `._@+=,-` only, with no part that starts or ends with a dot (Windows drops trailing dots and spaces, and `::$DATA`
-  writes the file itself); only the coding agent commits (`agent_git.py` is gone from the Lead's rules, per J);
+  writes the file itself); only the coding agent commits on its own (`agent_git.py` is gone from the Lead's allow
+  rules, per J, so a Lead docs commit in the terminal waits for the owner's yes at OpenCode's prompt);
   `run-lead.ps1` waits for a session one second at a time, so Ctrl+C stops it, and forgets the last cycle's session;
   and `terminal.ps1` leaves the worktree where it is while another terminal window is open on it.
+- Independent review (30 Oct, https://github.com/fo4sf/fo4-to-starfield/pull/619#issuecomment-6532780527, NOT CLEAR,
+  3 medium and 9 low), all taken: test runs ask the owner, the text says what the guard cannot hold, and the terminal
+  refuses to start on changed guard files (1); a patch with a control character or a line break other than "\n" is
+  refused and its headers are read line by line as OpenCode reads them (2); `agent_git.py branch` with an existing name
+  switches back to it (3); `models.py` runs under `-I`; a refused load puts back a "failed" hold; the README says what a
+  plain `opencode` keeps; a commit message needs its agent's own tag; a handoff is matched on its letters alone;
+  writes named like a standard module are refused at the repo root and in `scripts/` (Python searches those first);
+  the terminal checks git's exit codes; menu option 7 stops the loop before the session and checks a pid file's age;
+  `/review` reads CI through `gh pr view --json statusCheckRollup`; and the tests the review found weak are fixed.

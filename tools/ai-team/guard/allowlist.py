@@ -174,7 +174,10 @@ VIEW_OPTS = {"--comments": None, "--json": word}
 DIFF_OPTS = {"--name-only": None}
 
 
-HANDOFF = re.compile(r"\s*Lead\s*\(local\)\s*:\s*for\s+claude", re.I)
+def is_handoff(text):
+    """A comment that reads as a handoff to Claude however it is marked up: its letters alone, lowercased, start with
+    leadlocalforclaude (so **for Claude:**, for-Claude and F O R Claude all count)."""
+    return re.sub(r"[^a-z]", "", text.lower()).startswith("leadlocalforclaude")
 
 
 def gh(argv, owner_present=False):
@@ -203,7 +206,7 @@ def gh(argv, owner_present=False):
         if not text.startswith("Lead (local): ") or len(text) > 1500:
             raise Refused("the Lead's comment on #32 starts with 'Lead (local): ' and is at most 1500 characters")
         # Claude reads a "for Claude" comment as a handoff the owner started (/handoff), so only their terminal posts one.
-        if HANDOFF.match(text) and not owner_present:
+        if is_handoff(text) and not owner_present:
             raise Refused("a handoff to Claude (Lead (local): for Claude: ...) is posted from the owner's terminal only")
         return
     raise Refused("this gh command is not on the list")
@@ -549,6 +552,10 @@ CONFIG_FOLDERS = (".opencode", ".claude", ".agents", ".git", ".github")
 # file that does not exist yet exactly as typed. So only the characters the repo's own file names use are taken: letters,
 # digits and ._@+=,- , not starting or ending with a dot (no hidden files either).
 SAFE_NAME = re.compile(r"[A-Za-z0-9_@+=,-](?:[A-Za-z0-9._@+=,-]*[A-Za-z0-9_@+=,-])?")
+# Python puts the script's own folder first on sys.path (python scripts/guard.py: scripts/), and python -m puts the
+# working folder there (the repo root), so a file or folder there named like a standard module (scripts/re.py,
+# json/__init__.py) would run in place of it. Those names are refused in both folders, as are the two startup hooks.
+SHADOW_NAMES = frozenset(n.lower() for n in sys.stdlib_module_names) | {"sitecustomize", "usercustomize"}
 
 
 def check_write(root, paths):
@@ -576,6 +583,10 @@ def check_write(root, paths):
                 or ROOT_CONFIG.fullmatch(parts[-1]) or parts[-1] in INSTRUCTION_NAMES \
                 or any(part in CONFIG_FOLDERS for part in parts):
             raise Refused(f"the team's own rules, tools and instructions are not written by an agent: {rel}")
+        searched = parts[:2] if parts[0] == "scripts" else parts[:1]     # the entry in the root, or in scripts/
+        if any(name.split(".")[0] in SHADOW_NAMES for name in searched):
+            raise Refused(f"a file or folder named like a standard Python module, in a folder Python searches first: "
+                          f"{rel}")
         if os.path.isdir(target):
             raise Refused(f"name each file, not a folder: {rel}")
 

@@ -144,6 +144,59 @@ class ModelPickTests(TempState):
         self.assertIsNone(store.get_hold(c))                            # the hold is let go again
         self.assertIsNone(store.picked_model())
 
+    def test_a_refused_load_keeps_a_failed_hold(self):
+        # After a load that failed, the proxy refuses requests. A load refused for a running request unloads
+        # nothing, so the failed hold must stand, or the proxy would serve requests with no model loaded.
+        c = store.connect()
+        self.addCleanup(c.close)
+        store.fail_hold(c, "loading qwen3-14b failed (out of memory)")
+        c.execute("UPDATE control SET t=1 WHERE key=?", (store.HOLD,))
+        c.execute("INSERT INTO jobs (agent, model, kind, status, created) VALUES ('fo4-lead', 'm', 'chat', 'running', 0)")
+        with self.assertRaises(models.PickError):
+            models.load(models.preset("qwen3-14b"), models.read_config())
+        self.assertEqual(store.get_hold(c)[:2], ("failed", "loading qwen3-14b failed (out of memory)"))
+        self.assertEqual(c.execute("SELECT t FROM control WHERE key=?", (store.HOLD,)).fetchone()[0], 1)
+
+    def test_models_py_runs_isolated(self):
+        # The guard and the Lead's rules take `python -I tools/ai-team/models.py list`; -I drops the script's folder.
+        env = dict(os.environ, FO4_AI_TEAM_STATE=self.state)
+        r = subprocess.run([sys.executable, "-I", os.path.join(TEAM, "models.py"), "list"], capture_output=True,
+                           text=True, env=env)
+        self.assertNotIn("ModuleNotFoundError", r.stderr)
+        self.assertEqual(json.loads(r.stdout)["picked"]["preset"], models.read_config()["default_model"])
+
+
+class LoadModelSdkTests(unittest.TestCase):
+    def test_load_unloads_the_model_and_the_named_ones_only(self):
+        import types
+        import load_model
+        unloaded, loads = [], []
+
+        class Loaded:
+            def __init__(self, identifier):
+                self.identifier = identifier
+
+            def unload(self):
+                unloaded.append(self.identifier)
+
+        class Llm:
+            def list_loaded(self):
+                return [Loaded("qwen3-14b"), Loaded("old-pick"), Loaded("owners-own")]
+
+            def load_new_instance(self, model, identifier, config):
+                loads.append((model, identifier, config))
+                return Loaded(identifier)
+
+        fake = types.ModuleType("lmstudio")
+        fake.get_default_client = lambda: types.SimpleNamespace(llm=Llm())
+        saved = sys.modules.get("lmstudio")
+        sys.modules["lmstudio"] = fake
+        self.addCleanup(lambda: sys.modules.__setitem__("lmstudio", saved) if saved else sys.modules.pop("lmstudio"))
+        cfg = load_model.load_config(32768, "q8_0", 1.0)
+        self.assertEqual(load_model.load("qwen3-14b", cfg, unload={"old-pick"}), "qwen3-14b")
+        self.assertEqual(unloaded, ["qwen3-14b", "old-pick"])          # the owner's own model stays
+        self.assertEqual(loads, [("qwen3-14b", "qwen3-14b", cfg)])
+
 
 def admission(c, snapshot=lambda *_: {}):
     """The proxy's decision for one new job, with the resource policy set to admit and no queue wait."""
@@ -226,7 +279,7 @@ class ModelLoadTests(TempState):
         self.assertEqual(admission(self.c), "admit")
 
     def test_one_load_at_a_time_and_a_dead_loaders_hold_expires(self):
-        self.assertTrue(store.take_hold(self.c, "qwen3-14b"))
+        self.assertIsNotNone(store.take_hold(self.c, "qwen3-14b"))
         with self.assertRaises(models.PickError):
             models.load(models.preset("qwen3-14b"), self.cfg)
         self.assertEqual(self.calls, [])
@@ -292,6 +345,16 @@ class WriteGuardTests(unittest.TestCase):
         self.assertFalse(self.verdict("docs/ai/x.md", "opencode.json"))
         self.assertFalse(self.verdict())
 
+    def test_names_python_searches_first_are_refused(self):
+        # python scripts/guard.py searches scripts/ first, and python -m unittest the repo root: a standard module's
+        # name there would run in place of the module.
+        for p in ("scripts/re.py", "scripts/RE.py", "scripts/json/__init__.py", "scripts/re.pyc", "scripts/os.x.py",
+                  "re.py", "unittest.py", "json/__init__.py", "sitecustomize.py", "usercustomize.py", "Ast.py"):
+            self.assertFalse(self.verdict(p), p)
+        for p in ("scripts/new_tool.py", "src/re.py", "docs/ai/json.md".replace(".md", "-notes.md"), "tests/test_re.py",
+                  "notes.md"):
+            self.assertTrue(self.verdict(p), p)
+
     def test_the_windows_path_rules_for_writes(self):
         # The PC's case, with Windows path rules (ntpath): case, backslashes and drive paths are all one file to NTFS.
         import ntpath
@@ -347,12 +410,23 @@ class OwnerTerminalCommandTests(unittest.TestCase):
                         "git commit -m x", "git add -A", "git switch -c ai/x", "git push"):
             self.assertFalse(allowed(command, owner_present=True), command)
 
+    def test_the_wrapper_commits_only_files_an_agent_may_write(self):
+        for paths in ("opencode.json", "src/a.py AGENTS.md", "tools/ai-team/agent_git.py", "scripts/re.py",
+                      ".opencode/plugin/x.js", "docs/ai/.git/hooks/pre-commit"):
+            command = f"python -I tools/ai-team/agent_git.py commit 'Implement (local): x' {paths}"
+            self.assertFalse(allowed(command, owner_present=True), command)
+        self.assertTrue(allowed("python -I tools/ai-team/agent_git.py commit 'Implement (local): x' src/a.py",
+                                owner_present=True))
+
     def test_a_handoff_to_claude_comes_only_from_the_owners_terminal(self):
-        for text in ("Lead (local): for Claude: done", "Lead (local): For  claude: done", "Lead (local):  FOR Claude x"):
+        for text in ("Lead (local): for Claude: done", "Lead (local): For  claude: done", "Lead (local):  FOR Claude x",
+                     "Lead (local): **for Claude:** done", "Lead (local): for-Claude: done",
+                     "Lead (local): F O R Claude: done", "Lead (local): _for_ _claude_ done"):
             command = f"gh issue comment 32 --body '{text}'"
             self.assertTrue(allowed(command, owner_present=True), text)
             self.assertFalse(allowed(command), text)
         self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): refreshed agent status'"))
+        self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): formatted the notes for the Claude review'"))
 
     def test_owner_present_must_be_true_not_just_present(self):
         try:
@@ -402,7 +476,8 @@ class AgentGitTests(unittest.TestCase):
         self.write("src/a.py", "new\n")
         self.write("src/b.py", "added\n")
         self.write("src/c.py", "not named\n")
-        code, out = self.run_tool("commit", "fix the clamp", "src/a.py", "src/b.py")
+        self.assertEqual(self.run_tool("commit", "fix the clamp", "src/a.py", "src/b.py")[0], 1)   # no agent tag
+        code, out = self.run_tool("commit", "Implement (local): fix the clamp", "src/a.py", "src/b.py")
         self.assertEqual(code, 0, out)
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "Implement (local): fix the clamp")
         self.assertEqual(sorted(self.git("show", "--name-only", "--format=", "HEAD").split()), ["src/a.py", "src/b.py"])
@@ -414,28 +489,58 @@ class AgentGitTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "origin/main"))
 
     def test_paths_are_literal(self):
+        # The guard's names already refuse * : ( and friends, so the wrapper is run with its write check off here, to
+        # show that git itself takes each path literally (--literal-pathspecs).
         self.git("checkout", "-q", "-b", "ai/9-x")
         self.write("opencode.json", '{"x": 1}\n')
         self.write("src/a.py", "new\n")
+        unchecked = ("import sys; sys.path.insert(0, sys.argv[1]); import agent_git; "
+                     "agent_git.allowlist.check_write = lambda *a: None; sys.exit(agent_git.main(sys.argv[2:]))")
         for spec in ("*.json", ":/opencode.json", ":(glob)*.json", "src/*"):
-            self.assertEqual(self.run_tool("commit", "x", spec)[0], 1, spec)
+            r = subprocess.run([sys.executable, "-I", "-c", unchecked, TEAM, "commit", "Implement (local): x", spec],
+                               cwd=self.d, capture_output=True, text=True, env=self.env)
+            self.assertEqual(r.returncode, 1, (spec, r.stdout, r.stderr))
+            self.assertIn("did not match", r.stdout, spec)
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "base")
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "")
+
+    def test_the_branch_command_switches_back_to_an_existing_branch(self):
+        self.assertEqual(self.run_tool("branch", "ai/7-x")[0], 0)
+        self.write("src/a.py", "new\n")
+        self.assertEqual(self.run_tool("commit", "Implement (local): one", "src/a.py")[0], 0)
+        work = self.git("rev-parse", "HEAD")
+        self.git("switch", "-q", "--detach", "origin/main")               # the terminal reopened on a clean worktree
+        self.write("src/b.py", "untracked\n")
+        self.assertEqual(self.run_tool("branch", "ai/7-x")[0], 1)          # not over uncommitted work
+        os.remove(os.path.join(self.d, "src", "b.py"))
+        code, out = self.run_tool("branch", "ai/7-x")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.git("rev-parse", "HEAD"), work)
+        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD").strip(), "ai/7-x")
+        # A branch whose guard or agent files are not main's is not switched to: the guard reads them from here.
+        self.git("switch", "-q", "-c", "ai/8-y", "origin/main")
+        self.write("opencode.json", '{"changed": true}\n')
+        self.git("commit", "-q", "-am", "changed by hand")
+        self.git("switch", "-q", "--detach", "origin/main")
+        self.assertEqual(self.run_tool("branch", "ai/8-y")[0], 1)
+        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD").strip(), "HEAD")
 
     def test_refusals(self):
         self.write("src/a.py", "new\n")
-        self.assertEqual(self.run_tool("commit", "x", "src/a.py")[0], 1)                 # on main
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "src/a.py")[0], 1)                 # on main
         self.assertEqual(self.run_tool("branch", "ai/local-lead")[0], 1)                 # before it exists
         self.assertNotIn("ai/local-lead", self.git("branch", "--list"))
         self.git("checkout", "-q", "-b", "ai/local-lead")
-        self.assertEqual(self.run_tool("commit", "x", "src/a.py")[0], 1)                 # the Lead's branch
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "src/a.py")[0], 1)                 # the Lead's branch
         self.git("checkout", "-q", "-b", "ai/8-x")
         self.write("opencode.json", '{"x": 1}\n')
-        self.assertEqual(self.run_tool("commit", "x", "opencode.json")[0], 1)            # a protected path
-        self.assertEqual(self.run_tool("commit", "x", "../x")[0], 1)
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "opencode.json")[0], 1)            # a protected path
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "../x")[0], 1)
         self.assertEqual(self.run_tool("branch", "main2")[0], 1)
         unattended = dict(self.env, FO4SF_UNATTENDED="1")
-        self.assertEqual(self.run_tool("commit", "x", "src/a.py", env=unattended)[0], 1)
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "src/a.py", env=unattended)[0], 1)
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "base")
+        self.assertEqual(self.run_tool("commit", "Implement (local): x", "src/a.py")[0], 0)   # the same call works here
 
     def test_no_hook_runs(self):
         hook = os.path.join(self.d, ".git", "hooks", "post-checkout")
@@ -446,7 +551,8 @@ class AgentGitTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.d, "hook-ran")))
 
 
-@unittest.skipUnless(shutil.which("node"), "node is not installed")
+# CI always runs these (GitHub sets CI): there a missing node is a failure, not a quiet skip.
+@unittest.skipUnless(shutil.which("node") or os.environ.get("CI"), "node is not installed")
 class PluginTests(unittest.TestCase):
     """The real plugin, loaded in node and driven through its hook, with the real checker behind it."""
     HARNESS = """
@@ -459,6 +565,10 @@ for (const [tool, args] of JSON.parse(process.argv[4])) {
 }
 console.log(JSON.stringify(out));
 """
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.fail("node is not installed: CI must run the plugin tests")
 
     def hook(self, calls, directory=None, **env):
         d = tempfile.mkdtemp()
@@ -546,7 +656,8 @@ class TeamSkillAndCommandTests(unittest.TestCase):
 class CommandTextTests(unittest.TestCase):
     def test_review_reads_the_pr_and_its_ci_and_does_not_run_tests_here(self):
         text = read(".opencode", "commands", "review.md")
-        self.assertIn("gh pr checks $1", text)
+        self.assertIn("gh pr view $1 --json statusCheckRollup", text)
+        self.assertNotIn("gh pr checks", text)
         self.assertNotIn("unittest", text)
 
     def test_the_handoff_names_every_character_the_guard_refuses(self):
@@ -604,6 +715,30 @@ class ScriptTests(unittest.TestCase):
         tail = s[launch:]
         self.assertIn("} finally {", tail)
         self.assertIn("Remove-Item -LiteralPath $mine", tail[tail.index("} finally {"):])
+
+    def test_the_terminal_does_not_start_on_changed_guard_files(self):
+        import agent_git
+        s = self.script("terminal.ps1")
+        self.assertIn("$guard = @(" + ", ".join(f"'{p}'" for p in agent_git.GUARD_PATHS) + ")", s)   # one list
+        check = s.index("$changed = @(git -C $wt diff --name-only origin/main -- @guard)")
+        extra = s.index("$extra = @(git -C $wt ls-files --others -- @guard)")   # untracked, ignored ones included
+        refuse = s.index("if ($changed -or $extra) {")
+        self.assertNotIn("--exclude-standard", s)
+        self.assertTrue(s.index("git -C $wt switch -q --detach origin/main") < check < extra < refuse <
+                        s.index("& $opencode @argv"))
+        self.assertIn("exit 1", s[refuse:s.index("}", s.index("exit 1", refuse))])
+        self.assertNotIn("WARNING: its guard", s)                 # it used to warn and start anyway
+        # git's own failures stop it too, rather than starting on an older tree
+        for step in ("worktree add -q --detach $wt origin/main", "switch -q --detach origin/main"):
+            after = s[s.index(step):]
+            self.assertTrue(after.split("\n", 1)[1].lstrip().startswith("if ($LASTEXITCODE -ne 0)"), step)
+
+    def test_the_menu_stops_the_loop_before_its_session(self):
+        s = self.script("menu.ps1")
+        stop = s[s.index("Type stop to stop"):]
+        self.assertLess(stop.index("$loop = (Get-Lead).loop"), stop.index("$sessions = @((Get-Lead).session)"))
+        self.assertIn('ParentProcessId=$($loop.Id)', stop)    # a session the loop started before its pid file
+        self.assertIn("$started -le $file.LastWriteTime", s)   # a reused pid is not the run's
 
     def test_unattended_runs_never_count_as_the_owners_terminal(self):
         s = self.script("run-lead.ps1")

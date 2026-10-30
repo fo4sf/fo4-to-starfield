@@ -327,6 +327,25 @@ class BashRuleTests(unittest.TestCase):
         self.assertEqual(agent_bash_rules("fo4-qa", "edit"), [])
         self.assertRegex(read(os.path.join(".opencode", "agents", "fo4-qa.md"), ROOT), r"\n  edit: deny\n")
 
+    def test_a_test_run_asks_the_owner(self):
+        # A test is code: in the owner's terminal the coding agent writes tests, and a test can do anything the owner's
+        # account can (a push, a change to the guard's files). So no agent runs the tests without the owner's yes.
+        # The unattended runs use neither fo4-implement (the plugin refuses it) nor fo4-qa (the prompt), so nothing
+        # unattended is held up by this.
+        for command in ("python -m unittest discover -s tests", "python -m unittest tests.test_ai_guard",
+                        "python -m unittest -v tests.test_x.XTests.test_y"):
+            for win32 in (False, True):
+                for agent in AGENTS:
+                    self.assertNotEqual(verdict(merged_bash_rules(agent), command, win32), "allow", (agent, command))
+                for agent in ("fo4-implement", "fo4-qa"):
+                    self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "ask", (agent, command))
+        self.assertIn("Do not call fo4-qa", read("run-lead.ps1"))
+
+    def test_qa_can_read_a_prs_ci_the_way_review_asks(self):
+        for win32 in (False, True):
+            self.assertEqual(verdict(merged_bash_rules("fo4-qa"), "gh pr view 619 --json statusCheckRollup", win32),
+                             "allow")
+
     def test_each_agent_ends_its_bash_rules_with_the_redirect_deny(self):
         # The last matching rule wins, so no allow may come after the redirect deny.
         for agent in AGENTS:

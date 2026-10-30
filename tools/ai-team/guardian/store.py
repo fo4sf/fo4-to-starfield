@@ -95,21 +95,31 @@ def get_hold(c):
 
 
 def take_hold(c, model):
-    """Start a swap: True, or False while another loader's fresh "loading" hold stands (one load at a time). One
-    transaction, so two loaders cannot both take it."""
+    """Start a swap: the hold row it replaced ((value, t), or () when there was none), or None while another loader's
+    fresh "loading" hold stands (one load at a time). One transaction, so two loaders cannot both take it. A load that
+    stops before it unloads anything puts the old row back (restore_hold), so a "failed" hold is never lost."""
     c.execute("BEGIN IMMEDIATE")
     try:
         h = get_hold(c)
         if h and h[0] == "loading":
             c.execute("ROLLBACK")
-            return False
+            return None
+        prev = c.execute("SELECT value, t FROM control WHERE key=?", (HOLD,)).fetchone()
         c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, ?)",
                   (HOLD, json.dumps({"state": "loading", "detail": model}), time.time()))
         c.execute("COMMIT")
-        return True
+        return tuple(prev) if prev else ()
     except BaseException:
         c.execute("ROLLBACK")
         raise
+
+
+def restore_hold(c, prev):
+    """Put back the hold row take_hold replaced: none, or the old one as it was (a "failed" hold stays failed)."""
+    if prev:
+        c.execute("INSERT OR REPLACE INTO control VALUES (?, ?, ?)", (HOLD, prev[0], prev[1]))
+    else:
+        clear_hold(c)
 
 
 def fail_hold(c, detail):

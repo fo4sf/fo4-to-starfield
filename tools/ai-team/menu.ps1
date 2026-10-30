@@ -18,9 +18,15 @@ $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path
 
 function Get-PidFrom($name, [string[]]$process) {   # the process a pid file names, if it still runs and is ours
   $f = Join-Path $state $name
-  $id = if (Test-Path $f) { "$(Get-Content $f -ErrorAction SilentlyContinue)".Trim() } else { '' }
-  if ($id -notmatch '^[0-9]+$') { return $null }
-  Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue | Where-Object { $process -contains $_.ProcessName }
+  $file = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue
+  $id = if ($file) { "$(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue)".Trim() } else { '' }
+  if ($id -notmatch '^[1-9][0-9]{0,8}$') { return $null }
+  # A file left behind by a run that never reached its finally can name a pid Windows has since given to another
+  # process of the same name: the one it named started before the file was written.
+  Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue | Where-Object {
+    $started = try { $_.StartTime } catch { $null }
+    $process -contains $_.ProcessName -and $started -and $started -le $file.LastWriteTime.AddSeconds(2)
+  }
 }
 
 function Get-Lead {                          # run-lead.ps1 itself (a PowerShell window) and its running OpenCode session
@@ -95,8 +101,18 @@ while ($true) {
       $lead = Get-Lead
       if ($lead.loop -or $lead.session) {
         if ((Read-Host 'Type stop to stop the unattended Lead and the session it is running') -eq 'stop') {
-          foreach ($p in @($lead.session, $lead.loop)) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
-          Remove-Item (Join-Path $state 'lead-session.pid'), (Join-Path $state 'run-lead.pid') -ErrorAction SilentlyContinue
+          # Read again after the prompt, and stop the loop first, so it cannot start a session after this looks. A
+          # session it started is found by the pid file, or by its parent (a loop stopped this way never removes it).
+          $loop = (Get-Lead).loop
+          if ($loop) { Stop-Process -Id $loop.Id -Force -ErrorAction SilentlyContinue }
+          Remove-Item (Join-Path $state 'run-lead.pid') -ErrorAction SilentlyContinue
+          $sessions = @((Get-Lead).session)
+          if ($loop) {
+            $sessions += @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($loop.Id)" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like 'opencode*' } | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+          }
+          foreach ($p in $sessions) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
+          Remove-Item (Join-Path $state 'lead-session.pid') -ErrorAction SilentlyContinue
           'stopped'
         }
       } elseif ((Read-Host 'Type yes to start the unattended Lead') -eq 'yes') { Open-Window 'run-lead.ps1' }

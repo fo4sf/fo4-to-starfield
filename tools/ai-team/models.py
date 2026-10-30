@@ -29,6 +29,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)                          # -I leaves the script's own folder off sys.path (load_model)
 sys.path.insert(0, os.path.join(HERE, "guardian"))
 import store       # noqa: E402
 import load_model  # noqa: E402
@@ -126,12 +127,13 @@ def load(s, cfg, force=False):
     """Load a setup and make it the pick, holding the proxy meanwhile (see the module notes)."""
     c = store.connect()
     try:
-        if not store.take_hold(c, s["model"]):
+        prev = store.take_hold(c, s["model"])
+        if prev is None:
             raise PickError("another model load is running (guardian.py status shows it): wait for it to finish")
         # The hold is in before this count, and the proxy starts a job only while no hold stands.
         busy = c.execute("SELECT COUNT(*) FROM jobs WHERE status='running'").fetchone()[0]
         if busy and not force:
-            store.clear_hold(c)
+            store.restore_hold(c, prev)            # nothing was unloaded: a "failed" hold before this stays
             raise PickError(f"{busy} request(s) running: load when they finish (guardian.py status), or pass --force "
                             "to cut them")
         unload = (team_models(cfg) | {current(cfg, c)["model"]}) - {s["model"]}

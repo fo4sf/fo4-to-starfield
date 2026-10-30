@@ -1022,6 +1022,21 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
                  ["multiedit", {"command": "rm -rf docs"}], ["patch", {"patchText": "no file named"}]]
         self.assertEqual(self.hook(calls)["out"], ["allow", "allow", "refuse", "refuse", "refuse", "refuse"])
 
+    def test_a_patch_path_is_read_as_opencode_reads_it(self):
+        # OpenCode 1.18.35 splits a patch on "\n" only and trims each header's path. A "\r" or U+2028 inside a path
+        # would end it for a line-based match but not for OpenCode, which would write the file after it. Each patch
+        # also names an allowed file first, so a guard that dropped the second path would allow the call.
+        def patch(second):
+            return {"patchText": "*** Begin Patch\n*** Add File: docs/ai/ok.md\n+x\n*** Add File: " + second +
+                                 "\n+x\n*** End Patch"}
+        bad = [patch("docs/ai/x.md" + c + "/../../CONTRIBUTING.md")
+               for c in ("\r", "\u2028", "\u2029", "\u0085", "\x00", "\x0b", "\x0c", "\x1b", "\x7f")]
+        bad.append(patch("docs/ai/y.md\r"))                        # a CRLF patch: refused too, it is never needed
+        bad.append({"patchText": "*** Begin Patch\n*** Add File: docs/ai/ok.md\n+a\x1bb\n*** End Patch"})
+        good = [patch("docs/ai/y.md"), patch("docs/ai/y.md\t"), patch("  docs/ai/y.md  ")]
+        calls = [["apply_patch", args] for args in bad + good]
+        self.assertEqual(self.hook(calls)["out"], ["refuse"] * len(bad) + ["allow"] * len(good))
+
     def test_the_checker_runs_isolated(self):
         # A json.py on PYTHONPATH that answers allowed would allow everything if the checker ran without -I.
         planted = "import sys\nsys.stdout.write('{\"allowed\": true}')\nsys.exit(0)\n"

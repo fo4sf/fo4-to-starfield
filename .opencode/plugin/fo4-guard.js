@@ -22,8 +22,13 @@ const BUILT_IN = new Set(["invalid", "question", "read", "glob", "grep", "edit",
 // The tools that write files, and where each names its paths. A patch names them inside its text; a write that names no
 // file is refused, since there is nothing to check. (Not exported: OpenCode calls every exported function as a plugin.)
 const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "patch", "apply_patch"]);
-// Spaces around the "***" and the colon vary between patch writers, so the match does not depend on them.
-const PATCH_FILE = /^\s*\*\*\*\s*(?:Add File|Update File|Delete File|Move to)\s*:\s*(.+?)\s*$/gim;
+// A header line, read the way OpenCode 1.18.35 reads one (it splits the text on "\n" only and trims the rest of the
+// line). Spaces around the "***" and the colon vary between patch writers, so the match does not depend on them: it
+// takes every line OpenCode takes as a header, and more.
+const PATCH_FILE = /^\s*\*\*\*\s*(?:Add File|Update File|Delete File|Move to)\s*:\s*(.+?)\s*$/i;
+// Any other line break or control character in a patch is refused: a "\r" or U+2028 would end the path here but not in
+// OpenCode, so the guard would check one file while OpenCode writes another.
+const PATCH_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/;
 
 function writtenPaths(args) {
   const paths = [];
@@ -32,7 +37,13 @@ function writtenPaths(args) {
   }
   for (const key of ["patchText", "patch", "input"]) {
     if (typeof args?.[key] === "string") {
-      for (const m of args[key].matchAll(PATCH_FILE)) paths.push(m[1]);
+      if (PATCH_CONTROL.test(args[key])) {
+        throw new Error("guard refused the command: a patch with a control character or a line break other than \\n");
+      }
+      for (const line of args[key].split("\n")) {
+        const m = PATCH_FILE.exec(line);
+        if (m) paths.push(m[1]);
+      }
     }
   }
   return paths;

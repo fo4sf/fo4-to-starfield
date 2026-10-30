@@ -51,7 +51,10 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
    not refuse requests without the guard header.
 3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section), which hands the guard the full path of
    the real `python.exe` itself. A plain `opencode` in the repository needs that first:
-   `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below).
+   `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below). A plain
+   `opencode` also keeps `opencode.json`'s limits (the 35B's 64K context, 16K output): with `qwen3-14b` picked, the
+   proxy still sends it to the 32K model, and a request past about 32K tokens fails or is cut. Use `terminal.ps1`,
+   which passes the pick's limits, or pick the 35B.
    Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
    the guardian is paused/blocked; loads the picked model if LM Studio unloaded it (`models.py ensure`). `-MaxCycles 1
@@ -69,11 +72,22 @@ it is running), pause or resume, stop.
 The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
 team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
 the unattended Lead are never touched. A clean worktree goes back to main's newest commit, with no branch, at every
-start, so a guard fix on main always reaches it; one with uncommitted work stays as it is, and the terminal warns when
-its guard or agent files are not main's. The guard checks every command and write as in unattended runs. Because the
-owner is watching, it also allows `agent_git.py`: an agent makes its own `ai/<issue>-<slug>` branch, which starts from
-main, and commits named files there (literal paths), with no hooks, never on `ai/local-lead`, never a push. Only this
-terminal may post a `Lead (local): for Claude:` comment. The research, implementation and QA agents are `mode: all`, so
+start (unless another terminal window is open on it), so a guard fix on main always reaches it; one with uncommitted
+work stays as it is. The terminal does not start while the worktree's guard or agent files (`.opencode`,
+`opencode.json`, `tools/ai-team`, `AGENTS.md`) differ from main's or have extra files. The guard checks every command
+and write an agent makes, as in unattended runs. Because the owner is watching, it also allows `agent_git.py`: an agent
+makes its own `ai/<issue>-<slug>` branch, which starts from main, and commits named files there (literal paths), with
+no hooks, never on `ai/local-lead`, and the wrapper never pushes. The same `branch` command with an existing name
+switches back to that branch after the terminal reopens (from a clean worktree, and only while that branch's guard and
+agent files are main's; otherwise the owner merges main into it). Only this terminal may post a
+`Lead (local): for Claude:` comment.
+
+**What the guard cannot hold in the terminal.** The coding agent writes tests and runs them, and a test is code: it
+can run anything the owner's account can, including `git push` or `gh pr create` with their login, or a change to the
+guard's own files in the worktree. An allow-list cannot fence a test runner. So in the terminal OpenCode asks the owner
+before every `python -m unittest` run (fo4-implement's and fo4-qa's rules say ask, and the unattended runs use neither
+agent for tests), and "never pushes" there rests on the model and on the owner reading those prompts and the tests they
+run. The start check above catches a changed guard file; it does not fence a test that sets out to get round it. The research, implementation and QA agents are `mode: all`, so
 `-Agent` opens them as the terminal's own agent (OpenCode falls back to the Lead for a subagent-only one) and the Lead
 still delegates to them. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are hidden
 (`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
