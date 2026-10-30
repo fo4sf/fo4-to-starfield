@@ -20,6 +20,7 @@ DEFAULTS = {
     "game_blocks_inference": True,
     "game_process_prefixes": ["starfield", "fallout4"],
     "queue_wait_s": 600, "request_timeout_s": 900,
+    "require_guard_header": True,
 }
 
 

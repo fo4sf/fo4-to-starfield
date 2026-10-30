@@ -10,7 +10,8 @@
     "game_process_prefixes": ["starfield", "fallout4"],
     "queue_wait_s": 600,
     "request_timeout_s": 900,
-    "max_retries": 2
+    "max_retries": 2,
+    "require_guard_header": true
   },
   "agents": {
     "fo4-lead": "qwen3.6-35b-a3b",

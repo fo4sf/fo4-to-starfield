@@ -14,6 +14,8 @@ config.json's map when nothing is picked.
 Usage: tokens from the API's `usage` field when present (streams ask for it via stream_options.include_usage),
 otherwise estimated as characters/4 and labelled "estimate".
 
+Guard header: inference needs the X-FO4SF-Guard header that the OpenCode guard plugin (.opencode/plugin/fo4-guard.js)
+adds, so an OpenCode session whose plugin did not load gets HTTP 403 instead of a model ("require_guard_header").
 Bypass: anything that calls :1234 directly (LM Studio's own chat UI, other tools) is not controlled.
 
   python proxy.py [--port 1235] [--upstream http://127.0.0.1:1234]
@@ -61,6 +63,15 @@ def _log(msg):
     print(line, flush=True)
     with open(os.path.join(store.STATE, "proxy.log"), "a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+
+GUARD_HEADER, GUARD_VALUE = "X-FO4SF-Guard", "fo4-guard/1"   # set by .opencode/plugin/fo4-guard.js (chat.headers)
+
+
+def guard_header_ok(headers, cfg):
+    """Inference only for an OpenCode session whose guard plugin loaded (OpenCode skips a plugin that fails to load and
+    carries on), unless config.json turns the check off with "require_guard_header": false."""
+    return not cfg.get("require_guard_header", True) or headers.get(GUARD_HEADER) == GUARD_VALUE
 
 
 def _agent_and_model(name):
@@ -121,6 +132,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self.path.startswith(INFER):
             self._send_json(404, {"error": "not an inference endpoint"})
+            return
+        if not guard_header_ok(self.headers, CFG):
+            _log(f"refused {self.path}: no {GUARD_HEADER} header, so the client's guard plugin did not load")
+            self._send_json(403, {"error": "refused by the guardian: this OpenCode session has no fo4 guard. Start it at "
+                                           "the root of a checkout that has .opencode/plugin/fo4-guard.js."})
             return
         try:
             req = json.loads(raw or b"{}")
