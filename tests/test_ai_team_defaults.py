@@ -120,9 +120,12 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(models), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         for name, model in models.items():
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
-            self.assertEqual(model["limit"]["output"], 16384, name)
-            # OpenCode compacts at context minus min(output, 32000); the Lead's sessions reached 46K tokens
-            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 46000, name)
+            # The model thinks before every answer, and the thinking counts as output: at 16384 a hard review (30 Oct)
+            # spent 16,377 tokens thinking and was cut off before it answered. 32000 is OpenCode 1.18.35's own cap.
+            self.assertEqual(model["limit"]["output"], 32000, name)
+            # OpenCode compacts at context minus min(output, 32000): the room left still holds the Lead's opening
+            # prompts (23-26K tokens on 30 Oct), though its longer sessions (46K at 128K) now compact sooner
+            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 33000, name)
 
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))

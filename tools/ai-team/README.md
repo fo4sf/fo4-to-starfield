@@ -52,7 +52,7 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
 3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section), which hands the guard the full path of
    the real `python.exe` itself. A plain `opencode` in the repository needs that first:
    `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below). A plain
-   `opencode` also keeps `opencode.json`'s limits (the 35B's 64K context, 16K output): with `qwen3-14b` picked, the
+   `opencode` also keeps `opencode.json`'s limits (the 35B's 64K context, 32K output): with `qwen3-14b` picked, the
    proxy still sends it to the 32K model, and a request past about 32K tokens fails or is cut. Use `terminal.ps1`,
    which passes the pick's limits, or pick the 35B.
    Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
@@ -181,7 +181,10 @@ The default went to 64K the same evening (owner's word): at 128K, once the Lead 
 92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
 at 78.8% RAM and 10.6 GB VRAM idle after the load, and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (one
 request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus
-the output limit (`limit.output` 16384, so about 49K tokens); the Lead's sessions reached 46K tokens at 128K. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
+the output limit, which OpenCode itself caps at 32000. The output limit is 32000 since 30 Oct (owner's word): at 16384
+the model's thinking, which counts as output, ran out before a hard review was answered. So a session compacts at
+about 33.5K tokens, and the Lead's longer sessions (46K at 128K) compact on the way; 128K would give room for both, at
+about 3.5 points more RAM. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
 request outlast the guardian's 600 s hold, and the Lead stays in its own worktree (#602). OpenCode checks each
 command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `run-lead.ps1`'s prompt tells the Lead
 to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
