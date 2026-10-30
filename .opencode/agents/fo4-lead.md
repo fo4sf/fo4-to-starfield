@@ -39,6 +39,10 @@ permission:
     "python tools/ai-team/guardian/guardian.py report*": allow
     "python tools/ai-team/team.py *": allow
     "python tools/ai-team/wake_agent.py status": allow
+    "python -I tools/ai-team/guardian/guardian.py status*": allow
+    "python -I tools/ai-team/guardian/guardian.py report*": allow
+    "python -I tools/ai-team/team.py *": allow
+    "python -I tools/ai-team/wake_agent.py status": allow
     "git log*--output*": deny
     "git diff*--output*": deny
     "git diff*--no-index*": deny

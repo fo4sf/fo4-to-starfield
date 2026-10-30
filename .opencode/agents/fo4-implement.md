@@ -19,6 +19,7 @@ permission:
     "*": ask
     "python -m unittest*": allow
     "python scripts/guard.py*": allow
+    "python -I scripts/guard.py*": allow
     "git status*": allow
     "git diff*": allow
     "git add *": allow
