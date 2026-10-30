@@ -4,6 +4,7 @@ import http.client
 import json
 import ntpath
 import os
+import pathlib
 import re
 import shutil
 import sqlite3
@@ -82,6 +83,7 @@ ALLOWED = (
     "python -m unittest tests.test_collision_bounds_oracle.CollisionBoundsOracleTests"
     ".test_fo4collision_rejects_starfield_box_blob",
     "python -m unittest discover -s tests -v",
+    "python -m unittest tests.test_ai_guard.GuardTests.test_tests_is_a_package tests.test_ai_guard.PluginTests",
     "python scripts/guard.py",
     "python3 scripts/guard.py",
 )
@@ -169,7 +171,8 @@ REFUSED = (
     "python -m unittest discover -s docs",
     "python -m unittest discover -s tests -p x",
     "python -m unittest docs.ai.test_x",
-    # unittest calls whatever a dotted name ends on, so nothing after the module name, and only modules that exist
+    # unittest calls whatever a dotted name ends on, so only a TestCase class or test method that the file defines may
+    # follow the module name, and only modules that exist
     "python -m unittest tests.test_sf_ground_cover.gc.main",
     "python -m unittest tests.test_ai_guard.allowlist.main",
     "python -m unittest tests.test_ai_guard.verdict",
@@ -180,6 +183,26 @@ REFUSED = (
     "python -m unittest tests.test_no_such_module",
     "python -m unittest tests.helpers",
     "python -I -m unittest tests.test_ai_guard",
+    "python -I -m unittest discover -s tests",
+    "python -m unittest tests.ba2_fixture",                     # a file in tests/ that is not a test module
+    "python -m unittest tests.test_ai_guard.GuardTests.test_no_such_method",
+    "python -m unittest tests.test_ai_guard.GuardTests.setUp",
+    # one step looser than the git, guardian and folder rules
+    "git branch -D main",
+    "git branch -f main HEAD~3",
+    "git branch x",
+    "git branch --list x",
+    "git worktree add ../x",
+    "git worktree remove x",
+    "git worktree list x",
+    "git rev-parse --git-path hooks",
+    "git rev-parse --short HEAD~1",
+    "git rev-parse HEAD x",
+    "python tools/ai-team/guardian/guardian.py resume",
+    "python tools/ai-team/guardian/guardian.py shutdown",
+    "python tools/ai-team/guardian/guardian.py pause",
+    "python tools/ai-team/team.py board x",
+    "python scripts/guard.py x",
     # gh, git and lead_commit arguments one step looser than the list
     "gh issue view https://github.com/other/repo/issues/1",
     "gh pr diff https://github.com/other/repo/pull/1",
@@ -248,6 +271,13 @@ REFUSED_BECAUSE = (
     ("python -I tools/ai-team/lead_commit.py '" + "x" * 501 + "'", "at most 500 characters"),
     ("python -I -m unittest tests.test_ai_guard", "without -I"),
     ("python -m unittest tests.test_ai_guard.verdict", "that exist"),
+    ("python -I -m unittest discover -s tests", "without -I"),
+    ("python -m unittest tests.ba2_fixture", "that exist"),
+    ("python -m unittest tests.test_ai_guard.GuardTests.test_no_such_method", "that exist"),
+    ("git branch -D main", "git branch is not on the list"),
+    ("git worktree add ../x", "git worktree is not on the list"),
+    ("git rev-parse --git-path hooks", "git rev-parse is not on the list"),
+    ("python tools/ai-team/guardian/guardian.py resume", "this python command is not on the list"),
 )
 
 
@@ -294,6 +324,10 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(verdict("git status", directory=os.path.join(ROOT, "docs", "ai")))
         self.assertFalse(verdict("git status", directory="docs/ai"))
         self.assertFalse(verdict("git status", directory=os.path.join(ROOT, "docs", "..")))
+        # a relative workdir is the session's folder, so it does not make a subfolder session the root
+        sub = os.path.join(ROOT, "docs", "ai")
+        for wd in (".", "./", ".\\", "", None, ROOT, ROOT + os.sep):
+            self.assertFalse(verdict("python -m unittest discover -s tests", workdir=wd, directory=sub), repr(wd))
 
     def test_commands_run_from_the_repo_root_only(self):
         # The agents can write under docs/ai/, so a subfolder is refused as well as anything outside the repo.
@@ -309,6 +343,8 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(verdict("git status", workdir="./.."))
         self.assertFalse(verdict("git status", workdir=os.path.join(ROOT, "docs", "..")))
         self.assertFalse(verdict("git status", workdir="/d/../" + ROOT.lstrip("/")))
+        for bad in ("/", "\\", "//", "\\\\", "~", ".git", "./docs"):      # the filesystem root, a drive root, others
+            self.assertFalse(verdict("git status", workdir=bad), repr(bad))
         for here in (".", "./", ".\\", "", None):              # OpenCode runs an empty workdir in the session's folder
             self.assertTrue(verdict("git status", workdir=here, directory=ROOT), repr(here))
         self.assertTrue(verdict("git status", workdir="."))
@@ -366,30 +402,103 @@ class GuardTests(unittest.TestCase):
             "class Meta(unittest.TestCase, metaclass=type): pass\n")
         self.assertEqual(allowlist.test_case_classes(source), {"Case": {"test_a"}, "Child": {"test_e"}})
 
+    def test_mixins_skip_marks_and_unittest_mock_count(self):
+        # The shapes the repo's own tests use: `import unittest.mock` beside `import unittest`, plain mixin classes
+        # before or after the TestCase base, and unittest's skip marks on methods.
+        source = (
+            "import unittest.mock\n"
+            "import unittest\n"
+            "class Close:\n"
+            "    def helper(self): pass\n"
+            "class Base(object): pass\n"
+            "class Both(Base, Close): pass\n"
+            "class After(unittest.TestCase, Close):\n"
+            "    def test_a(self): pass\n"
+            "class Before(Both, unittest.TestCase):\n"
+            "    @unittest.skipIf(True, 'x')\n"
+            "    def test_b(self): pass\n"
+            "    @unittest.expectedFailure\n"
+            "    def test_c(self): pass\n"
+            "    @staticmethod\n"
+            "    def test_d(): pass\n"
+            "    @unittest.mock.patch('os.getcwd')\n"
+            "    def test_e(self, m): pass\n"
+            "class OnlyMixins(Close): pass\n"
+            "class Foreign(Imported, unittest.TestCase): pass\n"
+            "@marked\n"
+            "class MarkedMixin: pass\n"
+            "class WithMarked(MarkedMixin, unittest.TestCase): pass\n"
+            "class MetaMixin(metaclass=type): pass\n"
+            "class WithMeta(MetaMixin, unittest.TestCase): pass\n"
+            "class FromForeign(Imported): pass\n"
+            "class WithFromForeign(FromForeign, unittest.TestCase): pass\n")
+        cases = allowlist.test_case_classes(source)
+        self.assertEqual(set(cases), {"After", "Before"})
+        self.assertEqual({m for m in cases["Before"] if m.startswith("test")}, {"test_b", "test_c"})
+        # unittest bound to anything but the package: no class counts
+        for head in ("import mylib as unittest\n", "import unittest\nimport mylib as unittest\n",
+                     "import unittest\nunittest = None\n", "import unittest.mock as unittest\n"):
+            source = head + "class C(unittest.TestCase):\n    def test_a(self): pass\n"
+            self.assertEqual(allowlist.test_case_classes(source), {}, head)
+        # object counts as a mixin base only while the file leaves the name alone
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nobject = int\nclass M(object): pass\nclass C(M, unittest.TestCase): pass\n"), {})
+
     def test_run_lead_marks_the_run_unattended_and_needs_the_guard(self):
+        # PowerShell is not run here, so the lines that matter are pinned as written, in order.
         with open(os.path.join(ROOT, "tools", "ai-team", "run-lead.ps1"), encoding="utf-8") as f:
             script = f.read()
-        start = script.index("Start-Process -FilePath $opencode")
-        # uncommented lines, before the session starts
-        for line in (r"^\$env:FO4SF_UNATTENDED = '1'", r"^\$env:FO4SF_PYTHON = \(Get-Command \$Python -ErrorAction Stop\)\.Source",
-                     r"^    \$missing = @\('\.opencode\\plugin\\fo4-guard\.js', 'tools\\ai-team\\guard\\allowlist\.py'\) \|\n"
-                     r"\s+Where-Object \{ -not \(Test-Path \(Join-Path \$wt \$_\)\) \}",
-                     r"^    if \(-not \(Test-GuardGate\)\) \{"):
-            m = re.search(line, script, re.M)
-            self.assertIsNotNone(m, line)
-            self.assertLess(m.start(), start, line)
-        # each guard check skips the cycle: its log line ends with continue
-        for why in ("skipped: git pull of main failed", "so the guard would be off", "does not refuse requests without"):
-            m = re.search(r"^\s+Log \"[^\n]*" + re.escape(why) + r"[^\n]*; continue$", script, re.M)
-            self.assertIsNotNone(m, why)
-            self.assertLess(m.start(), start, why)
-        # the gate probe: a POST with no header must come back 403
+
+        def at(pattern):
+            m = re.search(pattern, script, re.M)
+            self.assertIsNotNone(m, pattern)
+            return m.start()
+        # Python and OpenCode are resolved before anything changes: a bad -Python stops the script there.
+        resolve = at(r"^\$pythonPath = \(Get-Command \$Python -ErrorAction Stop\)\.Source$")
+        self.assertLess(resolve, at(r"^\$opencode = .*\(Get-Command opencode -ErrorAction Stop\)\.Source"))
+        self.assertLess(resolve, at(r"^if \(Test-Path \$pidFile\) \{"))
+        saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON \}")
+        # the pid file and the environment are set inside the try, so the finally always undoes them
+        body = at(r"^try \{\n  \$PID \| Set-Content \$pidFile$")
+        self.assertLess(saved, body)
+        self.assertLess(at(r"^if \(Test-Path \$pidFile\) \{"), body)
+        self.assertEqual(script.count("Set-Content $pidFile"), 1)
+        unattended = at(r"^  \$env:FO4SF_UNATTENDED = '1'")
+        python = at(r"^  \$env:FO4SF_PYTHON = \$pythonPath$")
+        loop = at(r"^  while \(\$MaxCycles -eq 0 -or \$cycle -lt \$MaxCycles\) \{")
+        self.assertLess(body, unattended)
+        self.assertLess(body, python)
+        self.assertLess(max(unattended, python), loop)
+        self.assertEqual(len(re.findall(r"\$env:FO4SF_(UNATTENDED|PYTHON) =", script)), 2)
+        # each guard check runs before the session, reads the right value and skips the cycle
+        session = at(r"^    \$p = Start-Process -FilePath \$opencode")
+        checks = (
+            r"^    \$pull = git -C \$wt pull -q --rebase --autostash origin main 2>&1\n    \$pullFailed = \$LASTEXITCODE -ne 0$",
+            r"^    if \(\$pullFailed\) \{[^\n]*\n      Log \"[^\n]*skipped: git pull of main failed[^\n]*; continue$",
+            r"^    if \(-not \(Test-GuardGate\)\) \{[^\n]*\n      Log \"[^\n]*does not refuse requests without[^\n]*; continue$",
+            r"^    \$missing = @\('\.opencode\\plugin\\fo4-guard\.js', 'tools\\ai-team\\guard\\allowlist\.py'\) \|\n"
+            r"\s+Where-Object \{ -not \(Test-Path \(Join-Path \$wt \$_\)\) \}\n"
+            r"    if \(\$missing\) \{[^\n]*\n      Log \"[^\n]*so the guard would be off\"; [^\n]*; continue$",
+        )
+        for line in checks:
+            self.assertLess(loop, at(line), line)
+            self.assertLess(at(line), session, line)
+        # the gate probe: a POST with no header must come back 403, and only a 403 counts
         gate = script[script.index("function Test-GuardGate"):]
-        gate = gate[:gate.index("\n}\n")]
-        self.assertIn("-Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions'", gate)
-        self.assertNotIn("X-FO4SF-Guard", gate)
-        self.assertIn("-eq 403", gate)
-        self.assertRegex(script[script.index("} finally {"):], r"Remove-Item Env:FO4SF_UNATTENDED, Env:FO4SF_PYTHON")
+        gate = gate[:gate.index("\n}\n") + 3]
+        self.assertEqual(gate.split("\n", 1)[1], (
+            "  try {\n"
+            "    Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `\n"
+            "      -ContentType 'application/json' -TimeoutSec 10 | Out-Null\n"
+            "    return $false\n"
+            "  } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }\n"
+            "}\n"))
+        # the end puts back the window's own values (a dot-sourced run leaves nothing behind)
+        tail = script[script.index("} finally {"):]
+        self.assertIn("  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue\n", tail)
+        self.assertIn("  foreach ($k in $saved.Keys) {", tail)
+        self.assertIn('    if ($null -eq $saved[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } '
+                      'else { Set-Item "Env:$k" $saved[$k] }', tail)
 
     def test_the_proxy_serves_only_sessions_whose_guard_loaded(self):
         on, off = {"require_guard_header": True}, {"require_guard_header": False}
@@ -401,8 +510,8 @@ class GuardTests(unittest.TestCase):
         with open(os.path.join(ROOT, "tools", "ai-team", "config.json"), encoding="utf-8") as f:
             self.assertIs(json.load(f)["guardian"]["require_guard_header"], True)
 
-    def test_the_proxy_answers_403_without_the_header_and_queues_nothing(self):
-        # The real handler over HTTP, with a stub LM Studio behind it: no header, no job row and no upstream request.
+    def serve_proxy(self):
+        """The real proxy handler over HTTP, with a stub LM Studio behind it that records each path it is sent."""
         state = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, state, ignore_errors=True)
         hits = []
@@ -410,43 +519,78 @@ class GuardTests(unittest.TestCase):
         class Upstream(BaseHTTPRequestHandler):
             def do_POST(self):
                 hits.append(self.path)
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 self.send_response(200)
+                self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", "2")
                 self.end_headers()
                 self.wfile.write(b"{}")
 
             def log_message(self, *a):
                 pass
-        servers = [ThreadingHTTPServer(("127.0.0.1", 0), Upstream), ThreadingHTTPServer(("127.0.0.1", 0), proxy.Handler)]
-        for srv in servers:
-            threading.Thread(target=srv.serve_forever, daemon=True).start()
-            self.addCleanup(srv.server_close)
-            self.addCleanup(srv.shutdown)
         saved = (store.STATE, store.DB, dict(proxy.CFG), proxy.UPSTREAM)
-        store.STATE, store.DB = state, os.path.join(state, "guardian.db")
-        proxy.CFG.clear()
-        proxy.CFG.update(require_guard_header=True, queue_wait_s=0, request_timeout_s=5)
-        proxy.UPSTREAM = f"http://127.0.0.1:{servers[0].server_port}"
 
         def restore():
             store.STATE, store.DB = saved[0], saved[1]
             proxy.CFG.clear()
             proxy.CFG.update(saved[2])
             proxy.UPSTREAM = saved[3]
-        self.addCleanup(restore)
-        for path in proxy.INFER + ("/v1/chat/completions?x=1",):
+        self.addCleanup(restore)                         # registered first, so it runs after the servers stop
+        servers = [ThreadingHTTPServer(("127.0.0.1", 0), Upstream), ThreadingHTTPServer(("127.0.0.1", 0), proxy.Handler)]
+        for srv in servers:
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            self.addCleanup(srv.server_close)
+            self.addCleanup(srv.shutdown)
+        store.STATE, store.DB = state, os.path.join(state, "guardian.db")
+        proxy.CFG.clear()
+        proxy.CFG.update(require_guard_header=True, queue_wait_s=0, request_timeout_s=5, max_retries=0)
+        proxy.UPSTREAM = f"http://127.0.0.1:{servers[0].server_port}"
+
+        def post(path, headers=()):
             conn = http.client.HTTPConnection("127.0.0.1", servers[1].server_port, timeout=10)
-            conn.request("POST", path, body=b"{}", headers={"Content-Type": "application/json"})
-            r = conn.getresponse()
-            self.assertEqual(r.status, 403, path)
-            self.assertIn("no fo4 guard", r.read().decode())
-            conn.close()
-        self.assertEqual(hits, [])
-        db = os.path.join(state, "guardian.db")
-        if os.path.exists(db):
+            try:
+                conn.request("POST", path, body=b"{}", headers={"Content-Type": "application/json", **dict(headers)})
+                r = conn.getresponse()
+                return r.status, r.read().decode()
+            finally:
+                conn.close()
+
+        def jobs():
+            db = os.path.join(state, "guardian.db")
+            if not os.path.exists(db):
+                return 0
             c = sqlite3.connect(db)
-            self.addCleanup(c.close)
-            self.assertEqual(c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 0)
+            try:
+                return c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            finally:
+                c.close()
+        return post, hits, jobs
+
+    def test_the_proxy_answers_403_without_the_header_and_queues_nothing(self):
+        # No header, or a wrong value: no job row and no upstream request, on every inference path.
+        post, hits, jobs = self.serve_proxy()
+        for path in proxy.INFER + ("/v1/chat/completions?x=1",):
+            for headers in ((), ((proxy.GUARD_HEADER, "fo4-guard/0"),)):
+                status, text = post(path, headers)
+                self.assertEqual(status, 403, (path, headers))
+                self.assertIn("no fo4 guard", text)
+        self.assertEqual(hits, [])
+        self.assertEqual(jobs(), 0)
+
+    def test_a_request_with_the_header_reaches_the_model(self):
+        # The other half: with the header (in any letter case, as HTTP allows) the request is admitted and sent on.
+        post, hits, jobs = self.serve_proxy()
+        with mock.patch.object(proxy.resources, "snapshot", return_value={}), \
+                mock.patch.object(proxy.policy, "admit", return_value=("admit", "ok", [])):
+            for name in (proxy.GUARD_HEADER, proxy.GUARD_HEADER.lower()):
+                self.assertEqual(post("/v1/chat/completions", ((name, proxy.GUARD_VALUE),)), (200, "{}"), name)
+                for _ in range(100):                     # the handler logs the job after the reply: let it finish
+                    if proxy.STATE["running"] == 0:
+                        break
+                    threading.Event().wait(0.05)
+        self.assertEqual(proxy.STATE["running"], 0)
+        self.assertEqual(hits, ["/v1/chat/completions"] * 2)
+        self.assertEqual(jobs(), 2)
 
     def test_the_checker_speaks_the_plugins_protocol(self):
         script = os.path.join(GUARD, "allowlist.py")
@@ -463,7 +607,15 @@ class GuardTests(unittest.TestCase):
 
 
 
-@unittest.skipUnless(shutil.which("node"), "node is not installed")
+NODE = shutil.which("node")
+# OpenCode 1.18.35's built-in tools besides the shell, written out so a tool added to or dropped from the plugin's list
+# fails a test.
+KNOWN_TOOLS = ("invalid", "question", "read", "glob", "grep", "edit", "write", "task", "webfetch", "todowrite",
+               "websearch", "skill", "apply_patch", "lsp", "plan_exit")
+
+
+# CI always runs these (GitHub sets CI): there a missing node is a failure, not a quiet skip.
+@unittest.skipUnless(NODE or os.environ.get("CI"), "node is not installed")
 class PluginTests(unittest.TestCase):
     """The plugin itself, loaded in node and driven through its hooks, with the real checker behind it."""
     HARNESS = """
@@ -476,10 +628,19 @@ for (const [tool, args] of JSON.parse(callsJson)) {
   try { await hooks["tool.execute.before"]({ tool, sessionID: "s", callID: "c" }, { args }); out.push("allow"); }
   catch (e) { out.push(e.message.startsWith("guard refused the command") ? "refuse" : "error: " + e.message); }
 }
-const headers = {};
-await hooks["chat.headers"]({ sessionID: "s", agent: "fo4-lead" }, { headers });
+const headers = [];
+const agents = ["fo4-lead", "fo4-research", "fo4-qa", "fo4-implement", "title", "compaction", "summary", undefined];
+for (const agent of agents) {
+  const h = {};
+  await hooks["chat.headers"]({ sessionID: "s", agent }, { headers: h });
+  headers.push(h);
+}
 console.log(JSON.stringify({ init: "ok", out, headers }));
 """
+
+    def setUp(self):
+        if not NODE:
+            self.fail("node is not installed: CI must run the plugin tests")
 
     def hook(self, calls, worktree=ROOT, directory=None, **env):
         d = tempfile.mkdtemp()
@@ -491,7 +652,8 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
             f.write(self.HARNESS)
         e = {k: v for k, v in os.environ.items() if not k.startswith("FO4SF_")}
         e.update({"FO4SF_PYTHON": sys.executable, **env})
-        r = subprocess.run(["node", harness, "file://" + plugin, worktree, directory or worktree, json.dumps(calls)],
+        url = pathlib.Path(plugin).as_uri()                # file:///C:/... on Windows, which node needs
+        r = subprocess.run([NODE, harness, url, worktree, directory or worktree, json.dumps(calls)],
                            capture_output=True, text=True, env=e, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
@@ -504,10 +666,12 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
         self.assertEqual(got["out"], ["allow", "refuse", "refuse", "refuse", "allow", "refuse", "allow"])
 
     def test_a_tool_the_guard_does_not_know_is_refused(self):
-        known = [[t, {}] for t in ("read", "glob", "grep", "edit", "write", "webfetch", "websearch", "todowrite", "skill",
-                                   "question", "invalid", "apply_patch")]
+        known = [[t, {}] for t in KNOWN_TOOLS]
         self.assertEqual(self.hook(known)["out"], ["allow"] * len(known))
-        self.assertEqual(self.hook([["mcp_run", {"command": "rm -rf docs"}], ["my_tool", {}]])["out"], ["refuse", "refuse"])
+        unknown = [[t, {"command": "rm -rf docs"}]
+                   for t in ("mcp_run", "my_tool", "shell", "Bash", "powershell", "exec", "multiedit", "patch", "list",
+                             "Read", "")]
+        self.assertEqual(self.hook(unknown)["out"], ["refuse"] * len(unknown))
 
     def test_the_checker_runs_isolated(self):
         # A json.py on PYTHONPATH that exits 0 would allow everything if the checker ran without -I.
@@ -518,34 +682,41 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
         self.assertEqual(self.hook([["bash", {"command": "git push"}]], PYTHONPATH=d)["out"], ["refuse"])
 
     def test_every_model_request_carries_the_guard_header(self):
-        self.assertEqual(self.hook([])["headers"], {proxy.GUARD_HEADER: proxy.GUARD_VALUE})
+        # every agent's requests, and OpenCode's own (title, compaction), or the proxy refuses them
+        got = self.hook([])["headers"]
+        self.assertEqual(len(got), 8)
+        for h in got:
+            self.assertEqual(h, {proxy.GUARD_HEADER: proxy.GUARD_VALUE})
+
+    def slow_checker(self, seconds):
+        """A worktree whose checker sleeps, then answers allowed: a Python script, so it also runs on Windows."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        os.makedirs(os.path.join(d, "tools", "ai-team", "guard"))
+        with open(os.path.join(d, "tools", "ai-team", "guard", "allowlist.py"), "w") as f:
+            f.write(f"import sys, time\ntime.sleep({seconds})\nsys.exit(0)\n")
+        return d
 
     def test_no_python_or_a_hung_checker_refuses(self):
         self.assertEqual(self.hook([["bash", {"command": "git status"}]],
                                    FO4SF_PYTHON=os.path.join(ROOT, "no-such-python"))["out"], ["refuse"])
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        hang = os.path.join(d, "hang")
-        with open(hang, "w") as f:
-            f.write("#!/bin/sh\nsleep 30\n")
-        os.chmod(hang, 0o755)
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=hang,
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(30),
                                    FO4SF_GUARD_TIMEOUT_MS="1000")["out"], ["refuse"])
 
     def test_the_wait_for_the_checker_is_never_longer_than_15_s(self):
         # A checker that answers "allowed" after 20 s: with any longer cap than 15 s the call would go through.
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        slow = os.path.join(d, "slow")
-        with open(slow, "w") as f:
-            f.write("#!/bin/sh\nsleep 20\nexit 0\n")
-        os.chmod(slow, 0o755)
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], FO4SF_PYTHON=slow,
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(20),
                                    FO4SF_GUARD_TIMEOUT_MS="600000")["out"], ["refuse"])
+        # and the sleeper itself does answer allowed, given the time
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(0))["out"],
+                         ["allow"])
 
     def test_a_session_in_a_subfolder_is_refused(self):
-        got = self.hook([["bash", {"command": "git status"}]], directory=os.path.join(ROOT, "docs", "ai"))
-        self.assertEqual(got["out"], ["refuse"])
+        # with no workdir, or one that names the session's own (sub)folder or the root
+        sub = os.path.join(ROOT, "docs", "ai")
+        calls = [["bash", {"command": "git status"}]] + [["bash", {"command": "git status", "workdir": w}]
+                                                         for w in (".", "./", "", ROOT)]
+        self.assertEqual(self.hook(calls, directory=sub)["out"], ["refuse"] * len(calls))
 
     def test_a_tree_without_the_checker_does_not_load(self):
         d = tempfile.mkdtemp()

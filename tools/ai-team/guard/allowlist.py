@@ -258,7 +258,8 @@ TEAM_SCRIPTS = (
 # A test by name: a module that exists as tests/test_<name>.py, optionally one TestCase class in it and one test method
 # of that class. unittest calls whatever a longer dotted name ends on (tests.test_x.some_module.main would run main(),
 # and a plain class would be instantiated), so a class must be a TestCase defined in that file (test_case_classes) and a
-# method one defined in its body; nothing else is allowed after the module name.
+# method one defined in its body; nothing else is allowed after the module name. Discovery imports test files only.
+# Unittest never runs with -I: that drops the repo folder from sys.path, so `tests` could be a package from elsewhere.
 TEST_NAME = re.compile(r"tests\.(test_[a-z0-9_]+)(?:\.([A-Za-z_][A-Za-z0-9_]*)(?:\.(test[A-Za-z0-9_]*))?)?")
 
 
@@ -277,9 +278,10 @@ def bound_names(node):
 
 def test_case_classes(source):
     """{class name: method names} for the TestCase classes of a test file, read from its syntax, not imported. A class
-    counts if it is bound once at module level, its bases are unittest.TestCase (or TestCase imported from unittest, or
-    such a class of the same file) and its only decorators are unittest's skip marks; a method if the class body binds
-    its name once, with a plain def. Anything else could be a callable unittest would call."""
+    counts if it is bound once at module level, one of its bases is unittest.TestCase (or TestCase imported from
+    unittest, or such a class of the same file), its other bases are plain mixin classes of the same file, and its only
+    decorators are unittest's skip marks; a method if the class body binds its name once, with a def whose only
+    decorators are those marks. Anything else could be a callable unittest would call."""
     with warnings.catch_warnings():                # a test file's own odd escapes are its business, not the guard's
         warnings.simplefilter("ignore")
         tree = ast.parse(source)
@@ -289,21 +291,39 @@ def test_case_classes(source):
             bound.setdefault(n, []).append(node)
     one = {n: nodes[0] for n, nodes in bound.items() if len(nodes) == 1}
     imported_case = isinstance(one.get("TestCase"), ast.ImportFrom) and one["TestCase"].module == "unittest"
-    unittest_module = isinstance(one.get("unittest"), ast.Import)
+    # `import unittest` and `import unittest.mock` both bind the name unittest to the unittest package, so a file may
+    # have both; any other binding of the name (an `as unittest`, an assignment) makes it something else.
+    unittest_module = bool(bound.get("unittest")) and all(
+        isinstance(node, ast.Import) and all(a.asname is None and a.name.split(".")[0] == "unittest"
+                                             for a in node.names if (a.asname or a.name).split(".")[0] == "unittest")
+        for node in bound["unittest"])
 
     def unittest_attr(node, names):
         return unittest_module and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
             and node.value.id == "unittest" and node.attr in names
 
+    def skip_marks_only(node):
+        return all(unittest_attr(d.func if isinstance(d, ast.Call) else d, UNITTEST_DECORATORS)
+                   for d in node.decorator_list)
+
+    def is_mixin(name, seen=()):
+        # A plain class of the same file that only adds methods: no bases but other such classes, no keywords (so no
+        # metaclass), no decorators.
+        node = one.get(name)
+        if not isinstance(node, ast.ClassDef) or name in seen or node.keywords or node.decorator_list:
+            return False
+        return all(isinstance(b, ast.Name) and ((b.id == "object" and "object" not in bound)
+                                                or is_mixin(b.id, seen + (name,))) for b in node.bases)
+
     def is_case(name, seen=()):
         node = one.get(name)
         if not isinstance(node, ast.ClassDef) or name in seen or not node.bases or node.keywords:
             return False
-        if not all(unittest_attr(d.func if isinstance(d, ast.Call) else d, UNITTEST_DECORATORS)
-                   for d in node.decorator_list):
+        if not skip_marks_only(node):
             return False
-        return all(unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
-            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,)))) for b in node.bases)
+        cases = [b for b in node.bases if unittest_attr(b, ("TestCase",)) or (isinstance(b, ast.Name) and (
+            (b.id == "TestCase" and imported_case) or is_case(b.id, seen + (name,))))]
+        return bool(cases) and all(b in cases or (isinstance(b, ast.Name) and is_mixin(b.id)) for b in node.bases)
 
     out = {}
     for name, node in one.items():
@@ -313,7 +333,7 @@ def test_case_classes(source):
                 for n in bound_names(item):
                     uses.setdefault(n, []).append(item)
             out[name] = {n for n, items in uses.items() if len(items) == 1 and isinstance(items[0], ast.FunctionDef)
-                         and not items[0].decorator_list}
+                         and skip_marks_only(items[0])}
     return out
 
 
@@ -354,6 +374,8 @@ def python(argv, root=None):
             and digits(rest[3]):
         return
     if rest[:2] == ["-m", "unittest"]:
+        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
+            raise Refused("unittest runs without -I: python -m unittest tests.test_<name>, or discover -s tests")
         args = [a for a in rest[2:] if a not in ("-v", "-q")]
         if args[:1] == ["discover"]:
             if args != ["discover", "-s", "tests"]:
@@ -362,8 +384,6 @@ def python(argv, root=None):
         if not args or not all(test_name_ok(a, root) for a in args):
             raise Refused("unittest takes tests.test_<name> modules that exist (or one TestCase class or test method in "
                           "one), or discover -s tests")
-        if isolated:                              # -I drops the repo folder from sys.path, so tests.* would load elsewhere
-            raise Refused("unittest by name runs without -I: python -m unittest tests.test_<name>")
         return
     raise Refused("this python command is not on the list")
 

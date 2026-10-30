@@ -157,9 +157,9 @@ session opened in a subfolder gets every shell call refused. It then accepts onl
 "Lead (local): ..."`; `git status`, `git log`, `git diff`, `git show`, `git worktree list`, `git branch --show-current`
 and `git rev-parse` with the listed switches, revisions before `--`, and repo-relative paths after it; `python -I
 tools/ai-team/lead_commit.py "<message>"`; `guardian.py status`, `report` and `report --hours <n>`; `team.py
-board|status`; `wake_agent.py status`; `scripts/guard.py`; and `python -m unittest` on `tests.test_<name>` modules
-that exist (nothing after the module name: unittest calls whatever a longer dotted name ends on) or as `discover -s
-tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
+board|status`; `wake_agent.py status`; `scripts/guard.py`; and `python -m unittest`, without `-I`, on
+`tests.test_<name>` modules that exist, or one TestCase class or test method the file itself defines (unittest calls
+whatever a dotted name ends on, so nothing else may follow the module name), or as `discover -s tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
 `wake_agent.py codex|grok`, and `python -c`. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
 also refuses a `task` call whose `subagent_type` is fo4-implement, which can edit code and then run the tests it
 edited. Left open on purpose: the #32 comment body is one line of text up to 1500 characters (printable ASCII, none
@@ -180,14 +180,17 @@ or while the running proxy serves a request without the header (a proxy started 
 To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
 example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
 command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a
-tool call), and neither does a redirect such as `echo x > y` (the rules refuse it anyway). To check the proxy's side:
+tool call). A redirect such as `echo x > y` is a poor check: both layers refuse it, so only the wording of the error
+would show which one did. To check the proxy's side:
 `Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:1235/v1/chat/completions -Body '{}'
 -ContentType application/json` must fail with (403) Forbidden. To try the checker by hand in PowerShell:
 `Get-Content call.json | python -I tools\ai-team\guard\allowlist.py`.
 
 The guard also refuses any tool it does not know: OpenCode 1.18.35's built-in tools pass (the shell through the
-checker), an MCP server's or a custom tool's calls do not. Unittest by name takes a module, or one TestCase class or
-test method that the file itself defines, without `-I`. `opencode agent create` asks the model outside the session
+checker), an MCP server's or a custom tool's calls do not. The plugin goes by the tool's name, so a custom tool whose
+file is named after a built-in one (`.opencode/tool/grep.js`) would pass unchecked; no agent can make one, because every
+agent is denied writes under `.opencode/`, so only the owner could. Unittest by name takes a module, or one TestCase
+class or test method that the file itself defines (with mixin bases and unittest's skip marks), never with `-I`. `opencode agent create` asks the model outside the session
 path, with no guard header, so it gets HTTP 403 from the guardian: create agents with another provider, or by hand.
 
 Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
