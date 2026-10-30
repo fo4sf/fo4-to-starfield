@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
@@ -278,10 +279,28 @@ REFUSED_BECAUSE = (
     ("git worktree add ../x", "git worktree is not on the list"),
     ("git rev-parse --git-path hooks", "git rev-parse is not on the list"),
     ("python tools/ai-team/guardian/guardian.py resume", "this python command is not on the list"),
-)
+    # the program is named by its bare name only: a path or an extension could pick another program
+    ("docs/ai/git status", "command is not on the list"),
+    ("./git status", "command is not on the list"),
+    ("git.exe status", "command is not on the list"),
+    ("C:/x/git status", "command is not on the list"),
+    ("tools/../git status", "command is not on the list"),
+    ("python.exe -m unittest tests.test_ai_guard", "command is not on the list"),
+    ("py -m unittest tests.test_ai_guard", "command is not on the list"),
+) + tuple(("python -I tools/ai-team/lead_commit.py " + n, "as a number")      # each PowerShell number form
+          for n in ("1l", "5d", "1kb", "5mb", "1gb", "2tb", "3pb", "5L", "0x1F", "0b101", "1.5", "1.", ".5", "1e3",
+                    "1E3", "-0x10"))
 
 
 class GuardTests(unittest.TestCase):
+    def test_a_call_without_its_root_or_with_an_empty_folder_is_refused(self):
+        for call in ({"command": "git status"}, {"root": "", "command": "git status"},
+                     {"root": None, "command": "git status"}, {"root": ROOT, "command": "git status", "directory": ""},
+                     {"root": ROOT}, {"root": ROOT, "command": ["git", "status"]}, "git status", None):
+            with self.assertRaises(allowlist.Refused, msg=repr(call)):
+                allowlist.check(call)
+        allowlist.check({"root": ROOT, "command": "git status", "directory": ROOT})       # the same call, with them
+
     def test_the_commands_the_team_runs_are_allowed(self):
         for command in ALLOWED:
             self.assertTrue(verdict(command), command)
@@ -444,6 +463,62 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(allowlist.test_case_classes(
             "import unittest\nobject = int\nclass M(object): pass\nclass C(M, unittest.TestCase): pass\n"), {})
 
+    def test_only_unittests_own_marks_in_their_own_form_count(self):
+        def counted(decorators, on="method"):
+            body = "    def test_a(self): pass\n"
+            if on == "method":
+                source = "import unittest\nclass C(unittest.TestCase):\n" + "".join(f"    {d}\n" for d in decorators) + body
+            else:
+                source = "import unittest\n" + "".join(f"{d}\n" for d in decorators) + "class C(unittest.TestCase):\n" + body
+            return allowlist.test_case_classes(source).get("C", set())
+        for good in ("@unittest.skip('x')", "@unittest.skipIf(True, 'x')", "@unittest.skipUnless(True, 'x')",
+                     "@unittest.expectedFailure"):
+            self.assertEqual(counted([good]), {"test_a"}, good)
+            self.assertEqual(counted([good], on="class"), {"test_a"}, good)
+        # expectedFailure(x) returns x, a bare skip on a class binds unittest's inner decorator, and other unittest
+        # names are not marks at all
+        for bad in ("@unittest.expectedFailure(lambda f: f)", "@unittest.skip", "@unittest.main", "@unittest.TestCase",
+                    "@unittest.skipIf", "@unittest.mock.patch('os.getcwd')", "@skip('x')"):
+            self.assertEqual(counted([bad]), set(), bad)
+            self.assertEqual(counted([bad], on="class"), set(), bad)
+
+    def test_a_name_bound_anywhere_else_in_the_file_does_not_count(self):
+        case = "class Foo(unittest.TestCase):\n    def test_a(self): pass\n"
+        self.assertEqual(allowlist.test_case_classes("import unittest\n" + case), {"Foo": {"test_a"}})
+        for later in ("try:\n    Foo = print\nexcept Exception:\n    pass\n", "(Foo := print)\n",
+                      "if True:\n    Foo = print\n", "with open(__file__) as Foo:\n    pass\n",
+                      "match 1:\n    case Foo:\n        pass\n", "for Foo in []:\n    pass\n", "del Foo\n",
+                      "def f():\n    global Foo\n", "[(Foo := 1) for _ in []]\n", "from helpers import *\n",
+                      "try:\n    pass\nexcept Exception as Foo:\n    pass\n", "if True:\n    import mylib as unittest\n",
+                      "try:\n    from tests import shim as unittest\nexcept ImportError:\n    pass\n"):
+            self.assertEqual(allowlist.test_case_classes("import unittest\n" + case + later), {}, later)
+        # a method rebound in its class body, at any depth of that body
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass Foo(unittest.TestCase):\n    def test_a(self): pass\n"
+            "    if True:\n        test_a = print\n"), {"Foo": set()})
+        # TestCase itself must be unittest's, by that name
+        for head in ("from unittest import mock as TestCase\n", "from .unittest import TestCase\n",
+                     "from unittest import TestCase\nTestCase = object\n"):
+            self.assertEqual(allowlist.test_case_classes(head + "class C(TestCase):\n    def test_a(self): pass\n"),
+                             {}, head)
+        self.assertEqual(allowlist.test_case_classes("from unittest import TestCase\nclass C(TestCase):\n"
+                                                     "    def test_a(self): pass\n"), {"C": {"test_a"}})
+
+    def test_a_mixin_or_case_may_not_rewrite_its_users(self):
+        # __init_subclass__ (or any dunder hook, or a class attribute) in a mixin, and __init_subclass__ in a case,
+        # could replace a test method of the class that uses it
+        for mixin in ("class M:\n    def __init_subclass__(cls):\n        cls.test_a = staticmethod(print)\n",
+                      "class M:\n    x = 1\n", "class M:\n    @staticmethod\n    def test_b(): pass\n",
+                      "class M:\n    def __getattr__(self, n): pass\n"):
+            self.assertEqual(allowlist.test_case_classes(
+                "import unittest\n" + mixin + "class C(M, unittest.TestCase):\n    def test_a(self): pass\n"), {}, mixin)
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass M:\n    'docs'\n    def helper(self): pass\n    pass\n"
+            "class C(M, unittest.TestCase):\n    def test_a(self): pass\n"), {"C": {"test_a"}})
+        self.assertEqual(allowlist.test_case_classes(
+            "import unittest\nclass B(unittest.TestCase):\n    def __init_subclass__(cls): pass\n"
+            "class C(B):\n    def test_a(self): pass\n"), {})
+
     def test_run_lead_marks_the_run_unattended_and_needs_the_guard(self):
         # PowerShell is not run here, so the lines that matter are pinned as written, in order.
         with open(os.path.join(ROOT, "tools", "ai-team", "run-lead.ps1"), encoding="utf-8") as f:
@@ -452,26 +527,56 @@ class GuardTests(unittest.TestCase):
         def at(pattern):
             m = re.search(pattern, script, re.M)
             self.assertIsNotNone(m, pattern)
+            self.assertEqual(len(re.findall(pattern, script, re.M)), 1, pattern)
             return m.start()
-        # Python and OpenCode are resolved before anything changes: a bad -Python stops the script there.
-        resolve = at(r"^\$pythonPath = \(Get-Command \$Python -ErrorAction Stop\)\.Source$")
-        self.assertLess(resolve, at(r"^\$opencode = .*\(Get-Command opencode -ErrorAction Stop\)\.Source"))
-        self.assertLess(resolve, at(r"^if \(Test-Path \$pidFile\) \{"))
+        # Python and OpenCode are resolved before anything changes, as programs with a full path: a bad -Python
+        # or a missing OpenCode throws there, at the top level, which ends the script
+        resolve = at(r"^\$pythonPath = \(Get-Command \$Python -CommandType Application -ErrorAction Stop "
+                     r"\| Select-Object -First 1\)\.Source\n"
+                     r"if \(-not \[IO\.Path\]::IsPathRooted\(\"\$pythonPath\"\)\) \{ throw [^\n]*\}$")
+        opencode = at(r"^\$shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorAction Stop "
+                      r"\| Select-Object -First 1\n"
+                      r"\$opencode = Join-Path \(Split-Path \$shim\.Source\) 'node_modules\\opencode-ai\\bin\\opencode\.exe'\n"
+                      r"if \(-not \(Test-Path -LiteralPath \$opencode -PathType Leaf\)\) \{ throw [^\n]*\}$")
+        single = at(r"^if \(Test-Path \$pidFile\) \{ +# single instance\n"
+                    r"  \$old = \[int\]\(Get-Content \$pidFile\)\n"
+                    r"  if \(Get-Process -Id \$old -ErrorAction SilentlyContinue\) \{ \"[^\n]*\"; exit 1 \}\n\}$")
+        self.assertLess(resolve, opencode)
+        self.assertLess(opencode, single)
         saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON \}")
-        # the pid file and the environment are set inside the try, so the finally always undoes them
+        # one try, at the top level: the pid file and the environment are set inside it, so the finally always
+        # undoes them; the single-instance check and its exit 1 stay outside it (a second run leaves the first's file)
+        self.assertEqual(script.count("try {"), 2)                        # this one and Test-GuardGate's
+        self.assertEqual(script.count("function Test-GuardGate"), 1)
         body = at(r"^try \{\n  \$PID \| Set-Content \$pidFile$")
         self.assertLess(saved, body)
-        self.assertLess(at(r"^if \(Test-Path \$pidFile\) \{"), body)
+        self.assertLess(single, body)
         self.assertEqual(script.count("Set-Content $pidFile"), 1)
-        unattended = at(r"^  \$env:FO4SF_UNATTENDED = '1'")
+        self.assertEqual(script.count("exit 1"), 1)
+        unattended = at(r"^  \$env:FO4SF_UNATTENDED = '1' +# the guard plugin then refuses delegation to fo4-implement$")
         python = at(r"^  \$env:FO4SF_PYTHON = \$pythonPath$")
-        loop = at(r"^  while \(\$MaxCycles -eq 0 -or \$cycle -lt \$MaxCycles\) \{")
+        loop = at(r"^  while \(\$MaxCycles -eq 0 -or \$cycle -lt \$MaxCycles\) \{$")
         self.assertLess(body, unattended)
-        self.assertLess(body, python)
-        self.assertLess(max(unattended, python), loop)
-        self.assertEqual(len(re.findall(r"\$env:FO4SF_(UNATTENDED|PYTHON) =", script)), 2)
+        self.assertLess(unattended, python)
+        self.assertLess(python, loop)
+        # the two variables are set only there, and named nowhere else but the saved copy and the parameter default
+        self.assertEqual(re.findall(r"(?i)\$\{?env:(FO4SF_\w+)\}?\s*\+?=", script), ["FO4SF_UNATTENDED", "FO4SF_PYTHON"])
+        self.assertEqual(script.count("FO4SF_UNATTENDED"), 3)
+        self.assertEqual(script.count("FO4SF_PYTHON"), 5)
+        self.assertIsNone(re.search(r"(?i)(Set-Item|New-Item)\s+[\"']?Env:|SetEnvironmentVariable", script.replace(
+            'Set-Item "Env:$k" $saved[$k]', "")))
+        # every cycle starts by checking the pid file is still this run's: deleting it, or a later run taking it
+        # over, ends this one
+        mine = at(r"^    if \(\"\$\(Get-Content -LiteralPath \$pidFile -ErrorAction SilentlyContinue\)\"\.Trim\(\) "
+                  r"-ne \"\$PID\"\) \{\n      Log \"[^\n]*\"; break\n    \}\n    \$cycle\+\+$")
+        self.assertLess(loop, mine)
+        # the session: OpenCode's real binary, the Lead agent, in the Lead's worktree
+        session = at(r"^    \$p = Start-Process -FilePath \$opencode -ArgumentList @\('run', '--agent', 'fo4-lead', "
+                     r"\"`\"\$prompt`\"\"\) `\n"
+                     r"         -WorkingDirectory \$wt -WindowStyle Hidden -PassThru -RedirectStandardOutput \$out "
+                     r"-RedirectStandardError \"\$out\.err\"$")
+        self.assertEqual(len(re.findall(r"^[^#\n]*Start-Process", script, re.M)), 1)
         # each guard check runs before the session, reads the right value and skips the cycle
-        session = at(r"^    \$p = Start-Process -FilePath \$opencode")
         checks = (
             r"^    \$pull = git -C \$wt pull -q --rebase --autostash origin main 2>&1\n    \$pullFailed = \$LASTEXITCODE -ne 0$",
             r"^    if \(\$pullFailed\) \{[^\n]*\n      Log \"[^\n]*skipped: git pull of main failed[^\n]*; continue$",
@@ -481,7 +586,7 @@ class GuardTests(unittest.TestCase):
             r"    if \(\$missing\) \{[^\n]*\n      Log \"[^\n]*so the guard would be off\"; [^\n]*; continue$",
         )
         for line in checks:
-            self.assertLess(loop, at(line), line)
+            self.assertLess(mine, at(line), line)
             self.assertLess(at(line), session, line)
         # the gate probe: a POST with no header must come back 403, and only a 403 counts
         gate = script[script.index("function Test-GuardGate"):]
@@ -493,12 +598,31 @@ class GuardTests(unittest.TestCase):
             "    return $false\n"
             "  } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }\n"
             "}\n"))
-        # the end puts back the window's own values (a dot-sourced run leaves nothing behind)
-        tail = script[script.index("} finally {"):]
-        self.assertIn("  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue\n", tail)
-        self.assertIn("  foreach ($k in $saved.Keys) {", tail)
-        self.assertIn('    if ($null -eq $saved[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } '
-                      'else { Set-Item "Env:$k" $saved[$k] }', tail)
+        # the try's own block, matched brace by brace, ends in the finally, which ends the script; the finally
+        # removes the pid file only while it is still this run's, then puts back the window's own values
+        depth, i = 0, body + len("try ")
+        while True:
+            depth += {"{": 1, "}": -1}.get(script[i], 0)
+            if depth == 0:
+                break
+            i += 1
+        self.assertTrue(script.startswith("} finally {\n", i), script[i:i + 40])
+        tail = script[i + len("} finally "):]
+        self.assertEqual(tail, (
+            "{\n"
+            "  if (\"$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)\".Trim() -eq \"$PID\") {"
+            "   # ours, not a later run's\n"
+            "    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue\n"
+            "  }\n"
+            "  foreach ($k in $saved.Keys) {                     # in case this ran dot-sourced: the window gets its own values back\n"
+            "    if ($null -eq $saved[$k]) { Remove-Item \"Env:$k\" -ErrorAction SilentlyContinue } "
+            "else { Set-Item \"Env:$k\" $saved[$k] }\n"
+            "  }\n"
+            "  Log \"run-lead stopped\"\n"
+            "}\n"))
+        self.assertEqual(script.count("Remove-Item -LiteralPath $pidFile"), 1)
+        # the loop's Python is the resolved one
+        self.assertIsNone(re.search(r"& \$Python\b", script))
 
     def test_the_proxy_serves_only_sessions_whose_guard_loaded(self):
         on, off = {"require_guard_header": True}, {"require_guard_header": False}
@@ -665,6 +789,12 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
                          ["bash", {"command": "git status", "workdir": ""}]])
         self.assertEqual(got["out"], ["allow", "refuse", "refuse", "refuse", "allow", "refuse", "allow"])
 
+    def test_the_plugins_tool_list_is_the_one_written_here(self):
+        with open(os.path.join(ROOT, ".opencode", "plugin", "fo4-guard.js"), encoding="utf-8") as f:
+            m = re.search(r"^const BUILT_IN = new Set\(\[([^\]]*)\]\);$", f.read(), re.M)
+        self.assertIsNotNone(m)
+        self.assertEqual(tuple(json.loads("[" + m.group(1) + "]")), KNOWN_TOOLS)
+
     def test_a_tool_the_guard_does_not_know_is_refused(self):
         known = [[t, {}] for t in KNOWN_TOOLS]
         self.assertEqual(self.hook(known)["out"], ["allow"] * len(known))
@@ -680,6 +810,18 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
         with open(os.path.join(d, "json.py"), "w") as f:
             f.write("import sys\nsys.exit(0)\n")
         self.assertEqual(self.hook([["bash", {"command": "git push"}]], PYTHONPATH=d)["out"], ["refuse"])
+        # and one beside the checker itself: Python puts the script's folder first on the path unless run with -I
+        # (-E would not stop this one)
+        wt = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, wt, ignore_errors=True)
+        guard = os.path.join(wt, "tools", "ai-team", "guard")
+        os.makedirs(guard)
+        shutil.copy(os.path.join(GUARD, "allowlist.py"), guard)
+        with open(os.path.join(guard, "json.py"), "w") as f:
+            f.write("import sys\nsys.exit(0)\n")
+        self.assertEqual(self.hook([["bash", {"command": "git push"}]], worktree=wt)["out"], ["refuse"])
+        os.remove(os.path.join(guard, "json.py"))            # the copy itself works there: git status goes through
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=wt)["out"], ["allow"])
 
     def test_every_model_request_carries_the_guard_header(self):
         # every agent's requests, and OpenCode's own (title, compaction), or the proxy refuses them
@@ -700,16 +842,25 @@ console.log(JSON.stringify({ init: "ok", out, headers }));
     def test_no_python_or_a_hung_checker_refuses(self):
         self.assertEqual(self.hook([["bash", {"command": "git status"}]],
                                    FO4SF_PYTHON=os.path.join(ROOT, "no-such-python"))["out"], ["refuse"])
+        # the test's own wait: refused after about 1 s, not at the 15 s cap or when the checker ends
+        start = time.monotonic()
         self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(30),
                                    FO4SF_GUARD_TIMEOUT_MS="1000")["out"], ["refuse"])
+        self.assertLess(time.monotonic() - start, 10)
 
     def test_the_wait_for_the_checker_is_never_longer_than_15_s(self):
-        # A checker that answers "allowed" after 20 s: with any longer cap than 15 s the call would go through.
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(20),
+        # A checker that answers "allowed" after 16 s: with a cap of 16 s or more the call would go through.
+        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(16),
                                    FO4SF_GUARD_TIMEOUT_MS="600000")["out"], ["refuse"])
         # and the sleeper itself does answer allowed, given the time
         self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(0))["out"],
                          ["allow"])
+
+    def test_each_working_directory_argument_is_checked(self):
+        calls = [["bash", {"command": "git status", key: "docs"}] for key in ("workdir", "cwd", "dir", "directory")]
+        self.assertEqual(self.hook(calls)["out"], ["refuse"] * len(calls))
+        calls = [["bash", {"command": "git status", key: "."}] for key in ("workdir", "cwd", "dir", "directory")]
+        self.assertEqual(self.hook(calls)["out"], ["allow"] * len(calls))
 
     def test_a_session_in_a_subfolder_is_refused(self):
         # with no workdir, or one that names the session's own (sub)folder or the root

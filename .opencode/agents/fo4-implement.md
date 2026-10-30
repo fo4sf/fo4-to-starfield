@@ -13,6 +13,8 @@ permission:
     "opencode.json": deny
     ".opencode/**": deny
     "tools/ai-team/**": deny
+    "*/.opencode/*": deny
+    "*/opencode.json*": deny
   bash:
     "*": ask
     "python -m unittest*": allow

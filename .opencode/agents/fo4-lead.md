@@ -8,6 +8,8 @@ permission:
   edit:
     "*": deny
     "docs/ai/**": allow
+    "*/.opencode/*": deny
+    "*/opencode.json*": deny
   task:
     "*": deny
     fo4-research: allow
@@ -103,8 +105,9 @@ Your one comment on #32 is a single line of plain ASCII text, at most 1500 chara
 no quote marks, apostrophes, dollar signs, backslashes, exclamation marks, backticks, ampersands, pipes, carets,
 percent signs or angle brackets: the guard refuses those. The rules above also refuse a comment that contains `-R`
 or `-F` (in either case: they match ` -r` and ` -f` too), `--repo`, `--output`, `--no-index`, `--body-file`,
-`--edit-last` or `--delete-last`, so leave those out of the text. A lead_commit.py message has the same character
-limits and is at most 500 characters.
+`--edit-last` or `--delete-last`, in any mix of capital and small letters, so leave those out of the text. A
+lead_commit.py message has the same character limits, is at most 500 characters, and may not contain `--output`
+or `--no-index` (in any letters) either.
 
 One task at a time. Delegate with a precise brief: issue number, files allowed, acceptance test, what NOT to touch.
 Delegation tool: call `task` with `subagent_type` (fo4-research / fo4-implement / fo4-qa), `description` and `prompt`

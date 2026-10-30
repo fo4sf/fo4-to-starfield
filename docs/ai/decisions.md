@@ -1036,15 +1036,24 @@ decided the import path); keeping the order as a parameter (two orders in the co
   HTTP and the Windows path rules.
 - Follow-up (30 Oct, the re-review at 8457816c was CLEAR with nine low notes, all taken): unittest names now accept
   unittest's skip marks on methods, `import unittest.mock` next to `import unittest`, and same-file mixin bases (a scan
-  of all 704 runtime TestCase classes and 3839 test methods found none refused, and nothing allowed that unittest
-  would not treat as a test; 15 classes and 17 methods were refused before); `-I` is refused for discovery too;
+  of all 704 runtime TestCase classes and the 3848 test methods defined in their bodies found none refused, and
+  nothing allowed that unittest would not treat as a test; before, 15 classes with their 151 methods and 17 more
+  methods, 168 names in all, were refused; the 157 test ids a class inherits stay refused and run through the class
+  or the module); `-I` is refused for discovery too;
   `run-lead.ps1` resolves Python and OpenCode before it writes the pid file or sets the environment, does both inside
   its `try`, and gives a dot-sourced window its own `FO4SF_*` values back; the Lead's comment rules list everything
   OpenCode's own denies match (`-r` and `-f` in either case, `--edit-last`, `--delete-last`); the plugin tests fail
   in CI without node instead of skipping, and their timeout cases use a Python sleeper so they run on Windows too; new
   tests cover a subfolder session with a relative workdir, the exact list of known tools, the header for every agent,
   a header-bearing request reaching the model, the run-lead lines exactly, and one step looser for each allowed
-  command.
+  command. A second self-check then tightened what counts as a test: a name bound anywhere else in the file (in a
+  block, by a `global`, an except-as or a match capture, or a star import) no longer counts; only unittest's own
+  marks in their own form do (`expectedFailure(x)` returns `x`); and no mixin or case may define
+  `__init_subclass__` or other hooks that could rewrite a test. `run-lead.ps1` takes only programs for Python and
+  OpenCode, ends a run whose pid file is deleted or taken over, and removes the pid file only while it is its own.
+  The Lead and fo4-implement may not write a nested `.opencode/` folder or `opencode.json`. More tests: a program
+  named by a path or with an extension, every PowerShell number form, `-I` against a `json.py` beside the checker,
+  every working-directory argument name, a 1 s timeout that really takes about 1 s, and a 16 s checker past the cap.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must

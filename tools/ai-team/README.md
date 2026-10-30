@@ -154,12 +154,13 @@ may only be absent, `.` or the root itself, written out, because the agents can 
 script paths, git's repo discovery, gh's choice of repo and unittest discovery all follow the working directory. A
 session opened in a subfolder gets every shell call refused. It then accepts only:
 `gh issue list|view`, `gh pr list|view|diff` (read-only, numbers and the listed flags), `gh issue comment 32 --body
-"Lead (local): ..."`; `git status`, `git log`, `git diff`, `git show`, `git worktree list`, `git branch --show-current`
-and `git rev-parse` with the listed switches, revisions before `--`, and repo-relative paths after it; `python -I
+"Lead (local): ..."`; `git status`, `git log`, `git diff`, `git show`, `git worktree list` (or with `--porcelain`), `git branch`
+(bare, `--list` or `--show-current`) and `git rev-parse` with the listed switches, revisions before `--`, and repo-relative paths after it; `python -I
 tools/ai-team/lead_commit.py "<message>"`; `guardian.py status`, `report` and `report --hours <n>`; `team.py
 board|status`; `wake_agent.py status`; `scripts/guard.py`; and `python -m unittest`, without `-I`, on
-`tests.test_<name>` modules that exist, or one TestCase class or test method the file itself defines (unittest calls
-whatever a dotted name ends on, so nothing else may follow the module name), or as `discover -s tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
+`tests.test_<name>` modules that exist, or one TestCase class the file itself defines, or a test method defined in
+that class's own body (unittest calls whatever a dotted name ends on, so nothing else may follow the module name;
+the rules are below), or as `discover -s tests`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
 `wake_agent.py codex|grok`, and `python -c`. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
 also refuses a `task` call whose `subagent_type` is fo4-implement, which can edit code and then run the tests it
 edited. Left open on purpose: the #32 comment body is one line of text up to 1500 characters (printable ASCII, none
@@ -188,10 +189,25 @@ would show which one did. To check the proxy's side:
 
 The guard also refuses any tool it does not know: OpenCode 1.18.35's built-in tools pass (the shell through the
 checker), an MCP server's or a custom tool's calls do not. The plugin goes by the tool's name, so a custom tool whose
-file is named after a built-in one (`.opencode/tool/grep.js`) would pass unchecked; no agent can make one, because every
-agent is denied writes under `.opencode/`, so only the owner could. Unittest by name takes a module, or one TestCase
-class or test method that the file itself defines (with mixin bases and unittest's skip marks), never with `-I`. `opencode agent create` asks the model outside the session
-path, with no guard header, so it gets HTTP 403 from the guardian: create agents with another provider, or by hand.
+file is named after a built-in one (`.opencode/tool/grep.js`) would pass unchecked. No agent can make one: the Lead
+and fo4-implement are denied writes to any `.opencode/` folder and any `opencode.json`, nested ones included
+(`*/.opencode/*`), fo4-research edits two named files and fo4-qa none, so only the owner could. OpenCode also reads a
+`.opencode/` folder and an `opencode.json` from the folder it starts in and each folder above it, so start it at the
+repo root (a session opened in a subfolder gets every shell call refused anyway). `opencode agent create` asks the
+model outside the session path, with no guard header, so it gets HTTP 403 from the guardian: create agents with
+another provider, or by hand.
+
+Unittest by name, never with `-I`, takes a module, one TestCase class, or one test method, read from the file's
+syntax (it is not imported). A class counts when the file binds its name once, at the top level and nowhere else,
+and its bases are `unittest.TestCase` (from `import unittest`, or `from unittest import TestCase`, each name bound
+only by that import), other such classes of the file, or mixins: plain classes of the file with only a docstring,
+`pass` and undecorated methods with ordinary (not `__dunder__`) names. A class takes no keywords (so no metaclass),
+no `__init_subclass__`, and no decorators but unittest's own marks written as `unittest.skip(...)`,
+`unittest.skipIf(...)`, `unittest.skipUnless(...)` and a bare `unittest.expectedFailure`. A method counts when it
+is a `def` in that class's own body whose name the body binds only once, with only those marks. A star import
+makes no class count. Methods a class inherits are not names on their own: run them through the class or the
+module. In the repo's tests that admits all 704 TestCase classes and every test method defined in a class body,
+and nothing unittest would not run as a test.
 
 Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
 brief, which the unattended Lead may not do, and the owner decides whether it may (`wake_agent.py status` only reads).
