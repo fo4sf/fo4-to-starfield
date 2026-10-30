@@ -32,6 +32,8 @@
       "rm *": "deny", "del *": "deny", "Remove-Item*": "deny", "rmdir*": "deny", "format*": "deny",
       "python tools/ai-team/guardian/guardian.py status*": "allow",
       "python tools/ai-team/guardian/guardian.py report*": "allow",
+      "python -I tools/ai-team/guardian/guardian.py status*": "allow",
+      "python -I tools/ai-team/guardian/guardian.py report*": "allow",
       "git diff*--output*": "deny", "git log*--output*": "deny", "git show*--output*": "deny",
       "git diff*--no-index*": "deny",
       "*--output*": "deny", "*--no-index*": "deny", "*>*": "deny"

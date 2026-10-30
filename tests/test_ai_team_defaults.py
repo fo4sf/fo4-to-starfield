@@ -10,6 +10,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEAM = os.path.join(ROOT, "tools", "ai-team")
 sys.path.insert(0, TEAM)
+sys.path.insert(0, os.path.join(TEAM, "guard"))
+import allowlist   # noqa: E402
 import load_model  # noqa: E402  (imports without the lmstudio SDK; main() imports it)
 
 
@@ -200,6 +202,50 @@ class LeadPromptTests(unittest.TestCase):
         for command in ("gh pr review 5 -c -b hi", "gh pr review 5 --approve", "gh pr comment 5 -b hi"):
             self.assertEqual(verdict(rules, command), "deny", command)
 
+    def test_each_team_script_form_the_guard_takes_is_allowed_for_the_agents_that_run_it(self):
+        # The guard takes the team's scripts with or without -I, and lead_commit.py only with it. An unattended run
+        # ends at the first command its rules do not allow: the Lead's first cycle on the PC (30 Oct) wrote
+        # guardian.py status with -I, which only the guard took, and stopped there with no work done.
+        commands = [(python + " " + " ".join(script), script[0])
+                    for script in allowlist.TEAM_SCRIPTS for python in ("python", "python -I")]
+        commands += [(python + " tools/ai-team/guardian/guardian.py report --hours 24", "guardian.py")
+                     for python in ("python", "python -I")]
+        commands.append(("python -I tools/ai-team/lead_commit.py 'refresh agent status'", "lead_commit.py"))
+        for command, script in commands:
+            allowlist.check({"root": ROOT, "command": command})      # raises Refused if the guard would not take it
+            for agent in ("fo4-implement", "fo4-qa") if script == "scripts/guard.py" else ("fo4-lead",):
+                for win32 in (False, True):
+                    self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "allow",
+                                     (agent, win32, command))
+        # and nothing wider, in either form and with either platform's matching: other scripts, -c, -m, the agent
+        # wakes, the guardian's switches, extra arguments, and a script path that runs on past the allowed file
+        # (Windows drops the .. segments of scripts/guard.py/../../x.py as text and runs x.py)
+        root = list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items())
+        wider = ("-c 'print(1)'", "-m pip list", "docs/ai/x.py", "tools/ai-team/load_model.py",
+                 "tools/ai-team/wake_agent.py codex", "tools/ai-team/wake_agent.py grok",
+                 "tools/ai-team/wake_agent.py status codex", "tools/ai-team/guardian/guardian.py stop",
+                 "tools/ai-team/guardian/guardian.py pause", "tools/ai-team/guardian/guardian.py shutdown",
+                 "tools/ai-team/guardian/proxy.py", "scripts/guard.py -v", "scripts/other.py",
+                 "scripts/guard.py/../../tools/ai-team/wake_agent.py codex", "scripts/guard.py/../../docs/ai/x.py",
+                 "scripts/guard.py_x/evil.py", "scripts/guard.py2.py", "tools/ai-team/team.py2.py",
+                 "tools/ai-team/team.py/../x.py", "tools/ai-team/lead_commit.py/../x.py",
+                 "-c 'x' tools/ai-team/team.py status", "-c 'x' tools/ai-team/guardian/guardian.py status",
+                 "tools/ai-team/models.py pick qwen3-14b", "tools/ai-team/models.py ensure",
+                 "tools/ai-team/models.py list x", "tools/ai-team/models.py opencode")
+        for python in ("python", "python -I"):
+            for rest in wider:
+                for win32 in (False, True):
+                    for agent in AGENTS:
+                        self.assertNotEqual(verdict(merged_bash_rules(agent), f"{python} {rest}", win32), "allow",
+                                            (agent, win32, rest))
+                    self.assertNotEqual(verdict(root, f"{python} {rest}", win32), "allow", ("root", win32, rest))
+        # the root list on its own (what applies where no agent's rules do: each agent's "*": ask comes after it and
+        # wins) allows the guardian's reads in both forms
+        for python in ("python", "python -I"):
+            for sub in ("status", "report", "report --hours 24"):
+                command = f"{python} tools/ai-team/guardian/guardian.py {sub}"
+                self.assertEqual(verdict(root, command), "allow", command)
+
 
 class BashRuleTests(unittest.TestCase):
     # Each command writes a file (a redirect, an --output flag, --no-index) or reads one outside the repo. The last
@@ -211,6 +257,9 @@ class BashRuleTests(unittest.TestCase):
         "git show --output=x", "git diff --output=x", "git diff --no-index ~/.ssh/config x",
         "python -m unittest > x", "python scripts/guard.py > x",
         "python tools/ai-team/team.py status > tools/ai-team/team.py", "python tools/ai-team/team.py status --output x",
+        "python -I tools/ai-team/team.py status > tools/ai-team/team.py",
+        "python -I tools/ai-team/team.py status --output x",
+        "python -I tools/ai-team/guardian/guardian.py status > x", "python -I scripts/guard.py > x",
         "git diff C:\\Users\\great\\.ssh\\id_rsa README.md", "git diff /etc/passwd README.md",
         "git diff ../../other-worktree/secret.txt README.md", "git diff ~/.ssh/id_rsa README.md",
         "git diff $HOME/.ssh/id_rsa README.md", "git diff $env:USERPROFILE/.ssh/id_rsa README.md",

@@ -1084,6 +1084,17 @@ decided the import path); keeping the order as a parameter (two orders in the co
   PATH. `run-lead.ps1` always passes a full path, so the unattended Lead is unchanged, and any other session sets the
   variable. The checker now prints `{"allowed": true}` with exit 0, and the plugin needs both, so a wrong program
   behind `FO4SF_PYTHON` that only exits 0 refuses too. A test covers a refusal with no usable reason.
+- Lead turned on (owner's A, 18:08Z 30 Oct). Its first cycle did no work: the Lead wrote
+  `python -I tools/ai-team/guardian/guardian.py status`, which the guard takes but OpenCode's rules did not (they
+  allowed only the form without `-I`), and an unattended run ends at the first command its rules would ask about. The
+  rules now allow both forms of each team script (the Lead's guardian, team and wake_agent reads, QA's and
+  implementation's `scripts/guard.py`, and the guardian reads in `opencode.json`). A test runs every script form the
+  guard takes through the rules of the agents that use it, and checks nothing wider (other scripts, `-c`, `-m`, the
+  agent wakes) is allowed. The review of #618 found `scripts/guard.py*` (QA and implementation, on main and in its new
+  `-I` form) let a script path run on through `guard.py` as a folder: on Windows `scripts/guard.py/../../x.py` runs
+  `x.py`. Both are now the exact command, the negative checks run with both platforms' matching and cover the
+  guardian's switches, extra arguments and such paths, and the guard's tests refuse `python -i` (which OpenCode's
+  Windows matching cannot tell from `-I`). The Lead's file also says to write `python` and only the four git reads.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must

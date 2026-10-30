@@ -209,7 +209,9 @@ the rules are below), or as `discover -s tests`. Some test modules import only u
 and `src/` on `sys.path`: by name they fail with an import error (not a refusal), so run those as `discover -s tests`.
 The #32 comment is taken only as `gh issue comment 32 --body` and one quoted argument (`-b` and `--body=` are
 refused), and a lead_commit message is one argument that does not start with `-`. Everything else is refused, including `git push`, every git write, any `gh` write other than the #32 comment,
-`wake_agent.py codex|grok`, and `python -c`. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
+`wake_agent.py codex|grok`, and `python -c`. OpenCode's own rules (the agent files and `opencode.json`) allow each
+team script with and without `-I`, as the guard does, because an unattended run ends at the first command they do
+not allow. In unattended runs (`run-lead.ps1` sets `FO4SF_UNATTENDED=1`) the plugin
 also refuses a `task` call whose `subagent_type` is fo4-implement, which can edit code and then run the tests it
 edited. Left open on purpose: the #32 comment body is one line of text up to 1500 characters (printable ASCII, none
 of the characters above), so anything the Lead can read inside the repo could be posted there, including an

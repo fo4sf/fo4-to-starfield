@@ -10,7 +10,8 @@ permission:
   bash:
     "*": ask
     "python -m unittest*": allow
-    "python scripts/guard.py*": allow
+    "python scripts/guard.py": allow
+    "python -I scripts/guard.py": allow
     "git diff*": allow
     "git log*": allow
     "git show*": allow
