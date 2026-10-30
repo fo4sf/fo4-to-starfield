@@ -956,11 +956,14 @@ decided the import path); keeping the order as a parameter (two orders in the co
     merge/cherry-pick/revert/rebase in progress, anything staged outside `docs/ai/`, renames counted by their source).
     `fo4-lead.md` allows exactly that command and denies `gh pr review*` and `gh pr comment*` (`gh pr review *
     --comment*` was still allowed on main; #592 only kept reviews out of the prompt).
-  - Any command containing `>`, `--output` or `--no-index` is denied: `"*>*"`, `"*--output*"` and `"*--no-index*"`
-    are the last bash rules globally (`opencode.json`) and in all four agent files. OpenCode's `evaluate` takes the
-    last matching rule in file order (`fromConfig` keeps the order, `merge` concatenates, and an agent file comes
-    after the global block), and a redirect is matched as part of the command's text, so this blocks the plain forms
-    `cmd > file` (including `2>&1`), git's `--output=<file>` and an explicit `git diff --no-index`.
+  - Any command containing `>`, `--output` or `--no-index` is denied: `"*--output*"`, `"*--no-index*"` and `"*>*"`
+    (in that order, with `"*>*"` last) are the final bash rules globally (`opencode.json`) and in all four agent
+    files, after the git-specific denies #603 added (`git diff/log/show --output`, `git diff --no-index`, the
+    git-diff outside-path denies, and the Lead's `gh` flag denies). OpenCode's `evaluate` takes the last matching
+    rule in file order (`fromConfig` keeps the order, `merge` concatenates, and an agent file comes after the global
+    block), and a redirect is matched as part of the command's text, so this blocks the plain forms `cmd > file`
+    (including `2>&1`), git's `--output=<file>`, and `git diff` reading an outside file whether through `--no-index`
+    or a bare absolute/`~`/`$`/`../` path (git switches to no-index on its own when a path is outside the worktree).
   - `run-lead.ps1`: the prompt points the Lead at the wrapper, asks for gh and git without pipes or redirects and for no
     `>` in comment text, and names docs-only or research issues labelled `agent:local-team` + `ready` as good tasks
     (no code changes, no fo4-implement; research and the status refresh stay, as in the #592 entry). It logs a failed
@@ -989,9 +992,10 @@ decided the import path); keeping the order as a parameter (two orders in the co
   fo4-implement may still edit any file through its edit permission; only the prompt keeps the unattended Lead from
   delegating to it (`task` still allows it). These are pattern rules on single command nodes, not a sandbox, and an
   independent review of head dbdac7da showed they do not make the shell safe: some command shapes and settings are
-  never checked, and a plain two-path `git diff` reads outside files without `--no-index`. Several of these gaps are
-  already on main. So the unattended Lead must not run on untrusted input (it reads public issues) until a check
-  before every shell call (an OpenCode plugin) or a restricted OS user is in place; it stays paused until then. 64K
+  never checked. The two-path `git diff` outside-read it found is now denied by #603's path-shape rules, but others
+  remain (for example a path built by shell expansion or command substitution, tracked in #604). So the unattended
+  Lead must not run on untrusted input (it reads public issues) until a check before every shell call (an OpenCode
+  plugin) or a restricted OS user is in place; it stays paused until then. 64K
   makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
   connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
   unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.

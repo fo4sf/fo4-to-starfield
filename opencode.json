@@ -32,7 +32,8 @@
       "python tools/ai-team/guardian/guardian.py status*": "allow",
       "python tools/ai-team/guardian/guardian.py report*": "allow",
       "git diff*--output*": "deny", "git log*--output*": "deny", "git show*--output*": "deny",
-      "git diff*--no-index*": "deny"
+      "git diff*--no-index*": "deny",
+      "*--output*": "deny", "*--no-index*": "deny", "*>*": "deny"
     }
   },
   "agent": {

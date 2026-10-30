@@ -18,6 +18,7 @@ permission:
     "git log*--output*": deny
     "git show*--output*": deny
     "*--output*": deny
+    "*--no-index*": deny
     "*>*": deny
   webfetch: ask
 ---
