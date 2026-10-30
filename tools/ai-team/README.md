@@ -36,7 +36,9 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
    pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`): a running one keeps its old code,
    and `run-lead.ps1` skips its cycles while the running proxy does not refuse requests without the guard header.
-3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
+3. Interactive: first `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` in the window (the
+   guard needs the full path of the real `python.exe`; see "The shell guard" below), then `opencode` in the repository
+   (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
    the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
    One OpenCode session at a time.
@@ -197,7 +199,7 @@ On its first start in a worktree, OpenCode itself installs `@opencode-ai/plugin`
 `.opencode/node_modules` (git-ignored, with its own `package.json`). That is OpenCode's own step for a config folder
 that has a plugin; the guard plugin imports nothing from it, only Node's built-in modules.
 
-To check the guard on the PC, ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
+To check the guard on the PC, start OpenCode from a window with `FO4SF_PYTHON` set (Start, step 3), ask the agent to run a command OpenCode's own rules allow but the guard refuses, for
 example `git log -1 --format=%H` (the rules allow `git log*`), and read the tool error: it must say `guard refused the
 command`, while `git status --short` still runs. Typing the command with `!` in the terminal UI proves nothing (not a
 tool call). A redirect such as `echo x > y` is a poor check: both layers refuse it, so only the wording of the error

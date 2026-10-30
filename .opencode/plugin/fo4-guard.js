@@ -51,13 +51,15 @@ export const Fo4Guard = async ({ worktree, directory }) => {
       // with no verdict, so say what to fix instead
       if (/[\\/]WindowsApps[\\/]/i.test(python)) {
         throw new Error("guard refused the command: FO4SF_PYTHON is the Microsoft Store python alias, which OpenCode " +
-          "cannot start: set it to the python.exe that python -c \"import sys; print(sys.executable)\" prints");
+          "cannot start: set it to the python.exe that python -c \"import sys; print(sys.executable)\" prints, in the " +
+          "window that starts OpenCode");
       }
       // Only a full path: a bare name is looked up when the checker starts, and on Windows that lookup may try the
       // session's folder (the repo, which agents can write) before PATH. run-lead.ps1 always passes one.
       if (!path.isAbsolute(python)) {
         throw new Error(`guard refused the command: FO4SF_PYTHON ${python ? "is not a full path" : "is not set"}: set ` +
-          "it to the python.exe that python -c \"import sys; print(sys.executable)\" prints");
+          "it to the python.exe that python -c \"import sys; print(sys.executable)\" prints, in the window that starts " +
+          "OpenCode");
       }
       const run = spawnSync(python, ["-I", checker], {
         input: JSON.stringify(call),

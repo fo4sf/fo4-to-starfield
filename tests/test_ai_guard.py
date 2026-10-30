@@ -1060,7 +1060,20 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
                     '{"Allowed": true}', '{"allowed": true'):
             self.assertEqual(run(out, 0), ("refuse", no_verdict(sys.executable, 0)), out)
         self.assertEqual(run('{"allowed": false, "reason": "said no"}', 0), ("refuse", "guard refused the command: said no"))
-        self.assertEqual(run('{"allowed": true}', 1), ("refuse", no_verdict(sys.executable, 1)))
+        for code in (1, 2, 255):
+            self.assertEqual(run('{"allowed": true}', code), ("refuse", no_verdict(sys.executable, code)), code)
+        # a checker stopped after it wrote an allowed verdict (a timeout, or killed) has no exit code: refused
+        hung = self.fake_checker("import sys, time\nsys.stdout.write('{\"allowed\": true}')\nsys.stdout.flush()\n"
+                                 "time.sleep(30)\n")
+        got = self.hook([["bash", {"command": "git status"}]], worktree=hung, FO4SF_GUARD_TIMEOUT_MS="1000")
+        self.assertEqual(got["out"], ["refuse"])
+        self.assertIn("ETIMEDOUT", got["messages"][0])
+        if os.name == "posix":
+            killed = self.fake_checker("import os, signal, sys\nsys.stdout.write('{\"allowed\": true}')\n"
+                                       "sys.stdout.flush()\nos.kill(os.getpid(), signal.SIGKILL)\n")
+            got = self.hook([["bash", {"command": "git status"}]], worktree=killed)
+            self.assertEqual(got["messages"], [f"guard refused the command: no verdict from the guard "
+                                               f"({sys.executable}: stopped by SIGKILL)"])
         # a refusal with no usable reason still says what became of the checker
         for out in ('{"allowed": false}', '{"allowed": false, "reason": ""}', '{"allowed": false, "reason": 5}',
                     '{"allowed": false, "reason": ["x"]}', '{"allowed": false, "reason": null}'):
@@ -1068,7 +1081,8 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
 
     def test_only_a_full_path_to_python_starts_the_checker(self):
         # A bare name is looked up when the checker starts (on Windows maybe in the repo first), so none is started.
-        fix = 'set it to the python.exe that python -c "import sys; print(sys.executable)" prints'
+        fix = 'set it to the python.exe that python -c "import sys; print(sys.executable)" prints, in the window that ' \
+              'starts OpenCode'
         for value, how in ((None, "is not set"), ("", "is not set"), ("python", "is not a full path"),
                            ("python3", "is not a full path"), (os.path.basename(sys.executable), "is not a full path"),
                            ("./python", "is not a full path"), ("bin/python3", "is not a full path"),
