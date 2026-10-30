@@ -8,8 +8,9 @@ shell metacharacter and expansion, and accepts only the argument lists below. An
 The OpenCode plugin .opencode/plugin/fo4-guard.js runs this before each shell call. It passes one JSON object on stdin:
   {"root": "<worktree root>", "directory": "<the session's folder>", "command": "<the command text>",
    "workdir": "<optional directory>"}
-Exit 0 means allowed. Exit 1 means refused, with {"allowed": false, "reason": "..."} on stdout. Anything unreadable is a
-refusal too. Run it by hand (PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
+Allowed is exit 0 with {"allowed": true} on stdout; the plugin needs both, so a wrong program that only exits 0 refuses
+too. Refused is exit 1 with {"allowed": false, "reason": "..."}. Anything unreadable is a refusal too. Run it by hand
+(PowerShell):  Get-Content call.json | python -I tools/ai-team/guard/allowlist.py
 """
 import ast
 import json
@@ -537,6 +538,7 @@ def main():
     except Exception as err:                       # unreadable input fails closed
         print(json.dumps({"allowed": False, "reason": f"guard error ({type(err).__name__})"}))
         return 1
+    print(json.dumps({"allowed": True}))
     return 0
 
 

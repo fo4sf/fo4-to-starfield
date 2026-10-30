@@ -1078,6 +1078,12 @@ decided the import path); keeping the order as a parameter (two orders in the co
   now passes Python's own `sys.executable` and refuses an alias, the plugin refuses an alias path with the fix, and a
   no-verdict refusal names the Python and what became of it. The Lead stays paused until the check passes with
   `run-lead.ps1`'s own resolution.
+- Third follow-up (30 Oct, the review of #607 at d7890d39 was CLEAR with three low notes, all taken): the plugin no
+  longer falls back to a bare `python`. It refuses every shell call while `FO4SF_PYTHON` is unset or not a full path,
+  because a bare name is looked up at start, and on Windows that lookup may try the session's folder (the repo) before
+  PATH. `run-lead.ps1` always passes a full path, so the unattended Lead is unchanged, and any other session sets the
+  variable. The checker now prints `{"allowed": true}` with exit 0, and the plugin needs both, so a wrong program
+  behind `FO4SF_PYTHON` that only exits 0 refuses too. A test covers a refusal with no usable reason.
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`, the plugin under node), not on the
   PC. OpenCode 1.18.35's own build was read for the hook order, the `bash` tool id and its arguments and plugin
   discovery (the review), and for `chat.headers` reaching every model request (the second round). The install must
