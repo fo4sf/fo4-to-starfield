@@ -918,3 +918,16 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Boundary: at 128K RAM still sits above the 88% line, so a hold can still outlast 600 s. If the next unattended cycles
   stall, the fallback is 64K. The 88% restrict, the 95% VRAM block and Guardian's queue wait are unchanged. The test
   `test_provider_header_timeout_outlasts_guardians_queue_wait` keeps the two in order.
+
+## 2026-10-30: the Lead works only inside its own worktree (Claude-cloud)
+- Decision: `.opencode/agents/fo4-lead.md` tells the Lead to start in its worktree root, run every command there with
+  plain relative paths, and never `cd` into another folder or read or write another worktree. Permissions are unchanged.
+- Why: the 00:02Z cycle ran `cd` into the parent folder that holds the other worktrees. OpenCode auto-rejected
+  external_directory in the unattended run, and the cycle ended after 54 s with no work. Guardian was healthy in that
+  cycle (two jobs returned in 20 and 29 s), so the fault was the Lead's directory, not the queue.
+- Alternatives: widen external_directory to the parent folder. Not taken: it would open the sibling worktrees to the
+  Lead, and the prompt rule needs no access the Lead does not already have.
+- Boundary: the rule covers the Lead only. The delegated fo4-implement, fo4-research and fo4-qa agents do not have it
+  yet; if one of them hits the same rejection, the same line goes into its agent file.
+  `test_the_commands_the_lead_is_told_to_run_are_allowed` checks that the prompt's example commands match the Lead's
+  bash rules.
