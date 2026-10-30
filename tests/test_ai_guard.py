@@ -490,8 +490,19 @@ class GuardTests(unittest.TestCase):
                       "match 1:\n    case Foo:\n        pass\n", "for Foo in []:\n    pass\n", "del Foo\n",
                       "def f():\n    global Foo\n", "[(Foo := 1) for _ in []]\n", "from helpers import *\n",
                       "try:\n    pass\nexcept Exception as Foo:\n    pass\n", "if True:\n    import mylib as unittest\n",
-                      "try:\n    from tests import shim as unittest\nexcept ImportError:\n    pass\n"):
+                      "try:\n    from tests import shim as unittest\nexcept ImportError:\n    pass\n",
+                      "if True:\n    del Foo\n", "match {}:\n    case {**Foo}:\n        pass\n",
+                      # what a def, a lambda or a class evaluates where it stands: decorators, defaults, bases, keywords
+                      "@(Foo := print)\ndef g(): pass\n", "def g(x=(Foo := print)): pass\n",
+                      "def g(*, x=(Foo := print)): pass\n", "(lambda x=(Foo := print): x)\n",
+                      "class G((Foo := object)): pass\n", "class G(metaclass=(Foo := type)): pass\n",
+                      "@(Foo := print)\nclass G: pass\n"):
             self.assertEqual(allowlist.test_case_classes("import unittest\n" + case + later), {}, later)
+        # a def's or a class's own body is its own scope: a name bound there is not the module's
+        for inner in ("def g():\n    Foo = print\n", "class G:\n    Foo = print\n", "(lambda Foo: Foo)\n",
+                      "def g(Foo=1): pass\n"):
+            self.assertEqual(allowlist.test_case_classes("import unittest\n" + case + inner), {"Foo": {"test_a"}},
+                             inner)
         # a method rebound in its class body, at any depth of that body
         self.assertEqual(allowlist.test_case_classes(
             "import unittest\nclass Foo(unittest.TestCase):\n    def test_a(self): pass\n"
