@@ -125,9 +125,9 @@ bash rules of the global block and of every agent file (OpenCode takes the last 
 after the global block, and matches a redirect as part of the command's text). That blocks the plain forms an
 independent review found behind the allowed git commands (`cmd > file`, git's `--output=<file>`, an explicit
 `git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
-and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **Do not run the Lead
-unattended on untrusted input (it reads public issues) until a check before every shell call (an OpenCode plugin) or
-a restricted OS user is in place.** The Lead commits its own
+and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **The unattended Lead
+reads public issues, so it runs only with the shell guard below in place, and the Lead stays paused until the owner
+decides the guard is installed and checked on the PC.** The Lead commits its own
 `docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
 (a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
@@ -136,6 +136,32 @@ unmerged files or is not on `ai/local-lead`, so a conflict or a moved worktree w
 also refuses a `>` inside quoted text (a #32 comment with "RAM > 85%"); the prompt tells the Lead to avoid the
 character. fo4-implement may still edit any file through its edit permission; the unattended Lead's prompt keeps it
 from delegating to fo4-implement (prompt only: `task` still allows it).
+
+### The shell guard
+
+OpenCode's bash rules match text, one pattern at a time, so some command shapes get past any list of patterns. The
+guard is a second layer that allows only exact argument lists. `.opencode/plugin/fo4-guard.js` sends each shell call
+to `tools/ai-team/guard/allowlist.py` on stdin, and a call goes ahead only if the checker exits 0; a missing Python, a
+timeout or unreadable output all refuse. The checker tokenizes the command the way bash and PowerShell read quotes,
+refuses every shell metacharacter and expansion outside quotes, refuses `$`, backticks, backslashes, `!` and quote
+characters inside quotes, and refuses an unquoted comma. Commands run from the repo root only: a workdir anywhere
+else is refused, a subfolder too, because the agents can write under `docs/ai/` and relative script paths, git's repo
+discovery, gh's choice of repo and unittest discovery all follow the working directory. It then accepts only:
+`gh issue list|view`, `gh pr list|view|diff` (read-only, numbers and the listed flags), `gh issue comment 32 --body
+"Lead (local): ..."`; `git status`, `git log`, `git diff`, `git show`, `git worktree list`, `git branch --show-current`
+and `git rev-parse` with the listed switches, revisions before `--`, and repo-relative paths after it; `python -I
+tools/ai-team/lead_commit.py "<message>"`; `guardian.py status|report`; `team.py board|status`; `scripts/guard.py`; and
+`python -m unittest` on `tests.<module>` names or as `discover -s tests`. Everything else is refused, including `git
+push`, any `gh` write other than the #32 comment, `wake_agent.py`, and `python -c`. In unattended runs (`run-lead.ps1`
+sets `FO4SF_UNATTENDED=1`) the plugin also refuses a `task` call to fo4-implement, which can edit code and then run the
+tests it edited; until now only the prompt kept the Lead from doing that. Left open on purpose: the #32 comment body is
+free text up to 1500 characters, so anything the Lead can read inside the repo could be posted there. The repo is
+public, and reads outside it stay refused.
+
+Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it starts an agent with approvals on a
+brief, which the unattended Lead may not do, and the owner decides whether it may. `team.py *` is now `board` and
+`status`, the only two subcommands it has. Tests: `tests/test_ai_guard.py`. The guard is one layer: the OpenCode rules
+above stay in place, and both must allow a call.
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 

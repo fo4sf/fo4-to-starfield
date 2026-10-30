@@ -999,3 +999,23 @@ decided the import path); keeping the order as a parameter (two orders in the co
   makes holds rarer, not impossible (working peak 90.3%). A held streaming request whose
   connection was closed without a response (job 79 at 12:44, the 16:54 session's "socket connection was closed
   unexpectedly") is what #601 addresses; the running guardian picks #601 up when it is restarted.
+
+## 2026-10-30: the unattended Lead's shell calls go through an exact allow-list (Claude-cloud)
+
+- Decision: every shell call the local team makes passes `tools/ai-team/guard/allowlist.py` before it runs. The OpenCode
+  plugin `.opencode/plugin/fo4-guard.js` sends the command text on stdin (no shell involved) and throws unless the
+  checker exits 0. The checker accepts only the argument lists in its docstring and README section, refuses shell
+  syntax, expansions and quote characters outside the allowed forms, and runs commands from the repo root only (an
+  adversarial pass showed a subfolder the agents can write to would let a planted file change what an allowed command
+  runs). Unattended runs (`FO4SF_UNATTENDED=1` from `run-lead.ps1`) also refuse delegation to fo4-implement. Two grants
+  are narrowed: `wake_agent.py codex|grok` is refused, and `team.py *` becomes `board` and `status`.
+- Why: the pattern rules leak in shapes they do not see (git's automatic no-index read outside the repo, a `$(...)`
+  built after the check, a workdir pointing elsewhere), and the Lead reads public issues. An exact list refuses what it
+  does not name instead of trying to name every bad shape. The owner chose A on 30 Oct: build the guard, then turn the
+  Lead on.
+- Alternatives: keep adding pattern denies (rejected: each new shape is a new hole, and that is how #603 came about);
+  a restricted Windows user (B, the strongest boundary, but only the owner can create it; it remains an option on top);
+  stay with the Lead paused (safe, but it does nothing).
+- Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`), not on the PC. The plugin hook
+  (`tool.execute.before`) is read from the 1.19.5 type definitions, and the PC runs 1.18.35. The install must confirm
+  the plugin loads and refuses a canary command (for example `echo guard-canary > x`) before the Lead is turned on.

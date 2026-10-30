@@ -40,6 +40,7 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py '<what changed>' " +
           "(it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
+$env:FO4SF_UNATTENDED = '1'                         # the guard plugin then refuses delegation to fo4-implement
 $wait = $Interval; $cycle = 0
 try {
   while ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) {
