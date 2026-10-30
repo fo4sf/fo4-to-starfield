@@ -72,12 +72,18 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(agents), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         self.assertEqual(set(agents.values()), {load_model.DEFAULT_MODEL})
 
-    def test_run_lead_checks_for_that_model(self):
-        m = re.search(r"lms ps 2>&1 \| Out-String\) -match '([^']+)'", read("run-lead.ps1"))
-        self.assertIsNotNone(m, "run-lead.ps1 has no loaded-model check")
-        pattern = m.group(1)
-        self.assertRegex(f"{load_model.DEFAULT_MODEL}    {load_model.DEFAULT_MODEL}    IDLE", pattern)
-        self.assertNotRegex("qwen3-14b    qwen3-14b    IDLE", pattern)
+    def test_the_default_preset_is_the_loaders_default(self):
+        cfg = json.loads(read("config.json"))
+        default = cfg["models"][cfg["default_model"]]
+        self.assertEqual((default["model"], default["context"]), (load_model.DEFAULT_MODEL, load_model.DEFAULT_CONTEXT))
+
+    def test_run_lead_loads_the_picked_model_and_hands_its_limits_to_opencode(self):
+        # The pick (models.py), not a fixed model name: a fixed check would load the 35B beside a picked 14B.
+        script = read("run-lead.ps1")
+        self.assertNotIn("lms ps", script)
+        self.assertIn("& $Python $models ensure", script)
+        self.assertIn("$env:OPENCODE_CONFIG_CONTENT = (& $Python $models opencode", script)
+        self.assertLess(script.index("$models ensure"), script.index("Start-Process -FilePath $opencode"))
 
     def test_unattended_lead_takes_no_qa_reviews(self):
         script = read("run-lead.ps1")

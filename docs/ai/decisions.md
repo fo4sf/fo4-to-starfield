@@ -1019,3 +1019,32 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Not yet true: the checker and plugin are tested here (`tests/test_ai_guard.py`), not on the PC. The plugin hook
   (`tool.execute.before`) is read from the 1.19.5 type definitions, and the PC runs 1.18.35. The install must confirm
   the plugin loads and refuses a canary command (for example `echo guard-canary > x`) before the Lead is turned on.
+
+## 2026-10-30: one desktop menu, a guarded terminal for the local agents, and a model pick the whole team follows (Claude-cloud)
+
+- Decision: the owner chose A, C and E on 30 Oct: OpenCode's own terminal UI on the team's agents with the guard on
+  (A), one "FO4SF AI" desktop menu to start the team, open its terminal, start Claude Code, show status, pick a model
+  and stop (C), and Claude-cloud builds it in the repo while the PC session only installs and tests (E).
+  - `models.py` keeps one pick (a preset from `config.json` "models", or any downloaded model) in the state dir. The
+    guardian proxy sends every agent to the pick, and `terminal.ps1` and `run-lead.ps1` pass its limits to OpenCode
+    through `OPENCODE_CONFIG_CONTENT`. A load refuses while requests run, pauses the guardian and unloads the team's
+    other models first. `run-lead.ps1` loads the pick (`models.py ensure`) instead of matching one model name.
+  - `terminal.ps1` runs in its own worktree (`ai/local-terminal`) and sets `FO4SF_OWNER_PRESENT=1`. With it, the guard
+    also allows `agent_git.py`: a branch and commits of named files on the agent's own `ai/` branch, with no hooks, and
+    never a push (pick J, offered to the owner with K, strict). Skills from outside the repo stay hidden from the team,
+    which keeps one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
+  - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
+    CI or git's files. The agents' edit rules said most of it already; the checker holds where a pattern misses.
+  - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
+    `run-lead.ps1 -MaxCycles 1 -Brief` session on the PC), and the Lead's `/handoff` posts a `Lead (local): for
+    Claude:` comment on #32. Claude Code's side is four skills in `.claude/skills/`.
+- Why: the owner asked for a terminal to talk to the team when Claude is away, a desktop start for the team and for
+  Claude Code, more models, and skills for control and delegation both ways. A pick the proxy and OpenCode both read
+  replaces the hand edits of `opencode.json` that the 14B and 128K setups needed, which the review of #587 flagged.
+- Alternatives: the PC session building its own guard and commands (dropped by the owner's E); a web UI (`opencode
+  web`, more moving parts); committing per-model `opencode.json` files (one would always be stale).
+- Not yet true: none of it has run on the PC. PowerShell 5.1 was not available here to parse the scripts, and the
+  OpenCode switches (`OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `permission.skill`, the
+  `.opencode/commands/` and `.opencode/skills/` folders) are taken from the current OpenCode docs, while the PC runs
+  1.18.35. The install must show the menu, the terminal on the picked model, a refused write to `opencode.json`, and
+  `opencode debug skill` listing only `fo4-allowed-commands`.

@@ -9,6 +9,8 @@ queue_wait_s, then get HTTP 503. Mode "stopped" rejects new jobs at once. Every 
 
 Agent attribution: the model name the client asks for may be an alias from config.json "agents"
 (e.g. "fo4-lead" -> the real LM Studio model id); the alias names the agent. Unknown names pass through as-is.
+The model behind every alias is the one tools/ai-team/models.py picked (store.PICK), read on each request, or
+config.json's map when nothing is picked.
 Usage: tokens from the API's `usage` field when present (streams ask for it via stream_options.include_usage),
 otherwise estimated as characters/4 and labelled "estimate".
 
@@ -64,7 +66,7 @@ def _log(msg):
 def _agent_and_model(name):
     agents = CFG.get("agents", {})
     if name in agents:
-        return name, agents[name]
+        return name, store.picked_model() or agents[name]     # models.py's pick serves every agent: one model loaded
     return "unknown", name
 
 

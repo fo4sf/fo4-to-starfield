@@ -21,6 +21,7 @@
     "external_directory": "ask",
     "webfetch": "ask",
     "websearch": "ask",
+    "skill": { "*": "deny", "fo4-*": "allow" },
     "bash": {
       "*": "ask",
       "git status*": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git branch*": "allow",

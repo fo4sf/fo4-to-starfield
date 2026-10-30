@@ -1,0 +1,74 @@
+"""The implementation agent's own branch and commits, in the owner's terminal only (terminal.ps1).
+
+  python -I tools/ai-team/agent_git.py branch ai/<name>                 new branch from HEAD, switched to
+  python -I tools/ai-team/agent_git.py commit "<what changed>" <paths>  commit exactly these paths on the ai/ branch
+
+git runs as in lead_commit.py: no GIT_* variables but the identity, core.hooksPath at the null device, core.fsmonitor
+off, so no planted hook or injected setting runs. Refuses (exit 1) in an unattended run (FO4SF_UNATTENDED=1), off an
+ai/ branch, on ai/local-lead (the unattended Lead's branch, which commits through lead_commit.py), with a merge,
+rebase, cherry-pick or revert in progress, or for a path the agents may not write (the guard's list: the team's rules,
+tools, skills, CI and git's own files). A subject without a local role prefix gets "Implement (local): " (the Lead
+writes "Lead (local): ", for its docs/ai notes in the terminal). Never amends, never pushes.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "guard"))
+import allowlist                                     # noqa: E402  (the guard's write rules)
+from lead_commit import IN_PROGRESS, git            # noqa: E402  (git without hooks or injected settings)
+
+PREFIX = "Implement (local): "
+ROLES = ("Lead (local):", "Implement (local):", "Research (local):", "QA (local):")
+LEAD_BRANCH = "ai/local-lead"
+
+
+def why_not():
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").strip()
+    if not branch.startswith("ai/") or branch == LEAD_BRANCH:
+        return f"on {branch!r}: commits go on the agent's own ai/ branch (agent_git.py branch ai/<name>)"
+    if git("ls-files", "-u").strip():
+        return "unmerged files: resolve them first"
+    busy = [n for n in IN_PROGRESS if os.path.exists(git("rev-parse", "--git-path", n).strip())]
+    if busy:
+        return "a git operation is in progress: " + ", ".join(busy)
+    return None
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if os.environ.get("FO4SF_UNATTENDED") == "1":
+        print("refused: unattended runs do not commit outside docs/ai (lead_commit.py)"); return 1
+    try:
+        root = git("rev-parse", "--show-toplevel").strip()
+        if len(argv) == 2 and argv[0] == "branch":
+            if not allowlist.AGENT_BRANCH.fullmatch(argv[1]) or argv[1] == LEAD_BRANCH:
+                print("refused: the branch is ai/<lowercase-name>, and not ai/local-lead"); return 1
+            git("switch", "-c", argv[1])
+            print(f"on new branch {argv[1]}")
+            return 0
+        if len(argv) >= 3 and argv[0] == "commit":
+            msg, paths = " ".join(argv[1].split()), argv[2:]
+            if not msg or msg.startswith("-"):
+                print("refused: the message is one line that does not start with -"); return 1
+            try:
+                allowlist.check_write(root, paths)
+            except allowlist.Refused as why:
+                print(f"refused: {why}"); return 1
+            reason = why_not()
+            if reason:
+                print(f"refused: {reason}"); return 1
+            if not msg.startswith(ROLES):
+                msg = PREFIX + msg
+            git("add", "--", *paths)
+            git("commit", "--no-verify", "--only", "-m", msg, "--", *paths)   # only these paths, whatever else is staged
+            print(git("log", "-1", "--format=%h %s").strip())
+            return 0
+        print('usage: agent_git.py branch ai/<name> | commit "<what changed>" <paths>'); return 1
+    except RuntimeError as e:
+        print(f"failed: {e}"); return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -12,6 +12,7 @@ import time
 STATE = os.environ.get("FO4_AI_TEAM_STATE") or os.path.join(
     os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "fo4-ai-team", "state")
 DB = os.path.join(STATE, "guardian.db")
+PICK = "model.json"                   # the model the team runs on; tools/ai-team/models.py writes it
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -43,6 +44,17 @@ def get_mode(c):
 
 def set_mode(c, mode):
     c.execute("INSERT OR REPLACE INTO control VALUES ('mode', ?, ?)", (mode, time.time()))
+
+
+def picked_model():
+    """The LM Studio model id models.py picked, or None (no pick yet, or a file it cannot read): the proxy then keeps
+    config.json's agent map."""
+    try:
+        with open(os.path.join(STATE, PICK), encoding="utf-8") as f:
+            model = json.load(f).get("model")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return model if isinstance(model, str) and model else None
 
 
 def log_decision(c, job_id, decision, lv, reasons):

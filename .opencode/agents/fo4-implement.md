@@ -19,9 +19,7 @@ permission:
     "python scripts/guard.py*": allow
     "git status*": allow
     "git diff*": allow
-    "git add *": allow
-    "git commit *": ask
-    "git switch -c ai/*": allow
+    "python -I tools/ai-team/agent_git.py *": allow
     "git push*": deny
     "git merge*": deny
     "git reset --hard*": deny
@@ -43,3 +41,6 @@ Work only on the issue, files and branch the Lead gave you; if the brief is uncl
 Never edit files owned by another agent (docs/CODEX-HANDOFF.md lists owners). No format assumption without a
 research-log entry. Add a synthetic-fixture unittest for every behaviour change; run `python -m unittest discover -s tests`
 and `python scripts/guard.py` before reporting. Report: files changed, tests added, test output, open risks.
+Branch and commit only in the owner's terminal, and only through the wrapper (plain `git add`, `git switch` and
+`git commit` are refused): `python -I tools/ai-team/agent_git.py branch ai/<issue>-<slug>`, then
+`python -I tools/ai-team/agent_git.py commit "Implement (local): <what changed>" <each file you changed>`. Never push.

@@ -1,10 +1,11 @@
 # Run the local Lead in cycles (interactive; not a Windows service or scheduled task). Stop with Ctrl+C,
 # `guardian.py stop` (exits at the next check) or by deleting the pid file.
-#   powershell -File tools\ai-team\run-lead.ps1 [-Interval 1800] [-MaxCycles 0] [-SessionTimeout 2700]
+#   powershell -File tools\ai-team\run-lead.ps1 [-Interval 1800] [-MaxCycles 0] [-SessionTimeout 2700] [-Brief "<task>"]
+# -Brief hands the session one task (Claude's local-team-delegate skill runs -MaxCycles 1 -Brief ...).
 # Each cycle: skip if Starfield runs or the guardian is paused/stopped/blocked; make sure the guardian proxy and the
 # model are up; run ONE Lead session in the Lead's own worktree (branch ai/local-lead, so its doc edits never collide
 # with other agents in the main checkout); log it. Failures back off (x2, up to 4 h); success resets the interval.
-param([int]$Interval = 1800, [int]$MaxCycles = 0, [int]$SessionTimeout = 2700,
+param([int]$Interval = 1800, [int]$MaxCycles = 0, [int]$SessionTimeout = 2700, [string]$Brief = '',
       [string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }))
 $repo = Split-Path (Split-Path $PSScriptRoot)
 $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }
@@ -40,7 +41,14 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Commit your own docs/ai edits on this branch with python -I tools/ai-team/lead_commit.py '<what changed>' " +
           "(it commits only docs/ai); never push. " +
           "At most one comment on #32, prefixed 'Lead (local):'. If nothing is ready, say so and stop."
+if ($Brief) {                                       # one line, and no character that ends the quoted argument
+  $prompt += " Your task for this session, from the owner or Claude: " + (($Brief -replace '\s+', ' ') -replace '["`$\\]', "'")
+}
 $env:FO4SF_UNATTENDED = '1'                         # the guard plugin then refuses delegation to fo4-implement
+Remove-Item Env:FO4SF_OWNER_PRESENT -ErrorAction SilentlyContinue   # and nothing here counts as the owner's terminal
+$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'         # no skills from ~/.claude or ~/.agents (the claude.ai ones)
+$env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'      # the same switch under its older name
+$models = Join-Path $PSScriptRoot 'models.py'
 $wait = $Interval; $cycle = 0
 try {
   while ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) {
@@ -52,9 +60,9 @@ try {
       Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)"; Start-Sleep $Interval; continue
     }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null
-    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
-      Log "model not loaded: loading"; & $Python (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
-    }
+    $ensure = (& $Python $models ensure 2>&1 | Out-String).Trim()    # the picked model (models.py), loaded if missing
+    if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: skipped: the picked model is not loaded: $ensure"; Start-Sleep $Interval; continue }
+    $env:OPENCODE_CONFIG_CONTENT = (& $Python $models opencode | Out-String).Trim()   # OpenCode's limits = the loaded window
     $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()
     if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no other branch is rebased
       Log "cycle ${cycle}: skipped: $wt is on '$branch', not ai/local-lead"; Start-Sleep $Interval; continue

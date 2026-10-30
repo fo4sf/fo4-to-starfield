@@ -19,25 +19,55 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 | Wake an idle Codex / Grok (forks its last session, one headless turn; idle + cooldown guards) | `tools/ai-team/wake_agent.py` |
 | Runtime state, history DB, logs (outside the repo) | `%LOCALAPPDATA%\fo4-ai-team\state\` (`guardian.db`, `proxy.log`; override with `FO4_AI_TEAM_STATE`) |
 | Project knowledge, optimization log | `docs/ai/` (`optimization.md`: baselines + before/after entries) |
+| Model picker (presets in `config.json` "models", or any downloaded model; the proxy and OpenCode follow the pick) | `tools/ai-team/models.py` |
+| The FO4SF AI desktop menu, the agents' terminal, the shortcut maker | `tools/ai-team/menu.ps1`, `terminal.ps1`, `install-shortcut.ps1` |
+| Shell and file-write guard (allow-list checker + OpenCode plugin) | `tools/ai-team/guard/allowlist.py`, `.opencode/plugin/fo4-guard.js` |
+| The implementation agent's branch and commit wrapper (owner's terminal only) | `tools/ai-team/agent_git.py` |
+| The team's slash commands and its one skill (other skills are hidden from it) | `.opencode/commands/*.md`, `.opencode/skills/fo4-allowed-commands/` |
+| Claude Code skills for working with the team: delegate, check, review, models | `.claude/skills/local-team-*/` |
 
 ## Start
 
-1. LM Studio server on (`lms server start` or the app), Starfield closed. Load the model:
-   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 64K context, K/V cache unquantized, LM Studio places
-   the layers, no memory mapping; `--context 131072` loads the long window by hand, and a 128K session also needs the
-   four `limit.context` values in `opencode.json` set to 131072 locally, not committed). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
-   the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
+The FO4SF AI desktop shortcut does all of this from one menu (next section). By hand:
+
+1. LM Studio server on (`lms server start` or the app), Starfield closed. Pick and load the model:
+   `python tools\ai-team\models.py pick qwen3.6-35b` (the default: 64K context, K/V cache unquantized, LM Studio
+   places the layers, no memory mapping), `qwen3.6-35b-128k` (the long window), `qwen3-14b` (the fallback: 32K, all on
+   the GPU, q8 K/V cache), or any downloaded model with `pick --model <id> --context <tokens>`. The pick is saved in the
+   state dir: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and output
+   limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another window.
+   `pick` refuses while requests run, pauses the guardian during the load and unloads the team's other models first
+   (only ids a preset names). `load_model.py` still loads one model by hand. It needs LM Studio 0.4.27 or newer: the
+   0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
-   The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
-   it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
-   session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
-   that change: the test pins the 64K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status.
-3. Interactive: `opencode` in the repository (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
+3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
-   the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
+   the guardian is paused/blocked; loads the picked model if LM Studio unloaded it (`models.py ensure`). `-MaxCycles 1
+   -Brief "<task>"` runs one session on one task. Log `lead-cycles.log` in the state dir.
    One OpenCode session at a time.
+
+## The FO4SF AI menu and the agents' terminal
+
+`powershell -File tools\ai-team\install-shortcut.ps1` puts an "FO4SF AI" shortcut on the desktop (run once). It opens
+`menu.ps1`: start the local team, talk to the Lead or one agent, start Claude Code in the repo (Opus, Sonnet or Haiku),
+status, pick a model, start the unattended Lead in its own window, pause or resume, stop.
+
+The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
+team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`, branch
+`ai/local-terminal`; a clean one follows main), so the main checkout and the unattended Lead are never touched. The
+guard checks every command and write as in unattended runs. Because the owner is watching, it also allows
+`agent_git.py`: the implementation agent makes its own `ai/<issue>-<slug>` branch and commits named files there, with
+no hooks, never on `ai/local-lead`, never a push. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are
+hidden (`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
+
+The team's commands in the terminal: `/status`, `/board`, `/next [focus]` (one Lead session; it asks before handing
+work to fo4-implement), `/research <question>`, `/review <PR number>` (QA, no edits, no posts), `/handoff <what>`
+(a `Lead (local): for Claude:` comment on #32 that Claude reads). Claude's side is in `.claude/skills/`:
+`local-team-delegate` (issue labelled `agent:local-team` + `ready`, or one `run-lead.ps1 -Brief` session on the PC),
+`local-team-check` (#32, logs, local branches), `local-team-review` (local output is a draft until it passes),
+`local-team-models`.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
 
@@ -162,6 +192,17 @@ Two grants are narrowed on purpose. `wake_agent.py codex|grok` is refused: it st
 brief, which the unattended Lead may not do, and the owner decides whether it may. `team.py *` is now `board` and
 `status`, the only two subcommands it has. Tests: `tests/test_ai_guard.py`. The guard is one layer: the OpenCode rules
 above stay in place, and both must allow a call.
+
+File writes go through the same checker: the plugin sends the paths of every `edit`, `write`, `multiedit`, `patch`
+and `apply_patch` call (a patch's paths from its `*** ... File:` lines; a write that names no file is refused). It
+refuses a write outside the repo and a write to the team's own rules, tools and instructions: `.opencode/`, `.claude/`,
+`.agents/`, `.git/`, `.github/`, `tools/ai-team/`, `opencode.json`, `AGENTS.md`, `docs/CODEX-HANDOFF.md` and
+`scripts/guard.py`, compared without case, as Windows does. The agents' edit rules already deny most of these; the
+check holds where a rule pattern misses a spelling, and it covers the checker itself. In the owner's terminal only
+(`terminal.ps1` sets `FO4SF_OWNER_PRESENT=1`; the plugin ignores it when `FO4SF_UNATTENDED=1`), the checker also allows
+`python -I tools/ai-team/agent_git.py branch ai/<name>` and `... commit "<message>" <paths>`, and the wrapper refuses
+on its own in an unattended run, on `ai/local-lead`, off an `ai/` branch, and for a protected path. `models.py list`
+is allowed everywhere (read only).
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 

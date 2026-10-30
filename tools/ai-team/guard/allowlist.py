@@ -5,10 +5,15 @@ git reads a file outside the repo with no flag once a path lies outside the work
 check, and a workdir can point anywhere. This guard reads a command the way bash and PowerShell read it, refuses every
 shell metacharacter and expansion, and accepts only the argument lists below. Anything else is refused.
 
-The OpenCode plugin .opencode/plugin/fo4-guard.js runs this before each shell call. It passes one JSON object on stdin:
-  {"root": "<repo root>", "command": "<the command text>", "workdir": "<optional directory>"}
-Exit 0 means allowed. Exit 1 means refused, with {"allowed": false, "reason": "..."} on stdout. Anything unreadable is a
-refusal too. Run it as:  python -I tools/ai-team/guard/allowlist.py < call.json
+The OpenCode plugin .opencode/plugin/fo4-guard.js runs this before each shell call and each file write. It passes one
+JSON object on stdin, for a shell call:
+  {"root": "<repo root>", "command": "<the command text>", "workdir": "<optional directory>", "owner_present": false}
+and for a file write (edit, write, patch), the paths the tool would write:
+  {"root": "<repo root>", "write": ["<path>", ...]}
+owner_present is true only in the owner's terminal (terminal.ps1), never in an unattended run: it adds the implementation
+agent's branch and commit wrapper (agent_git.py). Exit 0 means allowed. Exit 1 means refused, with
+{"allowed": false, "reason": "..."} on stdout. Anything unreadable is a refusal too.
+Run it as:  python -I tools/ai-team/guard/allowlist.py < call.json
 """
 import json
 import os
@@ -230,6 +235,7 @@ TEAM_SCRIPTS = (
     ["tools/ai-team/guardian/guardian.py", "report"],
     ["tools/ai-team/team.py", "board"],
     ["tools/ai-team/team.py", "status"],
+    ["tools/ai-team/models.py", "list"],
     ["scripts/guard.py"],
 )
 # The Codex and Grok wakes are refused: wake_agent.py starts an agent with approvals on a brief, which the unattended
@@ -237,11 +243,35 @@ TEAM_SCRIPTS = (
 TEST_ARGS = re.compile(r"tests\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*")
 
 
-def python(argv):
+AGENT_BRANCH = re.compile(r"ai/[a-z0-9][a-z0-9-]{0,79}")
+
+
+def agent_git(rest, isolated, owner_present):
+    """The implementation agent's branch and commit, in the owner's terminal only (agent_git.py runs git without hooks
+    and checks the branch and paths itself)."""
+    if not owner_present:
+        raise Refused("agent_git runs only in the owner's terminal")
+    if not isolated:
+        raise Refused("agent_git runs as: python -I tools/ai-team/agent_git.py ...")
+    if len(rest) == 3 and rest[1] == "branch" and AGENT_BRANCH.fullmatch(rest[2]):
+        return
+    if len(rest) >= 4 and rest[1] == "commit":
+        message, paths = rest[2], rest[3:]
+        if message.startswith("-") or not message.strip() or len(message) > 500:
+            raise Refused("agent_git commit takes one message that does not start with -, then paths")
+        if not all(path(p) for p in paths):
+            raise Refused("a path must be relative, inside the repo, with no '..' segment")
+        return
+    raise Refused('agent_git takes: branch ai/<name>, or commit "<message>" <paths>')
+
+
+def python(argv, owner_present=False):
     rest = argv[1:]
     isolated = rest[:1] == ["-I"]
     if isolated:
         rest = rest[1:]
+    if rest[:1] == ["tools/ai-team/agent_git.py"]:
+        return agent_git(rest, isolated, owner_present)
     if rest[:1] == ["tools/ai-team/lead_commit.py"]:
         if not isolated:
             raise Refused('lead_commit runs as: python -I tools/ai-team/lead_commit.py "<what changed>"')
@@ -262,20 +292,46 @@ def python(argv):
     raise Refused("this python command is not on the list")
 
 
-def dispatch(argv):
+def dispatch(argv, owner_present=False):
     exe = argv[0].lower()
     if exe == "gh":
         return gh(argv)
     if exe == "git":
         return git(argv)
     if exe in ("python", "python3"):
-        return python(argv)
+        return python(argv, owner_present)
     raise Refused(f"command is not on the list: {exe}")
+
+
+# ---- file writes: never the team's own rules, tools or instructions, and never outside the repo ------------------------
+
+PROTECTED = (".opencode/", ".claude/", ".agents/", ".git/", ".github/", "tools/ai-team/", "scripts/guard.py",
+             "opencode.json", "agents.md", "docs/codex-handoff.md")
+
+
+def check_write(root, paths):
+    """Refuse a write to the guard, the agents' rules, the launchers and skills, CI, git's own files, or outside the
+    repo. OpenCode's edit rules say the same per agent; this holds even where a rule pattern misses a spelling."""
+    if not isinstance(root, str) or not root:
+        raise Refused("a write needs the repo root")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        raise Refused("a write names no file")
+    real_root = os.path.realpath(root)
+    for p in paths:
+        target = os.path.realpath(os.path.join(real_root, p))
+        rel = os.path.relpath(target, real_root).replace(os.sep, "/")
+        if rel == "." or rel == ".." or rel.startswith("../") or os.path.isabs(rel):
+            raise Refused(f"writes stay inside the repo: {p}")
+        low = rel.lower()                           # Windows paths ignore case
+        if any(low == x.rstrip("/") or (x.endswith("/") and low.startswith(x)) for x in PROTECTED):
+            raise Refused(f"the team's own rules, tools and instructions are not written by an agent: {rel}")
 
 
 def check(call):
     if not isinstance(call, dict):
         raise Refused("no call")
+    if "write" in call:
+        return check_write(call.get("root"), call.get("write"))
     command = call.get("command")
     if not isinstance(command, str):
         raise Refused("no command text")
@@ -288,7 +344,7 @@ def check(call):
             raise Refused("a workdir needs the repo root")
         if os.path.realpath(os.path.join(root, workdir)) != os.path.realpath(root):
             raise Refused("commands run from the repo root only")
-    dispatch(tokenize(command))
+    dispatch(tokenize(command), call.get("owner_present") is True)
 
 
 def main():
