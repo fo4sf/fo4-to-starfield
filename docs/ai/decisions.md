@@ -1133,10 +1133,12 @@ decided the import path); keeping the order as a parameter (two orders in the co
     already; the checker holds where a pattern misses, for the writes and commands an agent makes itself.
   - What it cannot hold in the terminal: the coding agent writes tests and runs them, and a test can run any code with
     the owner's rights (a push with their login, or a change to the guard's files in the worktree). No allow-list can
-    fence a test runner, so there OpenCode asks the owner before every `python -m unittest` run (fo4-implement's and
-    fo4-qa's rules), the terminal does not start while the worktree's guard or agent files are not main's, and "never
-    pushes" in the terminal rests on the model and on the owner reading those prompts. Unattended runs are unchanged:
-    they refuse fo4-implement and take no QA reviews, so no agent there writes and runs a test.
+    fence a test runner, so there OpenCode asks the owner before each `python -m unittest` run (fo4-implement's and
+    fo4-qa's rules) as long as the owner answers Allow once (Allow always or auto-accept stops the asking until OpenCode
+    exits), the terminal does not start while the worktree has a change to a file the guard refuses an agent to write
+    or is on a branch that differs from main in one, and "never pushes" in the terminal rests on the model and on the
+    owner reading those prompts. The owner's own OpenCode config (~/.config/opencode) is not checked. Unattended runs
+    are unchanged: they refuse fo4-implement and take no QA reviews, so no agent there writes and runs a test.
   - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
     `run-lead.ps1 -MaxCycles 1 -Brief` session on the PC), and the Lead's `/handoff` posts a `Lead (local): for
     Claude:` comment on #32. Claude Code's side is four skills in `.claude/skills/`.

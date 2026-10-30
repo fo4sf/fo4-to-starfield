@@ -36,12 +36,16 @@ $shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorActi
 $opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\opencode.exe'
 if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode.exe at $opencode (install OpenCode with npm)" }
 
-if (Test-Path $pidFile) {                                   # single instance
+$file = Get-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+if ($file) {                                                # single instance
   $old = "$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim()
   # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process), and so is one
-  # whose pid Windows has since given to this or another kind of process (a run that never reached its finally)
+  # whose pid Windows has since given to this or another process (a run that never reached its finally): the run it
+  # named was a PowerShell that started before the file was written (the menu's rule)
   if ($old -match '^[1-9][0-9]{0,8}$' -and [int]$old -ne $PID -and
-      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'powershell', 'pwsh' })) {
+      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object {
+        $started = try { $_.StartTime } catch { $null }
+        $_.ProcessName -in 'powershell', 'pwsh' -and $started -and $started -le $file.LastWriteTime.AddSeconds(2) })) {
     "run-lead already running (pid $old)"; exit 1
   }
 }

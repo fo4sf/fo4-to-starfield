@@ -165,6 +165,23 @@ class ModelPickTests(TempState):
         self.assertNotIn("ModuleNotFoundError", r.stderr)
         self.assertEqual(json.loads(r.stdout)["picked"]["preset"], models.read_config()["default_model"])
 
+    def test_list_tells_a_missing_sdk_from_lm_studio_being_off(self):
+        saved = sys.modules.get("lmstudio")
+        self.addCleanup(lambda: sys.modules.__setitem__("lmstudio", saved) if saved else sys.modules.pop("lmstudio"))
+        sys.modules["lmstudio"] = None                     # import lmstudio raises ImportError
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            models.main(["list"])
+        self.assertIn("SDK not importable", json.loads(out.getvalue())["lmstudio"])
+        import types
+        def off():
+            raise ConnectionRefusedError
+        sys.modules["lmstudio"] = types.SimpleNamespace(get_default_client=off)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            models.main(["list"])
+        self.assertEqual(json.loads(out.getvalue())["lmstudio"], "not reachable (ConnectionRefusedError)")
+
 
 class LoadModelSdkTests(unittest.TestCase):
     def test_load_unloads_the_model_and_the_named_ones_only(self):
@@ -320,6 +337,30 @@ class WriteGuardTests(unittest.TestCase):
         except allowlist.Refused:
             return False
 
+    def test_the_refused_writes_mode_lists_what_an_agent_may_not_write(self):
+        # terminal.ps1's start check: paths on stdin as PowerShell sends them (CRLF), one reason out for each refused
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        checker = os.path.join(TEAM, "guard", "allowlist.py")
+        ok = ["src/a.py", "tests/test_x.py", "docs/ai/note.md"]
+        bad = [".opencode/plugin/fo4-guard.js", "AGENTS.md", "docs/ai/CLAUDE.md", "scripts/re.py", "opencode.jsonc",
+               "tools/ai-team/guard/allowlist.py", "a b.md", '"docs/\\303\\251.md"']   # the last as git quotes it
+        r = subprocess.run([sys.executable, "-I", checker, "--refused-writes", d], capture_output=True, text=True,
+                           input="\r\n".join(ok + bad) + "\r\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), len(bad), r.stdout)
+        for p in ok:
+            self.assertFalse(any(p in line for line in lines), p)
+        for p in bad[:-2]:
+            self.assertTrue(any(p in line for line in lines), p)
+        r = subprocess.run([sys.executable, "-I", checker, "--refused-writes", d], capture_output=True, text=True,
+                           input="")
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
+        for argv in (["--refused-writes"], ["--refused-writes", os.path.join(d, "none")], ["--other", d]):
+            r = subprocess.run([sys.executable, "-I", checker, *argv], capture_output=True, text=True, input="AGENTS.md")
+            self.assertNotEqual(r.returncode, 0, argv)                  # not checked: the terminal does not start
+
     def test_the_agents_own_files_are_writable(self):
         for p in ("docs/ai/agent-status.md", "docs/ai/research-log.md", "src/fo4sf/x.py", "tests/test_x.py",
                   "./docs/ai/x.md", "docs/ai/opencode-notes.md", "docs/ai/git-notes.md", "docs/ai/x.opencode.md",
@@ -421,10 +462,14 @@ class OwnerTerminalCommandTests(unittest.TestCase):
     def test_a_handoff_to_claude_comes_only_from_the_owners_terminal(self):
         for text in ("Lead (local): for Claude: done", "Lead (local): For  claude: done", "Lead (local):  FOR Claude x",
                      "Lead (local): **for Claude:** done", "Lead (local): for-Claude: done",
-                     "Lead (local): F O R Claude: done", "Lead (local): _for_ _claude_ done"):
+                     "Lead (local): F O R Claude: done", "Lead (local): _for_ _claude_ done",
+                     "Lead (local): [](a)for Claude: done", "Lead (local): for CIaude: done",
+                     "Lead (local): f0r C1aude: done"):
             command = f"gh issue comment 32 --body '{text}'"
             self.assertTrue(allowed(command, owner_present=True), text)
             self.assertFalse(allowed(command), text)
+        for text in ("<b>for</b> Claude", "<!-- x -->for Claude", "for&nbsp;Claude", "for Cl\u0430ude", "\uff46or Claude"):
+            self.assertTrue(allowlist.is_handoff("Lead (local): " + text), text)    # markup and look-alikes
         self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): refreshed agent status'"))
         self.assertTrue(allowed("gh issue comment 32 --body 'Lead (local): formatted the notes for the Claude review'"))
 
@@ -510,20 +555,42 @@ class AgentGitTests(unittest.TestCase):
         self.assertEqual(self.run_tool("commit", "Implement (local): one", "src/a.py")[0], 0)
         work = self.git("rev-parse", "HEAD")
         self.git("switch", "-q", "--detach", "origin/main")               # the terminal reopened on a clean worktree
-        self.write("src/b.py", "untracked\n")
-        self.assertEqual(self.run_tool("branch", "ai/7-x")[0], 1)          # not over uncommitted work
-        os.remove(os.path.join(self.d, "src", "b.py"))
+        self.write("opencode.json", '{"changed": true}\n')                # not with a change an agent may not make
+        code, out = self.run_tool("branch", "ai/7-x")
+        self.assertEqual(code, 1, out)
+        self.assertIn("opencode.json", out)
+        self.git("checkout", "-q", "--", "opencode.json")
+        self.write("src/b.py", "untracked\n")                             # an ordinary edit comes along
         code, out = self.run_tool("branch", "ai/7-x")
         self.assertEqual(code, 0, out)
         self.assertEqual(self.git("rev-parse", "HEAD"), work)
         self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD").strip(), "ai/7-x")
-        # A branch whose guard or agent files are not main's is not switched to: the guard reads them from here.
-        self.git("switch", "-q", "-c", "ai/8-y", "origin/main")
-        self.write("opencode.json", '{"changed": true}\n')
-        self.git("commit", "-q", "-am", "changed by hand")
+        self.assertTrue(os.path.exists(os.path.join(self.d, "src", "b.py")))
+
+    def test_no_switch_back_to_a_branch_whose_protected_files_are_not_mains(self):
+        # The guard and OpenCode read these from the worktree: one of each kind the guard refuses an agent to write.
+        for i, rel in enumerate((".opencode/plugin/fo4-guard.js", "tools/ai-team/guard/allowlist.py", "AGENTS.md",
+                                 "opencode.jsonc", "opencode.json", "docs/ai/CLAUDE.md", "scripts/guard.py")):
+            name = f"ai/{i}-y"
+            self.git("switch", "-q", "-c", name, "origin/main")
+            self.write(rel, "changed by hand\n")
+            self.git("add", "--", rel)
+            self.git("commit", "-q", "-m", "by hand")
+            self.git("switch", "-q", "--detach", "origin/main")
+            code, out = self.run_tool("branch", name)
+            self.assertEqual(code, 1, (rel, out))
+            self.assertIn(rel, out)
+            self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD").strip(), "HEAD")
+        # A branch made before main changed such a file is behind it in that file too.
+        self.assertEqual(self.run_tool("branch", "ai/20-z")[0], 0)
         self.git("switch", "-q", "--detach", "origin/main")
-        self.assertEqual(self.run_tool("branch", "ai/8-y")[0], 1)
-        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD").strip(), "HEAD")
+        self.write("tools/ai-team/team.py", "a guard fix on main\n")
+        self.git("add", "--", "tools/ai-team/team.py")
+        self.git("commit", "-q", "-m", "main moves on")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        code, out = self.run_tool("branch", "ai/20-z")
+        self.assertEqual(code, 1, out)
+        self.assertIn("tools/ai-team/team.py", out)
 
     def test_refusals(self):
         self.write("src/a.py", "new\n")
@@ -711,34 +778,129 @@ class ScriptTests(unittest.TestCase):
         self.assertLess(s.index("try {"), mine)                 # the file is removed however the script ends
         self.assertTrue(mine < check < skip < reset < launch)
         self.assertEqual(s.count("switch -q --detach"), 1)      # the reset only in the last branch
-        self.assertIn("Where-Object { $_.ProcessName -in 'powershell', 'pwsh' }", s)   # a reused pid is not a window
+        # a reused pid is not a window: another kind of process, or one that started after the file was written
+        self.assertIn("$_.ProcessName -in 'powershell', 'pwsh' -and $started -and $started -le $f.LastWriteTime", s)
         tail = s[launch:]
         self.assertIn("} finally {", tail)
         self.assertIn("Remove-Item -LiteralPath $mine", tail[tail.index("} finally {"):])
 
-    def test_the_terminal_does_not_start_on_changed_guard_files(self):
-        import agent_git
+    def test_the_terminal_starts_only_on_files_the_guard_lets_an_agent_write(self):
         s = self.script("terminal.ps1")
-        self.assertIn("$guard = @(" + ", ".join(f"'{p}'" for p in agent_git.GUARD_PATHS) + ")", s)   # one list
-        check = s.index("$changed = @(git -C $wt diff --name-only origin/main -- @guard)")
-        extra = s.index("$extra = @(git -C $wt ls-files --others -- @guard)")   # untracked, ignored ones included
-        refuse = s.index("if ($changed -or $extra) {")
+        steps = ["git -C $wt switch -q --detach origin/main", "-Filter '__pycache__'",
+                 "$local = @(git -C $wt diff --no-renames --name-only HEAD)",
+                 "$untracked = @(git -C $wt ls-files --others)",              # untracked, ignored ones included
+                 "$local += @($untracked | Where-Object { $_ -notmatch $installFiles })",
+                 "$behind = @(git -C $wt diff --no-renames --name-only HEAD origin/main)",
+                 "$checker = Join-Path $PSScriptRoot 'guard\\allowlist.py'",   # the main checkout's guard
+                 "$refusedHere = @($local | & $pythonPath -I $checker --refused-writes $wt)",
+                 "$refusedBehind = @($behind | & $pythonPath -I $checker --refused-writes $wt)",
+                 "if ($refusedHere) {", "if ($refusedBehind) {", "& $opencode @argv"]
+        at = [s.index(step) for step in steps]
+        self.assertEqual(at, sorted(at))
         self.assertNotIn("--exclude-standard", s)
-        self.assertTrue(s.index("git -C $wt switch -q --detach origin/main") < check < extra < refuse <
-                        s.index("& $opencode @argv"))
-        self.assertIn("exit 1", s[refuse:s.index("}", s.index("exit 1", refuse))])
         self.assertNotIn("WARNING: its guard", s)                 # it used to warn and start anyway
-        # git's own failures stop it too, rather than starting on an older tree
-        for step in ("worktree add -q --detach $wt origin/main", "switch -q --detach origin/main"):
-            after = s[s.index(step):]
-            self.assertTrue(after.split("\n", 1)[1].lstrip().startswith("if ($LASTEXITCODE -ne 0)"), step)
+        for block in ("if ($refusedHere) {", "if ($refusedBehind) {"):
+            body = s[s.index(block):]
+            self.assertIn("exit 1", body[:body.index("\n  }")], block)
+        # git's and the checker's own failures stop it too, rather than starting on an unchecked tree
+        for step in ("worktree add -q --detach $wt origin/main", "switch -q --detach origin/main", "--name-only HEAD)",
+                     "ls-files --others)", "--name-only HEAD origin/main)", "--refused-writes $wt)"):
+            for i in [m.start() for m in re.finditer(re.escape(step), s)]:
+                self.assertTrue(s[i:].split("\n", 1)[1].lstrip().startswith("if ($LASTEXITCODE -ne 0)"), step)
+
+    def test_only_opencodes_install_files_are_left_out_of_the_start_check(self):
+        pattern = re.search(r"\$installFiles = '([^']+)'", self.script("terminal.ps1")).group(1)
+        for path in (".opencode/node_modules/x/index.js", ".opencode/package.json", ".opencode/package-lock.json",
+                     ".opencode/bun.lock", ".opencode/.gitignore", ".OpenCode/Package.json"):
+            self.assertTrue(re.search(pattern, path, re.I), path)       # PowerShell's -notmatch ignores case
+        for path in (".opencode/plugin/x.js", ".opencode/agents/fo4-lead.md", ".opencode/plugin/package.json",
+                     ".opencode/package.json.bak", "x/.opencode/package.json", "package.json", "tools/ai-team/x.py",
+                     ".opencode/node_modules", "tools/ai-team/__pycache__/x.pyc"):
+            self.assertFalse(re.search(pattern, path, re.I), path)
+
+    def test_the_start_check_catches_what_it_is_for(self):
+        # The script's own git listings and filter, and the guard's --refused-writes mode, on a synthetic worktree.
+        s = self.script("terminal.ps1")
+        listing = {v: re.search(r"\$%s = @\(git -C \$wt ([^)]*)\)" % v, s).group(1).split()
+                   for v in ("local", "untracked", "behind")}
+        pattern = re.search(r"\$installFiles = '([^']+)'", s).group(1)
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        empty = os.path.join(home, "empty.gitconfig")
+        open(empty, "w").close()
+        env = dict(os.environ, HOME=home, GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        wt = os.path.join(home, "wt")
+
+        def git(*a):
+            return subprocess.run(["git", "-C", wt, *a], capture_output=True, text=True, check=True, env=env).stdout
+
+        def write(rel, text="x\n"):
+            os.makedirs(os.path.dirname(os.path.join(wt, rel)) or wt, exist_ok=True)
+            with open(os.path.join(wt, rel), "w") as f:
+                f.write(text)
+
+        def refused():
+            here = git(*listing["local"]).split() + [p for p in git(*listing["untracked"]).split()
+                                                     if not re.search(pattern, p, re.I)]
+            out = {}
+            for name, paths in (("here", here), ("behind", git(*listing["behind"]).split())):
+                r = subprocess.run([sys.executable, "-I", os.path.join(TEAM, "guard", "allowlist.py"),
+                                    "--refused-writes", wt], input="\r\n".join(paths), capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                out[name] = r.stdout
+            return out
+
+        os.makedirs(wt)
+        git("init", "-q", "-b", "main")
+        write(".gitignore", "*.log\n")
+        write(".opencode/plugin/fo4-guard.js")
+        write("src/a.py")
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        write("src/a.py", "an agent's edit\n")
+        write("tests/test_new.py")
+        for rel in (".opencode/node_modules/p/index.js", ".opencode/package.json", ".opencode/bun.lock"):
+            write(rel)
+        self.assertEqual(refused(), {"here": "", "behind": ""})          # an agent's own work and OpenCode's installs
+        for rel in (".opencode/plugin/fo4-guard.js", ".opencode/plugin/extra.log", "docs/ai/AGENTS.md",
+                    "opencode.jsonc", "tools/ai-team/guard/allowlist.py"):
+            write(rel, "planted\n")
+            self.assertIn(rel, refused()["here"], rel)                   # changed, added, or added and ignored
+            git("reset", "-q", "--hard")
+            git("clean", "-qfdx")
+        git("switch", "-q", "-c", "ai/1-x")
+        write(".opencode/plugin/fo4-guard.js", "older\n")
+        git("commit", "-qam", "on the branch")
+        self.assertIn(".opencode/plugin/fo4-guard.js", refused()["behind"])
 
     def test_the_menu_stops_the_loop_before_its_session(self):
         s = self.script("menu.ps1")
         stop = s[s.index("Type stop to stop"):]
-        self.assertLess(stop.index("$loop = (Get-Lead).loop"), stop.index("$sessions = @((Get-Lead).session)"))
+        at = [stop.index(x) for x in ("$loop = (Get-Lead).loop", "Stop-Process -Id $loop.Id",
+                                      "Remove-Item (Join-Path $state 'run-lead.pid')", "$sessions = @((Get-Lead).session)")]
+        self.assertEqual(at, sorted(at))      # the loop is stopped and its file gone before the sessions are looked up
         self.assertIn('ParentProcessId=$($loop.Id)', stop)    # a session the loop started before its pid file
         self.assertIn("$started -le $file.LastWriteTime", s)   # a reused pid is not the run's
+
+    def test_no_variable_is_followed_by_a_colon(self):
+        # PowerShell reads "$wt: text" as a drive-qualified variable and refuses to parse the file; "${wt}: text" is
+        # the way to write it. CI parses every script too (test_game_scripts), where PowerShell is installed.
+        token = re.compile(r"<#.*?#>|#[^\n]*|'(?:[^']|'')*'|\"(?:[^\"`]|`.)*\"", re.S)
+        for folder in (TEAM, os.path.join(ROOT, "scripts", "game")):
+            for name in sorted(os.listdir(folder)):
+                if name.endswith(".ps1"):
+                    with open(os.path.join(folder, name), encoding="utf-8-sig") as f:
+                        code = token.sub(lambda m: m.group(0) if m.group(0).startswith('"') else " ", f.read())
+                    self.assertEqual(re.findall(r"\$[A-Za-z_]\w*:(?![\w{:])", code), [], name)
+
+    def test_one_start_rule_for_every_pid_file(self):
+        # A pid file left behind can name a pid Windows has given out again: the process it named started before it.
+        for name, rule in (("run-lead.ps1", "$started -le $file.LastWriteTime.AddSeconds(2)"),
+                           ("terminal.ps1", "$started -le $f.LastWriteTime.AddSeconds(2)"),
+                           ("menu.ps1", "$started -le $file.LastWriteTime.AddSeconds(2)")):
+            self.assertIn(rule, self.script(name), name)
 
     def test_unattended_runs_never_count_as_the_owners_terminal(self):
         s = self.script("run-lead.ps1")

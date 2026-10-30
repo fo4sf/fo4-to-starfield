@@ -660,13 +660,17 @@ class GuardTests(unittest.TestCase):
                       r"\| Select-Object -First 1\n"
                       r"\$opencode = Join-Path \(Split-Path \$shim\.Source\) 'node_modules\\opencode-ai\\bin\\opencode\.exe'\n"
                       r"if \(-not \(Test-Path -LiteralPath \$opencode -PathType Leaf\)\) \{ throw [^\n]*\}$")
-        # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process
-        single = at(r"^if \(Test-Path \$pidFile\) \{ +# single instance\n"
+        # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process; so is
+        # one naming a pid Windows gave out again (a process that started after the file was written)
+        single = at(r"^\$file = Get-Item -LiteralPath \$pidFile -ErrorAction SilentlyContinue\n"
+                    r"if \(\$file\) \{ +# single instance\n"
                     r"  \$old = \"\$\(Get-Content -LiteralPath \$pidFile -ErrorAction SilentlyContinue\)\"\.Trim\(\)\n"
-                    r"  # [^\n]*\n  # [^\n]*\n"
+                    r"(?:  # [^\n]*\n)+"
                     r"  if \(\$old -match '\^\[1-9\]\[0-9\]\{0,8\}\$' -and \[int\]\$old -ne \$PID -and\n"
-                    r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| "
-                    r"Where-Object \{ \$_\.ProcessName -in 'powershell', 'pwsh' \}\)\) \{\n"
+                    r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| Where-Object \{\n"
+                    r"        \$started = try \{ \$_\.StartTime \} catch \{ \$null \}\n"
+                    r"        \$_\.ProcessName -in 'powershell', 'pwsh' -and \$started -and "
+                    r"\$started -le \$file\.LastWriteTime\.AddSeconds\(2\) \}\)\) \{\n"
                     r"    \"run-lead already running \(pid \$old\)\"; exit 1\n  \}\n\}$")
         self.assertLess(real, opencode)
         self.assertLess(opencode, single)
@@ -677,7 +681,7 @@ class GuardTests(unittest.TestCase):
                    r" +OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = \$env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS \}$")
         # one try, at the top level: the pid file and the environment are set inside it, so the finally always
         # undoes them; the single-instance check and its exit 1 stay outside it (a second run leaves the first's file)
-        self.assertEqual(script.count("try {"), 2)                        # this one and Test-GuardGate's
+        self.assertEqual(len(re.findall(r"^ *try \{", script, re.M)), 2)   # this one and Test-GuardGate's
         self.assertEqual(script.count("function Test-GuardGate"), 1)
         body = at(r"^try \{\n  \$PID \| Set-Content \$pidFile$")
         self.assertLess(saved, body)
@@ -1033,6 +1037,10 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
                for c in ("\r", "\u2028", "\u2029", "\u0085", "\x00", "\x0b", "\x0c", "\x1b", "\x7f")]
         bad.append(patch("docs/ai/y.md\r"))                        # a CRLF patch: refused too, it is never needed
         bad.append({"patchText": "*** Begin Patch\n*** Add File: docs/ai/ok.md\n+a\x1bb\n*** End Patch"})
+        # OpenCode skips a header with no path and reads the next line as a header: so does the guard
+        bad.append({"patchText": "*** Begin Patch\n*** Update File:\n*** Update File: AGENTS.md\n@@\n-a\n+b\n"
+                                 "*** End Patch"})
+        bad.append({"patchText": "*** Begin Patch\n*** Delete File:\n*** Delete File: AGENTS.md\n*** End Patch"})
         good = [patch("docs/ai/y.md"), patch("docs/ai/y.md\t"), patch("  docs/ai/y.md  ")]
         calls = [["apply_patch", args] for args in bad + good]
         self.assertEqual(self.hook(calls)["out"], ["refuse"] * len(bad) + ["allow"] * len(good))

@@ -3,13 +3,16 @@
 # It starts the team (guardian proxy, picked model), then runs OpenCode in its own worktree next to the repo
 # (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. A
 # clean worktree goes back to main's newest commit (no branch) at every start unless another terminal window is open
-# on it, so a guard fix on main reaches it, and the terminal does not start while the worktree's guard or agent files
-# are not main's. The guard plugin checks each command and file write an agent makes, as in unattended runs; because
-# the owner is present, it also lets an agent make its own ai/ branch from main and commit named files there
-# (agent_git.py). It cannot check what a test does: the coding agent writes tests, and a test it runs can run any code
+# on it, so a guard fix on main reaches it, and the terminal does not start while the worktree has a change to a file
+# the guard refuses an agent to write, or is on a branch that differs from main in one. The guard plugin checks each
+# command and file write an agent makes, as in unattended runs; because the owner is present, it also lets an agent
+# make its own ai/ branch from main and commit named files there (agent_git.py). It cannot check what a test does:
+# the coding agent writes tests, and a test it runs can run any code
 # with the owner's rights (push with their git login, or change the guard's own files). So OpenCode asks the owner
-# before every test run, and in this terminal "nothing pushes" rests on the model and on the owner reading those
-# prompts. Skills from ~/.claude and ~/.agents (the claude.ai ones) stay hidden from the agents.
+# before each test run, as long as the owner answers Allow once (Allow always or auto-accept stops the asking until
+# OpenCode exits), and in this terminal "nothing pushes" rests on the model and on the owner reading those prompts.
+# The owner's own OpenCode config (~/.config/opencode) is not checked. Skills from ~/.claude and ~/.agents (the
+# claude.ai ones) stay hidden from the agents.
 param([string]$Agent = 'fo4-lead', [switch]$Continue,
       [string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }))
 $repo = Split-Path (Split-Path $PSScriptRoot)
@@ -37,7 +40,8 @@ git -C $repo fetch -q origin main
 if ($LASTEXITCODE -ne 0) { "note: could not fetch main (offline?): the terminal opens on the last main fetched" }
 # Each open terminal window has a file named by its pid here, so a second window (another agent from the menu) never
 # moves the worktree under the first one's agent. A window closed with its X button leaves its file: a pid that is
-# no longer a PowerShell process is stale.
+# no longer a PowerShell process, or one that started after its file was written (Windows gave the pid out again), is
+# stale.
 $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }
 $open = Join-Path $state 'terminal-sessions'
 New-Item -ItemType Directory -Force $open | Out-Null
@@ -48,13 +52,15 @@ try {
   foreach ($f in @(Get-ChildItem -LiteralPath $open -Filter '*.pid' -ErrorAction SilentlyContinue)) {
     $id = $f.BaseName
     if ($id -match '^[1-9][0-9]{0,8}$' -and [int]$id -ne $PID -and
-        (Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'powershell', 'pwsh' })) {
+        (Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue | Where-Object {
+          $started = try { $_.StartTime } catch { $null }
+          $_.ProcessName -in 'powershell', 'pwsh' -and $started -and $started -le $f.LastWriteTime.AddSeconds(2) })) {
       $others += $id
     } elseif ($id -ne "$PID") { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
   }
   if (-not (Test-Path $wt)) {
     git -C $repo worktree add -q --detach $wt origin/main
-    if ($LASTEXITCODE -ne 0) { "could not make the terminal's worktree $wt: not starting"; exit 1 }
+    if ($LASTEXITCODE -ne 0) { "could not make the terminal's worktree ${wt}: not starting"; exit 1 }
     "made the terminal's worktree $wt (main, no branch)"
   } elseif ($others -or (git -C $wt status --porcelain)) {
     $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()
@@ -66,22 +72,41 @@ try {
     git -C $wt switch -q --detach origin/main
     if ($LASTEXITCODE -ne 0) { "could not move $wt to main (a stale index.lock?): not starting"; exit 1 }
   }
-  # The guard and OpenCode read these from the worktree (the list is agent_git.py's GUARD_PATHS), and a test the coding
-  # agent runs can change them (see the top of this file). So the terminal starts only while they are main's: no change
-  # to a file main has, and no file main does not have, ignored ones included, apart from OpenCode's own install files
-  # in .opencode and Python's caches. This catches a change; it does not fence a test that sets out to get round it.
-  $guard = @('.opencode', 'opencode.json', 'tools/ai-team', 'AGENTS.md')
-  $changed = @(git -C $wt diff --name-only origin/main -- @guard)
+  # The guard and OpenCode read their rules, the guard's code and the agents' instructions from the worktree, and a test
+  # the coding agent runs can change them (see the top of this file). So the terminal starts only while no file the
+  # guard refuses an agent to write is changed or added here (ignored files included, apart from OpenCode's own install
+  # files in .opencode), and none differs from main on the branch it is on. The main checkout's guard judges, not the
+  # worktree's. Python's caches go first in the folders whose scripts the team runs, as a planted .pyc would run in
+  # place of its source. This catches a change; it does not fence a test that sets out to get round it.
+  foreach ($d in @('tools\ai-team', 'scripts')) {
+    Get-ChildItem -LiteralPath (Join-Path $wt $d) -Recurse -Directory -Force -Filter '__pycache__' -ErrorAction SilentlyContinue |
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  $installFiles = '^\.opencode/(node_modules/|package\.json$|package-lock\.json$|bun\.lock$|\.gitignore$)'
+  $local = @(git -C $wt diff --no-renames --name-only HEAD)
+  if ($LASTEXITCODE -ne 0) { "could not compare $wt with its last commit: not starting"; exit 1 }
+  $untracked = @(git -C $wt ls-files --others)
+  if ($LASTEXITCODE -ne 0) { "could not list ${wt}'s files: not starting"; exit 1 }
+  $local += @($untracked | Where-Object { $_ -notmatch $installFiles })
+  $behind = @(git -C $wt diff --no-renames --name-only HEAD origin/main)
   if ($LASTEXITCODE -ne 0) { "could not compare $wt with main: not starting"; exit 1 }
-  $extra = @(git -C $wt ls-files --others -- @guard)
-  if ($LASTEXITCODE -ne 0) { "could not list $wt's files: not starting"; exit 1 }
-  $extra = @($extra | Where-Object {
-    $_ -notmatch '^\.opencode/(node_modules/|package\.json$|bun\.lock$|\.gitignore$)' -and $_ -notmatch '(^|/)__pycache__/' })
-  if ($changed -or $extra) {
-    "$wt has guard or agent files that are not main's, so the terminal does not start:"
-    @($changed) + @($extra) | Select-Object -First 20 | ForEach-Object { "  $_" }
-    "Look at them first: they may come from a test the agent ran. Then commit or drop them on the agent's branch,"
-    "or have Claude look, and reopen."
+  $checker = Join-Path $PSScriptRoot 'guard\allowlist.py'      # the main checkout's guard
+  $OutputEncoding = New-Object System.Text.UTF8Encoding $false   # the paths go to Python as UTF-8
+  $refusedHere = @($local | & $pythonPath -I $checker --refused-writes $wt)
+  if ($LASTEXITCODE -ne 0) { "the guard could not check ${wt}'s files: not starting"; exit 1 }
+  $refusedBehind = @($behind | & $pythonPath -I $checker --refused-writes $wt)
+  if ($LASTEXITCODE -ne 0) { "the guard could not check ${wt}'s branch: not starting"; exit 1 }
+  if ($refusedHere) {
+    "$wt has changes an agent may not make, so the terminal does not start:"
+    $refusedHere | Select-Object -First 20 | ForEach-Object { "  $_" }
+    "They may come from a test the agent ran. Have Claude look at them, then reopen."
+    exit 1
+  }
+  if ($refusedBehind) {
+    "$wt is on a branch that differs from main in files an agent may not write, so the terminal does not start:"
+    $refusedBehind | Select-Object -First 20 | ForEach-Object { "  $_" }
+    "Have Claude merge main into that branch, or close the other terminal windows and commit or drop the edits so the"
+    "worktree goes back to main, then reopen."
     exit 1
   }
 
@@ -113,6 +138,7 @@ try {
   if ($Agent -ne 'fo4-lead') { $argv += @('--agent', $Agent) }
   if ($Continue) { $argv += '--continue' }
   "Type /help for OpenCode's commands, or /team, /board, /next, /research, /review, /handoff for the team's."
+  "Answer a test run's prompt with Allow once: a test can run any code, and Allow always stops the asking."
   Set-Location $wt
   & $opencode @argv
 } finally {

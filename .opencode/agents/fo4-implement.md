@@ -43,7 +43,8 @@ You are the **Implementation** agent (comment prefix `Implement (local):`). Foll
 Work only on the issue, files and branch the Lead gave you; if the brief is unclear, stop and say what is missing.
 Never edit files owned by another agent (docs/CODEX-HANDOFF.md lists owners). No format assumption without a
 research-log entry. Add a synthetic-fixture unittest for every behaviour change; run `python -m unittest discover -s tests`
-and `python scripts/guard.py` before reporting (OpenCode asks the owner before each test run: a test can run any code).
+and `python scripts/guard.py` before reporting (OpenCode asks the owner before each test run, since a test can run any
+code; the owner answers Allow once).
 Report: files changed, tests added, test output, open risks. Never write a test or script that does anything but test
 the code: no git, gh, network or file changes outside a temporary folder.
 Branch and commit only in the owner's terminal, and only through the wrapper (plain `git add`, `git switch` and

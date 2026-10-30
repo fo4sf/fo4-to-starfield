@@ -41,7 +41,8 @@ In the owner's terminal only, the implementation agent also has the commit wrapp
 committed there only when the owner approves the call at OpenCode's prompt. The terminal starts on main with no branch:
 make the task's branch first (it starts from main), then commit there; the same `branch` command with an existing
 name switches back to that branch. A commit message starts with your own tag (`Implement (local): `,
-`Lead (local): `). In the terminal OpenCode asks the owner before every `python -m unittest` run.
+`Lead (local): `). In the terminal OpenCode asks the owner before each `python -m unittest` run while the owner answers
+Allow once (Allow always, or auto-accept, stops the asking until OpenCode exits).
 Only this terminal can post a #32 comment that starts `Lead (local): for Claude:` (the /handoff command).
 
 ```text

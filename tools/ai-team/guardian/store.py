@@ -96,8 +96,10 @@ def get_hold(c):
 
 def take_hold(c, model):
     """Start a swap: the hold row it replaced ((value, t), or () when there was none), or None while another loader's
-    fresh "loading" hold stands (one load at a time). One transaction, so two loaders cannot both take it. A load that
-    stops before it unloads anything puts the old row back (restore_hold), so a "failed" hold is never lost."""
+    fresh "loading" hold stands (one load at a time). One transaction, so two loaders cannot both take it. models.load
+    puts the old row back (restore_hold) when it refuses because requests are running, before anything is unloaded, so
+    a "failed" hold stays failed there; a loader that stops any other way leaves its "loading" hold, which get_hold
+    counts as failed once it is stale."""
     c.execute("BEGIN IMMEDIATE")
     try:
         h = get_hold(c)

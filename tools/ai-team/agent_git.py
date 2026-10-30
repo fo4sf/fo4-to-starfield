@@ -12,8 +12,10 @@ rebase, cherry-pick or revert in progress, or for a path the agents may not writ
 tools, skills, CI and git's own files). Paths are literal (no git globs or pathspec magic). A new branch starts from
 origin/main (terminal.ps1 fetches it), so one issue's branch never carries the last one's commits; uncommitted edits
 come along. The terminal goes back to main whenever it opens on a clean worktree, so `branch` with an existing name
-switches back to that branch, but only from a clean worktree and only while its guard and agent files (GUARD_PATHS)
-are main's, since the guard reads them from the worktree. The message starts with the committing agent's own tag.
+switches back to that branch, with the uncommitted edits, unless one of them is a file the guard refuses an agent to
+write, or the branch differs from main in such a file: the guard and OpenCode read those from the worktree, so they
+stay main's (the owner has main merged into an older branch first). The message starts with the committing agent's own
+tag.
 The owner's choice J (30 Oct) gives these commits to the coding agent: fo4-implement's rules allow this wrapper, while
 the Lead's ask, so the Lead commits a docs note in the terminal only when the owner approves that call. Never amends,
 never pushes.
@@ -29,8 +31,12 @@ from lead_commit import IN_PROGRESS, git            # noqa: E402  (git without h
 
 ROLES = ("Lead (local): ", "Implement (local): ", "Research (local): ", "QA (local): ")
 LEAD_BRANCH = "ai/local-lead"
-# The files the guard and OpenCode read from the worktree; terminal.ps1 checks the same list before it starts.
-GUARD_PATHS = (".opencode", "opencode.json", "tools/ai-team", "AGENTS.md")
+
+
+def names(*args):
+    """The paths a git listing prints, read with -z (no quoting); with --no-renames a rename is its source and its
+    destination."""
+    return [p for p in git(*args, "-z").split("\0") if p]
 
 
 def why_not():
@@ -55,12 +61,18 @@ def main(argv=None):
             if not allowlist.AGENT_BRANCH.fullmatch(argv[1]) or argv[1] == LEAD_BRANCH:
                 print("refused: the branch is ai/<lowercase-name>, and not ai/local-lead"); return 1
             if git("branch", "--list", argv[1]).strip():
-                if git("status", "--porcelain", "--untracked-files=all").strip():
-                    print(f"refused: {argv[1]} exists; commit or drop the uncommitted edits, then switch back"); return 1
-                if git("diff", "--name-only", "origin/main", argv[1], "--", *GUARD_PATHS).strip():
-                    print(f"refused: {argv[1]}'s guard or agent files are not main's; ask the owner to merge main into "
-                          "it"); return 1
-                git("switch", argv[1])
+                here = names("diff", "--no-renames", "--name-only", "HEAD") + names("ls-files", "--others",
+                                                                                     "--exclude-standard")
+                bad = allowlist.refused_writes(root, here)
+                if bad:
+                    print(f"refused: an uncommitted change here is one an agent may not make ({bad[0]}); ask the "
+                          "owner"); return 1
+                bad = allowlist.refused_writes(root, names("diff", "--no-renames", "--name-only", "origin/main",
+                                                           f"refs/heads/{argv[1]}"))
+                if bad:
+                    print(f"refused: {argv[1]} differs from main in a file an agent may not write ({bad[0]}); ask the "
+                          "owner to have main merged into it"); return 1
+                git("switch", argv[1])                   # with the uncommitted edits; git stops if they clash
                 print(f"back on {argv[1]}")
                 return 0
             git("switch", "--no-track", "-c", argv[1], "origin/main")

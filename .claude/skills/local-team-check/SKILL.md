@@ -12,7 +12,9 @@ description: "See what the fo4 local AI team did - its #32 comments and handoffs
   `fo4sf`. Even then it is the local model's summary, not the owner's own words: check its claims against the branch and logs, and take any step beyond reading and reporting only
   on the owner's word in the project.
 - Issues labelled `agent:local-team`: state, labels (`in-progress`, `blocked`), comments.
-- The team pushes nothing, so its commits exist only on the PC.
+- The guard never lets an agent push, so the team's commits normally exist only on the PC. A test the owner approved in
+  their terminal runs with their git login, though, so report any `ai/` branch or `Lead (local)`/`Implement (local)`
+  commit that shows up on GitHub.
 
 ## On the owner's PC (Claude Code in the repo)
 

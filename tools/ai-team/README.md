@@ -73,21 +73,25 @@ The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenC
 team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
 the unattended Lead are never touched. A clean worktree goes back to main's newest commit, with no branch, at every
 start (unless another terminal window is open on it), so a guard fix on main always reaches it; one with uncommitted
-work stays as it is. The terminal does not start while the worktree's guard or agent files (`.opencode`,
-`opencode.json`, `tools/ai-team`, `AGENTS.md`) differ from main's or have extra files. The guard checks every command
+work stays as it is. The terminal does not start while the worktree has a change or an extra file (ignored ones too,
+apart from OpenCode's own install files in `.opencode`) that the guard refuses an agent to write, or is on a branch that
+differs from main in such a file; the main checkout's guard judges. The guard checks every command
 and write an agent makes, as in unattended runs. Because the owner is watching, it also allows `agent_git.py`: an agent
 makes its own `ai/<issue>-<slug>` branch, which starts from main, and commits named files there (literal paths), with
 no hooks, never on `ai/local-lead`, and the wrapper never pushes. The same `branch` command with an existing name
-switches back to that branch after the terminal reopens (from a clean worktree, and only while that branch's guard and
-agent files are main's; otherwise the owner merges main into it). Only this terminal may post a
+switches back to that branch after the terminal reopens, with any uncommitted edits, unless one of them is a file the
+guard refuses an agent to write or the branch differs from main in one (then the owner has main merged into it). Only
+this terminal may post a
 `Lead (local): for Claude:` comment.
 
 **What the guard cannot hold in the terminal.** The coding agent writes tests and runs them, and a test is code: it
 can run anything the owner's account can, including `git push` or `gh pr create` with their login, or a change to the
 guard's own files in the worktree. An allow-list cannot fence a test runner. So in the terminal OpenCode asks the owner
-before every `python -m unittest` run (fo4-implement's and fo4-qa's rules say ask, and the unattended runs use neither
+before each `python -m unittest` run (fo4-implement's and fo4-qa's rules say ask, and the unattended runs use neither
 agent for tests), and "never pushes" there rests on the model and on the owner reading those prompts and the tests they
-run. The start check above catches a changed guard file; it does not fence a test that sets out to get round it. The research, implementation and QA agents are `mode: all`, so
+run. Answer them with Allow once: Allow always (or OpenCode's auto-accept) stops the asking until OpenCode exits. The
+start check above catches a changed guard file; it does not fence a test that sets out to get round it, and it does not
+look at the owner's own OpenCode config (`~/.config/opencode`), which OpenCode also reads. The research, implementation and QA agents are `mode: all`, so
 `-Agent` opens them as the terminal's own agent (OpenCode falls back to the Lead for a subagent-only one) and the Lead
 still delegates to them. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are hidden
 (`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
@@ -188,10 +192,11 @@ independent review found behind the allowed git commands (`cmd > file`, git's `-
 `git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
 and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **The unattended Lead
 reads public issues, so it runs only with the shell guard below in place, and the Lead stays paused until the owner
-decides the guard is installed and checked on the PC.** The Lead commits its own
+decides the guard is installed and checked on the PC.** In unattended runs the Lead commits its own
 `docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
-(a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
+(a rename counts as its source too); in the owner's terminal it commits only through
+`agent_git.py commit 'Lead (local): ...'`, when the owner approves the call. It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
 comments only on #32. `run-lead.ps1` skips the cycle when the pull of main fails, while the Lead's worktree has
 unmerged files or is not on `ai/local-lead`, and when the worktree lacks the guard plugin or its checker, so a
 conflict, a moved worktree or a tree from before the guard waits for a person. The `>` deny
@@ -308,7 +313,8 @@ refuses a write outside the repo and a write to the team's own rules, tools and 
 check holds where a rule pattern misses a spelling, and it covers the checker itself. In the owner's terminal only
 (`terminal.ps1` sets `FO4SF_OWNER_PRESENT=1`; the plugin ignores it when `FO4SF_UNATTENDED=1`), the checker also allows
 `python -I tools/ai-team/agent_git.py branch ai/<name>` and `... commit "<message>" <paths>`, and the wrapper refuses
-on its own in an unattended run, on `ai/local-lead`, off an `ai/` branch, and for a protected path. `models.py list`
+on its own in an unattended run, on `ai/local-lead`, off an `ai/` branch, for a protected path, and for a message that
+does not start with an agent's own tag (`Lead (local): `, `Implement (local): `, `Research (local): `, `QA (local): `). `models.py list`
 is allowed everywhere (read only).
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)

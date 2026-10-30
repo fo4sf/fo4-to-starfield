@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import warnings
 
 
@@ -174,10 +175,20 @@ VIEW_OPTS = {"--comments": None, "--json": word}
 DIFF_OPTS = {"--name-only": None}
 
 
+# Characters that read as the letters of "for Claude": digits and marks, a capital I (lowercased first), and the
+# Cyrillic and Greek look-alikes of those letters.
+LOOKALIKES = str.maketrans("01|!i\u0131\u0456\u04cf\u0430\u0435\u043e\u0441\u0501\u03bf\u03b1\u03f2\u03c5",
+                           "olllllllaeocdoacu")
+
+
 def is_handoff(text):
-    """A comment that reads as a handoff to Claude however it is marked up: its letters alone, lowercased, start with
-    leadlocalforclaude (so **for Claude:**, for-Claude and F O R Claude all count)."""
-    return re.sub(r"[^a-z]", "", text.lower()).startswith("leadlocalforclaude")
+    """A comment that reads as a handoff to Claude however it is marked up: with markup a reader does not see taken out
+    (a link's target, an HTML tag or comment, an entity) and look-alikes read as the letters they look like, its letters
+    alone, lowercased, start with leadlocalforclaude (so **for Claude:**, for-Claude, F O R Claude, [](x)for Claude and
+    for CIaude all count)."""
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"<!--.*?(?:-->|$)|<[^>]*>|&#?\w+;|\]\([^)]*\)", "", text, flags=re.S)
+    return re.sub(r"[^a-z]", "", text.lower().translate(LOOKALIKES)).startswith("leadlocalforclaude")
 
 
 def gh(argv, owner_present=False):
@@ -629,7 +640,29 @@ def same_folder(path, root):
     return os.path.normcase(os.path.normpath(path)) == os.path.normcase(os.path.normpath(root))
 
 
-def main():
+def refused_writes(root, paths):
+    """The reason check_write gives for each path it refuses (terminal.ps1's start check, agent_git.py's switch back)."""
+    out = []
+    for p in paths:
+        try:
+            check_write(root, [p])
+        except Refused as why:
+            out.append(str(why))
+    return out
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv:
+        # allowlist.py --refused-writes <root>, paths on stdin one per line (UTF-8): prints the reason for each path an
+        # agent may not write and exits 0; any other exit means the paths were not checked.
+        if len(argv) != 2 or argv[0] != "--refused-writes" or not os.path.isdir(argv[1]):
+            print("usage: allowlist.py --refused-writes <repo root> < paths", file=sys.stderr)
+            return 2
+        lines = sys.stdin.buffer.read().decode("utf-8").split("\n")
+        for reason in refused_writes(argv[1], [p[:-1] if p.endswith("\r") else p for p in lines if p not in ("", "\r")]):
+            print(reason)
+        return 0
     try:
         check(json.loads(sys.stdin.buffer.read().decode("utf-8")))
     except Refused as why:

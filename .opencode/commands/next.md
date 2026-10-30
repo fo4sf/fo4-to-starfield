@@ -12,5 +12,6 @@ commits with `python -I tools/ai-team/agent_git.py commit 'Implement (local): <w
 terminal reopens it is back on main: the same `branch` command with the task's branch name switches back to it. Leave
 your own docs/ai edits uncommitted unless the owner says to commit them: OpenCode then asks the owner to approve each
 agent_git.py command you run, with a message that starts `Lead (local): ` (lead_commit.py is for the unattended Lead's
-own branch). OpenCode also asks the owner before each test run, since a test can run any code. Never push. If a command
+own branch). OpenCode also asks the owner before each test run, since a test can run any code: answer those with
+Allow once, as Allow always stops the asking for the rest of the session. Never push. If a command
 is refused, load the fo4-allowed-commands skill.

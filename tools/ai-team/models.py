@@ -176,10 +176,14 @@ def main(argv=None):
                 c.close()
             try:
                 import lmstudio as lms
-                client = lms.get_default_client()
-                out["loaded"] = [m.identifier for m in client.llm.list_loaded()]
-            except Exception as err:               # LM Studio off or the SDK missing: the presets still list
-                out["lmstudio"] = f"not reachable ({type(err).__name__})"
+            except ImportError:                    # the presets still list
+                out["lmstudio"] = ("lmstudio SDK not importable by this Python (python -I hides a pip install --user; "
+                                   "install it for all users)")
+            else:
+                try:
+                    out["loaded"] = [m.identifier for m in lms.get_default_client().llm.list_loaded()]
+                except Exception as err:           # LM Studio off
+                    out["lmstudio"] = f"not reachable ({type(err).__name__})"
             print(json.dumps(out, indent=1))
         elif a.cmd == "pick":
             s = preset(a.preset, cfg)
