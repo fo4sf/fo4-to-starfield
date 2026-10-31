@@ -618,13 +618,14 @@ Open: whether the reload's world stays the same instance in every case (`same=` 
 ### Dark hold (Claude-cloud, 2026-10-31, option A put to the owner)
 With `HoldDark` (on), the first quest fades to black (staying black) at its first marker that comes in late within
 `HoldWindow` (15 s) of the player entering the world, if a reload can follow (`BorderSignal`, `HopMarker`, one left in
-`HopLimit`), once per entry; the reload's way back fades in, so the first map the player opens lists every marker. In
-the retest that is about 34 s from the arrival (rt 130.1 to 163.9). The window covers the new game's ride, which lands
+`HopLimit`, and the player in our world as Border learned it), once per entry; the reload's way back fades in, so the
+first map the player opens lists every marker. In the retest that is about 31 s of black (the first quest's first
+move at rt 133.0 to the way back at 163.9). The window covers the new game's ride, which lands
 at its anchor off the map and on the arrival 4.3 s later (the first quest's first move came 7.2 s after the ride), a
 GAMMA start and a save loaded outdoors; a player who walks into the Commonwealth long after entering Mars keeps the
-blink. The hold also ends (fading in) past `HoldMax` (60 s), when the player leaves the map or goes indoors, in a fight
-(also between moves of a long pass), dead, seated or in a scene, when the reload waits or is skipped or called off,
-and at a load (its own loading screen). Log lines: `dark hold: markers coming in <s> s after the player entered the
+blink. The hold also ends (fading in) past `HoldMax` (60 s), when the player leaves the map or our world or goes
+indoors, whenever the reload would wait (a fight, dead, seated, in a scene, no movement controls), checked at every
+pass and between moves of a long pass, when the reload is skipped or called off, and at a load. Log lines: `dark hold: markers coming in <s> s after the player entered the
 world`, `dark hold ends with the reload after <s> s`, `dark hold released: <why>`. Offline only: whether the game
 keeps the screen black through the stop's loading screens is open (the loading menu may fade in on its own:
 FO4SF_NewGameQuest.psc FadeIn's note).

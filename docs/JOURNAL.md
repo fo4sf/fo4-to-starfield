@@ -2718,5 +2718,5 @@ the same world. The first test had shown nothing because the map was opened
 11 s after the arrival, before any reload. Option A (Claude's pick, put to
 the owner with B, the elevator only, and C, messages only): from an
 arrival, the first quest keeps the screen black until the reload is back
-(about 34 s in the retest), with every way out fading back in (60 s at most,
+(about 31 s in the retest), with every way out fading back in (60 s at most,
 a fight, going indoors, leaving the map). Offline; waits on a play test.

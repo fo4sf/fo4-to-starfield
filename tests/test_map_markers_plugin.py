@@ -1146,7 +1146,8 @@ class ScriptContractTests(unittest.TestCase):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         late = place.index("late = True                             ; it came into the world after the player did")
         start = place.index("Hold()", late)
-        self.assertIn("if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && "
+        # only where a reload can follow: Reload wants our world (Border's), and none comes elsewhere
+        self.assertIn("if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && w == ourWorld && "
                       "Utility.GetCurrentRealTime() - enteredAt < HoldWindow", place[late:start])
         self.assertEqual(len(re.findall(r"(?<!Function )\bHold\(\)", self.text)), 1)        # only there
         hold = self.fn("Function Hold()", "EndFunction")
@@ -1156,25 +1157,28 @@ class ScriptContractTests(unittest.TestCase):
         # held once per entry into a world, and a load starts with none
         self.assertRegex(place, r"if w != seenWorld\s+seenWorld = w\s+.*\n\s+late = False\s+enteredAt = .*\n\s+heldEntry = False")
         session = self.fn("bool Function NewSession", "EndFunction")
-        self.assertIn("holding = False", session)
+        self.assertRegex(session, r"if holding\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\).*\n\s+holding = False")
         self.assertIn("heldEntry = False", session)
 
     def test_the_dark_hold_always_ends(self):
         release = self.fn("Function Release(string why)", "EndFunction")
         self.assertRegex(release, r"if holding\s+holding = False\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\)")
-        check = self.fn("Function HoldCheck(Actor player, bool inside)", "EndFunction")
+        check = self.fn("Function HoldCheck(Actor player, bool ours)", "EndFunction")
         self.assertIn("if held > HoldMax", check)
-        self.assertIn("elseif !inside", check)
-        self.assertIn("player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0", check)
+        self.assertIn("elseif !ours", check)
+        # whenever the reload would wait (Reload's own guard), the hold lets go
+        self.assertIn("player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0 || "
+                      "!Game.IsMovementControlsEnabled()", check)
         self.assertEqual(check.count("Release("), 3)
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         # every outdoor pass checks it before any return, and indoors (a load door, the stop) ends it
-        self.assertLess(place.index("HoldCheck(player, inside)"), place.index("if !inside\n        return"))
-        self.assertLess(place.index("if holding\n        HoldCheck(player, inside)"), place.index("if settledWorld == w && Probe(player)"))
+        self.assertLess(place.index("HoldCheck(player, inside && w == ourWorld)"), place.index("if !inside\n        return"))
+        self.assertLess(place.index("if holding\n        HoldCheck(player, inside && w == ourWorld)"), place.index("if settledWorld == w && Probe(player)"))
         inside = place[place.index("if player.IsInInterior()"):place.index("WorldSpace w = player.GetWorldSpace()")]
         self.assertIn('Release("the player went indoors")', inside)
-        # a pass that moves markers for seconds lets go in a fight
-        self.assertRegex(place, r"if holding && player\.IsInCombat\(\)\s+Release\(")
+        # a pass that moves markers for seconds checks between moves too
+        loop = place[place.index("while i < Markers.Length && moves < MaxMoves"):]
+        self.assertLess(loop.index("if holding\n                    HoldCheck(player, w == ourWorld)"), loop.index("m.MoveTo(player"))
         reload = self.fn("Function Reload(Actor player, WorldSpace w)", "EndFunction")
         waits = reload[reload.index("if player.IsInCombat() || player.IsInScene()"):reload.index("int a = 0")]
         self.assertIn('Release("the reload waits")', waits)

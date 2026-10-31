@@ -191,7 +191,10 @@ bool Function NewSession()
         hops = 0
         waitLogged = False
         travelLogged = False
-        holding = False                                         ; a load's own loading screen fades in
+        if holding
+            Game.FadeOutGame(False, True, 0.0, 0.5, False)      ; a load ends a hold (its loading screen may fade in too)
+            holding = False
+        endif
         heldEntry = False
     endif
     placeRealTime = rt
@@ -265,7 +268,7 @@ Function Place(Actor player)
     float py = player.GetPositionY()
     bool inside = !(px < MinX || px > MaxX || py < MinY || py > MaxY)
     if holding
-        HoldCheck(player, inside)                             ; before any return: the hold never outlives its reasons
+        HoldCheck(player, inside && w == ourWorld)            ; before any return: the hold never outlives its reasons
     endif
     if !inside
         return
@@ -304,8 +307,8 @@ Function Place(Actor player)
                     Trace("pass stopped at " + i + ": the player went indoors or to another world")
                     return
                 endif
-                if holding && player.IsInCombat()
-                    Release("combat while the markers came in")       ; a pass can run for seconds: not blind in a fight
+                if holding
+                    HoldCheck(player, w == ourWorld)                  ; a pass can run for seconds: checked between moves too
                 endif
                 px = player.GetPositionX()
                 py = player.GetPositionY()
@@ -336,7 +339,7 @@ Function Place(Actor player)
                     m.SetPosition(x, y, z)
                     if before > SameWorld
                         late = True                             ; it came into the world after the player did
-                        if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && Utility.GetCurrentRealTime() - enteredAt < HoldWindow
+                        if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && w == ourWorld && Utility.GetCurrentRealTime() - enteredAt < HoldWindow
                             Hold()
                         endif
                     endif
@@ -605,16 +608,16 @@ Function Hold()
     Trace("dark hold: markers coming in " + (holdAt - enteredAt) + " s after the player entered the world")
 EndFunction
 
-; A hold ends with the reload (ComeBack), or here: never in a fight, dead, seated or in a scene, off the map, or past
-; HoldMax seconds.
-Function HoldCheck(Actor player, bool inside)
+; A hold ends with the reload (ComeBack), or here: past HoldMax seconds, off the map or out of our world (no reload
+; comes there), and whenever the reload would wait: in a fight, dead, seated, in a scene or without movement controls.
+Function HoldCheck(Actor player, bool ours)
     float held = Utility.GetCurrentRealTime() - holdAt
     if held > HoldMax
         Release("no reload after " + held + " s")
-    elseif !inside
-        Release("the player left the map")
-    elseif player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0
-        Release("combat=" + player.IsInCombat() + " dead=" + player.IsDead() + " scene=" + player.IsInScene() + " sit=" + player.GetSitState())
+    elseif !ours
+        Release("the player left the map or our world")
+    elseif player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0 || !Game.IsMovementControlsEnabled()
+        Release("combat=" + player.IsInCombat() + " dead=" + player.IsDead() + " scene=" + player.IsInScene() + " sit=" + player.GetSitState() + " movement=" + Game.IsMovementControlsEnabled())
     endif
 EndFunction
 
