@@ -19,7 +19,7 @@ in a vanilla game too.
 |---|---|
 | `scripts/game/baseline.py` | `check`, `prepare`, `collect`, `restore`, `status` and `compare` (its module doc, and section 3 below). |
 | `src/fo4sf/core/papyrus_log.py` | Reads a Papyrus log into messages with their stacks, and compares two logs (section 5). |
-| `src/fo4sf/core/loadset.py` | The rules, which read nothing: the plugins the game ships, which plugins and names are ours (they start with FO4 or FOCC), and the start records. |
+| `src/fo4sf/core/loadset.py` | The rules, which read nothing: the plugins the game ships, which plugins and names are ours (they start with FO4 or FOCC, or the reserved FOSF, FO3SF and FNVSF; the one list, which `scripts/game/load_order.py` reads too), and the start records. |
 | `src/fo4sf/launcher/loadprobe.py` | Reads what Starfield will load on the PC: the built-in plugins, `Starfield.ccc`, `sTestFile`, plugin copies in `My Games\Starfield\Data`, and the plugins that override the start records. |
 | The open-baseline note | `baseline-open.json` in the test runner's state folder (`FO4_AI_TEAM_STATE`, else `%LOCALAPPDATA%\fo4-ai-team\state`). `prepare` writes it when it turns plugins off, and `restore` removes it, so a baseline that was never restored is found wherever its folder is. While it names a baseline whose restore has not run, `testqueue.py run` installs and launches nothing (section 3). The runner and `prepare` read it the same way: a note, or the record it names, that cannot be read counts as open. |
 | The lock | `baseline.lock` in the same state folder. `prepare`, `collect` and `restore` run one at a time, whatever their out folders: one that finds another running waits 2 seconds, then refuses and changes nothing. The lock of one that stopped (a crash, a closed window) is taken over after 15 minutes. On Windows, the lock of one that still runs (paused by a click in its window, say) cannot be taken over: the other waits its 2 seconds and refuses. A lock whose age cannot be read is never taken over either: the refusal says so, and the lock is removed by hand once none runs. `check`, `status` and `compare` take no lock. |
@@ -198,7 +198,7 @@ one message with one stack, and runtime FF ids are read as `FF??????`.
 | Group | Means |
 |---|---|
 | `both` | The same kind in both runs. Starfield's own, so it is not ours to chase. |
-| `ours` | Not in the baseline, and it names one of ours: our EditorIDs and scripts start with FO4 or FOCC. Ours to fix, even at a script line where vanilla errors too: then the report says how many baseline lines came there. |
+| `ours` | Not in the baseline, and it names one of ours: our EditorIDs and scripts start with FO4 or FOCC (or the reserved FOSF, FO3SF, FNVSF). Ours to fix, even at a script line where vanilla errors too: then the report says how many baseline lines came there. |
 | `both_place` | The same message at the same script line in both runs, from another caller or object. |
 | `starfield` | Only in the run, from Starfield's own scripts. What our changes cost Starfield, unless the baseline did not get that far (below). |
 | `baseline` | Only in the baseline, at a script line no `both_place` kind of the run has. |
@@ -261,7 +261,7 @@ but an earlier compare report, so it never writes over another baseline's record
   - An archive of ours left in `Data` (`<plugin> - Main.ba2`) stays out while its plugin is unticked. That it loads
     with its plugin is verified (docs/spikes/S2-S4-S9-plugin-units-loading.md). `check` does not read the INI archive
     lists (`sResourceIndexFileList`, `sfstack.md`), which could load one by its name.
-  - None of Starfield's EditorIDs or script names starts with FO4 or FOCC (none of its plugins does). The first
+  - None of Starfield's EditorIDs or script names starts with FO4, FOCC, FOSF, FO3SF or FNVSF (none of its plugins does). The first
     baseline tests it: `collect` keeps no log that names one as the baseline.
 - **Unknown:**
   - Whether the game writes the end of its log when it is killed instead of quit. Step 4 quits from the game's menu
