@@ -1,31 +1,10 @@
 Scriptname FO4SF_NewGameQuest extends Quest
 {A Fallout 4 new game in Starfield (fo4-to-starfield, docs/newgame/vault111-start.md): this quest is Starfield's startup
- quest. The plugin overrides the DefaultObject StartupQuest_DO (Starfield.esm 00562D), which names MQ101 in vanilla, so
- a New Game starts this quest instead of Starfield's opening (our own start, the owner's pick F, 29 Oct). On a NEW game
- it moves the player in front of their cryo pod in the converted Vault 111 (FO4Port.esm) while the game is still on its
- first loading screen, fades the screen in once the vault has loaded, holds off Starfield's start quests, opens the cog
- door from its console, and takes the player up the elevator onto the Commonwealth at Fallout 4's surface arrival.
- Every step and a status line every 5 s go to the user log "fo4sf_newgame"
- (My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log), the evidence of a run.
- Why the start must move the player itself (records, PC 21 Oct; the three runs of 28 Oct): the startup quest is what
- moves the player into the game. MQ101's stage 0 picks its start by the GLOB MQ101Debug and the matching entry's
- fragment does the move (the intro's: MoveTo CharGenStartMarker, then WaitFor3dLoad); a value no entry matches moves
- nobody, and the new game never left its loading screen (run 2). Roleplayers' Alternate Start, the open-source mod that
- also replaces StartupQuest_DO, moves the player from its startup quest's OnQuestStarted (Game.FastTravel) and, once
- its start cell has loaded, calls Game.FadeOutGame(False, True, 0.0, 0.1, False) (";finishes main menu loading"). In
- run 2 our quest, start-game enabled then, never got its OnQuestInit while the version alias's OnInit did, so
- OnQuestInit waits for that first load (supported hypothesis); the start therefore runs from OnQuestStarted, with
- OnQuestInit as a second route, once, from whichever comes first (Begin). A start that finds no new game (a New Game+)
- or cannot move the player at all stands down and, when either of its readings says the game is still loading (the
- player's 3D not in, or no parent cell yet), first asks Starfield's opening to start (HandBack, which waits for
- nothing), so that its stage 0 moves the player and the first load does not wait on a move nobody makes (unverified:
- whether MQ101 started by a script during that load starts up then and moves the player). The temporary-anchor mode,
- whose centering during that load is unverified and hands nothing back when it moves nobody, is built only on request
- since newgame_v11 (the writer's --allow-temporary-anchor).
- MQ101 never runs, so the plugin overrides no MQ101Debug: right after the hold-off's first pass the quest writes
- DebugAfterHold (two, the value the main quests' developer skip-start stages write) into the global itself, which opens
- PEO_SustenanceAllowed, whose normal route (MQ101 stage 310) is never reached. The guard logs the value the game read
- (the "guard" line) and the write logs its own line ("mq101debug written").
+ quest (the plugin overrides the DefaultObject StartupQuest_DO, Starfield.esm 00562D, which names MQ101 in vanilla). On
+ a NEW game it moves the player in front of their cryo pod in the converted Vault 111 (FO4Port.esm) during the first
+ load, fades the screen in once the vault has loaded, holds off Starfield's start quests, opens the cog door from its
+ console, and takes the player up the elevator onto the Commonwealth at Fallout 4's surface arrival. Every step and a
+ status line every 5 s go to the user log "fo4sf_newgame" (My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log).
  Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
    0 started: as Starfield's startup quest, the guard, the move into the vault and the hold-off
@@ -34,12 +13,40 @@ Scriptname FO4SF_NewGameQuest extends Quest
    20 looks done: character creation closed, or LooksWait passed
    30 cog door opened: from its console
    40 on the surface: the elevator ride is over
-   200 complete: landed, or put on the fallback spot
- The places come from other plugins by their plugin-local form ids (the FO4SF_LoadDoor contract): this plugin has no
- master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).
- The vault anchor has two modes (AnchorTemporary): a persistent reference, which resolves before the vault loads, or the
- temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo (on request
- only since newgame_v11, see above).}
+   200 complete: landed, or put on the fallback spot}
+; KEEP EVERY DOC COMMENT AND STRING OF THIS SCRIPT SHORT: tests/test_papyrus_strings.py holds each under 3,072 bytes.
+; newgame_v11 crashed the game while it loaded its data files, before the main menu, on every launch (29 to 31 Oct
+; 2026), and v10 did not: the crash dump's register held this script's doc comment bytes 4,096 to 4,103, from a doc
+; comment of 4,196 bytes (v10's was 2,745). So Starfield's script loader copies a doc comment into a 4 KB buffer and
+; a longer one overwrites what follows it (supported hypothesis, from that dump). The notes below are ";" comments,
+; which the compiler leaves out of the .pex.
+;
+; Why the start must move the player itself (records, PC 21 Oct; the three runs of 28 Oct): the startup quest is what
+; moves the player into the game. MQ101's stage 0 picks its start by the GLOB MQ101Debug and the matching entry's
+; fragment does the move (the intro's: MoveTo CharGenStartMarker, then WaitFor3dLoad); a value no entry matches moves
+; nobody, and the new game never left its loading screen (run 2). Roleplayers' Alternate Start, the open-source mod that
+; also replaces StartupQuest_DO, moves the player from its startup quest's OnQuestStarted (Game.FastTravel) and, once
+; its start cell has loaded, calls FadeOutGame with (False, True, 0.0, 0.1, False) (";finishes main menu loading"). In
+; run 2 our quest, start-game enabled then, never got its OnQuestInit while the version alias's OnInit did, so
+; OnQuestInit waits for that first load (supported hypothesis); the start therefore runs from OnQuestStarted, with
+; OnQuestInit as a second route, once, from whichever comes first (Begin). A start that finds no new game (a New Game+)
+; or cannot move the player at all stands down and, when either of its readings says the game is still loading (the
+; player's 3D not in, or no parent cell yet), first asks Starfield's opening to start (HandBack, which waits for
+; nothing), so that its stage 0 moves the player and the first load does not wait on a move nobody makes (unverified:
+; whether MQ101 started by a script during that load starts up then and moves the player). The temporary-anchor mode,
+; whose centering during that load is unverified and hands nothing back when it moves nobody, is built only on request
+; since newgame_v11 (the writer's --allow-temporary-anchor).
+;
+; MQ101 never runs, so the plugin overrides no MQ101Debug: right after the hold-off's first pass the quest writes
+; DebugAfterHold (two, the value the main quests' developer skip-start stages write) into the global itself, which opens
+; PEO_SustenanceAllowed, whose normal route (MQ101 stage 310) is never reached. The guard logs the value the game read
+; (the "guard" line) and the write logs its own line ("mq101debug written").
+;
+; The places come from other plugins by their plugin-local form ids (the FO4SF_LoadDoor contract): this plugin has no
+; master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).
+; The vault anchor has two modes (AnchorTemporary): a persistent reference, which resolves before the vault loads, or the
+; temporary COC marker, which the script must load the cell for (Debug.CenterOnCell) before the same MoveTo (on request
+; only since newgame_v11, see above).
 
 GlobalVariable Property GameDaysPassed Auto Const Mandatory
 {Starfield.esm 000039 (the record's value is 0; in game it reads about 0.3335 one second into a new game, the 8:00 clock,

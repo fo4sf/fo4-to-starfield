@@ -763,6 +763,39 @@ stage 200. On screen: no Starfield intro at all (no mine, no Lin), and the loadi
   the last one): those lines say it ran and what the start had done; none at all means the timer did not run then
   (whether a script timer runs under the loading menu is **unverified**: ScriptObject.psc does not say).
 
+## 13a. The v11 boot crash (29 to 31 Oct 2026): a doc comment over 4 KB
+
+**What happened (Install's reads of the PC, through the coordinator, 31 Oct):** with newgame_v11 installed
+(FO4SFNewGame.esm 418C491C), every launch died 22 to 36 s in with an access violation at Starfield.exe+0x28281B5
+(1.16.244.0) reading 0xFFFFFFFFFFFFFFFF: one on 29 Oct, five on 31 Oct (12:42 to 12:48 PC time). fo4sf_newgame.0.log
+and every other user log stayed untouched, and Papyrus.0.log to .3.log hold only vanilla bind errors, the last about 2 s
+before the exit. FO4SFBorder's log has its `load` line but no `post_data_load` line for each of the four SFSE launches
+of 31 Oct, while a launch that boots gets that line 25 to 26 s after `load` (29 Oct 05:03 UTC, 26.5 s; newgame_v10 on
+31 Oct 18:58 UTC, 25.4 s): the game died while it loaded its data files, before the main menu (**verified**). Two of
+the crashes came after the local model was unloaded, one with 13.4 GiB free, so memory is ruled out (**verified**).
+newgame_v10 booted and played to stage 200 that afternoon.
+
+**The cause:** the exception dump's rax was 0x20726f66206c6c65, the eight bytes `ell for `. FO4SF_NewGameQuest.psc's
+doc comment (the `{...}` after its `Scriptname` line) was 4,196 bytes in v11 (v10's: 2,745), and its bytes 4,096 to
+4,103 are exactly `ell for `, from "the script must load the cell for (Debug.CenterOnCell)" (**verified**: the dump and
+the source). The compiler keeps doc comments in the .pex, and the game loads the scripts its records name while it
+loads the data files (the bind errors in Papyrus.0.log come from then). So Starfield's script loader copies a doc
+comment into a 4 KB buffer, and the bytes past it overwrite a pointer the loader then uses (**supported hypothesis**,
+from that one dump). No other doc comment or string of ours is longer than 2,376 bytes.
+
+**The fix (newgame_v12):** that doc comment is now 1,409 bytes and keeps the stage contract (section 9); the notes it
+carried are `;` comments, which the compiler leaves out of the .pex. `tests/test_papyrus_strings.py` holds every doc
+comment and string literal of the repo's .psc files at or under 3,072 bytes, each line end counted as two bytes (a
+Windows checkout); the bytes past 4,096 are where the crash came from. Nothing else changed: the plugin's records and
+the script's code are v11's, so section 13 is still what run 4 must show, on newgame_v12.
+
+**What would show it wrong:** newgame_v12 dying the same way (no `post_data_load`, the same address). The next suspect
+is then the startup override record, the only other change from v10 that the game reads while it loads its data
+files; a build without it (v11's start never runs, MQ101 starts as in vanilla) tells. Not suspected now: the override
+is in no part of the dump, and Roleplayers' Alternate Start and No Ship Fast Start ship the same override on 1.16.244
+(section 2, option F). No Ship Fast Start's placeholder ship, sustenance and Cruise Mode steps run once a game is going,
+and run 3 played to stage 200 with no ship, so they cannot explain a crash before the main menu.
+
 ## Sources
 
 - [SKK Fast Start New Game (Nexus Starfield 5971)](https://www.nexusmods.com/starfield/mods/5971): MQ101Debug = 8, the
