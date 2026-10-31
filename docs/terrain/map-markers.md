@@ -341,7 +341,7 @@ them itself:
    core's first marker (LC172's template, as the core writes its own), in the WRLD copy's persistent cell at its local
    spot, lifted `--z-lift`, with its own name and the overrides' flags. Each also gets one `MapMarkerRefType` `LCSR` row
    in an override of the core's Location, as TerrainOverlays writes the core's four. The quests list them after the
-   core's markers, at most 100 per quest. `check --extra` fails a plugin with any other REFR of its own. It also fails a
+   core's markers, at most 100 per quest (20 since 2026-10-31, "Reload"). `check --extra` fails a plugin with any other REFR of its own. It also fails a
    Location override that differs from the core's in anything but those rows, the same stale-stage rule as the WRLD copy.
    Without `--extra` the plugin is byte for byte as before: built here from the v6i core, it has sha256 `af56df9c`, the
    installed one.
