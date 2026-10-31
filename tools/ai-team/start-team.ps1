@@ -17,7 +17,7 @@ catch {
   "guardian proxy started (pid $($p.Id), port $Port)"
 }
 try { $m = Invoke-RestMethod 'http://127.0.0.1:1234/api/v0/models' -TimeoutSec 3; $loaded = @($m.data | Where-Object state -eq 'loaded')
-  if ($loaded.Count -eq 0) { "WARNING: no model loaded in LM Studio. Load it with python tools\ai-team\load_model.py (64K, memory mapping off)" }
+  if ($loaded.Count -eq 0) { "WARNING: no model loaded in LM Studio. Load the picked one with python tools\ai-team\models.py ensure (or the menu's Pick a model)" }
   else { "LM Studio model loaded: $($loaded.id -join ', ')" } }
 catch { "WARNING: LM Studio server not reachable on :1234 (start it in LM Studio or with: lms server start)" }
 & $Python (Join-Path $here 'guardian\guardian.py') status | Select-String '"level"|"mode"|"admission_if_new_job"'

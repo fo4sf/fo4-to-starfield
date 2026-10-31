@@ -1,17 +1,21 @@
-# Run the local Lead in cycles (interactive; not a Windows service or scheduled task). Stop with Ctrl+C,
-# `guardian.py stop` or by deleting the pid file (both take effect at the next cycle).
-#   powershell -File tools\ai-team\run-lead.ps1 [-Interval 1800] [-MaxCycles 0] [-SessionTimeout 2700]
+# Run the local Lead in cycles (interactive; not a Windows service or scheduled task). Stop with the FO4SF AI menu
+# (option 7 again: stops this and its session), Ctrl+C here (the same), `guardian.py stop` or by deleting the pid file
+# (both take effect at the next cycle).
+#   powershell -File tools\ai-team\run-lead.ps1 [-Interval 1800] [-MaxCycles 0] [-SessionTimeout 2700] [-Brief "<task>"]
+# -Brief hands the session one task (Claude's local-team-delegate skill runs -MaxCycles 1 -Brief ...).
 # Each cycle: skip if Starfield runs or the guardian is paused/stopped/blocked; make sure the guardian proxy and the
 # model are up; run ONE Lead session in the Lead's own worktree (branch ai/local-lead, so its doc edits never collide
 # with other agents in the main checkout); log it. Failures back off (x2, up to 4 h); success resets the interval.
-param([int]$Interval = 1800, [int]$MaxCycles = 0, [int]$SessionTimeout = 2700,
+param([int]$Interval = 1800, [int]$MaxCycles = 0, [int]$SessionTimeout = 2700, [string]$Brief = '',
       [string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }))
 $repo = Split-Path (Split-Path $PSScriptRoot)
 $state = if ($env:FO4_AI_TEAM_STATE) { $env:FO4_AI_TEAM_STATE } else { Join-Path $env:LOCALAPPDATA 'fo4-ai-team\state' }
 New-Item -ItemType Directory -Force $state | Out-Null
 $log = Join-Path $state 'lead-cycles.log'
 $pidFile = Join-Path $state 'run-lead.pid'
+$sessionFile = Join-Path $state 'lead-session.pid'    # the running OpenCode session, for the status and stop in the menu
 function Log($m) { $l = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss ') + $m; $l; Add-Content $log $l }
+function Wait-Next { if ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) { Start-Sleep $Interval } }   # none after the last
 
 # Both resolved first, so a bad -Python or a missing OpenCode stops the script before it writes the pid file or sets
 # anything. The plugin runs its checker with this Python, as a full path: it starts it from the Lead's worktree. Only
@@ -32,18 +36,23 @@ $shim = Get-Command opencode -CommandType Application, ExternalScript -ErrorActi
 $opencode = Join-Path (Split-Path $shim.Source) 'node_modules\opencode-ai\bin\opencode.exe'
 if (-not (Test-Path -LiteralPath $opencode -PathType Leaf)) { throw "no opencode.exe at $opencode (install OpenCode with npm)" }
 
-if (Test-Path $pidFile) {                                   # single instance
+$file = Get-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+if ($file) {                                                # single instance
   $old = "$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim()
   # an empty or garbled file is stale ([int]'' is 0, and Get-Process -Id 0 finds the Idle process), and so is one
-  # whose pid Windows has since given to this or another kind of process (a run that never reached its finally)
+  # whose pid Windows has since given to this or another process (a run that never reached its finally): the run it
+  # named was a PowerShell that started before the file was written (the menu's rule)
   if ($old -match '^[1-9][0-9]{0,8}$' -and [int]$old -ne $PID -and
-      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'powershell', 'pwsh' })) {
+      (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object {
+        $started = try { $_.StartTime } catch { $null }
+        $_.ProcessName -in 'powershell', 'pwsh' -and $started -and $started -le $file.LastWriteTime.AddSeconds(2) })) {
     "run-lead already running (pid $old)"; exit 1
   }
 }
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-lead'
 $g = Join-Path $repo 'tools\ai-team\guardian\guardian.py'
+$models = Join-Path $PSScriptRoot 'models.py'
 $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS.md). Do at most one task, then stop. " +
           "Good tasks for this team: research questions from docs/ai/known-unknowns.md (fo4-research, findings into " +
           "docs/ai/research-log.md); refreshing docs/ai/agent-status.md from live sources; open issues labelled " +
@@ -64,6 +73,9 @@ $prompt = "Run ONE session of your operating procedure (your agent file + AGENTS
           "Do not comment on other issues or " +
           "change labels: name the issue you worked on in the #32 comment, and the owner sets labels. If nothing is " +
           "ready, say so and stop."
+if ($Brief) {                                       # one line, and no character that ends the quoted argument
+  $prompt += " Your task for this session, from the owner or Claude: " + (($Brief -replace '\s+', ' ') -replace '["`$\\]', "'")
+}
 function Test-GuardGate {                           # does the running proxy refuse a request with no guard header?
   try {
     Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
@@ -71,8 +83,11 @@ function Test-GuardGate {                           # does the running proxy ref
     return $false
   } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }
 }
-$saved = @{ FO4SF_UNATTENDED = $env:FO4SF_UNATTENDED; FO4SF_PYTHON = $env:FO4SF_PYTHON }   # put back at the end
-$wait = $Interval; $cycle = 0
+$saved = @{ FO4SF_UNATTENDED = $env:FO4SF_UNATTENDED; FO4SF_PYTHON = $env:FO4SF_PYTHON;   # put back at the end
+            FO4SF_OWNER_PRESENT = $env:FO4SF_OWNER_PRESENT; OPENCODE_CONFIG_CONTENT = $env:OPENCODE_CONFIG_CONTENT;
+            OPENCODE_DISABLE_EXTERNAL_SKILLS = $env:OPENCODE_DISABLE_EXTERNAL_SKILLS;
+            OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS }
+$wait = $Interval; $cycle = 0; $p = $null          # $p: this run's session only, never a caller's variable
 try {
   $PID | Set-Content $pidFile
   if (-not (Test-Path $wt)) {
@@ -83,6 +98,9 @@ try {
   }
   $env:FO4SF_UNATTENDED = '1'                       # the guard plugin then refuses delegation to fo4-implement
   $env:FO4SF_PYTHON = $pythonPath
+  $env:FO4SF_OWNER_PRESENT = $null                  # nothing here counts as the owner's terminal
+  $env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'       # no skills from ~/.claude or ~/.agents (the claude.ai ones)
+  $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'    # the same switch under its older name
   while ($MaxCycles -eq 0 -or $cycle -lt $MaxCycles) {
     if ("$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim() -ne "$PID") {
       Log "the pid file is gone or names another run: exiting"; break
@@ -92,45 +110,50 @@ try {
     if ($st.mode -eq 'stopped') { Log "guardian mode stopped: exiting"; break }
     $game = Get-Process Starfield, Fallout4 -ErrorAction SilentlyContinue
     if ($st.mode -eq 'paused' -or $game -or $st.level -eq 'block') {
-      Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)"; Start-Sleep $Interval; continue
+      Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)"; Wait-Next; continue
     }
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null
-    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\.6-35b-a3b')) {
-      Log "model not loaded: loading"; & $pythonPath (Join-Path $PSScriptRoot 'load_model.py') | Out-Null
-    }
+    $ensure = (& $pythonPath $models ensure 2>&1 | Out-String).Trim()    # the picked model (models.py), loaded if missing
+    if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: skipped: the picked model is not loaded: $ensure"; Wait-Next; continue }
+    $env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode | Out-String).Trim()   # the OpenCode limits = the loaded window
     $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()
     if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no other branch is rebased
-      Log "cycle ${cycle}: skipped: $wt is on '$branch', not ai/local-lead"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: $wt is on '$branch', not ai/local-lead"; Wait-Next; continue
     }
     $gitDir = "$(git -C $wt rev-parse --absolute-git-dir 2>$null)".Trim()
     $busy = @('rebase-merge','rebase-apply','MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD') |
             Where-Object { $gitDir -and (Test-Path (Join-Path $gitDir $_)) }
     if ($busy) {                                        # a stopped rebase/merge/cherry-pick: let a person resolve it
-      Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -join ', '))"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -join ', '))"; Wait-Next; continue
     }
     $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1
     $pullFailed = $LASTEXITCODE -ne 0
     $unmerged = git -C $wt ls-files -u
     if ($unmerged) {                                    # an autostash or rebase conflict: a person resolves it
-      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | Out-String).Trim())"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | Out-String).Trim())"; Wait-Next; continue
     }
     if ($pullFailed) {                                  # an old tree may predate the guard: no session on it
-      Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim())"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim())"; Wait-Next; continue
     }
     if (-not (Test-GuardGate)) {                        # a proxy started before the guard header check serves anyone
-      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without the guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without the guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Wait-Next; continue
     }
     $missing = @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py') |
                Where-Object { -not (Test-Path (Join-Path $wt $_)) }
     if ($missing) {                                     # OpenCode would start without the guard (it only logs that)
-      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join ', '), so the guard would be off"; Start-Sleep $Interval; continue
+      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join ', '), so the guard would be off"; Wait-Next; continue
     }
     Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"
     $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $p = Start-Process -FilePath $opencode -ArgumentList @('run', '--agent', 'fo4-lead', "`"$prompt`"") `
          -WorkingDirectory $wt -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError "$out.err"
     $null = $p.Handle                                   # hold the handle, or ExitCode is lost (redirected Start-Process)
-    if (-not $p.WaitForExit($SessionTimeout * 1000)) {
+    $p.Id | Set-Content $sessionFile
+    # one-second waits, so Ctrl+C here is seen between them and the finally stops the session (one long wait holds
+    # Ctrl+C until the session ends, and the session has its own hidden console)
+    $deadline = (Get-Date).AddSeconds($SessionTimeout)
+    while (-not $p.HasExited -and (Get-Date) -lt $deadline) { $null = $p.WaitForExit(1000) }
+    if (-not $p.HasExited) {
       Stop-Process -Id $p.Id -Force -Confirm:$false; Log "cycle ${cycle}: session timed out, stopped"
       $wait = [Math]::Min($wait * 2, 14400)
     } elseif ($p.ExitCode -ne 0) {
@@ -138,10 +161,13 @@ try {
     } else {
       Log "cycle ${cycle}: session done, see $out"; $wait = $Interval
     }
+    Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue
     if ($MaxCycles -ne 0 -and $cycle -ge $MaxCycles) { break }
     Start-Sleep $wait
   }
 } finally {
+  if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Log "stopped the running Lead session" }
+  Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue
   if ("$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)".Trim() -eq "$PID") {   # ours, not a later run's
     Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
   }

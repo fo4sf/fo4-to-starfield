@@ -33,6 +33,16 @@ def load_config(context=DEFAULT_CONTEXT, kv="f16", gpu=None):
     return cfg
 
 
+def load(model, cfg, unload=()):
+    """Load model with cfg under its own id, after unloading it and any loaded model whose id is in unload."""
+    import lmstudio as lms                # here, so the tests import this module without the SDK installed
+    client = lms.get_default_client()
+    for m in client.llm.list_loaded():
+        if m.identifier == model or m.identifier in unload:
+            m.unload()
+    return client.llm.load_new_instance(model, model, config=cfg).identifier
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=DEFAULT_MODEL)
@@ -41,13 +51,7 @@ def main():
     ap.add_argument("--gpu", type=float, default=None, help="GPU offload ratio 0..1 (default: LM Studio decides)")
     a = ap.parse_args()
     cfg = load_config(a.context, a.kv, a.gpu)
-    import lmstudio as lms                # here, so the tests import this module without the SDK installed
-    client = lms.get_default_client()
-    for m in client.llm.list_loaded():
-        if m.identifier == a.model:
-            m.unload()
-    model = client.llm.load_new_instance(a.model, a.model, config=cfg)
-    print(json.dumps({"loaded": model.identifier, "config": cfg}))
+    print(json.dumps({"loaded": load(a.model, cfg), "config": cfg}))
 
 
 if __name__ == "__main__":

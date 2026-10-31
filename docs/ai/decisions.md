@@ -1103,3 +1103,126 @@ decided the import path); keeping the order as a parameter (two orders in the co
   proxy without the header fails with (403) Forbidden. A redirect such as `echo x > y` is a poor check: OpenCode's
   own rules refuse it too, so only the error's wording would show which layer did. A command typed with `!` in the
   terminal UI is not a tool call.
+
+## 2026-10-30: one desktop menu, a guarded terminal for the local agents, and a model pick the whole team follows (Claude-cloud)
+
+- Decision: the owner chose A, C and E on 30 Oct: OpenCode's own terminal UI on the team's agents with the guard on
+  (A), one "FO4SF AI" desktop menu to start the team, open its terminal, start Claude Code, show status, pick a model
+  and stop (C), and Claude-cloud builds it in the repo while the PC session only installs and tests (E). Their
+  answers at 18:31Z and 18:36Z set the rest: J (the coding agent commits on its own `ai/` branch in their terminal,
+  never pushes), L (the terminal has its own worktree), P (only the measured setups can be picked), Q (the guard
+  checks every session, as it does now), and A (two models only: the 35B at 64K and the 14B; the 128K window is
+  dropped).
+  - `models.py` keeps one pick (one of the two presets in `config.json` "models", by name) in `guardian.db`. The
+    guardian proxy sends every agent to the pick's model when it is a preset's, read when a request is admitted, and `terminal.ps1` and
+    `run-lead.ps1` pass its limits to OpenCode through `OPENCODE_CONFIG_CONTENT`. A load takes a hold on the proxy
+    (one load at a time; the proxy starts no job while it stands), refuses while a request runs, unloads the team's
+    other models and the last pick, and never touches the owner's pause or stop. A failed load leaves the hold as
+    "failed", and the proxy refuses requests until a load works. `run-lead.ps1` loads the pick (`models.py ensure`,
+    which also reloads a model at another context) instead of matching one model name.
+  - `terminal.ps1` runs in its own worktree, which goes back to main (no branch) at each start with no other terminal
+    window open, carrying uncommitted edits made with no branch (an agent's branch with uncommitted edits stays), and
+    sets `FO4SF_OWNER_PRESENT=1`. With it, the guard also allows `agent_git.py`: a branch from main and commits of named
+    files (literal paths) on the agent's own `ai/` branch, with no hooks, and the wrapper never pushes (the owner's J),
+    and a `Lead (local): for Claude:` handoff on #32, which unattended runs cannot post. The three specialists are
+    `mode: all`, so the terminal opens each of them. Skills from outside the repo stay hidden from the team, which keeps
+    one skill of its own (`fo4-allowed-commands`, every example checked against the guard by a test).
+  - The guard now also checks file writes: nothing outside the repo, nothing under the team's own rules, tools, skills,
+    CI or git's files, no AGENTS.md, CLAUDE.md or CONTEXT.md in any folder, no OpenCode config file or config folder
+    (`.opencode`, `.claude`, `.agents`, `.git`, `.github`) in any folder or spelling,
+    no folder in place of a file, and only from a session at the repo root. The agents' edit rules said most of it
+    already; the checker holds where a pattern misses, for the writes and commands an agent makes itself.
+  - What it cannot hold in the terminal: the coding agent writes tests and runs them, and a test can run any code with
+    the owner's rights (a push with their login, or a change to the guard's files in the worktree). No allow-list can
+    fence a test runner, so there OpenCode asks the owner before each `python -m unittest` run (fo4-implement's and
+    fo4-qa's rules) as long as the owner answers Allow once (Allow always or auto-accept stops the asking until OpenCode
+    exits), the terminal does not start while the worktree has a change to a file the guard refuses an agent to write
+    or is on a branch that differs from main in one, and "never pushes" in the terminal rests on the model and on the
+    owner reading those prompts. The owner's own OpenCode config (~/.config/opencode) is not checked. Unattended runs
+    are unchanged: they refuse fo4-implement and take no QA reviews, so no agent there writes and runs a test.
+  - Delegation runs both ways through GitHub: Claude opens issues labelled `agent:local-team` and `ready` (or runs one
+    `run-lead.ps1 -MaxCycles 1 -Brief` session on the PC), and the Lead's `/handoff` posts a `Lead (local): for
+    Claude:` comment on #32. Claude Code's side is four skills in `.claude/skills/`.
+- Why: the owner asked for a terminal to talk to the team when Claude is away, a desktop start for the team and for
+  Claude Code, more models, and skills for control and delegation both ways. A pick the proxy and OpenCode both read
+  replaces, for the terminal and the Lead, the hand edits of `opencode.json` that the 14B and 128K setups needed, which
+  the review of #587 flagged (a plain `opencode` still has `opencode.json`'s 64K limits).
+- Alternatives: the PC session building its own guard and commands (dropped by the owner's E); a web UI (`opencode
+  web`, more moving parts); committing per-model `opencode.json` files (one would always be stale).
+- Not yet true: none of it has run on the PC. PowerShell 5.1 was not available here to parse the scripts, and the
+  OpenCode switches (`OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `permission.skill`, the
+  `.opencode/commands/` and `.opencode/skills/` folders) are taken from the current OpenCode docs, while the PC runs
+  1.18.35. The install must show the menu, the terminal on the picked model (and option 3 opening the agent asked
+  for), a refused write to `opencode.json`, and `opencode debug skill` listing only `fo4-allowed-commands`.
+- Self-review (30 Oct, before the PR): a multi-agent review with a skeptic per finding confirmed 32 findings, fixed in
+  the commit after the merge of #605's fixes. The main ones: a load that failed after the unload resumed the guardian
+  with no model, and the load's finally overwrote a pause the owner set meanwhile (now the hold); the terminal's own
+  branch stopped following main after its first commit, so guard fixes never reached it, and agent branches stacked
+  (now main with no branch, and branches from main); `-Agent` opened the Lead (subagent-only mode); `/review` ran the
+  tests on the wrong checkout; YAML cut descriptions at ` #32`; anyone could post a `for Claude:` handoff.
+- Brought up to main after the guard's follow-ups (#606 to #608): the plugin checks a file write with the same
+  checker call as a shell command (a full-path `FO4SF_PYTHON`, exit 0 together with `{"allowed": true}`);
+  `terminal.ps1` resolves the real `python.exe` the way `run-lead.ps1` does and refuses the Store alias; and
+  `run-lead.ps1` keeps main's single-instance check, environment restore and pinned cycle, with the pick, the session
+  pid file for the menu, `-Brief` and the skip without a wait in the last cycle added. The proxy follows a pick only
+  when it names a preset's model.
+- Second self-check (30 Oct, after the merge): the proxy read only the guardian's config, so it had no presets and
+  never followed a pick (it now reads the models from `config.json` too); `models.py pick` always loads (no
+  `--no-load`, which could leave a pick that was never loaded); a written file's path takes letters, digits and
+  `._@+=,-` only, with no part that starts or ends with a dot (Windows drops trailing dots and spaces, and `::$DATA`
+  writes the file itself); only the coding agent commits on its own (`agent_git.py` is gone from the Lead's allow
+  rules, per J, so a Lead docs commit in the terminal waits for the owner's yes at OpenCode's prompt);
+  `run-lead.ps1` waits for a session one second at a time, so Ctrl+C stops it, and forgets the last cycle's session;
+  and `terminal.ps1` leaves the worktree where it is while another terminal window is open on it.
+- Independent review (30 Oct, https://github.com/fo4sf/fo4-to-starfield/pull/619#issuecomment-6532780527, NOT CLEAR,
+  3 medium and 9 low), all taken: test runs ask the owner, the text says what the guard cannot hold, and the terminal
+  refuses to start on changed guard files (1); a patch with a control character or a line break other than "\n" is
+  refused and its headers are read line by line as OpenCode reads them (2); `agent_git.py branch` with an existing name
+  switches back to it (3); `models.py` runs under `-I`; a refused load puts back a "failed" hold; the README says what a
+  plain `opencode` keeps; a commit message needs its agent's own tag; a handoff is matched on its letters alone;
+  writes named like a standard module are refused at the repo root and in `scripts/` (Python searches those first);
+  the terminal checks git's exit codes; menu option 7 stops the loop before the session and checks a pid file's age;
+  `/review` reads CI through `gh pr view --json statusCheckRollup`; and the tests the review found weak are fixed.
+
+## 2026-10-30: the 35B's output limit goes from 16K to 32K tokens (owner)
+
+- Decision: `opencode.json` and the `qwen3.6-35b` preset give the agents an output limit of 32000 tokens, OpenCode
+  1.18.35's own cap (`min(limit.output, 32000)`, read from its code), at the same 64K context. The 14B keeps 8192: its
+  32K window cannot spare more.
+- Why: the owner's word, "We shouldn't restrict its output limit so much" (30 Oct 22:51Z). Qwen3.6 thinks before every
+  answer and the thinking counts as output. In the owner's hard test that evening (find bugs in `src/fo4sf/ba2.py` and
+  prove them with tests), the agent read the right files, then thought for 1,119 s and stopped at 16,377 reasoning
+  tokens (finish "length"), so it wrote no answer, test or report. The model card recommends 32,768 output tokens.
+- Alternatives: keep 16384 (rejected: hard tasks end before any answer); 128K context with a 32K output (left to the
+  owner: room for both, but at 128K the PC idled at 85-88% RAM against 78-79% at 64K, with 92.5% VRAM while the Lead
+  worked, and the guardian holds requests above 85%; the 3.5-point gap in the README's table is a load peak).
+- Boundary: OpenCode compacts at context minus output, so a session now compacts at about 33.5K tokens instead of
+  49K; the Lead's opening prompts (23-26K on 30 Oct) fit, its longer sessions (46K at 128K) compact on the way. The
+  earlier entry rejected 32768 for that reason; the hard test showed the thinking room matters more. The owner also
+  chose to hand the local team hard work in smaller steps. The count is the last step's tokens with its thinking, so a
+  step that thinks 28K tokens on a 6K prompt compacts the session even though the next prompt is far smaller. LM Studio
+  0.4.27 (the team PC, default settings, measured 30 Oct) takes a request whose prompt plus `max_tokens` passes the
+  64K window: it counts the whole prompt, stops at the window with finish "length", and returns no error. So the
+  compaction request after such a step (about 34K of history, 32K `max_tokens`) runs, with about 31K left for the
+  summary and its thinking.
+
+## 2026-10-30: a subagent's report survives a compaction right after it (Claude-cloud)
+
+- Decision: `.opencode/plugin/fo4-reports.js`. When OpenCode compacts a subagent's session right after an answer that
+  finished, the plugin turns off OpenCode's "Continue if you have next steps..." message for that session
+  (`experimental.compaction.autocontinue`) and puts the answer back into the task tool's result
+  (`tool.execute.after`), so the Lead gets the subagent's report. A compaction in the middle of a task, one after a
+  step that ran out of room, and any in the owner's own session run as OpenCode makes them.
+- Why: the independent re-review of #619 at 7b3cf388 (medium 2). OpenCode 1.18.35 (read from its code) checks for
+  compaction after a final answer too; with no user message to replay it adds the "Continue" message, and the task tool
+  returns the newest text in the subagent's session, so the Lead would get the reply to "Continue" (or, with that off
+  alone, the compaction's summary) instead of the report. With 32K output and thinking counted, one long final step
+  is enough to trigger it.
+- Alternatives: `limit.input` with `compaction.reserved` to raise the threshold (it only makes the case rarer, and a
+  prompt could then pass the window); `compaction.auto: false` (a session that fills the window would fail instead of
+  compacting); a compaction prompt that copies the report (OpenCode keeps the newest messages out of the summarised
+  part, so the report is often not in what the summary sees).
+- Boundary: the plugin learns which sessions are subagents' from OpenCode's events, so a subagent session that started
+  before OpenCode was restarted is left as OpenCode makes it. The events and hook shapes are 1.18.35's; a newer
+  OpenCode needs them checked again. Nothing here has run in OpenCode yet: the tests drive the plugin with the events
+  and calls read from OpenCode's code.

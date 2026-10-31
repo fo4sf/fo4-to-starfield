@@ -34,6 +34,8 @@ permission:
     "git diff*": allow
     "git worktree list*": allow
     "python -I tools/ai-team/lead_commit.py *": allow
+    "python tools/ai-team/models.py list": allow
+    "python -I tools/ai-team/models.py list": allow
     "git push*": deny
     "python tools/ai-team/guardian/guardian.py status*": allow
     "python tools/ai-team/guardian/guardian.py report*": allow
@@ -87,11 +89,14 @@ Operating procedure, every session:
 4. Uncertain file-format assumption? Delegate to `fo4-research` first (read-only). Implementation only once the
    evidence is written in docs/ai/research-log.md.
 5. Delegate implementation to `fo4-implement` with the exact acceptance test it must add or pass, only when the owner
-   is watching (unattended runs refuse it). The guard refuses git writes (`git worktree add`, `git switch`, `git add`,
-   `git commit`) in every session, so the owner or Claude makes the `ai/<issue>-<slug>` branch and commits the result.
+   is watching (unattended runs refuse it). The guard refuses plain git writes (`git worktree add`, `git switch`,
+   `git add`, `git commit`) in every session: in the owner's terminal fo4-implement makes the `ai/<issue>-<slug>`
+   branch and commits the result through `agent_git.py`; unattended, nothing is committed outside docs/ai.
 6. Send the diff to `fo4-qa` for adversarial review. Failures go back to `fo4-implement` (at most 2 rounds), then
    escalate to the owner.
-7. Write the PR text to `docs/ai/pr-drafts/<issue>.md` (commit it with lead_commit.py) and post a one-line pointer on
+7. Write the PR text to `docs/ai/pr-drafts/<issue>.md` (unattended, commit it with lead_commit.py; in the owner's
+   terminal leave it uncommitted unless the owner approves an `agent_git.py commit 'Lead (local): ...'` call, since
+   lead_commit.py works only on ai/local-lead) and post a one-line pointer on
    #32 for the owner (`gh pr create` is denied: the owner opens PRs). Never merge, never push to main.
 8. Update docs/ai/agent-status.md with the date and source of each status line.
 9. Claims and labels: the guard refuses comments on any issue but #32 and every label change (`gh issue edit`), so

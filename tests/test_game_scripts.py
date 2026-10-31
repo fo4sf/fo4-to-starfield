@@ -1,5 +1,5 @@
-"""Game-side scripts: every scripts/game/*.ps1 parses (PowerShell's own parser; skipped where PowerShell is absent), and
-the screen checks that gate key presses behave on synthetic images (no game, no input)."""
+"""Game-side scripts: every scripts/game/*.ps1 (and tools/ai-team/*.ps1) parses (PowerShell's own parser; skipped where
+PowerShell is absent), and the screen checks that gate key presses behave on synthetic images (no game, no input)."""
 import os
 import shutil
 import subprocess
@@ -9,6 +9,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GAME = os.path.join(ROOT, "scripts", "game")
+TEAM = os.path.join(ROOT, "tools", "ai-team")
 sys.path.insert(0, GAME)
 
 POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
@@ -16,14 +17,20 @@ POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 
 @unittest.skipIf(POWERSHELL is None, "PowerShell not available")
 class ParseTests(unittest.TestCase):
-    def test_every_game_script_parses(self):
+    def parse_all(self, folder):
         script = ("$bad = @(); foreach ($f in Get-ChildItem -Path '%s' -Filter *.ps1) { $e = $null; "
                   "[void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e); "
                   "if ($e.Count) { $bad += $f.Name + ': ' + $e[0].Message } }; $bad -join \"`n\"; exit $bad.Count"
-                  % GAME.replace("'", "''"))
+                  % folder.replace("'", "''"))
         out = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", script],
                              capture_output=True, text=True, timeout=120)
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_every_game_script_parses(self):
+        self.parse_all(GAME)
+
+    def test_every_team_script_parses(self):
+        self.parse_all(TEAM)
 
 
 class PromptVisibleTests(unittest.TestCase):

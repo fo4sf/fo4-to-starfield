@@ -1,6 +1,6 @@
 ---
 description: QA agent. Adversarial review of a diff and its tests; runs the test suite; never edits code. Invoked by the Lead.
-mode: subagent
+mode: all
 model: guardian/fo4-qa
 temperature: 0.1
 steps: 40
@@ -9,7 +9,7 @@ permission:
   edit: deny
   bash:
     "*": ask
-    "python -m unittest*": allow
+    "python -m unittest*": ask
     "python scripts/guard.py": allow
     "python -I scripts/guard.py": allow
     "git diff*": allow

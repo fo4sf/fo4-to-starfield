@@ -19,29 +19,91 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 | Wake an idle Codex / Grok (forks its last session, one headless turn; idle + cooldown guards) | `tools/ai-team/wake_agent.py` |
 | Runtime state, history DB, logs (outside the repo) | `%LOCALAPPDATA%\fo4-ai-team\state\` (`guardian.db`, `proxy.log`; override with `FO4_AI_TEAM_STATE`) |
 | Project knowledge, optimization log | `docs/ai/` (`optimization.md`: baselines + before/after entries) |
+| Model picker (the two presets in `config.json` "models"; the proxy and OpenCode follow the pick) | `tools/ai-team/models.py` |
+| The FO4SF AI desktop menu, the agents' terminal, the shortcut maker | `tools/ai-team/menu.ps1`, `terminal.ps1`, `install-shortcut.ps1` |
+| Shell and file-write guard (allow-list checker + OpenCode plugin) | `tools/ai-team/guard/allowlist.py`, `.opencode/plugin/fo4-guard.js` |
+| The implementation agent's branch and commit wrapper (owner's terminal only) | `tools/ai-team/agent_git.py` |
+| The team's slash commands and its one skill (other skills are hidden from it) | `.opencode/commands/*.md`, `.opencode/skills/fo4-allowed-commands/` |
+| Claude Code skills for working with the team: delegate, check, review, models | `.claude/skills/local-team-*/` |
 
 ## Start
 
-1. LM Studio server on (`lms server start` or the app), Starfield closed. Load the model:
-   `python tools\ai-team\load_model.py` (qwen3.6-35b-a3b, 64K context, K/V cache unquantized, LM Studio places
-   the layers, no memory mapping; `--context 131072` loads the long window by hand, and a 128K session also needs the
-   four `limit.context` values in `opencode.json` set to 131072 locally, not committed). It needs LM Studio 0.4.27 or newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects
-   the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
+The FO4SF AI desktop shortcut does all of this from one menu (next section). By hand:
+
+1. LM Studio server on (`lms server start` or the app), Starfield closed. Pick and load the model:
+   `python tools\ai-team\models.py pick qwen3.6-35b` (the default: 64K context, K/V cache unquantized, LM Studio
+   places the layers, no memory mapping) or `qwen3-14b` (the fallback: 32K, all on the GPU, q8 K/V cache). Only these
+   two can be picked (the owner's choice, 30 Oct; the 128K window below was dropped). The pick is saved in
+   `guardian.db`: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and
+   output limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another
+   window. `pick` refuses while a request runs or another load is under way. During the load it holds the proxy (new
+   requests wait, then go to the new model) and unloads the team's other models and the last pick (a model loaded by
+   hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the hold as
+   "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py ensure`), so
+   none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at another
+   context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or newer: the
+   0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
    Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
    (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
-   The previous model, qwen3-14b, stays on disk as a fallback: point the four agents in `config.json` back at it and load
-   it as before with `python tools\ai-team\load_model.py --model qwen3-14b --context 32768 --gpu 1 --kv q8_0`. For a 14B
-   session, also set the four `limit` values in `opencode.json` locally to a 32768 context and a 4096 output. Don't commit
-   that change: the test pins the 64K limits.
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
-   pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`): a running one keeps its old code,
-   and `run-lead.ps1` skips its cycles while the running proxy does not refuse requests without the guard header.
-3. Interactive: first `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` in the window (the
-   guard needs the full path of the real `python.exe`; see "The shell guard" below), then `opencode` in the repository
-   (the Lead is the default agent). Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
+   pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`; menu options 9 and 1): a running
+   one keeps its old code, and `run-lead.ps1` and `terminal.ps1` do not start a session while the running proxy does
+   not refuse requests without the guard header.
+3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section), which hands the guard the full path of
+   the real `python.exe` itself. A plain `opencode` in the repository needs that first:
+   `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below). A plain
+   `opencode` also keeps `opencode.json`'s limits (the 35B's 64K context, 32K output): with `qwen3-14b` picked, the
+   proxy still sends it to the 32K model, and a request past about 32K tokens fails or is cut. Use `terminal.ps1`,
+   which passes the pick's limits, or pick the 35B.
+   Unattended: `powershell -File tools\ai-team\run-lead.ps1`:
    one Lead session per cycle (default 30 min) in its own worktree (branch `ai/local-lead`); skips while Starfield runs or
-   the guardian is paused/blocked; reloads the 35B if LM Studio unloaded it. It never unloads another model, so unload the 14B first if it is loaded. Log `lead-cycles.log` in the state dir.
+   the guardian is paused/blocked; loads the picked model if LM Studio unloaded it (`models.py ensure`). `-MaxCycles 1
+   -Brief "<task>"` runs one session on one task, and exits after a skip without the wait. Log `lead-cycles.log` in
+   the state dir; the running session's pid is in `lead-session.pid`, so the menu can show and stop it.
    One OpenCode session at a time.
+
+## The FO4SF AI menu and the agents' terminal
+
+`powershell -File tools\ai-team\install-shortcut.ps1` puts an "FO4SF AI" shortcut on the desktop (run once). It opens
+`menu.ps1`: start the local team, talk to the Lead or one agent, start Claude Code in the repo (Opus, Sonnet or Haiku),
+status, pick a model, start or stop the unattended Lead (it runs in its own window; stopping it also stops the session
+it is running), pause or resume, stop.
+
+The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
+team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
+the unattended Lead are never touched. At every start (unless another terminal window is open on it) the worktree goes
+back to main's newest commit, with no branch, so a guard fix on main always reaches it. Uncommitted edits made with no
+branch (a Lead's note, say) come along, unless one clashes with a file main has changed since: then nothing moves, and
+if main has also changed a guard-protected file the terminal says so and waits for Claude to move the edits onto a
+branch. An agent's branch with uncommitted edits stays as it is. The terminal does not start while the worktree has a
+change or an extra file (ignored ones too, apart from OpenCode's own install files in `.opencode`) that the guard
+refuses an agent to write, or is on a branch that differs from main in such a file; the main checkout's guard judges.
+The guard checks every command and write an agent makes, as in unattended runs. Because the owner is watching, it also
+allows `agent_git.py`: an agent makes its own `ai/<issue>-<slug>` branch, which starts from main, and commits named
+files there (literal paths), with no hooks, never on `ai/local-lead`, and the wrapper never pushes. The same `branch`
+command with an existing name switches back to that branch after the terminal reopens, with any uncommitted edits,
+unless one of them is a file the guard refuses an agent to write or the branch differs from main in one (then the owner
+has main merged into it). Only this terminal may post a `Lead (local): for Claude:` comment.
+
+**What the guard cannot hold in the terminal.** The coding agent writes tests and runs them, and a test is code: it
+can run anything the owner's account can, including `git push` or `gh pr create` with their login, or a change to the
+guard's own files in the worktree. An allow-list cannot fence a test runner. So in the terminal OpenCode asks the owner
+before each `python -m unittest` run (fo4-implement's and fo4-qa's rules say ask, and the unattended runs use neither
+agent for tests), and "never pushes" there rests on the model and on the owner reading those prompts and the tests they
+run. Answer them with Allow once: Allow always (or OpenCode's auto-accept) stops the asking until OpenCode exits. The
+start check above catches a changed guard file; it does not fence a test that sets out to get round it, and it does not
+look at the owner's own OpenCode config (`~/.config/opencode`), which OpenCode also reads. The research, implementation and QA agents are `mode: all`, so
+`-Agent` opens them as the terminal's own agent (OpenCode falls back to the Lead for a subagent-only one) and the Lead
+still delegates to them. Skills from `~/.claude` and `~/.agents` (the claude.ai ones) are hidden
+(`OPENCODE_DISABLE_EXTERNAL_SKILLS`, and `permission.skill` allows only `fo4-*`).
+
+The team's commands in the terminal: `/team` (OpenCode's own `/status` shows its config), `/board`, `/next [focus]`
+(one Lead session; it asks before handing work to fo4-implement), `/research <question>`, `/review <PR number>` (QA
+reads the diff and the PR's CI checks; no edits, no posts, no test run on this checkout), `/handoff <what>`
+(a `Lead (local): for Claude:` comment on #32 that Claude reads). Claude's side is in `.claude/skills/`:
+`local-team-delegate` (issue labelled `agent:local-team` + `ready`, or one `run-lead.ps1 -Brief` session on the PC),
+`local-team-check` (#32, logs, local branches), `local-team-review` (local output is a draft until it passes),
+`local-team-models`.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
 
@@ -112,16 +174,26 @@ numbers need a re-measure. Each size was loaded in ~17 s and answered a short pr
 block. The model thinks before every answer (3,000-6,300 reasoning tokens on 1.5-4K-token prompts, ~20 tok/s);
 with `chat_template_kwargs: {"enable_thinking": false}` LM Studio still returned reasoning (316 tokens against 733
 on the same short prompt). The LM Studio SDK's default idle TTL (1 h, `DEFAULT_TTL` in the SDK) can unload the model
-between cycles (after an hour idle, for example during a failure back-off or a pause); `run-lead.ps1` reloads it at
-`load_model.py`'s default. The TTL is kept on purpose: it frees the GPU
-for game tests when the team is idle.
+between cycles (after an hour idle, for example during a failure back-off or a pause); `run-lead.ps1` and
+`terminal.ps1` reload the picked preset (`models.py ensure`). The TTL is kept on purpose: it frees the GPU for game
+tests when the team is idle.
 
 The default went to 64K the same evening (owner's word): at 128K, once the Lead worked, the PC sat at 87-91% RAM and
 92.5% VRAM, the guardian held the Lead's requests, and two Lead sessions failed (16:00 and 16:54 local). At 64K it sat
 at 78.8% RAM and 10.6 GB VRAM idle after the load, and up to 90.3% RAM / 10.85 GB VRAM while the Lead worked (one
-request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus
-the output limit (`limit.output` 16384, so about 49K tokens); the Lead's sessions reached 46K tokens at 128K. `opencode.json`'s `headerTimeout` (900000 ms, #600) lets a
-request outlast the guardian's 600 s hold, and the Lead stays in its own worktree (#602). OpenCode checks each
+request held briefly at 19:43 local), so holds are rarer, not gone. OpenCode compacts a session at its context minus the
+output limit, which OpenCode itself caps at 32000. The output limit is 32000 since 30 Oct (owner's word): at 16384 the
+model's thinking, which counts as output, ran out before a hard review was answered. So a session compacts at about
+33.5K tokens, counted on the last step with its thinking (a step that thinks 28K tokens on a 6K prompt is enough), and
+the Lead's longer sessions (46K at 128K) compact on the way. A compaction right after a subagent's report would hand the
+Lead OpenCode's "Continue" reply in its place; `.opencode/plugin/fo4-reports.js` keeps the report. LM Studio 0.4.27
+takes a request whose prompt plus 32K passes the window and stops at the window with finish "length" (measured 30 Oct),
+so the compaction request after a long step still runs. 128K would leave room for long sessions and long thinking, but
+at 128K the PC idled at 85-88% RAM against 78.8% at 64K, and sat at 87-91% RAM and 92.5% VRAM while the Lead worked; the
+3.5-point gap in the table is a load peak, not the idle cost. At the 14.6 tok/s of the 30 Oct hard test, a step that
+uses the whole 32K takes about 36 minutes of `run-lead.ps1`'s 45-minute (2,700 s) cycle cap. `opencode.json`'s
+`headerTimeout` (900000 ms, #600) lets a request outlast the guardian's 600 s hold, and the Lead stays in its own
+worktree (#602). OpenCode checks each
 command of a pipeline, so `gh issue view 32 | head -200` is refused at `head`; `run-lead.ps1`'s prompt tells the Lead
 to run gh and git without pipes. The filters are not allowed on purpose: with a path argument they would read files
 outside the worktree. Any command containing `>`, `--output` or `--no-index` is denied: these three are the last
@@ -131,10 +203,11 @@ independent review found behind the allowed git commands (`cmd > file`, git's `-
 `git diff --no-index`). It does not make the shell safe: the rules see single command nodes, so some command shapes
 and settings are never checked, and a plain two-path `git diff` reads files outside the repo. **The unattended Lead
 reads public issues, so it runs only with the shell guard below in place, and the Lead stays paused until the owner
-decides the guard is installed and checked on the PC.** The Lead commits its own
+decides the guard is installed and checked on the PC.** In unattended runs the Lead commits its own
 `docs/ai` edits only through `python -I tools/ai-team/lead_commit.py "<what changed>"`, which refuses unless the branch
 is `ai/local-lead`, nothing is unmerged, no merge/rebase is in progress and nothing outside `docs/ai/` is staged
-(a rename counts as its source too). It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
+(a rename counts as its source too); in the owner's terminal it commits only through
+`agent_git.py commit 'Lead (local): ...'`, when the owner approves the call. It still cannot push, and `gh pr review` and `gh pr comment` are denied; it
 comments only on #32. `run-lead.ps1` skips the cycle when the pull of main fails, while the Lead's worktree has
 unmerged files or is not on `ai/local-lead`, and when the worktree lacks the guard plugin or its checker, so a
 conflict, a moved worktree or a tree from before the guard waits for a person. The `>` deny
@@ -242,6 +315,18 @@ brief, which the unattended Lead may not do, and the owner decides whether it ma
 `team.py *` is now `board` and `status`, the only two subcommands it has. Tests: `tests/test_ai_guard.py`, which also
 loads the plugin itself in node and drives its hooks. The guard is one layer: the OpenCode rules above stay in place,
 and both must allow a call.
+
+File writes go through the same checker: the plugin sends the paths of every `edit`, `write`, `multiedit`, `patch`
+and `apply_patch` call (a patch's paths from its `*** ... File:` lines; a write that names no file is refused). It
+refuses a write outside the repo and a write to the team's own rules, tools and instructions: `.opencode/`, `.claude/`,
+`.agents/`, `.git/`, `.github/`, `tools/ai-team/`, `opencode.json`, `AGENTS.md`, `docs/CODEX-HANDOFF.md` and
+`scripts/guard.py`, compared without case, as Windows does. The agents' edit rules already deny most of these; the
+check holds where a rule pattern misses a spelling, and it covers the checker itself. In the owner's terminal only
+(`terminal.ps1` sets `FO4SF_OWNER_PRESENT=1`; the plugin ignores it when `FO4SF_UNATTENDED=1`), the checker also allows
+`python -I tools/ai-team/agent_git.py branch ai/<name>` and `... commit "<message>" <paths>`, and the wrapper refuses
+on its own in an unattended run, on `ai/local-lead`, off an `ai/` branch, for a protected path, and for a message that
+does not start with an agent's own tag (`Lead (local): `, `Implement (local): `, `Research (local): `, `QA (local): `). `models.py list`
+is allowed everywhere (read only).
 
 ## Validation (2026-10-09, Qwen3-14B Q4_K_M, 32K context)
 

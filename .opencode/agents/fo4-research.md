@@ -1,6 +1,6 @@
 ---
 description: Research agent. Read-only investigation of file formats and technical questions; records findings with evidence. Invoked by the Lead.
-mode: subagent
+mode: all
 model: guardian/fo4-research
 temperature: 0.2
 steps: 40

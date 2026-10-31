@@ -9,6 +9,9 @@ queue_wait_s, then get HTTP 503. Mode "stopped" rejects new jobs at once. Every 
 
 Agent attribution: the model name the client asks for may be an alias from config.json "agents"
 (e.g. "fo4-lead" -> the real LM Studio model id); the alias names the agent. Unknown names pass through as-is.
+The model behind every alias is the one tools/ai-team/models.py picked (store.PICK), read again when a request is
+admitted, or config.json's map when nothing is picked. While models.py swaps the model (store.HOLD) requests wait in the
+queue; after a swap that failed they get HTTP 503 until a load works.
 Usage: tokens from the API's `usage` field when present (streams ask for it via stream_options.include_usage),
 otherwise estimated as characters/4 and labelled "estimate".
 
@@ -72,10 +75,14 @@ def guard_header_ok(headers, cfg):
     return not cfg.get("require_guard_header", True) or headers.get(GUARD_HEADER) == GUARD_VALUE
 
 
-def _agent_and_model(name):
+def _agent_and_model(name, c=None):
     agents = CFG.get("agents", {})
     if name in agents:
-        return name, agents[name]
+        # models.py's pick serves every agent (one model loaded), but only a preset's model: a row naming another one
+        # (an older build's custom pick) falls back to config.json's map, as models.py's current() does
+        picked = store.picked_model(c)
+        presets = {p.get("model") for p in CFG.get("models", {}).values() if isinstance(p, dict)}
+        return name, picked if picked in presets else agents[name]
     return "unknown", name
 
 
@@ -141,12 +148,12 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_json(400, {"error": "invalid JSON"})
             return
-        agent, real = _agent_and_model(req.get("model", ""))
-        req["model"] = real
+        asked = req.get("model", "")
         stream = bool(req.get("stream"))
         if stream and self.path.startswith("/v1/chat/completions"):
             req.setdefault("stream_options", {})["include_usage"] = True
         c = store.connect()
+        agent, real = _agent_and_model(asked, c)
         now = time.time()
         # a queued row whose waiter has stopped heartbeating is an orphan; a live waiter refreshes every few seconds
         c.execute("UPDATE jobs SET status='abandoned', finished=?, error='waiter gone (no heartbeat)' "
@@ -163,6 +170,9 @@ class Handler(BaseHTTPRequestHandler):
                       (time.time(), decision, job))
             self._send_json(503, {"error": f"guardian: {decision}", "job": job})
             return
+        # The model is read again once admitted: a request that waited through a model swap goes to the new model.
+        _, req["model"] = _agent_and_model(asked, c)
+        c.execute("UPDATE jobs SET model=? WHERE id=?", (req["model"], job))
         try:
             self._run(c, job, req, stream, now)
         finally:
@@ -178,19 +188,31 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "stopped" or STATE["shutting_down"]:
                 store.log_decision(c, job, "reject", "stopped", ["manual stop or shutdown"])
                 return "rejected (stopped)"
+            hold = store.get_hold(c)                      # models.py swapping the model, or a swap that failed
+            if hold and hold[0] == "failed":
+                store.log_decision(c, job, "reject", "model", [hold[1]])
+                return f"rejected (the team's model is not loaded: {hold[1]}; run tools/ai-team/models.py ensure)"
             snap = resources.snapshot(CFG.get("simulate"))
             with LOCK:
                 if mode == "paused":
                     d, lv, why = "queue", "paused", ["manual pause"]
+                elif hold:
+                    d, lv, why = "queue", "model swap", [f"loading {hold[1]}"]
                 else:
                     d, lv, why = policy.admit(snap, CFG, STATE["running"])
                 if d == "admit":
-                    store.log_decision(c, job, "admit", lv, why)
-                    c.execute("UPDATE jobs SET status='running', started=?, heartbeat=?, queued_s=? WHERE id=?",
-                              (time.time(), time.time(), time.time() - c.execute(
-                                  "SELECT created FROM jobs WHERE id=?", (job,)).fetchone()[0], job))
-                    STATE["running"] += 1      # counted only once the row is running, so a failed write can't leak the slot
-                    return "admit"
+                    # Only while no swap holds: models.py takes its hold, then counts running jobs, so a job either
+                    # runs before that count sees it or waits for the new model. One statement, so no gap between.
+                    started = c.execute(
+                        "UPDATE jobs SET status='running', started=?, heartbeat=?, queued_s=? WHERE id=? "
+                        "AND NOT EXISTS (SELECT 1 FROM control WHERE key=?)",
+                        (time.time(), time.time(), time.time() - c.execute(
+                            "SELECT created FROM jobs WHERE id=?", (job,)).fetchone()[0], job, store.HOLD)).rowcount
+                    if started:
+                        store.log_decision(c, job, "admit", lv, why)
+                        STATE["running"] += 1  # counted only once the row is running, so a failed write can't leak the slot
+                        return "admit"
+                    d, lv, why = "queue", "model swap", ["a model swap began"]
             if (d, lv) != last_logged:
                 store.log_decision(c, job, d, lv, why)
                 _log(f"job {job} {d}: {lv}: {'; '.join(why)}")
@@ -274,6 +296,18 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
 
 
+def load_cfg():
+    """The guardian's settings plus config.json's agent map and model presets: the pick serves every agent, but only
+    when it names a preset's model (_agent_and_model)."""
+    cfg = guardian.load_config()
+    if os.path.exists(guardian.CONFIG):
+        with open(guardian.CONFIG, encoding="utf-8") as f:
+            data = json.load(f)
+        cfg["agents"] = data.get("agents", {})
+        cfg["models"] = data.get("models", {})
+    return cfg
+
+
 def main():
     global CFG, UPSTREAM
     ap = argparse.ArgumentParser()
@@ -283,10 +317,7 @@ def main():
     ap.add_argument("--queue-wait", type=float, default=None, help="override queue_wait_s (tests)")
     ap.add_argument("--no-game-block", action="store_true", help="tests only: ignore the running-game rule")
     a = ap.parse_args()
-    CFG = guardian.load_config()
-    if os.path.exists(guardian.CONFIG):
-        with open(guardian.CONFIG, encoding="utf-8") as f:
-            CFG["agents"] = json.load(f).get("agents", {})
+    CFG = load_cfg()
     CFG["simulate"] = guardian.parse_sim(a.simulate)
     if a.queue_wait is not None:
         CFG["queue_wait_s"] = a.queue_wait

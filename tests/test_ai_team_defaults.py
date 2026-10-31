@@ -76,12 +76,18 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(agents), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         self.assertEqual(set(agents.values()), {load_model.DEFAULT_MODEL})
 
-    def test_run_lead_checks_for_that_model(self):
-        m = re.search(r"lms ps 2>&1 \| Out-String\) -match '([^']+)'", read("run-lead.ps1"))
-        self.assertIsNotNone(m, "run-lead.ps1 has no loaded-model check")
-        pattern = m.group(1)
-        self.assertRegex(f"{load_model.DEFAULT_MODEL}    {load_model.DEFAULT_MODEL}    IDLE", pattern)
-        self.assertNotRegex("qwen3-14b    qwen3-14b    IDLE", pattern)
+    def test_the_default_preset_is_the_loaders_default(self):
+        cfg = json.loads(read("config.json"))
+        default = cfg["models"][cfg["default_model"]]
+        self.assertEqual((default["model"], default["context"]), (load_model.DEFAULT_MODEL, load_model.DEFAULT_CONTEXT))
+
+    def test_run_lead_loads_the_picked_model_and_hands_its_limits_to_opencode(self):
+        # The pick (models.py), not a fixed model name: a fixed check would load the 35B beside a picked 14B.
+        script = read("run-lead.ps1")
+        self.assertNotIn("lms ps", script)
+        self.assertIn("& $pythonPath $models ensure", script)
+        self.assertIn("$env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode", script)
+        self.assertLess(script.index("$models ensure"), script.index("Start-Process -FilePath $opencode"))
 
     def test_unattended_lead_takes_no_qa_reviews(self):
         script = read("run-lead.ps1")
@@ -114,9 +120,13 @@ class TeamModelTests(unittest.TestCase):
         self.assertEqual(sorted(models), ["fo4-implement", "fo4-lead", "fo4-qa", "fo4-research"])
         for name, model in models.items():
             self.assertEqual(model["limit"]["context"], load_model.DEFAULT_CONTEXT, name)
-            self.assertEqual(model["limit"]["output"], 16384, name)
-            # OpenCode compacts at context minus min(output, 32000); the Lead's sessions reached 46K tokens
-            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 46000, name)
+            # The model thinks before every answer, and the thinking counts as output: at 16384 a hard review (30 Oct)
+            # spent 16,377 tokens thinking and was cut off before it answered. 32000 is OpenCode 1.18.35's own cap.
+            self.assertEqual(model["limit"]["output"], 32000, name)
+            # OpenCode compacts at context minus min(output, 32000), counting the last step's thinking too: the room
+            # left still holds the Lead's opening prompts (23-26K tokens on 30 Oct), though its longer sessions (46K at
+            # 128K) and any step that thinks long now compact sooner (fo4-reports.js keeps a subagent's report then)
+            self.assertGreaterEqual(model["limit"]["context"] - min(model["limit"]["output"], 32000), 33000, name)
 
     def test_the_unattended_lead_commits_only_through_the_wrapper(self):
         self.assertIn("lead_commit.py", read("run-lead.ps1"))
@@ -143,8 +153,8 @@ class TeamModelTests(unittest.TestCase):
         # the worktree must be ON ai/local-lead and SKIP otherwise, so a moved worktree's other branch is never rebased
         self.assertRegex(script, r"rev-parse --abbrev-ref HEAD[\s\S]{0,200}'ai/local-lead'[\s\S]{0,200}skipped")
 
-    def test_start_team_names_the_loaders_context(self):
-        self.assertIn(f"load_model.py ({load_model.DEFAULT_CONTEXT // 1024}K", read("start-team.ps1"))
+    def test_start_team_points_to_the_picked_model(self):
+        self.assertIn("models.py ensure", read("start-team.ps1"))   # the pick's own window, not a fixed one
 
     def test_provider_header_timeout_outlasts_guardians_queue_wait(self):
         # OpenCode gives up when response headers take longer than headerTimeout. Guardian holds a queued request
@@ -222,7 +232,10 @@ class LeadPromptTests(unittest.TestCase):
                  "tools/ai-team/guardian/proxy.py", "scripts/guard.py -v", "scripts/other.py",
                  "scripts/guard.py/../../tools/ai-team/wake_agent.py codex", "scripts/guard.py/../../docs/ai/x.py",
                  "scripts/guard.py_x/evil.py", "scripts/guard.py2.py", "tools/ai-team/team.py2.py",
-                 "tools/ai-team/team.py/../x.py", "tools/ai-team/lead_commit.py/../x.py")
+                 "tools/ai-team/team.py/../x.py", "tools/ai-team/lead_commit.py/../x.py",
+                 "-c 'x' tools/ai-team/team.py status", "-c 'x' tools/ai-team/guardian/guardian.py status",
+                 "tools/ai-team/models.py pick qwen3-14b", "tools/ai-team/models.py ensure",
+                 "tools/ai-team/models.py list x", "tools/ai-team/models.py opencode")
         for python in ("python", "python -I"):
             for rest in wider:
                 for win32 in (False, True):
@@ -279,6 +292,14 @@ class BashRuleTests(unittest.TestCase):
                 for command in self.POSTS:
                     self.assertNotEqual(verdict(rules, command, win32), "allow", (win32, command))
 
+    def test_only_the_coding_agent_commits_in_the_owners_terminal_without_a_prompt(self):
+        # the owner's choice J (30 Oct): the coding agent commits on its own ai/ branch; the Lead's call asks the owner
+        command = "python -I tools/ai-team/agent_git.py commit 'Implement (local): x' src/a.py"
+        for win32 in (False, True):
+            self.assertEqual(verdict(merged_bash_rules("fo4-implement"), command, win32), "allow", win32)
+            for agent in ("fo4-lead", "fo4-qa", "fo4-research"):
+                self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "ask", (agent, win32))
+
     def test_the_lead_can_still_read_and_comment(self):
         rules = agent_bash_rules("fo4-lead")
         # A normal comment whose body contains "re-run" must not be caught by the -R/-F denies, on Windows too, where
@@ -309,6 +330,25 @@ class BashRuleTests(unittest.TestCase):
             ("*", "deny"), ("docs/ai/research-log.md", "allow"), ("docs/ai/known-unknowns.md", "allow")])
         self.assertEqual(agent_bash_rules("fo4-qa", "edit"), [])
         self.assertRegex(read(os.path.join(".opencode", "agents", "fo4-qa.md"), ROOT), r"\n  edit: deny\n")
+
+    def test_a_test_run_asks_the_owner(self):
+        # A test is code: in the owner's terminal the coding agent writes tests, and a test can do anything the owner's
+        # account can (a push, a change to the guard's files). So no agent runs the tests without the owner's yes.
+        # The unattended runs use neither fo4-implement (the plugin refuses it) nor fo4-qa (the prompt), so nothing
+        # unattended is held up by this.
+        for command in ("python -m unittest discover -s tests", "python -m unittest tests.test_ai_guard",
+                        "python -m unittest -v tests.test_x.XTests.test_y"):
+            for win32 in (False, True):
+                for agent in AGENTS:
+                    self.assertNotEqual(verdict(merged_bash_rules(agent), command, win32), "allow", (agent, command))
+                for agent in ("fo4-implement", "fo4-qa"):
+                    self.assertEqual(verdict(merged_bash_rules(agent), command, win32), "ask", (agent, command))
+        self.assertIn("Do not call fo4-qa", read("run-lead.ps1"))
+
+    def test_qa_can_read_a_prs_ci_the_way_review_asks(self):
+        for win32 in (False, True):
+            self.assertEqual(verdict(merged_bash_rules("fo4-qa"), "gh pr view 619 --json statusCheckRollup", win32),
+                             "allow")
 
     def test_each_agent_ends_its_bash_rules_with_the_redirect_deny(self):
         # The last matching rule wins, so no allow may come after the redirect deny.

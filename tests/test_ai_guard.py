@@ -311,16 +311,19 @@ RUN_LEAD_CYCLE = (
     '    $game = Get-Process Starfield, Fallout4 -ErrorAction SilentlyContinue\n'
     "    if ($st.mode -eq 'paused' -or $game -or $st.level -eq 'block') {\n"
     '      Log "cycle $cycle skipped: mode $($st.mode), level $($st.level), game $([bool]$game)'
-    '"; Start-Sleep $Interval; continue\n'
+    '"; Wait-Next; continue\n'
     '    }\n'
     "    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1') | Out-Null\n"
-    "    if (-not ((lms ps 2>&1 | Out-String) -match 'qwen3\\.6-35b-a3b')) {\n"
-    '      Log "model not loaded: loading"; & $pythonPath (Join-Path $PSScriptRoot \'load_model.py\') | Out-Null\n'
-    '    }\n'
+    '    $ensure = (& $pythonPath $models ensure 2>&1 | Out-String).Trim()    # the picked model (models.py), loaded'
+    ' if missing\n'
+    '    if ($LASTEXITCODE -ne 0) { Log "cycle ${cycle}: skipped: the picked model is not loaded: $ensure"; Wait-Next; '
+    'continue }\n'
+    '    $env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode | Out-String).Trim()   # the OpenCode limits = '
+    'the loaded window\n'
     '    $branch = "$(git -C $wt rev-parse --abbrev-ref HEAD 2>$null)".Trim()\n'
     "    if ($branch -ne 'ai/local-lead') {                  # checked before the pull, so no o"
     'ther branch is rebased\n'
-    '      Log "cycle ${cycle}: skipped: $wt is on \'$branch\', not ai/local-lead"; Start-Sleep $Interval; continue\n'
+    '      Log "cycle ${cycle}: skipped: $wt is on \'$branch\', not ai/local-lead"; Wait-Next; continue\n'
     '    }\n'
     '    $gitDir = "$(git -C $wt rev-parse --absolute-git-dir 2>$null)".Trim()\n'
     "    $busy = @('rebase-merge','rebase-apply','MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD') |\n"
@@ -328,7 +331,7 @@ RUN_LEAD_CYCLE = (
     '    if ($busy) {                                        # a stopped rebase/merge/cherry-pi'
     'ck: let a person resolve it\n'
     '      Log "cycle ${cycle}: skipped: a git operation is in progress in $wt ($(@($busy) -joi'
-    'n \', \'))"; Start-Sleep $Interval; continue\n'
+    'n \', \'))"; Wait-Next; continue\n'
     '    }\n'
     '    $pull = git -C $wt pull -q --rebase --autostash origin main 2>&1\n'
     '    $pullFailed = $LASTEXITCODE -ne 0\n'
@@ -336,23 +339,23 @@ RUN_LEAD_CYCLE = (
     '    if ($unmerged) {                                    # an autostash or rebase conflict:'
     ' a person resolves it\n'
     '      Log "cycle ${cycle}: skipped: unmerged files in $wt after pulling main: $(($pull | O'
-    'ut-String).Trim())"; Start-Sleep $Interval; continue\n'
+    'ut-String).Trim())"; Wait-Next; continue\n'
     '    }\n'
     '    if ($pullFailed) {                                  # an old tree may predate the guard: no session on it\n'
     '      Log "cycle ${cycle}: skipped: git pull of main failed: $(($pull | Out-String).Trim()'
-    ')"; Start-Sleep $Interval; continue\n'
+    ')"; Wait-Next; continue\n'
     '    }\n'
     '    if (-not (Test-GuardGate)) {                        # a proxy started before the guard'
     ' header check serves anyone\n'
     '      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without th'
-    'e guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Start-Sleep $Interval; continue\n'
+    'e guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Wait-Next; continue\n'
     '    }\n'
     "    $missing = @('.opencode\\plugin\\fo4-guard.js', 'tools\\ai-team\\guard\\allowlist.py') |\n"
     '               Where-Object { -not (Test-Path (Join-Path $wt $_)) }\n'
     '    if ($missing) {                                     # OpenCode would start without the'
     ' guard (it only logs that)\n'
     '      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join \', \'), so the guard wou'
-    'ld be off"; Start-Sleep $Interval; continue\n'
+    'ld be off"; Wait-Next; continue\n'
     '    }\n'
     '    Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"\n'
     '    $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format \'yyyyMMdd-HHmmss\'))\n'
@@ -657,20 +660,28 @@ class GuardTests(unittest.TestCase):
                       r"\| Select-Object -First 1\n"
                       r"\$opencode = Join-Path \(Split-Path \$shim\.Source\) 'node_modules\\opencode-ai\\bin\\opencode\.exe'\n"
                       r"if \(-not \(Test-Path -LiteralPath \$opencode -PathType Leaf\)\) \{ throw [^\n]*\}$")
-        # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process
-        single = at(r"^if \(Test-Path \$pidFile\) \{ +# single instance\n"
+        # an empty or garbled pid file is stale: [int]'' is 0, and Get-Process -Id 0 would find the Idle process; so is
+        # one naming a pid Windows gave out again (a process that started after the file was written)
+        single = at(r"^\$file = Get-Item -LiteralPath \$pidFile -ErrorAction SilentlyContinue\n"
+                    r"if \(\$file\) \{ +# single instance\n"
                     r"  \$old = \"\$\(Get-Content -LiteralPath \$pidFile -ErrorAction SilentlyContinue\)\"\.Trim\(\)\n"
-                    r"  # [^\n]*\n  # [^\n]*\n"
+                    r"(?:  # [^\n]*\n)+"
                     r"  if \(\$old -match '\^\[1-9\]\[0-9\]\{0,8\}\$' -and \[int\]\$old -ne \$PID -and\n"
-                    r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| "
-                    r"Where-Object \{ \$_\.ProcessName -in 'powershell', 'pwsh' \}\)\) \{\n"
+                    r"      \(Get-Process -Id \(\[int\]\$old\) -ErrorAction SilentlyContinue \| Where-Object \{\n"
+                    r"        \$started = try \{ \$_\.StartTime \} catch \{ \$null \}\n"
+                    r"        \$_\.ProcessName -in 'powershell', 'pwsh' -and \$started -and "
+                    r"\$started -le \$file\.LastWriteTime\.AddSeconds\(2\) \}\)\) \{\n"
                     r"    \"run-lead already running \(pid \$old\)\"; exit 1\n  \}\n\}$")
         self.assertLess(real, opencode)
         self.assertLess(opencode, single)
-        saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON \}")
+        saved = at(r"^\$saved = @\{ FO4SF_UNATTENDED = \$env:FO4SF_UNATTENDED; FO4SF_PYTHON = \$env:FO4SF_PYTHON; +"
+                   r"# put back at the end\n"
+                   r" +FO4SF_OWNER_PRESENT = \$env:FO4SF_OWNER_PRESENT; OPENCODE_CONFIG_CONTENT = \$env:OPENCODE_CONFIG_CONTENT;\n"
+                   r" +OPENCODE_DISABLE_EXTERNAL_SKILLS = \$env:OPENCODE_DISABLE_EXTERNAL_SKILLS;\n"
+                   r" +OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = \$env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS \}$")
         # one try, at the top level: the pid file and the environment are set inside it, so the finally always
         # undoes them; the single-instance check and its exit 1 stay outside it (a second run leaves the first's file)
-        self.assertEqual(script.count("try {"), 2)                        # this one and Test-GuardGate's
+        self.assertEqual(len(re.findall(r"^ *try \{", script, re.M)), 2)   # this one and Test-GuardGate's
         self.assertEqual(script.count("function Test-GuardGate"), 1)
         body = at(r"^try \{\n  \$PID \| Set-Content \$pidFile$")
         self.assertLess(saved, body)
@@ -679,12 +690,18 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(script.count("exit 1"), 1)
         unattended = at(r"^  \$env:FO4SF_UNATTENDED = '1' +# the guard plugin then refuses delegation to fo4-implement$")
         python = at(r"^  \$env:FO4SF_PYTHON = \$pythonPath$")
+        # nothing here is the owner's terminal (the guard adds agent_git.py only there), and no outside skills load
+        others = at(r"^  \$env:FO4SF_OWNER_PRESENT = \$null +# [^\n]*\n"
+                    r"  \$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1' +# [^\n]*\n"
+                    r"  \$env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1' +# [^\n]*$")
         loop = at(r"^  while \(\$MaxCycles -eq 0 -or \$cycle -lt \$MaxCycles\) \{$")
         self.assertLess(body, unattended)
         self.assertLess(unattended, python)
-        self.assertLess(python, loop)
-        # the two variables are set only there, and named nowhere else but the saved copy and the parameter default
-        self.assertEqual(re.findall(r"(?i)\$\{?env:(FO4SF_\w+)\}?\s*\+?=", script), ["FO4SF_UNATTENDED", "FO4SF_PYTHON"])
+        self.assertLess(python, others)
+        self.assertLess(others, loop)
+        # the FO4SF variables are set only there, and named nowhere else but the saved copy and the parameter default
+        self.assertEqual(re.findall(r"(?i)\$\{?env:(FO4SF_\w+)\}?\s*\+?=", script),
+                         ["FO4SF_UNATTENDED", "FO4SF_PYTHON", "FO4SF_OWNER_PRESENT"])
         self.assertEqual(script.count("FO4SF_UNATTENDED"), 3)
         self.assertEqual(script.count("FO4SF_PYTHON"), 5)
         self.assertIsNone(re.search(r"(?i)(Set-Item|New-Item)\s+[\"']?Env:|SetEnvironmentVariable", script.replace(
@@ -716,15 +733,20 @@ class GuardTests(unittest.TestCase):
                               r"|Invoke-(?:Expression|Item|Command)|Start-(?:Job|ThreadJob)|Diagnostics\.Process"
                               r"|Win32_Process|\[\s*Activator\s*\]", words)
         self.assertEqual(launches, ["Start-Process"])
-        self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath"] * 3)
+        self.assertEqual(re.findall(r"(?<![>&])&\s*(\S+)", code), ["$pythonPath"] * 4)
         self.assertEqual(re.findall(r"(?m)(?:^|[;{(|]\s*|\s)\.\s+[$(]", code), [])
         self.assertEqual(len(re.findall(r"(?i)\$shim\b", code)), 2)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\b", code)), 4)
         self.assertEqual(len(re.findall(r"(?i)\$opencode\s*=", code)), 1)
-        self.assertEqual(len([line for line in words.split("\n") if re.search(r"(?i)opencode", line)]), 4)
+        # (the OPENCODE_ environment names and models.py's opencode subcommand are not OpenCode itself)
+        named = [line for line in words.split("\n")
+                 if re.search(r"(?i)opencode", re.sub(r"OPENCODE_\w+|\$models opencode\b", "", line))]
+        self.assertEqual(len(named), 4)
         # and the environment changes only on the pinned lines: no other $env: assignment, and no Env: drive use
         # but the finally's restore
-        self.assertEqual(re.findall(r"(?i)\$\{?env:(\w+)\}?\s*[-+*/]?=(?!=)", code), ["FO4SF_UNATTENDED", "FO4SF_PYTHON"])
+        self.assertEqual(re.findall(r"(?i)\$\{?env:(\w+)\}?\s*[-+*/]?=(?!=)", code),
+                         ["FO4SF_UNATTENDED", "FO4SF_PYTHON", "FO4SF_OWNER_PRESENT", "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+                          "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", "OPENCODE_CONFIG_CONTENT"])
         self.assertEqual(re.findall(r"(?i)(?<!\$)(?<!\{)env:\S*", code), ['Env:$k"', 'Env:$k"'])
         # the gate probe: a POST with no header must come back 403, and only a 403 counts
         gate = script[script.index("function Test-GuardGate"):]
@@ -737,7 +759,8 @@ class GuardTests(unittest.TestCase):
             "  } catch { return ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) }\n"
             "}\n"))
         # the try's own block, matched brace by brace, ends in the finally, which ends the script; the finally
-        # removes the pid file only while it is still this run's, then puts back the window's own values
+        # stops a session still running (Ctrl+C mid-session) and drops its pid file, removes the run's pid file only
+        # while it is still this run's, then puts back the window's own values
         depth, i = 0, body + len("try ")
         while True:
             depth += {"{": 1, "}": -1}.get(script[i], 0)
@@ -748,6 +771,9 @@ class GuardTests(unittest.TestCase):
         tail = script[i + len("} finally "):]
         self.assertEqual(tail, (
             "{\n"
+            "  if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; "
+            "Log \"stopped the running Lead session\" }\n"
+            "  Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue\n"
             "  if (\"$(Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)\".Trim() -eq \"$PID\") {"
             "   # ours, not a later run's\n"
             "    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue\n"
@@ -982,12 +1008,42 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         self.assertEqual(tuple(json.loads("[" + m.group(1) + "]")), KNOWN_TOOLS)
 
     def test_a_tool_the_guard_does_not_know_is_refused(self):
-        known = [[t, {}] for t in KNOWN_TOOLS]
+        writes = ("edit", "write", "apply_patch")                    # checked as writes: each names its file
+        known = [[t, {}] for t in KNOWN_TOOLS if t not in writes] + [[t, {"filePath": "docs/ai/x.md"}]
+                                                                     for t in ("edit", "write")]
+        known.append(["apply_patch", {"patchText": "*** Begin Patch\n*** Add File: docs/ai/x.md\n+x\n*** End Patch"}])
         self.assertEqual(self.hook(known)["out"], ["allow"] * len(known))
         unknown = [[t, {"command": "rm -rf docs"}]
-                   for t in ("mcp_run", "my_tool", "shell", "Bash", "powershell", "exec", "multiedit", "patch", "list",
-                             "Read", "")]
+                   for t in ("mcp_run", "my_tool", "shell", "Bash", "powershell", "exec", "list", "Read", "")]
         self.assertEqual(self.hook(unknown)["out"], ["refuse"] * len(unknown))
+
+    def test_other_write_tools_are_checked_as_writes(self):
+        # multiedit and patch are not OpenCode 1.18.35 tools, but a later version or a plugin may name them: they get
+        # the write check, not the unknown-tool refusal, so a written file is checked whatever tool writes it.
+        patch = "*** Begin Patch\n*** Add File: {}\n+x\n*** End Patch"
+        calls = [["multiedit", {"filePath": "docs/ai/x.md"}], ["patch", {"patchText": patch.format("docs/ai/x.md")}],
+                 ["multiedit", {"filePath": "AGENTS.md"}], ["patch", {"patchText": patch.format("opencode.json")}],
+                 ["multiedit", {"command": "rm -rf docs"}], ["patch", {"patchText": "no file named"}]]
+        self.assertEqual(self.hook(calls)["out"], ["allow", "allow", "refuse", "refuse", "refuse", "refuse"])
+
+    def test_a_patch_path_is_read_as_opencode_reads_it(self):
+        # OpenCode 1.18.35 splits a patch on "\n" only and trims each header's path. A "\r" or U+2028 inside a path
+        # would end it for a line-based match but not for OpenCode, which would write the file after it. Each patch
+        # also names an allowed file first, so a guard that dropped the second path would allow the call.
+        def patch(second):
+            return {"patchText": "*** Begin Patch\n*** Add File: docs/ai/ok.md\n+x\n*** Add File: " + second +
+                                 "\n+x\n*** End Patch"}
+        bad = [patch("docs/ai/x.md" + c + "/../../CONTRIBUTING.md")
+               for c in ("\r", "\u2028", "\u2029", "\u0085", "\x00", "\x0b", "\x0c", "\x1b", "\x7f")]
+        bad.append(patch("docs/ai/y.md\r"))                        # a CRLF patch: refused too, it is never needed
+        bad.append({"patchText": "*** Begin Patch\n*** Add File: docs/ai/ok.md\n+a\x1bb\n*** End Patch"})
+        # OpenCode skips a header with no path and reads the next line as a header: so does the guard
+        bad.append({"patchText": "*** Begin Patch\n*** Update File:\n*** Update File: AGENTS.md\n@@\n-a\n+b\n"
+                                 "*** End Patch"})
+        bad.append({"patchText": "*** Begin Patch\n*** Delete File:\n*** Delete File: AGENTS.md\n*** End Patch"})
+        good = [patch("docs/ai/y.md"), patch("docs/ai/y.md\t"), patch("  docs/ai/y.md  ")]
+        calls = [["apply_patch", args] for args in bad + good]
+        self.assertEqual(self.hook(calls)["out"], ["refuse"] * len(bad) + ["allow"] * len(good))
 
     def test_the_checker_runs_isolated(self):
         # A json.py on PYTHONPATH that answers allowed would allow everything if the checker ran without -I.
