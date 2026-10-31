@@ -183,8 +183,11 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   and the ride's arrival, set in the move's own tick, was ignored until the fallback (now a tick later, read back):
   [section 12](newgame/vault111-start.md), [row 42](owner/playtest-issues.md). The phase exit's quest-list check was
   not looked at. Since then newgame_v11 (29 Oct, the owner's pick F) makes our quest Starfield's startup quest, our own
-  start ([section 13](newgame/vault111-start.md)). Next: restage newgame_v11 from main (it carries v10's fixes),
-  reinstall on the owner's line, new game from the main menu.
+  start ([section 13](newgame/vault111-start.md)). Installed, newgame_v11 crashed the game on every launch while it
+  loaded its data files (29 to 31 Oct): its quest script's doc comment had grown past 4 KB, and the crash dump points
+  at Starfield's script loader copying it into a 4 KB buffer (supported hypothesis); newgame_v10 boots and played to
+  stage 200 on 31 Oct ([section 13a](newgame/vault111-start.md)). Next: restage newgame_v12 (v11 with that comment
+  short) from main, reinstall on the owner's line, new game from the main menu.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
@@ -224,8 +227,9 @@ a phase 0 gate.
 
 - "Install the quest probe plugin.": not needed; the probe went in on the owner's 00:14 UTC word (23 Oct)
 - "Install the new game." (**done 28 Oct, FAIL twice, then PASS to stage 200 with newgame_v9**: the pirate-fight
-  developer start, a load that never finished, then run 3, vault111-start.md sections 10 to 12; the next line, after
-  the newgame_v11 restage from main, our own start with v10's fixes: "Reinstall the new game.")
+  developer start, a load that never finished, then run 3, vault111-start.md sections 10 to 12; newgame_v11 crashed
+  at every launch, section 13a; the next line, after the newgame_v12 restage from main, our own start with v10's fixes:
+  "Reinstall the new game.")
 - "Install the animated doors port." (after the port build passes)
 - "Turn off FO4SFMission and install the combined-core probe for one test session." (after the restage from main; #431 is merged)
 - the b10 line: Interiors words it after card 1b passes

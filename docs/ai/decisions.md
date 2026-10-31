@@ -1302,3 +1302,22 @@ decided the import path); keeping the order as a parameter (two orders in the co
   A throw in chat.params fails the request before it is sent (1.18.35's plugin trigger runs the hook before building
   the request); that is read from the code, not yet seen on the PC.
 
+## 2026-10-31: Papyrus doc comments and strings stay at or under 3 KB; long notes go in ";" comments (Claude-cloud)
+
+- Decision: every doc comment (`{...}`) and string literal in the repo's .psc files is at most 3,072 bytes, each line
+  end counted as two bytes; longer notes go in `;` comments, which the compiler leaves out of the .pex.
+  `tests/test_papyrus_strings.py` holds it for every .psc in the repo. FO4SF_NewGameQuest.psc's header, the one over
+  the line, is cut to 1,409 bytes (the stage contract kept); the build from this change is newgame_v12, v11's records
+  and code with that comment short.
+- Why: newgame_v11 crashed Starfield on every launch (29 to 31 Oct) while the game loaded its data files, before the
+  main menu (FO4SFBorder's log: no `post_data_load`; two of the crashes came after the local model was unloaded, one
+  with 13.4 GiB free), and newgame_v10 did not. The crash dump's rax held `ell for `, exactly the bytes 4,096 to
+  4,103 of that 4,196-byte doc comment (v10's: 2,745).
+  So the game's script loader copies a doc comment into a 4 KB buffer and the bytes past it overwrite a pointer
+  (supported hypothesis, one dump; docs/newgame/vault111-start.md section 13a).
+- Alternatives: cut the comment alone, with no test (the next long comment would crash the game again, with nothing in
+  CI to say why); a limit just under 4,096 (no room for a Windows checkout's two-byte line ends or a terminator; the
+  longest that has loaded in game is 2,745 bytes); move the notes to the doc only (the script loses its own why).
+- Boundary: the 4 KB buffer is inferred from one dump, and whether string literals go through the same buffer is not
+  known (none of ours is near). If newgame_v12 dies the same way, the next suspect is the startup override record (a
+  build without it tells).
