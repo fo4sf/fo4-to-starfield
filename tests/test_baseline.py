@@ -120,8 +120,9 @@ class BaselineTests(unittest.TestCase):
             return json.load(f)
 
     def log(self, text, age, name="Papyrus.0.log"):
-        """A log in My Games, last written age seconds after prepare."""
-        p = write(os.path.join(self.mg, "Logs", "Script", name), text)
+        """A log with explicit bytes, last written age seconds after prepare (no platform newline translation)."""
+        raw = text.encode("utf-8") if isinstance(text, str) else text
+        p = write(os.path.join(self.mg, "Logs", "Script", name), raw)
         t = self.record()["prepared_epoch"] + age
         os.utime(p, (t, t))
         return p
@@ -425,6 +426,31 @@ class BaselineTests(unittest.TestCase):
         self.assertIsNone(self.record()["log"])
         self.between(self.log(BASE_LOG, 0))                             # the baseline session's, collected late
         self.assertEqual(self.run_bl("collect", "--out", self.out)[0], 0)
+
+    def test_collect_keeps_log_bytes_for_each_newline_and_bom(self):
+        for rejected in (False, True):
+            for newline in (b"\n", b"\r\n"):
+                for bom in (b"", b"\xef\xbb\xbf"):
+                    with self.subTest(rejected=rejected, newline=newline, bom=bool(bom)):
+                        self.out = os.path.join(self.d, f"bytes_{int(rejected)}_{len(newline)}_{len(bom)}")
+                        self.prepare()
+                        text = RUN_LOG if rejected else BASE_LOG
+                        raw = bom + text.encode("utf-8").replace(b"\n", newline)
+                        source = self.log(raw, 60)
+                        code, out = self.run_bl("collect", "--out", self.out)
+                        self.assertEqual(code, int(rejected), out)
+                        name = bl.NOT_VANILLA if rejected else bl.LOG_NAME
+                        captured = os.path.join(self.out, name)
+                        self.assertEqual(read(source), raw)
+                        self.assertEqual(read(captured), raw)
+                        entry = self.record()["not_vanilla" if rejected else "log"]
+                        self.assertEqual(entry["sha256"], bl.files.sha256(source))
+                        self.assertEqual(entry["size"], len(raw))
+                        if rejected:
+                            self.assertIsNone(self.record()["log"])
+                            self.assertFalse(os.path.exists(os.path.join(self.out, bl.LOG_NAME)))
+                        self.assertEqual(self.run_bl("restore", "--out", self.out)[0], 0)
+                        self.assertEqual(read(self.pt), ORIGINAL)
 
     def test_a_log_naming_ours_is_no_baseline(self):
         self.prepare()
