@@ -5,7 +5,8 @@ model, ops.md §5).
 What goes in, each only if present:
     driver state      <state_dir>/state.json and the newest log of every step (logs/<step>.<n>.log)
     build manifest    and a detect report, when given
-    install records   FO4Port.deploy.json, FO4SFExp.install.json, FO4SFBridge.install.json from Starfield's Data
+    install records   every record restore.COMPONENTS knows (FO4Port.deploy.json, FO4SFExp.install.json, the probes',
+                      FO4SFMapMarkers.install.json, FO4SFBridge.install.json) from Starfield's Data
     load order        Plugins.txt
     INIs              Starfield.ini, StarfieldPrefs.ini, StarfieldCustom.ini from the game folder and My Games
     extra files       any --file given
