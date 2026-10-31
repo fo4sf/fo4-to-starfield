@@ -33,14 +33,20 @@ def load_config(context=DEFAULT_CONTEXT, kv="f16", gpu=None):
     return cfg
 
 
+def named(identifier, ids):
+    """Whether a loaded instance is one of ids: LM Studio names a second instance of a model id:2, id:3, ..."""
+    base, _, n = identifier.rpartition(":")
+    return identifier in ids or (n.isdigit() and base in ids)
+
+
 def load(model, cfg, unload=(), key=None):
     """Load the model LM Studio lists as key (model if none) with cfg under the id model, after unloading that id and
-    any loaded model whose id is in unload. Two downloads of one model get publisher keys in LM Studio
-    (lmstudio-community/..., unsloth/...), while the id the team sends requests to stays short."""
+    any loaded model whose id is in unload (with their id:2, ... instances). Two downloads of one model get publisher
+    keys in LM Studio (lmstudio-community/..., unsloth/...), while the id the team sends requests to stays short."""
     import lmstudio as lms                # here, so the tests import this module without the SDK installed
     client = lms.get_default_client()
     for m in client.llm.list_loaded():
-        if m.identifier == model or m.identifier in unload:
+        if named(m.identifier, {model, *unload}):
             m.unload()
     return client.llm.load_new_instance(key or model, model, config=cfg).identifier
 

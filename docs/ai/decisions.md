@@ -1286,6 +1286,11 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - With the second download LM Studio lists the two by publisher (`lmstudio-community/qwen3.6-35b-a3b`,
   `unsloth/qwen3.6-35b-a3b`), so a preset now names the `key` LM Studio loads and keeps a short `model` id that the
   proxy, the pick and the unload list use; the 4-bit's id stays `qwen3.6-35b-a3b`, the 3-bit's is `qwen3.6-35b-a3b-q3`.
+- From the PR's review (Grok, 31 Oct): a pick unloads the presets' keys too (a copy loaded by hand in LM Studio's window
+  has its key as its id, and would sit beside the pick), and any `id:2`, `id:3` instance of an id it unloads; and the
+  proxy reads config.json's presets and agent map again when the file changes, where it read them once at start and
+  sent a pick of a preset added since to the agents' map model, the one the pick had just unloaded. This PR still
+  changes the proxy's code, so the PC restarts the team after the pull, before the 3-bit is picked.
 - Boundary: still to measure before the 3-bit becomes the default: RAM while the Lead works, OpenCode's tool calls
   through the proxy, and the 29 Oct accuracy set. The cap counts OpenCode's own price for each
   message (its 1.18.35 model list), not the bill; it misses a session's title and lets a running request finish, and

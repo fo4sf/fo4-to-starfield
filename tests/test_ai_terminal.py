@@ -106,11 +106,52 @@ class ModelPickTests(TempState):
         for agent in AGENTS:
             self.assertEqual(oc["provider"]["guardian"]["models"][agent]["limit"], {"context": 32768, "output": 8192})
 
+    def test_a_running_proxy_serves_a_preset_a_pull_adds(self):
+        # Grok's review of #622: the proxy read config.json once at start, so a pick of a preset added after that went
+        # to the agents' map model, the one the pick had just unloaded
+        conf = os.path.join(self.state, "config.json")
+        saved = proxy.CFG, proxy.guardian.CONFIG
+        self.addCleanup(lambda: (setattr(proxy, "CFG", saved[0]), setattr(proxy.guardian, "CONFIG", saved[1])))
+        proxy.guardian.CONFIG = conf
+        stamp = [1_700_000_000_000_000_000]
+
+        def write(text):
+            with open(conf, "w", encoding="utf-8") as f:
+                f.write(text)
+            stamp[0] += 1_000_000_000                    # a later mtime, whatever the file system's resolution
+            os.utime(conf, ns=(stamp[0], stamp[0]))
+        team = {"agents": {"fo4-lead": "big"}, "models": {"big": {"model": "big"}}}
+        write(json.dumps(team))
+        proxy.CFG = proxy.load_cfg()
+        c = store.connect()
+        self.addCleanup(c.close)
+        store.set_pick(c, {"preset": "small", "model": "small", "context": 8192, "output": 2048, "kv": "f16",
+                           "gpu": None})
+        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "big"))      # not a preset yet
+        team["models"]["small"] = {"model": "small"}
+        write(json.dumps(team))
+        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "small"))
+        team["agents"]["fo4-qa"] = "big"
+        write(json.dumps(team))
+        self.assertEqual(proxy._agent_and_model("fo4-qa"), ("fo4-qa", "small"))      # a new agent too
+        with open(conf, "w", encoding="utf-8") as f:     # read only when the file changed: same mtime, no new read
+            f.write(json.dumps({"agents": {}, "models": {}}))
+        os.utime(conf, ns=(stamp[0], stamp[0]))
+        self.assertEqual(proxy._agent_and_model("fo4-qa"), ("fo4-qa", "small"))
+        for bad in ('{"agents": {"fo4-lead": "big"', "[1, 2]"):  # mid-write, or not an object: the last good copy
+            write(bad)
+            self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "small"), bad)
+        os.remove(conf)
+        self.assertEqual(proxy._agent_and_model("fo4-qa"), ("fo4-qa", "small"))
+        write(json.dumps({"agents": {"fo4-lead": "big"}, "models": {"big": {"model": "big"}}}))
+        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "big"))      # the preset is gone again
+        self.assertEqual(proxy._agent_and_model("fo4-qa"), ("unknown", "fo4-qa"))
+
     def test_without_a_pick_the_proxy_keeps_the_config_map(self):
         saved = proxy.CFG
         self.addCleanup(setattr, proxy, "CFG", saved)
-        proxy.CFG = {"agents": {"fo4-lead": "qwen3.6-35b-a3b"}}
-        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
+        proxy.CFG = {"agents": {"fo4-lead": "own-map-model"}}            # not read from config.json: left as it is
+        self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "own-map-model"))
 
     def test_only_the_presets_can_be_picked(self):
         # the owner's choice (30 Oct): the measured setups only, the 35B at 64K and the 14B fallback; and the 35B at
@@ -254,7 +295,8 @@ class LoadModelSdkTests(unittest.TestCase):
 
         class Llm:
             def list_loaded(self):
-                return [Loaded("qwen3-14b"), Loaded("old-pick"), Loaded("owners-own")]
+                return [Loaded(i) for i in ("qwen3-14b", "qwen3-14b:2", "old-pick", "old-pick:13", "owners-own",
+                                            "owners-own:2", "qwen3-14b:q8", "old-pick-2", ":2")]
 
             def load_new_instance(self, model, identifier, config):
                 loads.append((model, identifier, config))
@@ -267,7 +309,9 @@ class LoadModelSdkTests(unittest.TestCase):
         self.addCleanup(lambda: sys.modules.__setitem__("lmstudio", saved) if saved else sys.modules.pop("lmstudio"))
         cfg = load_model.load_config(32768, "q8_0", 1.0)
         self.assertEqual(load_model.load("qwen3-14b", cfg, unload={"old-pick"}), "qwen3-14b")
-        self.assertEqual(unloaded, ["qwen3-14b", "old-pick"])          # the owner's own model stays
+        # LM Studio names a second instance of an id id:2; the owner's own model stays, and so do ids that only
+        # start like a team one
+        self.assertEqual(unloaded, ["qwen3-14b", "qwen3-14b:2", "old-pick", "old-pick:13"])
         self.assertEqual(loads, [("qwen3-14b", "qwen3-14b", cfg)])
         # a model LM Studio lists under a publisher key loads under the short id the team's requests name
         self.assertEqual(load_model.load("qwen3.6-35b-a3b-q3", cfg, key="unsloth/qwen3.6-35b-a3b"), "qwen3.6-35b-a3b-q3")
@@ -327,10 +371,13 @@ class ModelLoadTests(TempState):
     def test_switching_presets_unloads_the_other_ones(self):
         models.save(models.preset("qwen3.6-35b"))
         models.load(models.preset("qwen3-14b"), self.cfg)
-        self.assertEqual(set(self.calls[0][2]), {"qwen3.6-35b-a3b", "qwen3.6-35b-a3b-q3"})
-        # the 3-bit trial and the 4-bit 35B never sit in RAM together
+        # a copy loaded by hand in LM Studio's window has the key LM Studio lists it under as its id (Grok's review of
+        # #622), and goes too
+        both = {"lmstudio-community/qwen3.6-35b-a3b", "unsloth/qwen3.6-35b-a3b"}
+        self.assertEqual(set(self.calls[0][2]), {"qwen3.6-35b-a3b", "qwen3.6-35b-a3b-q3"} | both)
+        # the 3-bit trial and the 4-bit 35B never sit in RAM together, nor the 3-bit twice
         models.load(models.preset("qwen3.6-35b-q3"), self.cfg)
-        self.assertEqual(set(self.calls[1][2]), {"qwen3.6-35b-a3b", "qwen3-14b"})
+        self.assertEqual(set(self.calls[1][2]), {"qwen3.6-35b-a3b", "qwen3-14b"} | both)
         # each loads by the key LM Studio lists it under (two downloads of one model get publisher keys), under the
         # short id the proxy sends requests to
         models.load(models.preset("qwen3.6-35b"), self.cfg)

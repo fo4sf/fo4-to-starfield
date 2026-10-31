@@ -40,18 +40,20 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
    `guardian.db`: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and
    output limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another
    window. `pick` refuses while a request runs or another load is under way. During the load it holds the proxy (new
-   requests wait, then go to the new model) and unloads the team's other models and the last pick (a model loaded by
-   hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the hold as
-   "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py ensure`), so
-   none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at another
-   context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or newer: the
-   0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
-   Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
-   (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
+   requests wait, then go to the new model) and unloads the team's other models and the last pick, copies of them
+   loaded by hand in LM Studio's window (whose id is the preset's `key`) and their `id:2`, `id:3` instances (a model
+   loaded by hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the
+   hold as "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py
+   ensure`), so none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at
+   another context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or
+   newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0
+   runtime loads it. Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the
+   guardian block (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
    pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`; menu options 9 and 1): a running
-   one keeps its old code, and `run-lead.ps1` and `terminal.ps1` do not start a session while the running proxy does
-   not refuse requests without the guard header.
+   one keeps its old code (it reads `config.json`'s presets and agent map again when the file changes), and
+   `run-lead.ps1` and `terminal.ps1` do not start a session while the running proxy does not refuse requests without
+   the guard header.
 3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section), which hands the guard the full path of
    the real `python.exe` itself. A plain `opencode` in the repository needs that first:
    `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below). A plain

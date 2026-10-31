@@ -125,7 +125,11 @@ def cloud_config(name, cfg=None):
 
 
 def team_models(cfg):
-    return {p["model"] for p in cfg["models"].values()} | set(cfg["agents"].values())
+    """The ids the team's models load under, and the keys LM Studio lists the presets under: a copy loaded by hand in
+    LM Studio's window gets its key as its id (unsloth/qwen3.6-35b-a3b, say), and would sit beside the pick."""
+    presets = cfg["models"].values()
+    return ({p["model"] for p in presets} | {p["key"] for p in presets if p.get("key")} |
+            set(cfg["agents"].values()))
 
 
 def loaded_contexts():
