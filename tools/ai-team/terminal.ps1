@@ -1,5 +1,8 @@
 # Open the local agents' terminal: OpenCode's own terminal UI on the team's agents, for the owner to talk to.
-#   powershell -ExecutionPolicy Bypass -File tools\ai-team\terminal.ps1 [-Agent fo4-lead] [-Continue]
+#   powershell -ExecutionPolicy Bypass -File tools\ai-team\terminal.ps1 [-Agent fo4-lead] [-Continue] [-Cloud claude-sonnet]
+# -Cloud puts all four agents on a Claude model from config.json "cloud" (the owner's Anthropic API key, entered with
+# `opencode auth login`), with no local model loaded; .opencode/plugin/fo4-cloud-cap.js keeps it to this terminal
+# and to config.json's monthly cap.
 # It starts the team (guardian proxy, picked model), then runs OpenCode in its own worktree next to the repo
 # (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. At
 # every start with no other terminal window open on it, the worktree goes back to main's newest commit (no branch),
@@ -15,10 +18,10 @@
 # OpenCode exits), and in this terminal "nothing pushes" rests on the model and on the owner reading those prompts.
 # The owner's own OpenCode config (~/.config/opencode) is not checked. Skills from ~/.claude and ~/.agents (the
 # claude.ai ones) stay hidden from the agents.
-param([string]$Agent = 'fo4-lead', [switch]$Continue,
+param([string]$Agent = 'fo4-lead', [switch]$Continue, [string]$Cloud = '',
       [string]$Python = $(if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }))
 $repo = Split-Path (Split-Path $PSScriptRoot)
-$Host.UI.RawUI.WindowTitle = "FO4SF local agents ($Agent)"
+$Host.UI.RawUI.WindowTitle = "FO4SF $(if ($Cloud) { "agents on $Cloud" } else { 'local agents' }) ($Agent)"
 $models = Join-Path $PSScriptRoot 'models.py'
 # The guard plugin runs its checker with this Python, as a full path, so it is resolved first, as run-lead.ps1 does:
 # a program (not an alias or function from a profile), then the program Python says it runs as. The Microsoft Store's
@@ -32,10 +35,17 @@ if (-not [IO.Path]::IsPathRooted($pythonPath) -or $pythonPath -match '\\WindowsA
          "of a python.exe from python.org or the Python install manager")
 }
 
-powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1')
-$ensure = (& $pythonPath $models ensure | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { "WARNING: the picked model is not loaded ($ensure). Pick one in the FO4SF AI menu." }
-else { try { "model: $(($ensure | ConvertFrom-Json).picked.model)" } catch { $ensure } }
+# OpenCode's limits for the loaded window, or the agents on a Claude model
+$config = if ($Cloud) { (& $pythonPath $models opencode --cloud $Cloud | Out-String).Trim() }
+          else { (& $pythonPath $models opencode | Out-String).Trim() }
+if ($LASTEXITCODE -ne 0) { "models.py opencode: $config. Not starting."; exit 1 }
+if ($Cloud) { "model: $Cloud (Claude, on the API key; no local model is loaded)" }
+else {
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-team.ps1')
+  $ensure = (& $pythonPath $models ensure | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { "WARNING: the picked model is not loaded ($ensure). Pick one in the FO4SF AI menu." }
+  else { try { "model: $(($ensure | ConvertFrom-Json).picked.model)" } catch { $ensure } }
+}
 
 $wt = Join-Path (Split-Path $repo) 'fo4-to-starfield-wt\local-terminal'
 git -C $repo fetch -q origin main
@@ -140,11 +150,11 @@ try {
     exit 1
   }
 
-  foreach ($f in @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py')) {
-    if (-not (Test-Path (Join-Path $wt $f))) { "$wt has no $f, so the guard would be off: not starting"; exit 1 }
+  foreach ($f in @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py', '.opencode\plugin\fo4-cloud-cap.js')) {
+    if (-not (Test-Path (Join-Path $wt $f))) { "$wt has no $f, so the guard or the Claude cap would be off: not starting"; exit 1 }
   }
   if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) { "OpenCode (opencode) is not on PATH"; exit 1 }
-  try {                                              # the proxy must refuse a request with no guard header
+  if (-not $Cloud) { try {                           # the proxy must refuse a request with no guard header
     Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:1235/v1/chat/completions' -Body '{}' `
       -ContentType 'application/json' -TimeoutSec 10 | Out-Null
     $gate = $false
@@ -152,14 +162,21 @@ try {
   if (-not $gate) {
     "The guardian proxy is not running, or serves requests without the guard header (started before the guard)."
     "Restart the team (FO4SF AI menu: 9, then 1), then open the terminal again. Not starting."; exit 1
-  }
+  } }
 
   Remove-Item Env:FO4SF_UNATTENDED -ErrorAction SilentlyContinue
   $env:FO4SF_PYTHON = $pythonPath                   # the guard's checker: a full path, never a name looked up later
   $env:FO4SF_OWNER_PRESENT = '1'                    # the guard adds agent_git.py; never set by run-lead.ps1
   $env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'       # no skills from ~/.claude or ~/.agents (the claude.ai ones)
   $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'    # the same switch under its older name
-  $env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode | Out-String).Trim()   # OpenCode's limits = the loaded window
+  $env:OPENCODE_CONFIG_CONTENT = $config
+  # Claude (-Cloud, or /models in a local window) goes to api.anthropic.com with nothing between but the plugins: keep
+  # them loading (OPENCODE_PURE drops every plugin without a word), keep the OpenCode their hooks were read from (no
+  # auto-update), and send the key to Anthropic only (the AI SDK takes ANTHROPIC_BASE_URL when opencode.json names no
+  # base URL).
+  Remove-Item Env:OPENCODE_PURE -ErrorAction SilentlyContinue
+  Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
+  $env:OPENCODE_DISABLE_AUTOUPDATE = '1'
 
   # npm installs a .ps1 shim; use the real binary behind it, as run-lead.ps1 does
   $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'

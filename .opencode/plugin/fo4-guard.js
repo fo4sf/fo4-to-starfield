@@ -6,7 +6,9 @@
 //
 // OpenCode only logs a plugin that fails to load and carries on without it. So the plugin also marks every model request
 // with a header (chat.headers), and the guardian proxy refuses inference without it (config.json "require_guard_header"):
-// a session whose guard did not load gets no model, so no tool call happens either.
+// a local session whose guard did not load gets no model, so no tool call happens either. A Claude request goes to
+// Anthropic, not the proxy, so nothing checks the header there: terminal.ps1 checks that this file and
+// fo4-cloud-cap.js exist, clears OPENCODE_PURE and turns OpenCode's auto-update off in its window.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";

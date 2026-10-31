@@ -75,7 +75,37 @@ def guard_header_ok(headers, cfg):
     return not cfg.get("require_guard_header", True) or headers.get(GUARD_HEADER) == GUARD_VALUE
 
 
+def _config_mtime():
+    try:
+        return os.stat(guardian.CONFIG).st_mtime_ns
+    except OSError:
+        return None
+
+
+def _team_config():
+    """config.json's agent map and model presets, read again when the file has changed since load_cfg or the last
+    read: a preset a pull adds (the 3-bit trial, 31 Oct) is served without a proxy restart, where the running proxy
+    used to send its pick to the agents' map model, which the pick had just unloaded. A file that cannot be read now
+    (a pull writing it, say), or whose agent map or presets are not JSON objects, leaves the last good copy."""
+    seen = CFG.get("config_mtime")
+    if seen is None:                       # not read from the file (a test's own CFG)
+        return
+    now = _config_mtime()
+    if now is None or now == seen:
+        return
+    try:
+        with open(guardian.CONFIG, encoding="utf-8") as f:
+            data = json.load(f)
+        agents, presets = data.get("agents", {}), data.get("models", {})
+    except (OSError, ValueError, AttributeError):    # AttributeError: a file that is not a JSON object
+        return
+    if not isinstance(agents, dict) or not isinstance(presets, dict):
+        return                                       # a null or a list: no request could be routed
+    CFG["agents"], CFG["models"], CFG["config_mtime"] = agents, presets, now
+
+
 def _agent_and_model(name, c=None):
+    _team_config()
     agents = CFG.get("agents", {})
     if name in agents:
         # models.py's pick serves every agent (one model loaded), but only a preset's model: a row naming another one
@@ -301,10 +331,12 @@ def load_cfg():
     when it names a preset's model (_agent_and_model)."""
     cfg = guardian.load_config()
     if os.path.exists(guardian.CONFIG):
+        mtime = _config_mtime()            # before the read: a change during it is read again on the next request
         with open(guardian.CONFIG, encoding="utf-8") as f:
             data = json.load(f)
         cfg["agents"] = data.get("agents", {})
         cfg["models"] = data.get("models", {})
+        cfg["config_mtime"] = mtime
     return cfg
 
 

@@ -81,6 +81,7 @@ while ($true) {
   '  2  Talk to the local agents (the Lead)'
   '  3  Talk to one agent: research, implement or QA'
   '  4  Start Claude Code in the repo'
+  '  c  Talk to the agents on Claude (API credit, capped each month; no local model)'
   '  5  Status'
   '  6  Pick a model'
   '  7  Start or stop the unattended Lead (it runs in its own window)'
@@ -95,6 +96,10 @@ while ($true) {
       if ($a) { Open-Window 'terminal.ps1' @('-Agent', $a) }
     }
     '4' { Start-Claude }
+    'c' {
+      $m = @{ 's' = 'claude-sonnet'; 'h' = 'claude-haiku' }[(Read-Host 's = Sonnet 5.5, h = Haiku 5.5 (cheaper)')]
+      if ($m) { Open-Window 'terminal.ps1' @('-Cloud', $m) }
+    }
     '5' { Show-Status }
     '6' { Pick-Model }
     '7' {
