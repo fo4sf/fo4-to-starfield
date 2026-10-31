@@ -1133,6 +1133,63 @@ class ScriptContractTests(unittest.TestCase):
         self.assertRegex(place, r"if HopMarker != None && player\.GetParentCell\(\) == HopMarker\.GetParentCell\(\)\s+ComeBack\(player\)")
         self.assertNotIn("hopOut", self.text)
 
+    def test_the_dark_hold_starts_at_an_arrivals_first_late_marker(self):
+        # option A put to the owner, 2026-10-31: the screen black from an arrival until the reload is back, so the first map opened
+        # lists every marker (the retest: the reload was back about 14 s after the last marker went in)
+        self.assertIn("bool Property HoldDark = True Auto Const", self.text)
+        window = float(re.search(r"float Property HoldWindow = ([0-9.]+) Auto Const", self.text).group(1))
+        most = float(re.search(r"float Property HoldMax = ([0-9.]+) Auto Const", self.text).group(1))
+        self.assertGreater(window, 133.0 - 125.8)                       # the ride to the first quest's first move
+        self.assertLessEqual(window, 20.0)
+        self.assertGreater(most, 35.0)                                  # the retest's arrival to the reload's way back
+        self.assertLessEqual(most, 90.0)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        late = place.index("late = True                             ; it came into the world after the player did")
+        start = place.index("Hold()", late)
+        # only where a reload can follow: Reload wants our world (Border's), and none comes elsewhere
+        self.assertIn("if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && w == ourWorld && "
+                      "Utility.GetCurrentRealTime() - enteredAt < HoldWindow", place[late:start])
+        self.assertEqual(len(re.findall(r"(?<!Function )\bHold\(\)", self.text)), 1)        # only there
+        hold = self.fn("Function Hold()", "EndFunction")
+        self.assertIn("Game.FadeOutGame(True, True, 0.0, 0.5, True)", hold)   # stays black
+        for line in ("heldEntry = True", "holding = True", "holdAt = Utility.GetCurrentRealTime()"):
+            self.assertIn(line, hold)
+        # held once per entry into a world, and a load starts with none
+        self.assertRegex(place, r"if w != seenWorld\s+seenWorld = w\s+.*\n\s+late = False\s+enteredAt = .*\n\s+heldEntry = False")
+        session = self.fn("bool Function NewSession", "EndFunction")
+        self.assertRegex(session, r"if holding\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\).*\n\s+holding = False")
+        self.assertIn("heldEntry = False", session)
+
+    def test_the_dark_hold_always_ends(self):
+        release = self.fn("Function Release(string why)", "EndFunction")
+        self.assertRegex(release, r"if holding\s+holding = False\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\)")
+        check = self.fn("Function HoldCheck(Actor player, bool ours)", "EndFunction")
+        self.assertIn("if held > HoldMax", check)
+        self.assertIn("elseif !ours", check)
+        # whenever the reload would wait (Reload's own guard), the hold lets go
+        self.assertIn("player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0 || "
+                      "!Game.IsMovementControlsEnabled()", check)
+        self.assertEqual(check.count("Release("), 3)
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        # every outdoor pass checks it before any return, and indoors (a load door, the stop) ends it
+        self.assertLess(place.index("HoldCheck(player, inside && w == ourWorld)"), place.index("if !inside\n        return"))
+        self.assertLess(place.index("if holding\n        HoldCheck(player, inside && w == ourWorld)"), place.index("if settledWorld == w && Probe(player)"))
+        inside = place[place.index("if player.IsInInterior()"):place.index("WorldSpace w = player.GetWorldSpace()")]
+        self.assertIn('Release("the player went indoors")', inside)
+        # a pass that moves markers for seconds checks between moves too
+        loop = place[place.index("while i < Markers.Length && moves < MaxMoves"):]
+        self.assertLess(loop.index("if holding\n                    HoldCheck(player, w == ourWorld)"), loop.index("m.MoveTo(player"))
+        reload = self.fn("Function Reload(Actor player, WorldSpace w)", "EndFunction")
+        waits = reload[reload.index("if player.IsInCombat() || player.IsInScene()"):reload.index("int a = 0")]
+        self.assertIn('Release("the reload waits")', waits)
+        skipped = reload[reload.index("skipped: no marker"):reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)")]
+        self.assertIn('Release("the reload was skipped")', skipped)
+        recheck = reload.index("if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX")
+        self.assertRegex(reload[recheck:], r"\n\s+holding = False\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\)")
+        # the way back fades in on every way out (test above), so it ends the hold first
+        back = self.fn("Function ComeBack(Actor player)", "\nEndFunction")
+        self.assertLess(back.index("holding = False"), back.index("if hopAnchor < 0"))
+
     def test_the_fast_travel_line_reads_the_switches_and_a_marker(self):
         line = self.fn("Function FastTravelLine", "EndFunction")
         for call in ("Game.IsFastTravelEnabled()", "Game.IsFastTravelControlsEnabled()", "m.IsMapMarkerVisible()",
