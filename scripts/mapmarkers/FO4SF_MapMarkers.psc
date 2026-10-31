@@ -84,6 +84,21 @@ int Property HopLimit = 1 Auto Const
 {Reloads per game session: one that does not help (a world made again on the way back moves every marker in again)
  would otherwise repeat.}
 
+bool Property HoldDark = True Auto Const
+{The first quest keeps the screen black from an arrival until its reload is back, so the first map the player opens
+ lists every marker (option A put to the owner, 2026-10-31): it fades out at its first marker that comes in late
+ within HoldWindow seconds of the player entering the world, and the reload's way back fades in. False: the reload
+ only (a short blink).}
+
+float Property HoldWindow = 15.0 Auto Const
+{Seconds after the player entered the world in which a late marker still starts the hold; later, they are playing. The
+ new game's ride lands at its anchor, off the map, and on the arrival 4.3 s later; the first quest's first move came
+ 7.2 s after the ride (31 Oct retest: rt 125.8, 130.1, 133.0).}
+
+float Property HoldMax = 60.0 Auto Const
+{The longest hold, in seconds: the screen comes back then even without the reload (31 Oct retest: the reload was back
+ about 14 s after the last marker went in, about 35 s after the arrival).}
+
 string LogName = "fo4sf_map"
 ; the border signal's state: -1 none written this session, 0 off (our world), 1 on; ourWorld is the player's world
 ; seen while in one of the core's cells (the runtime instance changes every launch, so it is learned, not a property)
@@ -114,6 +129,10 @@ int hops = 0
 bool waitLogged = False
 bool travelLogged = False
 int hopAnchor = -1
+; the dark hold (first quest): on since holdAt; held once per entry into a world
+bool holding = False
+bool heldEntry = False
+float holdAt = 0.0
 float hopX = 0.0
 float hopY = 0.0
 float hopZ = 0.0
@@ -172,6 +191,8 @@ bool Function NewSession()
         hops = 0
         waitLogged = False
         travelLogged = False
+        holding = False                                         ; a load's own loading screen fades in
+        heldEntry = False
     endif
     placeRealTime = rt
     return fresh
@@ -228,6 +249,7 @@ Function Place(Actor player)
         if HopMarker != None && player.GetParentCell() == HopMarker.GetParentCell()
             ComeBack(player)                                  ; the stop has no door: anyone in it goes back (first quest)
         endif
+        Release("the player went indoors")
         seenWorld = None                                      ; when they come out, the world loads with what is in it
         late = False
         return
@@ -237,10 +259,15 @@ Function Place(Actor player)
         seenWorld = w                                         ; came out, or into another world, since the last pass
         late = False
         enteredAt = Utility.GetCurrentRealTime()
+        heldEntry = False
     endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
-    if px < MinX || px > MaxX || py < MinY || py > MaxY
+    bool inside = !(px < MinX || px > MaxX || py < MinY || py > MaxY)
+    if holding
+        HoldCheck(player, inside)                             ; before any return: the hold never outlives its reasons
+    endif
+    if !inside
         return
     endif
     if settledWorld == w && Probe(player)
@@ -277,6 +304,9 @@ Function Place(Actor player)
                     Trace("pass stopped at " + i + ": the player went indoors or to another world")
                     return
                 endif
+                if holding && player.IsInCombat()
+                    Release("combat while the markers came in")       ; a pass can run for seconds: not blind in a fight
+                endif
                 px = player.GetPositionX()
                 py = player.GetPositionY()
                 float pz = player.GetPositionZ()
@@ -306,6 +336,9 @@ Function Place(Actor player)
                     m.SetPosition(x, y, z)
                     if before > SameWorld
                         late = True                             ; it came into the world after the player did
+                        if !heldEntry && HoldDark && BorderSignal && HopMarker != None && hops < HopLimit && Utility.GetCurrentRealTime() - enteredAt < HoldWindow
+                            Hold()
+                        endif
                     endif
                     Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " off=" + ex + " " + ey + " " + ez + " d=" + d + " moves=" + moves)
                 endif
@@ -455,6 +488,7 @@ Function Reload(Actor player, WorldSpace w)
         return
     endif
     if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled() || player.IsDead() || player.GetSitState() != 0
+        Release("the reload waits")
         if !waitLogged
             waitLogged = True
             Trace("reload waits: combat=" + player.IsInCombat() + " scene=" + player.IsInScene() + " movement=" + Game.IsMovementControlsEnabled() + " dead=" + player.IsDead() + " sit=" + player.GetSitState())
@@ -468,6 +502,7 @@ Function Reload(Actor player, WorldSpace w)
     hops += 1
     if a >= Markers.Length
         Trace("reload " + hops + " skipped: no marker of this quest in the player's world to come back by")
+        Release("the reload was skipped")
         return
     endif
     Game.FadeOutGame(True, True, 0.0, 0.5, True)
@@ -480,6 +515,7 @@ Function Reload(Actor player, WorldSpace w)
     hopZ = player.GetPositionZ()
     hopA = player.GetAngleZ()
     if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX || hopY < MinY || hopY > MaxY
+        holding = False
         Game.FadeOutGame(False, True, 0.0, 0.5, False)
         Trace("reload " + hops + " called off: the player went indoors, to another world or off the map")
         return
@@ -511,6 +547,10 @@ EndFunction
 ; 2 m off (a SetPosition in the MoveTo's own tick is ignored: FO4SF_NewGameQuest.psc FinishSurface), the facing back,
 ; and the screen in. Also from the first quest's next pass for a player still at the stop (a save made there).
 Function ComeBack(Actor player)
+    if holding
+        Trace("dark hold ends with the reload after " + (Utility.GetCurrentRealTime() - holdAt) + " s")
+        holding = False                                       ; every way out of here fades in
+    endif
     if hopAnchor < 0 || hopAnchor >= Markers.Length || Markers[hopAnchor] == None
         Trace("reload: no way back (anchor " + hopAnchor + " of " + Markers.Length + ")")
         Game.FadeOutGame(False, True, 0.0, 0.5, False)
@@ -554,6 +594,36 @@ Function ComeBack(Actor player)
     player.SetAngle(0.0, 0.0, hopA)
     Game.FadeOutGame(False, True, 0.0, 0.5, False)
     Trace("reload " + hops + " back: moves=" + tries + " set=" + snapped + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + back + " same=" + (back == hopWorld))
+EndFunction
+
+; The dark hold (HoldDark): the screen black from an arrival until the reload is back, so the map is never opened before.
+Function Hold()
+    heldEntry = True
+    holding = True
+    holdAt = Utility.GetCurrentRealTime()
+    Game.FadeOutGame(True, True, 0.0, 0.5, True)
+    Trace("dark hold: markers coming in " + (holdAt - enteredAt) + " s after the player entered the world")
+EndFunction
+
+; A hold ends with the reload (ComeBack), or here: never in a fight, dead, seated or in a scene, off the map, or past
+; HoldMax seconds.
+Function HoldCheck(Actor player, bool inside)
+    float held = Utility.GetCurrentRealTime() - holdAt
+    if held > HoldMax
+        Release("no reload after " + held + " s")
+    elseif !inside
+        Release("the player left the map")
+    elseif player.IsInCombat() || player.IsDead() || player.IsInScene() || player.GetSitState() != 0
+        Release("combat=" + player.IsInCombat() + " dead=" + player.IsDead() + " scene=" + player.IsInScene() + " sit=" + player.GetSitState())
+    endif
+EndFunction
+
+Function Release(string why)
+    if holding
+        holding = False
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        Trace("dark hold released: " + why)
+    endif
 EndFunction
 
 ; What the map and fast travel go by (owner, 2026-10-31: nothing on the map, no fast travel to it): the game's two

@@ -220,7 +220,8 @@ Install (game closed), with the core active (its own record, beside exp_install'
 In game: outdoors in the Commonwealth the log {LOG} gets one line per marker moved:
   FO4SF_MAP rt=<s> q=<quest, 2048 for 0x800> moved <i> to <x> <y> <z> target <x> <y> <z> before=<distance> off=<dx> <dy> <dz> d=<distance> moves=<n>
   then from the first quest (q=2048) "fast travel, all <n> quests' markers in place or out of moves, ...", and with the stop
-  "reload 1: out to ...", "reload 1: at the stop=True ...", "reload 1 back: ... same=True", "fast travel, after reload 1: ...".
+  "reload 1: out to ...", "reload 1: at the stop=True ...", "reload 1 back: ... same=True", "fast travel, after reload 1: ...";
+  after an arrival the screen stays black from "dark hold: ..." to "dark hold ends with the reload after <s> s".
 Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. Uninstall it before a core swap
   and install it again after (its only master, the core, leaves Plugins.txt during the swap).
 """)
