@@ -58,7 +58,7 @@ baseline. The out folder is never in the game folder, a My Games folder or Plugi
      It joins them, oldest first, into `Papyrus.0.log` in the out folder, and says so when there were several
      sessions. It runs only while Starfield is closed, and only once.
    - The session was not vanilla, and is no baseline, when any of these is true:
-     - the log names any of ours (FO4* or FOCC*);
+     - the log names any of ours (FO4*, FOCC*, or the reserved FOSF*, FO3SF*, FNVSF*);
      - Plugins.txt has a plugin the game does not ship ticked again (now, or when `restore` ran first): the Creations
        menu, a mod manager or our launcher can tick plugins (`sfstack.md`);
      - SFSE wrote a file in `My Games\Starfield\SFSE\Logs` meanwhile: the game was started through `sfse_loader.exe`.
