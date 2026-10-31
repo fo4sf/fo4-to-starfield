@@ -2707,3 +2707,16 @@ came after the player, the first quest takes the player there and back to
 the same spot behind a black screen, once a session, so the world loads
 again with the markers in it. New log lines say whether fast travel is on
 and whether the world stayed the same through the reload.
+
+## 2026-10-31: Map markers: the reload works; the screen stays dark until it is back
+
+The owner's retest of the reload (#624): after waiting outdoors, the
+Commonwealth's icons were on the map. The log shows 16 quests placed the 313
+markers in 20 s (was 47 s), one move each (was 475 moves), and the round
+trip through the stop took 6.3 s with the player back on the same spot in
+the same world. The first test had shown nothing because the map was opened
+11 s after the arrival, before any reload. Option A (Claude's pick, put to
+the owner with B, the elevator only, and C, messages only): from an
+arrival, the first quest keeps the screen black until the reload is back
+(about 34 s in the retest), with every way out fading back in (60 s at most,
+a fight, going indoors, leaving the map). Offline; waits on a play test.
