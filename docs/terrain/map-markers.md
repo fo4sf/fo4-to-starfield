@@ -600,10 +600,32 @@ So (offline, waits on a play test):
   (whether the world is the one the reload began in), then the fast travel line again; or `reload 1 called off: ...`,
   or `reload waits: ...` once.
 
-Open until the play test: whether the reload makes the markers show and discoverable as the Cydonia trip did,
-whether 16 quests place faster than 4 (the game may answer calls from more scripts at once no faster), whether the
-world keeps its instance through the reload (`same=`), and whether `SetPosition` holds a marker where a move left it
-off (a `SetPosition` in a `MoveTo`'s own tick was ignored for the player in the new game's `FinishSurface`; if it is
-for markers too, they are moved again as before). The stop is lit as PluginSpike's door test cell, but this
-unlit, persistent-marker version of it has not been in game. The new game's elevator ride could hold the screen dark until the markers are in and do the reload itself, so
-the player sees one ride; the new game belongs to the Strip-down thread, so that waits for its v11 fix.
+The owner's play tests of #624 (31 Oct, new game v12, PC logs `mapmarkers_20261031_reload` and `..._reload2`):
+- **verified (log):** 16 quests placed the 313 markers in 20 s after the arrival (rt 125.9 to 146.1; 130.1 to 150.0 in
+  the retest), was 47 s with 4 quests. 312 moves for 312 markers plus the refused pad: `SetPosition` held every marker,
+  none was moved again (was 475 moves).
+- **verified (log):** the first test opened the map about 11 s after the arrival and kept it (or a menu) open until the
+  game closed: the bridge's 0.5 s timer line stopped at rt 137 while the game ran to about 199 s, and no map pass ran
+  after 146 s, so no reload came (**inferred:** Papyrus timers do not fire while a menu is open).
+- **verified (owner and log):** in the retest the owner waited outdoors: `fast travel, all 16 quests' ...` at rt 156.3
+  (6.3 s after the last move; `visible=true can=true` already), `reload 1` out at 157.6, at the stop at once, back at
+  163.9 with `set=true same=true`; the owner then saw the Commonwealth's icons on the map. So the hypothesis holds: the
+  map lists the markers in a world when the player enters it, and one round trip through the stop lists them all.
+
+Open: whether the reload's world stays the same instance in every case (`same=` was true once), and the stop's look
+(nobody saw it lit: the screen is black).
+
+### Dark hold (Claude-cloud, 2026-10-31, option A put to the owner)
+With `HoldDark` (on), the first quest fades to black (staying black) at its first marker that comes in late within
+`HoldWindow` (15 s) of the player entering the world, if a reload can follow (`BorderSignal`, `HopMarker`, one left in
+`HopLimit`, and the player in our world as Border learned it), once per entry; the reload's way back fades in, so the
+first map the player opens lists every marker. In the retest that is about 31 s of black (the first quest's first
+move at rt 133.0 to the way back at 163.9). The window covers the new game's ride, which lands
+at its anchor off the map and on the arrival 4.3 s later (the first quest's first move came 7.2 s after the ride), a
+GAMMA start and a save loaded outdoors; a player who walks into the Commonwealth long after entering Mars keeps the
+blink. The hold also ends (fading in) past `HoldMax` (60 s), when the player leaves the map or our world or goes
+indoors, whenever the reload would wait (a fight, dead, seated, in a scene, no movement controls), checked at every
+pass and between moves of a long pass, when the reload is skipped or called off, and at a load. Log lines: `dark hold: markers coming in <s> s after the player entered the
+world`, `dark hold ends with the reload after <s> s`, `dark hold released: <why>`. Offline only: whether the game
+keeps the screen black through the stop's loading screens is open (the loading menu may fade in on its own:
+FO4SF_NewGameQuest.psc FadeIn's note).
