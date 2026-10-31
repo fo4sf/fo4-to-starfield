@@ -615,7 +615,7 @@ The owner's play tests of #624 (31 Oct, new game v12, PC logs `mapmarkers_202610
 Open: whether the reload's world stays the same instance in every case (`same=` was true once), and the stop's look
 (nobody saw it lit: the screen is black).
 
-### Dark hold (Claude-cloud, 2026-10-31, option A put to the owner)
+### Dark hold (Claude-cloud, 2026-10-31, option A; owner play test passed)
 With `HoldDark` (on), the first quest fades to black (staying black) at its first marker that comes in late within
 `HoldWindow` (15 s) of the player entering the world, if a reload can follow (`BorderSignal`, `HopMarker`, one left in
 `HopLimit`, and the player in our world as Border learned it), once per entry; the reload's way back fades in, so the
@@ -629,3 +629,9 @@ pass and between moves of a long pass, when the reload is skipped or called off,
 world`, `dark hold ends with the reload after <s> s`, `dark hold released: <why>`. Offline only: whether the game
 keeps the screen black through the stop's loading screens is open (the loading menu may fade in on its own:
 FO4SF_NewGameQuest.psc FadeIn's note).
+
+Play test (owner, 2026-10-31 22:34Z, #626 installed from main d285a885 on core v6i with newgame_v12): "ok everything
+worked only issue left will be solved with the pipboy". Option A stands; B and C were not built.
+The log of this run was not read, so the hold's timings and whether the screen stayed black through the stop's loading
+screens are the owner's report, not a log reading. The issue left is for the Pip-Boy map (owner's words above;
+which issue was not said).

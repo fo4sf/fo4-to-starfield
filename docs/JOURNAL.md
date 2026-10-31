@@ -2720,3 +2720,11 @@ the owner with B, the elevator only, and C, messages only): from an
 arrival, the first quest keeps the screen black until the reload is back
 (about 31 s in the retest), with every way out fading back in (60 s at most,
 a fight, going indoors, leaving the map). Offline; waits on a play test.
+
+## 2026-10-31: Map markers: the dark hold passes the owner's play test
+
+The owner played #626 (the screen stays black from an arrival until the
+reload is back) and reported: "ok everything worked only issue left will be
+solved with the pipboy". So the Commonwealth's icons are on the first map
+the player opens, with no trip to Cydonia. Option A stands; B and C were not
+built. The run's log was not read. What is left goes to the Pip-Boy map.
