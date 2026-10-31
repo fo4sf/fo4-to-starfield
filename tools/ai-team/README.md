@@ -19,7 +19,7 @@ Rules every agent follows: [AGENTS.md](../../AGENTS.md).
 | Wake an idle Codex / Grok (forks its last session, one headless turn; idle + cooldown guards) | `tools/ai-team/wake_agent.py` |
 | Runtime state, history DB, logs (outside the repo) | `%LOCALAPPDATA%\fo4-ai-team\state\` (`guardian.db`, `proxy.log`; override with `FO4_AI_TEAM_STATE`) |
 | Project knowledge, optimization log | `docs/ai/` (`optimization.md`: baselines + before/after entries) |
-| Model picker (the two presets in `config.json` "models"; the proxy and OpenCode follow the pick) | `tools/ai-team/models.py` |
+| Model picker (the presets in `config.json` "models"; the proxy and OpenCode follow the pick) | `tools/ai-team/models.py` |
 | The FO4SF AI desktop menu, the agents' terminal, the shortcut maker | `tools/ai-team/menu.ps1`, `terminal.ps1`, `install-shortcut.ps1` |
 | Shell and file-write guard (allow-list checker + OpenCode plugin) | `tools/ai-team/guard/allowlist.py`, `.opencode/plugin/fo4-guard.js` |
 | The implementation agent's branch and commit wrapper (owner's terminal only) | `tools/ai-team/agent_git.py` |
@@ -33,22 +33,27 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
 1. LM Studio server on (`lms server start` or the app), Starfield closed. Pick and load the model:
    `python tools\ai-team\models.py pick qwen3.6-35b` (the default: 64K context, K/V cache unquantized, LM Studio
    places the layers, no memory mapping) or `qwen3-14b` (the fallback: 32K, all on the GPU, q8 K/V cache). Only these
-   two can be picked (the owner's choice, 30 Oct; the 128K window below was dropped). The pick is saved in
+   two can be picked (the owner's choice, 30 Oct; the 128K window below was dropped), and `qwen3.6-35b-q3`, the same
+   model at 3-bit, on trial (the owner's pick, 31 Oct: it replaces `qwen3.6-35b` if it passes). A preset's `key` is
+   the model as LM Studio lists it (two downloads of one model get publisher keys: `lmstudio-community/...`,
+   `unsloth/...`), and `model` the short id it is loaded under, which the proxy sends requests to. The pick is saved in
    `guardian.db`: the guardian proxy sends every agent to it, and terminal.ps1 and run-lead.ps1 hand its context and
    output limits to OpenCode (`OPENCODE_CONFIG_CONTENT`), so `opencode.json` no longer needs local edits for another
    window. `pick` refuses while a request runs or another load is under way. During the load it holds the proxy (new
-   requests wait, then go to the new model) and unloads the team's other models and the last pick (a model loaded by
-   hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the hold as
-   "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py ensure`), so
-   none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at another
-   context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or newer: the
-   0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0 runtime loads it.
-   Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the guardian block
-   (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
+   requests wait, then go to the new model) and unloads the team's other models and the last pick, copies of them
+   loaded by hand in LM Studio's window (whose id is the preset's `key`) and their `id:2`, `id:3` instances (a model
+   loaded by hand for something else stays); the owner's pause and stop are left alone. A load that fails leaves the
+   hold as "failed" (`model_hold` in `guardian.py status`): requests get HTTP 503 until a load works (`models.py
+   ensure`), so none goes to a model that is not there. `models.py ensure` also reloads a model that LM Studio has at
+   another context. `load_model.py` still loads one model by hand, outside the pick. It needs LM Studio 0.4.27 or
+   newer: the 0.3.30 runtime (llama.cpp 1.104.2) rejects the model's `qwen35moe` architecture, the llama.cpp 2.66.0
+   runtime loads it. Don't use `lms load`: it memory-maps the file and holds ~10 GB of system RAM, which makes the
+   guardian block (2026-10-29: 16K context reached 98.5% RAM with `lms load`, 78.3% without memory mapping).
 2. `powershell -File tools\ai-team\start-team.ps1`: starts the guardian proxy, checks LM Studio, prints status. After
    pulling a change to the proxy, restart it (`stop-team.ps1`, then `start-team.ps1`; menu options 9 and 1): a running
-   one keeps its old code, and `run-lead.ps1` and `terminal.ps1` do not start a session while the running proxy does
-   not refuse requests without the guard header.
+   one keeps its old code (it reads `config.json`'s presets and agent map again when the file changes), and
+   `run-lead.ps1` and `terminal.ps1` do not start a session while the running proxy does not refuse requests without
+   the guard header.
 3. Interactive: `powershell -File tools\ai-team\terminal.ps1` (next section), which hands the guard the full path of
    the real `python.exe` itself. A plain `opencode` in the repository needs that first:
    `$env:FO4SF_PYTHON = (python -I -c 'import sys; print(sys.executable)')` (see "The shell guard" below). A plain
@@ -67,7 +72,7 @@ The FO4SF AI desktop shortcut does all of this from one menu (next section). By 
 `powershell -File tools\ai-team\install-shortcut.ps1` puts an "FO4SF AI" shortcut on the desktop (run once). It opens
 `menu.ps1`: start the local team, talk to the Lead or one agent, start Claude Code in the repo (Opus, Sonnet or Haiku),
 status, pick a model, start or stop the unattended Lead (it runs in its own window; stopping it also stops the session
-it is running), pause or resume, stop.
+it is running), pause or resume, stop, and `c`: the agents' terminal on Claude (below).
 
 The agents' terminal (`terminal.ps1 [-Agent fo4-research] [-Continue]`) is OpenCode's own terminal UI. It starts the
 team, then opens in its own worktree next to the repo (`fo4-to-starfield-wt\local-terminal`), so the main checkout and
@@ -104,6 +109,30 @@ reads the diff and the PR's CI checks; no edits, no posts, no test run on this c
 `local-team-delegate` (issue labelled `agent:local-team` + `ready`, or one `run-lead.ps1 -Brief` session on the PC),
 `local-team-check` (#32, logs, local branches), `local-team-review` (local output is a draft until it passes),
 `local-team-models`.
+
+**The agents on Claude (menu `c`, `terminal.ps1 -Cloud claude-sonnet` or `claude-haiku`).** The same terminal, guard
+and commands, with all four agents on Claude Sonnet 5.5 or Haiku 5.5 through the Anthropic API on the owner's key, and
+no local model loaded: for hard work, or when the PC's RAM is full. Set up once, by the owner:
+1. In the Anthropic Console, a monthly spend limit (the hard cap: $50 matches the PC's) and an API key (it starts
+   `sk-ant-api`). The key never goes into the repo, a chat or an issue.
+2. On the PC, `opencode auth login`, Anthropic, enter an API key, paste it: OpenCode keeps it in its own auth file in
+   the user profile.
+
+`opencode.json` lets OpenCode offer only the local proxy and Anthropic (`enabled_providers`), and of Anthropic's models
+only those two (`whitelist`), with their windows cut to 200K (Sonnet) and 100K (Haiku, its lower price band) so a long
+session costs less per request, and their prices per million tokens (Sonnet $2 in, $10 out; Haiku $0.10 and $0.50;
+OpenCode 1.18.35's own list has no Haiku 5.5, and a model without a price would count $0); config.json "cloud" names
+them. `.opencode/plugin/fo4-cloud-cap.js` refuses a Claude request outside this terminal (`FO4SF_OWNER_PRESENT`; the
+unattended Lead never), for a model with no price, and once this month's spend (UTC) has reached config.json's
+`cloud.monthly_cap_usd` (50). It adds up the cost OpenCode works out for each of its messages, in `cloud-spend.json` in
+the team's state folder (`%LOCALAPPDATA%\fo4-ai-team\state`), which every OpenCode window shares. The tally counts
+less than the bill: the short title OpenCode writes for a session, a request stopped with Esc or failed mid-stream,
+an update lost when two windows finish a step at the same instant, a step whose tally write failed (that window then
+refuses Claude until it is reopened), and `opencode agent create`. Requests already running when the cap is reached
+finish, and a Lead turn with three subagents can run many at once. The Console's limit is the hard cap behind it, so
+set it before the first use. After the first Sonnet and the first Haiku message, `cloud-spend.json` should show
+`usd` above 0. In the local terminal, OpenCode's `/models` can switch the Lead's session to Claude too, under the same
+cap.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
 

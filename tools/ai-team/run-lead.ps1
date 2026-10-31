@@ -138,10 +138,11 @@ try {
     if (-not (Test-GuardGate)) {                        # a proxy started before the guard header check serves anyone
       Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without the guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Wait-Next; continue
     }
-    $missing = @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py') |
+    $missing = @('.opencode\plugin\fo4-guard.js', 'tools\ai-team\guard\allowlist.py',
+                 '.opencode\plugin\fo4-cloud-cap.js') |
                Where-Object { -not (Test-Path (Join-Path $wt $_)) }
     if ($missing) {                                     # OpenCode would start without the guard (it only logs that)
-      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join ', '), so the guard would be off"; Wait-Next; continue
+      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join ', '), so the guard or the Claude cap would be off"; Wait-Next; continue
     }
     Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"
     $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))

@@ -1262,3 +1262,62 @@ decided the import path); keeping the order as a parameter (two orders in the co
   forever); a long-running checker process (fewer starts, but one more moving part between the agent and the guard).
 - Boundary: a hung checker now holds an agent's call for 60 s before the refusal. The test runs a 16 s checker
   (allowed) and a 61 s one asked for 600 s (refused at about 60 s) side by side, so it takes about a minute.
+
+## 2026-10-31: the 35B at 3-bit goes on trial, and the agents' terminal can run on Claude (owner)
+
+- Decision: config.json gets a third preset, `qwen3.6-35b-q3`, the same Qwen3.6-35B-A3B at 3-bit (Unsloth
+  UD-Q3_K_XL, 16.8 GB against 21.2 GB), at the same 64K context and 32K output; `qwen3.6-35b` stays the default until
+  the trial passes, and the 4-bit preset then goes, back to two. And the menu's `c` opens the agents' terminal with all
+  four agents on Claude Sonnet 5.5 or Haiku 5.5 (Anthropic API, the owner's key), under a $50 monthly cap that
+  `.opencode/plugin/fo4-cloud-cap.js` enforces, in the owner's terminal only.
+- Why: the owner, 31 Oct: the 35B at 4-bit is too much for the PC (32 GB RAM, 12 GB VRAM: 78-80% RAM idle, 87-96%
+  while the Lead works, three Lead cycles in a row out of time); research put four options and the owner took the
+  recommended one ("Let's go with your pick", 16:56Z). Measured on the PC the same day (64K, f16 cache, no team
+  running): 71.9% RAM idle against 83.6% for the 4-bit (the model server 9.5 GB in RAM against about 15), 10.3 GB VRAM,
+  26.3 tokens/s on a short prompt (4-bit: 20-25), on a 41K prompt the first token after 35.7 s (4-bit at 45K: 57 s)
+  and 9.8 tokens/s (8.3), peak 73.3% RAM, and the right answer to a question on that text. Thinking off is not a
+  repo setting: the API's `enable_thinking` flag is ignored and `/no_think` in the system prompt made it think longer;
+  the model's prompt template in LM Studio (Enable Thinking off) is the route, set and checked on the PC. The owner has
+  $200 of API credit and chose to use it on Claude for hard work or when RAM is full (17:01Z).
+- Alternatives: gpt-oss-20b (the backup if the 3-bit model's tool calls or answers fall short); the 35B at 32K with
+  thinking off (no download, least RAM gained); the 14B now (weaker). For Claude: an API key in an environment variable
+  (every process, the unattended Lead's too, could read it; `opencode auth login` keeps it in OpenCode's own file);
+  Opus (dearer; left out by the whitelist); Claude for the unattended Lead (no one watching the spend).
+- With the second download LM Studio lists the two by publisher (`lmstudio-community/qwen3.6-35b-a3b`,
+  `unsloth/qwen3.6-35b-a3b`), so a preset now names the `key` LM Studio loads and keeps a short `model` id that the
+  proxy, the pick and the unload list use; the 4-bit's id stays `qwen3.6-35b-a3b`, the 3-bit's is `qwen3.6-35b-a3b-q3`.
+- From the PR's review (Grok, 31 Oct): a pick unloads the presets' keys too (a copy loaded by hand in LM Studio's window
+  has its key as its id, and would sit beside the pick), and any `id:2`, `id:3` instance of an id it unloads; and the
+  proxy reads config.json's presets and agent map again when the file changes, where it read them once at start and
+  sent a pick of a preset added since to the agents' map model, the one the pick had just unloaded. This PR still
+  changes the proxy's code, so the PC restarts the team after the pull, before the 3-bit is picked.
+- Boundary: still to measure before the 3-bit becomes the default: RAM while the Lead works, OpenCode's tool calls
+  through the proxy, and the 29 Oct accuracy set. The cap counts OpenCode's price for each message, from the costs
+  opencode.json gives both Claude models (1.18.35's built-in list has no Haiku 5.5, and an unpriced model counts $0, so
+  the plugin refuses a model without a price), not the bill; it misses a session's title, a step stopped or failed
+  mid-stream, an update two windows write at once, a step whose tally write failed, and `opencode agent create`; it
+  lets running requests finish, and a message from before an OpenCode restart that grows is counted again. The
+  Console's spend limit is the hard cap; on the PC, `cloud-spend.json` must show `usd` above 0 after the first Sonnet
+  and Haiku messages (second review of the PR, 31 Oct).
+  A throw in chat.params fails the request before it is sent (1.18.35's plugin trigger runs the hook before building
+  the request); that is read from the code, not yet seen on the PC.
+
+## 2026-10-31: Papyrus doc comments and strings stay at or under 3 KB; long notes go in ";" comments (Claude-cloud)
+
+- Decision: every doc comment (`{...}`) and string literal in the repo's .psc files is at most 3,072 bytes, each line
+  end counted as two bytes; longer notes go in `;` comments, which the compiler leaves out of the .pex.
+  `tests/test_papyrus_strings.py` holds it for every .psc in the repo. FO4SF_NewGameQuest.psc's header, the one over
+  the line, is cut to 1,409 bytes (the stage contract kept); the build from this change is newgame_v12, v11's records
+  and code with that comment short.
+- Why: newgame_v11 crashed Starfield on every launch (29 to 31 Oct) while the game loaded its data files, before the
+  main menu (FO4SFBorder's log: no `post_data_load`; two of the crashes came after the local model was unloaded, one
+  with 13.4 GiB free), and newgame_v10 did not. The crash dump's rax held `ell for `, exactly the bytes 4,096 to
+  4,103 of that 4,196-byte doc comment (v10's: 2,745).
+  So the game's script loader copies a doc comment into a 4 KB buffer and the bytes past it overwrite a pointer
+  (supported hypothesis, one dump; docs/newgame/vault111-start.md section 13a).
+- Alternatives: cut the comment alone, with no test (the next long comment would crash the game again, with nothing in
+  CI to say why); a limit just under 4,096 (no room for a Windows checkout's two-byte line ends or a terminator; the
+  longest that has loaded in game is 2,745 bytes); move the notes to the doc only (the script loses its own why).
+- Boundary: the 4 KB buffer is inferred from one dump, and whether string literals go through the same buffer is not
+  known (none of ours is near). If newgame_v12 dies the same way, the next suspect is the startup override record (a
+  build without it tells).
