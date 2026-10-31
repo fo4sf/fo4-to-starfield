@@ -557,3 +557,46 @@ too (the sources disagree: a comment on Nexus mod 15633 says so, the mod's own p
 surface map and scanner), and whether a save made before this build keeps the old flags for
 markers it already knows (a guess, not tested); the play test should use a new game, or say which save it loaded.
 B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is for later.
+
+## Reload (Claude-cloud, 2026-10-31)
+The owner's new game v10 run (31 Oct): Mars's map icons were fine, but "nothing on the map shows up", and no
+Commonwealth marker could be discovered by walking past it, until a trip to Cydonia and back. Logs
+(`fo4sf_map.0.log` of the PC test folder `newgame_20261031_v10`):
+- **verified (log):** the player came out of the elevator at rt 179 s and every marker was moved in from rt 186 s on;
+  the last of the 313 first moves came at rt 233 s, about 47 s later. Each of the four quests, side by side, moved
+  one marker every 0.45 s. **Supported hypothesis:** the time goes to the calls, about 18 for a moved marker (reads,
+  the move, the log line; counted from the script), which the game answers about once a frame.
+- **verified (log):** 475 moves for 313 markers. A move onto a walking player lands off by their steps in between
+  (z 0.4 m off, `moved 10 ... target ...`), and such a marker was moved again on a later pass.
+- **verified (log, 24 Oct):** after a trip to Cydonia and back, the player's world had the same instance id
+  (FF00549A) and no marker but the refused pad was moved again: the world keeps the markers while the player is away.
+- **supported hypothesis:** the map, and discovery on the way past, list only the markers that are in a world when the
+  player enters it; ours come after, so they show only after the player leaves and comes back.
+
+So (offline, waits on a play test):
+- **20 markers a quest** (`dotnet/MapMarkers` `PerQuest`, was 100): about 16 quests side by side for 313 markers.
+- **Fewer reads:** a marker in another world is moved without reading where it stands there; `QuestLow` reads the
+  quest's id once; once a full pass finds every marker of a quest in place, a pass reads one of them in turn
+  (`Probe`) and goes back to full passes when one is off.
+- **SetPosition after the move:** once the marker is in the player's world, `SetPosition` puts it on its spot. The
+  move line now says how far off a marker in the world was (`off=dx dy dz`).
+- **The reload:** `dotnet/MapMarkers --reload` (on by default in `make_map_markers.py stage`, `--no-reload` leaves it
+  out) adds a small interior of the plugin's own, `FO4SF_MapMarkersHop` (0x8F4: lit as PluginSpike's door test cell,
+  which worked in game on 8 Oct; its platform 0x8F6 and a persistent COC marker 0x8F5), and names the marker in the
+  first quest's `HopMarker`. When every quest's markers are in place in our world (or its moves are spent), some of
+  them went in after the player entered, the player has been outdoors there for `HopDelay` (10 s: the new game's
+  landing check is done by then), and they are not in combat or a scene and have their movement controls, the first
+  quest fades to black, moves the player to the stop, moves them back to the same spot by one of its markers (then
+  `SetPosition` there once the 3D is in, as the new game's ride up does), turns them back to their facing and fades
+  in. Once a session (`HopLimit`). A player still at the stop on a later pass (a move back that did not take, a save
+  made there) is brought back again.
+- **Log lines** (q=2048): `fast travel, all <n> quests' markers in place, some after the player came: <bool>`
+  (`Game.IsFastTravelEnabled`, `IsFastTravelControlsEnabled`, and the first marker's `IsMapMarkerVisible`,
+  `CanFastTravelToMarker`), `reload 1: out to ...`, `reload 1: at the stop=...`, `reload 1 back: ... same=<bool>`
+  (whether the world is the one the reload began in), then the fast travel line again.
+
+Open until the play test: whether the reload makes the markers show and discoverable as the Cydonia trip did,
+whether 16 quests place faster than 4 (the game may answer calls from more scripts at once no faster), whether the
+world keeps its instance through the reload (`same=`), and whether `SetPosition` holds a marker where a move left it
+off. The new game's elevator ride could hold the screen dark until the markers are in and do the reload itself, so
+the player sees one ride; the new game belongs to the Strip-down thread, so that waits for its v11 fix.

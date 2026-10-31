@@ -7,7 +7,7 @@ usage:
                                                      [--z-lift <m>] [--world control|nosmall|city]
                                                      [--fo4-map-markers <export.json>] [--landing <x> <y>]
                                                      [--landing-name <name>] [--core-stage <folder>]
-                                                     [--star-map <name> ... | --star-map-all]
+                                                     [--star-map <name> ... | --star-map-all] [--no-reload]
       0. with --fo4-map-markers (the owner's "more location markers", 2026-10-23): the rest of FO4's named
          Commonwealth markers, picked as make_core64c.py stage --fo4-map-markers picks them for a core
          (fo4sf.map_markers.load_fo4_markers and extra_markers: 200 m inside the land, none on a same-named fixed or
@@ -31,7 +31,10 @@ usage:
          markers only (default STAR_MAP: the core's four and a few major places; not strict, so a stage without
          those markers still builds), so Mars's planet view lists those and the landing area under its one icon,
          while the surface map keeps every marker; names given here are strict (each must name a marker);
-         --star-map-all leaves every marker on the star map, as before;
+         --star-map-all leaves every marker on the star map, as before; --reload (unless --no-reload) adds the
+         reload's stop, a small interior of the plugin's own whose marker the first quest's HopMarker names: the map
+         lists only the markers in a world when the player enters it, so once every marker is in place the first quest
+         takes the player there and back once, behind a black screen (the owner's Cydonia trip, 2026-10-31);
       2. the Papyrus compile of FO4SF_MapMarkers.psc (base sources from the Creation Kit's ContentResources.zip, as
          scripts/bridge/make_bridge.py), the .pex into <out>/Data/Scripts;
       3. dotnet/MapMarkers check: the plugin read back against the core (offline_check.txt); core.json (the core's
@@ -180,6 +183,11 @@ def stage(a):
         extra_note += (f"\n  Plus a ship landing spot \"{spot['name']}\" (landing.json): a pad at getpos {a.landing[0]} {a.landing[1]} "
                        f"(local {pad[0]} {pad[1]}, z {pad[2]}),\n  its landing zone, map marker and heading as LandingOverlay01 "
                        "places them, and its three LCSR rows.")
+    if not a.no_reload:
+        lift += ["--reload"]                                          # build and check take the same stop
+        extra_note += ("\n  Plus the reload's stop FO4SF_MapMarkersHop, a small interior: once every marker is in place"
+                       "\n  and some went in after the player came, the first quest takes them there and back once, the screen black,"
+                       "\n  so the map lists the markers (offline_check.txt: reload stop, HopMarker).")
     if not a.star_map_all:
         path = os.path.join(out, "star_map.json")
         with open(path, "w", encoding="utf-8") as f:
@@ -210,7 +218,9 @@ Data\\Scripts\\{SCRIPT}.pex: compiled from {SCRIPT}.psc here.
 Install (game closed), with the core active (its own record, beside exp_install's experiment; packs the .pex):
   python scripts\\game\\map_markers_install.py install --dir "{out}" --starfield <game>
 In game: outdoors in the Commonwealth the log {LOG} gets one line per marker moved:
-  FO4SF_MAP rt=<s> q=<quest, 2048 for 0x800> moved <i> to <x> <y> <z> target <x> <y> <z> before=<distance> d=<distance> moves=<n>
+  FO4SF_MAP rt=<s> q=<quest, 2048 for 0x800> moved <i> to <x> <y> <z> target <x> <y> <z> before=<distance> off=<dx> <dy> <dz> d=<distance> moves=<n>
+  then from the first quest (q=2048) "fast travel, all <n> quests' markers in place, ...", and with the stop
+  "reload 1: out to ...", "reload 1: at the stop=True ...", "reload 1 back: ... same=True", "fast travel, after reload 1: ...".
 Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. Uninstall it before a core swap
   and install it again after (its only master, the core, leaves Plugins.txt during the swap).
 """)
@@ -242,6 +252,8 @@ def main(argv=None):
     star.add_argument("--star-map", nargs="+", metavar="NAME", default=None,
                       help="the markers Mars's planet view lists (default: STAR_MAP); each must name a marker")
     star.add_argument("--star-map-all", action="store_true", help="leave every marker on the star map (as before)")
+    s.add_argument("--no-reload", action="store_true",
+                   help="leave out the reload's stop: the markers then show on the map only after the player leaves the world and comes back")
     a = ap.parse_args(argv)
     stage(a)
 

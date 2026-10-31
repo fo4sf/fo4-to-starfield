@@ -217,7 +217,9 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(other.returncode, 2)
         self.assertIn("--world hnam5: want control", other.stderr)
 
-    def test_many_markers_split_into_quests_of_100(self):
+    def test_many_markers_split_into_quests_of_20(self):
+        # a quest places one marker at a time, about a frame for each read (a marker every 0.45 s at 100 a quest:
+        # 45 s for the first placement, fo4sf_map.0.log 2026-10-31), and the quests run side by side
         params = copy.deepcopy(self.params)
         params["overlays"][0]["map_markers"] = [
             {"tag": f"M{k:03d}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
@@ -231,30 +233,28 @@ class MapMarkersPluginTests(unittest.TestCase):
         out = self.root / "plugin-many"
         built = self.tool_run("build", "--core", many / "Synthetic.esm", "--out", out)
         self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
-        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        self.assertIn("11 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
         check = self.tool_run("check", out / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
-        recs = tri.records(out / "FO4SFMapMarkers.esm")
-        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"QUST"), [0x800, 0x801, 0x802])
+        # eleven quests reach 0x80A of this plugin, which core markers' low bits can match: read by full FormID
+        recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
+        quests = [0x02000000 | q for q in range(0x800, 0x80B)]
+        self.assertEqual(sorted(k for k, r in recs.items() if r[0] == b"QUST"), quests)
         self.assertEqual(sum(1 for r in recs.values() if r[0] == b"REFR"), 205)    # one override per marker
-        lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
-        self.assertEqual([len(x) for x in lists], [100, 100, 5])
+        lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in quests]
+        self.assertEqual([len(x) for x in lists], [20] * 10 + [5])
         ids = [f & 0xFFFFFF for x in lists for f in x]
         self.assertEqual(ids, sorted(ids))                                     # FormID order across the quests
         self.assertEqual(len(set(ids)), 205)
-        for q, cap in ((0x800, 200), (0x801, 200)):
-            vmad = tlw.field(recs[q][1], b"VMAD")
-            name = b"\x08\x00MaxMoves"
-            at = vmad.index(name) + len(name)
-            self.assertEqual(struct.unpack_from("<BBi", vmad, at), (3, 1, cap))  # int property, edited, the cap
-        self.assertNotIn(b"MaxMoves", tlw.field(recs[0x802][1], b"VMAD"))       # 5 markers: the script's 40
+        for q in quests:                                                       # 20 or fewer: the script's own 40
+            self.assertNotIn(b"MaxMoves", tlw.field(recs[q][1], b"VMAD"))
         # a plugin missing its last quest no longer matches the core
         short = self.root / "plugin-many-short"
         three = self.tool_run("build", "--core", self.core, "--out", short)
         self.assertEqual(three.returncode, 0)
         bad = self.tool_run("check", short / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
         self.assertEqual(bad.returncode, 1, bad.stdout)
-        self.assertIn("1 quest(s) for 205 marker(s): 3 wanted", bad.stdout)
+        self.assertIn("1 quest(s) for 205 marker(s): 11 wanted (20 per quest)", bad.stdout)
 
     # sha256 of the synthetic core above and of the plugin main's dotnet/MapMarkers (5ffe8ff0, before --extra) built
     # from it with no options: a build without --extra must stay those bytes (Grok on #519)
@@ -394,20 +394,20 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertIn("the core already has a record SyntheticWorldMapMarkerSanctuary", dup.stderr)
 
     def test_extra_markers_fill_the_quests_after_the_core_markers(self):
-        # 3 core markers and 205 of the plugin's own: quests of 100, 100 and 8, each with its own move budget
+        # 3 core markers and 205 of the plugin's own: ten quests of 20 and one of 8, each with its own move budget
         many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
                 for k in range(205)]
         extra = self.extra_file("extra-many", many)
         out = self.root / "plugin-extra-many"
         built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra)
         self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
-        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        self.assertIn("11 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
         check = self.tool_run("check", out / "FO4SFMapMarkers.esm", self.core, "--extra", extra)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         # the third quest is 0x802 of this plugin, the core's Location override 0x802 of the core: read by full FormID
         recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
-        lists = [self.object_list(tlw.field(recs[0x02000000 | q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
-        self.assertEqual([len(x) for x in lists], [100, 100, 8])
+        lists = [self.object_list(tlw.field(recs[0x02000000 | q][1], b"VMAD")) for q in range(0x800, 0x80B)]
+        self.assertEqual([len(x) for x in lists], [20] * 10 + [8])
         flat = [f for x in lists for f in x]
         self.assertEqual([f >> 24 for f in flat], [1] * 3 + [2] * 205)       # the core's first, then the plugin's
         self.assertEqual([f & 0xFFFFFF for f in flat[3:]], list(range(0x900, 0x900 + 205)))
@@ -597,28 +597,84 @@ class MapMarkersPluginTests(unittest.TestCase):
 
     def test_the_landing_spot_stays_in_one_quest(self):
         # the script finds the landing marker two places after the pad (FO4SF_MapMarkers.psc ShowLanding): 3 core
-        # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in a third quest, so that
-        # quest takes the other two from the one before it (100, 98, 4), and the check wants the same split
+        # markers, 195 of the plugin's own and the landing's 4 would leave 2 pieces alone in an eleventh quest, so that
+        # quest takes the other two from the one before it (20 x 9, 18, 4), and the check wants the same split
         many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
                 for k in range(195)]
         extra, landing = self.extra_file("extra-split", many), self.landing_file("landing-split", self.landing())
         out = self.root / "plugin-landing-split"
         built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--landing", landing)
         self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
-        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        self.assertIn("11 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
         check = self.tool_run("check", out / "FO4SFMapMarkers.esm", self.core, "--extra", extra, "--landing", landing)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         recs = self.records_by_form(out / "FO4SFMapMarkers.esm")
-        vmads = [tlw.field(recs[0x02000000 | q][1], b"VMAD") for q in (0x800, 0x801, 0x802)]
+        vmads = [tlw.field(recs[0x02000000 | q][1], b"VMAD") for q in range(0x800, 0x80B)]
         lists = [self.object_list(v) for v in vmads]
-        self.assertEqual([len(x) for x in lists], [100, 98, 4])
-        self.assertEqual(lists[2], [0x020008F0, 0x020008F1, 0x020008F2, 0x020008F3])     # pad, trigger, marker, heading
+        self.assertEqual([len(x) for x in lists], [20] * 9 + [18, 4])
+        self.assertEqual(lists[-1], [0x020008F0, 0x020008F1, 0x020008F2, 0x020008F3])    # pad, trigger, marker, heading
         flat = [f for x in lists for f in x]
         self.assertEqual([f & 0xFFFFFF for f in flat[3:-4]], list(range(0x900, 0x900 + 195)))   # the order kept
-        name = b"\x08\x00MaxMoves"
-        at = vmads[1].index(name) + len(name)
-        self.assertEqual(struct.unpack_from("<BBi", vmads[1], at), (3, 1, 196))      # its own count's budget
-        self.assertNotIn(b"MaxMoves", vmads[2])                                       # 4: the script's 40
+        for v in vmads:                                                               # 20 or fewer: the script's 40
+            self.assertNotIn(b"MaxMoves", v)
+
+    def test_reload_adds_the_stop_and_the_first_quests_hopmarker(self):
+        # the map lists only the markers in a world when the player enters it, and the quests move them in after
+        # (owner, 2026-10-31): --reload adds a small interior of the plugin's own, lit as PluginSpike's door test cell,
+        # whose persistent COC marker the first quest's HopMarker names; the script reloads the world through it once
+        many = [{"tag": f"M{k:06X}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+                for k in range(40)]
+        extra = self.extra_file("extra-reload", many)
+        out = self.root / "plugin-reload"
+        built = self.tool_run("build", "--core", self.core, "--out", out, "--extra", extra, "--reload")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)        # 43 markers: 20, 20, 3
+        self.assertIn("the reload's stop FO4SF_MapMarkersHop (0008F4, its marker 0008F5 the first quest's HopMarker)", built.stdout)
+        plugin = out / "FO4SFMapMarkers.esm"
+        check = self.tool_run("check", plugin, self.core, "--extra", extra, "--reload")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertIn("  reload stop ", check.stdout)
+        self.assertIn("  HopMarker: ", check.stdout)
+        recs = self.records_by_form(plugin)
+        own = 0x02000000                                                            # after Starfield.esm and the core
+        sig, cell, _ = recs[own | 0x8F4]
+        self.assertEqual(sig, b"CELL")
+        self.assertEqual(tlw.field(cell, b"EDID"), b"FO4SF_MapMarkersHop\0")
+        self.assertEqual(tlw.field(cell, b"DATA")[0] & 0x1, 0x1)                    # interior
+        self.assertEqual(struct.unpack("<I", tlw.field(cell, b"LTMP"))[0], 0x006658)  # ShipInteriorLT (Starfield.esm)
+        self.assertEqual(struct.unpack("<I", tlw.field(cell, b"XCIM"))[0], 0x122393)
+        data = plugin.read_bytes()
+        marker, floor = recs[own | 0x8F5], recs[own | 0x8F6]
+        self.assertEqual((marker[0], floor[0]), (b"REFR", b"REFR"))
+        self.assertEqual(struct.unpack("<I", tlw.field(marker[1], b"NAME"))[0], 0x000032)   # COCMarkerHeading
+        self.assertEqual(struct.unpack("<I", tlw.field(floor[1], b"NAME"))[0], 0x050776)    # the 8 x 8 m platform
+        self.assertEqual(marker[2] & 0xC00, 0x400)                                  # persistent: the property resolves
+        self.assertEqual(floor[2] & 0x400, 0)
+        vmads = [tlw.field(recs[own | q][1], b"VMAD") for q in (0x800, 0x801, 0x802)]
+        name = b"\x09\x00HopMarker"
+        at = vmads[0].index(name) + len(name)
+        self.assertEqual(struct.unpack_from("<BBHhI", vmads[0], at), (1, 1, 0, -1, own | 0x8F5))   # object, edited, direct
+        self.assertNotIn(name, vmads[1])                                            # only the first quest reloads
+        self.assertNotIn(name, vmads[2])
+        nxt = struct.unpack_from("<I", data, 24 + 4 + 2 + 8)[0]                     # HEDR next id: past --extra's
+        self.assertEqual(nxt, 0x900 + 40)
+        # the check wants the same --reload: a stop it was not asked for, or none when it was, fails
+        other = self.tool_run("check", plugin, self.core, "--extra", extra)
+        self.assertEqual(other.returncode, 1, other.stdout)
+        self.assertIn("1 cell(s) of this plugin's own without --reload", other.stdout)
+        self.assertIn("FAIL  HopMarker set without --reload", other.stdout)
+        self.assertIn("is a REFR of this plugin that --extra and --landing do not list", other.stdout)
+        plain = self.root / "plugin-reload-none"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", plain, "--extra", extra).returncode, 0)
+        none = self.tool_run("check", plain / "FO4SFMapMarkers.esm", self.core, "--extra", extra, "--reload")
+        self.assertEqual(none.returncode, 1, none.stdout)
+        self.assertIn("--reload: cells [], want only", none.stdout)
+        self.assertIn("FAIL  HopMarker is not the stop's marker", none.stdout)
+        # a plain build without --extra or --landing has its stop's ids too (next id past them)
+        bare = self.root / "plugin-reload-bare"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", bare, "--reload").returncode, 0)
+        self.assertEqual(self.tool_run("check", bare / "FO4SFMapMarkers.esm", self.core, "--reload").returncode, 0)
+        self.assertEqual(struct.unpack_from("<I", (bare / "FO4SFMapMarkers.esm").read_bytes(), 24 + 4 + 2 + 8)[0], 0x8F7)
 
     def test_build_refuses_a_bad_landing_file(self):
         spot = self.landing()
@@ -679,8 +735,8 @@ class MapMarkersPluginTests(unittest.TestCase):
 
     @staticmethod
     def records_by_form(path):
-        """{full FormID: (sig, payload)} of a plugin (tri.records keys by the low 24 bits, so an override and a record of
-        the plugin's own with the same low bits collide there)."""
+        """{full FormID: (sig, payload, flags)} of a plugin (tri.records keys by the low 24 bits, so an override and a
+        record of the plugin's own with the same low bits collide there)."""
         data, out = path.read_bytes(), {}
 
         def walk(pos, end):
@@ -692,7 +748,7 @@ class MapMarkersPluginTests(unittest.TestCase):
                     continue
                 flags, form = struct.unpack_from("<II", data, pos + 8)
                 payload = data[pos + 24:pos + 24 + size]
-                out[form] = (sig, zlib.decompress(payload[4:]) if flags & 0x40000 else payload)
+                out[form] = (sig, zlib.decompress(payload[4:]) if flags & 0x40000 else payload, flags)
                 pos += 24 + size
         walk(0, len(data))
         return out
@@ -810,7 +866,7 @@ class ScriptContractTests(unittest.TestCase):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         loop = place.index("while i < Markers.Length && moves < MaxMoves")
         self.assertLess(place.index("WorldSpace w = player.GetWorldSpace()"), loop)
-        branch = place.index("if before > SameWorld", loop)
+        branch = place.index("if off\n", loop)
         stop = place.index("if player.IsInInterior() || player.GetWorldSpace() != w", loop)
         read = place.index("px = player.GetPositionX()", loop)
         self.assertLess(branch, stop)
@@ -842,8 +898,10 @@ class ScriptContractTests(unittest.TestCase):
                                r"return\n"
                                r"endif\n"
                                r"refused\[i\] = True\n"
-                               r'Trace\("refused " \+ i \+ ": still in its own world, was at " \+ bx \+ " " \+ by \+ "[^"\n]*"\)\n'
-                               r"endif\n")
+                               r'Trace\("refused " \+ i \+ ": still in its own world after the move, at " \+ m\.GetPositionX\(\) \+ " " '
+                               r'\+ m\.GetPositionY\(\) \+ "[^"\n]*"\)\n'
+                               r"else\n"
+                               r"m\.SetPosition\(x, y, z\)\n")
         self.assertNotIn("sx * sx", place)
         self.assertLess(place.index("NewSession()"), place.index("IsInInterior"))
         session = self.text[self.text.index("Function NewSession"):self.text.index("Function ShowLanding")]
@@ -956,6 +1014,117 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(place.index("ShowLanding()"), place.index("IsInInterior"))     # wherever the player is
 
 
+    def fn(self, name, until):
+        """The script's text from Function <name> to the next given marker."""
+        start = self.text.index(name)
+        return self.text[start:self.text.index(until, start + len(name))]
+
+    def test_a_marker_in_another_world_is_moved_without_reading_where_it_stands(self):
+        # each read is a call the game answers about once a frame (a marker every 0.45 s at 100 a quest, fo4sf_map.0.log
+        # 2026-10-31): a marker in another world moves anyway, so only one in the player's world has its spot read
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        loop = place.index("while i < Markers.Length && moves < MaxMoves")
+        branch = place.index("if off\n", loop)
+        self.assertIn("bool off = before > SameWorld", place[loop:branch])
+        reads = place.index("if !off", loop)
+        self.assertEqual(place[loop:reads].count("m.GetPosition"), 0)
+        self.assertEqual(place[reads:branch].count("m.GetPosition"), 3)
+
+    def test_a_move_sets_the_spot_once_the_marker_is_in_the_players_world(self):
+        # a move onto a walking player lands off by their steps in between (z 0.4 off, then moved again: 475 moves for
+        # 313 markers, fo4sf_map.0.log 2026-10-31): SetPosition puts it on the spot, only once it is in that world
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        after = place[place.index("float d = player.GetDistance(m)"):]
+        self.assertLess(after.index("refused[i] = True"), after.index("else"))
+        self.assertLess(after.index("else"), after.index("m.SetPosition(x, y, z)"))
+        self.assertLess(after.index("m.SetPosition(x, y, z)"), after.index('Trace("moved "'))
+        self.assertEqual(place.count("SetPosition("), 1)
+        # it came into the world after the player did only when it was in another one before the move
+        self.assertRegex(after, r"if before > SameWorld\s+late = True")
+        self.assertIn('" off=" + ex + " " + ey + " " + ez', after)          # why a marker in the world moved again
+
+    def test_a_quest_with_every_marker_in_place_reads_one_a_pass(self):
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        loop = place.index("while i < Markers.Length && moves < MaxMoves")
+        self.assertLess(place.index("if settledWorld == w && Probe(player)"), loop)
+        self.assertLess(place.index("settledWorld = None"), loop)
+        self.assertRegex(place[loop:], r"if i >= Markers\.Length && moved == 0\s+settledWorld = w")
+        self.assertEqual(place.count("moved += 1"), 1)
+        probe = self.fn("bool Function Probe", "EndFunction")
+        self.assertIn("probeAt = (probeAt + 1) % n", probe)
+        self.assertIn("ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance", probe)
+        self.assertIn("if player.GetDistance(m) > SameWorld", probe)
+        # a new session or a new build reads them all again
+        for f in ("bool Function NewSession", "Function ResetBudget"):
+            self.assertIn("settledWorld = None", self.fn(f, "EndFunction"))
+        # the model: a quest of n markers reads 4 a marker until all stand, then 4 a pass
+        self.assertIn("return settledWorld == w || moves >= MaxMoves", self.fn("bool Function Ready", "EndFunction"))
+
+    def test_the_player_entering_a_world_starts_its_late_count_over(self):
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        inside = place[place.index("if player.IsInInterior()"):place.index("WorldSpace w = player.GetWorldSpace()")]
+        self.assertIn("seenWorld = None", inside)
+        self.assertIn("late = False", inside)
+        self.assertRegex(place, r"if w != seenWorld\s+seenWorld = w\s+.*\n\s+late = False\s+enteredAt = Utility\.GetCurrentRealTime\(\)")
+        self.assertLess(place.index("if w != seenWorld"), place.index("if px < MinX"))   # outside the extent too
+
+    def test_the_reload_comes_once_every_marker_is_in_and_some_came_late(self):
+        # owner, 2026-10-31: no marker showed on the map or could be discovered until a trip to Cydonia and back
+        reload = self.fn("Function Reload(Actor player, WorldSpace w)", "EndFunction")
+        self.assertIn("if HopMarker == None || hops >= HopLimit || w != ourWorld", reload.splitlines()[1])
+        self.assertIn("q = Game.GetForm(id + k) as FO4SF_MapMarkers", reload)
+        self.assertRegex(reload, r"if !q\.Ready\(w\)\s+return")
+        self.assertIn("if !anyLate || Utility.GetCurrentRealTime() - enteredAt < HopDelay", reload)
+        self.assertIn("if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled()", reload)
+        # dark first, the count before the move (a reload that fails is not tried again), the stop, then back
+        out = reload.index("player.MoveTo(HopMarker)")
+        self.assertLess(reload.index("hops += 1"), out)
+        self.assertLess(reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)"), out)
+        self.assertLess(reload.index("hopOut = True"), out)
+        self.assertLess(out, reload.index("ComeBack(player)"))
+        self.assertLess(reload.index("ComeBack(player)"), reload.index("q.Reentered(w)"))
+        # later than the new game's landing check, 3 s after its arrival (FO4SF_NewGameQuest.psc CheckLanding)
+        delay = float(re.search(r"float Property HopDelay = ([0-9.]+) Auto Const", self.text).group(1))
+        self.assertGreater(delay, 3.0 + 2 * 1.0)                         # its 1 s ticks, ours every Interval
+        self.assertEqual(int(re.search(r"int Property HopLimit = (\d+) Auto Const", self.text).group(1)), 1)
+        self.assertIn("hops = 0", self.fn("bool Function NewSession", "EndFunction"))
+        self.assertNotIn("IsInMenuMode", self.text)                     # not in Starfield's Utility.psc (PC, 19 Oct)
+
+    def test_the_way_back_lands_on_the_spot_and_never_leaves_the_screen_black(self):
+        back = self.fn("Function ComeBack(Actor player)", "\nEndFunction")
+        self.assertIn("player.MoveTo(anchor, hopX - ax, hopY - ay, hopZ - az, False, False)", back)
+        self.assertIn("float ax = LocalX[hopAnchor] + MergeOffsetX", back)
+        # once outside with the 3D in, the spot (a SetPosition in the MoveTo's own tick is ignored) and the facing
+        self.assertLess(back.index("while !player.Is3DLoaded()"), back.index("player.SetPosition(hopX, hopY, hopZ)"))
+        self.assertIn("player.SetAngle(0.0, 0.0, hopA)", back)
+        # every way out of ComeBack fades the screen back in
+        parts = back.split("return")
+        for part in parts[:-1]:
+            self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", part.split("endif")[-1] if "endif" in part else part)
+        self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", parts[-1])
+        # a player still at the stop (a move back that did not take, or a save made there) is brought back next pass
+        place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
+        self.assertRegex(place, r"if hopOut && player\.GetParentCell\(\) == HopMarker\.GetParentCell\(\)\s+ComeBack\(player\)")
+        self.assertIn("hopOut = False", place)                          # outdoors: not at the stop
+
+    def test_the_fast_travel_line_reads_the_switches_and_a_marker(self):
+        line = self.fn("Function FastTravelLine", "EndFunction")
+        for call in ("Game.IsFastTravelEnabled()", "Game.IsFastTravelControlsEnabled()", "m.IsMapMarkerVisible()",
+                     "m.CanFastTravelToMarker()"):
+            self.assertIn(call, line)
+        reload = self.fn("Function Reload(Actor player, WorldSpace w)", "EndFunction")
+        self.assertIn("if !travelLogged", reload)                       # once a session before, then after each reload
+        self.assertIn('FastTravelLine("after reload " + hops)', reload)
+
+    def test_the_writer_and_the_script_agree_on_the_reload(self):
+        program = PROGRAM.read_text(encoding="utf-8")
+        self.assertIn('Name = "HopMarker"', program)
+        self.assertIn("ObjectReference Property HopMarker Auto Const", self.text)
+        self.assertIn(re.search(r'const string HopCell = "(\w+)"', program).group(1), self.text)
+        per_quest = int(re.search(r"const int PerQuest = (\d+)", program).group(1))
+        self.assertLessEqual(per_quest, 20)                             # the quests run side by side
+        self.assertEqual(int(re.search(r"int Property MaxMoves = (\d+) Auto Const", self.text).group(1)), 2 * per_quest)
+
 
 class StageTests(unittest.TestCase):
     def test_stage_builds_compiles_and_checks_against_the_core(self):
@@ -1010,17 +1179,48 @@ class StageTests(unittest.TestCase):
                 mm.main(["stage", "--core", core, "--out", os.path.join(d, "s5"), "--star-map", "Concord", "--star-map-all"])
         build, comp, check, build2, comp2, check2, build3, _comp3, check3, build4, _comp4, check4 = calls
         star = os.path.join(out, "star_map.json")
-        self.assertEqual(build[0][-9:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm", "--star-map", star])
+        self.assertEqual(build[0][-10:], ["build", "--core", core, "--out", out, "--plugin", "FO4SFMapMarkers.esm", "--reload",
+                                          "--star-map", star])
         self.assertEqual(comp[0][1], "FO4SF_MapMarkers.psc")
-        self.assertEqual(check[0][-5:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--star-map", star])
+        self.assertEqual(check[0][-6:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--reload", "--star-map", star])
         star = os.path.join(city, "star_map.json")
-        self.assertEqual(build2[0][-11:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city",
-                                           "--star-map", star])
-        self.assertEqual(check2[0][-7:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city", "--star-map", star])
+        self.assertEqual(build2[0][-12:], ["build", "--core", core, "--out", city, "--plugin", "FO4SFMapMarkers.esm", "--world", "city",
+                                           "--reload", "--star-map", star])
+        self.assertEqual(check2[0][-8:], ["check", os.path.join(city, "FO4SFMapMarkers.esm"), core, "--world", "city", "--reload",
+                                          "--star-map", star])
         self.assertEqual(build3[0][-2:], ["--star-map", os.path.join(named, "star_map.json")])
         self.assertEqual(check3[0][-2:], ["--star-map", os.path.join(named, "star_map.json")])
-        self.assertEqual(build4[0][-7:], ["build", "--core", core, "--out", every, "--plugin", "FO4SFMapMarkers.esm"])
-        self.assertEqual(check4[0][-3:], ["check", os.path.join(every, "FO4SFMapMarkers.esm"), core])
+        self.assertEqual(build4[0][-8:], ["build", "--core", core, "--out", every, "--plugin", "FO4SFMapMarkers.esm", "--reload"])
+        self.assertEqual(check4[0][-4:], ["check", os.path.join(every, "FO4SFMapMarkers.esm"), core, "--reload"])
+
+    def test_stage_adds_the_reload_stop_unless_told_not_to(self):
+        sys.path.insert(0, str(ROOT / "scripts" / "mapmarkers"))
+        import make_map_markers as mm
+        calls = []
+
+        def fake_run(cmd, cwd=None):
+            calls.append(cmd)
+            if cmd[0].endswith("PapyrusCompiler.exe"):
+                open(os.path.join(cmd[-1][3:], "FO4SF_MapMarkers.pex"), "wb").close()
+                return "Compilation succeeded."
+            return "ok\n"
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(mm.make_bridge, "run", fake_run), \
+                mock.patch.object(mm.make_bridge, "extract_sources", lambda z, w: w):
+            core = os.path.join(d, "FO4TerrainCore.esm")
+            with open(core, "wb") as f:
+                f.write(b"core bytes")
+            readmes = {}
+            for name, opts in (("with", []), ("without", ["--no-reload"])):
+                out = os.path.join(d, name)
+                mm.main(["stage", "--core", core, "--out", out, "--compiler", "PapyrusCompiler.exe", "--star-map-all"] + opts)
+                with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
+                    readmes[name] = f.read()
+        build, _comp, check, build2, _comp2, check2 = calls
+        self.assertEqual((build[-1], check[-1]), ("--reload", "--reload"))       # build and check take the same stop
+        self.assertNotIn("--reload", build2 + check2)
+        self.assertIn("Plus the reload's stop FO4SF_MapMarkersHop", readmes["with"])
+        self.assertNotIn("reload's stop", readmes["without"])
 
     def test_stage_adds_fo4_markers_from_the_core_stage(self):
         # --fo4-map-markers with --core-stage: the core's own stage folder gives the bounds, the fixed markers and the
@@ -1092,8 +1292,9 @@ class StageTests(unittest.TestCase):
             path = os.path.join(out, "extra_markers.json")
             build, _comp, check = calls
             star = os.path.join(out, "star_map.json")
-            self.assertEqual(build[-4:], ["--extra", path, "--star-map", star])
-            self.assertEqual(check[-7:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--extra", path, "--star-map", star])
+            self.assertEqual(build[-5:], ["--extra", path, "--reload", "--star-map", star])
+            self.assertEqual(check[-8:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--extra", path, "--reload",
+                                          "--star-map", star])
             with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
                 self.assertIn("Plus 1 markers of its own (extra_markers.json", f.read())
             # refusals: half the pair; a core stage holding another core build; a core already built with the markers
@@ -1163,8 +1364,9 @@ class StageTests(unittest.TestCase):
             self.assertEqual(spot["name"], "Commonwealth Landing Area")
             build, _comp, check = calls
             star = os.path.join(out, "star_map.json")
-            self.assertEqual(build[-4:], ["--landing", path, "--star-map", star])
-            self.assertEqual(check[-7:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--landing", path, "--star-map", star])
+            self.assertEqual(build[-5:], ["--landing", path, "--reload", "--star-map", star])
+            self.assertEqual(check[-8:], ["check", os.path.join(out, "FO4SFMapMarkers.esm"), core, "--landing", path, "--reload",
+                                          "--star-map", star])
             with open(os.path.join(out, "README.txt"), encoding="utf-8") as f:
                 self.assertIn('Plus a ship landing spot "Commonwealth Landing Area" (landing.json): a pad at getpos -1959.0 -493.0', f.read())
             mm.main(["stage", "--core", core, "--out", os.path.join(d, "lift"), "--compiler", "PapyrusCompiler.exe",

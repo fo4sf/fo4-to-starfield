@@ -2689,3 +2689,21 @@ Vault 111, Concord, Lexington, The Castle, Vault 81, Bunker Hill) and on the
 landing marker; every marker stays on the surface map. xEdit's SF1
 definitions name `TNAM` 0x17 "NASA", not a plain diamond. Offline only;
 the planet view list and fast travel from it wait on a play test.
+
+## 2026-10-31: Map markers: a reload once every marker is in
+
+The owner's new game v10 run: Mars's map icons were fine, but no Commonwealth
+marker showed on the map or could be discovered on the way past until a
+trip to Cydonia and back. The map log shows the markers came in after the
+player did: out of the elevator at rt 179 s, the first move at 186 s, the
+last first move at 233 s (four quests of 100, a marker every 0.45 s each),
+and 475 moves for 313 markers, because a move onto a walking player lands
+off by their steps. A log from 24 Oct shows the world keeps the markers
+through such a trip (same instance id, nothing moved again). Offline fix,
+waiting on a play test: quests of 20 instead of 100, fewer reads a marker,
+a SetPosition after each move, and with `--reload` (the stage's default) a
+small interior of the plugin's own: once every marker is in place and some
+came after the player, the first quest takes the player there and back to
+the same spot behind a black screen, once a session, so the world loads
+again with the markers in it. New log lines say whether fast travel is on
+and whether the world stayed the same through the reload.

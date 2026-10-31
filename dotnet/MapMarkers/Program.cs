@@ -7,8 +7,10 @@
 //          of Starfield.esm) in FormID order, LocalX / LocalY / LocalZ -> their written positions, and MaxMoves ->
 //          twice its marker count when that is above the script's default 40
 //   0x801  FO4SF_MapMarkersQuest2, ... the next PerQuest markers, the same way. Papyrus arrays hold at most 128
-//          entries when made in script; whether a plugin-filled property may hold more is unverified, so no quest
-//          gets more than 100.
+//          entries when made in script; whether a plugin-filled property may hold more is unverified. Each quest
+//          places its markers one at a time, a marker every 0.45 s at 100 a quest (45 s for the first placement on the
+//          PC, fo4sf_map.0.log 2026-10-31; inferred: the game answers about one of the script's calls a frame), and
+//          the quests run side by side, so 20 a quest.
 //   and an override of every one of those REFRs (the owner's play test of 2026-10-22, docs/terrain/map-markers.md
 //   "Overrides"): the map-marker flags without UseLocationName (the core copies LC172's 0x1B, and the map then
 //   printed the cell's location name instead of the marker's), and the position lifted by ZLift metres (the Concord
@@ -45,11 +47,18 @@
 // "Star map"), lists only those and the landing marker (0x33 keeps it); the surface map keeps every marker. The owner's
 // pick A, 2026-10-28. strict: a name that matches no marker fails the build; otherwise the build prints it and goes on.
 // check takes the same --star-map. Without it the flags stay the core's (0x13: on the star map), as before.
+// --reload adds the reload's stop (FO4SF_MapMarkers.psc HopMarker): the map lists only the markers that are in a world
+// when the player enters it, and the quests move them in after (owner, 2026-10-31: none showed, or could be discovered,
+// until a trip to Cydonia and back), so the first quest takes the player to this plugin's own interior and back once.
+// At 0x8F4 the interior CELL FO4SF_MapMarkersHop, lit as dotnet/PluginSpike's door test cell (in game, 2026-10-08:
+// lighting template 006658, image space 122393, the black cube map), holding that cell's 8 x 8 m platform 050776 at 0x8F6
+// and at 0x8F5 a persistent COCMarkerHeading (000032) on it, which the first quest's HopMarker names. check takes the
+// same --reload.
 // The quest's VMAD shape is dotnet/Bridge's (vanilla Starfield quests: version 6, object format 2, extra-bind-data
 // version 3, an empty fragment script entry, object properties with alias -1; record version 581 / 12).
 //
-// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]
-//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]   reads both back (exit 1 on a mismatch)
+// usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] [--reload]
+//        MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] [--reload]   reads both back (exit 1 on a mismatch)
 // --extra: {"markers": [{"tag", "name", "pos": [x, y, z], "cell": [x, y]}, ...]} (fo4sf.map_markers.overlay_markers
 // entries: local metres, z the ground before the lift), written by make_map_markers.py stage --fo4-map-markers.
 // --landing: {"landing": {"tag", "name", "pad" | "trigger" | "marker" | "heading": {"pos": [x, y, z], "rot": [x, y, z],
@@ -66,6 +75,10 @@ using Noggog;
 
 const uint QuestId = 0x800, MapMarkerStat = 0x10, ExtraId = 0x900, MapMarkerRefType = 0x2271F;
 const uint LandingId = 0x8F0;           // pad, trigger, marker, heading: 0x8F0..0x8F3, so the quests end below 0x8F0
+const uint HopId = 0x8F4;               // --reload: the stop's CELL, its marker (0x8F5) and its floor (0x8F6)
+// Starfield.esm 1.16.244, dotnet/PluginSpike's door test cell (in game, 2026-10-08)
+const uint HopFloor = 0x050776, CocMarkerHeading = 0x32, HopLighting = 0x006658, HopImageSpace = 0x122393;
+const string HopCell = "FO4SF_MapMarkersHop";
 // Starfield.esm 1.16.244, LandingOverlay01 (docs/terrain/map-markers.md "Landing overlay")
 const uint LandingPad = 0x7145, LandingTrigger = 0x267F4C, XMarkerHeading = 0x34;
 const uint LandingZoneTriggerKeyword = 0x267F4D, LinkShipLandingOverlayMapMarker = 0x3A866F;
@@ -74,7 +87,7 @@ const PlacedObjectMapMarker.Flag LandingMarkerFlags = (PlacedObjectMapMarker.Fla
 const PlacedObjectMapMarker.Flag VisibleOnStarMap = (PlacedObjectMapMarker.Flag)0x10;
 const sbyte LandingMarkerType = 45;
 const float LandingMarkerRadius = 100;
-const int PerQuest = 100, DefaultMaxMoves = 40;
+const int PerQuest = 20, DefaultMaxMoves = 40;
 const float DefaultZLift = 2.5f;        // metres above the core's sampled terrain height (local units are metres)
 const float ZLiftStep = 0.1f;           // lifts come in steps of 0.1 m: the mover's ZTolerance (0.05 m, half a step) then tells
                                         // a marker a save holds at an earlier build's height from one that landed (Codex on #483)
@@ -83,8 +96,8 @@ var sfKey = ModKey.FromFileName("Starfield.esm");
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] | " +
-                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>]");
+    Console.Error.WriteLine("usage: MapMarkers build --core <FO4TerrainCore.esm> --out <dir> [--plugin FO4SFMapMarkers.esm] [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] [--reload] | " +
+                            "MapMarkers check <plugin> <FO4TerrainCore.esm> [--z-lift <m>] [--world control|nosmall|city] [--extra <json>] [--landing <json>] [--star-map <json>] [--reload]");
     return 2;
 }
 if (args.Length == 0) return Usage();
@@ -102,6 +115,7 @@ if (Math.Abs(zLift / ZLiftStep - Math.Round(zLift / ZLiftStep)) > 1e-3)
     return 2;
 }
 var world = Arg("--world", "control");
+var reload = args.Contains("--reload");
 if (world is not ("control" or "nosmall" or "city"))
 {
     Console.Error.WriteLine($"--world {world}: want control (the core's world record), nosmall or city (dotnet/BorderProbe's variants of it)");
@@ -297,6 +311,12 @@ if (args[0] == "build")
         }
         if (MaxMovesFor(part.Length) is int cap)                     // every marker may need a move, plus retries
             script.Properties.Add(new ScriptIntProperty { Name = "MaxMoves", Flags = ScriptProperty.Flag.Edited, Data = cap });
+        if (reload && k == 0)                                        // the first quest does the reload
+            script.Properties.Add(new ScriptObjectProperty
+            {
+                Name = "HopMarker", Flags = ScriptProperty.Flag.Edited,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(new FormKey(modKey, HopId + 1)), Alias = -1, Unused = 0,
+            });
         var vmad = new QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
@@ -307,8 +327,17 @@ if (args[0] == "build")
         mod.Quests.Add(quest);
     }
 
+    if (reload)
+    {
+        var cell = HopRecord(modKey);
+        var block = new CellBlock { BlockNumber = (int)(HopId % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
+        var sub = new CellSubBlock { BlockNumber = (int)((HopId / 10) % 10), GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(cell);
+        block.SubBlocks.Add(sub);
+        mod.Cells.Records.Add(block);
+    }
     mod.ModHeader.Stats.NextFormID = extras.Count > 0 ? ExtraId + (uint)extras.Count
-        : landing != null ? LandingId + 4 : QuestId + (uint)chunks.Count;
+        : reload ? HopId + 3 : landing != null ? LandingId + 4 : QuestId + (uint)chunks.Count;
     Directory.CreateDirectory(outDir);
     var path = Path.Combine(outDir, plugin);
     mod.BeginWrite.ToPath(path).WithLoadOrder(sfKey, core.ModKey)
@@ -318,6 +347,7 @@ if (args[0] == "build")
                       $"{markers.Count} marker(s) overridden (own name shown, lifted {F(zLift)} m), {extras.Count} of its own (--extra), " +
                       (landing != null ? $"a landing spot (--landing {landing.Tag}), " : "") +
                       (starMap != null ? $"{starMap.Names.Count} name(s) on the star map (--star-map), " : "") +
+                      (reload ? $"the reload's stop {HopCell} ({HopId:X6}, its marker {HopId + 1:X6} the first quest's HopMarker), " : "") +
                       $"world copy --world {world} ({WorldDescribed(world)}):");
     foreach (var w in mod.Worldspaces)
         Console.WriteLine($"  worldspace {w.FormKey} {w.EditorID}: flags {w.Flags?.ToString() ?? "-"}, HNAM [{string.Join(", ", w.HNAM?.ToArray() ?? Array.Empty<byte>())}]");
@@ -377,7 +407,10 @@ if (args[0] == "check" && args.Length >= 3)
         problems.Add($"{extra} is overridden but is not a core map marker");
     // the plugin's own markers: exactly --extra's, in order from ExtraId, each as the overrides are, in the WRLD
     // copy's persistent cell, at its local spot lifted zLift
-    var own = mod.EnumerateMajorRecords<IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == mod.ModKey).ToDictionary(r => r.FormKey);
+    // the reload's stop (--reload) holds two REFRs of this plugin's own in its interior, checked with the cell below
+    var hopRefs = reload ? new HashSet<FormKey> { new FormKey(mod.ModKey, HopId + 1), new FormKey(mod.ModKey, HopId + 2) } : new HashSet<FormKey>();
+    var own = mod.EnumerateMajorRecords<IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == mod.ModKey && !hopRefs.Contains(r.FormKey))
+        .ToDictionary(r => r.FormKey);
     var ownWorld = mod.Worldspaces.FirstOrDefault();
     var persistentKeys = ownWorld?.TopCell?.Persistent.Select(r => r.FormKey).ToHashSet() ?? new HashSet<FormKey>();
     var wantKeys = want.Select(m => m.FormKey).ToList();
@@ -435,6 +468,28 @@ if (args[0] == "check" && args.Length >= 3)
                     problems.Add($"{r.FormKey} {r.EditorID} is not the record --landing builds (another --landing, or a core rebuilt since the stage: stage again)");
                 if (!persistentKeys.Contains(exp.FormKey)) problems.Add($"{exp.FormKey} is not in the world's persistent cell");
             }
+    }
+    // the reload's stop: with --reload exactly the cell (and its two references) the build writes, without it no cell of
+    // this plugin's own (the WRLD copy's persistent cell is the core's)
+    var ownCells = mod.EnumerateMajorRecords<ICellGetter>().Where(c => c.FormKey.ModKey == mod.ModKey).ToList();
+    if (!reload)
+    {
+        if (ownCells.Count > 0) problems.Add($"{ownCells.Count} cell(s) of this plugin's own without --reload: {string.Join(", ", ownCells.Select(c => $"{c.FormKey} {c.EditorID}"))}");
+    }
+    else if (ownCells.Count != 1 || ownCells[0].FormKey != new FormKey(mod.ModKey, HopId))
+        problems.Add($"--reload: cells [{string.Join(", ", ownCells.Select(c => $"{c.FormKey} {c.EditorID}"))}], want only {new FormKey(mod.ModKey, HopId)} {HopCell}");
+    else
+    {
+        var hop = ownCells[0];
+        var hmask = new Cell.TranslationMask(defaultOn: true)
+        {
+            Timestamp = false, UnknownGroupData = false, PersistentTimestamp = false, PersistentUnknownGroupData = false,
+            TemporaryTimestamp = false, TemporaryUnknownGroupData = false,
+        };
+        Console.WriteLine($"  reload stop {hop.FormKey} {hop.EditorID}: flags {hop.Flags}, {hop.Persistent.Count} persistent / {hop.Temporary.Count} temporary reference(s): " +
+                          string.Join(", ", hop.Persistent.Concat(hop.Temporary).OfType<IPlacedObjectGetter>().Select(r => $"{r.FormKey} base {r.Base.FormKey} flags {r.MajorRecordFlagsRaw:X}")));
+        if (!HopRecord(mod.ModKey).DeepCopy(hmask).Equals(hop.DeepCopy(hmask)))
+            problems.Add($"{hop.FormKey} {hop.EditorID} is not the stop --reload builds");
     }
     foreach (var k in own.Keys.Where(k => !expect.ContainsKey(k)).OrderBy(k => k.ID))
         problems.Add($"{k} {own[k].EditorID} is a REFR of this plugin that --extra and --landing do not list");
@@ -540,6 +595,16 @@ if (args[0] == "check" && args.Length >= 3)
         var cap = s.Properties.OfType<IScriptIntPropertyGetter>().FirstOrDefault(p => p.Name == "MaxMoves")?.Data;
         if (cap != MaxMovesFor(part.Length))
             problems.Add($"{tag}MaxMoves {(cap?.ToString() ?? "default")} != {(MaxMovesFor(part.Length)?.ToString() ?? "default")}");
+        // the reload's stop: on the first quest with --reload, nowhere else
+        var hops = s.Properties.Where(p => p.Name == "HopMarker").ToList();
+        var wantHop = reload && k == 0;
+        if (hops.Count > 0 || wantHop)
+            Console.WriteLine($"  {tag}HopMarker: {(hops.Count == 0 ? "missing" : string.Join(", ", hops.OfType<IScriptObjectPropertyGetter>().Select(p => $"{p.Object.FormKey} alias {p.Alias}")))}");
+        if (!wantHop && hops.Count > 0)
+            problems.Add($"{tag}HopMarker set{(reload ? " (only the first quest does the reload)" : " without --reload")}");
+        else if (wantHop && (hops.Count != 1 || hops[0] is not IScriptObjectPropertyGetter hp
+                             || hp.Object.FormKey != new FormKey(mod.ModKey, HopId + 1) || hp.Alias != -1 || hp.Unused != 0))
+            problems.Add($"{tag}HopMarker is not the stop's marker {new FormKey(mod.ModKey, HopId + 1)} (a direct reference)");
     }
     foreach (var p in problems) Console.WriteLine("FAIL  " + p);
     Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -650,6 +715,31 @@ static List<PlacedObject> LandingRecords(IPlacedObjectGetter template, ModKey mo
     marker.MapMarker.Name = l.Name;
     var heading = Placed(3, "LandingHeading", XMarkerHeading, l.Heading);
     return new List<PlacedObject> { pad, trigger, marker, heading };
+}
+// --reload's stop: an interior lit as dotnet/PluginSpike's door test cell, its platform, and the persistent marker the
+// first quest's HopMarker names (persistent, so the property resolves while the cell is not loaded)
+static Cell HopRecord(ModKey mod)
+{
+    var sf = ModKey.FromFileName("Starfield.esm");
+    var cell = new Cell(new FormKey(mod, HopId), StarfieldRelease.Starfield) { EditorID = HopCell, Flags = Cell.Flag.IsInteriorCell };
+    cell.LightingTemplate.SetTo(new FormKey(sf, HopLighting));
+    cell.ImageSpace.SetTo(new FormKey(sf, HopImageSpace));
+    cell.EnvironmentMap = "Data\\Textures\\cubemaps\\blackcube.dds";
+    // the door test cell's spots: the platform at (-2, 0, 0) (x -2..6, top z 0), the COC marker 1.5 m in, facing +Y
+    var marker = new PlacedObject(new FormKey(mod, HopId + 1), StarfieldRelease.Starfield)
+    {
+        EditorID = HopCell + "Marker", Position = new P3Float(-1.5f, 0, 0.1f), Rotation = new P3Float(0, 0, (float)(Math.PI / 2)),
+        MajorRecordFlagsRaw = 0x400,
+    };
+    marker.Base.SetTo(new FormKey(sf, CocMarkerHeading));
+    var floor = new PlacedObject(new FormKey(mod, HopId + 2), StarfieldRelease.Starfield)
+    {
+        Position = new P3Float(-2, 0, 0), Rotation = new P3Float(0, 0, 0),
+    };
+    floor.Base.SetTo(new FormKey(sf, HopFloor));
+    cell.Persistent.Add(marker);
+    cell.Temporary.Add(floor);
+    return cell;
 }
 static (FormKey, FormKey, FormKey, P2Int16, int) RowKey(ILocationCellStaticReferenceGetter r) =>
     (r.LocationRefType.FormKey, r.Marker.FormKey, r.Location.FormKey, r.Grid, r.Unknown);
