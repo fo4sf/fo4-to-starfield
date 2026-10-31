@@ -65,6 +65,8 @@ RIDES_ON = {"markers": "experiment", "combined_probe": "experiment", "quest_prob
 EXP_KIT = ("experiment", "planet_probe")
 BRIDGE_KIT = ("quest_probe", "combined_probe", "markers", "bridge")
 WATCHED_EXT = (".esm", ".esp", ".esl", ".ba2", ".json")
+TOGGLE = "FO4SF.toggle.json"      # plugin_toggle.py's hold (exp_install.held_off): while it holds a plugin, installs
+                                  # and uninstalls refuse, and only `plugin_toggle.py on` may tick its lines again
 
 
 class RestoreRefused(RuntimeError):
@@ -103,6 +105,28 @@ def _read(path):
         return f.read()
 
 
+def held_off(data):
+    """The plugins plugin_toggle.py holds off in this Data folder (sorted), [] for none, or "unreadable" for a record
+    whose off list cannot be read (exp_install.held_off refuses that too)."""
+    b = _read(os.path.join(data, TOGGLE))
+    if b is None:
+        return []
+    try:
+        rec = json.loads(b.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        return "unreadable"
+    off = rec.get("off") if isinstance(rec, dict) else None
+    if not isinstance(off, list) or not all(isinstance(x, str) and x for x in off):
+        return "unreadable"
+    return sorted(off, key=str.casefold)
+
+
+def _released(a, b):
+    """{TOGGLE} when neither snapshot holds a plugin: `plugin_toggle.py on` empties its record but leaves the file, and
+    an empty record and none hold the same nothing. A snapshot without the key (older) is not known to hold nothing."""
+    return {TOGGLE.casefold()} if a.get("held") == [] and b.get("held") == [] else set()
+
+
 def take(starfield, plugins_txt=None, watch=()):
     """The snapshot dict of a Starfield install (read only)."""
     data = os.path.join(os.path.abspath(starfield), "Data")
@@ -131,7 +155,8 @@ def take(starfield, plugins_txt=None, watch=()):
     return {"schema": SCHEMA, "starfield": os.path.abspath(starfield), "plugins_txt": os.path.abspath(pt),
             "plugins_txt_b64": None if raw is None else base64.b64encode(raw).decode("ascii"),
             "plugins_txt_sha256": None if raw is None else hashlib.sha256(raw).hexdigest(),
-            "data_top": top, "records": records, "owned_live": owned_live, "watched": watched}
+            "data_top": top, "records": records, "owned_live": owned_live, "watched": watched,
+            "held": held_off(data)}
 
 
 def owned_expected(comp, rec):
@@ -363,9 +388,18 @@ def plan(target, current, repo, port_staging=None):
                                            "now": [l for l in foreign_c if l not in foreign_t]}))
         else:
             pt = "restore"
+    # a hold (the launcher's bridge=off, a crash split): the experiment, planet probe, quest probe, markers and bridge
+    # installers refuse to uninstall or install under it (the port's and the combined probe's do not check), so apply
+    # would stop at the first such step, after any step before it ran; and a Plugins.txt written back could tick a
+    # held plugin, which only `plugin_toggle.py on` may do
+    held = current.get("held")
+    if held and (steps or pt == "restore"):
+        conflicts.append(f"plugin_toggle.py holds {', '.join(held) if isinstance(held, list) else 'plugins'} off "
+                         f"(Data/{TOGGLE}{', unreadable' if held == 'unreadable' else ''}): run plugin_toggle.py on "
+                         "first, then restore")
     # Data files that appeared and nobody owns, or vanished
     tt, ct = target["data_top"], current["data_top"]
-    mine = owned_files(target, current)
+    mine = owned_files(target, current) | _released(target, current)
     for n in sorted(set(ct) - set(tt)):
         if n.casefold() not in mine:
             notes.append(f"Data/{n}: not in the snapshot and no installer owns it; left alone")
@@ -409,7 +443,7 @@ def verify(target, after):
             if x.get(rel) != y.get(rel):
                 diffs.append(f"{comp}: Data/{rel} differs from the snapshot")
     tt, at = target["data_top"], after["data_top"]
-    mine = owned_files(target, after)            # installer-owned files are compared through their records above
+    mine = owned_files(target, after) | _released(target, after)   # installer-owned files: through their records
     for n in sorted(set(tt) | set(at)):
         if n.casefold() in mine:
             continue

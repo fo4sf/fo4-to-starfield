@@ -60,7 +60,10 @@ swap scripts' order (bridge off, markers off, the probes off, experiment off, po
 that is gone is a conflict (the `--port-staging` folder too). The markers and the combined probe ride on the experiment and the quest probe on the port
 (`restore.RIDES_ON`: their installers pin that build), so when the base changes they come off first and go back on
 after it, even with their own record unchanged; a snapshot that keeps a rider while restore would uninstall its base
-is refused before anything runs (its installer would refuse to put it back once the base is gone). It restores Plugins.txt bytes only when every differing line names a plugin an
+is refused before anything runs (its installer would refuse to put it back once the base is gone). So is any change
+while `plugin_toggle.py` holds a plugin off (the launcher's bridge=off, a crash split; the snapshot keeps the hold as
+`held`): the installers refuse under a hold, and only `plugin_toggle.py on` may tick a held line again. The hold
+record that `on` leaves empty is not counted as a difference. It restores Plugins.txt bytes only when every differing line names a plugin an
 installer owns. It never deletes a file itself, leaves unowned new files alone (reported), refuses while
 Starfield.exe runs, refuses on any conflict before changing anything (an owner's Plugins.txt edit, a vanished
 unowned file, a port record with no staging folder unless `--port-staging`), and checks the result against the
