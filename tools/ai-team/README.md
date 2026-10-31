@@ -120,12 +120,19 @@ no local model loaded: for hard work, or when the PC's RAM is full. Set up once,
 
 `opencode.json` lets OpenCode offer only the local proxy and Anthropic (`enabled_providers`), and of Anthropic's models
 only those two (`whitelist`), with their windows cut to 200K (Sonnet) and 100K (Haiku, its lower price band) so a long
-session costs less per request; config.json "cloud" names them. `.opencode/plugin/fo4-cloud-cap.js` refuses a Claude
-request outside this terminal (`FO4SF_OWNER_PRESENT`; the unattended Lead never) and once this month's spend (UTC) has
-reached config.json's `cloud.monthly_cap_usd` (50). It adds up the cost OpenCode works out for each of its messages,
-in `cloud-spend.json` in the team's state folder, which every OpenCode window shares. The Console's limit covers what
-that tally misses (the short title OpenCode writes for a session, and a request that was already running). In the
-local terminal, OpenCode's `/models` can switch the Lead's session to Claude too, under the same cap.
+session costs less per request, and their prices per million tokens (Sonnet $2 in, $10 out; Haiku $0.10 and $0.50;
+OpenCode 1.18.35's own list has no Haiku 5.5, and a model without a price would count $0); config.json "cloud" names
+them. `.opencode/plugin/fo4-cloud-cap.js` refuses a Claude request outside this terminal (`FO4SF_OWNER_PRESENT`; the
+unattended Lead never), for a model with no price, and once this month's spend (UTC) has reached config.json's
+`cloud.monthly_cap_usd` (50). It adds up the cost OpenCode works out for each of its messages, in `cloud-spend.json` in
+the team's state folder (`%LOCALAPPDATA%\fo4-ai-team\state`), which every OpenCode window shares. The tally counts
+less than the bill: the short title OpenCode writes for a session, a request stopped with Esc or failed mid-stream,
+an update lost when two windows finish a step at the same instant, a step whose tally write failed (that window then
+refuses Claude until it is reopened), and `opencode agent create`. Requests already running when the cap is reached
+finish, and a Lead turn with three subagents can run many at once. The Console's limit is the hard cap behind it, so
+set it before the first use. After the first Sonnet and the first Haiku message, `cloud-spend.json` should show
+`usd` above 0. In the local terminal, OpenCode's `/models` can switch the Lead's session to Claude too, under the same
+cap.
 
 Local inference is **blocked while Starfield runs** (the GPU is needed for game tests). Close the game first.
 

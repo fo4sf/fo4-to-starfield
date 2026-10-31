@@ -138,7 +138,9 @@ class ModelPickTests(TempState):
             f.write(json.dumps({"agents": {}, "models": {}}))
         os.utime(conf, ns=(stamp[0], stamp[0]))
         self.assertEqual(proxy._agent_and_model("fo4-qa"), ("fo4-qa", "small"))
-        for bad in ('{"agents": {"fo4-lead": "big"', "[1, 2]"):  # mid-write, or not an object: the last good copy
+        for bad in ('{"agents": {"fo4-lead": "big"', "[1, 2]", '{"agents": {}, "models": null}',
+                    '{"agents": {}, "models": [1]}', '{"agents": null, "models": {}}', '{"agents": [], "models": {}}'):
+            # mid-write, not an object, or a map that is not one: the last good copy
             write(bad)
             self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "small"), bad)
         os.remove(conf)
@@ -178,6 +180,12 @@ class ModelPickTests(TempState):
         proxy.CFG = proxy.load_cfg()
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
 
+    def test_the_3_bit_trial_is_the_measured_setup(self):
+        # measured on the PC at 64K with an f16 cache (31 Oct); 128K was dropped for RAM (30 Oct)
+        self.assertEqual({k: v for k, v in models.read_config()["models"]["qwen3.6-35b-q3"].items() if k != "note"},
+                         {"model": "qwen3.6-35b-a3b-q3", "key": "unsloth/qwen3.6-35b-a3b", "context": 65536,
+                          "output": 32000, "kv": "f16", "gpu": None})
+
     def test_cloud_puts_every_agent_on_a_claude_model(self):
         cfg = models.read_config()
         oc = models.cloud_config("claude-sonnet", cfg)
@@ -205,6 +213,12 @@ class ModelPickTests(TempState):
             self.assertLessEqual(entry["limit"]["context"], 200000, m)
             self.assertEqual(entry["limit"]["output"], 32000, m)
         self.assertNotIn("options", oc["provider"]["anthropic"])      # no key here: the owner's opencode auth login
+        # each model's price per million tokens, here and not from OpenCode's list (1.18.35's has no Haiku 5.5, and an
+        # unpriced model costs $0, which the cap would never see)
+        prices = {m: e["cost"] for m, e in oc["provider"]["anthropic"]["models"].items()}
+        self.assertEqual(prices, {
+            "claude-sonnet-5-5": {"input": 2, "output": 10, "cache_read": 0.2, "cache_write": 2.5},
+            "claude-haiku-5-5": {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}})
         self.assertEqual(cfg["cloud"]["monthly_cap_usd"], 50)
 
     def test_a_load_waits_for_running_requests(self):
@@ -316,6 +330,18 @@ class LoadModelSdkTests(unittest.TestCase):
         # a model LM Studio lists under a publisher key loads under the short id the team's requests name
         self.assertEqual(load_model.load("qwen3.6-35b-a3b-q3", cfg, key="unsloth/qwen3.6-35b-a3b"), "qwen3.6-35b-a3b-q3")
         self.assertEqual(loads[1], ("unsloth/qwen3.6-35b-a3b", "qwen3.6-35b-a3b-q3", cfg))
+        # by hand: the key defaults to the preset's for that id (second review of #622)
+        saved_argv = sys.argv
+        self.addCleanup(setattr, sys, "argv", saved_argv)
+        for argv, key in ((["--model", "qwen3.6-35b-a3b-q3"], "unsloth/qwen3.6-35b-a3b"),
+                          ([], "lmstudio-community/qwen3.6-35b-a3b"), (["--model", "qwen3-14b"], "qwen3-14b"),
+                          (["--model", "qwen3-14b", "--key", "lmstudio-community/qwen3-14b"],
+                           "lmstudio-community/qwen3-14b")):
+            sys.argv = ["load_model.py", *argv]
+            with contextlib.redirect_stdout(io.StringIO()):
+                load_model.main()
+            self.assertEqual(loads[-1][0], key, argv)
+        self.assertIsNone(load_model.preset_key("qwen3.6-35b-a3b", config=os.path.join(ROOT, "no-such.json")))
 
 
 def admission(c, snapshot=lambda *_: {}):
@@ -992,7 +1018,8 @@ class CloudCapPluginTests(unittest.TestCase):
     HARNESS = r"""
 import { readFileSync } from "node:fs";
 const [url, root, stepsFile] = process.argv.slice(2);
-const hooks = await (await import(url)).default({ worktree: root, directory: root });
+// OpenCode's directory is where the session started, its worktree the repository's root
+const hooks = await (await import(url)).default({ worktree: root, directory: root + "/tools" });
 const out = [];
 for (const [kind, arg] of JSON.parse(readFileSync(stepsFile, "utf8"))) {
   if (kind === "event") { await hooks.event({ event: arg }); continue; }
@@ -1003,7 +1030,8 @@ for (const [kind, arg] of JSON.parse(readFileSync(stepsFile, "utf8"))) {
 }
 console.log(JSON.stringify(out));
 """
-    CLAUDE = {"id": "claude-sonnet-5-5", "providerID": "anthropic"}
+    CLAUDE = {"id": "claude-sonnet-5-5", "providerID": "anthropic",       # as OpenCode prices it from opencode.json
+              "cost": {"input": 2, "output": 10, "cache": {"read": 0.2, "write": 2.5}}}
     LOCAL = {"id": "fo4-lead", "providerID": "guardian"}
     OWNER = {"FO4SF_OWNER_PRESENT": "1"}
 
@@ -1026,7 +1054,7 @@ console.log(JSON.stringify(out));
         with open(self.ledger, "w") as f:
             f.write(value if isinstance(value, str) else json.dumps(value))
 
-    def run_steps(self, steps, state=None, **env):
+    def run_steps(self, steps, state=None, unset=(), **env):
         plugin = os.path.join(self.d, "fo4-cloud-cap.mjs")
         shutil.copy(os.path.join(ROOT, ".opencode", "plugin", "fo4-cloud-cap.js"), plugin)
         harness = os.path.join(self.d, "harness.mjs")
@@ -1036,6 +1064,8 @@ console.log(JSON.stringify(out));
             json.dump(steps, f)
         e = {k: v for k, v in os.environ.items() if not k.startswith(("FO4SF_", "FO4_AI_TEAM_STATE"))}
         e.update({"FO4_AI_TEAM_STATE": state or self.state, **env})
+        for name in unset:
+            e.pop(name, None)
         r = subprocess.run(["node", harness, "file://" + plugin, os.path.join(self.d, "root"),
                             os.path.join(self.d, "steps.json")], capture_output=True, text=True, env=e, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -1078,6 +1108,37 @@ console.log(JSON.stringify(out));
         # another OpenCode window reads the same tally
         self.assertIn("of the $1 cap", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0])
 
+    def test_a_model_without_a_price_is_refused(self):
+        # OpenCode costs an unpriced model at 0, so the tally would never grow (second review of #622)
+        for cost in (None, {}, {"input": 0, "output": 10}, {"input": 2, "output": 0}, {"input": "2", "output": "10"},
+                     {"input": None, "output": 10}, {"input": 2}):
+            model = dict(self.CLAUDE, cost=cost) if cost is not None else {"id": "claude-x", "providerID": "anthropic"}
+            got = self.run_steps([["params", model], ["params", self.LOCAL]], **self.OWNER)
+            self.assertIn("has no price for", got[0], cost)
+            self.assertEqual(got[1], "ok", cost)
+        # a priced Haiku passes
+        haiku = {"id": "claude-haiku-5-5", "providerID": "anthropic", "cost": {"input": 0.1, "output": 0.5}}
+        self.assertEqual(self.run_steps([["params", haiku]], **self.OWNER), ["ok"])
+
+    def test_a_tally_at_the_cap_is_refused(self):
+        self.tally({"month": self.month(), "usd": 1})
+        self.assertIn("$1.00 of the $1 cap", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0])
+        self.tally({"month": self.month(), "usd": 0.99})
+        self.assertEqual(self.run_steps([["params", self.CLAUDE]], **self.OWNER), ["ok"])
+
+    def test_the_tally_lives_in_the_teams_state_folder(self):
+        # no script sets FO4_AI_TEAM_STATE on the PC: the folder is %LOCALAPPDATA%\fo4-ai-team\state, as store.py's
+        local = os.path.join(self.d, "local")
+        self.run_steps([self.spend("a", 0.25)], unset=("FO4_AI_TEAM_STATE",), LOCALAPPDATA=local, **self.OWNER)
+        with open(os.path.join(local, "fo4-ai-team", "state", "cloud-spend.json")) as f:
+            self.assertEqual(json.load(f), {"month": self.month(), "usd": 0.25})
+        home = os.path.join(self.d, "home")
+        self.run_steps([self.spend("a", 0.5)], unset=("FO4_AI_TEAM_STATE", "LOCALAPPDATA"), HOME=home, **self.OWNER)
+        with open(os.path.join(home, "fo4-ai-team", "state", "cloud-spend.json")) as f:
+            self.assertEqual(json.load(f), {"month": self.month(), "usd": 0.5})
+        self.assertFalse(os.path.exists(self.ledger))
+        self.assertEqual(os.listdir(os.path.join(local, "fo4-ai-team", "state")), ["cloud-spend.json"])  # no tmp left
+
     def test_a_new_month_starts_again(self):
         self.tally({"month": "2000-01", "usd": 999})
         self.assertEqual(self.run_steps([["params", self.CLAUDE], self.spend("a", 0.2)], **self.OWNER), ["ok"])
@@ -1093,9 +1154,12 @@ console.log(JSON.stringify(out));
             self.assertEqual(got[1], "ok", cfg)
         self.cap({"cloud": {"monthly_cap_usd": 1}})
         for bad in ("{not json", {"month": self.month()}, {"month": self.month(), "usd": "0.5"},
-                    {"month": self.month(), "usd": -1}):
+                    {"month": self.month(), "usd": -1}, "[]", "null", "{}", {"month": 202610, "usd": 0},
+                    {"month": "October", "usd": 0}, {"month": "9999-12", "usd": 0}):
             self.tally(bad)
             self.assertIn("cannot be read", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0], bad)
+        self.tally({"month": "9999-12", "usd": 0})
+        self.assertIn("a later month: check the PC's clock", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0])
         # a tally that cannot be written: the state folder is a file
         os.remove(self.ledger)
         blocked = os.path.join(self.d, "a-file")
@@ -1190,9 +1254,19 @@ class ScriptTests(unittest.TestCase):
                      "$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", "$env:OPENCODE_CONFIG_CONTENT = $config",
                      "(& $pythonPath $models opencode --cloud $Cloud | Out-String)",
                      "if ($LASTEXITCODE -ne 0) { \"models.py opencode: $config. Not starting.\"; exit 1 }",
-                     "fo4-to-starfield-wt\\local-terminal", "Set-Location $wt"):
+                     "fo4-to-starfield-wt\\local-terminal", "Set-Location $wt",
+                     # Claude goes straight to Anthropic, with only the plugins in front (second review of #622)
+                     "Remove-Item Env:OPENCODE_PURE", "Remove-Item Env:ANTHROPIC_BASE_URL",
+                     "$env:OPENCODE_DISABLE_AUTOUPDATE = '1'",
+                     "foreach ($f in @('.opencode\\plugin\\fo4-guard.js', 'tools\\ai-team\\guard\\allowlist.py', "
+                     "'.opencode\\plugin\\fo4-cloud-cap.js'))",
+                     "if (-not $Cloud) { try {                           # the proxy must refuse"):
             self.assertIn(line, s)
             self.assertLess(s.index(line), launch, line)
+        for line in ("Remove-Item Env:OPENCODE_PURE", "Remove-Item Env:ANTHROPIC_BASE_URL",
+                     "$env:OPENCODE_DISABLE_AUTOUPDATE = '1'"):  # in both modes: /models reaches Claude locally too
+            self.assertEqual(s.count(line), 1, line)
+            self.assertNotIn("if ($Cloud)", s[s.rindex("\n", 0, s.index(line)) - 200:s.index(line)], line)
         self.assertIn("switch -q --detach origin/main", s)      # a clean terminal worktree goes back to main
         self.assertNotIn("ai/local-terminal", s)                # no branch of its own that could fall behind main
 
@@ -1478,6 +1552,10 @@ class ScriptTests(unittest.TestCase):
             self.assertIn(item, s)
         for model in ("'opus'", "'sonnet'", "'haiku'"):
             self.assertIn(model, s)
+        # c: the agents' terminal on Claude, s Sonnet and h Haiku (config.json "cloud" names)
+        self.assertIn("'c' {\n      $m = @{ 's' = 'claude-sonnet'; 'h' = 'claude-haiku' }[(Read-Host", s)
+        self.assertIn("      if ($m) { Open-Window 'terminal.ps1' @('-Cloud', $m) }\n    }", s)
+        self.assertEqual(sorted(models.read_config()["cloud"]["models"]), ["claude-haiku", "claude-sonnet"])
         self.assertIn("Type yes to start the unattended Lead", s)
         self.assertIn("Type stop to stop the unattended Lead and the session it is running", s)
         self.assertIn("lead-session.pid", self.script("run-lead.ps1"))   # the session the menu stops

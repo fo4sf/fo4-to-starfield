@@ -1292,9 +1292,13 @@ decided the import path); keeping the order as a parameter (two orders in the co
   sent a pick of a preset added since to the agents' map model, the one the pick had just unloaded. This PR still
   changes the proxy's code, so the PC restarts the team after the pull, before the 3-bit is picked.
 - Boundary: still to measure before the 3-bit becomes the default: RAM while the Lead works, OpenCode's tool calls
-  through the proxy, and the 29 Oct accuracy set. The cap counts OpenCode's own price for each
-  message (its 1.18.35 model list), not the bill; it misses a session's title and lets a running request finish, and
-  a message from before an OpenCode restart that grows is counted again. The Console's spend limit is the hard cap.
+  through the proxy, and the 29 Oct accuracy set. The cap counts OpenCode's price for each message, from the costs
+  opencode.json gives both Claude models (1.18.35's built-in list has no Haiku 5.5, and an unpriced model counts $0, so
+  the plugin refuses a model without a price), not the bill; it misses a session's title, a step stopped or failed
+  mid-stream, an update two windows write at once, a step whose tally write failed, and `opencode agent create`; it
+  lets running requests finish, and a message from before an OpenCode restart that grows is counted again. The
+  Console's spend limit is the hard cap; on the PC, `cloud-spend.json` must show `usd` above 0 after the first Sonnet
+  and Haiku messages (second review of the PR, 31 Oct).
   A throw in chat.params fails the request before it is sent (1.18.35's plugin trigger runs the hook before building
   the request); that is read from the code, not yet seen on the PC.
 

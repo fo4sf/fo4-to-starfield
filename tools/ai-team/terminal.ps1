@@ -170,6 +170,13 @@ try {
   $env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'       # no skills from ~/.claude or ~/.agents (the claude.ai ones)
   $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1'    # the same switch under its older name
   $env:OPENCODE_CONFIG_CONTENT = $config
+  # Claude (-Cloud, or /models in a local window) goes to api.anthropic.com with nothing between but the plugins: keep
+  # them loading (OPENCODE_PURE drops every plugin without a word), keep the OpenCode their hooks were read from (no
+  # auto-update), and send the key to Anthropic only (the AI SDK takes ANTHROPIC_BASE_URL when opencode.json names no
+  # base URL).
+  Remove-Item Env:OPENCODE_PURE -ErrorAction SilentlyContinue
+  Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
+  $env:OPENCODE_DISABLE_AUTOUPDATE = '1'
 
   # npm installs a .ps1 shim; use the real binary behind it, as run-lead.ps1 does
   $opencode = Join-Path (Split-Path (Get-Command opencode).Source) 'node_modules\opencode-ai\bin\opencode.exe'

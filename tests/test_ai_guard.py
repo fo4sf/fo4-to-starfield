@@ -351,12 +351,13 @@ RUN_LEAD_CYCLE = (
     '      Log "cycle ${cycle}: skipped: the guardian proxy does not refuse requests without th'
     'e guard header (started before #605?): run stop-team.ps1, then start-team.ps1"; Wait-Next; continue\n'
     '    }\n'
-    "    $missing = @('.opencode\\plugin\\fo4-guard.js', 'tools\\ai-team\\guard\\allowlist.py') |\n"
+    "    $missing = @('.opencode\\plugin\\fo4-guard.js', 'tools\\ai-team\\guard\\allowlist.py',\n"
+    "                 '.opencode\\plugin\\fo4-cloud-cap.js') |\n"
     '               Where-Object { -not (Test-Path (Join-Path $wt $_)) }\n'
     '    if ($missing) {                                     # OpenCode would start without the'
     ' guard (it only logs that)\n'
-    '      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join \', \'), so the guard wou'
-    'ld be off"; Wait-Next; continue\n'
+    '      Log "cycle ${cycle}: skipped: $wt has no $(@($missing) -join \', \'), so the guard or'
+    ' the Claude cap would be off"; Wait-Next; continue\n'
     '    }\n'
     '    Log "cycle ${cycle}: Lead session start (timeout $SessionTimeout s)"\n'
     '    $out = Join-Path $state ("lead-session-{0}.log" -f (Get-Date -Format \'yyyyMMdd-HHmmss\'))\n'

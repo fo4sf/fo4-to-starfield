@@ -86,7 +86,7 @@ def _team_config():
     """config.json's agent map and model presets, read again when the file has changed since load_cfg or the last
     read: a preset a pull adds (the 3-bit trial, 31 Oct) is served without a proxy restart, where the running proxy
     used to send its pick to the agents' map model, which the pick had just unloaded. A file that cannot be read now
-    (a pull writing it, say) leaves the last good copy."""
+    (a pull writing it, say), or whose agent map or presets are not JSON objects, leaves the last good copy."""
     seen = CFG.get("config_mtime")
     if seen is None:                       # not read from the file (a test's own CFG)
         return
@@ -99,6 +99,8 @@ def _team_config():
         agents, presets = data.get("agents", {}), data.get("models", {})
     except (OSError, ValueError, AttributeError):    # AttributeError: a file that is not a JSON object
         return
+    if not isinstance(agents, dict) or not isinstance(presets, dict):
+        return                                       # a null or a list: no request could be routed
     CFG["agents"], CFG["models"], CFG["config_mtime"] = agents, presets, now
 
 
