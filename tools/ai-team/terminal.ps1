@@ -3,9 +3,10 @@
 # It starts the team (guardian proxy, picked model), then runs OpenCode in its own worktree next to the repo
 # (fo4-to-starfield-wt\local-terminal), so the main checkout and the unattended Lead's worktree are never touched. At
 # every start with no other terminal window open on it, the worktree goes back to main's newest commit (no branch),
-# with any uncommitted edits made there with no branch (an agent's branch with uncommitted edits stays as it is), so a
-# guard fix on main reaches it, and the terminal does not start while the worktree has a change to a file the guard
-# refuses an agent to write, or differs from main in one. The guard plugin checks each
+# with any uncommitted edits made there with no branch (an agent's branch with uncommitted edits stays as it is, and so
+# does an edit that clashes with main's newer copy of its file, on its older commit), so a guard fix on main reaches it,
+# and the terminal does not start while the worktree has a change to a file the guard refuses an agent to write, or
+# differs from main in one. The guard plugin checks each
 # command and file write an agent makes, as in unattended runs; because the owner is present, it also lets an agent
 # make its own ai/ branch from main and commit named files there (agent_git.py). It cannot check what a test does:
 # the coding agent writes tests, and a test it runs can run any code
@@ -68,18 +69,25 @@ try {
   } else {
     # No other window: back to main's newest commit. An agent branch made here keeps its commits, and agent_git.py
     # branch with its name switches back to it; the next new one starts from main. Uncommitted edits with no branch (a
-    # Lead's note, say) come along, unless one clashes with a file main has changed since (git then refuses the switch
-    # and leaves everything as it was). Uncommitted edits on an agent's branch stay there, with the branch.
+    # Lead's note, say) come along, unless one clashes with a file main has changed since: git then refuses the switch
+    # and leaves everything as it was, on the older commit. Uncommitted edits on an agent's branch stay there, with the
+    # branch.
     $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()
+    $was = "$(git -C $wt rev-parse HEAD)".Trim()
     $dirty = @(git -C $wt status --porcelain)
-    if ($LASTEXITCODE -ne 0 -or -not $on) { "could not read ${wt}'s state: not starting"; exit 1 }
+    if ($LASTEXITCODE -ne 0 -or -not $on -or -not $was) { "could not read ${wt}'s state: not starting"; exit 1 }
     if ($dirty -and $on -ne 'HEAD') { "note: $wt has uncommitted changes on $on, so it stays as it is" }
     else {
-      git -C $wt switch -q --detach origin/main
+      $moved = @(git -C $wt switch -q --detach origin/main 2>&1)
       if ($LASTEXITCODE -ne 0) {
-        if (-not $dirty) { "could not move $wt to main (a stale index.lock?): not starting"; exit 1 }
+        # git names a clash "would be overwritten"; anything else (a stale index.lock, say) stops the terminal
+        if (-not $dirty -or -not ("$moved" -match 'would be overwritten')) {
+          "could not move $wt to main (git: $(("$($moved | Select-Object -First 1)").Trim())): not starting"; exit 1
+        }
         "note: $wt has uncommitted edits that clash with main's newer files, so it stays at its older commit"
-      } elseif ($dirty) { "note: moved $wt to main's newest commit with its uncommitted edits" }
+      } elseif ($dirty -and "$(git -C $wt rev-parse HEAD)".Trim() -ne $was) {
+        "note: moved $wt to main's newest commit with its uncommitted edits"
+      }
     }
   }
   $on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()      # HEAD: no branch
