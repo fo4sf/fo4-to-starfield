@@ -19,10 +19,18 @@
     "fo4-research": "qwen3.6-35b-a3b",
     "fo4-qa": "qwen3.6-35b-a3b"
   },
+  "cloud": {
+    "monthly_cap_usd": 50,
+    "models": {"claude-sonnet": "claude-sonnet-5-5", "claude-haiku": "claude-haiku-5-5"}
+  },
   "default_model": "qwen3.6-35b",
   "models": {
-    "qwen3.6-35b":      {"model": "qwen3.6-35b-a3b", "context": 65536,  "output": 32000, "kv": "f16",  "gpu": null,
+    "qwen3.6-35b":      {"model": "qwen3.6-35b-a3b", "key": "lmstudio-community/qwen3.6-35b-a3b",
+                         "context": 65536,  "output": 32000, "kv": "f16",  "gpu": null,
                          "note": "the default: 78.8% RAM idle, up to 90.3% while the Lead works (measured 2026-10-29)"},
+    "qwen3.6-35b-q3":   {"model": "qwen3.6-35b-a3b-q3", "key": "unsloth/qwen3.6-35b-a3b",
+                         "context": 65536, "output": 32000, "kv": "f16", "gpu": null,
+                         "note": "on trial (owner's pick, 31 Oct): the same model at 3-bit (Unsloth UD-Q3_K_XL), 71.9% RAM idle against 83.6% for the 4-bit the same day, up to 73.3% on a 41K prompt (no team running); it replaces qwen3.6-35b if it passes with the Lead working"},
     "qwen3-14b":        {"model": "qwen3-14b",       "context": 32768,  "output": 8192,  "kv": "q8_0", "gpu": 1.0,
                          "note": "the fallback: all on the GPU, q8 K/V cache, flash attention"}
   }

@@ -1262,3 +1262,34 @@ decided the import path); keeping the order as a parameter (two orders in the co
   forever); a long-running checker process (fewer starts, but one more moving part between the agent and the guard).
 - Boundary: a hung checker now holds an agent's call for 60 s before the refusal. The test runs a 16 s checker
   (allowed) and a 61 s one asked for 600 s (refused at about 60 s) side by side, so it takes about a minute.
+
+## 2026-10-31: the 35B at 3-bit goes on trial, and the agents' terminal can run on Claude (owner)
+
+- Decision: config.json gets a third preset, `qwen3.6-35b-q3`, the same Qwen3.6-35B-A3B at 3-bit (Unsloth
+  UD-Q3_K_XL, 16.8 GB against 21.2 GB), at the same 64K context and 32K output; `qwen3.6-35b` stays the default until
+  the trial passes, and the 4-bit preset then goes, back to two. And the menu's `c` opens the agents' terminal with all
+  four agents on Claude Sonnet 5.5 or Haiku 5.5 (Anthropic API, the owner's key), under a $50 monthly cap that
+  `.opencode/plugin/fo4-cloud-cap.js` enforces, in the owner's terminal only.
+- Why: the owner, 31 Oct: the 35B at 4-bit is too much for the PC (32 GB RAM, 12 GB VRAM: 78-80% RAM idle, 87-96%
+  while the Lead works, three Lead cycles in a row out of time); research put four options and the owner took the
+  recommended one ("Let's go with your pick", 16:56Z). Measured on the PC the same day (64K, f16 cache, no team
+  running): 71.9% RAM idle against 83.6% for the 4-bit (the model server 9.5 GB in RAM against about 15), 10.3 GB VRAM,
+  26.3 tokens/s on a short prompt (4-bit: 20-25), on a 41K prompt the first token after 35.7 s (4-bit at 45K: 57 s)
+  and 9.8 tokens/s (8.3), peak 73.3% RAM, and the right answer to a question on that text. Thinking off is not a
+  repo setting: the API's `enable_thinking` flag is ignored and `/no_think` in the system prompt made it think longer;
+  the model's prompt template in LM Studio (Enable Thinking off) is the route, set and checked on the PC. The owner has
+  $200 of API credit and chose to use it on Claude for hard work or when RAM is full (17:01Z).
+- Alternatives: gpt-oss-20b (the backup if the 3-bit model's tool calls or answers fall short); the 35B at 32K with
+  thinking off (no download, least RAM gained); the 14B now (weaker). For Claude: an API key in an environment variable
+  (every process, the unattended Lead's too, could read it; `opencode auth login` keeps it in OpenCode's own file);
+  Opus (dearer; left out by the whitelist); Claude for the unattended Lead (no one watching the spend).
+- With the second download LM Studio lists the two by publisher (`lmstudio-community/qwen3.6-35b-a3b`,
+  `unsloth/qwen3.6-35b-a3b`), so a preset now names the `key` LM Studio loads and keeps a short `model` id that the
+  proxy, the pick and the unload list use; the 4-bit's id stays `qwen3.6-35b-a3b`, the 3-bit's is `qwen3.6-35b-a3b-q3`.
+- Boundary: still to measure before the 3-bit becomes the default: RAM while the Lead works, OpenCode's tool calls
+  through the proxy, and the 29 Oct accuracy set. The cap counts OpenCode's own price for each
+  message (its 1.18.35 model list), not the bill; it misses a session's title and lets a running request finish, and
+  a message from before an OpenCode restart that grows is counted again. The Console's spend limit is the hard cap.
+  A throw in chat.params fails the request before it is sent (1.18.35's plugin trigger runs the hook before building
+  the request); that is read from the code, not yet seen on the PC.
+

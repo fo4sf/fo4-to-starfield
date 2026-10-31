@@ -4,6 +4,7 @@
   "subagent_depth": 1,
   "instructions": ["AGENTS.md", "CONTRIBUTING.md", "docs/CODEX-HANDOFF.md"],
   "model": "guardian/fo4-lead",
+  "enabled_providers": ["guardian", "anthropic"],
   "provider": {
     "guardian": {
       "npm": "@ai-sdk/openai-compatible",
@@ -14,6 +15,13 @@
         "fo4-implement": { "name": "Implementation (local)", "tool_call": true, "limit": { "context": 65536, "output": 32000 } },
         "fo4-research":  { "name": "Research (local)",       "tool_call": true, "limit": { "context": 65536, "output": 32000 } },
         "fo4-qa":        { "name": "QA (local)",             "tool_call": true, "limit": { "context": 65536, "output": 32000 } }
+      }
+    },
+    "anthropic": {
+      "whitelist": ["claude-sonnet-5-5", "claude-haiku-5-5"],
+      "models": {
+        "claude-sonnet-5-5": { "limit": { "context": 200000, "output": 32000 } },
+        "claude-haiku-5-5":  { "limit": { "context": 100000, "output": 32000 } }
       }
     }
   },

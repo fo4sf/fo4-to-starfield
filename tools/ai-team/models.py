@@ -7,6 +7,9 @@
   python models.py ensure                   load the pick unless LM Studio already has it loaded at its context
   python models.py opencode                 OpenCode's inline config for the pick (OPENCODE_CONFIG_CONTENT): the four
                                             agents' context and output limits
+  python models.py opencode --cloud <name>   the same for Claude in the owner's terminal: the four agents on the named
+                                            config.json "cloud" model (Anthropic API, the anthropic provider in
+                                            opencode.json); .opencode/plugin/fo4-cloud-cap.js holds its spend
 
 The pick is a row in the guardian's database (store.PICK, in the team's state folder); with no pick the default preset
 is used. Only the presets can be picked (the owner's choice, 30 Oct: the measured setups only), and the row holds the
@@ -48,11 +51,14 @@ def read_config():
         return json.load(f)
 
 
-def setup(model, context, output=None, kv="f16", gpu=None, preset=None):
+def setup(model, context, output=None, kv="f16", gpu=None, preset=None, key=None):
     """A checked setup. Output defaults to a quarter of the window, at most 16K; at least half the window stays for
     the conversation, since OpenCode compacts at context minus output."""
     if not isinstance(model, str) or not MODEL_ID.fullmatch(model):
         raise PickError(f"not an LM Studio model id: {model!r}")
+    key = model if key is None else key           # the model LM Studio loads; model is the id it gets
+    if not isinstance(key, str) or not MODEL_ID.fullmatch(key):
+        raise PickError(f"not an LM Studio model key: {key!r}")
     if not isinstance(context, int) or not 4096 <= context <= 262144:
         raise PickError("context must be 4096..262144 tokens")
     output = min(16384, context // 4) if output is None else output
@@ -62,7 +68,7 @@ def setup(model, context, output=None, kv="f16", gpu=None, preset=None):
         raise PickError(f"kv must be one of {', '.join(KV_TYPES)}")
     if gpu is not None and not (isinstance(gpu, (int, float)) and 0 <= gpu <= 1):
         raise PickError("gpu must be 0..1")
-    return {"preset": preset, "model": model, "context": context, "output": output, "kv": kv, "gpu": gpu}
+    return {"preset": preset, "model": model, "key": key, "context": context, "output": output, "kv": kv, "gpu": gpu}
 
 
 def preset(name, cfg=None):
@@ -70,7 +76,7 @@ def preset(name, cfg=None):
     p = cfg["models"].get(name)
     if p is None:
         raise PickError(f"no preset {name!r}; presets: {', '.join(cfg['models'])}")
-    return setup(p["model"], p["context"], p["output"], p["kv"], p["gpu"], preset=name)
+    return setup(p["model"], p["context"], p["output"], p["kv"], p["gpu"], preset=name, key=p.get("key"))
 
 
 def current(cfg=None, c=None):
@@ -107,6 +113,17 @@ def opencode_config(s, cfg=None):
     return {"provider": {"guardian": {"models": {a: {"limit": dict(limit)} for a in cfg["agents"]}}}}
 
 
+def cloud_config(name, cfg=None):
+    """The inline OpenCode config that puts the four agents on a config.json "cloud" model. OpenCode merges it after
+    .opencode/agents, so each agent's model is this one; the limits are opencode.json's for that model."""
+    cfg = cfg or read_config()
+    model = cfg.get("cloud", {}).get("models", {}).get(name)
+    if model is None:
+        raise PickError(f"no cloud model {name!r}; cloud models: {', '.join(cfg.get('cloud', {}).get('models', {}))}")
+    model = "anthropic/" + model
+    return {"model": model, "agent": {a: {"model": model} for a in cfg["agents"]}}
+
+
 def team_models(cfg):
     return {p["model"] for p in cfg["models"].values()} | set(cfg["agents"].values())
 
@@ -138,7 +155,8 @@ def load(s, cfg, force=False):
                             "to cut them")
         unload = (team_models(cfg) | {current(cfg, c)["model"]}) - {s["model"]}
         try:
-            loaded = load_model.load(s["model"], load_model.load_config(s["context"], s["kv"], s["gpu"]), unload=unload)
+            loaded = load_model.load(s["model"], load_model.load_config(s["context"], s["kv"], s["gpu"]), unload=unload,
+                                     key=s["key"])
         except Exception as err:
             why = f"loading {s['model']} failed ({type(err).__name__}: {err})"
             store.fail_hold(c, why)
@@ -160,12 +178,14 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="load even while requests run (cuts them)")
     e = sub.add_parser("ensure")
     e.add_argument("--force", action="store_true")
-    sub.add_parser("opencode")
+    o = sub.add_parser("opencode")
+    o.add_argument("--cloud", help="a config.json \"cloud\" model, for the owner's terminal")
     a = ap.parse_args(argv)
     cfg = read_config()
     try:
         if a.cmd == "opencode":
-            print(json.dumps(opencode_config(current(cfg), cfg), separators=(",", ":")))
+            oc = cloud_config(a.cloud, cfg) if a.cloud else opencode_config(current(cfg), cfg)
+            print(json.dumps(oc, separators=(",", ":")))
         elif a.cmd == "list":
             c = store.connect()
             try:

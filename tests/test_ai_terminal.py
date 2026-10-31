@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -111,9 +112,10 @@ class ModelPickTests(TempState):
         proxy.CFG = {"agents": {"fo4-lead": "qwen3.6-35b-a3b"}}
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
 
-    def test_only_the_two_presets_can_be_picked(self):
-        # the owner's choice (30 Oct): the measured setups only, the 35B at 64K and the 14B fallback
-        self.assertEqual(sorted(models.read_config()["models"]), ["qwen3-14b", "qwen3.6-35b"])
+    def test_only_the_presets_can_be_picked(self):
+        # the owner's choice (30 Oct): the measured setups only, the 35B at 64K and the 14B fallback; and the 35B at
+        # 3-bit on trial (the owner's pick, 31 Oct), which replaces the 4-bit one if it passes
+        self.assertEqual(sorted(models.read_config()["models"]), ["qwen3-14b", "qwen3.6-35b", "qwen3.6-35b-q3"])
         models.save(models.preset("qwen3-14b"))
         for bad in (["pick", "--model", "qwen/qwen3-8b", "--context", "16384"], ["pick", "qwen3.6-35b-128k"],
                     ["pick", "no-such-preset"], ["pick"], ["pick", "qwen3-14b", "--no-load"]):
@@ -134,6 +136,35 @@ class ModelPickTests(TempState):
         self.addCleanup(setattr, proxy, "CFG", saved)
         proxy.CFG = proxy.load_cfg()
         self.assertEqual(proxy._agent_and_model("fo4-lead"), ("fo4-lead", "qwen3.6-35b-a3b"))
+
+    def test_cloud_puts_every_agent_on_a_claude_model(self):
+        cfg = models.read_config()
+        oc = models.cloud_config("claude-sonnet", cfg)
+        self.assertEqual(oc, {"model": "anthropic/claude-sonnet-5-5",
+                              "agent": {a: {"model": "anthropic/claude-sonnet-5-5"} for a in AGENTS}})
+        self.assertEqual(models.cloud_config("claude-haiku", cfg)["model"], "anthropic/claude-haiku-5-5")
+        for bad in ("claude-opus", "anthropic/claude-sonnet-5-5", "qwen3.6-35b", ""):
+            with self.assertRaises(models.PickError, msg=bad):
+                models.cloud_config(bad, cfg)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(models.main(["opencode", "--cloud", "claude-opus"]), 1)
+        self.assertIn("no cloud model", out.getvalue())
+
+    def test_only_the_cloud_models_can_be_reached_and_the_cap_is_set(self):
+        # opencode.json lets OpenCode offer the local proxy and Anthropic only, and of Anthropic's models only the two
+        # config.json names (not Opus); their windows are kept well under the 1M the API allows, to hold the spend down
+        cfg = models.read_config()
+        oc = json.loads(read("opencode.json"))
+        self.assertEqual(oc["enabled_providers"], ["guardian", "anthropic"])
+        cloud = sorted(cfg["cloud"]["models"].values())
+        self.assertEqual(cloud, ["claude-haiku-5-5", "claude-sonnet-5-5"])
+        self.assertEqual(sorted(oc["provider"]["anthropic"]["whitelist"]), cloud)
+        self.assertEqual(sorted(oc["provider"]["anthropic"]["models"]), cloud)
+        for m, entry in oc["provider"]["anthropic"]["models"].items():
+            self.assertLessEqual(entry["limit"]["context"], 200000, m)
+            self.assertEqual(entry["limit"]["output"], 32000, m)
+        self.assertNotIn("options", oc["provider"]["anthropic"])      # no key here: the owner's opencode auth login
+        self.assertEqual(cfg["cloud"]["monthly_cap_usd"], 50)
 
     def test_a_load_waits_for_running_requests(self):
         c = store.connect()
@@ -238,6 +269,9 @@ class LoadModelSdkTests(unittest.TestCase):
         self.assertEqual(load_model.load("qwen3-14b", cfg, unload={"old-pick"}), "qwen3-14b")
         self.assertEqual(unloaded, ["qwen3-14b", "old-pick"])          # the owner's own model stays
         self.assertEqual(loads, [("qwen3-14b", "qwen3-14b", cfg)])
+        # a model LM Studio lists under a publisher key loads under the short id the team's requests name
+        self.assertEqual(load_model.load("qwen3.6-35b-a3b-q3", cfg, key="unsloth/qwen3.6-35b-a3b"), "qwen3.6-35b-a3b-q3")
+        self.assertEqual(loads[1], ("unsloth/qwen3.6-35b-a3b", "qwen3.6-35b-a3b-q3", cfg))
 
 
 def admission(c, snapshot=lambda *_: {}):
@@ -267,13 +301,14 @@ class ModelLoadTests(TempState):
         self.c = store.connect()
         self.addCleanup(self.c.close)
         self.cfg = models.read_config()
-        self.calls, self.during = [], None
+        self.calls, self.keys, self.during = [], [], None
         saved = models.load_model.load
         self.addCleanup(setattr, models.load_model, "load", saved)
         models.load_model.load = self.fake_load
 
-    def fake_load(self, model, cfg_lm, unload=()):
+    def fake_load(self, model, cfg_lm, unload=(), key=None):
         self.calls.append((model, cfg_lm["contextLength"], set(unload)))
+        self.keys.append(key)
         self.hold_during = store.get_hold(self.c)
         if self.during:
             self.during()
@@ -289,10 +324,21 @@ class ModelLoadTests(TempState):
         self.assertIn("qwen3.6-35b-a3b", unload)
         self.assertNotIn("qwen3-14b", unload)
 
-    def test_switching_presets_unloads_the_other_one(self):
+    def test_switching_presets_unloads_the_other_ones(self):
         models.save(models.preset("qwen3.6-35b"))
         models.load(models.preset("qwen3-14b"), self.cfg)
-        self.assertEqual(set(self.calls[0][2]), {"qwen3.6-35b-a3b"})
+        self.assertEqual(set(self.calls[0][2]), {"qwen3.6-35b-a3b", "qwen3.6-35b-a3b-q3"})
+        # the 3-bit trial and the 4-bit 35B never sit in RAM together
+        models.load(models.preset("qwen3.6-35b-q3"), self.cfg)
+        self.assertEqual(set(self.calls[1][2]), {"qwen3.6-35b-a3b", "qwen3-14b"})
+        # each loads by the key LM Studio lists it under (two downloads of one model get publisher keys), under the
+        # short id the proxy sends requests to
+        models.load(models.preset("qwen3.6-35b"), self.cfg)
+        self.assertEqual([c[0] for c in self.calls], ["qwen3-14b", "qwen3.6-35b-a3b-q3", "qwen3.6-35b-a3b"])
+        self.assertEqual(self.keys, ["qwen3-14b", "unsloth/qwen3.6-35b-a3b", "lmstudio-community/qwen3.6-35b-a3b"])
+        self.assertEqual(store.picked_model(), "qwen3.6-35b-a3b")
+        with self.assertRaises(models.PickError):
+            models.setup("qwen3.6-35b-a3b", 65536, key="unsloth/qwen 3.6")
 
     def test_the_owners_pause_or_stop_during_a_load_stays(self):
         for mode in ("paused", "stopped"):
@@ -894,6 +940,125 @@ console.log(JSON.stringify(out));
         self.assertEqual(kept("f").split("\n"), ["y" * 99] * 511)  # 511 lines: 51,099 bytes
 
 
+class CloudCapPluginTests(unittest.TestCase):
+    # .opencode/plugin/fo4-cloud-cap.js, driven with the events and the chat.params call OpenCode 1.18.35 makes
+    HARNESS = r"""
+import { readFileSync } from "node:fs";
+const [url, root, stepsFile] = process.argv.slice(2);
+const hooks = await (await import(url)).default({ worktree: root, directory: root });
+const out = [];
+for (const [kind, arg] of JSON.parse(readFileSync(stepsFile, "utf8"))) {
+  if (kind === "event") { await hooks.event({ event: arg }); continue; }
+  try {
+    await hooks["chat.params"]({ sessionID: "s", agent: "fo4-lead", model: arg, provider: {}, message: {} }, {});
+    out.push("ok");
+  } catch (err) { out.push(err.message); }
+}
+console.log(JSON.stringify(out));
+"""
+    CLAUDE = {"id": "claude-sonnet-5-5", "providerID": "anthropic"}
+    LOCAL = {"id": "fo4-lead", "providerID": "guardian"}
+    OWNER = {"FO4SF_OWNER_PRESENT": "1"}
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.fail("node is not installed: CI must run the plugin tests")
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+        self.state = os.path.join(self.d, "state")
+        self.ledger = os.path.join(self.state, "cloud-spend.json")
+        self.cap({"cloud": {"monthly_cap_usd": 1}})
+
+    def cap(self, cfg):
+        os.makedirs(os.path.join(self.d, "root", "tools", "ai-team"), exist_ok=True)
+        with open(os.path.join(self.d, "root", "tools", "ai-team", "config.json"), "w") as f:
+            f.write(cfg if isinstance(cfg, str) else json.dumps(cfg))
+
+    def tally(self, value):
+        os.makedirs(self.state, exist_ok=True)
+        with open(self.ledger, "w") as f:
+            f.write(value if isinstance(value, str) else json.dumps(value))
+
+    def run_steps(self, steps, state=None, **env):
+        plugin = os.path.join(self.d, "fo4-cloud-cap.mjs")
+        shutil.copy(os.path.join(ROOT, ".opencode", "plugin", "fo4-cloud-cap.js"), plugin)
+        harness = os.path.join(self.d, "harness.mjs")
+        with open(harness, "w") as f:
+            f.write(self.HARNESS)
+        with open(os.path.join(self.d, "steps.json"), "w") as f:
+            json.dump(steps, f)
+        e = {k: v for k, v in os.environ.items() if not k.startswith(("FO4SF_", "FO4_AI_TEAM_STATE"))}
+        e.update({"FO4_AI_TEAM_STATE": state or self.state, **env})
+        r = subprocess.run(["node", harness, "file://" + plugin, os.path.join(self.d, "root"),
+                            os.path.join(self.d, "steps.json")], capture_output=True, text=True, env=e, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @staticmethod
+    def spend(msg, cost, provider="anthropic", role="assistant"):
+        return ["event", {"type": "message.updated", "properties": {"sessionID": "s", "info": {
+            "id": msg, "sessionID": "s", "role": role, "providerID": provider, "modelID": "m", "cost": cost}}}]
+
+    def month(self):
+        return time.strftime("%Y-%m", time.gmtime())
+
+    def test_claude_runs_only_in_the_owners_terminal(self):
+        steps = [["params", self.CLAUDE], ["params", self.LOCAL]]
+        self.assertEqual(self.run_steps(steps, **self.OWNER), ["ok", "ok"])
+        for env in ({}, {"FO4SF_OWNER_PRESENT": "true"}, {"FO4SF_OWNER_PRESENT": "1", "FO4SF_UNATTENDED": "1"},
+                    {"FO4SF_UNATTENDED": "1"}):
+            got = self.run_steps(steps, **env)
+            self.assertIn("only in the owner's terminal", got[0], env)
+            self.assertEqual(got[1], "ok", env)                    # the local models are never touched
+
+    def test_spend_is_tallied_across_windows_and_capped(self):
+        got = self.run_steps([
+            self.spend("a", 0.3), self.spend("a", 0.7),            # one message's cost so far: 0.7 in all
+            self.spend("a", 0.7), self.spend("a", 0.5),            # an update that did not grow it counts nothing
+            self.spend("l", 5.0, provider="guardian"),             # a local model's cost is not Claude's
+            self.spend("u", 5.0, role="user"), self.spend("x", "5"),
+            ["event", dict(self.spend("y", 5.0)[1], type="session.updated")],
+            ["params", self.CLAUDE],
+            self.spend("b", 0.4),                                  # 1.1 of the 1 dollar cap
+            ["params", self.CLAUDE], ["params", self.LOCAL]], **self.OWNER)
+        self.assertEqual(got[:1], ["ok"])
+        self.assertIn("this month's Claude spend is $1.10 of the $1 cap", got[1])
+        self.assertEqual(got[2], "ok")
+        with open(self.ledger) as f:
+            t = json.load(f)
+        self.assertEqual(t["month"], self.month())
+        self.assertAlmostEqual(t["usd"], 1.1)
+        # another OpenCode window reads the same tally
+        self.assertIn("of the $1 cap", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0])
+
+    def test_a_new_month_starts_again(self):
+        self.tally({"month": "2000-01", "usd": 999})
+        self.assertEqual(self.run_steps([["params", self.CLAUDE], self.spend("a", 0.2)], **self.OWNER), ["ok"])
+        with open(self.ledger) as f:
+            self.assertEqual(json.load(f), {"month": self.month(), "usd": 0.2})
+
+    def test_a_cap_or_a_tally_that_cannot_be_read_refuses(self):
+        for cfg in ({}, {"cloud": {}}, {"cloud": {"monthly_cap_usd": 0}}, {"cloud": {"monthly_cap_usd": -5}},
+                    {"cloud": {"monthly_cap_usd": "50"}}, "{not json"):
+            self.cap(cfg)
+            got = self.run_steps([["params", self.CLAUDE], ["params", self.LOCAL]], **self.OWNER)
+            self.assertIn("no cloud.monthly_cap_usd", got[0], cfg)
+            self.assertEqual(got[1], "ok", cfg)
+        self.cap({"cloud": {"monthly_cap_usd": 1}})
+        for bad in ("{not json", {"month": self.month()}, {"month": self.month(), "usd": "0.5"},
+                    {"month": self.month(), "usd": -1}):
+            self.tally(bad)
+            self.assertIn("cannot be read", self.run_steps([["params", self.CLAUDE]], **self.OWNER)[0], bad)
+        # a tally that cannot be written: the state folder is a file
+        os.remove(self.ledger)
+        blocked = os.path.join(self.d, "a-file")
+        open(blocked, "w").close()
+        got = self.run_steps([["params", self.CLAUDE], self.spend("a", 0.1), ["params", self.CLAUDE]], state=blocked,
+                             **self.OWNER)
+        self.assertEqual(got[0], "ok")
+        self.assertIn("could not be updated", got[1])
+
+
 class TeamSkillAndCommandTests(unittest.TestCase):
     def test_every_example_in_the_teams_skill_is_allowed(self):
         text = read(".opencode", "skills", "fo4-allowed-commands", "SKILL.md")
@@ -975,7 +1140,9 @@ class ScriptTests(unittest.TestCase):
         s = self.script("terminal.ps1")
         launch = s.index("& $opencode @argv")
         for line in ("Remove-Item Env:FO4SF_UNATTENDED", "$env:FO4SF_OWNER_PRESENT = '1'",
-                     "$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", "$env:OPENCODE_CONFIG_CONTENT = (& $pythonPath $models opencode",
+                     "$env:OPENCODE_DISABLE_EXTERNAL_SKILLS = '1'", "$env:OPENCODE_CONFIG_CONTENT = $config",
+                     "(& $pythonPath $models opencode --cloud $Cloud | Out-String)",
+                     "if ($LASTEXITCODE -ne 0) { \"models.py opencode: $config. Not starting.\"; exit 1 }",
                      "fo4-to-starfield-wt\\local-terminal", "Set-Location $wt"):
             self.assertIn(line, s)
             self.assertLess(s.index(line), launch, line)

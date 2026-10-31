@@ -790,11 +790,16 @@ class GuardTests(unittest.TestCase):
         self.assertIsNone(re.search(r"& \$Python\b", script))
 
     def test_every_session_talks_to_the_guardian_proxy(self):
-        # The header check and run-lead's 403 gate mean something only while OpenCode's one provider is the proxy:
-        # pointed at LM Studio's :1234, every session would get a model with no check at all
+        # The header check and run-lead's 403 gate mean something only while the local models are reached through the
+        # proxy alone: pointed at LM Studio's :1234 (OpenCode's own lmstudio provider does that), a session would get
+        # a model with no check at all. So OpenCode offers the proxy and Anthropic only, and Anthropic's API keeps its
+        # own address (no options: no baseURL, and no key in the repo); fo4-cloud-cap.js keeps Claude to the owner's
+        # terminal (CloudCapPluginTests).
         with open(os.path.join(ROOT, "opencode.json"), encoding="utf-8") as f:
             config = json.load(f)
-        self.assertEqual(list(config["provider"]), ["guardian"])
+        self.assertEqual(list(config["provider"]), ["guardian", "anthropic"])
+        self.assertEqual(config["enabled_providers"], ["guardian", "anthropic"])
+        self.assertEqual(sorted(config["provider"]["anthropic"]), ["models", "whitelist"])
         # OpenCode 1.18.35 also merges a root opencode.jsonc after it, then each .opencode folder's opencode.json and
         # opencode.jsonc, and loads agents from .opencode/{agent,agents}/**/*.md and {mode,modes}/*.md: the repo has
         # none of those config files, and only the four agent files (a user-level config is the owner's own)
