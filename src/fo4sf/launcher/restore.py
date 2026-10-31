@@ -314,6 +314,12 @@ def plan(target, current, repo, port_staging=None):
             change[rider] = "replace"
             notes.append(f"{rider}: taken off and put back around the {base} change (its installer pins the "
                          f"installed {base})")
+    for rider, base in RIDES_ON.items():
+        # a snapshot that keeps a rider while restore would uninstall its base: the rider's installer refuses once its
+        # base is gone, so apply would stop halfway with both off. Refused here, before anything runs
+        if change.get(base) == "uninstall" and target["records"].get(rider) is not None:
+            conflicts.append(f"{rider}: the snapshot has it without the {base} it rides on, which restore would "
+                             "uninstall; its installer would refuse to put it back")
     for comp in UNINSTALL_ORDER:
         if change.get(comp) in ("uninstall", "replace", "recover"):
             steps.append({"what": f"uninstall {comp}",
@@ -325,6 +331,8 @@ def plan(target, current, repo, port_staging=None):
             if argv is None:
                 conflicts.append(f"{comp}: the snapshot had it installed but its record names no source folder"
                                  + (" (pass --port-staging)" if comp == "port" else ""))
+            elif comp == "port" and not os.path.isdir(port_staging):
+                conflicts.append(f"port: staging folder {port_staging} is gone")
             elif comp != "port" and not os.path.isdir(source_dir(comp, target["records"][comp])):
                 conflicts.append(f"{comp}: source folder {source_dir(comp, target['records'][comp])} is gone")
             else:

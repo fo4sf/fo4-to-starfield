@@ -209,6 +209,34 @@ class AddonRestoreTests(unittest.TestCase):
         self.assertIn(f"markers: source folder {gone} is gone", p["conflicts"])
         self.assertNotIn("install markers", [s["what"] for s in p["steps"]])
 
+    def test_a_rider_kept_while_its_base_goes_is_refused_before_anything_runs(self):
+        # exp_install.py uninstall leaves the markers installed, so a snapshot can hold them without the core. Restoring
+        # to it from an install with the core would take both off and then fail to put the markers back
+        self.install_core_and_markers()
+        self.exp_install("uninstall")
+        target = self.snap()
+        self.assertIsNone(target["records"]["experiment"])
+        self.exp_install("install", "--exp-dir", self.exp)
+        before = self.read_pt()
+        p = restore.plan(target, self.snap(), ROOT)
+        self.assertIn("markers: the snapshot has it without the experiment it rides on, which restore would "
+                      "uninstall; its installer would refuse to put it back", p["conflicts"])
+
+        def no_installer(*_a, **_k):
+            raise AssertionError("no installer may run for a refused restore")
+        with self.assertRaisesRegex(restore.RestoreRefused, "rides on"):
+            restore.apply(target, ROOT, running=lambda: False, echo=lambda *_: None, run=no_installer)
+        self.assertEqual(self.read_pt(), before)
+        for name in (CORE, mm.PLUGIN, mm.RECORD):
+            self.assertTrue(os.path.exists(os.path.join(self.data, name)), name)
+
+    def test_a_port_staging_folder_that_is_gone_is_refused(self):
+        port = {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {"sha256": "1"}}}
+        gone = os.path.join(self.root, "staging", "no_port")
+        p = restore.plan(self.records(port=port), self.snap(), ROOT, port_staging=gone)
+        self.assertIn(f"port: staging folder {gone} is gone", p["conflicts"])
+        self.assertEqual(p["steps"], [])
+
     def test_the_quest_probe_rides_on_the_port_and_the_combined_probe_on_the_core(self):
         quest = {"dir": self.folder("qprobe"), "plugin": "FO4SFQuestProbe.esm", "source_sha256": "q"}
         combined = {"dir": self.folder("focc_probe"), "plugin": "FO4SFCombinedProbe.esm", "source_sha256": "c"}
