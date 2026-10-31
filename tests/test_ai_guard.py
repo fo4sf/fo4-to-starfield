@@ -2,6 +2,7 @@
 everything else, including the shapes OpenCode's text rules let through. Pure checks, no LM Studio, no git."""
 import ast
 import http.client
+import concurrent.futures
 import json
 import ntpath
 import os
@@ -1092,7 +1093,7 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
         self.assertEqual(got["out"], ["refuse"])
         # with no verdict, the refusal says which Python and what became of it
         self.assertEqual(got["messages"], [f"guard refused the command: no verdict from the guard ({missing}: ENOENT)"])
-        # the test's own wait: refused after about 1 s, not at the 15 s cap or when the checker ends
+        # the test's own wait: refused after about 1 s, not at the 60 s cap or when the checker ends
         start = time.monotonic()
         got = self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(30), FO4SF_GUARD_TIMEOUT_MS="1000")
         self.assertEqual(got["out"], ["refuse"])
@@ -1167,13 +1168,21 @@ console.log(JSON.stringify({ init: "ok", out, messages, headers }));
             self.assertIn("Microsoft Store python alias", got["messages"][0])
             self.assertIn("sys.executable", got["messages"][0])
 
-    def test_the_wait_for_the_checker_is_never_longer_than_15_s(self):
-        # A checker that answers "allowed" after 16 s: with a cap of 16 s or more the call would go through.
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(16),
-                                   FO4SF_GUARD_TIMEOUT_MS="600000")["out"], ["refuse"])
-        # and the sleeper itself does answer allowed, given the time
-        self.assertEqual(self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(0))["out"],
-                         ["allow"])
+    def test_the_wait_for_the_checker_is_60_s_and_never_longer(self):
+        # A checker that answers "allowed" after 16 s goes through (15 s was too short for a PC paging), and one that
+        # answers after 61 s is refused at 60 s however long the variable asks for. The two run side by side.
+        def timed(seconds, **env):
+            start = time.monotonic()
+            got = self.hook([["bash", {"command": "git status"}]], worktree=self.slow_checker(seconds), **env)
+            return got, time.monotonic() - start
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            slow = pool.submit(timed, 16)
+            hung = pool.submit(timed, 61, FO4SF_GUARD_TIMEOUT_MS="600000")
+            (slow, _), (hung, waited) = slow.result(), hung.result()
+        self.assertEqual(slow["out"], ["allow"])
+        self.assertEqual(hung["out"], ["refuse"])
+        self.assertIn("ETIMEDOUT", hung["messages"][0])
+        self.assertGreater(waited, 59)
 
     def test_each_working_directory_argument_is_checked(self):
         calls = [["bash", {"command": "git status", key: "docs"}] for key in ("workdir", "cwd", "dir", "directory")]
