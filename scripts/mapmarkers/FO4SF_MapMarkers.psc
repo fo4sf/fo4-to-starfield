@@ -104,7 +104,7 @@ bool landingShown = False
 ; last full pass (None while any was off), probeAt the next one a pass checks from then on, seenWorld the world of its last
 ; outdoor pass (the player came out, or changed worlds, when it differs) and late whether a marker went into that world
 ; after the player entered it. The first quest also keeps when they entered, its reloads this session, and the way back
-; (saved, so a save made at the stop still brings the player back)
+; (saved, so a save made at the stop still brings the player back: being in the stop's cell is what says they are there)
 WorldSpace settledWorld = None
 int probeAt = 0
 WorldSpace seenWorld = None
@@ -113,7 +113,6 @@ float enteredAt = 0.0
 int hops = 0
 bool waitLogged = False
 bool travelLogged = False
-bool hopOut = False
 int hopAnchor = -1
 float hopX = 0.0
 float hopY = 0.0
@@ -226,14 +225,13 @@ Function Place(Actor player)
     Border(player)
     ShowLanding()
     if player.IsInInterior()
-        if hopOut && player.GetParentCell() == HopMarker.GetParentCell()
-            ComeBack(player)                                  ; a reload that left the player at the stop (first quest)
+        if HopMarker != None && player.GetParentCell() == HopMarker.GetParentCell()
+            ComeBack(player)                                  ; the stop has no door: anyone in it goes back (first quest)
         endif
         seenWorld = None                                      ; when they come out, the world loads with what is in it
         late = False
         return
     endif
-    hopOut = False                                            ; outdoors: not at the stop
     WorldSpace w = player.GetWorldSpace()
     if w != seenWorld
         seenWorld = w                                         ; came out, or into another world, since the last pass
@@ -318,6 +316,8 @@ Function Place(Actor player)
     if i >= Markers.Length && moved == 0
         settledWorld = w                                      ; every marker in place: from now on one a pass is read
         Reload(player, w)
+    elseif moves >= MaxMoves
+        Reload(player, w)                                     ; out of moves: nothing more moves this session (Ready)
     endif
 EndFunction
 
@@ -391,8 +391,8 @@ bool Function Probe(Actor player)
     int n = Markers.Length
     int tries = 0
     while tries < n
-        int i = probeAt
-        probeAt = (probeAt + 1) % n
+        int i = probeAt % n                                    ; a new build can list fewer markers
+        probeAt = (i + 1) % n
         tries += 1
         ObjectReference m = Markers[i]
         if m != None && !refused[i]
@@ -449,15 +449,15 @@ Function Reload(Actor player, WorldSpace w)
     endwhile
     if !travelLogged
         travelLogged = True
-        FastTravelLine("all " + k + " quests' markers in place, some after the player came: " + anyLate)
+        FastTravelLine("all " + k + " quests' markers in place or out of moves, some after the player came: " + anyLate)
     endif
     if !anyLate || Utility.GetCurrentRealTime() - enteredAt < HopDelay
         return
     endif
-    if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled()
+    if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled() || player.IsDead() || player.GetSitState() != 0
         if !waitLogged
             waitLogged = True
-            Trace("reload waits: combat=" + player.IsInCombat() + " scene=" + player.IsInScene() + " movement=" + Game.IsMovementControlsEnabled())
+            Trace("reload waits: combat=" + player.IsInCombat() + " scene=" + player.IsInScene() + " movement=" + Game.IsMovementControlsEnabled() + " dead=" + player.IsDead() + " sit=" + player.GetSitState())
         endif
         return
     endif
@@ -470,17 +470,24 @@ Function Reload(Actor player, WorldSpace w)
         Trace("reload " + hops + " skipped: no marker of this quest to come back by")
         return
     endif
-    hopAnchor = a
-    hopX = player.GetPositionX()
-    hopY = player.GetPositionY()
-    hopZ = player.GetPositionZ()
-    hopA = player.GetAngleZ()
-    hopWorld = w
-    Trace("reload " + hops + ": out to " + HopMarker + " and back to " + hopX + " " + hopY + " " + hopZ + " in " + w)
     Game.FadeOutGame(True, True, 0.0, 0.5, True)
     Utility.Wait(0.5)
-    hopOut = True
+    ; the player as they are now, with the screen black and just before the move: w was read when this pass began, and a
+    ; load door or a fast travel can take them away while a pass runs (review of #624); the way back is read here, so it
+    ; is a spot in w. A reload called off is not tried again: going indoors and out loads the world again anyway
+    hopX = player.GetPositionX()
+    hopY = player.GetPositionY()
+    if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX || hopY < MinY || hopY > MaxY
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        Trace("reload " + hops + " called off: the player went indoors, to another world or off the map")
+        return
+    endif
+    hopZ = player.GetPositionZ()
+    hopA = player.GetAngleZ()
+    hopAnchor = a
+    hopWorld = w
     player.MoveTo(HopMarker)
+    Trace("reload " + hops + ": out to " + HopMarker + " and back to " + hopX + " " + hopY + " " + hopZ + " in " + w)
     float waited = 0.0
     while !player.IsInInterior() && waited < HopWait
         Utility.Wait(0.25)
@@ -534,16 +541,18 @@ Function ComeBack(Actor player)
         loaded += 0.25
     endwhile
     Utility.Wait(0.5)
+    ; the spot is one in hopWorld: if the trip made the world again (or a save made at the stop loads in a new launch,
+    ; whose world is another instance), the anchor went back to its own world and the move lands by it there, which
+    ; the spot would only send off by the merge offset, so only the same world is set
+    WorldSpace back = player.GetWorldSpace()
     float dx = player.GetPositionX() - hopX
     float dy = player.GetPositionY() - hopY
-    bool snapped = dx * dx + dy * dy > 4.0
+    bool snapped = back == hopWorld && dx * dx + dy * dy > 4.0
     if snapped
         player.SetPosition(hopX, hopY, hopZ)
     endif
     player.SetAngle(0.0, 0.0, hopA)
-    hopOut = False
     Game.FadeOutGame(False, True, 0.0, 0.5, False)
-    WorldSpace back = player.GetWorldSpace()
     Trace("reload " + hops + " back: moves=" + tries + " set=" + snapped + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + back + " same=" + (back == hopWorld))
 EndFunction
 

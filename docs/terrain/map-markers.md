@@ -216,10 +216,10 @@ named; 307 left after the fixed four's own records, all inside the overlay. Noth
    (no name, one of the fixed four, no finite position, outside the overlay, or within 100 m of a fixed marker of the
    same name: FO4's Red Rocket Truck Stop marker 024FBE, since the core's Red Rocket sits on the COC arrival) go to `map_markers_left_out.json` with
    their reason. `check` judges every marker the same way as the four.
-3. `dotnet/MapMarkers` splits the core's markers into quests of at most 100 (`FO4SF_MapMarkersQuest`,
-   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...). Papyrus arrays made in script hold at most 128 entries;
-   whether a plugin-filled property may hold more is **unresolved**, so no quest goes near that limit. Above 20
-   markers, a quest's `MaxMoves` is twice its marker count, so one session can place them all. `check` matches the
+3. `dotnet/MapMarkers` splits the core's markers into quests of at most 20 (`FO4SF_MapMarkersQuest`,
+   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...; at most 100 until 2026-10-31, "Reload"). Papyrus arrays made in
+   script hold at most 128 entries; whether a plugin-filled property may hold more is **unresolved**, so no quest goes
+   near that limit. A quest's `MaxMoves` is the script's 40, twice its marker count, so one session can place them all. `check` matches the
    quests, in FormID order, against the core.
 
 Every new marker keeps LC172's `FNAM` 0x1B and `TNAM` 0x17, so they all draw one icon type; FO4's own marker types
@@ -341,7 +341,8 @@ them itself:
    core's first marker (LC172's template, as the core writes its own), in the WRLD copy's persistent cell at its local
    spot, lifted `--z-lift`, with its own name and the overrides' flags. Each also gets one `MapMarkerRefType` `LCSR` row
    in an override of the core's Location, as TerrainOverlays writes the core's four. The quests list them after the
-   core's markers, at most 100 per quest (20 since 2026-10-31, "Reload"). `check --extra` fails a plugin with any other REFR of its own. It also fails a
+   core's markers, at most 100 per quest (20 since 2026-10-31, "Reload"). `check --extra` fails a plugin with any other REFR of its own
+   (with `--reload`, but for the stop's two). It also fails a
    Location override that differs from the core's in anything but those rows, the same stale-stage rule as the WRLD copy.
    Without `--extra` the plugin is byte for byte as before: built here from the v6i core, it has sha256 `af56df9c`, the
    installed one.
@@ -586,17 +587,23 @@ So (offline, waits on a play test):
   first quest's `HopMarker`. When every quest's markers are in place in our world (or its moves are spent), some of
   them went in after the player entered, the player has been outdoors there for `HopDelay` (10 s: the new game's
   landing check is done by then), and they are not in combat or a scene and have their movement controls, the first
-  quest fades to black, moves the player to the stop, moves them back to the same spot by one of its markers (then
-  `SetPosition` there once the 3D is in, as the new game's ride up does), turns them back to their facing and fades
-  in. Once a session (`HopLimit`). A player still at the stop on a later pass (a move back that did not take, a save
-  made there) is brought back again.
-- **Log lines** (q=2048): `fast travel, all <n> quests' markers in place, some after the player came: <bool>`
+  quest fades to black, reads the player again (indoors, in another world or off the map by then: it fades back in and
+  stops, since going indoors and out loads the world anyway), moves them to the stop, moves them back to the same spot
+  by one of its markers (then `SetPosition` there once the 3D is in, as the new game's ride up does, only if they are
+  back in the same world), turns them back to their facing and fades in. Once a session (`HopLimit`). It also waits
+  while the player is dead or seated (`GetSitState`). A player in the stop's cell on a later pass (a move back that did
+  not take, a move out that landed late, a save made there) is brought back again: the stop has no door. A first
+  quest out of moves before every marker stood still reloads too, so the log says why when none comes.
+- **Log lines** (q=2048): `fast travel, all <n> quests' markers in place or out of moves, some after the player came: <bool>`
   (`Game.IsFastTravelEnabled`, `IsFastTravelControlsEnabled`, and the first marker's `IsMapMarkerVisible`,
   `CanFastTravelToMarker`), `reload 1: out to ...`, `reload 1: at the stop=...`, `reload 1 back: ... same=<bool>`
-  (whether the world is the one the reload began in), then the fast travel line again.
+  (whether the world is the one the reload began in), then the fast travel line again; or `reload 1 called off: ...`,
+  or `reload waits: ...` once.
 
 Open until the play test: whether the reload makes the markers show and discoverable as the Cydonia trip did,
 whether 16 quests place faster than 4 (the game may answer calls from more scripts at once no faster), whether the
 world keeps its instance through the reload (`same=`), and whether `SetPosition` holds a marker where a move left it
-off. The new game's elevator ride could hold the screen dark until the markers are in and do the reload itself, so
+off (a `SetPosition` in a `MoveTo`'s own tick was ignored for the player in the new game's `FinishSurface`; if it is
+for markers too, they are moved again as before). The stop is lit as PluginSpike's door test cell, but this
+unlit, persistent-marker version of it has not been in game. The new game's elevator ride could hold the screen dark until the markers are in and do the reload itself, so
 the player sees one ride; the new game belongs to the Strip-down thread, so that waits for its v11 fix.

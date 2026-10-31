@@ -1049,9 +1049,12 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(place.index("if settledWorld == w && Probe(player)"), loop)
         self.assertLess(place.index("settledWorld = None"), loop)
         self.assertRegex(place[loop:], r"if i >= Markers\.Length && moved == 0\s+settledWorld = w")
+        # a first quest out of moves before every marker stood still reloads too (Ready counts it)
+        self.assertRegex(place[loop:], r"elseif moves >= MaxMoves\s+Reload\(player, w\)")
         self.assertEqual(place.count("moved += 1"), 1)
         probe = self.fn("bool Function Probe", "EndFunction")
-        self.assertIn("probeAt = (probeAt + 1) % n", probe)
+        self.assertIn("int i = probeAt % n", probe)                       # a new build can list fewer markers
+        self.assertIn("probeAt = (i + 1) % n", probe)
         self.assertIn("ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance", probe)
         self.assertIn("if player.GetDistance(m) > SameWorld", probe)
         # a new session or a new build reads them all again
@@ -1075,12 +1078,27 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("q = Game.GetForm(id + k) as FO4SF_MapMarkers", reload)
         self.assertRegex(reload, r"if !q\.Ready\(w\)\s+return")
         self.assertIn("if !anyLate || Utility.GetCurrentRealTime() - enteredAt < HopDelay", reload)
-        self.assertIn("if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled()", reload)
+        self.assertIn("if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled() || player.IsDead() "
+                      "|| player.GetSitState() != 0", reload)
         # dark first, the count before the move (a reload that fails is not tried again), the stop, then back
         out = reload.index("player.MoveTo(HopMarker)")
-        self.assertLess(reload.index("hops += 1"), out)
-        self.assertLess(reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)"), out)
-        self.assertLess(reload.index("hopOut = True"), out)
+        dark = reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)")
+        self.assertLess(reload.index("hops += 1"), dark)
+        self.assertLess(dark, out)
+        # the player as they are just before the move, with the screen black: w was read when the pass began, and a
+        # load door can take them away in between (review of #624); the way back is read only then, and a reload
+        # called off fades the screen back in
+        recheck = reload.index("if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX "
+                               "|| hopY < MinY || hopY > MaxY")
+        self.assertLess(dark, reload.index("hopX = player.GetPositionX()"))
+        self.assertLess(reload.index("hopX = player.GetPositionX()"), recheck)
+        self.assertLess(recheck, out)
+        for way_back in ("hopZ = player.GetPositionZ()", "hopA = player.GetAngleZ()", "hopAnchor = a", "hopWorld = w"):
+            self.assertLess(recheck, reload.index(way_back))
+            self.assertLess(reload.index(way_back), out)
+        called_off = reload[recheck:reload.index("endif", recheck)]
+        self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", called_off)
+        self.assertIn("return", called_off)
         self.assertLess(out, reload.index("ComeBack(player)"))
         self.assertLess(reload.index("ComeBack(player)"), reload.index("q.Reentered(w)"))
         # later than the new game's landing check, 3 s after its arrival (FO4SF_NewGameQuest.psc CheckLanding)
@@ -1096,6 +1114,9 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("float ax = LocalX[hopAnchor] + MergeOffsetX", back)
         # once outside with the 3D in, the spot (a SetPosition in the MoveTo's own tick is ignored) and the facing
         self.assertLess(back.index("while !player.Is3DLoaded()"), back.index("player.SetPosition(hopX, hopY, hopZ)"))
+        # the spot is one in hopWorld: a world made again on the way, or a save made there loaded in a new launch, is not
+        self.assertIn("bool snapped = back == hopWorld && dx * dx + dy * dy > 4.0", back)
+        self.assertLess(back.index("WorldSpace back = player.GetWorldSpace()"), back.index("bool snapped"))
         self.assertIn("player.SetAngle(0.0, 0.0, hopA)", back)
         # every way out of ComeBack fades the screen back in
         parts = back.split("return")
@@ -1104,8 +1125,9 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", parts[-1])
         # a player still at the stop (a move back that did not take, or a save made there) is brought back next pass
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
-        self.assertRegex(place, r"if hopOut && player\.GetParentCell\(\) == HopMarker\.GetParentCell\(\)\s+ComeBack\(player\)")
-        self.assertIn("hopOut = False", place)                          # outdoors: not at the stop
+        # by the stop's cell alone (it has no door): a move out that lands after ComeBack gave up on it still comes back
+        self.assertRegex(place, r"if HopMarker != None && player\.GetParentCell\(\) == HopMarker\.GetParentCell\(\)\s+ComeBack\(player\)")
+        self.assertNotIn("hopOut", self.text)
 
     def test_the_fast_travel_line_reads_the_switches_and_a_marker(self):
         line = self.fn("Function FastTravelLine", "EndFunction")
