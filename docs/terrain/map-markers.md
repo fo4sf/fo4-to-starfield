@@ -589,7 +589,7 @@ So (offline, waits on a play test):
   landing check is done by then), and they are not in combat or a scene and have their movement controls, the first
   quest fades to black, reads the player again (indoors, in another world or off the map by then: it fades back in and
   stops, since going indoors and out loads the world anyway), moves them to the stop, moves them back to the same spot
-  by one of its markers (then `SetPosition` there once the 3D is in, as the new game's ride up does, only if they are
+  by one of its markers in their world (then `SetPosition` there once the 3D is in, as the new game's ride up does, only if they are
   back in the same world), turns them back to their facing and fades in. Once a session (`HopLimit`). It also waits
   while the player is dead or seated (`GetSitState`). A player in the stop's cell on a later pass (a move back that did
   not take, a move out that landed late, a save made there) is brought back again: the stop has no door. A first

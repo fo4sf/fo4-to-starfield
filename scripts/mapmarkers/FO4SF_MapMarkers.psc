@@ -461,13 +461,13 @@ Function Reload(Actor player, WorldSpace w)
         endif
         return
     endif
-    int a = 0                                                 ; the way back: a marker of this quest, in place in w
-    while a < Markers.Length && (Markers[a] == None || refused[a])
-        a += 1
+    int a = 0                                                 ; the way back: a marker of this quest in the player's world
+    while a < Markers.Length && (Markers[a] == None || refused[a] || player.GetDistance(Markers[a]) > SameWorld)
+        a += 1                                                ; (a quest out of moves may have some still in their own)
     endwhile
     hops += 1
     if a >= Markers.Length
-        Trace("reload " + hops + " skipped: no marker of this quest to come back by")
+        Trace("reload " + hops + " skipped: no marker of this quest in the player's world to come back by")
         return
     endif
     Game.FadeOutGame(True, True, 0.0, 0.5, True)
@@ -477,13 +477,13 @@ Function Reload(Actor player, WorldSpace w)
     ; is a spot in w. A reload called off is not tried again: going indoors and out loads the world again anyway
     hopX = player.GetPositionX()
     hopY = player.GetPositionY()
+    hopZ = player.GetPositionZ()
+    hopA = player.GetAngleZ()
     if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX || hopY < MinY || hopY > MaxY
         Game.FadeOutGame(False, True, 0.0, 0.5, False)
         Trace("reload " + hops + " called off: the player went indoors, to another world or off the map")
         return
     endif
-    hopZ = player.GetPositionZ()
-    hopA = player.GetAngleZ()
     hopAnchor = a
     hopWorld = w
     player.MoveTo(HopMarker)

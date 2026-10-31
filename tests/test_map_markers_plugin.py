@@ -1090,12 +1090,16 @@ class ScriptContractTests(unittest.TestCase):
         # called off fades the screen back in
         recheck = reload.index("if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX "
                                "|| hopY < MinY || hopY > MaxY")
-        self.assertLess(dark, reload.index("hopX = player.GetPositionX()"))
-        self.assertLess(reload.index("hopX = player.GetPositionX()"), recheck)
+        for spot in ("hopX = player.GetPositionX()", "hopY", "hopZ = player.GetPositionZ()", "hopA = player.GetAngleZ()"):
+            self.assertLess(dark, reload.index(spot))
+            self.assertLess(reload.index(spot), recheck)
         self.assertLess(recheck, out)
-        for way_back in ("hopZ = player.GetPositionZ()", "hopA = player.GetAngleZ()", "hopAnchor = a", "hopWorld = w"):
+        for way_back in ("hopAnchor = a", "hopWorld = w"):
             self.assertLess(recheck, reload.index(way_back))
             self.assertLess(reload.index(way_back), out)
+        # the way back is a marker in the player's world: a quest out of moves may have some still in their own
+        self.assertIn("while a < Markers.Length && (Markers[a] == None || refused[a] || player.GetDistance(Markers[a]) > SameWorld)",
+                      reload)
         called_off = reload[recheck:reload.index("endif", recheck)]
         self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", called_off)
         self.assertIn("return", called_off)
