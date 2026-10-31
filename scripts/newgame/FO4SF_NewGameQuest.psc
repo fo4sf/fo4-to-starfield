@@ -14,12 +14,13 @@ Scriptname FO4SF_NewGameQuest extends Quest
    30 cog door opened: from its console
    40 on the surface: the elevator ride is over
    200 complete: landed, or put on the fallback spot}
-; KEEP EVERY DOC COMMENT AND STRING OF THIS SCRIPT SHORT: tests/test_papyrus_strings.py holds each under 3,072 bytes.
+; KEEP EVERY DOC COMMENT AND STRING OF THIS SCRIPT SHORT: tests/test_papyrus_strings.py holds each at or under 3,072.
 ; newgame_v11 crashed the game while it loaded its data files, before the main menu, on every launch (29 to 31 Oct
 ; 2026), and v10 did not: the crash dump's register held this script's doc comment bytes 4,096 to 4,103, from a doc
 ; comment of 4,196 bytes (v10's was 2,745). So Starfield's script loader copies a doc comment into a 4 KB buffer and
 ; a longer one overwrites what follows it (supported hypothesis, from that dump). The notes below are ";" comments,
-; which the compiler leaves out of the .pex.
+; which the compiler leaves out of the .pex. Name calls in them in words, with no opening bracket after the name:
+; tests/test_newgame.py counts the calls in this file's text, these notes included.
 ;
 ; Why the start must move the player itself (records, PC 21 Oct; the three runs of 28 Oct): the startup quest is what
 ; moves the player into the game. MQ101's stage 0 picks its start by the GLOB MQ101Debug and the matching entry's

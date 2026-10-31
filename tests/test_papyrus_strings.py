@@ -11,6 +11,7 @@ LIMIT leaves a quarter of the buffer free: a Windows checkout may turn each line
 terminator may follow. The longest doc comment that has loaded in game is 2,745 bytes (v10's header).
 """
 import os
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,26 +62,51 @@ def size(text):
     return len(text.encode("utf-8")) + text.count("\n")
 
 
-def sources():
-    for dirpath, dirnames, filenames in os.walk(ROOT):
+def sources(root=ROOT):
+    for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn.lower().endswith(".psc"):
                 yield os.path.join(dirpath, fn)
 
 
+def too_long(root=ROOT):
+    """["path:line kind of N bytes"] for every doc comment and string literal over LIMIT in the .psc files under root,
+    sorted by path."""
+    out = []
+    for path in sorted(sources(root)):
+        with open(path, encoding="utf-8") as f:
+            for kind, line, text in papyrus_texts(f.read()):
+                if size(text) > LIMIT:
+                    out.append(f"{os.path.relpath(path, root).replace(os.sep, '/')}:{line} {kind} of {size(text)} bytes")
+    return out
+
+
 class PapyrusStringsTest(unittest.TestCase):
     def test_every_doc_comment_and_string_is_short(self):
-        paths = list(sources())
-        self.assertGreater(len(paths), 10)                   # the repo's scripts were found
-        too_long = []
-        for path in paths:
-            with open(path, encoding="utf-8") as f:
-                for kind, line, text in papyrus_texts(f.read()):
-                    if size(text) > LIMIT:
-                        too_long.append(f"{os.path.relpath(path, ROOT)}:{line} {kind} of {size(text)} bytes")
-        self.assertEqual(too_long, [], f"over {LIMIT} bytes (Starfield's script loader crashed on one of 4,196): "
-                                       "shorten it, and move long notes into ';' comments")
+        self.assertGreaterEqual(len(list(sources())), 21)    # the repo's scripts were found (21 on 31 Oct 2026)
+        self.assertEqual(too_long(), [], f"over {LIMIT} bytes (Starfield's script loader crashed on one of 4,196): "
+                                         "shorten it, and move long notes into ';' comments")
+
+    def test_the_scan_finds_a_long_doc_and_a_long_string_in_any_file(self):
+        """The repo-wide scan itself, on a made-up folder: at the limit passes, one byte over fails, for a doc comment
+        and a string, in a second file and a subfolder too; folders in SKIP_DIRS are left out."""
+        at_limit = "x" * LIMIT
+        over = "y" * (LIMIT + 1)
+        files = {
+            "A.psc": f'Scriptname A extends Quest\n{{{at_limit}}}\nstring Property S = "{at_limit}" Auto Const\n',
+            "sub/B.psc": f"Scriptname B extends Quest\n{{{over}}}\n",
+            "sub/C.psc": f'Scriptname C extends Quest\n\nstring Property S = "{over}" Auto Const\n',
+            "obj/D.psc": f"Scriptname D extends Quest\n{{{over}}}\n",
+        }
+        with tempfile.TemporaryDirectory() as root:
+            for rel, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+                with open(os.path.join(root, rel), "w", encoding="utf-8", newline="\n") as f:
+                    f.write(text)
+            self.assertEqual(len(list(sources(root))), 3)
+            self.assertEqual(too_long(root), [f"sub/B.psc:2 doc of {LIMIT + 1} bytes",
+                                              f"sub/C.psc:3 string of {LIMIT + 1} bytes"])
 
     def test_the_quest_script_header_is_the_short_one(self):
         """The doc comment that crashed the game is short now, its stage contract kept (the stage contract test reads
@@ -90,7 +116,7 @@ class PapyrusStringsTest(unittest.TestCase):
         texts = papyrus_texts(src)
         kind, line, header = texts[0]
         self.assertEqual((kind, line), ("doc", 2))
-        self.assertLess(size(header), LIMIT)
+        self.assertLessEqual(size(header), LIMIT)
         self.assertIn("Stages are the published contract", header)
         self.assertNotIn("load the cell for", header)      # the crash dump's bytes are in a ";" note now
         notes = src[src.index("}") + 1:src.index("GlobalVariable Property GameDaysPassed")]

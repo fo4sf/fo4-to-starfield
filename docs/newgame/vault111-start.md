@@ -772,29 +772,39 @@ and every other user log stayed untouched, and Papyrus.0.log to .3.log hold only
 before the exit. FO4SFBorder's log has its `load` line but no `post_data_load` line for each of the four SFSE launches
 of 31 Oct, while a launch that boots gets that line 25 to 26 s after `load` (29 Oct 05:03 UTC, 26.5 s; newgame_v10 on
 31 Oct 18:58 UTC, 25.4 s): the game died while it loaded its data files, before the main menu (**verified**). Two of
-the crashes came after the local model was unloaded, one with 13.4 GiB free, so memory is ruled out (**verified**).
+the crashes came after the local model was unloaded, one with 13.4 GiB free, so memory is not the cause (**supported**:
+one relayed sample; the stronger sign is the read itself, a pointer made of text, not a failed allocation).
 newgame_v10 booted and played to stage 200 that afternoon.
 
 **The cause:** the exception dump's rax was 0x20726f66206c6c65, the eight bytes `ell for `. FO4SF_NewGameQuest.psc's
 doc comment (the `{...}` after its `Scriptname` line) was 4,196 bytes in v11 (v10's: 2,745), and its bytes 4,096 to
 4,103 are exactly `ell for `, from "the script must load the cell for (Debug.CenterOnCell)" (**verified**: the dump and
 the source). The compiler keeps doc comments in the .pex, and the game loads the scripts its records name while it
-loads the data files (the bind errors in Papyrus.0.log come from then). So Starfield's script loader copies a doc
-comment into a 4 KB buffer, and the bytes past it overwrite a pointer the loader then uses (**supported hypothesis**,
-from that one dump). No other doc comment or string of ours is longer than 2,376 bytes.
+loads the data files (the bind errors in Papyrus.0.log come from then); both are standard Papyrus behaviour, not seen
+here (the repo has no .pex reader). So Starfield's script loader copies a doc comment into a 4 KB buffer, and the bytes
+past it overwrite a pointer the loader then uses (**supported hypothesis**, from that one dump). No other doc comment
+or string of ours is longer than 2,353 bytes.
+
+Byte counts in this section are of the files with LF line ends, and the dump matches them: with CRLF line ends
+`ell for ` would start at byte 4,135. The test counts each line end as two bytes all the same (its own figures, such
+as 2,376 for that 2,353-byte comment, are larger), as a margin, not because the evidence needs it.
 
 **The fix (newgame_v12):** that doc comment is now 1,409 bytes and keeps the stage contract (section 9); the notes it
 carried are `;` comments, which the compiler leaves out of the .pex. `tests/test_papyrus_strings.py` holds every doc
 comment and string literal of the repo's .psc files at or under 3,072 bytes, each line end counted as two bytes (a
 Windows checkout); the bytes past 4,096 are where the crash came from. Nothing else changed: the plugin's records and
-the script's code are v11's, so section 13 is still what run 4 must show, on newgame_v12.
+the script's code are v11's, so section 13 is still what run 4 must show, on newgame_v12. Before run 4, Install checks
+two things the repo cannot: the staged FO4SFNewGame.esm's CRC is v11's 418C491C (the writer is unchanged; a mismatch is
+reported, not assumed away), and no string in the staged .pex is anywhere near 4 KB.
 
 **What would show it wrong:** newgame_v12 dying the same way (no `post_data_load`, the same address). The next suspect
 is then the startup override record, the only other change from v10 that the game reads while it loads its data
 files; a build without it (v11's start never runs, MQ101 starts as in vanilla) tells. Not suspected now: the override
 is in no part of the dump, and Roleplayers' Alternate Start and No Ship Fast Start ship the same override on 1.16.244
 (section 2, option F). No Ship Fast Start's placeholder ship, sustenance and Cruise Mode steps run once a game is going,
-and run 3 played to stage 200 with no ship, so they cannot explain a crash before the main menu.
+and run 3 played to stage 200 with no ship, so they cannot explain a crash before the main menu. A limit on a
+script's doc comments in total is not ruled out either: the quest script's 44 doc comments come to 19,123 bytes in v12
+(v10, which booted: 14,109; v11: 21,910), though the exact offset 4,096 points at one comment.
 
 ## Sources
 
