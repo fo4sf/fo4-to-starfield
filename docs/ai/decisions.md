@@ -1310,8 +1310,9 @@ decided the import path); keeping the order as a parameter (two orders in the co
   the line, is cut to 1,409 bytes (the stage contract kept); the build from this change is newgame_v12, v11's records
   and code with that comment short.
 - Why: newgame_v11 crashed Starfield on every launch (29 to 31 Oct) while the game loaded its data files, before the
-  main menu (FO4SFBorder's log: no `post_data_load`; two of the crashes with 13.4 GiB free), and newgame_v10 did not.
-  The crash dump's rax held `ell for `, exactly the bytes 4,096 to 4,103 of that 4,196-byte doc comment (v10's: 2,745).
+  main menu (FO4SFBorder's log: no `post_data_load`; two of the crashes came after the local model was unloaded, one
+  with 13.4 GiB free), and newgame_v10 did not. The crash dump's rax held `ell for `, exactly the bytes 4,096 to
+  4,103 of that 4,196-byte doc comment (v10's: 2,745).
   So the game's script loader copies a doc comment into a 4 KB buffer and the bytes past it overwrite a pointer
   (supported hypothesis, one dump; docs/newgame/vault111-start.md section 13a).
 - Alternatives: cut the comment alone, with no test (the next long comment would crash the game again, with nothing in

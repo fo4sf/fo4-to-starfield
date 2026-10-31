@@ -184,10 +184,10 @@ or moves to the next phase without blocking it. Items 1 to 6 below carry the det
   [section 12](newgame/vault111-start.md), [row 42](owner/playtest-issues.md). The phase exit's quest-list check was
   not looked at. Since then newgame_v11 (29 Oct, the owner's pick F) makes our quest Starfield's startup quest, our own
   start ([section 13](newgame/vault111-start.md)). Installed, newgame_v11 crashed the game on every launch while it
-  loaded its data files (29 to 31 Oct): its quest script's doc comment had grown past the 4 KB Starfield's script
-  loader copies it into; newgame_v10 boots and played to stage 200 on 31 Oct
-  ([section 13a](newgame/vault111-start.md)). Next: restage newgame_v12 (v11 with that comment short) from main,
-  reinstall on the owner's line, new game from the main menu.
+  loaded its data files (29 to 31 Oct): its quest script's doc comment had grown past 4 KB, and the crash dump points
+  at Starfield's script loader copying it into a 4 KB buffer (supported hypothesis); newgame_v10 boots and played to
+  stage 200 on 31 Oct ([section 13a](newgame/vault111-start.md)). Next: restage newgame_v12 (v11 with that comment
+  short) from main, reinstall on the owner's line, new game from the main menu.
 - **The animated doors port, phase 2** (DoorAnim): #489 merged (main f48d340); the PC cards (compile5, the
   doors_anim_b00 port build, the read-only elevator read) are queued after cards J, K and L and had not run at 00:15
   UTC 23 Oct; the owner's line "Install the animated doors port." follows a passing build. Step C (the exterior side)
