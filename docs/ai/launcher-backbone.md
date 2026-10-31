@@ -57,7 +57,9 @@ combined probes, the map markers and the bridge (the probes and the markers sinc
 Plugins.txt line read as an owner's edit and every restore with them installed was refused). `restore` plans in the
 swap scripts' order (bridge off, markers off, the probes off, experiment off, port off; then the reverse, with
 `exp_install.py order` after the experiment), reinstalling from the source folder each record names; a source folder
-that is gone is a conflict. The markers and the combined probe ride on the experiment and the quest probe on the port
+that is gone is a conflict. Before any uninstall, staged input inventories and marker/quest-probe pins are checked
+against the target receipts; legacy experiment records without `source_inputs` are noted as unverified, and stages
+must remain unchanged until apply finishes. The markers and the combined probe ride on the experiment and the quest probe on the port
 (`restore.RIDES_ON`: their installers pin that build), so when the base changes they come off first and go back on
 after it, even with their own record unchanged. It restores Plugins.txt bytes only when every differing line names a plugin an
 installer owns. It never deletes a file itself, leaves unowned new files alone (reported), refuses while

@@ -186,9 +186,16 @@ class AddonRestoreTests(unittest.TestCase):
         return d
 
     def test_a_core_swap_takes_the_markers_off_and_puts_them_back(self):
-        marks = {"schema": 2, "dir": self.markers, "plugin": mm.PLUGIN, "source_sha256": "m"}
-        a = {"exp_dir": self.folder("core_a"), "plugins": [CORE], "pack": True, "source_inputs": {"plugin/x": "1"}}
-        b = dict(a, exp_dir=self.folder("core_b"), source_inputs={"plugin/x": "2"})
+        marks = {"schema": 2, "dir": self.markers, "plugin": mm.PLUGIN,
+                 "source_sha256": mm.kit.source_inventory(self.markers)}
+        other = self.folder("core_b")
+        write(os.path.join(other, CORE), tes4())
+        def core_record(folder):
+            return {"exp_dir": folder, "plugins": [CORE], "pack": True,
+                    "source_inputs": exp_install.source_inventory(folder, [CORE]),
+                    "files": {CORE: exp_install.digest(os.path.join(folder, CORE))}}
+        a, b = core_record(self.exp), core_record(other)
+        write(os.path.join(self.markers, mm.PIN), json.dumps({"masters": b["files"]}).encode())
         p = restore.plan(self.records(experiment=b, markers=marks), self.records(experiment=a, markers=dict(marks)), ROOT)
         self.assertEqual(p["conflicts"], [])
         self.assertEqual([s["what"] for s in p["steps"]],
@@ -196,7 +203,6 @@ class AddonRestoreTests(unittest.TestCase):
                           "install markers"])
         self.assertTrue(any(n.startswith("markers: taken off and put back around the experiment") for n in p["notes"]))
         self.assertEqual(p["steps"][-1]["argv"][2:], ["install", "--dir", self.markers, "--starfield", self.game])
-        # the same core on both sides: the markers are left alone
         p = restore.plan(self.records(experiment=a, markers=marks), self.records(experiment=dict(a), markers=marks), ROOT)
         self.assertEqual(p["steps"], [])
 
@@ -210,21 +216,40 @@ class AddonRestoreTests(unittest.TestCase):
         self.assertNotIn("install markers", [s["what"] for s in p["steps"]])
 
     def test_the_quest_probe_rides_on_the_port_and_the_combined_probe_on_the_core(self):
-        quest = {"dir": self.folder("qprobe"), "plugin": "FO4SFQuestProbe.esm", "source_sha256": "q"}
-        combined = {"dir": self.folder("focc_probe"), "plugin": "FO4SFCombinedProbe.esm", "source_sha256": "c"}
-        port1 = {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {"sha256": "1"}}}
-        port2 = {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {"sha256": "2"}}}
-        core = {"exp_dir": self.folder("core_a"), "plugins": [CORE]}
+        port_a, port_b = self.folder("port_a"), self.folder("port_b")
+        for folder, payload in ((port_a, tes4()), (port_b, tes4(["Starfield.esm"]))):
+            write(os.path.join(folder, "FO4Port.esm"), payload)
+        def port_record(folder):
+            return {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {
+                "sha256": exp_install.digest(os.path.join(folder, "FO4Port.esm"))}}}
+        port1, port2 = port_record(port_a), port_record(port_b)
+        def probe_record(folder, plugin):
+            write(os.path.join(folder, plugin), tes4(["Starfield.esm"]))
+            write(os.path.join(folder, "Data", "Scripts", "Probe.pex"), b"synthetic-pex")
+            sources = {plugin: exp_install.digest(os.path.join(folder, plugin)),
+                       "Data/Scripts/Probe.pex": exp_install.digest(os.path.join(folder, "Data", "Scripts", "Probe.pex"))}
+            return {"dir": folder, "plugin": plugin, "source_sha256": sources}
+        quest = probe_record(self.folder("qprobe"), "FO4SFQuestProbe.esm")
+        write(os.path.join(quest["dir"], "plan.json"), json.dumps({"checked_against_sha256": {
+            "FO4Port.esm": port2["artifacts"]["FO4Port.esm"]["sha256"]}}).encode())
+        combined = probe_record(self.folder("focc_probe"), "FO4SFCombinedProbe.esm")
+        other = self.folder("core_b")
+        write(os.path.join(other, CORE), tes4())
+        def core_record(folder):
+            return {"exp_dir": folder, "plugins": [CORE],
+                    "source_inputs": exp_install.source_inventory(folder, [CORE]),
+                    "files": {CORE: exp_install.digest(os.path.join(folder, CORE))}}
+        core, core_b = core_record(self.exp), core_record(other)
         p = restore.plan(self.records(port=port2, experiment=core, quest_probe=quest, combined_probe=combined),
                          self.records(port=port1, experiment=dict(core), quest_probe=quest, combined_probe=combined),
-                         ROOT, port_staging=self.folder("port"))
+                         ROOT, port_staging=port_b)
         self.assertEqual(p["conflicts"], [])
         self.assertEqual([s["what"] for s in p["steps"]],
                          ["uninstall quest_probe", "uninstall port", "install port", "install quest_probe"])
         self.assertTrue(p["steps"][0]["argv"][1].endswith(os.path.join("questprobe", "questprobe_install.py")))
-        core_b = dict(core, exp_dir=self.folder("core_b"))
         p = restore.plan(self.records(experiment=core_b, combined_probe=combined),
                          self.records(experiment=core, combined_probe=combined), ROOT)
+        self.assertEqual(p["conflicts"], [])
         self.assertEqual([s["what"] for s in p["steps"]],
                          ["uninstall combined_probe", "uninstall experiment", "install experiment",
                           "order experiment plugins", "install combined_probe"])

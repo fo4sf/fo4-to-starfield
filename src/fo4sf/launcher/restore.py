@@ -273,6 +273,102 @@ def source_dir(comp, rec):
     return (rec or {}).get("exp_dir" if comp in EXP_KIT else "dir") if comp != "port" else None
 
 
+def stage_problems(target, change, notes):
+    """Read-only checks of inputs to be reinstalled, before any uninstall. Legacy experiment gaps go to notes.
+
+    Pins refer to the target receipts, not the currently installed base that restore is about to replace. Installers
+    still recheck their own inputs: this preflight does not lock stage folders against later concurrent edits.
+    """
+    problems = []
+
+    def inventory(value):
+        if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                                              for k, v in value.items()):
+            raise ValueError("source inventory must be a filename-to-sha256 mapping")
+        normalized = {k.replace("\\", "/"): v for k, v in value.items()}
+        if len(normalized) != len(value):
+            raise ValueError("source inventory has duplicate normalized filenames")
+        return normalized
+
+    def staged_path(directory, relative):
+        if not isinstance(relative, str) or not relative or any(
+                p in ("", ".", "..") or ":" in p for p in relative.replace("\\", "/").split("/")):
+            raise ValueError(f"invalid staged filename {relative!r}")
+        root = os.path.realpath(directory)
+        path = os.path.realpath(os.path.join(root, *relative.replace("\\", "/").split("/")))
+        if os.path.commonpath((root, path)) != root or path == root:
+            raise ValueError(f"staged filename leaves its source folder: {relative!r}")
+        return path
+
+    def unreadable(error):
+        raise error
+
+    for comp in INSTALL_ORDER:
+        if change.get(comp) not in ("install", "replace", "recover") or comp == "port":
+            continue
+        rec = target["records"].get(comp) or {}
+        directory = source_dir(comp, rec)
+        if not directory or not os.path.isdir(directory):
+            continue                                    # the existing install loop reports missing source folders
+        key = "source_inputs" if comp in EXP_KIT else "source_sha256"
+        try:
+            if comp in EXP_KIT and rec.get(key) is None:
+                notes.append(f"{comp}: snapshot has no source_inputs; staged contents cannot be preflighted")
+            else:
+                wanted = inventory(rec.get(key))
+                plugins = rec.get("plugins") if comp in EXP_KIT else [rec.get("plugin")]
+                if not isinstance(plugins, list) or not plugins:
+                    raise ValueError("record names no staged plugins")
+                have = {}
+                for name in plugins:
+                    path = staged_path(directory, name)
+                    have[("plugin/" if comp in EXP_KIT else "") + name.replace("\\", "/")] = files.sha256(path)
+                data = staged_path(directory, "Data")
+                if os.path.lexists(data):                 # a plugin-only stage need not have a Data tree
+                    for root, dirs, names in os.walk(data, onerror=unreadable):
+                        dirs.sort()
+                        for name in sorted(names):
+                            relative = os.path.relpath(os.path.join(root, name), directory).replace("\\", "/")
+                            have[relative] = files.sha256(staged_path(directory, relative))
+                for name in sorted(set(wanted) | set(have)):
+                    if wanted.get(name) != have.get(name):
+                        why = "missing" if name not in have else "unrecorded" if name not in wanted else "changed"
+                        problems.append(f"{comp}: staged {name} {why} since the snapshot; restore refused")
+        except (OSError, ValueError, TypeError) as error:
+            problems.append(f"{comp}: staged inputs cannot be checked: {error}")
+
+        pin_file = "core.json" if comp == "markers" else "plan.json" if comp == "quest_probe" else None
+        if pin_file is None:
+            continue                                    # combined probe's installer enforces no base hash
+        try:
+            pin = files.load_json(staged_path(directory, pin_file))
+            if comp == "markers":
+                masters = pin["masters"]
+                if not isinstance(masters, dict) or not masters:
+                    raise ValueError("masters must be a nonempty filename-to-sha256 mapping")
+                base = (target["records"].get("experiment") or {}).get("files") or {}
+                base = {k.casefold(): v for k, v in base.items()}
+                for name, digest in masters.items():
+                    if not isinstance(name, str) or not isinstance(digest, str) or not digest:
+                        raise ValueError("masters must name a file and sha256")
+                    have = base.get(name.casefold())
+                    if not have or have != digest:
+                        problems.append(f"markers: core.json pin for {name} differs from the target experiment "
+                                        "or its target master is missing")
+            else:
+                pins = pin["checked_against_sha256"]
+                wanted = {k.casefold(): v for k, v in pins.items()}.get("fo4port.esm")
+                artifacts = (target["records"].get("port") or {}).get("artifacts") or {}
+                artifact = {k.casefold(): v for k, v in artifacts.items()}.get("fo4port.esm") or {}
+                have = artifact.get("sha256")
+                if not isinstance(wanted, str) or not wanted or not have or wanted != have:
+                    problems.append("quest_probe: plan.json pin for FO4Port.esm differs from the target port "
+                                    "or its target artifact is missing")
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            problems.append(f"{comp}: {pin_file} cannot be checked: {error}")
+    return problems
+
+
 def plan(target, current, repo, port_staging=None):
     """{"steps": [{"what", "argv"}], "plugins_txt": "same" | "restore" | "conflict", "conflicts": [...],
     "notes": [...]}: what apply would do to turn `current` into `target`."""
@@ -314,6 +410,7 @@ def plan(target, current, repo, port_staging=None):
             change[rider] = "replace"
             notes.append(f"{rider}: taken off and put back around the {base} change (its installer pins the "
                          f"installed {base})")
+    conflicts.extend(stage_problems(target, change, notes))
     for comp in UNINSTALL_ORDER:
         if change.get(comp) in ("uninstall", "replace", "recover"):
             steps.append({"what": f"uninstall {comp}",
