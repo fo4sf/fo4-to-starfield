@@ -709,7 +709,9 @@ console.log(JSON.stringify(out));
 class ReportPluginTests(unittest.TestCase):
     # .opencode/plugin/fo4-reports.js, driven with the events and hook calls OpenCode 1.18.35 makes (read from its code)
     HARNESS = r"""
-const [url, stepsJson] = process.argv.slice(2);
+import { readFileSync } from "node:fs";
+const [url, stepsFile] = process.argv.slice(2);
+const stepsJson = readFileSync(stepsFile, "utf8");
 const mod = await import(url);
 const out = { exports: Object.entries(mod).map(([k, v]) => [k, typeof v]) };
 const hooks = await mod.default({});
@@ -740,77 +742,126 @@ console.log(JSON.stringify(out));
         harness = os.path.join(d, "harness.mjs")
         with open(harness, "w") as f:
             f.write(self.HARNESS)
-        r = subprocess.run(["node", harness, "file://" + plugin, json.dumps(steps)], capture_output=True, text=True,
-                           timeout=60)
+        with open(os.path.join(d, "steps.json"), "w", encoding="utf-8") as f:
+            json.dump(steps, f)
+        r = subprocess.run(["node", harness, "file://" + plugin, os.path.join(d, "steps.json")], capture_output=True,
+                           text=True, encoding="utf-8", timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
     @staticmethod
-    def answer(session, msg, text, finish="stop", summary=False):
+    def answer(session, msg, text, finish="stop", summary=False, parts=()):
+        """The events of one assistant step: created, its text part (then any other parts), finished."""
         info = {"id": msg, "sessionID": session, "role": "assistant", **({"summary": True} if summary else {})}
-        return [["event", {"type": "message.updated", "properties": {"sessionID": session, "info": info}}],
-                ["event", {"type": "message.part.updated", "properties": {"sessionID": session, "part": {
-                    "id": msg + "-p", "messageID": msg, "sessionID": session, "type": "text", "text": text}}}],
-                ["event", {"type": "message.updated", "properties": {"sessionID": session,
-                                                                      "info": dict(info, finish=finish)}}]]
+        def part(n, kind, **more):
+            return ["event", {"type": "message.part.updated", "properties": {"sessionID": session, "part": {
+                "id": f"{msg}-p{n}", "messageID": msg, "sessionID": session, "type": kind, **more}}}]
+        return ([["event", {"type": "message.updated", "properties": {"sessionID": session, "info": info}}],
+                 part(0, "text", text=text)] + [part(n + 1, kind, **more) for n, (kind, more) in enumerate(parts)] +
+                [["event", {"type": "message.updated", "properties": {"sessionID": session,
+                                                                      "info": dict(info, finish=finish)}}]])
 
     @staticmethod
     def task(session, text):
-        result = f'<task id="{session}" state="completed">\n\n<task_result>\n\n{text}\n\n</task_result>\n\n</task>'
+        # the task tool's result as 1.18.35 lays it out (Rr: the lines joined with "\n")
+        result = "\n".join([f'<task id="{session}" state="completed">', "<task_result>", text, "</task_result>",
+                            "</task>"])
         return ["after", {"tool": "task", "sessionID": "lead", "callID": "c1", "args": {}},
                 {"title": "t", "metadata": {"parentSessionId": "lead", "sessionId": session}, "output": result}]
 
-    def start(self, session, parent):
+    @staticmethod
+    def start(session, parent, event="session.created"):
         info = {"id": session, **({"parentID": parent} if parent else {})}
-        return [["event", {"type": "session.created", "properties": {"sessionID": session, "info": info}}]]
+        return [["event", {"type": event, "properties": {"sessionID": session, "info": info}}]]
+
+    @staticmethod
+    def compacts(session, overflow=False):
+        return ["autocontinue", {"sessionID": session, "agent": "fo4-qa", "overflow": overflow}]
 
     def test_a_subagents_report_survives_a_compaction_after_it(self):
         report = "Bugs found: 3. Tests: tests/test_x.py. Odd text: $& $1 </task_result>"
         steps = (self.start("lead", None) + self.start("sub", "lead") +
-                 self.answer("sub", "m1", "reading files", finish="tool-calls") + self.answer("sub", "m2", report) +
+                 self.answer("sub", "m1", "reading files", finish="tool-calls", parts=[("tool", {"tool": "read"})]) +
+                 # the thinking comes as its own part, after the text here, and is not the report; a tool the
+                 # provider ran itself does not keep OpenCode's loop going
+                 self.answer("sub", "m2", report, parts=[
+                     ("reasoning", {"text": "I should check line 54"}),
+                     ("tool", {"tool": "web", "metadata": {"providerExecuted": True}})]) +
                  self.answer("sub", "s1", "SUMMARY of the session", summary=True) +
-                 [["autocontinue", {"sessionID": "sub", "agent": "fo4-qa", "overflow": False}],
-                  self.task("sub", "SUMMARY of the session")])
+                 [self.compacts("sub"), self.task("sub", "SUMMARY of the session")])
         got = self.run_steps(steps)
         self.assertEqual(got["exports"], [["Fo4Reports", "function"], ["default", "function"]])  # plugins only
         enabled, output = got["results"]
         self.assertFalse(enabled)                           # no "Continue": the subagent stops, as it had
-        self.assertIn("<task_result>\n" + report + "\n</task_result>", output)
-        self.assertNotIn("SUMMARY", output)
-        self.assertTrue(output.startswith('<task id="sub" state="completed">'))
+        self.assertEqual(output, "\n".join(['<task id="sub" state="completed">', "<task_result>", report,
+                                            "</task_result>", "</task>"]))
+
+    def test_a_subagent_resumed_after_a_restart_is_known_from_its_update(self):
+        # A resumed task touches its session, which publishes session.updated with the stored parentID.
+        steps = (self.start("sub", "lead", event="session.updated") + self.answer("sub", "m1", "the report") +
+                 [self.compacts("sub"), self.task("sub", "a summary")])
+        enabled, output = self.run_steps(steps)["results"]
+        self.assertFalse(enabled)
+        self.assertIn("\nthe report\n", output)
 
     def test_every_other_compaction_runs_as_opencode_makes_it(self):
         steps = (self.start("lead", None) + self.start("sub", "lead") +
                  # the owner's own session, after an answer
-                 self.answer("lead", "l1", "a reply to the owner") +
-                 [["autocontinue", {"sessionID": "lead", "overflow": False}]] +
+                 self.answer("lead", "l1", "a reply to the owner") + [self.compacts("lead")] +
                  # a subagent in the middle of its task, after a step that ran out of room, and an overflow
-                 self.answer("sub", "m1", "reading files", finish="tool-calls") +
-                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
-                 self.answer("sub", "m2", "thinking...", finish="length") +
-                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
-                 self.answer("sub", "m3", "a report") +
-                 [["autocontinue", {"sessionID": "sub", "overflow": True}],
-                  # a session the plugin did not see start
-                  ] + self.answer("old", "o1", "a report") + [["autocontinue", {"sessionID": "old", "overflow": False}],
-                                                               self.task("sub", "the reply to Continue")])
+                 self.answer("sub", "m1", "reading files", finish="tool-calls") + [self.compacts("sub")] +
+                 self.answer("sub", "m2", "thinking...", finish="length") + [self.compacts("sub")] +
+                 # a step that ends "stop" with a tool call of its own is not a finished answer for OpenCode either
+                 self.answer("sub", "m3", "Let me read the next file.", parts=[("tool", {"tool": "read"})]) +
+                 [self.compacts("sub")] +
+                 # a step with no text
+                 self.answer("sub", "m4", "") + [self.compacts("sub")] +
+                 self.answer("sub", "m5", "a report") + [self.compacts("sub", overflow=True),
+                                                         self.task("sub", "the reply to Continue")])
         got = self.run_steps(steps)["results"]
-        self.assertEqual(got[:5], [True] * 5)
-        self.assertIn("the reply to Continue", got[5])        # nothing kept, so the task's result is OpenCode's
+        self.assertEqual(got[:6], [True] * 6)
+        self.assertIn("the reply to Continue", got[6])        # nothing kept, so the task's result is OpenCode's
+
+    def test_a_kept_report_goes_only_to_its_own_task(self):
+        steps = (self.start("sub", "lead") + self.answer("sub", "m1", "the report") + [self.compacts("sub")] +
+                 # another tool with the same session id in its metadata is not touched, and the report stays kept
+                 [["after", {"tool": "read"},
+                   {"metadata": {"sessionId": "sub"}, "output": "<task_result>x</task_result>"}],
+                  self.task("sub", "a summary"), self.task("sub", "a second call")])
+        got = self.run_steps(steps)["results"]
+        self.assertEqual(got[1], "<task_result>x</task_result>")
+        self.assertIn("\nthe report\n", got[2])
+        self.assertIn("a second call", got[3])               # used once
 
     def test_a_kept_report_is_not_given_for_a_later_task(self):
         # The task tool's result never came (cancelled), and the Lead resumes the subagent: its new report stands.
-        steps = (self.start("sub", "lead") + self.answer("sub", "m1", "the first report") +
-                 [["autocontinue", {"sessionID": "sub", "overflow": False}]] +
-                 self.answer("sub", "m2", "the second report") +
-                 [self.task("sub", "the second report"),
-                  ["after", {"tool": "read"},
-                   {"metadata": {"sessionId": "sub"}, "output": "<task_result>x</task_result>"}]])
+        steps = (self.start("sub", "lead") + self.answer("sub", "m1", "the first report") + [self.compacts("sub")] +
+                 self.answer("sub", "m2", "the second report") + [self.task("sub", "the second report")])
         got = self.run_steps(steps)["results"]
         self.assertFalse(got[0])
         self.assertIn("the second report", got[1])
         self.assertNotIn("the first report", got[1])
-        self.assertEqual(got[2], "<task_result>x</task_result>")   # other tools are not touched
+
+    def test_a_report_put_back_is_cut_as_opencode_cuts_a_tools_output(self):
+        long_report = "\n".join(f"line {i}" for i in range(2100))
+        wide_report = "é" * 30000                       # 60,000 bytes in UTF-8
+        steps = (self.start("a", "lead") + self.answer("a", "m1", long_report) + [self.compacts("a")] +
+                 [self.task("a", "a summary")] +
+                 self.start("b", "lead") + self.answer("b", "m2", wide_report) + [self.compacts("b")] +
+                 [self.task("b", "a summary")] +
+                 # the summary itself was cut before its closing tag: the result is laid out again
+                 self.start("c", "lead") + self.answer("c", "m3", "the report") + [self.compacts("c")] +
+                 [["after", {"tool": "task"}, {"metadata": {"sessionId": "c"},
+                                               "output": '<task id="c" state="completed">\n<task_result>\nSUMM'}]])
+        got = self.run_steps(steps)["results"]
+        body = got[1].split("<task_result>\n")[1].split("\n</task_result>")[0]
+        self.assertTrue(body.startswith("line 0\n"))
+        self.assertIn("\nline 1999\n\n(the report is cut to 2000 lines", body)
+        self.assertNotIn("line 2000", body)
+        body = got[3].split("<task_result>\n")[1].split("\n</task_result>")[0]
+        self.assertLessEqual(len(body.split("\n\n(the report is cut")[0].encode("utf-8")), 51200)
+        self.assertIn("(the report is cut to 2000 lines or 51200 bytes", body)
+        self.assertEqual(got[5], '<task id="c" state="completed">\n<task_result>\nthe report\n</task_result>\n</task>')
 
 
 class TeamSkillAndCommandTests(unittest.TestCase):
@@ -1054,19 +1105,38 @@ class ScriptTests(unittest.TestCase):
     def test_the_worktree_moves_only_with_no_branch_and_no_other_window(self):
         s = self.script("terminal.ps1")
         block = s[s.index("} elseif ($others) {"):s.index("# HEAD: no branch")]
-        at = [block.index(x) for x in (
-            "$on = \"$(git -C $wt rev-parse --abbrev-ref HEAD)\".Trim()", "$dirty = @(git -C $wt status --porcelain)",
-            "if ($LASTEXITCODE -ne 0 -or -not $on) {", "if ($dirty -and $on -ne 'HEAD') {",
-            "git -C $wt switch -q --detach origin/main", "if ($LASTEXITCODE -ne 0) {",
-            "if (-not $dirty) {", "a stale index.lock?): not starting\"; exit 1", "clash with main's newer files",
-            "} elseif ($dirty) {")]
-        self.assertEqual(at, sorted(at))      # read the state, keep a branch's edits, move, and say what happened
+        # each condition with the line it leads to, in order: read the state, keep a branch's edits, move, tell a clash
+        # (git's "would be overwritten") from any other failure, and say "moved" only when HEAD did move
+        steps = [r'\$on = "\$\(git -C \$wt rev-parse --abbrev-ref HEAD\)"\.Trim\(\)',
+                 r'\$was = "\$\(git -C \$wt rev-parse HEAD\)"\.Trim\(\)',
+                 r'\$dirty = @\(git -C \$wt status --porcelain\)',
+                 r'if \(\$LASTEXITCODE -ne 0 -or -not \$on -or -not \$was\) \{ "could not read [^"]*"; exit 1 \}',
+                 r'if \(\$dirty -and \$on -ne \'HEAD\'\) \{ "note: \$wt has uncommitted changes on \$on, so it stays',
+                 r'else \{\s*\$moved = @\(git -C \$wt switch -q --detach origin/main 2>&1\)\s*'
+                 r'if \(\$LASTEXITCODE -ne 0\) \{',
+                 r'if \(-not \$dirty -or -not \("\$moved" -match \'would be overwritten\'\)\) \{\s*'
+                 r'"could not move \$wt to main \(git: [^\n]*\): not starting"; exit 1\s*\}\s*'
+                 r'"note: \$wt has uncommitted edits that clash with main\'s newer files, so it stays at its older',
+                 r'\} elseif \(\$dirty -and "\$\(git -C \$wt rev-parse HEAD\)"\.Trim\(\) -ne \$was\) \{\s*'
+                 r'"note: moved \$wt to main\'s newest commit with its uncommitted edits"']
+        at = []
+        for step in steps:
+            m = re.search(step, block)
+            self.assertIsNotNone(m, step)
+            at.append(m.start())
+        self.assertEqual(at, sorted(at))
+        # the branch is read again after the move, before the start check and its messages use it
+        recompute = '$on = "$(git -C $wt rev-parse --abbrev-ref HEAD)".Trim()      # HEAD: no branch'
+        self.assertLess(s.index("switch -q --detach origin/main"), s.index(recompute))
+        self.assertLess(s.index(recompute), s.index("$installFiles = "))
         refusal = s[s.index("if ($refusedBehind) {"):]
         refusal = refusal[:refusal.index("exit 1")]
-        for case in ("if ($on -ne 'HEAD') {", "$wt is on $on", "sits at an older main", "if ($others) {",
-                     "close that window", "elseif ($on -ne 'HEAD') {", "merge main into $on",
-                     "move them onto a branch or drop them"):
-            self.assertIn(case, refusal)      # the message names a branch only when there is one
+        for case in (r'if \(\$on -ne \'HEAD\'\) \{\s*"\$wt is on \$on, which differs from main',
+                     r'\} else \{\s*"\$wt sits at an older main',
+                     r'if \(\$others\) \{ "Another terminal window is open on it: close that window',
+                     r'elseif \(\$on -ne \'HEAD\'\) \{ "Have Claude merge main into \$on',
+                     r'else \{ "Its uncommitted edits clash with main\'s: have Claude move them onto a branch'):
+            self.assertRegex(refusal, case)   # the message names a branch only when there is one
 
     def test_the_menu_stops_the_loop_before_its_session(self):
         s = self.script("menu.ps1")
