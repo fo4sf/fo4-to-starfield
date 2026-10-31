@@ -53,8 +53,9 @@ export const Fo4Guard = async ({ worktree, directory }) => {
   const root = worktree || directory;
   const checker = path.join(root, "tools", "ai-team", "guard", "allowlist.py");
   if (!existsSync(checker)) throw new Error(`fo4-guard: no checker at ${checker}`);   // no plugin, so no header
-  // Tests shorten the wait for a hung checker; it is never longer than 15 s.
-  const timeout = Math.min(15000, Math.max(1000, Number(process.env.FO4SF_GUARD_TIMEOUT_MS) || 15000));
+  // The wait for the checker: 60 s, as 15 s ran out on the team PC at over 90% RAM (30 Oct). Tests shorten it for a
+  // hung checker; it is never longer.
+  const timeout = Math.min(60000, Math.max(1000, Number(process.env.FO4SF_GUARD_TIMEOUT_MS) || 60000));
   const ask = (call) => {
     const python = process.env.FO4SF_PYTHON || "";
     // OpenCode runs on Bun, which cannot start the Microsoft Store's python.exe alias: every call would come back

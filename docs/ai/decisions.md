@@ -1150,11 +1150,14 @@ decided the import path); keeping the order as a parameter (two orders in the co
   the review of #587 flagged (a plain `opencode` still has `opencode.json`'s 64K limits).
 - Alternatives: the PC session building its own guard and commands (dropped by the owner's E); a web UI (`opencode
   web`, more moving parts); committing per-model `opencode.json` files (one would always be stale).
-- Not yet true: none of it has run on the PC. PowerShell 5.1 was not available here to parse the scripts, and the
-  OpenCode switches (`OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `permission.skill`, the
-  `.opencode/commands/` and `.opencode/skills/` folders) are taken from the current OpenCode docs, while the PC runs
-  1.18.35. The install must show the menu, the terminal on the picked model (and option 3 opening the agent asked
-  for), a refused write to `opencode.json`, and `opencode debug skill` listing only `fo4-allowed-commands`.
+- Was not yet true at the merge: none of it had run on the PC, PowerShell 5.1 was not available here to parse the
+  scripts, and the OpenCode switches (`OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`,
+  `permission.skill`, the `.opencode/commands/` and `.opencode/skills/` folders) were taken from the current OpenCode
+  docs, while the PC runs 1.18.35. The install on the PC (31 Oct, at 67d5cd77) showed all of it: the menu, the
+  terminal on the picked model with option 3 opening the agent asked for, a refused write to `opencode.json`, and the
+  14B loaded from D: in 11 s. `opencode debug skill` lists `fo4-allowed-commands` and OpenCode's own built-in
+  `customize-opencode`, which `permission.skill` (`{"*": "deny", "fo4-*": "allow"}`) denies. `python -I models.py
+  list` cannot import the per-user `lmstudio` package; the menu, the terminal and `run-lead.ps1` run it without `-I`.
 - Self-review (30 Oct, before the PR): a multi-agent review with a skeptic per finding confirmed 32 findings, fixed in
   the commit after the merge of #605's fixes. The main ones: a load that failed after the unload resumed the guardian
   with no model, and the load's finally overwrote a pause the owner set meanwhile (now the hold); the terminal's own
@@ -1227,12 +1230,35 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Boundary: the plugin learns which sessions are subagents' from OpenCode's events; a subagent resumed with `task_id`,
   after a restart too, is known from the `session.updated` event its resume publishes. A step that ends "stop" but has a
   tool call of its own is not a finished answer (OpenCode's loop goes on after it), so its compaction is left alone. A
-  report put back is cut to OpenCode's tool output limits (2,000 lines, 51,200 bytes), as the summary it replaces
-  already was; if that cut took the summary's closing tag, the result is laid out again in the task tool's form.
+  result put back is always laid out again in the task tool's form around the report (the summary may quote the tags
+  or have been cut), and keeps to OpenCode's tool output limits (2,000 lines, 51,200 bytes, the layout counted), as
+  the result it replaces already did: the report's first whole lines, or a first line too long for that cut at a whole
+  character, then a note with the task id.
   Background tasks (an experimental switch this repo does not set) are not covered. The events and hook shapes are
-  1.18.35's; a newer OpenCode needs them checked again. The first #619 install on the PC runs one forced case in
-  OpenCode itself (a short context limit, so a subagent's session compacts after its answer).
+  1.18.35's; a newer OpenCode needs them checked again. The #619 install on the PC ran one forced case in OpenCode
+  itself (31 Oct): `fo4-research` at a 12,000 token context and 3,000 output compacted after its answer, no
+  "Continue" came, and the Lead got the report.
 - Independent review (31 Oct, https://github.com/fo4sf/fo4-to-starfield/pull/619#issuecomment-6536474246): CLEAR at
   4c74cc41 with 7 lows, all taken in the follow-up PR: the tool-call step above, the cut and the layout fallback, the
   resume text, plugin tests that pin each check, the 89% line, terminal tests that tie each condition to its message,
   and a failed move to main that is not a clash now stops the terminal with git's own message.
+- Post-merge check of #620 (31 Oct, https://github.com/fo4sf/fo4-to-starfield/pull/620#issuecomment-6536918682):
+  CLEAR with 7 lows, all taken in the next follow-up: a summary that quotes the tags no longer leaves stray text (the
+  layout is always rebuilt); the cut counts the layout and never goes over a limit; the terminal lists the clashing
+  paths again and takes a folder that main turns into a file as a clash, while anything else (a stale `index.lock`)
+  stops it with git's first line; and the tests send the compaction's own user message and pin the cut's bounds, with
+  a test that git's messages carry the words the terminal reads.
+
+## 2026-10-31: the guard waits up to 60 s for its checker, not 15 s (Claude-cloud)
+
+- Decision: `.opencode/plugin/fo4-guard.js` waits up to 60 s for `allowlist.py`'s verdict on each call (it was 15 s).
+  The variable `FO4SF_GUARD_TIMEOUT_MS` still only shortens it, for tests.
+- Why: the Lead's second cycle on 30 Oct lost a post to "no verdict from the guard (...: ETIMEDOUT)" while the PC sat
+  at 90-93% RAM, most likely a Python start that took more than 15 s while Windows paged (not measured). A call with
+  no verdict is refused, so the guard held, but the work was lost. Put to the owner as A (60 s) or B (leave it); with
+  the owner's word to keep going and save credits (31 Oct 02:20Z), it went into the #620 follow-up as A, to come out
+  if the owner says B.
+- Alternatives: keep 15 s (the Lead loses calls whenever RAM is high); no limit (a hung checker would hold the agent
+  forever); a long-running checker process (fewer starts, but one more moving part between the agent and the guard).
+- Boundary: a hung checker now holds an agent's call for 60 s before the refusal. The test runs a 16 s checker
+  (allowed) and a 61 s one asked for 600 s (refused at about 60 s) side by side, so it takes about a minute.

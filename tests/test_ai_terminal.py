@@ -762,12 +762,25 @@ console.log(JSON.stringify(out));
                                                                       "info": dict(info, finish=finish)}}]])
 
     @staticmethod
-    def task(session, text):
+    def layout(session, text):
         # the task tool's result as 1.18.35 lays it out (Rr: the lines joined with "\n")
-        result = "\n".join([f'<task id="{session}" state="completed">', "<task_result>", text, "</task_result>",
-                            "</task>"])
+        return "\n".join([f'<task id="{session}" state="completed">', "<task_result>", text, "</task_result>",
+                          "</task>"])
+
+    @classmethod
+    def task(cls, session, text):
         return ["after", {"tool": "task", "sessionID": "lead", "callID": "c1", "args": {}},
-                {"title": "t", "metadata": {"parentSessionId": "lead", "sessionId": session}, "output": result}]
+                {"title": "t", "metadata": {"parentSessionId": "lead", "sessionId": session},
+                 "output": cls.layout(session, text)}]
+
+    @staticmethod
+    def compaction(session, msg):
+        """SessionCompaction.create: a user message with a compaction part, before the summary is written."""
+        return [["event", {"type": "message.updated", "properties": {"sessionID": session, "info": {
+                    "id": msg, "sessionID": session, "role": "user"}}}],
+                ["event", {"type": "message.part.updated", "properties": {"sessionID": session, "part": {
+                    "id": f"{msg}-p0", "messageID": msg, "sessionID": session, "type": "compaction", "auto": True,
+                    "overflow": False}}}]]
 
     @staticmethod
     def start(session, parent, event="session.created"):
@@ -780,6 +793,7 @@ console.log(JSON.stringify(out));
 
     def test_a_subagents_report_survives_a_compaction_after_it(self):
         report = "Bugs found: 3. Tests: tests/test_x.py. Odd text: $& $1 </task_result>"
+        summary = "SUMMARY of the session: it said </task_result>\n</task>\nand then"
         steps = (self.start("lead", None) + self.start("sub", "lead") +
                  self.answer("sub", "m1", "reading files", finish="tool-calls", parts=[("tool", {"tool": "read"})]) +
                  # the thinking comes as its own part, after the text here, and is not the report; a tool the
@@ -787,14 +801,15 @@ console.log(JSON.stringify(out));
                  self.answer("sub", "m2", report, parts=[
                      ("reasoning", {"text": "I should check line 54"}),
                      ("tool", {"tool": "web", "metadata": {"providerExecuted": True}})]) +
-                 self.answer("sub", "s1", "SUMMARY of the session", summary=True) +
-                 [self.compacts("sub"), self.task("sub", "SUMMARY of the session")])
+                 self.compaction("sub", "u1") + self.answer("sub", "s1", summary, summary=True) +
+                 # the summary quotes the tags, and OpenCode cut the result before its own closing ones
+                 [self.compacts("sub"), ["after", {"tool": "task"}, {"metadata": {"sessionId": "sub"},
+                                                                     "output": self.layout("sub", summary)[:-20]}]])
         got = self.run_steps(steps)
         self.assertEqual(got["exports"], [["Fo4Reports", "function"], ["default", "function"]])  # plugins only
         enabled, output = got["results"]
         self.assertFalse(enabled)                           # no "Continue": the subagent stops, as it had
-        self.assertEqual(output, "\n".join(['<task id="sub" state="completed">', "<task_result>", report,
-                                            "</task_result>", "</task>"]))
+        self.assertEqual(output, self.layout("sub", report))
 
     def test_a_subagent_resumed_after_a_restart_is_known_from_its_update(self):
         # A resumed task touches its session, which publishes session.updated with the stored parentID.
@@ -843,25 +858,40 @@ console.log(JSON.stringify(out));
         self.assertNotIn("the first report", got[1])
 
     def test_a_report_put_back_is_cut_as_opencode_cuts_a_tools_output(self):
-        long_report = "\n".join(f"line {i}" for i in range(2100))
-        wide_report = "é" * 30000                       # 60,000 bytes in UTF-8
-        steps = (self.start("a", "lead") + self.answer("a", "m1", long_report) + [self.compacts("a")] +
-                 [self.task("a", "a summary")] +
-                 self.start("b", "lead") + self.answer("b", "m2", wide_report) + [self.compacts("b")] +
-                 [self.task("b", "a summary")] +
-                 # the summary itself was cut before its closing tag: the result is laid out again
-                 self.start("c", "lead") + self.answer("c", "m3", "the report") + [self.compacts("c")] +
-                 [["after", {"tool": "task"}, {"metadata": {"sessionId": "c"},
-                                               "output": '<task id="c" state="completed">\n<task_result>\nSUMM'}]])
-        got = self.run_steps(steps)["results"]
-        body = got[1].split("<task_result>\n")[1].split("\n</task_result>")[0]
-        self.assertTrue(body.startswith("line 0\n"))
-        self.assertIn("\nline 1999\n\n(the report is cut to 2000 lines", body)
-        self.assertNotIn("line 2000", body)
-        body = got[3].split("<task_result>\n")[1].split("\n</task_result>")[0]
-        self.assertLessEqual(len(body.split("\n\n(the report is cut")[0].encode("utf-8")), 51200)
-        self.assertIn("(the report is cut to 2000 lines or 51200 bytes", body)
-        self.assertEqual(got[5], '<task id="c" state="completed">\n<task_result>\nthe report\n</task_result>\n</task>')
+        # OpenCode keeps a cut output's first lines within 2000 lines and 51,200 bytes, its layout counted; here
+        # the layout around a report is 4 lines and 69 bytes (a one-letter task id)
+        reports = {
+            "a": "\n".join(f"line {i}" for i in range(1996)),       # fits: 2000 lines
+            "b": "\n".join(f"line {i}" for i in range(1997)),
+            "c": "x" * (51200 - 69),                                 # fits: 51,200 bytes
+            "d": "x" * (51200 - 68),                                 # one line too long: whole characters
+            "e": "a" + "\U0001F600" * 13000,                         # 4 bytes, two UTF-16 units a character
+            "f": "\n".join(["y" * 99] * 600),                        # 99 bytes and a newline a line
+        }
+        steps = []
+        for session, report in reports.items():
+            steps += (self.start(session, "lead") + self.answer(session, "m" + session, report) +
+                      [self.compacts(session), self.task(session, "a summary")])
+        got = dict(zip(reports, self.run_steps(steps)["results"][1::2]))
+
+        def kept(session):
+            body = got[session].split("<task_result>\n", 1)[1].rsplit("\n</task_result>", 1)[0]
+            text, note = body.split("\n\n(the report is cut to fit OpenCode's tool output limits, ")
+            self.assertEqual(note, f"2000 lines or 51200 bytes; all of it is in the subagent's session, "
+                                   f"task id {session})")
+            self.assertEqual(got[session], self.layout(session, body))
+            without_note = self.layout(session, text)
+            self.assertLessEqual(len(without_note.split("\n")), 2000)
+            self.assertLessEqual(len(without_note.encode("utf-8")), 51200)
+            return text
+
+        self.assertEqual(len(self.layout("a", "").encode("utf-8")), 69)
+        self.assertEqual(got["a"], self.layout("a", reports["a"]))
+        self.assertEqual(kept("b"), reports["a"])
+        self.assertEqual(got["c"], self.layout("c", reports["c"]))
+        self.assertEqual(kept("d"), reports["c"])
+        self.assertEqual(kept("e"), "a" + "\U0001F600" * 12782)   # 1 + 51,128 bytes, and no broken character
+        self.assertEqual(kept("f").split("\n"), ["y" * 99] * 511)  # 511 lines: 51,099 bytes
 
 
 class TeamSkillAndCommandTests(unittest.TestCase):
@@ -1014,7 +1044,7 @@ class ScriptTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
         empty = os.path.join(home, "empty.gitconfig")
         open(empty, "w").close()
-        env = dict(os.environ, HOME=home, GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+        env = dict(os.environ, HOME=home, GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1", LC_ALL="C", GIT_AUTHOR_NAME="t",
                    GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
         wt = os.path.join(home, "wt")
 
@@ -1102,11 +1132,61 @@ class ScriptTests(unittest.TestCase):
         with open(os.path.join(git("rev-parse", "--show-toplevel").strip(), "docs/ai/notes/lead.md")) as f:
             self.assertEqual(f.read(), "the Lead's note\n")
 
+    def test_git_tells_a_clash_in_the_words_the_terminal_reads(self):
+        # terminal.ps1 takes a failed move as a clash only on git's own words, and lists the paths from git's message.
+        # Git for Windows ships no translations, so its messages are these English ones (LC_ALL=C here).
+        s, git, write, refused = self.start_check()
+        switch = re.search(r"git -C \$wt (switch -q --detach origin/main)", s).group(1).split()
+        clash = re.search(r"\"\$moved\" -match '([^']*)'", s).group(1)
+        own = re.search(r"\$_ -notmatch '([^']*)'", s).group(1)
+        top = git("rev-parse", "--show-toplevel").strip()
+        base = git("rev-parse", "HEAD").strip()
+
+        def main_with(change):          # a newer main from the base commit; the worktree goes back to the base
+            git("switch", "-q", "--detach", base)
+            change()
+            git("add", "-A")
+            git("commit", "-q", "-m", "main moves on")
+            git("update-ref", "refs/remotes/origin/main", "HEAD")
+            git("switch", "-q", "--detach", base)
+
+        said = []                       # git's lines on each move
+
+        def move():
+            r = git(*switch, check=False)
+            self.assertNotEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(git("rev-parse", "HEAD").strip(), base)     # nothing moved
+            said.append(r.stderr.splitlines())
+            listed = [line.strip() for line in said[-1] if line.strip() and not re.search(own, line.strip(), re.I)]
+            return bool(re.search(clash, r.stderr, re.I)), listed
+
+        def turn_src_into_a_file():
+            git("rm", "-q", "-r", "src")
+            write("src", "now a file\n")
+
+        main_with(lambda: write("docs/ai/notes/lead.md", "main's copy\n"))
+        write("docs/ai/notes/lead.md", "the Lead's note\n")                    # a tracked edit
+        self.assertEqual(move(), (True, ["docs/ai/notes/lead.md"]))
+        git("checkout", "-q", "--", ".")
+        main_with(lambda: write("docs/ai/notes/new.md", "main's new file\n"))
+        write("docs/ai/notes/new.md", "the Lead's new note\n")                # an untracked file in main's way
+        self.assertEqual(move(), (True, ["docs/ai/notes/new.md"]))
+        os.remove(os.path.join(top, "docs/ai/notes/new.md"))
+        main_with(turn_src_into_a_file)
+        write("src/b.py", "the agent's new file\n")                          # main makes its folder a file
+        self.assertEqual(move(), (True, ["src"]))
+        os.remove(os.path.join(top, "src/b.py"))
+        write("docs/ai/notes/other.md", "a note main does not touch\n")      # a stale lock is no clash: stop
+        open(os.path.join(top, ".git", "index.lock"), "w").close()
+        self.assertFalse(move()[0])
+        self.assertIn("index.lock", said[-1][0])        # the stop message gives git's first line
+
     def test_the_worktree_moves_only_with_no_branch_and_no_other_window(self):
         s = self.script("terminal.ps1")
         block = s[s.index("} elseif ($others) {"):s.index("# HEAD: no branch")]
         # each condition with the line it leads to, in order: read the state, keep a branch's edits, move, tell a clash
-        # (git's "would be overwritten") from any other failure, and say "moved" only when HEAD did move
+        # (git's own words for one) from any other failure, list the clashing paths, and say "moved" only when HEAD
+        # did move
         steps = [r'\$on = "\$\(git -C \$wt rev-parse --abbrev-ref HEAD\)"\.Trim\(\)',
                  r'\$was = "\$\(git -C \$wt rev-parse HEAD\)"\.Trim\(\)',
                  r'\$dirty = @\(git -C \$wt status --porcelain\)',
@@ -1114,9 +1194,12 @@ class ScriptTests(unittest.TestCase):
                  r'if \(\$dirty -and \$on -ne \'HEAD\'\) \{ "note: \$wt has uncommitted changes on \$on, so it stays',
                  r'else \{\s*\$moved = @\(git -C \$wt switch -q --detach origin/main 2>&1\)\s*'
                  r'if \(\$LASTEXITCODE -ne 0\) \{',
-                 r'if \(-not \$dirty -or -not \("\$moved" -match \'would be overwritten\'\)\) \{\s*'
-                 r'"could not move \$wt to main \(git: [^\n]*\): not starting"; exit 1\s*\}\s*'
+                 r'if \(-not \$dirty -or -not \("\$moved" -match \'would be overwritten\|would lose untracked '
+                 r'files\'\)\) \{\s*"could not move \$wt to main \(git: \$\(\("\$\(\$moved \| Select-Object -First 1\)"\)'
+                 r'\.Trim\(\)\)\): not starting"; exit 1\s*\}\s*'
                  r'"note: \$wt has uncommitted edits that clash with main\'s newer files, so it stays at its older',
+                 r'\$moved \| ForEach-Object \{ "\$_"\.Trim\(\) \} \|\s*Where-Object \{ \$_ -and \$_ -notmatch \'[^\']*\' \} '
+                 r'\|\s*Select-Object -First 20 \| ForEach-Object \{ "  \$_" \}',
                  r'\} elseif \(\$dirty -and "\$\(git -C \$wt rev-parse HEAD\)"\.Trim\(\) -ne \$was\) \{\s*'
                  r'"note: moved \$wt to main\'s newest commit with its uncommitted edits"']
         at = []

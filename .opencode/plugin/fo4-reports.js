@@ -14,8 +14,11 @@
 // subagent's session; message.updated {info: message}, an assistant message with summary true for a compaction's
 // summary and finish set once its step ends; message.part.updated {part}, a text, reasoning or tool part with its
 // messageID and sessionID (text for the first two). The task tool's result has metadata.sessionId (the subagent's
-// session) and the report inside <task_result>; OpenCode has already cut that result to its tool output limits by the
-// time tool.execute.after runs, so a report put back is cut the same way.
+// session); a finished foreground task's result is laid out as below, so the plugin lays it out again around the report
+// rather than look for tags in a summary that may quote them or have been cut. OpenCode has already cut that result to
+// its tool output limits (the defaults: this repo sets no tool_output) by the time tool.execute.after runs, so the
+// result put back keeps to them too, cut in whole lines as OpenCode cuts; the whole report stays in the subagent's
+// session.
 
 const CHILDREN = new Set();   // subagent sessions
 const LAST = new Map();       // session -> {id, finish, text, tools}: its newest assistant message but a summary
@@ -23,11 +26,39 @@ const KEPT = new Map();       // subagent session -> the report its compaction w
 const MAX_LINES = 2000;       // OpenCode 1.18.35's limits on a tool's output (Truncate.MAX_LINES, MAX_BYTES)
 const MAX_BYTES = 51200;
 
-function cut(report) {
-  let text = report.split("\n").slice(0, MAX_LINES).join("\n");
-  if (Buffer.byteLength(text) > MAX_BYTES) text = Buffer.from(text).subarray(0, MAX_BYTES).toString("utf8");
-  return text === report ? report
-    : `${text}\n\n(the report is cut to ${MAX_LINES} lines or ${MAX_BYTES} bytes, as OpenCode cuts a tool's output)`;
+// the task tool's own layout for a finished foreground task (its Rr(): these lines joined with "\n")
+function layout(id, body) {
+  return [`<task id="${id}" state="completed">`, "<task_result>", body, "</task_result>", "</task>"].join("\n");
+}
+
+// The report in that layout, its first lines that keep the whole result within the limits, as OpenCode keeps a cut
+// output's first lines; the note after a cut is not counted, as OpenCode's own note is not. A first line longer than
+// the limit keeps as many whole characters as fit, where OpenCode would keep none of it.
+function result(id, report) {
+  const empty = layout(id, "");
+  const room = MAX_LINES - (empty.split("\n").length - 1);
+  const lines = report.split("\n");
+  const kept = [];
+  let bytes = Buffer.byteLength(empty);
+  for (const line of lines) {
+    const size = Buffer.byteLength(line) + (kept.length ? 1 : 0);
+    if (kept.length === room || bytes + size > MAX_BYTES) break;
+    kept.push(line);
+    bytes += size;
+  }
+  if (kept.length === lines.length) return layout(id, report);
+  if (!kept.length) {
+    let line = "";
+    for (const ch of lines[0]) {
+      const size = Buffer.byteLength(ch);
+      if (bytes + size > MAX_BYTES) break;
+      line += ch;
+      bytes += size;
+    }
+    kept.push(line);
+  }
+  return layout(id, `${kept.join("\n")}\n\n(the report is cut to fit OpenCode's tool output limits, ${MAX_LINES} ` +
+    `lines or ${MAX_BYTES} bytes; all of it is in the subagent's session, task id ${id})`);
 }
 
 export const Fo4Reports = async () => ({
@@ -65,16 +96,7 @@ export const Fo4Reports = async () => ({
     const report = KEPT.get(id);
     if (report === undefined) return;
     KEPT.delete(id);
-    const kept = cut(report);
-    const open = output.output.indexOf("<task_result>");
-    const close = output.output.lastIndexOf("</task_result>");
-    if (open < 0 || close < open) {        // the summary was cut past its closing tag: the task tool's own layout
-      output.output = [`<task id="${id}" state="completed">`, "<task_result>", kept, "</task_result>", "</task>"]
-        .join("\n");
-      return;
-    }
-    output.output = output.output.slice(0, open + "<task_result>".length) + "\n" + kept + "\n" +
-      output.output.slice(close);
+    output.output = result(id, report);
   },
 });
 

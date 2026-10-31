@@ -80,11 +80,16 @@ try {
     else {
       $moved = @(git -C $wt switch -q --detach origin/main 2>&1)
       if ($LASTEXITCODE -ne 0) {
-        # git names a clash "would be overwritten"; anything else (a stale index.lock, say) stops the terminal
-        if (-not $dirty -or -not ("$moved" -match 'would be overwritten')) {
+        # git names a clash "would be overwritten" (a file) or "would lose untracked files" (a folder main turns into
+        # a file); anything else (a stale index.lock, say) stops the terminal
+        if (-not $dirty -or -not ("$moved" -match 'would be overwritten|would lose untracked files')) {
           "could not move $wt to main (git: $(("$($moved | Select-Object -First 1)").Trim())): not starting"; exit 1
         }
-        "note: $wt has uncommitted edits that clash with main's newer files, so it stays at its older commit"
+        "note: $wt has uncommitted edits that clash with main's newer files, so it stays at its older commit:"
+        # git's own lines are the message, the advice and "Aborting"; the rest are the clashing paths
+        $moved | ForEach-Object { "$_".Trim() } |
+          Where-Object { $_ -and $_ -notmatch '^(error|fatal|hint|warning):|^(Please |Aborting)' } |
+          Select-Object -First 20 | ForEach-Object { "  $_" }
       } elseif ($dirty -and "$(git -C $wt rev-parse HEAD)".Trim() -ne $was) {
         "note: moved $wt to main's newest commit with its uncommitted edits"
       }
