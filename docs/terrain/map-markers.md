@@ -216,10 +216,10 @@ named; 307 left after the fixed four's own records, all inside the overlay. Noth
    (no name, one of the fixed four, no finite position, outside the overlay, or within 100 m of a fixed marker of the
    same name: FO4's Red Rocket Truck Stop marker 024FBE, since the core's Red Rocket sits on the COC arrival) go to `map_markers_left_out.json` with
    their reason. `check` judges every marker the same way as the four.
-3. `dotnet/MapMarkers` splits the core's markers into quests of at most 100 (`FO4SF_MapMarkersQuest`,
-   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...). Papyrus arrays made in script hold at most 128 entries;
-   whether a plugin-filled property may hold more is **unresolved**, so no quest goes near that limit. Above 20
-   markers, a quest's `MaxMoves` is twice its marker count, so one session can place them all. `check` matches the
+3. `dotnet/MapMarkers` splits the core's markers into quests of at most 20 (`FO4SF_MapMarkersQuest`,
+   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...; at most 100 until 2026-10-31, "Reload"). Papyrus arrays made in
+   script hold at most 128 entries; whether a plugin-filled property may hold more is **unresolved**, so no quest goes
+   near that limit. A quest's `MaxMoves` is the script's 40, twice its marker count, so one session can place them all. `check` matches the
    quests, in FormID order, against the core.
 
 Every new marker keeps LC172's `FNAM` 0x1B and `TNAM` 0x17, so they all draw one icon type; FO4's own marker types
@@ -341,7 +341,8 @@ them itself:
    core's first marker (LC172's template, as the core writes its own), in the WRLD copy's persistent cell at its local
    spot, lifted `--z-lift`, with its own name and the overrides' flags. Each also gets one `MapMarkerRefType` `LCSR` row
    in an override of the core's Location, as TerrainOverlays writes the core's four. The quests list them after the
-   core's markers, at most 100 per quest. `check --extra` fails a plugin with any other REFR of its own. It also fails a
+   core's markers, at most 100 per quest (20 since 2026-10-31, "Reload"). `check --extra` fails a plugin with any other REFR of its own
+   (with `--reload`, but for the stop's two). It also fails a
    Location override that differs from the core's in anything but those rows, the same stale-stage rule as the WRLD copy.
    Without `--extra` the plugin is byte for byte as before: built here from the v6i core, it has sha256 `af56df9c`, the
    installed one.
@@ -557,3 +558,52 @@ too (the sources disagree: a comment on Nexus mod 15633 says so, the mod's own p
 surface map and scanner), and whether a save made before this build keeps the old flags for
 markers it already knows (a guess, not tested); the play test should use a new game, or say which save it loaded.
 B (FO4 marker types mapped to Starfield `TNAM` icons on the surface map) is for later.
+
+## Reload (Claude-cloud, 2026-10-31)
+The owner's new game v10 run (31 Oct): Mars's map icons were fine, but "nothing on the map shows up", and no
+Commonwealth marker could be discovered by walking past it, until a trip to Cydonia and back. Logs
+(`fo4sf_map.0.log` of the PC test folder `newgame_20261031_v10`):
+- **verified (log):** the player came out of the elevator at rt 179 s and every marker was moved in from rt 186 s on;
+  the last of the 313 first moves came at rt 233 s, about 47 s later. Each of the four quests, side by side, moved
+  one marker every 0.45 s. **Supported hypothesis:** the time goes to the calls, about 18 for a moved marker (reads,
+  the move, the log line; counted from the script), which the game answers about once a frame.
+- **verified (log):** 475 moves for 313 markers. A move onto a walking player lands off by their steps in between
+  (z 0.4 m off, `moved 10 ... target ...`), and such a marker was moved again on a later pass.
+- **verified (log, 24 Oct):** after a trip to Cydonia and back, the player's world had the same instance id
+  (FF00549A) and no marker but the refused pad was moved again: the world keeps the markers while the player is away.
+- **supported hypothesis:** the map, and discovery on the way past, list only the markers that are in a world when the
+  player enters it; ours come after, so they show only after the player leaves and comes back.
+
+So (offline, waits on a play test):
+- **20 markers a quest** (`dotnet/MapMarkers` `PerQuest`, was 100): about 16 quests side by side for 313 markers.
+- **Fewer reads:** a marker in another world is moved without reading where it stands there; `QuestLow` reads the
+  quest's id once; once a full pass finds every marker of a quest in place, a pass reads one of them in turn
+  (`Probe`) and goes back to full passes when one is off.
+- **SetPosition after the move:** once the marker is in the player's world, `SetPosition` puts it on its spot. The
+  move line now says how far off a marker in the world was (`off=dx dy dz`).
+- **The reload:** `dotnet/MapMarkers --reload` (on by default in `make_map_markers.py stage`, `--no-reload` leaves it
+  out) adds a small interior of the plugin's own, `FO4SF_MapMarkersHop` (0x8F4: lit as PluginSpike's door test cell,
+  which worked in game on 8 Oct; its platform 0x8F6 and a persistent COC marker 0x8F5), and names the marker in the
+  first quest's `HopMarker`. When every quest's markers are in place in our world (or its moves are spent), some of
+  them went in after the player entered, the player has been outdoors there for `HopDelay` (10 s: the new game's
+  landing check is done by then), and they are not in combat or a scene and have their movement controls, the first
+  quest fades to black, reads the player again (indoors, in another world or off the map by then: it fades back in and
+  stops, since going indoors and out loads the world anyway), moves them to the stop, moves them back to the same spot
+  by one of its markers in their world (then `SetPosition` there once the 3D is in, as the new game's ride up does, only if they are
+  back in the same world), turns them back to their facing and fades in. Once a session (`HopLimit`). It also waits
+  while the player is dead or seated (`GetSitState`). A player in the stop's cell on a later pass (a move back that did
+  not take, a move out that landed late, a save made there) is brought back again: the stop has no door. A first
+  quest out of moves before every marker stood still reloads too, so the log says why when none comes.
+- **Log lines** (q=2048): `fast travel, all <n> quests' markers in place or out of moves, some after the player came: <bool>`
+  (`Game.IsFastTravelEnabled`, `IsFastTravelControlsEnabled`, and the first marker's `IsMapMarkerVisible`,
+  `CanFastTravelToMarker`), `reload 1: out to ...`, `reload 1: at the stop=...`, `reload 1 back: ... same=<bool>`
+  (whether the world is the one the reload began in), then the fast travel line again; or `reload 1 called off: ...`,
+  or `reload waits: ...` once.
+
+Open until the play test: whether the reload makes the markers show and discoverable as the Cydonia trip did,
+whether 16 quests place faster than 4 (the game may answer calls from more scripts at once no faster), whether the
+world keeps its instance through the reload (`same=`), and whether `SetPosition` holds a marker where a move left it
+off (a `SetPosition` in a `MoveTo`'s own tick was ignored for the player in the new game's `FinishSurface`; if it is
+for markers too, they are moved again as before). The stop is lit as PluginSpike's door test cell, but this
+unlit, persistent-marker version of it has not been in game. The new game's elevator ride could hold the screen dark until the markers are in and do the reload itself, so
+the player sees one ride; the new game belongs to the Strip-down thread, so that waits for its v11 fix.

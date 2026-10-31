@@ -10,7 +10,9 @@ Scriptname FO4SF_MapMarkers extends Quest
  landing spot's pad, whose facing is the ship's). The player is read again before every move, and a pass stops once
  they are indoors, in another world or outside the extent. A reference the game will not move (the landing pad) is
  left alone for the rest of the session. Every move goes to the user log "fo4sf_map"
- (My Games\Starfield\Logs\Script\User\fo4sf_map.0.log).}
+ (My Games\Starfield\Logs\Script\User\fo4sf_map.0.log). The map lists only the markers that are in a world when
+ the player enters it, and these are moved in after, so once every marker is in place the first quest reloads the
+ world once, behind a black screen (HopMarker).}
 
 ObjectReference[] Property Markers Auto Const Mandatory
 {The core's MapMarker references (dotnet/MapMarkers fills them from the core plugin), then the plugin's own: its
@@ -62,6 +64,26 @@ bool Property BorderSignal = True Auto Const
 {Write "border=off" / "border=on" to this log when the player enters or leaves our world, for the SFSE plugin
  FO4SFBorder (sfse/FO4SFBorder/README.md), which turns the game's border regions off only while the line says off.}
 
+ObjectReference Property HopMarker Auto Const
+{The reload's stop: the marker in this plugin's own small interior (dotnet/MapMarkers --reload, FO4SF_MapMarkersHop), on
+ the first quest only. The map lists only the markers that are in a world when the player enters it, and these are moved
+ in after: no marker showed on the map or could be discovered by walking past it until a trip to Cydonia and back
+ (owner, 2026-10-31), and the world keeps them meanwhile (the same instance and no marker moved again after such a trip,
+ fo4sf_map.0.log 24 Oct). So once every quest's markers are in place and some went in after the player entered, the
+ first quest takes the player here and straight back to the same spot with the screen black, at most HopLimit times a
+ session; only in our world as Border learns it, so only with BorderSignal on. None: never.}
+
+float Property HopDelay = 10.0 Auto Const
+{Seconds the player must have been outdoors in that world first: a start that places them in steps is done by then (the
+ new game's arrival SetPosition, then its landing check 3 s later: FO4SF_NewGameQuest.psc CheckLanding).}
+
+float Property HopWait = 10.0 Auto Const
+{Seconds each leg of the reload waits for the player to arrive (Utility.Wait: a loading screen does not count).}
+
+int Property HopLimit = 1 Auto Const
+{Reloads per game session: one that does not help (a world made again on the way back moves every marker in again)
+ would otherwise repeat.}
+
 string LogName = "fo4sf_map"
 ; the border signal's state: -1 none written this session, 0 off (our world), 1 on; ourWorld is the player's world
 ; seen while in one of the core's cells (the runtime instance changes every launch, so it is learned, not a property)
@@ -78,6 +100,26 @@ float budgetZ = 0.0
 float placeRealTime = -1.0
 bool[] refused
 bool landingShown = False
+; the reload (docs/terrain/map-markers.md "Reload"): settledWorld is the world this quest's markers all stood in at its
+; last full pass (None while any was off), probeAt the next one a pass checks from then on, seenWorld the world of its last
+; outdoor pass (the player came out, or changed worlds, when it differs) and late whether a marker went into that world
+; after the player entered it. The first quest also keeps when they entered, its reloads this session, and the way back
+; (saved, so a save made at the stop still brings the player back: being in the stop's cell is what says they are there)
+WorldSpace settledWorld = None
+int probeAt = 0
+WorldSpace seenWorld = None
+bool late = False
+float enteredAt = 0.0
+int hops = 0
+bool waitLogged = False
+bool travelLogged = False
+int hopAnchor = -1
+float hopX = 0.0
+float hopY = 0.0
+float hopZ = 0.0
+float hopA = 0.0
+WorldSpace hopWorld = None
+int lowId = -1
 
 Event OnInit()
     Debug.OpenUserLog(LogName)
@@ -103,6 +145,7 @@ Function ResetBudget()
         moves = 0
         refused = new bool[128]                                 ; a new build can list other references at those places
         landingShown = False
+        settledWorld = None
     endif
 EndFunction
 
@@ -121,8 +164,14 @@ bool Function NewSession()
             Trace("session: move budget starts over (was moves=" + moves + ")")
         endif
         moves = 0
-        refused = new bool[128]                                 ; a quest lists at most 100 (dotnet/MapMarkers PerQuest)
+        refused = new bool[128]                                 ; a quest lists at most PerQuest (dotnet/MapMarkers)
         landingShown = False
+        settledWorld = None                                     ; a load can bring the markers back to their own world
+        seenWorld = None
+        late = False
+        hops = 0
+        waitLogged = False
+        travelLogged = False
     endif
     placeRealTime = rt
     return fresh
@@ -176,14 +225,30 @@ Function Place(Actor player)
     Border(player)
     ShowLanding()
     if player.IsInInterior()
+        if HopMarker != None && player.GetParentCell() == HopMarker.GetParentCell()
+            ComeBack(player)                                  ; the stop has no door: anyone in it goes back (first quest)
+        endif
+        seenWorld = None                                      ; when they come out, the world loads with what is in it
+        late = False
         return
     endif
     WorldSpace w = player.GetWorldSpace()
+    if w != seenWorld
+        seenWorld = w                                         ; came out, or into another world, since the last pass
+        late = False
+        enteredAt = Utility.GetCurrentRealTime()
+    endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     if px < MinX || px > MaxX || py < MinY || py > MaxY
         return
     endif
+    if settledWorld == w && Probe(player)
+        Reload(player, w)                                     ; all in place: the first quest may reload the world
+        return
+    endif
+    settledWorld = None
+    int moved = 0
     int i = 0
     while i < Markers.Length && moves < MaxMoves              ; the budget holds per move, not per batch
         ObjectReference m = Markers[i]
@@ -192,12 +257,19 @@ Function Place(Actor player)
             float y = LocalY[i] + MergeOffsetY
             float z = LocalZ[i]
             float before = player.GetDistance(m)                ; float max: another world
-            float bx = m.GetPositionX()
-            float by = m.GetPositionY()
-            float ex = bx - x
-            float ey = by - y
-            float ez = m.GetPositionZ() - z
-            if before > SameWorld || ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
+            ; in another world it moves wherever it stands there, so its position is not read: each read is a call the
+            ; game answers about once a frame (a 100-marker quest placed a marker every 0.45 s, fo4sf_map.0.log 31 Oct)
+            bool off = before > SameWorld
+            float ex = 0.0
+            float ey = 0.0
+            float ez = 0.0
+            if !off
+                ex = m.GetPositionX() - x
+                ey = m.GetPositionY() - y
+                ez = m.GetPositionZ() - z
+                off = ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance
+            endif
+            if off
                 ; the player as they are now, just before the move: a load door can take them away while a pass runs,
                 ; and a pass that read them once put about 300 markers into Vault 95 at the target plus the trip and
                 ; spent every budget (PC, 2026-10-24 10:24, fo4sf_map.0.log)
@@ -214,25 +286,39 @@ Function Place(Actor player)
                 m.Enable(False)
                 m.MoveTo(player, x - px, y - py, z - pz, False, False)   ; no match-rotation: keep the record's
                 moves += 1
+                moved += 1
                 float d = player.GetDistance(m)
-                Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " moves=" + moves)
                 if d > SameWorld
                     ; still in its own world after a move to the player: the game refused it ("cannot be moved", the
                     ; landing pad, 2026-10-24), unless the player left. Not tried again this session (it spent its
                     ; quest's whole budget). A move that works lands in the player's world at once (d 0.8 to 2.9 km on
                     ; the PC, 2026-10-28); asking for an unchanged position too never held for the pad there (18 and 27
-                    ; "cannot be moved" in two runs, no refused line), so the line says where it was before
+                    ; "cannot be moved" in two runs, no refused line), so the line says where it stands after the move
                     if player.IsInInterior() || player.GetWorldSpace() != w
                         Trace("pass stopped after moving " + i + ": the player went indoors or to another world")
                         return
                     endif
                     refused[i] = True
-                    Trace("refused " + i + ": still in its own world, was at " + bx + " " + by + "; not moved again this session")
+                    Trace("refused " + i + ": still in its own world after the move, at " + m.GetPositionX() + " " + m.GetPositionY() + "; not moved again this session")
+                else
+                    ; a move onto a walking player lands off by their steps in between (z 0.4 off, then moved again:
+                    ; 475 moves for 313 markers, fo4sf_map.0.log 31 Oct): set the spot itself, now in the player's world
+                    m.SetPosition(x, y, z)
+                    if before > SameWorld
+                        late = True                             ; it came into the world after the player did
+                    endif
+                    Trace("moved " + i + " to " + m.GetPositionX() + " " + m.GetPositionY() + " " + m.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " off=" + ex + " " + ey + " " + ez + " d=" + d + " moves=" + moves)
                 endif
             endif
         endif
         i += 1
     endwhile
+    if i >= Markers.Length && moved == 0
+        settledWorld = w                                      ; every marker in place: from now on one a pass is read
+        Reload(player, w)
+    elseif moves >= MaxMoves
+        Reload(player, w)                                     ; out of moves: nothing more moves this session (Ready)
+    endif
 EndFunction
 
 ; Only the first quest (0x800) writes the signal: every quest of the plugin runs this script, and only the first one's
@@ -247,11 +333,14 @@ EndFunction
 
 ; The quest's FormID, low 12 bits (2048 for 0x800, 2049 for 0x801, ...), on every log line so the quests can be told apart.
 int Function QuestLow()
-    int low = GetFormID() % 4096
-    if low < 0
-        low += 4096
+    if lowId < 0                                           ; once: every line asks, and each GetFormID is a call
+        int low = GetFormID() % 4096
+        if low < 0
+            low += 4096
+        endif
+        lowId = low
     endif
-    return low
+    return lowId
 EndFunction
 
 ; In our world: the player's cell is one of the core's own cells (the runtime instance keeps the core's cell ids:
@@ -293,4 +382,189 @@ EndFunction
 
 Function Trace(string msg)
     Debug.TraceUser(LogName, "FO4SF_MAP rt=" + Utility.GetCurrentRealTime() + " q=" + QuestLow() + " " + msg)
+EndFunction
+
+; Once every marker of this quest stood in the player's world at a full pass, a pass reads one of them, in turn, instead of
+; all four reads a marker: they leave it when a save loads (a new session starts a full pass anyway) or a world is made
+; again, and one found off starts a full pass. A marker refused this session counts as in place.
+bool Function Probe(Actor player)
+    int n = Markers.Length
+    int tries = 0
+    while tries < n
+        int i = probeAt % n                                    ; a new build can list fewer markers
+        probeAt = (i + 1) % n
+        tries += 1
+        ObjectReference m = Markers[i]
+        if m != None && !refused[i]
+            if player.GetDistance(m) > SameWorld
+                return False
+            endif
+            float ex = m.GetPositionX() - (LocalX[i] + MergeOffsetX)
+            float ey = m.GetPositionY() - (LocalY[i] + MergeOffsetY)
+            float ez = m.GetPositionZ() - LocalZ[i]
+            return !(ex * ex + ey * ey > Tolerance * Tolerance || ez * ez > ZTolerance * ZTolerance)
+        endif
+    endwhile
+    return True
+EndFunction
+
+; What the first quest asks of every quest before a reload: done in this world (every marker in place at the last full
+; pass, or the session's moves spent: nothing more moves then), and whether any went in after the player entered it.
+bool Function Ready(WorldSpace w)
+    return settledWorld == w || moves >= MaxMoves
+EndFunction
+
+bool Function IsLate()
+    return late
+EndFunction
+
+; After a reload: the player entered the world again, with every marker already in it.
+Function Reentered(WorldSpace w)
+    seenWorld = w
+    late = False
+EndFunction
+
+; The first quest only (HopMarker): once every quest is Ready in the player's world, which is ours (Border's), and some
+; marker went in after the player entered it, HopDelay seconds after they did, out of combat and scenes and with the
+; movement controls on, the player goes to the stop and comes back to the same spot behind a black screen, so the world
+; loads again with the markers in it (the owner's trip to Cydonia and back did the same, 2026-10-31). The quests are this
+; one and the ones after it (dotnet/MapMarkers numbers them from 0x800 up, with nothing else between).
+Function Reload(Actor player, WorldSpace w)
+    if HopMarker == None || hops >= HopLimit || w != ourWorld
+        return
+    endif
+    bool anyLate = False
+    int id = GetFormID()
+    int k = 0
+    FO4SF_MapMarkers q = self
+    while q != None
+        if !q.Ready(w)
+            return
+        endif
+        if q.IsLate()
+            anyLate = True
+        endif
+        k += 1
+        q = Game.GetForm(id + k) as FO4SF_MapMarkers
+    endwhile
+    if !travelLogged
+        travelLogged = True
+        FastTravelLine("all " + k + " quests' markers in place or out of moves, some after the player came: " + anyLate)
+    endif
+    if !anyLate || Utility.GetCurrentRealTime() - enteredAt < HopDelay
+        return
+    endif
+    if player.IsInCombat() || player.IsInScene() || !Game.IsMovementControlsEnabled() || player.IsDead() || player.GetSitState() != 0
+        if !waitLogged
+            waitLogged = True
+            Trace("reload waits: combat=" + player.IsInCombat() + " scene=" + player.IsInScene() + " movement=" + Game.IsMovementControlsEnabled() + " dead=" + player.IsDead() + " sit=" + player.GetSitState())
+        endif
+        return
+    endif
+    int a = 0                                                 ; the way back: a marker of this quest in the player's world
+    while a < Markers.Length && (Markers[a] == None || refused[a] || player.GetDistance(Markers[a]) > SameWorld)
+        a += 1                                                ; (a quest out of moves may have some still in their own)
+    endwhile
+    hops += 1
+    if a >= Markers.Length
+        Trace("reload " + hops + " skipped: no marker of this quest in the player's world to come back by")
+        return
+    endif
+    Game.FadeOutGame(True, True, 0.0, 0.5, True)
+    Utility.Wait(0.5)
+    ; the player as they are now, with the screen black and just before the move: w was read when this pass began, and a
+    ; load door or a fast travel can take them away while a pass runs (review of #624); the way back is read here, so it
+    ; is a spot in w. A reload called off is not tried again: going indoors and out loads the world again anyway
+    hopX = player.GetPositionX()
+    hopY = player.GetPositionY()
+    hopZ = player.GetPositionZ()
+    hopA = player.GetAngleZ()
+    if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX || hopX > MaxX || hopY < MinY || hopY > MaxY
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        Trace("reload " + hops + " called off: the player went indoors, to another world or off the map")
+        return
+    endif
+    hopAnchor = a
+    hopWorld = w
+    player.MoveTo(HopMarker)
+    Trace("reload " + hops + ": out to " + HopMarker + " and back to " + hopX + " " + hopY + " " + hopZ + " in " + w)
+    float waited = 0.0
+    while !player.IsInInterior() && waited < HopWait
+        Utility.Wait(0.25)
+        waited += 0.25
+    endwhile
+    Trace("reload " + hops + ": at the stop=" + player.IsInInterior() + " cell=" + player.GetParentCell() + " after " + waited + " s")
+    ComeBack(player)
+    k = 0
+    q = self
+    while q != None                                           ; every quest: the player entered again
+        q.Reentered(w)
+        k += 1
+        q = Game.GetForm(id + k) as FO4SF_MapMarkers
+    endwhile
+    enteredAt = Utility.GetCurrentRealTime()
+    FastTravelLine("after reload " + hops)
+EndFunction
+
+; Back from the stop to where the reload began: MoveTo the anchor marker (in that world at its merged spot) with the
+; difference as the offset, twice at most; once outside with the 3D in, SetPosition there if the move landed more than
+; 2 m off (a SetPosition in the MoveTo's own tick is ignored: FO4SF_NewGameQuest.psc FinishSurface), the facing back,
+; and the screen in. Also from the first quest's next pass for a player still at the stop (a save made there).
+Function ComeBack(Actor player)
+    if hopAnchor < 0 || hopAnchor >= Markers.Length || Markers[hopAnchor] == None
+        Trace("reload: no way back (anchor " + hopAnchor + " of " + Markers.Length + ")")
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        return
+    endif
+    ObjectReference anchor = Markers[hopAnchor]
+    float ax = LocalX[hopAnchor] + MergeOffsetX
+    float ay = LocalY[hopAnchor] + MergeOffsetY
+    float az = LocalZ[hopAnchor]
+    int tries = 0
+    while player.IsInInterior() && tries < 2
+        player.MoveTo(anchor, hopX - ax, hopY - ay, hopZ - az, False, False)
+        tries += 1
+        float gone = 0.0
+        while player.IsInInterior() && gone < HopWait
+            Utility.Wait(0.25)
+            gone += 0.25
+        endwhile
+    endwhile
+    if player.IsInInterior()
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        Trace("reload " + hops + ": still at the stop after " + tries + " moves back; the next pass tries again")
+        return
+    endif
+    float loaded = 0.0
+    while !player.Is3DLoaded() && loaded < HopWait
+        Utility.Wait(0.25)
+        loaded += 0.25
+    endwhile
+    Utility.Wait(0.5)
+    ; the spot is one in hopWorld: if the trip made the world again (or a save made at the stop loads in a new launch,
+    ; whose world is another instance), the anchor went back to its own world and the move lands by it there, which
+    ; the spot would only send off by the merge offset, so only the same world is set
+    WorldSpace back = player.GetWorldSpace()
+    float dx = player.GetPositionX() - hopX
+    float dy = player.GetPositionY() - hopY
+    bool snapped = back == hopWorld && dx * dx + dy * dy > 4.0
+    if snapped
+        player.SetPosition(hopX, hopY, hopZ)
+    endif
+    player.SetAngle(0.0, 0.0, hopA)
+    Game.FadeOutGame(False, True, 0.0, 0.5, False)
+    Trace("reload " + hops + " back: moves=" + tries + " set=" + snapped + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + back + " same=" + (back == hopWorld))
+EndFunction
+
+; What the map and fast travel go by (owner, 2026-10-31: nothing on the map, no fast travel to it): the game's two
+; switches, and the quest's first marker's own state.
+Function FastTravelLine(string when)
+    ObjectReference m = None
+    if Markers.Length > 0
+        m = Markers[0]
+    endif
+    if m == None
+        return
+    endif
+    Trace("fast travel, " + when + ": enabled=" + Game.IsFastTravelEnabled() + " controls=" + Game.IsFastTravelControlsEnabled() + " marker 0 visible=" + m.IsMapMarkerVisible() + " can=" + m.CanFastTravelToMarker())
 EndFunction
