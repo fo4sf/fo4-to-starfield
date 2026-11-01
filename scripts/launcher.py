@@ -24,6 +24,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py settings [--set key=value ...] [--settings <json>]
     python scripts/launcher.py play --starfield <game dir> [--settings <json>] [--dry-run]
     python scripts/launcher.py watch [--pid N] [--repeat] [--timeout S] [--settings <json>] [--dry-run]
+    python scripts/launcher.py update [--check]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -51,6 +52,9 @@ play       applies the settings with the game closed, starts Starfield, and with
 watch      the same watcher for a game something else starts (the test runner): waits for Starfield.exe (or --pid),
            attaches after it settles, logs its end; --repeat goes on to each next game until none appears within
            --timeout. Starts nothing and changes no setting; refuses while the watcher is off in the settings.
+update     brings this checkout up to GitHub's main now (a fast-forward only, src/fo4sf/launcher/selfupdate.py);
+           --check only says how far behind it is. With the setting update=pull, play and gui do it first by themselves
+           and start again on the new code (update=check: they only say it; off, the default: nothing is fetched).
 """
 import argparse
 import json
@@ -60,7 +64,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, paths,  # noqa: E402
-                            plugin_checks, restore, runtimes, same_ids, settings)
+                            plugin_checks, restore, runtimes, same_ids, selfupdate, settings)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -269,8 +273,8 @@ def cmd_bundle(a):
     pt = a.plugins_txt or (restore.plugins_txt_default() if a.starfield else None)
     lines = bundle.make(a.out, state_dirs=a.state_dir, manifest=a.manifest or None,
                         detect_report=a.detect_report or None, starfield=a.starfield or None, plugins_txt=pt,
-                        my_games=a.my_games or None, extra=a.file)
-    for line in lines[3:]:
+                        my_games=a.my_games or None, extra=a.file, about=[selfupdate.describe(REPO)])
+    for line in lines[2:]:
         print(line)
     print(f"bundle written: {a.out} (nothing was sent; look inside before attaching it to an issue)")
     return 0
@@ -304,8 +308,17 @@ def cmd_settings(a):
     return 0
 
 
+def updated(mode):
+    """The update setting before play or the window: True when the checkout moved (the caller then starts the same
+    command again on the new code, selfupdate.restart)."""
+    return selfupdate.update(REPO, mode, running=restore.game_running) if mode != "off" else False
+
+
 def cmd_play(a):
     values = settings.load(a.settings or default_settings_path())
+    # a dry run only looks: it says how far behind it is, and never moves the checkout
+    if updated("check" if a.dry_run and values["update"] != "off" else values["update"]):
+        return selfupdate.restart(a.argv)
     starfield = a.starfield or values["starfield"]
     if not starfield:
         raise ValueError("no Starfield folder: confirm it in the window's Locations tab, run `launcher.py paths "
@@ -350,7 +363,15 @@ def cmd_watch(a):
     return 0 if watched and all(x.get("armed") for x in watched) and not any(x.get("stopped") for x in r) else 1
 
 
+def cmd_update(a):
+    if selfupdate.update(REPO, "check" if a.check else "pull", running=restore.game_running):
+        print("updated: the next launcher command runs the new code")
+    return 0
+
+
 def cmd_gui(a):
+    if updated(settings.load(a.settings or default_settings_path())["update"]):
+        return selfupdate.restart(a.argv)
     from fo4sf.launcher import gui
     return gui.launch(__file__, a.settings or default_settings_path(), recipe=a.recipe, overrides=a.set,
                       fo4_data=a.fo4_data, starfield=a.starfield)
@@ -467,14 +488,17 @@ def main(argv=None):
     s.add_argument("--repeat", action="store_true", help="go on to each next game until none appears within --timeout")
     s.add_argument("--timeout", type=float, default=600.0, help="seconds to wait for a game to appear (default 600)")
     s.add_argument("--dry-run", action="store_true", help="print what watch would do; attach nothing")
+    s = sub.add_parser("update", help="bring this checkout up to GitHub's main now (fast-forward only)")
+    s.add_argument("--check", action="store_true", help="only say how far behind GitHub's main this checkout is")
     a = ap.parse_args(argv)
+    a.argv = [os.path.abspath(__file__), *(sys.argv[1:] if argv is None else argv)]   # the command, to start it again
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
-                "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths}[a.cmd](a)
+                "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths, "update": cmd_update}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

@@ -84,6 +84,7 @@ class BundleTests(unittest.TestCase):
         argv = ["bundle", "--out", out, "--state-dir", self.state, "--starfield", self.sf, "--plugins-txt", self.pt]
         self.assertEqual(cli.main(argv), 0)
         self.assertIn("Plugins.txt", bundle.manifest_of(out))
+        self.assertIn("launcher code: ", bundle.manifest_of(out)["BUNDLE.txt"])   # which version made the report
         self.assertEqual(cli.main(argv), 2)                                 # exists: refused, not overwritten
 
 

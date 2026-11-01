@@ -62,6 +62,10 @@ class SettingsModel:
             if my_games:
                 argv += ["--my-games", my_games]
             return argv  # no --report or other output argument: the status panes are read-only
+        if action == "update-check":
+            return argv + ["update", "--check"]                 # fetches; changes nothing
+        if action == "update":
+            return argv + ["update"]                            # a fast-forward of a clean main only (selfupdate.py)
         if action == "play":
             starfield = starfield or (raw or self.saved).get("starfield", "")
             reason = self.play_reason(raw, starfield, pids, windows=windows)
@@ -122,6 +126,9 @@ class SettingsModel:
         locations the player typed or browsed and has not saved: a late detection never overwrites them (Codex,
         #481)."""
         return [r for r in paths.rows(self.saved, found, prefer) if r["key"] not in dirty]
+
+
+REPORT_ACTIONS = ("status", "detect", "update-check", "update")    # their output shows on the Status tab
 
 
 def run_command(argv, on_line, *, popen=subprocess.Popen):
@@ -414,7 +421,8 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             ttk.Button(tab, text="Browse…", command=pick).grid(row=0, column=2, padx=(8, 0))
             actions = ttk.Frame(tab)
             actions.grid(row=1, column=0, columnspan=3, sticky="w", pady=12)
-            for action, label in (("detect", "Check installation"), ("status", "Build status")):
+            for action, label in (("detect", "Check installation"), ("status", "Build status"),
+                                  ("update-check", "Check for updates"), ("update", "Update launcher")):
                 button = ttk.Button(actions, text=label, command=lambda a=action: self.start(a))
                 button.pack(side="left", padx=(0, 8))
                 self.widgets.append((button, "normal"))
@@ -521,7 +529,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.message.set(f"Running {action}…")
             self.refresh_play()
             self.append(self.log, "\n$ " + subprocess.list2cmdline(argv[3:]) + "\n")
-            if action in ("status", "detect"):
+            if action in REPORT_ACTIONS:
                 self.report.configure(state="normal")
                 self.report.delete("1.0", "end")
                 self.report.configure(state="disabled")
@@ -565,13 +573,15 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                         self.message.set("Ready.")
                 elif kind == "line":
                     self.append(self.log, value)
-                    if self.action in ("status", "detect"):
+                    if self.action in REPORT_ACTIONS:
                         self.append(self.report, value)
                 else:
                     self.busy = False
                     self.message.set(f"{self.action} finished (exit {value})" if kind == "done" else value)
                     for widget, state in self.widgets:
                         widget.configure(state=state)
+                    if kind == "done" and value == 0 and self.action == "update":
+                        self.message.set("Update finished: close and open the window again to use a new version.")
                     if kind == "done" and value == 0 and self.action == "save":
                         if self.part == "locations":   # confirmed: the command-line paths have had their say
                             given.clear()

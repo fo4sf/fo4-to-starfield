@@ -234,7 +234,9 @@ class RestoreTests(unittest.TestCase):
         target["records"]["port"] = {"files": ["FO4Port.esm"], "complete": True}
         p = restore.plan(target, self.snap(), ROOT)
         self.assertTrue(any("--port-staging" in c for c in p["conflicts"]))
-        p = restore.plan(target, self.snap(), ROOT, port_staging=os.path.join(self.root, "port"))
+        staging = os.path.join(self.root, "port")                      # the staging folder a reinstall reads exists
+        os.makedirs(staging)
+        p = restore.plan(target, self.snap(), ROOT, port_staging=staging)
         self.assertEqual([s["what"] for s in p["steps"]], ["install port"])
 
     def test_swap_order_matches_the_swap_scripts(self):
@@ -242,7 +244,9 @@ class RestoreTests(unittest.TestCase):
         cur["records"]["bridge"] = {"source_sha256": "b", "dir": "x", "plugin": "FO4SFBridge.esm"}
         cur["records"]["experiment"] = {"exp_dir": self.exp, "plugins": ["A.esm"]}
         target = self.snap()
-        target["records"]["bridge"] = {"source_sha256": "c", "dir": "y", "plugin": "FO4SFBridge.esm"}
+        bridge_dir = os.path.join(self.root, "staging", "bridge_y")      # a source folder that exists (else a conflict)
+        os.makedirs(bridge_dir)
+        target["records"]["bridge"] = {"source_sha256": "c", "dir": bridge_dir, "plugin": "FO4SFBridge.esm"}
         target["records"]["experiment"] = {"exp_dir": self.exp, "plugins": ["B.esm"], "pack": True,
                                            "source_inputs": {"plugin/B.esm": "1"}}
         p = restore.plan(target, cur, ROOT)

@@ -15,7 +15,10 @@ Built in here: those names, any SFBGS* plugin (scripts/game/exp_install.py impli
 Ours: every plugin, EditorID and script name of this project starts with FO4 or FOCC (FO4Port, FO4SF*, FO4Terrain*,
 FO4Actor*, FO4Slice*, the FOCC sidecar), and none of the game's plugins does (built_in). That none of its EditorIDs or
 script names does is a hypothesis, which the first baseline tests: scripts/game/baseline.py collect keeps no log that
-names one as the baseline. fo4sf.core.papyrus_log reads names in a log by the same prefixes.
+names one as the baseline. fo4sf.core.papyrus_log reads names in a log by the same prefixes. FOSF (pieces every
+region shares, such as the start plugin), FO3SF and FNVSF (the Fallout 3 and New Vegas ports) are ours too: the
+owner reserved them on 2026-10-19 (docs/research/framework/multi-game-future.md, MG-26), before any file uses them.
+This is the project's one list: scripts/game/load_order.py reads it too.
 
 The start records, all in Starfield.esm (verified): StartupQuest_DO 00562D, the DefaultObject (DFOB) that names MQ101
 as the startup quest (the NG-N4 records report, docs/research/framework/newgame.md); MQ101 003448, the opening (its
@@ -29,7 +32,7 @@ in the file, their overrides of Starfield.esm records 00).
 STARFIELD = "starfield.esm"
 START_RECORDS = ((b"DFOB", 0x00562D, "StartupQuest_DO"), (b"QUST", 0x003448, "MQ101"), (b"GLOB", 0x0A7D31, "MQ101Debug"))
 IMPLICIT = ("starfield.esm", "blueprintships-starfield.esm", "constellation.esm", "oldmars.esm", "shatteredspace.esm")
-OUR_PREFIXES = ("fo4", "focc")
+OUR_PREFIXES = ("fo4", "focc", "fosf", "fo3sf", "fnvsf")
 PLUGIN_EXTENSIONS = (".esm", ".esp", ".esl")
 
 

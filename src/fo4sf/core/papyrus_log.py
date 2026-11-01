@@ -24,18 +24,18 @@ of those of its type has another index in our run than in the baseline, and a ki
 best, not "both" (the counts still add up). scripts/game/baseline.py compare says when the built-in plugins' names or
 sizes differ from the baseline's.
 
-A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in the
-first group that fits: "both" (the baseline has the same kind), "ours" (it names one of our records or scripts:
-fo4sf.core.loadset's prefixes, FO4 and FOCC), "both_place" (the baseline has the same message at the same script
-line, from another caller or object) or "starfield" (Starfield's own scripts, but only in this run: the cost of what
-we change). A kind of ours keeps how many baseline lines came at its script line. The baseline's kinds that the run
-does not have, at a script line no "both_place" kind of the run has, are "baseline". Every baseline line is counted
-in one group only. A group says where a message came, not why: a Starfield error only in our run can still be one
-Starfield makes later in its own intro, which the baseline did not reach. "ours" goes by name: a reference of ours
-can print with no name ("[ (0A001234)]"; a supported hypothesis: in the verified sample the quests print their
-EditorIDs and one object prints none), and then its kind is not found as ours: it is "both_place" at a vanilla script
-line, "starfield" elsewhere. The report gives the baseline's count beside each "both" and "both_place" kind, and marks
-one the run has far more often.
+A kind is one message with one stack; the count says how often it came. compare() puts each kind of the run in the first
+group that fits: "both" (the baseline has the same kind), "ours" (it names one of our records or scripts:
+fo4sf.core.loadset's prefixes, FO4, FOCC and the reserved FOSF, FO3SF and FNVSF), "both_place" (the baseline has the
+same message at the same script line, from another caller or object) or "starfield" (Starfield's own scripts, but only
+in this run: the cost of what we change). A kind of ours keeps how many baseline lines came at its script line. The
+baseline's kinds that the run does not have, at a script line no "both_place" kind of the run has, are "baseline". Every
+baseline line is counted in one group only. A group says where a message came, not why: a Starfield error only in our
+run can still be one Starfield makes later in its own intro, which the baseline did not reach. "ours" goes by name: a
+reference of ours can print with no name ("[ (0A001234)]"; a supported hypothesis: in the verified sample the quests
+print their EditorIDs and one object prints none), and then its kind is not found as ours: it is "both_place" at a
+vanilla script line, "starfield" elsewhere. The report gives the baseline's count beside each "both" and "both_place"
+kind, and marks one the run has far more often.
 """
 import json
 import re
@@ -88,7 +88,7 @@ class Event:
 
     def ours(self):
         """Our names in the message or its stack (sorted, unique): our EditorIDs and scripts start with FO4 or FOCC
-        (fo4sf.core.loadset.OUR_PREFIXES)."""
+        or a reserved FOSF, FO3SF or FNVSF (fo4sf.core.loadset.OUR_PREFIXES)."""
         found = set(_OURS.findall(self.text))
         for f in self.frames:
             found.update(_OURS.findall(f))

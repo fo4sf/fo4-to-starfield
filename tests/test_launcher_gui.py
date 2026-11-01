@@ -180,6 +180,10 @@ class GuiModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.model.command("detect")
 
+    def test_the_update_buttons_run_the_update_command(self):
+        self.assertEqual(self.model.command("update-check")[4:], ["update", "--check"])
+        self.assertEqual(self.model.command("update")[4:], ["update"])
+
     def test_saved_my_games_argument_is_forwarded_without_guessing(self):
         self.path.write_text(json.dumps({"my_games": "resolved documents folder"}), encoding="utf-8")
         self.model.reload()
@@ -229,6 +233,10 @@ class PathsTests(unittest.TestCase):
         (self.tools / "procdump64.exe").write_bytes(b"")
         self.env = {"USERPROFILE": str(self.root / "user"), "ProgramFiles": str(self.root / "Program Files"),
                     "LOCALAPPDATA": str(self.root / "local")}
+        # Keep Windows' redirected Documents folder out of these synthetic path-discovery fixtures.
+        documents = mock.patch.object(paths, "_documents", return_value=[str(self.docs.parents[1])])
+        documents.start()
+        self.addCleanup(documents.stop)
 
     def find(self):
         return {"starfield": str(self.game), "fallout4": str(self.data.parent), "fallout4_depots": []}

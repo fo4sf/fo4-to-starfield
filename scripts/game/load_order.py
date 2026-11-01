@@ -29,10 +29,12 @@ import datetime
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # isolated Python omits the script's directory
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)                                           # isolated Python omits the script's directory
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
 import exp_install  # noqa: E402
+from fo4sf.core.loadset import OUR_PREFIXES  # noqa: E402,F401  (the project's one list; ours() reads it)
 
-OUR_PREFIXES = ("fo4terrain", "fo4actor", "fo4sf", "fo4port")
 MARKERS, BRIDGE = "fo4sfmapmarkers.esm", "fo4sfbridge.esm"
 
 
@@ -41,7 +43,8 @@ def name(line):
 
 
 def ours(plugin):
-    """True for a plugin of ours (the cores, FO4Port, FO4SF* experiments, markers, bridge): active, it must be in Data."""
+    """True for a plugin of ours (fo4sf.core.loadset.OUR_PREFIXES: the cores, FO4Port, FO4SF* experiments, markers,
+    bridge, the slices, the FOCC probes, and the reserved FOSF / FO3SF / FNVSF names): active, it must be in Data."""
     low = plugin.casefold()
     return low.endswith((".esm", ".esp", ".esl")) and low.startswith(OUR_PREFIXES)
 

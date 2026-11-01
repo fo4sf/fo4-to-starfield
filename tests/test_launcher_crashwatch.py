@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -865,6 +866,10 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIn("unknown", crashwatch.exit_name(None))
 
     def test_cli(self):
+        # The real load-order subprocess must not read this PC's installed Plugins.txt.
+        local = mock.patch.dict(os.environ, {"LOCALAPPDATA": os.path.join(self.dir, "local")})
+        local.start()
+        self.addCleanup(local.stop)
         spec = importlib.util.spec_from_file_location("launcher_cli", os.path.join(ROOT, "scripts", "launcher.py"))
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)

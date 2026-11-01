@@ -44,6 +44,22 @@ class NameTests(unittest.TestCase):
             self.assertTrue(ls.ours(n), n)                                  # one rule: FO4 or FOCC, as in the logs
         self.assertFalse(ls.ours("SomeMod.esm") or ls.ours("FO4SF.toggle.json") or ls.ours("Fallout4.esm"))
 
+    def test_the_reserved_prefixes_are_ours_before_anything_uses_them(self):
+        # the owner's 2026-10-19 answer (MG-26): FO3SF_, FNVSF_ and the shared FOSF_ are ours, so a shared start
+        # plugin named FOSF_* is not refused by the start check as someone else's
+        for n in ("FOSF_Start.esm", "fosf_arrival.esp", "FO3SF_Megaton.esm", "FNVSF_Goodsprings.esm"):
+            self.assertTrue(ls.ours(n), n)
+        for n in ("FOSF_Start.txt", "Fallout3.esm", "FalloutNV.esm", "FOS.esm", "FNV.esm"):
+            self.assertFalse(ls.ours(n), n)
+
+    def test_load_order_reads_the_same_list(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import load_order
+        self.assertIs(load_order.OUR_PREFIXES, ls.OUR_PREFIXES)
+        for n in ("FO4SliceRedRocketCore.esm", "FOCCProbe.esp", "FOSF_Start.esm", "FO4SFMapMarkers.esm",
+                  "FO4TerrainCore.esm", "SomeMod.esm", "Fallout4.esm"):
+            self.assertEqual(load_order.ours(n), ls.ours(n), n)
+
     def test_start_record(self):
         sf = ["Starfield.esm"]
         self.assertEqual(ls.start_record(b"DFOB", 0x0000562D, sf), ("StartupQuest_DO", 0x562D))
