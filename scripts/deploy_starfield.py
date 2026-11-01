@@ -12,6 +12,8 @@ install --batch: installs an interior batch's built port as it is (scripts/terra
            after it. It refuses when the copies would leave less than --min-free-gb free on the game's drive, and
            when Data's FO4TerrainCore.esm is not the core the batch's door returns were wired to (--other-core).
 uninstall: removes exactly what the manifest lists, including the Plugins.txt lines.
+install --restore-stdin: recorded restore's internal replay mode; stdin pins the prebuilt artifact set and target
+           core. Copies those exact files without Archive2, including texture companions; never builds new outputs.
 verify   : read-only. Exit 0 only when Data holds a complete install this script recorded, every file the manifest owns
            has the size and sha256 it recorded, and FO4Port.esm and each texture companion it owns are active in
            Plugins.txt; --plugin-sha256 also pins the installed FO4Port.esm. cycle.ps1 runs it instead of a redeploy
@@ -33,16 +35,19 @@ import subprocess
 import sys
 import tempfile
 
-PLUGIN = "FO4Port.esm"
-ARCHIVE = "FO4Port - Main.ba2"
-TEX_ARCHIVE = "FO4Port - Textures.ba2"
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+from fo4sf.launcher import port_restore  # noqa: E402
+
+PLUGIN = port_restore.PLUGIN
+ARCHIVE = port_restore.ARCHIVE
+TEX_ARCHIVE = port_restore.TEX_ARCHIVE
 MANIFEST = "FO4Port.deploy.json"
 MAIN_DIRS = ("meshes", "geometries", "materials")
-DEPLOYED_FILES = frozenset((PLUGIN, ARCHIVE, TEX_ARCHIVE))
+DEPLOYED_FILES = port_restore.DEPLOYED_FILES
 # an interior batch's texture companions (interior_batch.py COMPANION_PLUGIN / COMPANION_ARCHIVE): N = 2, 3, ...
-COMPANION_RX = re.compile(r"^FO4PortTextures([2-9]|[1-9]\d+)(\.esm| - Textures\.ba2)$")
+COMPANION_RX = port_restore.COMPANION_RX
 BATCH_RESULT = "result.json"
-CORE_PLUGIN = "FO4TerrainCore.esm"   # the core whose exterior doors a batch's door returns were wired to (vmad_patch.py)
+CORE_PLUGIN = port_restore.CORE   # the core whose exterior doors a batch's door returns were wired to (vmad_patch.py)
 _UNSET = object()
 
 
@@ -262,6 +267,8 @@ def copy_new_artifact(src, dst, expected_sha256=None):
 
 
 def install(a):
+    if getattr(a, "restore_stdin", False):
+        return install_recorded(a)
     if getattr(a, "batch", ""):
         return install_batch(a)
     build_state = os.path.join(a.staging, "build-state.json")
@@ -304,7 +311,29 @@ def install(a):
     publish(data, man_path, built, targets, {os.path.basename(dst): artifact_identity(src) for src, dst in zip(built, targets)})
 
 
-def publish(data, man_path, built, targets, identities, companions=()):
+def install_recorded(a):
+    """Replay a snapshot's prebuilt artifact set. Never repack it or infer a new build's identities."""
+    data = os.path.join(a.starfield, "Data")
+    man_path = os.path.join(data, MANIFEST)
+    if os.path.exists(man_path):
+        sys.exit("already installed (manifest exists); uninstall first")
+    try:
+        spec = json.load(sys.stdin)
+        items, companions = port_restore.check_stage(a.staging, spec)
+        port_restore.check_core(data, spec)
+        targets = [os.path.join(data, name) for _, name, _ in items]
+        if any(os.path.lexists(p) for p in targets):
+            raise ValueError("recorded port restore refuses to overwrite an existing target")
+        plan_plugin_activation(read_lines(plugins_txt_path()), companions)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        sys.exit(f"nothing installed: recorded port restore refused: {error}")
+    if a.dry_run:
+        return
+    publish(data, man_path, [src for src, _, _ in items], targets,
+            {name: identity for _, name, identity in items}, companions, pinned=True)
+
+
+def publish(data, man_path, built, targets, identities, companions=(), *, pinned=False):
     """Record intent first, then copy built[i] to targets[i]; any failure rolls back what was copied. identities:
     {target name: artifact_identity} each copy must match. companions: plugins activated right after FO4Port.esm."""
     pt = plugins_txt_path()
@@ -334,7 +363,10 @@ def publish(data, man_path, built, targets, identities, companions=()):
             rel = os.path.basename(dst)
             state["files"].append(rel)
             write_manifest(man_path, state)
-            copy_new_artifact(src, dst)
+            if pinned:
+                copy_new_artifact(src, dst, expected_sha256=identities[rel]["sha256"])
+            else:
+                copy_new_artifact(src, dst)
             installed_files.add(rel)
             if artifact_identity(dst) != identities[rel]:
                 raise OSError(f"installed artifact differs from validated build: {rel}")
@@ -617,6 +649,8 @@ if __name__ == "__main__":
     ap.add_argument("action", choices=["install", "uninstall", "verify"])
     ap.add_argument("--staging", default="")
     ap.add_argument("--batch", default="", help="an interior batch stage: install its built port as it is")
+    ap.add_argument("--restore-stdin", action="store_true",
+                    help="install: replay prebuilt files against a recorded restore spec from standard input")
     ap.add_argument("--other-core", action="store_true",
                     help="--batch: install even though the installed core is not the one the batch's doors were wired to")
     ap.add_argument("--min-free-gb", type=float, default=40.0, help="--batch: free space the game's drive keeps")
@@ -624,6 +658,8 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--plugin-sha256", default="", help="verify: the FO4Port.esm the run pinned")
     args = ap.parse_args()
+    if args.restore_stdin and (args.action != "install" or args.batch or not args.staging):
+        ap.error("--restore-stdin requires install --staging and cannot be combined with --batch")
     if args.batch and (args.staging or args.action != "install"):
         ap.error("--batch is for install alone, without --staging")
     {"install": install, "uninstall": uninstall, "verify": verify}[args.action](args)

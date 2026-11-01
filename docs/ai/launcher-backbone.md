@@ -55,8 +55,9 @@ launcher's progress screen and the install thread read instead of opening state.
 own archives by size and time) and every install record verbatim: the port, the experiment, the planet, quest and
 combined probes, the map markers and the bridge (the probes and the markers since 2026-10-31; before, the markers'
 Plugins.txt line read as an owner's edit and every restore with them installed was refused). `restore` plans in the
-swap scripts' order (bridge off, markers off, the probes off, experiment off, port off; then the reverse, with
-`exp_install.py order` after the experiment), reinstalling from the source folder each record names; a source folder
+swap scripts' uninstall order (bridge off, markers off, the probes off, experiment off, port off); installation
+puts the target experiment/core back first, runs `exp_install.py order`, then restores the port and its riders,
+reinstalling from the source folder each record names; a source folder
 that is gone is a conflict. Before any uninstall, staged input inventories and marker/quest-probe pins are checked
 against the target receipts; legacy experiment records without `source_inputs` are noted as unverified, and stages
 must remain unchanged until apply finishes. The markers and the combined probe ride on the experiment and the quest probe on the port
@@ -71,6 +72,15 @@ restore refuses. That holds for the target too: a snapshot taken while an owned 
 `plugins_restore_pending` set (it owns the later uninstall's Plugins.txt restoration) is healthy and left alone; only
 `complete: false` or `cleanup_pending` counts as an interrupted install to recover (Codex review, 2026-10-19). The install thread's swap scripts on the PC are not replaced or touched; this is the same
 practice in code, so the launcher can later call it.
+
+Recorded port restore treats `--port-staging` as a source of **prebuilt** plugin/archive files, including complete
+texture-companion pairs. An ordinary stage, an interior batch root, or its `port` folder is accepted only when every
+recorded size and SHA256 matches before any uninstall; failed/incomplete stage metadata refuses too. Restore passes
+the snapshot's artifact and core pins to the deployer over stdin, which checks them again and copies those outputs
+without Archive2 or repacking. The core is restored first so the installed core pin can be checked before publishing
+the port. Old port receipts without complete artifact identities cannot be replayed automatically. This does not
+lock a stage against edits during apply or make multiple installers atomic; keep source folders immutable and retain
+the snapshot and installer recovery records after any failure.
 
 ### Same-ids check
 Level 1 plugin bytes; level 2 a raw record walk (no Mutagen, no load order): FormID set, type and editor id per
