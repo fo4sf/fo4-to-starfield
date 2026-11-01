@@ -11,8 +11,10 @@ ACTOR = -16711680
 TRAVEL = 2174939                    # 0x00212FDB as the log's signed decimal
 
 
-def drive(*, driver="package", package=TRAVEL, offset=0.0, stray_return=False, **kwargs):
-    """A p9_log rung with a go at rt 1.5 (+offset) by the given driver, and for a package its `p9 package` line."""
+def drive(*, driver="package", package=TRAVEL, offset=0.0, stray_return=False, pkg_actor=ACTOR, pkg_call=None,
+          **kwargs):
+    """A p9_log rung with a go at rt 1.5 (+offset) by the given driver, and for a package its `p9 package` line
+    (package=None: no such line; pkg_actor / pkg_call: a line that belongs to another actor or call)."""
     lines = p9_log(**kwargs)
     lines = [re.sub(r"rt=([0-9.]+)", lambda m: f"rt={float(m[1]) + offset:.1f}", line) for line in lines]
     start = next(i for i, line in enumerate(lines) if " p9 start " in line)
@@ -20,8 +22,9 @@ def drive(*, driver="package", package=TRAVEL, offset=0.0, stray_return=False, *
     extra = f" driver={driver}" if driver == "package" else ""
     add = [f"FOCC rt={origin} p9 go actor={ACTOR} call={origin} target=dest id=50333723 dist={dist}{extra}"]
     if driver == "package" and package is not None:
-        add.append(f"FOCC rt={origin + 2.0} p9 package actor={ACTOR} call={origin} linked=50333723 package={package} "
-                   f"dist={dist}")
+        call = origin if pkg_call is None else pkg_call
+        add.append(f"FOCC rt={origin + 2.0} p9 package actor={pkg_actor} call={call} linked=50333723 "
+                   f"package={package} dist={dist}")
     if stray_return:                # a return line never belongs to a package go, even with its call=
         add.append(f"FOCC rt={origin + 1.0} p9 path returned actor={ACTOR} call={origin} target=dest result=1 "
                    f"after=1.0 dist={dist}")
@@ -57,6 +60,32 @@ class P9PackageDriverTests(unittest.TestCase):
         script_ctl = drive(driver="script", start=20.0, seconds=60, offset=100.0)
         v = probes.check_p9(col(log=BASE + script_ctl[1:] + stalled[1:]))
         self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())   # a PathToReference control proves nothing here
+
+    def test_no_proof_the_package_took_is_never_a_verdict(self):
+        # #663 review P1: a missing, `none`, unreadable or someone else's `p9 package` line is not proof
+        cases = {"no line": dict(package=None), "none": dict(package="none"), "garbage": dict(package="abc"),
+                 "another actor": dict(pkg_actor=-16711681), "another call": dict(pkg_call=99.0)}
+        for name, kw in cases.items():
+            with self.subTest(name):
+                v = probes.check_p9(col(log=drive(**kw)))                       # an arriving walk
+                self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
+                stalled = drive(speed=0.0, offset=200.0, **kw)
+                good_ctl = drive(start=20.0, seconds=60, offset=100.0)
+                v = probes.check_p9(col(log=BASE + good_ctl[1:] + stalled[1:]))
+                self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())   # never blamed on the navmesh
+        v = probes.check_p9(col(log=drive(package="none")))
+        self.assertTrue(any("ran no package" in r for r in v.reasons), v.reasons)
+        v = probes.check_p9(col(log=drive(package=None)))
+        self.assertTrue(any("no `p9 package` line" in r for r in v.reasons), v.reasons)
+
+    def test_a_control_whose_package_did_not_take_proves_nothing(self):
+        # #663 review P2: the control's own `p9 package` line must name DefaultTraveltoLinkedRef too
+        stalled = drive(speed=0.0, offset=200.0)
+        for kw in (dict(package=0x2B2000), dict(package=None), dict(package="none")):
+            with self.subTest(kw=kw):
+                ctl = drive(start=20.0, seconds=60, offset=100.0, **kw)
+                v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
+                self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
 
     def test_the_old_scripted_go_reads_as_before(self):
         v = probes.check_p9(col(log=drive(driver="script")))

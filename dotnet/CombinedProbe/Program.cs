@@ -186,11 +186,6 @@ static class CombinedProbe
     /// The vanilla base a probe spawns or places: refused when it resolves to another record type; a warning when the
     /// masters read here do not hold it at all (the synthetic masters of the offline test; the game refuses a bad
     /// link at load, and the job card asks for the id to be confirmed in xSFEdit).
-    /// Why Starfield.esm's 212FDB is not P9's package (DefaultTraveltoLinkedRef), or null when it is.
-    static string? TravelProblem(Masters m) =>
-        m.Cache.TryResolve<IPackageGetter>(new FormKey(SfEsm, TravelToLinkedRef), out var p) && p.EditorID == TravelToLinkedRefEdid
-            ? null : $"Starfield.esm {TravelToLinkedRef:X6} is not the package {TravelToLinkedRefEdid} (P9's package driver)";
-
     static void CheckBase<T>(Masters m, FormKey key, string what, List<string> warnings) where T : class, IStarfieldMajorRecordGetter
     {
         if (m.Cache.TryResolve<T>(key, out _)) return;
@@ -199,6 +194,11 @@ static class CombinedProbe
         if (m.Keys.Contains(key.ModKey)) warnings.Add($"{what} {key} is not in the {key.ModKey} read here: written as given");
         else warnings.Add($"{what} {key} names a plugin that is not a master here: written as given (the game must load it)");
     }
+
+    /// Why Starfield.esm's 212FDB is not P9's package (DefaultTraveltoLinkedRef), or null when it is.
+    static string? TravelProblem(Masters m) =>
+        m.Cache.TryResolve<IPackageGetter>(new FormKey(SfEsm, TravelToLinkedRef), out var p) && p.EditorID == TravelToLinkedRefEdid
+            ? null : $"Starfield.esm {TravelToLinkedRef:X6} is not the package {TravelToLinkedRefEdid} (P9's package driver)";
 
     // ---------------------------------------------------------------- build
 

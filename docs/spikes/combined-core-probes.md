@@ -539,14 +539,20 @@ end      cgf "FOCC_P9Drive.TravelEnd" <id>
 How the judge reads it:
 - A package rung has no return line. A `p9 path returned` line is never paired with its go, even when it carries the
   same call=.
-- If the `p9 package` line names another package, the alias did not take, and the rung is INCONCLUSIVE whatever the
-  samples show.
-- Only a package rung can stand as a package rung's control. A scripted PathToReference control proves nothing about a
-  package, and the reverse holds too.
+- Unless that go's own `p9 package` line (same actor and call=) names `212FDB`, the rung is INCONCLUSIVE whatever
+  the samples show. The reason says which case it is: no such line, `package=none` (the actor ran no package), an
+  unreadable id, or another package (the alias did not take).
+- Only a package rung whose own `p9 package` line names `212FDB` can stand as a package rung's control. A scripted
+  PathToReference control proves nothing about a package, and the reverse holds too.
 - Everything else is as for Go: the walk's clock and distance start at the go, samples must be continuous, and the
   verdict is the latest rung's.
 
 `tests/test_combined_p9_package.py` covers these rules on synthetic logs.
+
+Run it in a session whose probe quest was started with this plugin installed: a `coc` from the main menu (as
+`p9_ladder`'s session does), or a save made after the install. In a save from before, the quest is already running
+without alias 0. Then `Travel` logs `p9 go refused ... walker=False`, a clean refusal rather than a verdict
+(**unverified** how the engine treats an alias added to a running quest; #663 review).
 
 ## P1: SFSE sidecar on save and load (last)
 

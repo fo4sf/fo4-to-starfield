@@ -1395,6 +1395,7 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "driver": kind,
                     "package_line": pkg.line if pkg is not None else None,
                     "package_after_go": pkg.form("package") if pkg is not None else None,
+                    "package_raw": pkg.fields.get("package") if pkg is not None else None,
                     "go_line": go.line if go is not None else None,
                     "go_rt": go.rt if go is not None else None,
                     "target": go.fields.get("target") if go is not None else None,
@@ -1437,6 +1438,7 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == driver and a["go_dist_m"] is not None
                 and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]
                 and a["path_succeeded"] is not False
+                and (driver != "package" or a["package_after_go"] == P9_TRAVEL_PACKAGE)
                 and a["continuous"] is True and (a["target"] == "player" or a["to_dest"] is True)), None)
     if ctl is None:
         return None
@@ -1463,11 +1465,21 @@ def check_p9(c: Collection) -> Verdict:
     latest = attempts[-1]
     driver = latest["driver"]
     v.extra["driver"] = P9_DRIVERS.get(driver, "none logged (a console command, or none)")
-    if driver == "package" and latest["package_after_go"] not in (None, P9_TRAVEL_PACKAGE):
-        # the actor ran another package two seconds after the go: the alias package did not take, so whatever the
-        # samples show was not this driver's walk
-        v.reasons.append(f"two seconds after the go the actor ran package {latest['package_after_go']}, not "
-                         f"DefaultTraveltoLinkedRef ({P9_TRAVEL_PACKAGE}): the alias package did not take")
+    if driver == "package" and latest["package_after_go"] != P9_TRAVEL_PACKAGE:
+        # unless the `p9 package` line of this go names DefaultTraveltoLinkedRef, nothing shows the alias package took,
+        # so whatever the samples show was not this driver's walk (#663 review: a missing or `none` line is no proof)
+        raw = latest["package_raw"]
+        if latest["package_line"] is None:
+            v.reasons.append("no `p9 package` line for this go (same actor and call=): whether the alias package took "
+                             "is unknown")
+        elif raw == "none":
+            v.reasons.append("two seconds after the go the actor ran no package: the alias package did not take")
+        elif latest["package_after_go"] is None:
+            v.reasons.append(f"the `p9 package` line's package={raw} is not a form id: whether the alias package took "
+                             "is unknown")
+        else:
+            v.reasons.append(f"two seconds after the go the actor ran package {latest['package_after_go']}, not "
+                             f"DefaultTraveltoLinkedRef ({P9_TRAVEL_PACKAGE}): the alias package did not take")
         v.cite(*[e for e in evs if e.line == latest["package_line"]])
         return v
     if latest["path_returned_s"] is not None:
@@ -1503,7 +1515,8 @@ def check_p9(c: Collection) -> Verdict:
         v.reasons.append(f"the judged rung's `p9 go` targets {latest['target'] or 'nothing named'} (id "
                          f"{latest['go_id'] or 'none'}), not the tracked FOCC_P9_Dest (id {dest[-1].form('id')}): "
                          f"P9Track measures the distance to the destination, so this command's walk is not the route "
-                         f"judged here (the long rungs take `FOCC_P9Drive.Go <actor> 0`)")
+                         f"judged here (the long rungs take `FOCC_P9Drive.{'Travel' if driver == 'package' else 'Go'} "
+                         f"<actor> 0`)")
         return v
     others = [e for e in samples if e.form("actor") != actor]
     if others:                                  # every sample is the started actor's (Codex review of #431)
@@ -1607,7 +1620,8 @@ def check_p9(c: Collection) -> Verdict:
         else:
             v.reasons.append(f"but the actor came at most {approach:.1f} m closer (moved {moved:.1f} m at most) and no "
                              f"ladder rung in this log shows the command walking it (a baseline rung within "
-                             f"{P['p9_control_m']:g} m with no `p9 go` that stayed away, then a scripted one, its "
+                             f"{P['p9_control_m']:g} m with no `p9 go` that stayed away, then one sent by the same "
+                             f"driver ({'the package' if driver == 'package' else 'the script'}), its "
                              f"`p9 go` inside its track finding it {P['p9_control_min_m']:g} m or more out, aimed at "
                              f"the player or at the destination, that arrived after that go through continuous "
                              f"samples; a console command leaves no line and never stands as the control): the "

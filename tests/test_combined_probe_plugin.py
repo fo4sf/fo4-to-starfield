@@ -102,6 +102,30 @@ class CombinedProbePluginTests(unittest.TestCase):
         self.assertIn("wrote ", proc.stdout)
         return out / "FO4SFCombinedProbe.esm", proc
 
+    def test_the_walker_alias_is_written_as_the_script_reads_it(self):
+        # #663 review: the bytes, not only the source text. FOCC_P9Drive.Travel takes GetAlias(0) on the quest; the alias
+        # must be 0, empty (no forced reference), optional + allow reserved, with Starfield.esm 212FDB as its package.
+        plugin, _ = self.built("default")
+        sig, payload, _, _ = records(plugin)[OWN | 0x804]
+        self.assertEqual(sig, b"QUST")
+        subs, pos = [], 0
+        while pos < len(payload):
+            s, size = payload[pos:pos + 4], struct.unpack_from("<H", payload, pos + 4)[0]
+            subs.append((s, payload[pos + 6:pos + 6 + size]))
+            pos += 6 + size
+        at = [k for k, (s, _) in enumerate(subs) if s == b"ALST"]
+        self.assertEqual(len(at), 1)
+        alias = subs[at[0]:]
+        alias = alias[:next((k for k, (s, _) in enumerate(alias) if s == b"ALED"), len(alias)) + 1]
+        got = {s: d for s, d in alias}
+        self.assertEqual(struct.unpack("<I", got[b"ALST"])[0], 0)
+        self.assertEqual(got[b"ALID"], b"P9Walker\0")
+        self.assertEqual(struct.unpack("<I", got[b"FNAM"])[0], 0x2 | 0x200)    # Optional | AllowReserved
+        self.assertEqual(struct.unpack("<I", got[b"ALPC"])[0], 0x00212FDB)     # Starfield.esm (master 00)
+        self.assertNotIn(b"ALFR", got)                                         # empty: Travel forces the actor in
+        self.assertIn("q.GetAlias(0) as ReferenceAlias", DRIVE)
+        self.assertIn("TravelToLinkedRef = 0x212FDB, WalkerAliasId = 0;", PROGRAM)
+
     def test_every_record_is_written_and_read_back(self):
         plugin, proc = self.built("default")
         self.assertRegex(proc.stdout, r"WARN  --npc 2B211C:Starfield\.esm is not in the Starfield\.esm read here")   # FormKey prints id:plugin
