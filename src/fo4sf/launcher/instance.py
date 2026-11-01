@@ -37,6 +37,42 @@ def _parts(path):
     return [p.casefold() for p in os.path.normpath(os.path.abspath(path)).split(os.sep) if p]
 
 
+def _is_link(path):
+    """A symlink, or on Windows a directory junction (another reparse point that redirects a path)."""
+    return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _p: False)(path))
+
+
+def _links_under(target):
+    """Links and junctions anywhere in an existing target, without following any: each would carry a write elsewhere."""
+    found, todo = [], [target]
+    while todo:
+        d = todo.pop()
+        with os.scandir(d) as it:
+            for e in it:
+                if _is_link(e.path):
+                    found.append(e.path)
+                elif e.is_dir(follow_symlinks=False):
+                    todo.append(e.path)
+    return sorted(found)
+
+
+def _real_dir(target, rel_dir):
+    """target/rel_dir made of real directories only: a link or junction on the way is refused, never followed, and the
+    result must resolve inside the resolved target. Missing directories are made one by one."""
+    d = target
+    for part in [p for p in rel_dir.split("/") if p]:
+        d = os.path.join(d, part)
+        if _is_link(d):
+            raise InstanceRefused(f"{d} is a link or junction: a write through it would land outside the FO4SF folder")
+        if not os.path.lexists(d):
+            os.mkdir(d)
+        elif not os.path.isdir(d):
+            raise InstanceRefused(f"{d} is a file where a folder belongs; nothing overwritten")
+    if not _inside(d, target):
+        raise InstanceRefused(f"{d} resolves outside the FO4SF folder {target}")
+    return d
+
+
 def _inside(child, parent):
     c, p = os.path.normcase(os.path.realpath(child)), os.path.normcase(os.path.realpath(parent))
     try:
@@ -96,7 +132,8 @@ def check_target(source, target, min_free_gb, copy_bytes, disk_usage=shutil.disk
     target = os.path.abspath(target)
     if _inside(target, source) or _inside(source, target):
         raise InstanceRefused("the FO4SF folder must be outside the Starfield install (and not hold it)")
-    bad = [p for p in _parts(target) if p in BAD_PARTS]
+    # the spelling given and the path it resolves to (a junction or symlink may alias a Steam library)
+    bad = [p for p in _parts(target) + _parts(os.path.realpath(target)) if p in BAD_PARTS]
     if bad:
         raise InstanceRefused(f"{target} is inside {bad[0]!r}: put the FO4SF folder elsewhere, for example D:\\FO4SF\\"
                               "Starfield (Steam, Program Files and synced folders can move or lock its files)")
@@ -104,6 +141,10 @@ def check_target(source, target, min_free_gb, copy_bytes, disk_usage=shutil.disk
         raise InstanceRefused(f"{target} is a file")
     if os.path.isdir(target) and os.listdir(target) and not os.path.isfile(os.path.join(target, RECORD)):
         raise InstanceRefused(f"{target} is not empty and is no FO4SF game folder (no {RECORD}): pick an empty one")
+    links = _links_under(target) if os.path.isdir(target) else []
+    if links:
+        raise InstanceRefused(f"{links[0]} is a link or junction inside the FO4SF folder: remove it first (a write "
+                              "through it would land outside the folder)")
     parent = target
     while not os.path.isdir(parent):
         parent = os.path.dirname(parent)
@@ -139,7 +180,7 @@ def create(source, target, keep_data_dirs=(), min_free_gb=40.0, say=print, disk_
             if not same:
                 raise InstanceRefused(f"{dst} is already there and is not the game's file; nothing overwritten")
             continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        _real_dir(target, os.path.dirname(rel))         # checked again per file: nothing written through a link
         if how == "link":
             link(src, dst)
         else:
@@ -250,6 +291,28 @@ def swap_in(folder, player, say=print):
     say(f"Plugins.txt: FO4SF's list in place for this start (yours is kept in {journal} and comes back at the end)")
 
 
+def _keep_after(base, raw):
+    """Keep raw at base (or base-2, base-3, ...), never overwriting. A kept list beside it with the same bytes, from
+    any earlier second, is that same evidence from an attempt that stopped before the player's list was back, so it
+    is reused instead of copied again."""
+    folder, stem = os.path.dirname(base), os.path.basename(base).rsplit(".after-", 1)[0] + ".after-"
+    os.makedirs(folder, exist_ok=True)
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if name.startswith(stem) and os.path.isfile(path) and not os.path.islink(path) and _read(path) == raw:
+            return path
+    for n in range(1, 1000):
+        path = base if n == 1 else f"{base}-{n}"
+        try:
+            with open(path, "xb") as f:
+                f.write(raw)
+            return path
+        except FileExistsError:
+            if _read(path) == raw:
+                return path
+    raise InstanceRefused(f"{base}: too many kept lists; move some away")
+
+
 def swap_out(folder, say=print, after_game=True):
     """Put the player's list back from the journal. after_game: the game ran and may have rewritten FO4SF's list (it does
     at every start), so that becomes the folder's list. A recovery (the launcher did not see the end) keeps what stands
@@ -266,9 +329,8 @@ def swap_out(folder, say=print, after_game=True):
             ours_p = plugins_txt(folder)
             _put(ours_p, now, _sha(_read(ours_p)))
         else:
-            keep = plugins_txt(folder) + ".after-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            with open(keep, "xb") as f:
-                f.write(now)
+            keep = _keep_after(plugins_txt(folder) + ".after-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
+                               now)
             say(f"Plugins.txt: what stood in its place is kept as {keep}")
     mine = None if j.get("player_b64") is None else base64.b64decode(j["player_b64"])
     _put(player, mine, _sha(now))

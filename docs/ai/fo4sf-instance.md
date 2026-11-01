@@ -43,6 +43,11 @@ Step 1's rules, in `instance.py`:
 - Data keeps only the game's own plugins and the files named after them. The player's mods, our installs, loose
   folders and SFSE plugins are left out and listed.
 - Nothing is ever written in the Steam install, and nothing is overwritten.
+- No write goes through a link (#655, Codex's Windows review):
+  - A symlink or NTFS junction anywhere inside the folder is refused before the first file, and again at every
+    folder a file goes into.
+  - The protected places (a Steam library, Program Files, a synced folder) are checked on the path as given and on
+    the path it resolves to, so an alias does not get past them.
 - A stopped run carries on from its record (`FO4SF-instance.json`).
 
 The folder may not go inside the Steam library, Program Files or a synced folder: the Starfield Launchpad Wabbajack
@@ -86,6 +91,8 @@ FO4SF start. It also caps at 10 plugins; FO4SF loads about 9 today, plus texture
      the next launcher start finds Starfield closed.
    - A recovery never adopts what it finds in the player's place as FO4SF's list; it keeps it aside as
      `Plugins.txt.after-<time>`.
+     - Never overwritten: a name already taken by other bytes gets `-2`, `-3` and so on.
+     - A retry after an interrupted recovery reuses its own kept copy (same bytes) and finishes (#655).
    - The swap works whichever way H2 turns out, because the game is started with the launcher's own `LOCALAPPDATA`.
    - The window's Play starts the folder too.
 

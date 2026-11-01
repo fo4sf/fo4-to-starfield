@@ -1,7 +1,6 @@
-"""Synthetic Windows regressions for the three safety findings tracked by PR #647 / issue #655.
-
-The safe assertions are expected failures while the source defects remain author-owned. When a source fix makes a
-regression pass, unittest reports unexpected success so the marker can be removed. Junctions and their targets live
+"""Synthetic Windows regressions for the three safety findings tracked by PR #647 / issue #655 (Codex, #657). The fix in
+instance.py makes them pass, so they are plain tests now; tests/test_launcher_instance.py checks the same rules with
+POSIX symlinks, so CI on Linux covers them too. Junctions and their targets live
 only below the synthetic temp root; cleanup removes each junction itself before the temp root.
 """
 import datetime as datetime_module
@@ -72,7 +71,6 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
     def disk_usage(_path):
         return SimpleNamespace(free=500 * 1024 ** 3)
 
-    @unittest.expectedFailure
     def test_refuses_descendant_junction_before_any_external_file_is_written(self):
         source = os.path.join(self.root, "source", "Starfield")
         write(os.path.join(source, "Starfield.exe"), b"synthetic game executable")
@@ -98,7 +96,6 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         self.assertEqual(after, before, "instance creation wrote into the junction target")
         self.assertIsNotNone(refusal, "instance creation must refuse a destination containing a junction")
 
-    @unittest.expectedFailure
     def test_refuses_target_whose_resolved_path_is_inside_steamapps(self):
         common = os.path.join(self.root, "SteamLibrary", "steamapps", "common")
         source = os.path.join(common, "Starfield")
@@ -119,7 +116,6 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         self.assertIsNotNone(refusal, "the resolved target is inside synthetic SteamLibrary\\steamapps")
         self.assertFalse(os.path.lexists(target), "refusal must happen before creating the target")
 
-    @unittest.expectedFailure
     def test_recovery_retry_after_post_preservation_failure_restores_exact_player_bytes(self):
         folder = os.path.join(self.root, "FO4SF", "Starfield")
         player = os.path.join(self.root, "profile", "Local", "Starfield", "Plugins.txt")

@@ -173,6 +173,48 @@ class InstanceTests(unittest.TestCase):
         with self.assertRaisesRegex(instance.InstanceRefused, "was made from"):
             instance.create(other, self.dst, disk_usage=plenty)
 
+    def symlink(self, link, target):
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError) as e:          # Windows without the symlink right
+            self.skipTest(f"no directory symlinks here: {e}")
+
+    def test_a_link_inside_the_folder_is_refused_before_anything_is_written_through_it(self):
+        # #655 finding 1, with a POSIX symlink in place of the NTFS junction (tests/test_launcher_instance_windows_safety.py)
+        exterior = os.path.join(self.root, "exterior")
+        os.makedirs(exterior)
+        os.makedirs(self.dst)
+        files.save_json(os.path.join(self.dst, instance.RECORD),
+                        {"schema": 1, "source": os.path.abspath(self.src), "made": [], "complete": False})
+        self.symlink(os.path.join(self.dst, "Data"), exterior)
+        with self.assertRaisesRegex(instance.InstanceRefused, "link or junction inside the FO4SF folder"):
+            self.create()
+        self.assertEqual(os.listdir(exterior), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dst, "Starfield.exe")))   # refused before the first file
+
+    def test_a_link_that_appears_during_the_run_is_refused_at_that_file(self):
+        exterior = os.path.join(self.root, "exterior")
+        os.makedirs(exterior)
+        made = []
+
+        def link_then_plant(src, dst):
+            os.link(src, dst)
+            made.append(dst)
+            if len(made) == 1:                              # after the first file: a link where Data will go
+                self.symlink(os.path.join(self.dst, "Data"), exterior)
+        with self.assertRaisesRegex(instance.InstanceRefused, "is a link or junction"):
+            self.create(link=link_then_plant)
+        self.assertEqual(os.listdir(exterior), [])
+
+    def test_an_alias_of_a_steam_library_is_refused(self):
+        # #655 finding 2: the denylist sees the resolved path, not only the spelling given
+        alias = os.path.join(self.root, "library-alias")
+        self.symlink(alias, os.path.join(self.root, "SteamLibrary", "steamapps", "common"))
+        target = os.path.join(alias, "FO4SF")
+        with self.assertRaisesRegex(instance.InstanceRefused, "steamapps"):
+            instance.check_target(self.src, target, 0, 0, plenty)
+        self.assertFalse(os.path.lexists(target))
+
     def test_cli_plan_and_create(self):
         spec = importlib.util.spec_from_file_location("launcher_cli_inst", os.path.join(ROOT, "scripts", "launcher.py"))
         cli = importlib.util.module_from_spec(spec)

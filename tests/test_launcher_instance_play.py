@@ -83,6 +83,20 @@ class FolderPlayTests(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertFalse(instance.recover(self.folder, lambda: False, self.said.append))
 
+    def test_a_kept_list_is_never_overwritten_and_a_retry_reuses_its_own(self):
+        # #655 finding 3: the same second's name, with other bytes, gets -2; with the same bytes it is reused
+        base = instance.plugins_txt(self.folder) + ".after-20261101-123456"
+        os.makedirs(os.path.dirname(base), exist_ok=True)
+        with open(base, "wb") as f:
+            f.write(b"*Older.esm\r\n")
+        self.assertEqual(instance._keep_after(base, b"*New.esm\r\n"), base + "-2")
+        self.assertEqual(self.read(base), b"*Older.esm\r\n")
+        self.assertEqual(instance._keep_after(base, b"*New.esm\r\n"), base + "-2")    # a retry: the same evidence
+        self.assertEqual(instance._keep_after(base, b"*Older.esm\r\n"), base)
+        self.assertEqual(instance._keep_after(base[:-1] + "9", b"*New.esm\r\n"), base + "-2")   # a later second too
+        self.assertEqual(sorted(n for n in os.listdir(os.path.dirname(base)) if ".after-" in n),
+                         [os.path.basename(base), os.path.basename(base) + "-2"])
+
     # --- the folder's own INI ------------------------------------------------------------------------------------
     def test_saves_go_to_their_own_folder_through_the_folders_ini(self):
         ini = os.path.join(self.folder, "Starfield.ini")
