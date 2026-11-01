@@ -1345,3 +1345,25 @@ decided the import path); keeping the order as a parameter (two orders in the co
   running keeps its old code until it starts again (the restart covers play and the window; the window's own Play
   button runs `play`, which updates too). Not tested on Windows yet: the PC's first `launcher.py update --check`
   shows it.
+
+## 2026-11-01: FO4SF runs from a game folder of its own; the player's Starfield is never switched (owner, built by Claude-cloud-2)
+
+- Decision: the owner answered the 29 Oct launcher question (switch the one install to FO4SF and back, or always
+  FO4SF): "stay FO4SF all the time make a separate area then actual starfield so people can keep their own mod packs
+  for that". So the launcher makes an FO4SF game folder beside the Steam install, with hard links on the same drive
+  (no extra disk), the game folder's INIs copied, and only the game's own files in Data
+  (`launcher.py instance plan|create`, `src/fo4sf/launcher/instance.py`). Our installers run against that folder,
+  with `LOCALAPPDATA` pointed at the folder's own Plugins.txt; saves and our INI writes go to the folder's own
+  `Starfield.ini`. Design, steps and PC checks: docs/ai/fo4sf-instance.md.
+- Why: players keep their own Starfield mod packs untouched, and FO4SF never has to be switched in and out of the
+  player's install (restore stays the tool for tests and recovery).
+- Alternatives:
+  - Switch the one install at start and back at quit with restore: what the owner did not pick.
+  - A full copy ("Stock Game", as the MO2 and Wabbajack guides do): about 100+ GB that the D: 40 GB rule cannot
+    spare; hard links cost nothing on the same drive.
+  - A virtual file system (MO2's USVFS): a large dependency, and Plugins.txt still needs its own handling.
+  - `sTestFile` in the folder's INI: since 1.16.236 the game writes those plugins into the shared Plugins.txt and drops
+    the player's plugins it cannot find, and it caps at 10.
+- Boundary: built so far is making the folder only. The Plugins.txt swap at play is needed only if the game reads
+  `%LOCALAPPDATA%` through Windows' known-folder call (H2), and the folder-INI saves need H3; both are PC checks,
+  docs/ai/fo4sf-instance.md section 4.

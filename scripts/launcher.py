@@ -25,6 +25,8 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py play --starfield <game dir> [--settings <json>] [--dry-run]
     python scripts/launcher.py watch [--pid N] [--repeat] [--timeout S] [--settings <json>] [--dry-run]
     python scripts/launcher.py update [--check]
+    python scripts/launcher.py instance plan|create --starfield <Steam's game folder> --at <new folder>
+                                        [--keep-data-dir <name> ...] [--min-free-gb 40]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -55,6 +57,10 @@ watch      the same watcher for a game something else starts (the test runner): 
 update     brings this checkout up to GitHub's main now (a fast-forward only, src/fo4sf/launcher/selfupdate.py);
            --check only says how far behind it is. With the setting update=pull, play and gui do it first by themselves
            and start again on the new code (update=check: they only say it; off, the default: nothing is fetched).
+instance   the FO4SF game folder, separate from the player's own Starfield and its mods (docs/ai/fo4sf-instance.md):
+           plan (read only) says what would be hard-linked, copied and left out of Data, and the disk it costs; create
+           makes it (hard links on the same drive, the game folder's INIs copied, only the game's own files in Data),
+           never writing in the Steam install. Nothing else uses the folder yet.
 """
 import argparse
 import json
@@ -63,8 +69,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, locate, manifest, paths,  # noqa: E402
-                            plugin_checks, restore, runtimes, same_ids, selfupdate, settings)
+from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, instance, locate, manifest,  # noqa: E402
+                            paths, plugin_checks, restore, runtimes, same_ids, selfupdate, settings)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -369,6 +375,18 @@ def cmd_update(a):
     return 0
 
 
+def cmd_instance(a):
+    if a.action == "plan":
+        p = instance.plan(a.starfield, a.at, a.keep_data_dir)
+        instance.check_target(a.starfield, a.at, a.min_free_gb, p["copy_bytes"])
+        for line in instance.summary(p):
+            print(line)
+        print(f"plan only: `launcher.py instance create` makes {a.at}")
+        return 0
+    instance.create(a.starfield, a.at, a.keep_data_dir, a.min_free_gb)
+    return 0
+
+
 def cmd_gui(a):
     if updated(settings.load(a.settings or default_settings_path())["update"]):
         return selfupdate.restart(a.argv)
@@ -490,6 +508,12 @@ def main(argv=None):
     s.add_argument("--dry-run", action="store_true", help="print what watch would do; attach nothing")
     s = sub.add_parser("update", help="bring this checkout up to GitHub's main now (fast-forward only)")
     s.add_argument("--check", action="store_true", help="only say how far behind GitHub's main this checkout is")
+    s = sub.add_parser("instance", help="the FO4SF game folder beside the player's own Starfield (plan, create)")
+    s.add_argument("action", choices=("plan", "create"))
+    s.add_argument("--starfield", required=True, help="the Steam Starfield folder it is made from (read only)")
+    s.add_argument("--at", required=True, help="the new FO4SF game folder (empty or missing; same drive)")
+    s.add_argument("--keep-data-dir", action="append", default=[], help="a Data folder to keep (repeatable)")
+    s.add_argument("--min-free-gb", type=float, default=40.0, help="free space the drive keeps (default 40)")
     a = ap.parse_args(argv)
     a.argv = [os.path.abspath(__file__), *(sys.argv[1:] if argv is None else argv)]   # the command, to start it again
     try:
@@ -498,7 +522,8 @@ def main(argv=None):
                 "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add,
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
-                "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths, "update": cmd_update}[a.cmd](a)
+                "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths, "update": cmd_update,
+                "instance": cmd_instance}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2
