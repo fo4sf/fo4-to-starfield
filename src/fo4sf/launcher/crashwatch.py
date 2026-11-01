@@ -231,7 +231,7 @@ def _held_off(starfield):
     try:
         with open(os.path.join(starfield, "Data", TOGGLE_RECORD), encoding="utf-8") as f:
             return {str(x).casefold() for x in json.load(f).get("off", [])}
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, TypeError):     # no record, or not plugin_toggle's shape
         return set()
 
 
@@ -246,14 +246,19 @@ def unticked_ours(system, values=None, starfield=None):
     managed = _held_off(starfield) if starfield else set()
     if values is not None and values.get("bridge", "unchanged") != "unchanged":
         managed.add(BRIDGE.casefold())
-    ours = [(n, ticked) for n, ticked in entries or () if loadset.ours(n) and n.casefold() not in managed]
-    if not ours or any(ticked for _, ticked in ours):
+    ours = [(n, ticked) for n, ticked in entries or () if loadset.ours(n)]
+    names = [n for n, _ in ours if n.casefold() not in managed]   # a tick anywhere counts; the managed are not missed
+    if not names or any(ticked for _, ticked in ours):
         return None
-    names = [n for n, _ in ours]
     path = getattr(system, "plugins_path", lambda: None)()
     good = None                                   # the newest copy kept beside it that has one of ours ticked
     found = glob.glob(glob.escape(path) + ".bak-*") if path else []
-    for bak in sorted(found, key=lambda b: (os.path.getmtime(b), b), reverse=True):
+    def written(b):
+        try:
+            return os.path.getmtime(b)
+        except OSError:                           # gone since the glob: last in line
+            return 0.0
+    for bak in sorted(found, key=lambda b: (written(b), b), reverse=True):
         try:
             with open(bak, encoding="utf-8-sig", errors="replace") as f:
                 if any(ln.strip().startswith("*") and loadset.ours(ln.strip()[1:].strip()) for ln in f):

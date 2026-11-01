@@ -220,6 +220,7 @@ class FolderPlayTests(unittest.TestCase):
         # #662: the folder's System reads the folder's list; the player's (ticked) is never swapped or touched
         write(instance.local_dir(self.folder), "Starfield/Plugins.txt", OURS.replace(b"*", b""))
         own = crashwatch.System(plugins_txt=instance.plugins_txt(self.folder))
+        own.pids = lambda image=None: []                                     # never this PC's own process table
         why = crashwatch.unticked_ours(own, self.values(), self.folder)
         self.assertIn("every FO4SF plugin in Plugins.txt is unticked (2 listed", why)
         self.assertIn(instance.plugins_txt(self.folder), why)

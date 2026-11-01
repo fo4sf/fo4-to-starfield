@@ -790,6 +790,26 @@ class CrashWatchTests(unittest.TestCase):
         self.assertIsNone(crashwatch.unticked_ours(sys_, self.values(bridge="unchanged"), self.game))
         sys_.entries = bridge_only + [("FO4Port.esm", False)]               # but the rest unticked still counts
         self.assertIn("(1 listed: FO4Port.esm", crashwatch.unticked_ours(sys_, self.values(), self.game))
+        # a managed plugin that is ticked still counts as ticked: the game did not untick everything
+        sys_.entries = [("FO4SFBridge.esm", True), ("FO4Port.esm", False)]
+        for setting in ("on", "off", "unchanged"):
+            self.assertIsNone(crashwatch.unticked_ours(sys_, self.values(bridge=setting), self.game), setting)
+        for bad in ('{"off": null}', '{"off": 5}', '[1, 2]', "not json"):           # a record not in plugin_toggle's shape
+            with open(os.path.join(self.game, "Data", crashwatch.TOGGLE_RECORD), "w", encoding="utf-8") as f:
+                f.write(bad)
+            self.assertEqual(crashwatch._held_off(self.game), set(), bad)
+
+    def test_a_backup_gone_since_the_glob_is_passed_over(self):
+        path = os.path.join(self.dir, "Plugins.txt")
+        with open(f"{path}.bak-20261101-110758", "w", encoding="utf-8") as f:
+            f.write("*FO4Port.esm\n")
+        sys_ = FakeSystem([])
+        sys_.entries, sys_.plugins_file = list(self.UNTICKED), path
+        real = os.path.getmtime
+        with mock.patch.object(crashwatch.os.path, "getmtime",
+                               side_effect=lambda p: (_ for _ in ()).throw(FileNotFoundError(p)) if "110758" in p else real(p)):
+            why = crashwatch.unticked_ours(sys_, self.values(), self.game)
+        self.assertIn("every FO4SF plugin", why)                            # still the refusal, not a traceback
 
     def test_any_failure_after_the_start_line_is_logged_once_and_raised_unchanged(self):
         boom = OSError(5, "Access is denied")
