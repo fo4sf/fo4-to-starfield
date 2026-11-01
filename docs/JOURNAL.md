@@ -2728,3 +2728,14 @@ reload is back) and reported: "ok everything worked only issue left will be
 solved with the pipboy". So the Commonwealth's icons are on the first map
 the player opens, with no trip to Cydonia. Option A stands; B and C were not
 built. The run's log was not read. What is left goes to the Pip-Boy map.
+
+## 2026-11-01: Map markers: the dark hold's logs read; one Claude session
+
+The game's own script logs still held the play test's map log, so they were
+copied to the PC's test-log folder before they rotated out. The play test's
+hold ended with the reload after 30.8 s, as in the retest. A probe session
+on 1 Nov (coc to Red Rocket) ran the hold to its 60 s cap and the reload
+followed 2.3 s later: the hold works as written, and a long marker pass can
+show a full minute of black. The roadmap gains a short "since 24 October"
+update. The owner ended the many-thread setup: one Claude session on the PC
+holds every Claude role, the cloud session pauses (decisions.md, 1 Nov).

@@ -632,6 +632,15 @@ FO4SF_NewGameQuest.psc FadeIn's note).
 
 Play test (owner, 2026-10-31 22:34Z, #626 installed from main d285a885 on core v6i with newgame_v12): "ok everything
 worked only issue left will be solved with the pipboy". Option A stands; B and C were not built.
-The log of this run was not read, so the hold's timings and whether the screen stayed black through the stop's loading
-screens are the owner's report, not a log reading. The issue left is for the Pip-Boy map (owner's words above;
-which issue was not said).
+The issue left is for the Pip-Boy map (owner's words above; which issue was not said).
+
+Log reading (Claude, 1 Nov; the game's rotating script logs copied to the PC's test-log folder
+`mapmarkers_20261101_logsnap` before they rotated out). The play test's map log (31 Oct, 16:14 PC time) reads
+`dark hold: markers coming in 0.027000 s after the player entered the world`, then
+`dark hold ends with the reload after 30.750999 s` and `reload 1 back: ... same=true`: the hold ended with the reload,
+as in the retest (**verified, log**). A later session that day (20:56 PC time) held 20.9 s. A `coc
+FO4Core_RedRocketSpawn` session on 1 Nov (11:20 PC time, Codex's P9 probe session, FO4SFMission off) ran to the cap
+instead: `dark hold released: no reload after 62.257996 s` (rt 753.3 to 815.6, while the PC clock ran 3 min 27 s;
+cause not checked), and the reload followed 2.3 s later (`reload 1 back: ... same=true`). So the hold behaves as
+written, and a long marker pass can show the full 60 s of black. Whether the screen stayed black through the stop's
+loading screens is still the owner's report, not a log reading.

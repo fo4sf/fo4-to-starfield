@@ -1345,3 +1345,18 @@ decided the import path); keeping the order as a parameter (two orders in the co
   running keeps its old code until it starts again (the restart covers play and the window; the window's own Play
   button runs `play`, which updates too). Not tested on Windows yet: the PC's first `launcher.py update --check`
   shows it.
+
+## 2026-11-01: one Claude session on the PC holds every Claude role; the cloud sessions pause (owner)
+- **Decision:** the owner ended the setup of many Claude threads (project threads, the PC session "Install" and
+  Claude-cloud-2). One Claude Code session on the owner's PC now does all of Claude's work: integration, the live
+  game and in-game checks, the written records, and getting PRs reviewed and merged. Claude-cloud-2 is paused and is
+  used for research and other help; its open drafts (#647, #649 to #654, #650, #660) pass to that session. Codex
+  finishes what it is working on (its P9 live test, #639, #641, #643, #656, #657, #659) and both lines of work
+  converge for testing afterwards. The merge rule is unchanged: CI green plus an independent review of the exact head.
+- **Why:** the owner's words, 1 Nov (fixed for typos): "Do what you think is best; let Codex finish what it's working
+  on, pick your own tasks and we will converge and test both, and we will keep the cloud paused and use it for
+  research and other help." Many threads cost credits and left work split across sessions that could not see each
+  other.
+- **Alternatives:**
+  - Keep the cloud session as the author of the C++ port: rejected by the owner (paused).
+  - The PC session waits for Codex before picking work: rejected; the owner said to pick our own tasks.
