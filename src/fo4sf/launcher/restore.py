@@ -42,7 +42,7 @@ import os
 import subprocess
 import sys
 
-from . import files
+from . import files, port_restore
 
 SCHEMA = 1
 # component -> (record file in Data, installer script under the repo)
@@ -290,7 +290,8 @@ def install_argv(comp, rec, repo, starfield, port_staging=None):
             if rec.get("exp_dir") else None
     if comp in BRIDGE_KIT:
         return [sys.executable, script, "install", "--dir", rec["dir"], "--starfield", starfield] if rec.get("dir") else None
-    return [sys.executable, script, "install", "--staging", port_staging, "--starfield", starfield] if port_staging else None
+    return [sys.executable, script, "install", "--staging", port_staging, "--restore-stdin",
+            "--starfield", starfield] if port_staging else None
 
 
 def source_dir(comp, rec):
@@ -298,7 +299,7 @@ def source_dir(comp, rec):
     return (rec or {}).get("exp_dir" if comp in EXP_KIT else "dir") if comp != "port" else None
 
 
-def stage_problems(target, change, notes):
+def stage_problems(target, change, notes, port_staging=None):
     """Read-only checks of inputs to be reinstalled, before any uninstall. Legacy experiment gaps go to notes.
 
     Pins refer to the target receipts, not the currently installed base that restore is about to replace. Installers
@@ -329,7 +330,14 @@ def stage_problems(target, change, notes):
         raise error
 
     for comp in INSTALL_ORDER:
-        if change.get(comp) not in ("install", "replace", "recover") or comp == "port":
+        if change.get(comp) not in ("install", "replace", "recover"):
+            continue
+        if comp == "port":
+            if port_staging:
+                try:
+                    port_restore.check_stage(port_staging, port_restore.snapshot_spec(target))
+                except (OSError, ValueError, TypeError, KeyError) as error:
+                    problems.append(f"port: recorded stage cannot be restored: {error}")
             continue
         rec = target["records"].get(comp) or {}
         directory = source_dir(comp, rec)
@@ -441,13 +449,15 @@ def plan(target, current, repo, port_staging=None):
         if change.get(base) == "uninstall" and target["records"].get(rider) is not None:
             conflicts.append(f"{rider}: the snapshot has it without the {base} it rides on, which restore would "
                              "uninstall; its installer would refuse to put it back")
-    conflicts.extend(stage_problems(target, change, notes))
+    conflicts.extend(stage_problems(target, change, notes, port_staging))
     for comp in UNINSTALL_ORDER:
         if change.get(comp) in ("uninstall", "replace", "recover"):
             steps.append({"what": f"uninstall {comp}",
                           "argv": [sys.executable, os.path.join(repo, COMPONENTS[comp][1]), "uninstall",
                                    "--starfield", starfield]})
-    for comp in INSTALL_ORDER:
+    # A recorded port pins the target's installed core, so that core must be back before the port is replayed.
+    install_order = ("experiment", "port") + INSTALL_ORDER[2:]
+    for comp in install_order:
         if change.get(comp) in ("install", "replace", "recover"):
             argv = install_argv(comp, target["records"][comp], repo, starfield, port_staging)
             if argv is None:
@@ -458,7 +468,13 @@ def plan(target, current, repo, port_staging=None):
             elif comp != "port" and not os.path.isdir(source_dir(comp, target["records"][comp])):
                 conflicts.append(f"{comp}: source folder {source_dir(comp, target['records'][comp])} is gone")
             else:
-                steps.append({"what": f"install {comp}", "argv": argv})
+                step = {"what": f"install {comp}", "argv": argv}
+                if comp == "port":
+                    try:
+                        step["input"] = json.dumps(port_restore.snapshot_spec(target))
+                    except (TypeError, KeyError, ValueError) as error:
+                        conflicts.append(f"port: invalid recorded target: {error}")
+                steps.append(step)
                 if comp == "experiment":
                     steps.append({"what": "order experiment plugins",
                                   "argv": [sys.executable, os.path.join(repo, COMPONENTS["experiment"][1]), "order",
@@ -603,7 +619,8 @@ def apply(target, repo, *, port_staging=None, running=game_running, run=subproce
     env["LOCALAPPDATA"] = os.path.dirname(os.path.dirname(target["plugins_txt"]))
     for st in p["steps"]:
         echo(f"  {st['what']}: {' '.join(st['argv'][1:])}")
-        r = run(st["argv"], cwd=repo, env=env)
+        extra = {"input": st["input"], "text": True} if "input" in st else {}
+        r = run(st["argv"], cwd=repo, env=env, **extra)
         if r.returncode != 0:
             raise RestoreRefused(f"{st['what']} failed (exit {r.returncode}); the installers' own records hold the "
                                  "partial state, rerun restore after fixing it")

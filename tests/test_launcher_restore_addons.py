@@ -290,9 +290,12 @@ class AddonRestoreTests(unittest.TestCase):
         port_a, port_b = self.folder("port_a"), self.folder("port_b")
         for folder, payload in ((port_a, tes4()), (port_b, tes4(["Starfield.esm"]))):
             write(os.path.join(folder, "FO4Port.esm"), payload)
+            write(os.path.join(folder, "FO4Port - Main.ba2"), b"BTDX" + b"\0" * 28)
         def port_record(folder):
-            return {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {
-                "sha256": exp_install.digest(os.path.join(folder, "FO4Port.esm"))}}}
+            names = ["FO4Port.esm", "FO4Port - Main.ba2"]
+            return {"files": names, "artifacts": {name: {
+                "sha256": exp_install.digest(os.path.join(folder, name)),
+                "size": os.path.getsize(os.path.join(folder, name))} for name in names}}
         port1, port2 = port_record(port_a), port_record(port_b)
         def probe_record(folder, plugin):
             write(os.path.join(folder, plugin), tes4(["Starfield.esm"]))
