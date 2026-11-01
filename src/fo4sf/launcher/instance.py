@@ -164,3 +164,188 @@ def summary(p):
     if len(p["left_out"]) > 40:
         lines.append(f"    ... and {len(p['left_out']) - 40} more")
     return lines
+
+
+# --- playing from the folder (docs/ai/fo4sf-instance.md steps 2 to 4) ------------------------------------------------
+LOCAL = "FO4SF-local"                 # the folder's own LOCALAPPDATA: <folder>\FO4SF-local\Starfield\Plugins.txt
+SWAP = "FO4SF-swap.json"              # the journal of a Plugins.txt swap, while FO4SF's list stands in the player's place
+SAVES = "Saves\\FO4SF\\"              # SLocalSavePath: the folder's saves, apart from the player's (H3)
+
+
+def local_dir(folder):
+    return os.path.join(os.path.abspath(folder), LOCAL)
+
+
+def plugins_txt(folder):
+    """The folder's own Plugins.txt: every installer of ours writes it when LOCALAPPDATA is local_dir(folder)."""
+    return os.path.join(local_dir(folder), "Starfield", "Plugins.txt")
+
+
+def player_plugins_txt(environ=os.environ):
+    """The Plugins.txt the game reads (the player's): %LOCALAPPDATA%\\Starfield\\Plugins.txt of this process."""
+    local = environ.get("LOCALAPPDATA", "")
+    if not local or not os.path.isabs(local):
+        raise InstanceRefused("LOCALAPPDATA is not set: the player's Plugins.txt cannot be found")
+    return os.path.join(local, "Starfield", "Plugins.txt")
+
+
+def check_ready(folder):
+    """Refuses a folder that is not a finished FO4SF game folder."""
+    rec_p = os.path.join(folder, RECORD)
+    if not os.path.isfile(rec_p) or not files.load_json(rec_p).get("complete"):
+        raise InstanceRefused(f"{folder} is not a finished FO4SF game folder: `launcher.py instance create` it first")
+    if not os.path.isfile(os.path.join(folder, GAME_EXE)):
+        raise InstanceRefused(f"{folder} has no {GAME_EXE}")
+
+
+def env_for(folder, environ=os.environ):
+    """The environment our tools run in for this folder: its own Plugins.txt instead of the player's."""
+    return dict(environ, LOCALAPPDATA=local_dir(folder))
+
+
+def _read(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def _sha(raw):
+    import hashlib
+    return None if raw is None else hashlib.sha256(raw).hexdigest()
+
+
+def _put(path, raw, expect):
+    """Write (or remove, raw None) Plugins.txt, refused when it changed since read (expect: its sha256 then)."""
+    import base64
+    from . import restore
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    restore.write_plugins_txt(path, None if raw is None else base64.b64encode(raw).decode("ascii"), expect)
+
+
+def swap_in(folder, player, say=print):
+    """Put the folder's list where the game reads it, after journaling the player's own bytes (SWAP). Refuses while a
+    journal is left from an earlier swap (recover() first)."""
+    import base64
+    journal = os.path.join(folder, SWAP)
+    if os.path.exists(journal):
+        raise InstanceRefused(f"{journal} is left from an earlier start: the player's Plugins.txt is put back first")
+    mine, ours = _read(player), _read(plugins_txt(folder))
+    ours = b"" if ours is None else ours
+    if mine is not None:                               # a second copy outside the journal, kept: cheap insurance
+        import datetime
+        bak = os.path.join(local_dir(folder), "player-Plugins.txt.bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        os.makedirs(local_dir(folder), exist_ok=True)
+        if not os.path.exists(bak):
+            with open(bak, "wb") as f:
+                f.write(mine)
+    files.save_json(journal, {"schema": 1, "player": player, "wrote_sha256": _sha(ours),
+                              "player_b64": None if mine is None else base64.b64encode(mine).decode("ascii")})
+    try:
+        _put(player, ours, _sha(mine))
+    except BaseException:
+        os.remove(journal)                             # nothing was swapped: the journal goes with it
+        raise
+    say(f"Plugins.txt: FO4SF's list in place for this start (yours is kept in {journal} and comes back at the end)")
+
+
+def swap_out(folder, say=print, after_game=True):
+    """Put the player's list back from the journal. after_game: the game ran and may have rewritten FO4SF's list (it does
+    at every start), so that becomes the folder's list. A recovery (the launcher did not see the end) keeps what stands
+    there as Plugins.txt.after-<time> beside the folder's list instead, since it cannot tell whose rewrite it is."""
+    import base64
+    import datetime
+    journal = os.path.join(folder, SWAP)
+    if not os.path.exists(journal):
+        return False
+    j = files.load_json(journal)
+    player, now = j["player"], _read(j["player"])
+    if now is not None and _sha(now) != j["wrote_sha256"]:
+        if after_game:
+            ours_p = plugins_txt(folder)
+            _put(ours_p, now, _sha(_read(ours_p)))
+        else:
+            keep = plugins_txt(folder) + ".after-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            with open(keep, "xb") as f:
+                f.write(now)
+            say(f"Plugins.txt: what stood in its place is kept as {keep}")
+    mine = None if j.get("player_b64") is None else base64.b64decode(j["player_b64"])
+    _put(player, mine, _sha(now))
+    os.remove(journal)
+    say("Plugins.txt: yours is back")
+    return True
+
+
+def recover(folder, running, say=print):
+    """A journal left by a launcher that did not see the game end (a crash, a power cut): put the player's list back
+    once Starfield is closed. True when it did."""
+    if not os.path.exists(os.path.join(folder, SWAP)):
+        return False
+    if running():
+        raise InstanceRefused("Starfield is running with FO4SF's Plugins.txt in place: close it, then start again")
+    return swap_out(folder, say, after_game=False)
+
+
+def set_ini_key(text, section, key, value):
+    """INI text with key=value in [section] (the section added at the end if missing); other lines and their endings
+    kept. (new text, changed)."""
+    nl = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+    out, in_sec, done, found = [], False, False, False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("[") and s.endswith("]"):
+            if in_sec and not done:
+                out.append(f"{key}={value}{nl}")
+                done = True
+            in_sec = s[1:-1].strip().casefold() == section.casefold()
+            found = found or in_sec
+        elif in_sec and "=" in s and s.split("=", 1)[0].strip().casefold() == key.casefold():
+            if s.split("=", 1)[1].strip() == value:
+                return text, False
+            ln = f"{key}={value}" + ln[len(ln.rstrip("\r\n")):]
+            done = True
+        out.append(ln)
+    if in_sec and not done:
+        if out and not out[-1].endswith(("\n", "\r")):
+            out[-1] += nl
+        out.append(f"{key}={value}{nl}")
+        done = True
+    if not found:
+        if out and not out[-1].endswith(("\n", "\r")):
+            out[-1] += nl
+        out += [f"[{section}]{nl}", f"{key}={value}{nl}"]
+    return "".join(out), True
+
+
+def ensure_saves(folder, say=print):
+    """SLocalSavePath in the folder's own Starfield.ini, so its saves go to My Games\\Starfield\\Saves\\FO4SF (H3)."""
+    ini = os.path.join(folder, "Starfield.ini")
+    raw = _read(ini) or b""
+    if os.path.isfile(ini) and os.stat(ini).st_nlink > 1:
+        raise InstanceRefused(f"{ini} is hard-linked to the Steam install's: it must be the folder's own copy")
+    text = raw.decode("utf-8", "surrogateescape")
+    new, changed = set_ini_key(text, "General", "SLocalSavePath", SAVES)
+    if changed:
+        with open(ini, "wb") as f:
+            f.write(new.encode("utf-8", "surrogateescape"))
+        say(f"saves: the FO4SF folder saves to My Games\\Starfield\\{SAVES} (its Starfield.ini)")
+
+
+def run(folder, cmd, *, running=lambda: False, cwd=None, call=None):
+    """Run one of our tools (an installer, plugin_toggle.py, load_order.py) on the folder, with its own Plugins.txt.
+    Refused while Starfield runs, and when the command names a --starfield that is not this folder (the player's
+    install is never an installer's target from here). Returns the command's exit code."""
+    import subprocess
+    check_ready(folder)
+    if not cmd:
+        raise InstanceRefused("instance run needs a command after --")
+    if running():
+        raise InstanceRefused("Starfield is running: close it first")
+    for i, arg in enumerate(cmd):
+        target = cmd[i + 1] if arg == "--starfield" and i + 1 < len(cmd) else (
+            arg.split("=", 1)[1] if arg.startswith("--starfield=") else None)
+        if target is not None and os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(folder)):
+            raise InstanceRefused(f"the command's --starfield {target} is not the FO4SF game folder {folder}")
+    return (call or subprocess.call)(cmd, cwd=cwd, env=env_for(folder))

@@ -115,7 +115,11 @@ def declare_kernel32(k):
 
 
 class System:
-    """The real Windows calls. Tests pass a stand-in with the same methods."""
+    """The real Windows calls. Tests pass a stand-in with the same methods. env: the environment our tools run in (the
+    FO4SF game folder's own LOCALAPPDATA, instance.env_for); plugins_txt: the Plugins.txt plugin_order reads."""
+
+    def __init__(self, env=None, plugins_txt=None):
+        self.env, self.plugins_txt = env, plugins_txt
 
     def now(self):
         return time.time()
@@ -174,7 +178,7 @@ class System:
             return subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
 
     def run(self, argv):
-        r = subprocess.run(argv, capture_output=True, text=True)
+        r = subprocess.run(argv, capture_output=True, text=True, env=self.env)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
 
     def free_gb(self, path):
@@ -194,9 +198,9 @@ class System:
 
     def plugin_order(self):
         """The plugins ticked in the player's Plugins.txt, in file order, or None when it cannot be read."""
-        local = os.environ.get("LOCALAPPDATA", "")
+        path = self.plugins_txt or os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
         try:
-            with open(os.path.join(local, "Starfield", "Plugins.txt"), encoding="utf-8-sig", errors="replace") as f:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
                 return [ln.strip()[1:].strip() for ln in f if ln.strip().startswith("*")]
         except OSError:
             return None
@@ -402,11 +406,13 @@ def keep_copy(path, raw):
     raise OSError(f"no free backup name beside {path}")
 
 
-def apply_papyrus(values, say):
+def apply_papyrus(values, say, path=None):
+    """path: the INI to change; default My Games' StarfieldCustom.ini (the FO4SF game folder passes its own
+    Starfield.ini, so the player's game keeps its logging)."""
     want = values["papyrus_logging"]
     if want == "unchanged":
         return
-    path = os.path.join(values["my_games"], "StarfieldCustom.ini")
+    path = path or os.path.join(values["my_games"], "StarfieldCustom.ini")
     try:
         raw = b""
         if os.path.exists(path):
@@ -475,11 +481,22 @@ def _without_sfse(values, starfield, system):
     return f" (without SFSE; {SFSE_LOADER} is here but route=sfse would be refused: {'; '.join(problems)})"
 
 
-def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False):
+def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False,
+         folder=None):
     """Apply the settings, start the game and watch it to its end. Returns a result dict; raises ValueError on a
-    refusal (nothing started)."""
+    refusal (nothing started). folder: the FO4SF game folder (setting `instance`, docs/ai/fo4sf-instance.md): the game
+    starts from it, our tools run on its own Plugins.txt, its own Starfield.ini takes the saves path and the Papyrus
+    keys, and its Plugins.txt stands in the player's place only while the game runs (instance.swap_in / swap_out)."""
+    from . import instance as inst
+    if folder:
+        folder = os.path.abspath(folder)
+        inst.check_ready(folder)
+        starfield = folder
+        system = system or System(env=inst.env_for(folder), plugins_txt=inst.plugins_txt(folder))
     system = system or System()
     bad = settings_mod.problems(values)
+    if folder and values["route"] == "steam":
+        bad.append("route=steam starts the Steam folder, not the FO4SF game folder: use route=sfse or exe")
     cw = values["crash_watch.enabled"]
     if cw:
         if values["crash_watch.procdump"] and not os.path.isfile(values["crash_watch.procdump"]):
@@ -503,7 +520,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     if bad:
         raise ValueError("; ".join(bad))
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
-    plan = [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
+    plan = ([f"game folder: {folder} (FO4SF's own; its Plugins.txt stands in for yours only while it runs)"]
+            if folder else [])
+    plan += [f"bridge: {values['bridge']}", f"papyrus logging: {values['papyrus_logging']}",
             f"load order: {values['load_order']}",
             f"start: {values['route']}",
             "crash watcher: " + (f"on, {values['crash_watch.dump']} dumps to {values['crash_watch.folder']}, "
@@ -512,7 +531,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                                  if cw else "off")]
     if dry_run:
         # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
-        plan[3] += _without_sfse(values, starfield, system)
+        plan[3 + bool(folder)] += _without_sfse(values, starfield, system)
         for p in plan:
             say(p)
         apply_load_order(values, starfield, system, say, dry_run=True)
@@ -526,24 +545,50 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                 from None
     # never a blind bridge, even half way: logging goes on before the bridge comes back, and off only after the
     # bridge is held (Codex, #449)
+    ini = os.path.join(folder, "Starfield.ini") if folder else None
     if values["bridge"] == "on":
-        apply_papyrus(values, say)
+        apply_papyrus(values, say, ini)
         apply_bridge(values, starfield, system, say)
     else:
         apply_bridge(values, starfield, system, say)
-        apply_papyrus(values, say)
+        apply_papyrus(values, say, ini)
 
     apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
+    if folder:
+        inst.ensure_saves(folder, say)
+        player = inst.player_plugins_txt()
     order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
-    t0 = system.now()
+    if folder:
+        inst.swap_in(folder, player, say)
+        system.plugins_txt = player                 # while the game runs, the folder's list stands there
     try:
-        system.start_game(values["route"], starfield)
-    except OSError as e:                            # no steam:// handler, or the exe would not start (Codex, #465)
-        why = f"could not start the game by {values['route']} ({e.strerror or e})"
-        if cw:
-            _log(log_path, f"play: {why}")
-        raise ValueError(why) from None
-    return _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, order_before=order)
+        t0 = system.now()
+        try:
+            system.start_game(values["route"], starfield)
+        except OSError as e:                        # no steam:// handler, or the exe would not start (Codex, #465)
+            why = f"could not start the game by {values['route']} ({e.strerror or e})"
+            if cw:
+                _log(log_path, f"play: {why}")
+            raise ValueError(why) from None
+        result = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, order_before=order)
+    except BaseException:
+        if folder:
+            try:
+                closed = not system.pids()
+            except ValueError:                      # unknown: leave the journal; recover() puts it back later
+                closed = False
+            if closed:
+                inst.swap_out(folder, say, after_game=True)
+        raise
+    if folder:
+        if system.pids():
+            # a game that came up after the watch gave up still reads the list in place: the player's comes back at
+            # the next launcher start once Starfield is closed (instance.recover), never under a running game
+            say("Plugins.txt: Starfield is still running; yours comes back at the next launcher start after it closes")
+        else:
+            inst.swap_out(folder, say, after_game=True)
+        system.plugins_txt = inst.plugins_txt(folder)
+    return result
 
 
 def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=(), order_before=None):

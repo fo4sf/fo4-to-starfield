@@ -5,8 +5,25 @@ mod packs for that". So the launcher keeps FO4SF in a game folder of its own. Th
 whatever mods they run there, is never switched or changed by it. This answers the 29 Oct launcher question:
 always FO4SF, in its own place, instead of switching one install back and forth with restore.
 
-Status: step 1 of 4 is built (`launcher.py instance plan|create`). The rest is designed here and waits on the PC
-checks in section 4. Code: `src/fo4sf/launcher/instance.py`. Tests: `tests/test_launcher_instance.py`.
+Status: all four steps are built, behind the setting `instance` (empty by default: nothing changes until it is set).
+The PC checks in section 4 decide whether they hold in the real game. Code: `src/fo4sf/launcher/instance.py` and
+`crashwatch.play(folder=...)`. Tests: `tests/test_launcher_instance.py` and `tests/test_launcher_instance_play.py`.
+
+How to use it (game closed):
+
+```
+python scripts\launcher.py instance plan   --starfield "D:\SteamLibrary\steamapps\common\Starfield" --at D:\FO4SF\Starfield
+python scripts\launcher.py instance create --starfield "D:\SteamLibrary\steamapps\common\Starfield" --at D:\FO4SF\Starfield
+python scripts\launcher.py settings --set instance=D:\FO4SF\Starfield
+python scripts\launcher.py instance run -- python scripts\deploy_starfield.py install --batch <stage> --starfield D:\FO4SF\Starfield
+python scripts\launcher.py instance run -- python scripts\game\exp_install.py install --exp-dir <core stage> --pack --starfield D:\FO4SF\Starfield
+python scripts\launcher.py play --dry-run
+python scripts\launcher.py play
+```
+
+`instance run` runs one of our tools on the folder with its own Plugins.txt, and refuses a command whose `--starfield`
+is another folder. After a crash or a power cut, `instance recover` (or the next `play`) puts the player's Plugins.txt
+back from the journal.
 
 ## 1. What a game folder needs, and where Starfield keeps it
 
@@ -51,19 +68,28 @@ Not `sTestFile`, although an `sTestFile1..10` in the folder's own `Starfield.ini
 listed plugins it cannot find in its Data (both verified, sfstack.md). The player's list would be rewritten every
 FO4SF start. It also caps at 10 plugins; FO4SF loads about 9 today, plus texture companions.
 
-## 3. The steps
+## 3. The steps (all built)
 
-1. **Make the folder** (built): `launcher.py instance plan|create --starfield <Steam folder> --at <new folder>`.
-2. **Install into it:** a setting `instance` (the folder). When it is set, `play`, `restore` and the installers the
-   launcher runs get `--starfield <folder>` and `LOCALAPPDATA=<folder>\FO4SF-local`. The test runner's
-   `cycle.ps1` stays as it is until the owner moves it.
-3. **Its own saves and INI writes:** `SLocalSavePath=Saves\FO4SF\` and the Papyrus keys go into the folder's copied
-   `Starfield.ini`, not the shared `StarfieldCustom.ini` (H3). `play` refuses `route=steam`, because `steam://` starts
-   the Steam folder, not this one; sfse and exe start the folder's own executables.
-4. **Play with the folder's list:** the Plugins.txt swap of section 2 with its journal (only if H2 holds), and the
-   window's Play button on the folder.
+1. **Make the folder:** `launcher.py instance plan|create --starfield <Steam folder> --at <new folder>`.
+2. **Install into it:** `launcher.py instance run -- <installer> --starfield <folder>` runs our tools with
+   `LOCALAPPDATA=<folder>\FO4SF-local`. With the setting `instance`, `play` runs the bridge toggle and the load
+   order on that list too. The test runner's `cycle.ps1` stays as it is until the owner moves it.
+3. **Its own saves and INI writes:** before each start, `play` puts `SLocalSavePath=Saves\FO4SF\` in the folder's
+   copied `Starfield.ini`, and the Papyrus keys go there too, not into the shared `StarfieldCustom.ini` (H3). It never
+   writes through a hard link to Steam's file. `play` refuses `route=steam`, because `steam://` starts the Steam
+   folder, not this one; sfse and exe start the folder's own executables.
+4. **Play with the folder's list:** just before the start, `play` journals the player's Plugins.txt bytes in
+   `<folder>\FO4SF-swap.json` (with a second copy, `FO4SF-local\player-Plugins.txt.bak-<time>`) and puts the folder's
+   list in its place. When the game ends, the game's rewrite of that list becomes the folder's list, and the player's
+   comes back byte for byte. That also happens when the start fails.
+   - While a game is still running (one that came up after the watch gave up), the player's list stays journaled until
+     the next launcher start finds Starfield closed.
+   - A recovery never adopts what it finds in the player's place as FO4SF's list; it keeps it aside as
+     `Plugins.txt.after-<time>`.
+   - The swap works whichever way H2 turns out, because the game is started with the launcher's own `LOCALAPPDATA`.
+   - The window's Play starts the folder too.
 
-Each step is its own PR, default off: until the setting is set, nothing changes on the PC.
+Default off: until the setting `instance` is set, play, the window and every tool work on the Steam folder as before.
 
 ## 4. To check on the PC before steps 2 to 4
 

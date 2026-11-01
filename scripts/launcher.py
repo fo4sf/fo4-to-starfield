@@ -27,6 +27,8 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py update [--check]
     python scripts/launcher.py instance plan|create --starfield <Steam's game folder> --at <new folder>
                                         [--keep-data-dir <name> ...] [--min-free-gb 40]
+    python scripts/launcher.py instance run [--at <folder>] -- <installer command with --starfield <folder>>
+    python scripts/launcher.py instance recover [--at <folder>]
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
@@ -60,7 +62,10 @@ update     brings this checkout up to GitHub's main now (a fast-forward only, sr
 instance   the FO4SF game folder, separate from the player's own Starfield and its mods (docs/ai/fo4sf-instance.md):
            plan (read only) says what would be hard-linked, copied and left out of Data, and the disk it costs; create
            makes it (hard links on the same drive, the game folder's INIs copied, only the game's own files in Data),
-           never writing in the Steam install. Nothing else uses the folder yet.
+           never writing in the Steam install. run: one of our installers on the folder, with its own Plugins.txt
+           (LOCALAPPDATA = <folder>\FO4SF-local; refused when the command names another --starfield). With the
+           setting instance=<folder>, play starts the game from it and puts FO4SF's Plugins.txt in the player's place
+           only while it runs; recover puts the player's back after a crash.
 """
 import argparse
 import json
@@ -325,6 +330,14 @@ def cmd_play(a):
     # a dry run only looks: it says how far behind it is, and never moves the checkout
     if updated("check" if a.dry_run and values["update"] != "off" else values["update"]):
         return selfupdate.restart(a.argv)
+    folder = values["instance"]
+    if folder:                                         # the FO4SF game folder: always FO4SF, the player's left alone
+        if a.starfield and os.path.normcase(os.path.abspath(a.starfield)) != os.path.normcase(os.path.abspath(folder)):
+            raise ValueError(f"--starfield {a.starfield} is not the FO4SF game folder {folder} (setting instance); "
+                             "pass that folder or none")
+        instance.recover(folder, restore.game_running)
+        r = crashwatch.play(values, folder, dry_run=a.dry_run, folder=folder)
+        return 0 if r.get("dry_run") or r.get("started") else 1
     starfield = a.starfield or values["starfield"]
     if not starfield:
         raise ValueError("no Starfield folder: confirm it in the window's Locations tab, run `launcher.py paths "
@@ -376,6 +389,18 @@ def cmd_update(a):
 
 
 def cmd_instance(a):
+    folder = a.at or settings.load(a.settings or default_settings_path())["instance"]
+    if a.action == "recover":
+        if not folder:
+            raise ValueError("no FO4SF game folder: pass --at or set the setting instance")
+        print("nothing to put back" if not instance.recover(folder, restore.game_running) else "done")
+        return 0
+    if a.action == "run":
+        if not folder:
+            raise ValueError("no FO4SF game folder: pass --at or set the setting instance")
+        return instance.run(folder, a.command, running=restore.game_running, cwd=REPO)
+    if not a.starfield or not a.at:
+        raise ValueError(f"instance {a.action} needs --starfield <Steam's game folder> and --at <new folder>")
     if a.action == "plan":
         p = instance.plan(a.starfield, a.at, a.keep_data_dir)
         instance.check_target(a.starfield, a.at, a.min_free_gb, p["copy_bytes"])
@@ -508,13 +533,20 @@ def main(argv=None):
     s.add_argument("--dry-run", action="store_true", help="print what watch would do; attach nothing")
     s = sub.add_parser("update", help="bring this checkout up to GitHub's main now (fast-forward only)")
     s.add_argument("--check", action="store_true", help="only say how far behind GitHub's main this checkout is")
-    s = sub.add_parser("instance", help="the FO4SF game folder beside the player's own Starfield (plan, create)")
-    s.add_argument("action", choices=("plan", "create"))
-    s.add_argument("--starfield", required=True, help="the Steam Starfield folder it is made from (read only)")
-    s.add_argument("--at", required=True, help="the new FO4SF game folder (empty or missing; same drive)")
+    s = sub.add_parser("instance", help="the FO4SF game folder beside the player's own Starfield")
+    s.add_argument("action", choices=("plan", "create", "run", "recover"))
+    s.add_argument("--starfield", default="", help="plan/create: the Steam Starfield folder it is made from (read only)")
+    s.add_argument("--at", default="", help="the FO4SF game folder (default for run/recover: the setting instance)")
+    s.add_argument("--settings", default="")
     s.add_argument("--keep-data-dir", action="append", default=[], help="a Data folder to keep (repeatable)")
     s.add_argument("--min-free-gb", type=float, default=40.0, help="free space the drive keeps (default 40)")
-    a = ap.parse_args(argv)
+    given = list(sys.argv[1:] if argv is None else argv)
+    command = []
+    if given[:1] == ["instance"] and "--" in given:            # instance run -- <command>: everything after -- is it
+        cut = given.index("--")
+        given, command = given[:cut], given[cut + 1:]
+    a = ap.parse_args(given)
+    a.command = command
     a.argv = [os.path.abspath(__file__), *(sys.argv[1:] if argv is None else argv)]   # the command, to start it again
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,

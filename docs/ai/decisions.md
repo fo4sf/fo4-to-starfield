@@ -1364,6 +1364,7 @@ decided the import path); keeping the order as a parameter (two orders in the co
   - A virtual file system (MO2's USVFS): a large dependency, and Plugins.txt still needs its own handling.
   - `sTestFile` in the folder's INI: since 1.16.236 the game writes those plugins into the shared Plugins.txt and drops
     the player's plugins it cannot find, and it caps at 10.
-- Boundary: built so far is making the folder only. The Plugins.txt swap at play is needed only if the game reads
-  `%LOCALAPPDATA%` through Windows' known-folder call (H2), and the folder-INI saves need H3; both are PC checks,
-  docs/ai/fo4sf-instance.md section 4.
+- Boundary: all four steps are built, behind the setting `instance` (empty by default). That includes the Plugins.txt
+  swap at play, journaled, which works whether or not the game follows the `LOCALAPPDATA` variable (H2). The
+  folder-INI saves and Papyrus keys rely on the game reading its folder's Starfield.ini (H3). Whether the copied folder
+  starts at all (H1) is the first PC check, docs/ai/fo4sf-instance.md section 4.
