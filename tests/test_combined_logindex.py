@@ -17,6 +17,16 @@ from test_combined_seedpack import commonwealth_scale_draft  # noqa: E402
 
 FULL = os.environ.get("FO4SF_PARITY_FULL") == "1"
 VARIANTS = ("normal", "raid_low", "raid_high", "story", "actions")
+# Kept byte-for-byte equivalent in fields and order to the C5 parity fixture at
+# 0ba91c20. Its scheduler applies entries only when ws.hour equals the hour,
+# immediately before that tick; hour 500 falls between six-hour ticks.
+ACTIONS = [
+    {"hour": 24, "do": "help", "faction": "settlers", "amount": 15},
+    {"hour": 48, "do": "defend", "place": "farm_b"},
+    {"hour": 60, "do": "trade", "settlement": "market", "goods": {"food": 25, "ammo": -5}},
+    {"hour": 300, "do": "defend", "place": "market", "bonus": 30, "hours": 24},
+    {"hour": 500, "do": "trade", "settlement": "farm_a", "goods": {"water": 40}},
+]
 
 
 def two_region_world(seed, variant="normal"):
@@ -31,12 +41,6 @@ def two_region_world(seed, variant="normal"):
         ws.settings.story_mode = True
         ws.settings.active_stories = ["main_story_1"]
     ws.settings.validate()
-    if variant == "actions":
-        # Mirror the available player help/defend/trade action family. The parity
-        # test's exact ACTIONS table is absent from this base.
-        sim.player_helped(ws, "settlers", 10)
-        sim.player_defended(ws, "farm_a")
-        sim.player_traded(ws, "farm_a", {"food": 3})
     return ws
 
 
@@ -57,22 +61,50 @@ def reference_fought_since(ws, place, since):
     return False
 
 
-def assert_index_after_each_tick(test, ws, days):
+def apply_player_action(ws, action):
+    if action["do"] == "help":
+        sim.player_helped(ws, action["faction"], action.get("amount", 10))
+    elif action["do"] == "defend":
+        sim.player_defended(ws, action["place"], action.get("bonus", 10), action.get("hours", 72))
+    elif action["do"] == "trade":
+        sim.player_traded(ws, action["settlement"], action["goods"])
+    else:
+        raise AssertionError(f"unknown scheduled player action: {action['do']}")
+
+
+def assert_index_matches_readers(test, ws, index):
+    hours = [event["hour"] for event in ws.events]
+    test.assertEqual(hours, sorted(hours), "event hours must stay non-decreasing")
+    test.assertEqual(index, LogIndex.build(ws.events))
+    for fid in ws.factions:
+        test.assertEqual(index.lost_places(ws, fid), sim._lost_places(ws, fid), (ws.seed, fid, ws.hour))
+    since = ws.hour - sim.RESETTLE_SAFE_HOURS
+    for sid in ws.settlements:
+        test.assertEqual(index.fought_since(sid, since), reference_fought_since(ws, sid, since),
+                         (ws.seed, sid, since, ws.hour))
+
+
+def assert_index_after_each_tick(test, ws, days, actions=()):
     index = LogIndex.build(ws.events)
+    action_index = 0
     for _ in range(days * 24 // sim.TICK_HOURS):
+        # Match C5's exact-hour scheduler: actions run in table order immediately
+        # before a tick; a missed (non-aligned) hour is never rounded or replayed.
+        while action_index < len(actions) and actions[action_index]["hour"] <= ws.hour:
+            action = actions[action_index]
+            action_index += 1
+            if action["hour"] != ws.hour:
+                continue
+            old_count = len(ws.events)
+            apply_player_action(ws, action)
+            for event in ws.events[old_count:]:
+                index.add(event)
+            assert_index_matches_readers(test, ws, index)
         old_count = len(ws.events)
         sim.tick(ws)
         for event in ws.events[old_count:]:
             index.add(event)
-        hours = [event["hour"] for event in ws.events]
-        test.assertEqual(hours, sorted(hours), "event hours must stay non-decreasing")
-        test.assertEqual(index, LogIndex.build(ws.events))
-        for fid in ws.factions:
-            test.assertEqual(index.lost_places(ws, fid), sim._lost_places(ws, fid), (ws.seed, fid, ws.hour))
-        since = ws.hour - sim.RESETTLE_SAFE_HOURS
-        for sid in ws.settlements:
-            test.assertEqual(index.fought_since(sid, since), reference_fought_since(ws, sid, since),
-                             (ws.seed, sid, since, ws.hour))
+        assert_index_matches_readers(test, ws, index)
 
 
 class LogIndexTests(unittest.TestCase):
@@ -147,12 +179,22 @@ class LogIndexTests(unittest.TestCase):
         ws = two_region_world(0)
         assert_index_after_each_tick(self, ws, 3)
 
+    def test_exact_player_action_schedule_and_incremental_events(self):
+        ws = two_region_world(0, "actions")
+        assert_index_after_each_tick(self, ws, 22, ACTIONS)
+        player_events = [(event["hour"], event["kind"]) for event in ws.events
+                         if event["kind"] in ("player_defended", "player_traded")]
+        self.assertEqual(player_events, [(48, "player_defended"), (60, "player_traded"),
+                                         (300, "player_defended")])
+        self.assertEqual(ws.hour, 528)  # advance past 504: the hour-500 trade is never rounded up
+
     @unittest.skipUnless(FULL, "set FO4SF_PARITY_FULL=1 for the 10-seed, 90-day sweep")
     def test_full_two_region_variants_and_commonwealth_sweep(self):
         for seed in range(10):
             for variant in VARIANTS:
                 with self.subTest(seed=seed, variant=variant):
-                    assert_index_after_each_tick(self, two_region_world(seed, variant), 90)
+                    assert_index_after_each_tick(self, two_region_world(seed, variant), 90,
+                                                 ACTIONS if variant == "actions" else ())
             with self.subTest(seed=seed, variant="commonwealth-scale"):
                 assert_index_after_each_tick(self, commonwealth_world(seed), 90)
 
