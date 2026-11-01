@@ -1305,8 +1305,17 @@ def _p9_returned(evs: list[Event], go: Event) -> Event | None:
     call = go.fields.get("call")
     if not call:
         return None
-    return next((e for e in evs if e.kind == "p9 path returned" and e.line > go.line and e.fields.get("call") == call
-                 and e.form("actor") == go.form("actor")), None)
+    for e in evs:
+        if e.line <= go.line:
+            continue
+        if e.kind != "p9 path returned":
+            # A malformed timestamp must not turn an explicit return into a legacy missing one.
+            text = re.sub(r"^((?:\[[^\]]*\]\s*)?FOCC)\s+rt=\S+\s+(?=p9 path returned\b)", r"\1 ", e.text)
+            e = parse_line(text, e.file, e.line) if text != e.text else None
+        if e is not None and e.kind == "p9 path returned" and e.fields.get("call") == call \
+                and e.form("actor") == go.form("actor"):
+            return e
+    return None
 
 
 def _p9_continuous(samples: list[Event], origin: Event) -> bool | None:
@@ -1363,14 +1372,19 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
         cmd = go.num("dist") if go is not None else None
         base = cmd if cmd is not None else start
         closest = min(dists, default=None)
-        # A returned failure ends this request: the actor may keep wandering afterwards.
-        # Keep all readings, but do not borrow that later movement as proof of the driver.
-        command_dists = dists
-        if back is not None and "result" in back.fields and back.count("result") != 0:
-            command_dists = [e.num("dist") for e in samples
-                             if e.num("dist") is not None and e.rt is not None and back.rt is not None
-                             and go.rt is not None and go.rt <= e.rt <= back.rt]
+        # Every explicit return ends its request, including Success. Retain the full track
+        # for diagnostics, but never credit later wandering as approach or arrival.
+        command_samples = samples
+        if back is not None and "result" in back.fields:
+            command_samples = [e for e in samples if e.rt is not None and back.rt is not None
+                               and go.rt is not None and go.rt <= e.rt <= back.rt]
+        command_dists = [e.num("dist") for e in command_samples if e.num("dist") is not None]
+        command_closest = min(command_dists, default=None)
         command_approach = base - min([base] + command_dists) if base is not None else None
+        state = [e for e in part if go is not None and e.line < go.line and e.kind == "p9 state"
+                 and e.form("actor") == s.form("actor")][-1:]
+        state_ok = (state[-1].flag("loaded") is True and all(state[-1].flag(key) is False
+                    for key in ("dead", "disabled", "targetdisabled"))) if state else None
         out.append({"line": s.line, "rt": s.rt, "actor": s.form("actor"), "start_dist_m": start,
                     "go_dist_m": cmd,
                     "seconds": s.num("seconds"), "samples": len(samples), "done": bool(done),
@@ -1378,9 +1392,11 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "closest_m": closest,
                     "approach_m": round(base - closest, 1) if None not in (base, closest) else None,
                     "command_approach_m": command_approach,
+                    "command_closest_m": command_closest,
                     "moved_m": round(max(sum((a - b) ** 2 for a, b in zip(ps[0], p)) ** 0.5 for p in ps), 1) if ps else None,
                     "cells": len({e.form("cell") for e in samples if e.form("cell")}),
-                    "arrived": closest is not None and closest < P["p9_arrive_m"],
+                    "arrived": command_closest is not None and command_closest < P["p9_arrive_m"],
+                    "state_ok": state_ok,
                     "continuous": _p9_continuous(samples, go if go is not None else s),
                     "driver": "script" if go is not None else None,
                     "go_line": go.line if go is not None else None,
@@ -1394,6 +1410,7 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                                 and go.form("id") == dest[-1].form("id")) if go is not None else None,
                     "path_returned_s": back.num("after") if back is not None else None,
                     "path_return_line": back.line if back is not None else None,
+                    "path_return_rt": back.rt if back is not None else None,
                     "path_result_raw": back.fields.get("result") if back is not None else None,
                     "path_succeeded": (back.count("result") == 0
                                        if back is not None and "result" in back.fields else None),
@@ -1424,6 +1441,7 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == "script" and a["go_dist_m"] is not None
                 and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]
                 and a["path_succeeded"] is not False
+                and a["state_ok"] is not False
                 and a["continuous"] is True and (a["target"] == "player" or a["to_dest"] is True)), None)
     if ctl is None:
         return None
@@ -1451,9 +1469,10 @@ def check_p9(c: Collection) -> Verdict:
     driver = latest["driver"]
     v.extra["driver"] = ("FOCC_P9Drive.Go (Actor.PathToReference from Papyrus)" if driver
                          else "none logged (a console command, or none)")
-    if latest["path_returned_s"] is not None:
-        v.reasons.append(f"FOCC_P9Drive's PathToReference returned after {latest['path_returned_s']:.1f} s"
-                         f"{_p9_result_note(latest)}")
+    if latest["path_return_line"] is not None:
+        elapsed = (f"after {latest['path_returned_s']:.1f} s" if latest["path_returned_s"] is not None
+                   else "with unreadable after=")
+        v.reasons.append(f"FOCC_P9Drive's PathToReference returned {elapsed}{_p9_result_note(latest)}")
         v.cite(*[e for e in evs if e.line == latest["path_return_line"]])
     # judge only the latest attempt: a retry in one launch drops the old one
     dest = [e for e in _by_kind(evs, "p9 dest") if e.line < starts[-1].line][-1:]   # P9Dest runs before P9Track
@@ -1485,6 +1504,10 @@ def check_p9(c: Collection) -> Verdict:
                          f"{latest['go_id'] or 'none'}), not the tracked FOCC_P9_Dest (id {dest[-1].form('id')}): "
                          f"P9Track measures the distance to the destination, so this command's walk is not the route "
                          f"judged here (the long rungs take `FOCC_P9Drive.Go <actor> 0`)")
+        return v
+    if latest["state_ok"] is False:
+        v.reasons.append("the logged p9 state does not establish a loaded, living, enabled actor and enabled target: "
+                         "setup problem, not pathing evidence")
         return v
     others = [e for e in samples if e.form("actor") != actor]
     if others:                                  # every sample is the started actor's (Codex review of #431)
@@ -1551,6 +1574,14 @@ def check_p9(c: Collection) -> Verdict:
             v.reasons.append(f"a {step:.1f} m jump in {dt:.1f} s between samples: teleport-like, not a continuous "
                              f"walk (placeholder {P['p9_jump_m_per_s']} m/s)")
             return v
+    # Samples after the latent request returned describe the actor's later behaviour.
+    # They cannot prove arrival, cell crossings or a stall during that request.
+    if latest["path_result_raw"] is not None:
+        end = latest["path_return_rt"]
+        rows = [r for r in rows if end is not None and r[5].rt <= end]
+        if len(rows) < 2:
+            v.reasons.append("fewer than 2 samples before the explicit path return; later movement is not this request")
+            return v
     cells = {r[3] for r in rows if r[3]}
     v.extra["distinct_cells"] = len(cells)
     first_cell = rows[0][3]
@@ -1558,7 +1589,7 @@ def check_p9(c: Collection) -> Verdict:
     approach = start - min(r[1] for r in rows)
     moved = max(sum((a - b) ** 2 for a, b in zip(rows[0][2], r[2])) ** 0.5 for r in rows)
     v.extra["approach_m"], v.extra["moved_m"] = round(approach, 1), round(moved, 1)
-    # A FAIL says the navmesh does not carry the route, so it needs proof the command moves this actor at all: progress
+    # A FAIL is a failed route test, so it needs proof the command moves this actor at all: progress
     # on this route, or the ladder's short control. Without it a still actor is the command's failure as much as the
     # path's (28 Oct: 600 s within about 3 m; no console command had ever walked a calm citizen beyond its own wander,
     # docs/actors/npc-navigation.md section 5)
@@ -1582,6 +1613,10 @@ def check_p9(c: Collection) -> Verdict:
     if failed:
         v.cite(*failed[0])
         v.reasons.append(failed[1])
+        if latest["path_result_raw"] is not None and latest["path_result"] != 1:
+            v.reasons.append("the path request ended without an explicit Failure result; an interrupted, invalid or "
+                             "inconsistent return does not establish a navmesh failure")
+            return v
         if shown:
             v.reasons.append(f"the command does move this actor: {shown}")
             v.verdict = FAIL
