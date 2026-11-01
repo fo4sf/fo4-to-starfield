@@ -579,11 +579,11 @@ def game_running():
     if os.name != "nt":
         return False
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Starfield.exe", "/NH"], capture_output=True,
-                             text=True, timeout=30).stdout
+        result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Starfield.exe", "/NH"], capture_output=True,
+                                text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return True                                   # unknown is treated as running
-    return "starfield.exe" in out.casefold()
+    return result.returncode != 0 or "starfield.exe" in result.stdout.casefold()
 
 
 def write_plugins_txt(path, target_b64, expected_sha256):

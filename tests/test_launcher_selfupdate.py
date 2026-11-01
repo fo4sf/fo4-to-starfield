@@ -13,7 +13,36 @@ from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
-from fo4sf.launcher import selfupdate, settings  # noqa: E402
+from fo4sf.launcher import restore, selfupdate, settings  # noqa: E402
+
+class GameRunningGateTests(unittest.TestCase):
+    def test_failed_query_refuses_update_before_any_git_command(self):
+        for stdout, stderr in (("ERROR: Access is denied.", ""), ("", "Access is denied."), ("", "")):
+            with self.subTest(stdout=stdout, stderr=stderr), \
+                 mock.patch.object(restore.os, "name", "nt"), \
+                 mock.patch.object(restore.subprocess, "run", return_value=subprocess.CompletedProcess(
+                     ["tasklist"], 1, stdout, stderr)), \
+                 mock.patch.object(selfupdate, "git", side_effect=AssertionError("unknown game state")), \
+                 mock.patch.dict(os.environ, {selfupdate.RESTARTED: ""}):
+                said = []
+                self.assertTrue(restore.game_running())
+                self.assertFalse(selfupdate.update("unused", "pull", say=said.append, running=restore.game_running))
+                self.assertIn("skipped while Starfield runs", said[0])
+
+    def test_successful_query_distinguishes_running_and_absent(self):
+        for stdout, expected in (("Starfield.exe 1234 Console 1 100 K", True),
+                                 ("INFO: No tasks are running which match the specified criteria.", False)):
+            with self.subTest(stdout=stdout), mock.patch.object(restore.os, "name", "nt"), \
+                 mock.patch.object(restore.subprocess, "run", return_value=subprocess.CompletedProcess(
+                     ["tasklist"], 0, stdout, "")):
+                self.assertEqual(restore.game_running(), expected)
+
+    def test_unavailable_or_timed_out_query_remains_unknown(self):
+        for error in (OSError("tasklist unavailable"), subprocess.TimeoutExpired("tasklist", 30)):
+            with self.subTest(error=error), mock.patch.object(restore.os, "name", "nt"), \
+                 mock.patch.object(restore.subprocess, "run", side_effect=error):
+                self.assertTrue(restore.game_running())
+
 
 # throwaway repositories: no signing, a fixed identity, no hooks or templates from the machine's own config
 GIT = ["git", "-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
