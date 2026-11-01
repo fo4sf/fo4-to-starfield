@@ -14,7 +14,7 @@ Code: `src/fo4sf/launcher/` (manifest, driver, restore, same_ids), CLI `scripts/
 | Build manifest | `launcher.py manifest --out m.json --fo4-data <Data> ... --starfield <game> --output <build>` | the checkpoint identity policy (docs/RESUMING-BUILDS.md) | synthetic tests |
 | Manifest diff | `launcher.py manifest-diff a.json b.json` (paths ignored, identities and pins compared) | | synthetic tests |
 | Build driver | `launcher.py build <recipe.json> --set k=v [--dry-run] [--min-free-gb 40 --disk D:\ ] [--idle]` | wraps make_core64c.py, make_mission.py, convert_batch.py, vmad_patch.py, light_patch.py, the dotnet writers as steps; their own checkpoints stay in charge inside a step | synthetic tests |
-| Snapshot | `launcher.py snapshot --starfield <game> --out snap.json` (read only) | the three install records | synthetic tests |
+| Snapshot | `launcher.py snapshot --starfield <game> --out snap.json` (read only) | every install record (`restore.COMPONENTS`) | synthetic tests |
 | Restore | `launcher.py restore --snapshot snap.json` (plan; `--apply` acts) | deploy_starfield.py, exp_install.py, bridge_install.py do every file change | synthetic tests, incl. a real exp_install round trip |
 | Build status | `launcher.py status <recipe.json> [--set k=v] [--json out.json]` (read only) | the driver's state.json | synthetic tests |
 | Same-ids check | `launcher.py same-ids <build A> <build B>` | make_core64c.py's `formids_diff` (compare-ids) when both have formids.json | synthetic tests |
@@ -52,9 +52,14 @@ launcher's progress screen and the install thread read instead of opening state.
 
 ### Recorded restore
 `snapshot` keeps Plugins.txt byte for byte, every top-level plugin and archive in Data (plugins hashed; Starfield's
-own archives by size and time) and the three install records verbatim. `restore` plans in the swap scripts' order
-(bridge off, experiment off, port off; port on, experiment on, `exp_install.py order`, bridge on), reinstalling from
-the source folder each record names. It restores Plugins.txt bytes only when every differing line names a plugin an
+own archives by size and time) and every install record verbatim: the port, the experiment, the planet, quest and
+combined probes, the map markers and the bridge (the probes and the markers since 2026-10-31; before, the markers'
+Plugins.txt line read as an owner's edit and every restore with them installed was refused). `restore` plans in the
+swap scripts' order (bridge off, markers off, the probes off, experiment off, port off; then the reverse, with
+`exp_install.py order` after the experiment), reinstalling from the source folder each record names; a source folder
+that is gone is a conflict. The markers and the combined probe ride on the experiment and the quest probe on the port
+(`restore.RIDES_ON`: their installers pin that build), so when the base changes they come off first and go back on
+after it, even with their own record unchanged. It restores Plugins.txt bytes only when every differing line names a plugin an
 installer owns. It never deletes a file itself, leaves unowned new files alone (reported), refuses while
 Starfield.exe runs, refuses on any conflict before changing anything (an owner's Plugins.txt edit, a vanished
 unowned file, a port record with no staging folder unless `--port-staging`), and checks the result against the
@@ -112,7 +117,7 @@ synthetic files only; neither registry lookup has run on a real Windows install.
 ### bundle
 `launcher.py bundle --out <support.zip> [--state-dir ...] [--manifest ...] [--detect-report ...] [--starfield ...]
 [--my-games ...]` writes one local zip for a GitHub issue (framework A11; the owner's RE-18 answer, GitHub only):
-driver state and each step's newest log, the build manifest and detect report, the three install records,
+driver state and each step's newest log, the build manifest and detect report, every install record,
 Plugins.txt, and the game's INIs from the game folder and My Games. Text only, no game data. The home folder becomes
 `%USERPROFILE%` and the user name `<user>`, in either slash style and JSON's doubled backslashes; a name under three
 letters is left alone so ordinary words survive. A file over 2 MiB keeps its tail and says so. BUNDLE.txt lists

@@ -1,15 +1,27 @@
 """Recorded restore: return Starfield's Data folder and Plugins.txt to a recorded state.
 
 This formalises what the install thread's swap scripts do by hand (bridge uninstall, experiment uninstall, experiment
-install, order, bridge install; the port deployment kept or swapped) on top of the three existing installers, which
-own every file they add and record it:
+install, order, bridge install; the port deployment kept or swapped) on top of the existing installers, which own
+every file they add and record it:
 
-    FO4Port.deploy.json        scripts/deploy_starfield.py      (the converted port, FO4Port.esm and its archives)
-    FO4SFExp.install.json      scripts/game/exp_install.py      (one experiment: the terrain core, mission, ...)
-    FO4SFBridge.install.json   scripts/game/bridge_install.py   (the observation bridge)
+    FO4Port.deploy.json              scripts/deploy_starfield.py                   (the converted port, FO4Port.esm and its archives)
+    FO4SFExp.install.json            scripts/game/exp_install.py                   (one experiment: the terrain core, mission, ...)
+    FO4SFPlanetProbe.install.json    scripts/planet/planet_probe_install.py        (the planet probe)
+    FO4SFQuestProbe.install.json     scripts/questprobe/questprobe_install.py      (the quest-engine probe)
+    FO4SFCombinedProbe.install.json  scripts/combined_probes/probe_install.py      (the combined-core probe)
+    FO4SFMapMarkers.install.json     scripts/game/map_markers_install.py           (the map markers plugin)
+    FO4SFBridge.install.json         scripts/game/bridge_install.py                (the observation bridge)
+
+Until 2026-10-31 only the port, the experiment and the bridge were known here, so the line of any other installed
+plugin of ours in Plugins.txt read as the owner's edit and every restore with the map markers installed was refused.
+Some ride on another component (RIDES_ON): the map markers plugin and the combined probe are staged against the
+installed core (an experiment) and the quest probe against the installed FO4Port.esm, and their installers refuse
+any other build. When that base is uninstalled, replaced or recovered, the rider comes off first and goes back on
+after it (map_markers_install.py: "uninstall it before a core swap ... install it again after the swap"), even when
+its own record did not change.
 
 snapshot  records Plugins.txt (bytes), every top-level file in Data that is a plugin or an archive (name, size, time;
-          plugins hashed), the three install records (verbatim), the live hash of every file those records own
+          plugins hashed), every install record above (verbatim), the live hash of every file those records own
           (loose files in subfolders included), and any extra watched files (INIs).
 plan      compares the live state with a snapshot and lists the installer commands that would bring it back: uninstall
           what was added since, reinstall what the snapshot had (from the source folder its record names), in the
@@ -33,14 +45,25 @@ import sys
 from . import files
 
 SCHEMA = 1
-# component -> (record file in Data, installer script under the repo, plugin names the component may own)
+# component -> (record file in Data, installer script under the repo)
 COMPONENTS = {
     "port": ("FO4Port.deploy.json", os.path.join("scripts", "deploy_starfield.py")),
     "experiment": ("FO4SFExp.install.json", os.path.join("scripts", "game", "exp_install.py")),
+    "planet_probe": ("FO4SFPlanetProbe.install.json", os.path.join("scripts", "planet", "planet_probe_install.py")),
+    "quest_probe": ("FO4SFQuestProbe.install.json", os.path.join("scripts", "questprobe", "questprobe_install.py")),
+    "combined_probe": ("FO4SFCombinedProbe.install.json", os.path.join("scripts", "combined_probes", "probe_install.py")),
+    "markers": ("FO4SFMapMarkers.install.json", os.path.join("scripts", "game", "map_markers_install.py")),
     "bridge": ("FO4SFBridge.install.json", os.path.join("scripts", "game", "bridge_install.py")),
 }
-UNINSTALL_ORDER = ("bridge", "experiment", "port")       # the swap scripts: bridge first off, last on
-INSTALL_ORDER = ("port", "experiment", "bridge")
+# the swap scripts: bridge first off, last on; the map markers just inside it (cycle.ps1 orders them in that order)
+INSTALL_ORDER = ("port", "experiment", "planet_probe", "quest_probe", "combined_probe", "markers", "bridge")
+UNINSTALL_ORDER = tuple(reversed(INSTALL_ORDER))
+# rider -> the component whose installed build its installer pins (module doc)
+RIDES_ON = {"markers": "experiment", "combined_probe": "experiment", "quest_probe": "port"}
+# records written by exp_install.py's code (exp_dir, plugins, pack, source_inputs) and by bridge_install.py's
+# (dir, plugin, source_sha256)
+EXP_KIT = ("experiment", "planet_probe")
+BRIDGE_KIT = ("quest_probe", "combined_probe", "markers", "bridge")
 WATCHED_EXT = (".esm", ".esp", ".esl", ".ba2", ".json")
 
 
@@ -153,10 +176,10 @@ def record_identity(comp, rec):
     folder and plugin list. Volatile fields (pending flags, saved Plugins.txt bytes) are left out."""
     if rec is None:
         return None
-    if comp == "experiment" and rec.get("pack") and rec.get("source_inputs"):
+    if comp in EXP_KIT and rec.get("pack") and rec.get("source_inputs"):
         # a packed archive is rebuilt by Archive2 on every install; the staged inputs it was packed from identify it
         keep = {"source_inputs": rec.get("source_inputs"), "plugins": rec.get("plugins"), "pack": True}
-    elif comp == "bridge" and rec.get("source_sha256"):
+    elif comp in BRIDGE_KIT and rec.get("source_sha256"):
         keep = {"source_sha256": rec.get("source_sha256"), "plugin": rec.get("plugin")}
     else:
         keep = {"files": rec.get("files"), "artifacts": rec.get("artifacts"), "plugins": rec.get("plugins"),
@@ -237,9 +260,17 @@ def install_argv(comp, rec, repo, starfield, port_staging=None):
         if rec.get("pack"):
             argv.append("--pack")
         return argv
-    if comp == "bridge":
+    if comp == "planet_probe":            # exp_install's record; the tool re-reads plugins and --pack from plan.json
+        return [sys.executable, script, "install", "--dir", rec["exp_dir"], "--starfield", starfield] \
+            if rec.get("exp_dir") else None
+    if comp in BRIDGE_KIT:
         return [sys.executable, script, "install", "--dir", rec["dir"], "--starfield", starfield] if rec.get("dir") else None
     return [sys.executable, script, "install", "--staging", port_staging, "--starfield", starfield] if port_staging else None
+
+
+def source_dir(comp, rec):
+    """The staged folder a recorded install came from (None for the port, whose record names none)."""
+    return (rec or {}).get("exp_dir" if comp in EXP_KIT else "dir") if comp != "port" else None
 
 
 def plan(target, current, repo, port_staging=None):
@@ -254,6 +285,16 @@ def plan(target, current, repo, port_staging=None):
         return {"steps": [], "plugins_txt": "conflict", "conflicts": [str(error)], "notes": []}
     starfield = target["starfield"]
     steps, conflicts, notes = [], [], []
+    # a snapshot taken before restore knew a component has no key for it: without its record file in Data then, it
+    # was not installed; with one, what was installed is unknown and nothing can be planned for it
+    taken = {n.casefold() for n in target.get("data_top") or {}}
+    unknown = [c for c, (rec_name, _s) in COMPONENTS.items()
+               if c not in target["records"] and rec_name.casefold() in taken]
+    if unknown:
+        return {"steps": [], "plugins_txt": "conflict", "notes": [],
+                "conflicts": [f"snapshot: taken before restore knew {c} ({COMPONENTS[c][0]} was in Data, its record "
+                              "was not kept); take a new snapshot" for c in unknown]}
+    target = dict(target, records={c: target["records"].get(c) for c in COMPONENTS})
     change = {}
     for comp in COMPONENTS:
         t, c = target["records"].get(comp), current["records"].get(comp)
@@ -266,6 +307,13 @@ def plan(target, current, repo, port_staging=None):
                 change[comp] = "recover"
             continue
         change[comp] = "uninstall" if t is None else ("install" if c is None else "replace")
+    for rider, base in RIDES_ON.items():
+        # a rider's installer pins its base's build: off before the base changes, back on after it (module doc). A
+        # rider not in `change` is the same install on both sides (any difference was caught above), or on neither
+        if base in change and rider not in change and current["records"].get(rider) is not None:
+            change[rider] = "replace"
+            notes.append(f"{rider}: taken off and put back around the {base} change (its installer pins the "
+                         f"installed {base})")
     for comp in UNINSTALL_ORDER:
         if change.get(comp) in ("uninstall", "replace", "recover"):
             steps.append({"what": f"uninstall {comp}",
@@ -277,8 +325,8 @@ def plan(target, current, repo, port_staging=None):
             if argv is None:
                 conflicts.append(f"{comp}: the snapshot had it installed but its record names no source folder"
                                  + (" (pass --port-staging)" if comp == "port" else ""))
-            elif comp == "experiment" and not os.path.isdir(target["records"][comp]["exp_dir"]):
-                conflicts.append(f"experiment: source folder {target['records'][comp]['exp_dir']} is gone")
+            elif comp != "port" and not os.path.isdir(source_dir(comp, target["records"][comp])):
+                conflicts.append(f"{comp}: source folder {source_dir(comp, target['records'][comp])} is gone")
             else:
                 steps.append({"what": f"install {comp}", "argv": argv})
                 if comp == "experiment":

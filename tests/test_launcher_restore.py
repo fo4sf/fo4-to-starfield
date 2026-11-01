@@ -242,7 +242,9 @@ class RestoreTests(unittest.TestCase):
         cur["records"]["bridge"] = {"source_sha256": "b", "dir": "x", "plugin": "FO4SFBridge.esm"}
         cur["records"]["experiment"] = {"exp_dir": self.exp, "plugins": ["A.esm"]}
         target = self.snap()
-        target["records"]["bridge"] = {"source_sha256": "c", "dir": "y", "plugin": "FO4SFBridge.esm"}
+        bridge_dir = os.path.join(self.root, "staging", "bridge_y")      # a source folder that exists (else a conflict)
+        os.makedirs(bridge_dir)
+        target["records"]["bridge"] = {"source_sha256": "c", "dir": bridge_dir, "plugin": "FO4SFBridge.esm"}
         target["records"]["experiment"] = {"exp_dir": self.exp, "plugins": ["B.esm"], "pack": True,
                                            "source_inputs": {"plugin/B.esm": "1"}}
         p = restore.plan(target, cur, ROOT)
