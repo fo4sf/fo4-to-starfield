@@ -216,6 +216,21 @@ class FolderPlayTests(unittest.TestCase):
             crashwatch.System(env=made["env"]).run(["x"])
         self.assertEqual(run.call_args.kwargs["env"]["LOCALAPPDATA"], instance.local_dir(self.folder))
 
+    def test_the_folders_own_list_all_unticked_is_refused_before_any_swap(self):
+        # #662: the folder's System reads the folder's list; the player's (ticked) is never swapped or touched
+        write(instance.local_dir(self.folder), "Starfield/Plugins.txt", OURS.replace(b"*", b""))
+        own = crashwatch.System(plugins_txt=instance.plugins_txt(self.folder))
+        own.pids = lambda image=None: []                                     # never this PC's own process table
+        why = crashwatch.unticked_ours(own, self.values(), self.folder)
+        self.assertIn("every FO4SF plugin in Plugins.txt is unticked (2 listed", why)
+        self.assertIn(instance.plugins_txt(self.folder), why)
+        self.assertIn("the FO4SF game folder's own list", why)                # the remedy fits the folder
+        with mock.patch.object(crashwatch, "System", side_effect=lambda **kw: own):
+            with self.assertRaisesRegex(ValueError, "every FO4SF plugin"):
+                crashwatch.play(self.values(), "ignored", say=self.said.append, folder=self.folder)
+        self.assertEqual(self.read(self.player), PLAYER)
+        self.assertFalse(os.path.exists(self.journal))
+
     def test_a_kept_list_is_never_overwritten_and_a_retry_reuses_its_own(self):
         # #655 finding 3: the same second's name, with other bytes, gets -2; with the same bytes it is reused
         base = instance.plugins_txt(self.folder) + ".after-20261101-123456"
