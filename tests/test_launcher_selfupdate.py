@@ -152,6 +152,16 @@ class SelfUpdateTests(unittest.TestCase):
         self.assertFalse(selfupdate.update(plain, "pull", say=self.said.append))
         self.assertIn("skipped", self.said[-1])
 
+    def test_describe_names_the_version_without_fetching(self):
+        head = git(self.pc, "rev-parse", "--short=12", "HEAD")
+        self.assertEqual(selfupdate.describe(self.pc), f"launcher code: main at {head}, no local changes")
+        with open(os.path.join(self.pc, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("edited")
+        self.assertIn("1 tracked file(s) changed", selfupdate.describe(self.pc))
+        git(self.pc, "remote", "set-url", "origin", os.path.join(self.root, "gone.git"))   # no network needed
+        self.assertTrue(selfupdate.describe(self.pc).startswith("launcher code: main at"))
+        self.assertIn("not a git checkout", selfupdate.describe(self.root))
+
     def test_no_git_on_the_path(self):
         def no_git(*_a, **_k):
             raise FileNotFoundError("git")

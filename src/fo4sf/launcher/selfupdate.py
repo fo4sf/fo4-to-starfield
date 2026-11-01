@@ -88,6 +88,19 @@ def check(repo, run=subprocess.run):
     return out
 
 
+def describe(repo, run=subprocess.run):
+    """One line on which code this checkout runs, read locally (nothing is fetched): branch, commit, and how many
+    tracked files differ from it. For the support bundle, so a report names the version it came from."""
+    code, head = git(repo, "rev-parse", "--short=12", "HEAD", run=run)
+    if code != 0:
+        return f"launcher code: not a git checkout or git missing ({head or 'no commit'})"
+    _c, branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", run=run)
+    _c, dirty = git(repo, "status", "--porcelain", "--untracked-files=no", run=run)
+    n = len((dirty or "").splitlines())
+    return (f"launcher code: {branch or 'detached HEAD'} at {head}"
+            + (f", {n} tracked file(s) changed and not committed" if n else ", no local changes"))
+
+
 def update(repo, mode, say=print, *, running=lambda: False, run=subprocess.run):
     """Do what `mode` says (MODES); True only when the checkout moved, so the caller starts the command again."""
     if mode not in MODES:

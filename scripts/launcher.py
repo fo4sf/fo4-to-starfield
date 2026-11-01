@@ -273,8 +273,8 @@ def cmd_bundle(a):
     pt = a.plugins_txt or (restore.plugins_txt_default() if a.starfield else None)
     lines = bundle.make(a.out, state_dirs=a.state_dir, manifest=a.manifest or None,
                         detect_report=a.detect_report or None, starfield=a.starfield or None, plugins_txt=pt,
-                        my_games=a.my_games or None, extra=a.file)
-    for line in lines[3:]:
+                        my_games=a.my_games or None, extra=a.file, about=[selfupdate.describe(REPO)])
+    for line in lines[2:]:
         print(line)
     print(f"bundle written: {a.out} (nothing was sent; look inside before attaching it to an issue)")
     return 0
