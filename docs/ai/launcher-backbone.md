@@ -18,6 +18,7 @@ Code: `src/fo4sf/launcher/` (manifest, driver, restore, same_ids), CLI `scripts/
 | Restore | `launcher.py restore --snapshot snap.json` (plan; `--apply` acts) | deploy_starfield.py, exp_install.py, bridge_install.py do every file change | synthetic tests, incl. a real exp_install round trip |
 | Build status | `launcher.py status <recipe.json> [--set k=v] [--json out.json]` (read only) | the driver's state.json | synthetic tests |
 | Self-update | `launcher.py update [--check]`; setting `update=off/check/pull` (default off) runs it before `play` and `gui` | git: fetch, then fast-forward only (src/fo4sf/launcher/selfupdate.py) | synthetic tests on throwaway git repos |
+| FO4SF game folder | `launcher.py instance plan\|create --starfield <Steam folder> --at <new folder>` | hard links (same drive), the game folder's INIs copied, only the game's own files in Data; design: docs/ai/fo4sf-instance.md | synthetic tests |
 | Same-ids check | `launcher.py same-ids <build A> <build B>` | make_core64c.py's `formids_diff` (compare-ids) when both have formids.json | synthetic tests |
 
 ### Build manifest
