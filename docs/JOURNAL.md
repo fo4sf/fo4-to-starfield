@@ -2721,7 +2721,7 @@ arrival, the first quest keeps the screen black until the reload is back
 (about 31 s in the retest), with every way out fading back in (60 s at most,
 a fight, going indoors, leaving the map). Offline; waits on a play test.
 
-## 2026-10-31: Map markers: the dark hold passes the owner's play test
+## 2026-10-31: Map markers: the owner's play test of the dark hold: "everything worked"
 
 The owner played #626 (the screen stays black from an arrival until the
 reload is back) and reported: "ok everything worked only issue left will be
@@ -2736,9 +2736,9 @@ owner's words.
 The game's own script logs still held the play test's map log, so they were
 copied to the PC's test-log folder before they rotated out. The play test's
 hold ended with the reload after 30.8 s, as in the retest. In a probe
-session on 1 Nov (coc to Red Rocket) the markers were in 23.5 s into the
-hold, then the map log went quiet for 38.8 s until the 60 s cap released
+session on 1 Nov (coc to Red Rocket) the last marker move came 23.5 s into
+the hold, then the map log went quiet for 38.8 s until the 60 s cap released
 the hold; the reload went out 3.5 s later. The cap works as written; why no
 reload came in that gap is not known. The roadmap gains a short "since 24
-October" update. The owner ended the many-thread setup: one Claude session on the PC
-holds every Claude role, the cloud session pauses (decisions.md, 1 Nov).
+October" update. By the owner's 1 Nov handoff, one Claude session on the PC
+holds every Claude role and the cloud session pauses (decisions.md, 1 Nov).

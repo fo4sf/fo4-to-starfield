@@ -19,7 +19,7 @@ Only an in-game PASS on the installed build counts as in game; everything else s
   (the SFSE sidecar). The C++ port, steps 1 to C5 (#649, #651 to #654, held to byte-identical output after every
   tick), and its Windows build (#656, byte parity at C5) are **in review**.
 - **New game.** Our own start (the new game's quest is Starfield's startup quest) passed run 4 on 31 Oct: newgame_v12
-  booted and ran from Vault 111 to the surface (stage 200) with no Starfield intro
+  booted and ran from Vault 111 to the surface (stage 200); MQ101 never ran, and the owner reported "v12 worked fine"
   ([vault111-start.md section 13b](newgame/vault111-start.md)). v11's boot crash came from a script doc comment over
   4 KB (supported hypothesis, section 13a; v12's clean boot with the comment short fits it; the 3 KB rule in
   decisions.md). **Next** (the owner's start picks, decisions.md 1 Nov): the start picked in the launcher, with two
@@ -28,7 +28,7 @@ Only an in-game PASS on the installed build counts as in game; everything else s
   Commonwealth's icons are on the first map the player opens. The owner's play test on 31 Oct: "ok everything worked
   only issue left will be solved with the pipboy"; its log shows the hold ending with the reload
   ([map-markers.md](terrain/map-markers.md), Dark hold). Which issue is left for the Pip-Boy was not said.
-- **Strip Starfield down** (the owner, 29 Oct: too much breaks because we force ourselves into Starfield's systems).
+- **Strip Starfield down** (the owner, 29 Oct: "too many things are breaking because we are forcing ourselves into the Starfield system").
   Decided (decisions.md, 29 Oct and 1 Nov): our own planet inside Sol, in Earth's orbit in the end, with no other
   planets and those hidden from the star map by our own overrides; our own start (above); the quieting switches go
   straight into the mod; the landing pad and its ship records go; a vanilla baseline New Game tells our errors from
@@ -38,7 +38,7 @@ Only an in-game PASS on the installed build counts as in game; everything else s
   way only (version 2 asks both). **Next**: probe run 2, the vanilla baseline run, hiding the other planets, dropping
   the pad.
 - **Launcher.** It can update its own checkout from main, opt-in (#637). **In review**: an FO4SF game folder beside the
-  player's Starfield that the launcher installs into and plays from (#645; #647 with #657 and #660).
+  player's Starfield that the launcher installs into and plays from (issue #645; #647 with #657 and #660).
 
 ## Update, 22 October 2026: the current phase, what closes it, and what is left
 

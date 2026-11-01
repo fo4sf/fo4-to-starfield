@@ -615,7 +615,7 @@ The owner's play tests of #624 (31 Oct, new game v12, PC logs `mapmarkers_202610
 Open: whether the reload's world stays the same instance in every case (`same=` was true once), and the stop's look
 (nobody saw it lit: the screen is black).
 
-### Dark hold (Claude-cloud, 2026-10-31, option A; owner play test passed)
+### Dark hold (Claude-cloud, 2026-10-31, option A; owner play test: "everything worked")
 With `HoldDark` (on), the first quest fades to black (staying black) at its first marker that comes in late within
 `HoldWindow` (15 s) of the player entering the world, if a reload can follow (`BorderSignal`, `HopMarker`, one left in
 `HopLimit`, and the player in our world as Border learned it), once per entry; the reload's way back fades in, so the
@@ -641,8 +641,9 @@ Log reading (Claude, 1 Nov; the game's rotating script logs copied to the PC's t
 as in the retest (**verified, log**). A later session that day (20:56 PC time) held 20.9 s. A `coc
 FO4Core_RedRocketSpawn` session on 1 Nov (11:20 PC time, Codex's P9 probe session, FO4SFMission off) ran to the cap
 instead: the last marker move came at rt 776.8 (23.5 s into the hold), then the log has no map line for 38.8 s of rt
-(3 min of PC clock) until `dark hold released: no reload after 62.257996 s` (rt 815.6); the reload went out 3.5 s
-after that (rt 819.1) and was back at rt 824.6 (`same=true`). So the cap works as written when no reload comes; why
-none came in that gap is not known (the 31 Oct pass reported every marker in place 7.4 s after its last move, this
-one 41 s after). Whether the screen stayed black through the stop's loading screens is still the owner's report, not
-a log reading.
+until `dark hold released: no reload after 62.257996 s` (rt 815.6); the reload went out 3.5 s after that (rt 819.1)
+and was back at rt 824.6 (`same=true`). So the cap works as written when no reload comes; why none came in that gap
+is not known (the 31 Oct pass reported every marker in place 7.4 s after its last move, this one 41 s after). One
+observation, not a cause: across that gap rt ran 38.8 s while the PC clock ran 3 min 3 s (11:21:20 to 11:24:23),
+where elsewhere in these logs the two agree within about a second. No one has said whether the screen stayed black
+through the stop's loading screens; the owner's "everything worked" is all there is, and the logs cannot show it.

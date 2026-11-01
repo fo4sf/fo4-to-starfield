@@ -1347,9 +1347,10 @@ decided the import path); keeping the order as a parameter (two orders in the co
   shows it.
 
 ## 2026-11-01: one Claude session on the PC holds every Claude role; the cloud sessions pause (owner)
-- **Decision:** the owner ended the setup of many Claude threads (project threads, the PC session "Install" and
-  Claude-cloud-2). One Claude Code session on the owner's PC now does all of Claude's work: integration, the live
-  game and in-game checks, the written records, and getting PRs reviewed and merged. Claude-cloud-2 is paused and is
+- **Decision:** the handoff the owner gave a new Claude Code session on the PC on 1 Nov (written by Claude, given by
+  the owner) says: "The owner ended that setup. You take over all of Claude's roles: integration, the live game on the
+  PC, in-game checks, the written records, and getting PRs reviewed and merged" (that setup: many Claude project
+  threads, the PC session "Install" and Claude-cloud-2). Claude-cloud-2 is paused and is
   used for research and other help; its open drafts (#647 and #660, the C++ port #649 and #651 to #654, the audio
   design #650) pass to that session. Codex finishes what it is working on (its P9 live test, #639, #641, #643, #656,
   #657, #659) and both lines of work converge for testing afterwards. The merge rule is unchanged: CI green plus an
@@ -1364,9 +1365,9 @@ decided the import path); keeping the order as a parameter (two orders in the co
 
 ## 2026-11-01: the owner's strip-down and start picks, recorded (owner, 29 and 31 Oct)
 - **Decision:** the owner's answers on the strip-down and next-steps plan pages (private pages; copied into the 1 Nov
-  handoff), recorded here so the repo has them. Strip-down, 29 Oct (the owner: too much breaks "because we are forcing
-  ourselves into the Starfield system"; Fallout: London, own plugins over an untouched master with its own start,
-  menu and intro, is the model): **B** our planet inside Sol, and in the end no other planets; **X** the other planets
+  handoff), recorded here so the repo has them. Strip-down, 29 Oct (the owner: "too many things are breaking because
+  we are forcing ourselves into the Starfield system"; the handoff names Fallout: London, own plugins over an
+  untouched master with its own start, menu and intro, as the model): **B** our planet inside Sol, and in the end no other planets; **X** the other planets
   gone from the star map too, by overrides in our plugin; **F** our own start overriding `StartupQuest_DO` (done,
   #588); **I** the quieting switches go straight into the mod, no test profile; **N** drop the landing pad and its ship
   records; **T** a vanilla baseline New Game for comparison (`docs/testing/baseline.md`); **V** keep going on Claude's
