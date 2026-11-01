@@ -77,23 +77,39 @@ class InstanceTests(unittest.TestCase):
         kw.setdefault("say", lambda *_: None)
         return instance.create(self.src, self.dst, **kw)
 
-    def test_plan_links_the_game_copies_its_inis_and_leaves_the_mods_out(self):
+    def test_plan_links_data_and_tools_copies_the_rest_and_leaves_the_mods_out(self):
         p = instance.plan(self.src, self.dst)
-        self.assertEqual(sorted(p["copy"]), ["Starfield.ini", "Ultra.ini"])
-        self.assertEqual(sorted(p["link"]), sorted(r for r in GAME if not r.endswith(".ini")))
+        linked = [r for r in GAME if r.startswith(("Data/", "Tools/")) and not r.endswith(".ini")]
+        self.assertEqual(sorted(p["link"]), sorted(linked))
+        self.assertEqual(sorted(p["copy"]), sorted(r for r in GAME if r not in linked))   # the exe, DLLs, SFSE, INIs
         self.assertEqual(sorted(p["left_out"]), ["Data/FO4Port.deploy.json", "Data/FO4Port.esm", "Data/SFSE/",
                                                  "Data/SomeOwnerMod - Main.ba2", "Data/SomeOwnerMod.esm", "Data/textures/"])
-        self.assertTrue(any("left out of Data" in line for line in instance.summary(p)))
+        self.assertTrue(any("left out" in line for line in instance.summary(p)))
+
+    def test_the_players_add_ons_beside_the_exe_are_left_out_and_its_files_are_copies(self):
+        # review of the stack (second round), P2: a linked top-level file carried in-place writes both ways
+        for rel in ("dxgi.dll", "ReShade.ini", "reshade-shaders/Shaders/x.fx", "Starfield_10-31-18-44.dmp",
+                    "enbseries/a.fx"):
+            write(self.src, rel, b"player's")
+        p = instance.plan(self.src, self.dst)
+        for rel in ("dxgi.dll", "ReShade.ini", "reshade-shaders/", "Starfield_10-31-18-44.dmp", "enbseries/"):
+            self.assertIn(rel, p["left_out"])
+        self.create()
+        self.assertFalse(os.path.exists(os.path.join(self.dst, "dxgi.dll")))
+        with open(os.path.join(self.dst, "sfse_loader.exe"), "r+b") as f:  # an SFSE update writes in place
+            f.write(b"NEW")
+        with open(os.path.join(self.src, "sfse_loader.exe"), "rb") as f:
+            self.assertEqual(f.read(), GAME["sfse_loader.exe"])               # the player's install is untouched
 
     def test_create_makes_links_and_copies_and_never_writes_in_the_source(self):
         before = digest_tree(self.src)
-        self.create()
+        p = self.create()
         self.assertEqual(digest_tree(self.src), before)                      # the Steam install is untouched
         for rel in GAME:
             src, dst = os.path.join(self.src, *rel.split("/")), os.path.join(self.dst, *rel.split("/"))
             with open(dst, "rb") as f:
                 self.assertEqual(f.read(), GAME[rel])
-            self.assertEqual(os.path.samefile(src, dst), not rel.endswith(".ini"), rel)
+            self.assertEqual(os.path.samefile(src, dst), rel in p["link"], rel)
         for rel in MODS:
             self.assertFalse(os.path.exists(os.path.join(self.dst, *rel.split("/"))), rel)
         with open(os.path.join(self.dst, "Starfield.ini"), "ab") as f:      # the FO4SF folder's settings are its own
@@ -130,19 +146,100 @@ class InstanceTests(unittest.TestCase):
 
     def test_a_file_that_is_not_the_games_is_never_overwritten(self):
         self.create()
-        exe = os.path.join(self.dst, "Starfield.exe")
-        os.remove(exe)
-        write(self.dst, "Starfield.exe", b"MZ something else")
+        esm = os.path.join(self.dst, "Data", "Starfield.esm")              # a linked file
+        os.remove(esm)
+        write(self.dst, "Data/Starfield.esm", b"TES4 something else")
         with self.assertRaisesRegex(instance.InstanceRefused, "not the game's file"):
             self.create()
-        with open(exe, "rb") as f:
-            self.assertEqual(f.read(), b"MZ something else")
+        with open(esm, "rb") as f:
+            self.assertEqual(f.read(), b"TES4 something else")
+        # the folder's own copies (the exe after an SFSE update in it, its INIs) are its own: a rerun leaves them
+        os.remove(esm)
+        os.link(os.path.join(self.src, "Data", "Starfield.esm"), esm)
+        write(self.dst, "sfse_loader.exe", b"MZ newer sfse")
+        self.create()
+        with open(os.path.join(self.dst, "sfse_loader.exe"), "rb") as f:
+            self.assertEqual(f.read(), b"MZ newer sfse")
+        # checked before the record changes: the refused rerun leaves the finished folder finished (playable)
+        self.assertTrue(files.load_json(os.path.join(self.dst, instance.RECORD))["complete"])
+
+    # --- review of the stack, P2 1: a rerun or a resume never strands the folder -----------------------------------
+    def test_a_rerun_after_the_folder_changed_its_own_ini_is_fine(self):
+        self.create()
+        instance.ensure_saves(self.dst, say=lambda *_: None)               # what every play does
+        self.create()                                                      # a rerun of a finished folder
+        self.assertTrue(files.load_json(os.path.join(self.dst, instance.RECORD))["complete"])
+        with open(os.path.join(self.dst, "Starfield.ini"), "rb") as f:
+            self.assertIn(b"SLocalSavePath", f.read())                      # the folder's own INI kept
+
+    def test_a_run_stopped_after_a_copy_but_before_its_record_goes_on(self):
+        from unittest import mock
+        real, calls = instance.files.save_json, []
+
+        def stop_at_the_first_copys_record(path, data):
+            calls.append(path)
+            if len(calls) == 2:                                            # 1: before the files, 2: after a copy
+                raise OSError("power cut")
+            real(path, data)
+        with mock.patch.object(instance.files, "save_json", side_effect=stop_at_the_first_copys_record):
+            with self.assertRaises(OSError):
+                self.create()
+        rec = files.load_json(os.path.join(self.dst, instance.RECORD))
+        self.assertFalse(rec["complete"])
+        self.assertEqual([r for r in rec["made"] if r.endswith(".ini")], [])   # the copy is there, its record not
+        self.create()
+        rec = files.load_json(os.path.join(self.dst, instance.RECORD))
+        self.assertTrue(rec["complete"])
+        self.assertIn("Starfield.ini", rec["made"])
+        # a copy the record lacks must still be the game's bytes
+        os.remove(os.path.join(self.dst, "Ultra.ini"))
+        rec["made"].remove("Ultra.ini")
+        files.save_json(os.path.join(self.dst, instance.RECORD), rec)
+        write(self.dst, "Ultra.ini", b"[Display]\r\nmine=1\r\n")
+        with self.assertRaisesRegex(instance.InstanceRefused, "not the game's file"):
+            self.create()
+
+    def test_a_copy_stopped_half_way_never_takes_its_name(self):
+        from unittest import mock
+        real = instance.shutil.copy2
+
+        def half(src, dst):
+            with open(dst, "wb") as f:
+                f.write(b"[Gen")
+            raise OSError("power cut")
+        first = instance.plan(self.src, self.dst)["copy"][0]              # the first file a run copies
+        with mock.patch.object(instance.shutil, "copy2", side_effect=half):
+            with self.assertRaises(OSError):
+                self.create()
+        self.assertFalse(os.path.exists(os.path.join(self.dst, first)))
+        self.assertTrue(os.path.exists(os.path.join(self.dst, first + instance.PART)))
+        with mock.patch.object(instance.shutil, "copy2", side_effect=real):
+            self.create()
+        with open(os.path.join(self.dst, first), "rb") as f:
+            self.assertEqual(f.read(), GAME[first])
+        self.assertFalse(os.path.exists(os.path.join(self.dst, first + instance.PART)))
+
+    def test_an_ini_in_a_kept_folder_is_copied_not_linked(self):
+        write(self.src, "Data/SFSE/Plugins/SomeOwnerPlugin.ini", b"[Main]\r\nOn=1\r\n")
+        p = instance.plan(self.src, self.dst, keep_data_dirs=["SFSE"])
+        self.assertIn("Data/SFSE/Plugins/SomeOwnerPlugin.ini", p["copy"])
+        self.assertIn("Data/SFSE/Plugins/SomeOwnerPlugin.dll", p["link"])
+
+    def test_a_drive_or_share_that_is_not_there_is_refused_not_looped(self):
+        from unittest import mock
+        with mock.patch.object(instance.os.path, "isdir", return_value=False):
+            with self.assertRaisesRegex(instance.InstanceRefused, "no such drive or share"):
+                instance.check_target(self.src, os.path.join(self.root, "nowhere", "FO4SF"), 0, 0, plenty)
 
     def test_refusals_before_anything_is_written(self):
         cases = [
             (os.path.join(self.src, "FO4SF"), "outside the Starfield install"),
             (os.path.join(self.root, "SteamLibrary", "steamapps", "FO4SF"), "steamapps"),
             (os.path.join(self.root, "OneDrive", "FO4SF"), "onedrive"),
+            (os.path.join(self.root, "OneDrive - Contoso", "FO4SF"), "onedrive - contoso"),
+            (os.path.join(self.root, "Dropbox", "FO4SF"), "dropbox"),
+            (os.path.join(self.root, "Dropbox (Personal)", "FO4SF"), "dropbox"),
+            (os.path.join(self.root, "Box", "FO4SF"), "box"),
         ]
         for target, text in cases:
             with self.subTest(target=target):
@@ -172,6 +269,48 @@ class InstanceTests(unittest.TestCase):
             write(other, rel, data)
         with self.assertRaisesRegex(instance.InstanceRefused, "was made from"):
             instance.create(other, self.dst, disk_usage=plenty)
+
+    def symlink(self, link, target):
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError) as e:          # Windows without the symlink right
+            self.skipTest(f"no directory symlinks here: {e}")
+
+    def test_a_link_inside_the_folder_is_refused_before_anything_is_written_through_it(self):
+        # #655 finding 1, with a POSIX symlink in place of the NTFS junction (tests/test_launcher_instance_windows_safety.py)
+        exterior = os.path.join(self.root, "exterior")
+        os.makedirs(exterior)
+        os.makedirs(self.dst)
+        files.save_json(os.path.join(self.dst, instance.RECORD),
+                        {"schema": 1, "source": os.path.abspath(self.src), "made": [], "complete": False})
+        self.symlink(os.path.join(self.dst, "Data"), exterior)
+        with self.assertRaisesRegex(instance.InstanceRefused, "link or junction inside the FO4SF folder"):
+            self.create()
+        self.assertEqual(os.listdir(exterior), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dst, "Starfield.exe")))   # refused before the first file
+
+    def test_a_link_that_appears_during_the_run_is_refused_at_that_file(self):
+        exterior = os.path.join(self.root, "exterior")
+        os.makedirs(exterior)
+        made = []
+
+        def link_then_plant(src, dst):
+            os.link(src, dst)
+            made.append(dst)
+            if len(made) == 1:                              # after the first file (in Data): a link where Tools goes
+                self.symlink(os.path.join(self.dst, "Tools"), exterior)
+        with self.assertRaisesRegex(instance.InstanceRefused, "is a link or junction"):
+            self.create(link=link_then_plant)
+        self.assertEqual(os.listdir(exterior), [])
+
+    def test_an_alias_of_a_steam_library_is_refused(self):
+        # #655 finding 2: the denylist sees the resolved path, not only the spelling given
+        alias = os.path.join(self.root, "library-alias")
+        self.symlink(alias, os.path.join(self.root, "SteamLibrary", "steamapps", "common"))
+        target = os.path.join(alias, "FO4SF")
+        with self.assertRaisesRegex(instance.InstanceRefused, "steamapps"):
+            instance.check_target(self.src, target, 0, 0, plenty)
+        self.assertFalse(os.path.lexists(target))
 
     def test_cli_plan_and_create(self):
         spec = importlib.util.spec_from_file_location("launcher_cli_inst", os.path.join(ROOT, "scripts", "launcher.py"))

@@ -491,12 +491,15 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     if folder:
         folder = os.path.abspath(folder)
         inst.check_ready(folder)
+        player = inst.player_plugins_txt()
         starfield = folder
         system = system or System(env=inst.env_for(folder), plugins_txt=inst.plugins_txt(folder))
     system = system or System()
     bad = settings_mod.problems(values)
     if folder and values["route"] == "steam":
         bad.append("route=steam starts the Steam folder, not the FO4SF game folder: use route=sfse or exe")
+    if folder:
+        bad += inst.custom_ini_problems(values["my_games"], values)
     cw = values["crash_watch.enabled"]
     if cw:
         if values["crash_watch.procdump"] and not os.path.isfile(values["crash_watch.procdump"]):
@@ -519,6 +522,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                    "the watcher follows a game it started)")
     if bad:
         raise ValueError("; ".join(bad))
+    if folder and not values["my_games"]:
+        say("StarfieldCustom.ini not checked for lines that would undo the FO4SF folder's own Starfield.ini (its saves "
+            "folder, Papyrus logging): set my_games to have play check it")
     log_path = os.path.join(values["crash_watch.folder"], "crashwatch.log") if cw else None
     plan = ([f"game folder: {folder} (FO4SF's own; its Plugins.txt stands in for yours only while it runs)"]
             if folder else [])
@@ -556,7 +562,6 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
     if folder:
         inst.ensure_saves(folder, say)
-        player = inst.player_plugins_txt()
     order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
     if folder:
         inst.swap_in(folder, player, say)
@@ -570,7 +575,10 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             if cw:
                 _log(log_path, f"play: {why}")
             raise ValueError(why) from None
-        result = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, order_before=order)
+        # the player's list comes back as soon as the game has ended, before any wait on ProcDump's dump
+        on_exit = (lambda: system.pids() or inst.swap_out(player, say, after_game=True)) if folder else None
+        result = _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, order_before=order,
+                         on_exit=on_exit)
     except BaseException:
         if folder:
             try:
@@ -578,23 +586,31 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             except ValueError:                      # unknown: leave the journal; recover() puts it back later
                 closed = False
             if closed:
-                inst.swap_out(folder, say, after_game=True)
+                inst.swap_out(player, say, after_game=True)
+            elif inst.pending(player):              # stopped (Ctrl+C) under a running game: say where the list is
+                say(STILL_SWAPPED)
         raise
     if folder:
-        if system.pids():
+        if inst.pending(player) and system.pids():
             # a game that came up after the watch gave up still reads the list in place: the player's comes back at
-            # the next launcher start once Starfield is closed (instance.recover), never under a running game
-            say("Plugins.txt: Starfield is still running; yours comes back at the next launcher start after it closes")
+            # the next `play` (with or without the setting) or `instance recover` once Starfield is closed
+            say(STILL_SWAPPED)
         else:
-            inst.swap_out(folder, say, after_game=True)
+            inst.swap_out(player, say, after_game=True)
         system.plugins_txt = inst.plugins_txt(folder)
     return result
 
 
-def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=(), order_before=None):
+STILL_SWAPPED = ("Plugins.txt: FO4SF's list is still in your place while Starfield runs; yours comes back at the next "
+                 "launcher play (or `launcher.py instance recover`) after it closes")
+
+
+def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, only_pid=None, seen=(), order_before=None,
+            on_exit=None):
     """Find a Starfield.exe that stays up settle_s, attach ProcDump when the watcher is on, wait for its end and log
     it. only_pid follows that one process; seen are process ids already watched (never picked again); order_before is
-    the Plugins.txt order at the start, reported if the game changed it."""
+    the Plugins.txt order at the start, reported if the game changed it; on_exit runs once the game has ended, before
+    the wait on ProcDump."""
     cw = values["crash_watch.enabled"]
     early = list(seen)             # processes that ended before they settled (a first launch can end within ~2 s)
     pid = handle = proc = None
@@ -676,6 +692,8 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         say(f"Plugins.txt load order changed while the game ran: {moved} (form ids of moved plugins change)")
         if log_path:
             _log(log_path, f"load order changed while the game ran: {moved}")
+    if on_exit is not None:
+        on_exit()
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
