@@ -2,7 +2,7 @@
 Nothing is sent anywhere; the player looks inside and uploads it themselves (Nolvus's "safe to upload" log is the
 model, ops.md §5).
 
-What goes in, each only if present:
+What goes in, each only if present (and, in BUNDLE.txt, which launcher code made it: branch, commit, local changes):
     driver state      <state_dir>/state.json and the newest log of every step (logs/<step>.<n>.log)
     build manifest    and a detect report, when given
     install records   every record restore.COMPONENTS knows (FO4Port.deploy.json, FO4SFExp.install.json, the probes',
@@ -91,12 +91,14 @@ def collect(*, state_dirs=(), manifest=None, detect_report=None, starfield=None,
     return want, missing
 
 
-def write(out_zip, items, missing, *, home=None, user=None, cap=CAP):
-    """Write the zip; returns the BUNDLE.txt lines. Refuses to overwrite an existing file."""
+def write(out_zip, items, missing, *, home=None, user=None, cap=CAP, about=()):
+    """Write the zip; returns the BUNDLE.txt lines. about: lines on the version it came from (cleaned like the files).
+    Refuses to overwrite an existing file."""
     if os.path.exists(out_zip):
         raise FileExistsError(f"{out_zip} exists; pick a new name")
     lines = ["FO4SF support bundle. Made on this PC; nothing was sent. Look inside before you attach it to an issue.",
-             "The home folder is written as %USERPROFILE% and the user name as <user>.", "", "files:"]
+             "The home folder is written as %USERPROFILE% and the user name as <user>.",
+             *(clean(a, home, user) for a in about), "", "files:"]
     tmp = out_zip + ".partial"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
         for arc, path in items:
@@ -119,9 +121,9 @@ def write(out_zip, items, missing, *, home=None, user=None, cap=CAP):
 
 
 def make(out_zip, **kw):
-    home, user = kw.pop("home", None), kw.pop("user", None)
+    home, user, about = kw.pop("home", None), kw.pop("user", None), kw.pop("about", ())
     items, missing = collect(**kw)
-    return write(out_zip, items, missing, home=home, user=user)
+    return write(out_zip, items, missing, home=home, user=user, about=about)
 
 
 def manifest_of(zip_path):

@@ -180,6 +180,10 @@ class GuiModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.model.command("detect")
 
+    def test_the_update_buttons_run_the_update_command(self):
+        self.assertEqual(self.model.command("update-check")[4:], ["update", "--check"])
+        self.assertEqual(self.model.command("update")[4:], ["update"])
+
     def test_saved_my_games_argument_is_forwarded_without_guessing(self):
         self.path.write_text(json.dumps({"my_games": "resolved documents folder"}), encoding="utf-8")
         self.model.reload()

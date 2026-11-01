@@ -3,7 +3,7 @@
 RAM use"). One JSON file per player, written only by `launcher.py settings --set` and read by `launcher.py play`.
 
 Every setting but two starts at the value that changes nothing on the PC (crash watcher off, bridge and Papyrus
-logging left as they are). The two: load_order=fix puts our plugins in the target order before each start (so their
+logging left as they are, update off: nothing is fetched). The two: load_order=fix puts our plugins in the target order before each start (so their
 load-order indexes, and the form ids console commands use, can change once; load_order=off leaves Plugins.txt
 alone), and route=sfse starts the game through SFSE. Once the watcher is on,
 it also saves a dump at every exit unless crash_watch.dump_on_exit is turned off.
@@ -55,6 +55,11 @@ SPEC = (
      "how play starts the game: sfse (sfse_loader.exe in the game folder, which starts Starfield.exe with SFSE "
      "loaded; SFSE is required, NG-1), steam (steam://rungameid/1716740, as the test runner does) or exe "
      "(Starfield.exe directly). steam and exe start the game without SFSE."),
+    ("update", "off", ("off", "check", "pull"),
+     "keep the launcher's own code up to date with GitHub's main (src/fo4sf/launcher/selfupdate.py): pull fetches "
+     "main before play and before the window opens, fast-forwards this checkout when it is on main with nothing of "
+     "its own uncommitted or unpushed, and starts again on the new code; check only says how far behind it is; off "
+     "fetches nothing. A network or git problem never stops play. Built plugins and installs are not updated by it."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
@@ -74,6 +79,7 @@ LABELS = {
     "load_order": "Load order of our plugins",
     "my_games": "My Games folder",
     "route": "How the game starts",
+    "update": "Update the launcher from GitHub",
 }
 
 

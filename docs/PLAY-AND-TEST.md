@@ -49,6 +49,14 @@ Check that the download is complete and working (offline; it touches neither gam
 ..\fo4sf-venv\Scripts\python.exe scripts\guard.py
 ```
 
+**Keep it up to date by itself (a clone only, not the ZIP):** run
+`..\fo4sf-venv\Scripts\python.exe scripts\launcher.py settings --set update=pull` once. From then on, `launcher.py
+play` and the launcher window fetch GitHub's `main` first, fast-forward your copy, and start again on the new code;
+`launcher.py update` does it by hand. It never touches a copy you changed (an edited file, a commit of your own, another
+branch), never runs while Starfield runs, and a network problem only prints one line. It updates the tools, not your
+built or installed game files. `update=check` only tells you when there is something new; `off` (the default) fetches
+nothing.
+
 Then copy `config.example.toml` to `config.toml` and fill in your paths. `work_dir` and `staging_dir` must be outside the
 repository. If your Fallout 4 `Data` folder has mods in it, point `fo4.data_dirs` at a clean copy of the vanilla files
 (base game plus DLC) instead.
