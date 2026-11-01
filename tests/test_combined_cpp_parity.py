@@ -3,7 +3,8 @@ same ticks and the same player actions give byte-identical canonical JSON after 
 (docs/combined-core-cpp-port.md section 2, the parity contract), and the same engine adapter output (step C2: the
 record plan and game view, then every tick's writes). The repo's first compiled test: the portable core is
 built with the C++ compiler on PATH (g++ or clang++; CI's ubuntu has g++) into a temporary folder, and the test is
-skipped where there is none (the PC builds with cl.exe through the plugin's own script later).
+skipped where there is none. FOCCSIM_EXE=<path> runs the same tests against a core built elsewhere instead (the PC's
+MSVC build).
 
 By default: the two-region fixture for seeds 0 to 9 over 90 days, its variants (raid pressure low and high, story mode
 with an active story, scripted player actions) for seed 0, and the Commonwealth-scale draft for 30 days, each compared
@@ -78,11 +79,21 @@ def apply(ws, a):
         sim.player_traded(ws, a["settlement"], a["goods"])
 
 
-@unittest.skipUnless(compiler(), "no C++ compiler on PATH (g++ or clang++); the PC builds the core with cl.exe")
+PREBUILT = os.environ.get("FOCCSIM_EXE")                        # a core built elsewhere, e.g. by MSVC on the PC
+
+
+@unittest.skipUnless(PREBUILT or compiler(),
+                     "no C++ compiler on PATH (g++ or clang++), and FOCCSIM_EXE names no prebuilt core")
 class CppParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="foccsim-")
+        if PREBUILT:
+            if not os.path.isfile(PREBUILT):
+                shutil.rmtree(cls.tmp, ignore_errors=True)
+                raise AssertionError(f"FOCCSIM_EXE={PREBUILT} is not a file")
+            cls.exe = os.path.abspath(PREBUILT)
+            return
         cls.exe = os.path.join(cls.tmp, "foccsim.exe" if os.name == "nt" else "foccsim")
         # -ffp-contract=off: no fused multiply-add may change a rounding (section 3, "Floats")
         r = subprocess.run([compiler(), "-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror",
