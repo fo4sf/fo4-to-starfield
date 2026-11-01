@@ -505,6 +505,16 @@ distance, how far the actor moved, cells, whether it arrived, its driver, target
 many seconds its PathToReference returned, paired by `call=`). Send back: the log, the verdict, the dx dy used and the
 actor id.
 
+**Unsuccessful native requests (1 November 2026).** The judge retains each matched return code and reports it even
+when a short control cannot judge the 400 m route. A request returning Failure, Stopped, Cleared, Timeout or an unknown
+code cannot earn PASS from later wandering, and cannot qualify as the successful short control. For a stall finding,
+only approach sampled before an unsuccessful request returned can prove that request moved the actor; a separate
+qualified control can still establish the driver. Legacy logs without a result code retain their existing rules.
+The driver now logs actor/target cells and actor load/death/disable/current-package state before the call. These
+are diagnostic reads, with no AI, package or navmesh changes. The owner's same-profile Commonwealth and QASmoke
+requests both returned Failure; their cause remains unresolved, and the longer route stays held pending a working
+control. QASmoke under the same installed profile is not an unmodded-profile control.
+
 ## P1: SFSE sidecar on save and load (last)
 
 Settles: **CC-02** option C' / B: whether an SFSE plugin can keep a file per save keyed to the save name through
