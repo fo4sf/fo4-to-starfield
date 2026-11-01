@@ -215,6 +215,77 @@ class AddonRestoreTests(unittest.TestCase):
         self.assertIn(f"markers: source folder {gone} is gone", p["conflicts"])
         self.assertNotIn("install markers", [s["what"] for s in p["steps"]])
 
+    def test_a_rider_kept_while_its_base_goes_is_refused_before_anything_runs(self):
+        # exp_install.py uninstall leaves the markers installed, so a snapshot can hold them without the core. Restoring
+        # to it from an install with the core would take both off and then fail to put the markers back
+        self.install_core_and_markers()
+        self.exp_install("uninstall")
+        target = self.snap()
+        self.assertIsNone(target["records"]["experiment"])
+        self.exp_install("install", "--exp-dir", self.exp)
+        before = self.read_pt()
+        p = restore.plan(target, self.snap(), ROOT)
+        self.assertIn("markers: the snapshot has it without the experiment it rides on, which restore would "
+                      "uninstall; its installer would refuse to put it back", p["conflicts"])
+
+        def no_installer(*_a, **_k):
+            raise AssertionError("no installer may run for a refused restore")
+        with self.assertRaisesRegex(restore.RestoreRefused, "rides on"):
+            restore.apply(target, ROOT, running=lambda: False, echo=lambda *_: None, run=no_installer)
+        self.assertEqual(self.read_pt(), before)
+        for name in (CORE, mm.PLUGIN, mm.RECORD):
+            self.assertTrue(os.path.exists(os.path.join(self.data, name)), name)
+
+    def test_a_port_staging_folder_that_is_gone_is_refused(self):
+        port = {"files": ["FO4Port.esm"], "artifacts": {"FO4Port.esm": {"sha256": "1"}}}
+        gone = os.path.join(self.root, "staging", "no_port")
+        p = restore.plan(self.records(port=port), self.snap(), ROOT, port_staging=gone)
+        self.assertIn(f"port: staging folder {gone} is gone", p["conflicts"])
+        self.assertEqual(p["steps"], [])
+
+    def test_a_plugin_toggle_hold_is_refused_before_anything_runs(self):
+        # the launcher's bridge=off (or a crash split) holds plugins off through plugin_toggle.py; the installers refuse
+        # to uninstall under a hold, so a restore went as far as its first such step and stopped there
+        write(os.path.join(self.exp, "FO4SFExtra.esm"), tes4(["Starfield.esm"]))
+        vanilla = self.snap()
+        self.exp_install("install", "--exp-dir", self.exp, "--plugins", f"{CORE},FO4SFExtra.esm")
+        toggle = os.path.join(ROOT, "scripts", "game", "plugin_toggle.py")
+        r = subprocess.run([sys.executable, toggle, "off", "--plugins", "FO4SFExtra.esm", "--starfield", self.game],
+                           env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        held, before = self.snap(), self.read_pt()
+        self.assertEqual(held["held"], ["FO4SFExtra.esm"])
+        p = restore.plan(vanilla, held, ROOT)
+        self.assertIn("plugin_toggle.py holds FO4SFExtra.esm off (Data/FO4SF.toggle.json): run plugin_toggle.py on "
+                      "first, then restore", p["conflicts"])
+
+        def no_installer(*_a, **_k):
+            raise AssertionError("no installer may run for a refused restore")
+        with self.assertRaisesRegex(restore.RestoreRefused, "plugin_toggle.py holds"):
+            restore.apply(vanilla, ROOT, running=lambda: False, echo=lambda *_: None, run=no_installer)
+        self.assertEqual(self.read_pt(), before)
+        self.assertTrue(os.path.exists(os.path.join(self.data, "FO4SFExtra.esm")))
+        r = subprocess.run([sys.executable, toggle, "on", "--starfield", self.game], env=self.env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(restore.plan(vanilla, self.snap(), ROOT)["conflicts"], [])
+        self.assertEqual(self.apply(vanilla), [])                        # released: the restore goes through
+        self.assertEqual(self.read_pt(), b"# owner's comment\r\n*SomeOwnerMod.esm\r\n")
+
+    def test_a_hold_blocks_any_change_but_not_a_restore_with_nothing_to_do(self):
+        combined = {"dir": self.folder("focc_probe"), "plugin": "FO4SFCombinedProbe.esm", "source_sha256": "c"}
+        core = {"exp_dir": self.folder("core_a"), "plugins": [CORE]}
+        now = self.records(experiment=core, combined_probe=combined)
+        for held, text in ((["FO4SFBridge.esm"], "holds FO4SFBridge.esm off"), ("unreadable", "toggle.json, unreadable")):
+            with self.subTest(held=held):
+                p = restore.plan(self.snap(), dict(now, held=held), ROOT)   # the combined probe's uninstall would
+                self.assertEqual([s["what"] for s in p["steps"]],            # run before the core's refused
+                                 ["uninstall combined_probe", "uninstall experiment"])
+                self.assertTrue(any(text in c for c in p["conflicts"]), p["conflicts"])
+        p = restore.plan(now, dict(now, held=["FO4SFBridge.esm"]), ROOT)
+        self.assertEqual((p["steps"], p["plugins_txt"], p["conflicts"]), ([], "same", []))
+        self.assertEqual(restore.plan(self.snap(), dict(self.snap(), held=[]), ROOT)["conflicts"], [])
+
     def test_the_quest_probe_rides_on_the_port_and_the_combined_probe_on_the_core(self):
         port_a, port_b = self.folder("port_a"), self.folder("port_b")
         for folder, payload in ((port_a, tes4()), (port_b, tes4(["Starfield.esm"]))):

@@ -234,7 +234,9 @@ class RestoreTests(unittest.TestCase):
         target["records"]["port"] = {"files": ["FO4Port.esm"], "complete": True}
         p = restore.plan(target, self.snap(), ROOT)
         self.assertTrue(any("--port-staging" in c for c in p["conflicts"]))
-        p = restore.plan(target, self.snap(), ROOT, port_staging=os.path.join(self.root, "port"))
+        staging = os.path.join(self.root, "port")                      # the staging folder a reinstall reads exists
+        os.makedirs(staging)
+        p = restore.plan(target, self.snap(), ROOT, port_staging=staging)
         self.assertEqual([s["what"] for s in p["steps"]], ["install port"])
 
     def test_swap_order_matches_the_swap_scripts(self):
