@@ -405,6 +405,28 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("TravelToLinkedRef = 0x212FDB", PROGRAM)
         self.assertIn("AQuestAlias.Flag.Optional | AQuestAlias.Flag.AllowReserved", PROGRAM)
 
+    def test_p9_link_driver_sets_only_the_link_and_the_shadow_moves_only_the_player(self):
+        def fn(sig):
+            start = DRIVE.index(sig)
+            return DRIVE[start:DRIVE.index("EndFunction", start)]
+        link = fn("Function Link(int actorId, int toPlayer) global")
+        self.assertNotIn("GetAlias", link)                                     # no alias: the link alone
+        self.assertNotIn("PathToReference(", link)
+        steps = [link.index(s) for s in ('"p9 go actor="', "a.SetLinkedRef(target)", "a.EvaluatePackage()",
+                                         "Utility.Wait(2.0)", '"p9 package actor="')]
+        self.assertEqual(steps, sorted(steps))
+        self.assertIn('" driver=link"', link)
+        self.assertEqual(link.count('" call=" + t0'), 2)
+        end = fn("Function LinkEnd(int actorId) global")
+        for s in ("a.SetLinkedRef(None)", "a.EvaluatePackage()", '"p9 link cleared actor="'):
+            self.assertIn(s, end)
+        shadow = fn("Function Shadow(int actorId, float seconds, float behind) global")
+        self.assertIn("p.SetPosition(a.GetPositionX() - behind, a.GetPositionY(), a.GetPositionZ() + 5.0)", shadow)
+        self.assertNotIn("a.SetPosition", shadow)                              # never the walking actor
+        self.assertNotIn("a.MoveTo", shadow)
+        self.assertIn("Utility.Wait(5.0)", shadow)
+        self.assertIn('"p9 shadow done actor="', shadow)
+
     def test_b0_scripts_declare_the_native_and_log_both_routes(self):
         # the native stub the SFSE plugin binds (sfse/FOCCPing): one global native, no body, declared like Game.psc's
         self.assertIn("Scriptname FOCC Hidden Native", NATIVE)

@@ -549,10 +549,41 @@ How the judge reads it:
 
 `tests/test_combined_p9_package.py` covers these rules on synthetic logs.
 
-Run it in a session whose probe quest was started with this plugin installed: a `coc` from the main menu (as
-`p9_ladder`'s session does), or a save made after the install. In a save from before, the quest is already running
+Run it in a session whose probe quest was started with this plugin installed: a `coc` from the main menu (as the PC's
+P9 session scripts do), or a save made after the install. In a save from before, the quest is already running
 without alias 0. Then `Travel` logs `p9 go refused ... walker=False`, a clean refusal rather than a verdict
 (**unverified** how the engine treats an alias added to a running quest; #663 review).
+
+**In game, 1 Nov 2026 (kit `70159f58`, test folder `focc_P9p_20261101_1334`, #644):** INCONCLUSIVE. Two seconds after
+each `Travel` go, `GetCurrentPackage` named Starfield's default master packages, never `212FDB`:
+`DefaultMaster_FollowPackage` (`301C5`) to the player, `DefaultMaster_PatrolPackage` (`301C3`) to the marker
+(`DefaultMaster_FallbackPackage`, `4FB2B`, before the first go). Yet the actor walked every rung: 18 m in 5 s, 21 m in
+18 s, 100 m in 75 s, and 330 m in 294 s, unloaded in 79 of 130 samples. Supported hypothesis: the linked ref alone
+starts those default packages, and the alias package never ran.
+
+**The linked-ref driver (job focc-P9l).** That reading, tested on its own. `FOCC_P9Drive.Link <id> <toPlayer>` logs
+`p9 go ... driver=link`, then sets the actor's linked ref to the target and calls `EvaluatePackage`, with no alias.
+Two seconds later it logs `p9 package`. `LinkEnd <id>` clears the link. The ladder:
+
+```
+rung a   cgf "FOCC_Probe.P9Dest" 0.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 60                     (no command)
+rung b   cgf "FOCC_Probe.P9Track" <id> 60 ; cgf "FOCC_P9Drive.Link" <id> 1                         (to the player)
+rung L   cgf "FOCC_Probe.P9Dest" 480.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 600 ;
+         cgf "FOCC_P9Drive.Link" <id> 0 ; cgf "FOCC_P9Drive.Shadow" <id> 600 25.0            (about 480 m east)
+end      cgf "FOCC_P9Drive.LinkEnd" <id>
+```
+
+`Shadow` sets the player 25 m short of the actor along -X, 5 m up, every 5 s, so the actor stays loaded. The 330 m
+walk was unloaded in most samples, which the judge's continuity check refuses. Shadow moves only the player.
+
+The judge treats `driver=link` like the package driver:
+- the rung's `p9 package` line must name `DefaultMaster_PatrolPackage` for a go to the marker, or
+  `DefaultMaster_FollowPackage` for a go to the player;
+- the control must be a link rung whose own line names its target's package;
+- go targets are compared without case, since Papyrus logged `target=Player` on the PC.
+
+The long rung starts about 480 m out (P9 needs 400 m or more), so the actor that walked rung b to the player is the one
+judged.
 
 ## P1: SFSE sidecar on save and load (last)
 

@@ -11,17 +11,21 @@ ACTOR = -16711680
 TRAVEL = 2174939                    # 0x00212FDB as the log's signed decimal
 
 
+PATROL, FOLLOW = 0x301C3, 0x301C5   # Starfield.esm DefaultMaster_PatrolPackage / DefaultMaster_FollowPackage
+
+
 def drive(*, driver="package", package=TRAVEL, offset=0.0, stray_return=False, pkg_actor=ACTOR, pkg_call=None,
-          **kwargs):
+          target="dest", **kwargs):
     """A p9_log rung with a go at rt 1.5 (+offset) by the given driver, and for a package its `p9 package` line
     (package=None: no such line; pkg_actor / pkg_call: a line that belongs to another actor or call)."""
     lines = p9_log(**kwargs)
     lines = [re.sub(r"rt=([0-9.]+)", lambda m: f"rt={float(m[1]) + offset:.1f}", line) for line in lines]
     start = next(i for i, line in enumerate(lines) if " p9 start " in line)
     origin, dist = offset + 1.5, kwargs.get("start", 450.0)
-    extra = f" driver={driver}" if driver == "package" else ""
-    add = [f"FOCC rt={origin} p9 go actor={ACTOR} call={origin} target=dest id=50333723 dist={dist}{extra}"]
-    if driver == "package" and package is not None:
+    extra = f" driver={driver}" if driver in ("package", "link") else ""
+    tid = 20 if target.casefold() == "player" else 50333723
+    add = [f"FOCC rt={origin} p9 go actor={ACTOR} call={origin} target={target} id={tid} dist={dist}{extra}"]
+    if driver in ("package", "link") and package is not None:
         call = origin if pkg_call is None else pkg_call
         add.append(f"FOCC rt={origin + 2.0} p9 package actor={pkg_actor} call={call} linked=50333723 "
                    f"package={package} dist={dist}")
@@ -86,6 +90,42 @@ class P9PackageDriverTests(unittest.TestCase):
                 ctl = drive(start=20.0, seconds=60, offset=100.0, **kw)
                 v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
                 self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
+
+    # --- the linked-ref driver (FOCC_P9Drive.Link, job focc-P9l) ------------------------------------------------------
+    def test_a_link_walk_under_the_patrol_package_passes(self):
+        v = probes.check_p9(col(log=drive(driver="link", package=PATROL)))
+        self.assertEqual(v.verdict, probes.PASS, v.to_dict())
+        self.assertEqual(v.extra["attempts"][-1]["driver"], "link")
+        self.assertIn("FOCC_P9Drive.Link", v.extra["driver"])
+
+    def test_a_link_walk_needs_the_package_for_its_target(self):
+        for pkg in (TRAVEL, FOLLOW, None, "none"):                         # to the marker it must be Patrol
+            with self.subTest(pkg=pkg):
+                v = probes.check_p9(col(log=drive(driver="link", package=pkg)))
+                self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
+        v = probes.check_p9(col(log=drive(driver="link", package=FOLLOW)))
+        self.assertTrue(any("DefaultMaster_FollowPackage" in r and "DefaultMaster_PatrolPackage" in r
+                            for r in v.reasons), v.reasons)
+
+    def test_a_link_control_to_the_player_follows_and_qualifies_a_link_stall(self):
+        # the go line's target comes as "Player" on the PC (Papyrus keeps the first casing it met): casefolded
+        stalled = drive(driver="link", package=PATROL, speed=0.0, offset=200.0)
+        ctl = drive(driver="link", package=FOLLOW, target="Player", start=20.0, seconds=60, offset=100.0)
+        v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
+        self.assertEqual(v.verdict, probes.FAIL, v.to_dict())
+        self.assertTrue(any("linked ref" in r or "link commanded rung" in r for r in v.reasons), v.reasons)
+        for bad in (dict(driver="link", package=PATROL, target="Player"),     # Patrol is not the player's package
+                    dict(driver="package", package=TRAVEL)):                  # another driver's control
+            with self.subTest(bad=bad):
+                ctl = drive(start=20.0, seconds=60, offset=100.0, **bad)
+                v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
+                self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
+
+    def test_a_scripted_control_to_the_player_counts_whatever_its_casing(self):
+        stalled = drive(driver="script", speed=0.0, offset=200.0)
+        ctl = drive(driver="script", target="Player", start=20.0, seconds=60, offset=100.0)
+        v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
+        self.assertEqual(v.verdict, probes.FAIL, v.to_dict())
 
     def test_the_old_scripted_go_reads_as_before(self):
         v = probes.check_p9(col(log=drive(driver="script")))
