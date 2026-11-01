@@ -590,7 +590,10 @@ Rung c is the control the judge can use. Rung b to the player arrives in seconds
 leaves one sample: too few for continuity (1 Nov run; #663 review). Rung c's 20 m walk to the marker left seven.
 `Shadow` keeps hopping the player until its seconds run out, even after the track ends at arrival; let it finish.
 The long rung starts about 420 m out (the marker 440 m east of the player, the actor about 20 m east after rung c;
-P9 needs 400 m or more): at the 0.73 m/s the 1 Nov 434 m walk averaged, 420 m fits 600 s. The actor that walked rungs b
+P9 needs 400 m or more). Correction (#663 review): the 1 Nov 435 m link rung did not run out of time. Its actor stood
+1.7 m from the marker across the ground from about 500 s on, 26.8 m under it, because `P9Dest` left the marker at the
+player's height where the land falls, and P9Track measures in 3D. `P9Dest` now snaps the marker to the nearest navmesh
+point and logs `snapped_dz=`. The actor that walked rungs b
 and c is the one
 judged.
 

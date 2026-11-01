@@ -444,7 +444,11 @@ Function P9PlaceDest(float dx, float dy)
         return
     endif
     P9Dest.MoveTo(Game.GetPlayer(), dx, dy, 0.0, True, False)
-    Trace("p9 dest id=" + P9Dest.GetFormID() + " pos=" + P9Dest.GetPositionX() + " " + P9Dest.GetPositionY() + " " + P9Dest.GetPositionZ())
+    ; On the ground, not at the player's height: P9Track measures the 3D distance, and on 1 Nov the 435 m link rung's
+    ; actor stood 1.7 m from the marker across the ground and 26.8 m under it, where the land falls (#663 review).
+    float before = P9Dest.GetPositionZ()
+    P9Dest.MoveToNearestNavmeshLocation()
+    Trace("p9 dest id=" + P9Dest.GetFormID() + " pos=" + P9Dest.GetPositionX() + " " + P9Dest.GetPositionY() + " " + P9Dest.GetPositionZ() + " snapped_dz=" + (P9Dest.GetPositionZ() - before))
 EndFunction
 
 Function P9Track(int actorId, float seconds)

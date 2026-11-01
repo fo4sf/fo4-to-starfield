@@ -430,6 +430,14 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(shadow.index("Utility.Wait(3.0)"), shadow.index("p.SetPosition("))
         self.assertIn('"p9 shadow done actor="', shadow)
 
+    def test_p9_dest_is_snapped_to_the_ground_and_logs_the_drop(self):
+        # #663 review: P9Track's distance is 3D; a marker left at the player's height floats where the land falls
+        start = QUEST.index("Function P9PlaceDest(float dx, float dy)")
+        body = QUEST[start:QUEST.index("EndFunction", start)]
+        self.assertLess(body.index("P9Dest.MoveTo(Game.GetPlayer()"), body.index("P9Dest.MoveToNearestNavmeshLocation()"))
+        self.assertLess(body.index("P9Dest.MoveToNearestNavmeshLocation()"), body.index('"p9 dest id="'))
+        self.assertIn('" snapped_dz=" + (P9Dest.GetPositionZ() - before)', body)
+
     def test_b0_scripts_declare_the_native_and_log_both_routes(self):
         # the native stub the SFSE plugin binds (sfse/FOCCPing): one global native, no body, declared like Game.psc's
         self.assertIn("Scriptname FOCC Hidden Native", NATIVE)
