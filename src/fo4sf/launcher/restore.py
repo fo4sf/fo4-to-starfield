@@ -377,6 +377,11 @@ def stage_problems(target, change, notes, port_staging=None):
     return problems
 
 
+def order_step(repo, starfield):
+    return {"what": "order experiment plugins",
+            "argv": [sys.executable, os.path.join(repo, COMPONENTS["experiment"][1]), "order", "--starfield", starfield]}
+
+
 def plan(target, current, repo, port_staging=None):
     """{"steps": [{"what", "argv"}], "plugins_txt": "same" | "restore" | "conflict", "conflicts": [...],
     "notes": [...]}: what apply would do to turn `current` into `target`."""
@@ -442,10 +447,13 @@ def plan(target, current, repo, port_staging=None):
                     except (TypeError, KeyError, ValueError) as error:
                         conflicts.append(f"port: invalid recorded target: {error}")
                 steps.append(step)
-                if comp == "experiment":
-                    steps.append({"what": "order experiment plugins",
-                                  "argv": [sys.executable, os.path.join(repo, COMPONENTS["experiment"][1]), "order",
-                                           "--starfield", starfield]})
+                # exp_install.py order refuses a plugin whose master is not active, and an experiment plugin can master
+                # FO4Port.esm (a slice door plugin): when the port goes back on too, order runs after it. install itself
+                # checks no masters, so the core still goes on before the port for the port's core pin
+                if comp == "experiment" and change.get("port") not in ("install", "replace", "recover"):
+                    steps.append(order_step(repo, starfield))
+                elif comp == "port" and change.get("experiment") in ("install", "replace", "recover"):
+                    steps.append(order_step(repo, starfield))
     # files an installer owns must still be the files it recorded; a changed or missing one is refused, not repaired.
     # The same holds for the target: a snapshot taken while an owned file was changed or missing is not a state the
     # installers can give back, so restoring to it would report success on different bytes
