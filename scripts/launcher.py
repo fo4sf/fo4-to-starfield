@@ -61,8 +61,8 @@ update     brings this checkout up to GitHub's main now (a fast-forward only, sr
            and start again on the new code (update=check: they only say it; off, the default: nothing is fetched).
 instance   the FO4SF game folder, separate from the player's own Starfield and its mods (docs/ai/fo4sf-instance.md):
            plan (read only) says what would be hard-linked, copied and left out of Data, and the disk it costs; create
-           makes it (hard links on the same drive, INIs copied, only the game's own files in Data), never writing in
-           the Steam install. run: one of our installers on the folder, with its own Plugins.txt (LOCALAPPDATA =
+           makes it (Data's game files and Tools hard-linked on the same drive, the rest copied, the player's mods
+           and add-ons left out), never writing in the Steam install. run: one of our installers on the folder, with its own Plugins.txt (LOCALAPPDATA =
            <folder>\FO4SF-local; the command must name the folder once as --starfield). With the setting
            instance=<folder>, play starts the game from it and puts FO4SF's Plugins.txt in the player's place only
            while it runs; recover (and every play) puts the player's back after a crash.
@@ -341,6 +341,7 @@ def put_back_left_swap(dry_run):
 
 
 def cmd_play(a):
+    put_back_left_swap(a.dry_run)                      # every play, before anything that could refuse (the settings)
     values = settings.load(a.settings or default_settings_path())
     # a dry run only looks: it says how far behind it is, and never moves the checkout
     if updated("check" if a.dry_run and values["update"] != "off" else values["update"]):
@@ -350,8 +351,7 @@ def cmd_play(a):
     if folder and a.starfield and norm(a.starfield) != norm(folder):
         raise ValueError(f"--starfield {a.starfield} is not the FO4SF game folder {folder} (setting instance); "
                          "pass that folder or none")
-    put_back_left_swap(a.dry_run)                      # every play, whatever the setting says now
-    if folder:                                         # the FO4SF game folder: always FO4SF, the player's left alone
+    if folder:                                        # the FO4SF game folder: always FO4SF, the player's left alone
         r = crashwatch.play(values, folder, dry_run=a.dry_run, folder=folder)
         return 0 if r.get("dry_run") or r.get("started") else 1
     starfield = a.starfield or values["starfield"]
@@ -405,11 +405,11 @@ def cmd_update(a):
 
 
 def cmd_instance(a):
-    folder = a.at or settings.load(a.settings or default_settings_path())["instance"]
-    if a.action == "recover":                          # the journal is found without the folder (instance.journal_path)
+    if a.action == "recover":                          # found without the folder or the settings (instance.journal_path)
         done = instance.recover(instance.player_plugins_txt(), restore.game_running)
         print("done" if done else "nothing to put back")
         return 0
+    folder = a.at or settings.load(a.settings or default_settings_path())["instance"]
     if a.action == "run":
         if not folder:
             raise ValueError("no FO4SF game folder: pass --at or set the setting instance")

@@ -127,9 +127,94 @@ class FolderPlayTests(unittest.TestCase):
         self.assertEqual(len(instance.custom_ini_problems(my_games, {"bridge": "on"})), 2)
         self.assertEqual(len(instance.custom_ini_problems(my_games, {"bridge": "off"})), 1)
         self.assertEqual(instance.custom_ini_problems("", {"bridge": "on"}), [])
+        write(my_games, "StarfieldCustom.ini", b"\xef\xbb\xbf[General]\r\nSLocalSavePath=Saves\\Mine\\\r\n")   # BOM
+        self.assertEqual(len(instance.custom_ini_problems(my_games, {"bridge": "off"})), 1)
         with self.assertRaisesRegex(ValueError, "SLocalSavePath"):
             self.play(self.values(my_games=my_games), self.game())
         self.assertEqual(self.read(self.player), PLAYER)                    # refused before anything
+        self.play(self.values(), self.game())                               # my_games unset: said, not silent
+        self.assertTrue(any("StarfieldCustom.ini not checked" in s for s in self.said))
+
+    # --- review of the stack (second round), P3s --------------------------------------------------------------------
+    def test_the_players_list_is_back_before_the_wait_on_procdump(self):
+        dumps, procdump = os.path.join(self.root, "dumps"), os.path.join(self.root, "procdump64.exe")
+        write(self.root, "procdump64.exe", b"")
+        sys_ = self.game()
+        spawn, at_wait = sys_.spawn, []
+
+        def spawn_watching(argv, log_path):
+            proc = spawn(argv, log_path)
+            wait = proc.wait
+            proc.wait = lambda timeout=None: at_wait.append(self.read(self.player)) or wait(timeout)
+            return proc
+        sys_.spawn = spawn_watching
+        self.play(self.values(**{"crash_watch.enabled": True, "crash_watch.folder": dumps,
+                                 "crash_watch.procdump": procdump}), sys_)
+        self.assertEqual(at_wait, [PLAYER])                                 # already back while the dump is awaited
+
+    def test_a_stop_under_a_running_game_says_where_the_players_list_is(self):
+        sys_ = self.game()
+        start = sys_.start_game
+
+        def start_then_ctrl_c(route, starfield):
+            start(route, starfield)
+            raise KeyboardInterrupt
+        sys_.start_game = start_then_ctrl_c
+        with self.assertRaises(KeyboardInterrupt):
+            self.play(self.values(), sys_)
+        self.assertEqual(self.read(self.player), OURS)                      # never swapped under a running game
+        self.assertTrue(any("still in your place" in s for s in self.said))
+
+    def test_a_swap_interrupted_after_its_write_keeps_the_journal(self):
+        real = instance._put
+
+        def put_then_stop(path, raw, expect):
+            real(path, raw, expect)
+            raise KeyboardInterrupt
+        with mock.patch.object(instance, "_put", side_effect=put_then_stop):
+            with self.assertRaises(KeyboardInterrupt):
+                instance.swap_in(self.folder, self.player, self.said.append)
+        self.assertEqual(self.read(self.player), OURS)
+        self.assertTrue(os.path.exists(self.journal))                       # recover() can still put it back
+        self.assertTrue(instance.recover(self.player, lambda: False, self.said.append))
+        self.assertEqual(self.read(self.player), PLAYER)
+
+    def test_a_list_already_back_only_drops_the_journal(self):
+        instance.swap_in(self.folder, self.player, self.said.append)
+        write(self.local, "Starfield/Plugins.txt", PLAYER)                  # a put-back cut before the journal went
+        self.assertTrue(instance.recover(self.player, lambda: False, self.said.append))
+        self.assertFalse(os.path.exists(self.journal))
+        self.assertEqual([n for n in os.listdir(os.path.dirname(self.journal)) if ".after-" in n], [])
+
+    def test_recover_and_play_put_the_list_back_even_with_a_broken_settings_file(self):
+        instance.swap_in(self.folder, self.player, self.said.append)
+        bad = os.path.join(self.root, "bad.json")
+        write(self.root, "bad.json", b'{"no_such_setting": 1}')
+        spec = importlib.util.spec_from_file_location("launcher_cli_bad", os.path.join(ROOT, "scripts", "launcher.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        with mock.patch.object(cli.restore, "game_running", return_value=False), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(["instance", "recover", "--settings", bad]), 0)
+            self.assertEqual(self.read(self.player), PLAYER)
+            instance.swap_in(self.folder, self.player, self.said.append)
+            self.assertNotEqual(cli.main(["play", "--settings", bad]), 0)   # the settings refuse the play itself
+        self.assertEqual(self.read(self.player), PLAYER)                    # but the list came back first
+
+    def test_the_folders_real_system_runs_our_tools_on_its_own_plugins_txt(self):
+        made = {}
+
+        def system(**kw):
+            made.update(kw)
+            return self.game()
+        with mock.patch.object(crashwatch, "System", side_effect=system):
+            crashwatch.play(self.values(), "ignored", say=self.said.append, folder=self.folder)
+        self.assertEqual(made["env"]["LOCALAPPDATA"], instance.local_dir(self.folder))
+        self.assertEqual(made["plugins_txt"], instance.plugins_txt(self.folder))
+        with mock.patch.object(crashwatch.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            crashwatch.System(env=made["env"]).run(["x"])
+        self.assertEqual(run.call_args.kwargs["env"]["LOCALAPPDATA"], instance.local_dir(self.folder))
 
     def test_a_kept_list_is_never_overwritten_and_a_retry_reuses_its_own(self):
         # #655 finding 3: the same second's name, with other bytes, gets -2; with the same bytes it is reused

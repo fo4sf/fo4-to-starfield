@@ -100,6 +100,7 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         # the Windows form of test_launcher_instance's mid-run link test, which needs POSIX symlink rights here
         source = os.path.join(self.root, "source", "Starfield")
         write(os.path.join(source, "Starfield.exe"), b"synthetic game executable")
+        write(os.path.join(source, "Data", "Starfield.esm"), b"synthetic game plugin")
         write(os.path.join(source, "Tools", "Archive2.exe"), b"synthetic tool")
         target = os.path.join(self.root, "FO4SF", "Starfield")
         exterior = os.path.join(self.root, "synthetic-exterior")
@@ -109,7 +110,7 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         def link_then_plant(src, dst):
             os.link(src, dst)
             made.append(dst)
-            if len(made) == 1:                              # after Starfield.exe: a junction where Tools will go
+            if len(made) == 1:                              # after Data's first link: a junction where Tools will go
                 self.make_junction(os.path.join(target, "Tools"), exterior)
         with self.assertRaisesRegex(instance.InstanceRefused, "is a link or junction"):
             instance.create(source, target, min_free_gb=0, disk_usage=self.disk_usage, say=lambda *_: None,

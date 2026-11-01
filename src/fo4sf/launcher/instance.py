@@ -3,11 +3,16 @@ packs (owner, 2026-11-01: "stay FO4SF all the time make a separate area then act
 own mod packs for that"). Design and the steps after this one: docs/ai/fo4sf-instance.md.
 
 This module plans and makes the folder; it never writes in the player's install.
-* Every file of the install is hard-linked into the new folder, so it costs no disk (a hard link is the same file under a
-  second name). That needs the same drive: on another drive it refuses, since a copy would cost the whole game.
-* INI files (Starfield.ini, the Low to Ultra presets, an SFSE plugin's settings in a kept Data folder, ...) are copied
-  instead, at every level, so the FO4SF folder's settings can change without changing the player's (an edit through a
-  hard link would change both). A copy goes to a temporary name first and takes its own name only when complete.
+* Data's game files and Tools (the Creation Kit's tools, gigabytes) are hard-linked into the new folder, so they cost no
+  disk (a hard link is the same file under a second name). That needs the same drive: on another drive it refuses,
+  since a copy would cost the whole game. A write into a linked file in place (not a new file put there) shows in both
+  folders.
+* Everything else is copied: the files at the top of the game folder (Starfield.exe, its DLLs, SFSE's loader: an SFSE
+  update overwrites them in place, and the FO4SF folder may stay on an older game version), the other small folders,
+  and every INI at any level, so the FO4SF folder's settings can change without changing the player's. A copy goes to a
+  temporary name first and takes its own name only when complete.
+* The player's own add-ons at the top of the game folder (injector DLLs such as dxgi.dll, ReShade and ENB files) and
+  crash dumps are left out and listed, like the player's mods in Data.
 * Data keeps only the game's own files: the plugins the game loads by itself (fo4sf.core.loadset.built_in) and the files
   named after them ("Starfield - Textures01.ba2", "SFBGS003 - Main.ba2", ...). Everything else in Data (the player's
   mods, our own installs, loose folders, SFSE plugins) is left out and listed, unless a Data folder is kept by name.
@@ -29,9 +34,21 @@ COPY_EXT = (".ini",)                         # changed per folder: copied, never
 PART = ".fo4sf-part"                         # a copy on its way: it takes its own name only when complete
 # where a game folder should not be made (a Steam library, Program Files, a synced folder: the same advice the Starfield
 # Launchpad Wabbajack instance gives, nexusmods.com/starfield/mods/18644)
-BAD_PARTS = ("steamapps", "program files", "program files (x86)", "dropbox", "google drive", "my drive",
-             "icloud drive", "iclouddrive")
-BAD_PREFIXES = ("onedrive",)                 # "OneDrive", "OneDrive - Contoso", ...
+BAD_PARTS = ("steamapps", "program files", "program files (x86)", "google drive", "my drive", "icloud drive",
+             "iclouddrive", "box")
+BAD_PREFIXES = ("onedrive", "dropbox")       # "OneDrive - Contoso", "Dropbox (Personal)", ...
+LINK_DIRS = ("data", "tools")                # linked (Data: only the game's own files); the rest is copied
+# the player's add-ons at the top of the game folder, never Starfield's own: proxy DLLs that injectors (ReShade, ENB,
+# ASI loaders) put beside the exe, their files and folders, and crash dumps
+ROOT_ADDONS = ("dxgi.dll", "d3d11.dll", "d3d12.dll", "dinput8.dll", "version.dll", "winmm.dll", "winhttp.dll",
+               "opengl32.dll", "dsound.dll", "xinput1_3.dll", "xinput1_4.dll", "enblocal.ini", "enbseries.ini")
+ROOT_ADDON_PREFIXES = ("reshade", "enbseries", "enbcache")
+ROOT_ADDON_EXT = (".dmp", ".asi")
+
+
+def _root_addon(name):
+    n = name.casefold()
+    return n in ROOT_ADDONS or n.startswith(ROOT_ADDON_PREFIXES) or n.endswith(ROOT_ADDON_EXT)
 
 
 class InstanceRefused(ValueError):
@@ -109,17 +126,23 @@ def plan(source, target, keep_data_dirs=()):
         rel_d = os.path.relpath(d, source).replace(os.sep, "/")
         rel_d = "" if rel_d == "." else rel_d
         parts = rel_d.split("/") if rel_d else []
-        if len(parts) == 1 and parts[0].casefold() == "data":
+        top = parts[0].casefold() if parts else ""
+        if len(parts) == 1 and top == "data":
             for sub in list(dirs):                           # Data's folders: left out unless kept by name
                 if sub.casefold() not in keep:
                     out["left_out"].append(f"{rel_d}/{sub}/")
                     dirs.remove(sub)
+        if not parts:
+            for sub in list(dirs):                           # the player's injector folders (reshade-shaders, ...)
+                if _root_addon(sub):
+                    out["left_out"].append(f"{sub}/")
+                    dirs.remove(sub)
         for n in sorted(names):
             rel = f"{rel_d}/{n}" if rel_d else n
             size = os.path.getsize(os.path.join(d, n))
-            if len(parts) == 1 and parts[0].casefold() == "data" and not game_file(n):
+            if (len(parts) == 1 and top == "data" and not game_file(n)) or (not parts and _root_addon(n)):
                 out["left_out"].append(rel)
-            elif n.casefold().endswith(COPY_EXT):
+            elif n.casefold().endswith(COPY_EXT) or top not in LINK_DIRS:
                 out["copy"].append(rel)
                 out["copy_bytes"] += size
             else:
@@ -236,9 +259,10 @@ def create(source, target, keep_data_dirs=(), min_free_gb=40.0, say=print, disk_
 def summary(p):
     """Lines that say what a plan would do."""
     gb = 1024 ** 3
-    lines = [f"linked (no extra disk): {len(p['link'])} files, {p['link_bytes'] / gb:.1f} GB",
-             f"copied: {len(p['copy'])} files, {p['copy_bytes'] / 1024:.0f} KB ({', '.join(p['copy']) or 'none'})",
-             f"left out of Data (not the game's own): {len(p['left_out'])}"]
+    lines = [f"linked (no extra disk; Data's game files and Tools): {len(p['link'])} files, "
+             f"{p['link_bytes'] / gb:.1f} GB",
+             f"copied (the rest, and every INI): {len(p['copy'])} files, {p['copy_bytes'] / 1024 ** 2:.0f} MB",
+             f"left out (the player's mods and add-ons, crash dumps; not the game's own): {len(p['left_out'])}"]
     lines += [f"    {r}" for r in p["left_out"][:40]]
     if len(p["left_out"]) > 40:
         lines.append(f"    ... and {len(p['left_out']) - 40} more")
@@ -338,8 +362,9 @@ def swap_in(folder, player, say=print):
     try:
         _put(player, ours, _sha(mine))
     except BaseException:
-        os.remove(journal)                             # nothing was swapped: the journal goes with it
-        raise
+        if _read(player) == mine:                      # nothing was swapped: the journal goes with it
+            os.remove(journal)
+        raise                                          # else the write landed: the journal stays for recover()
     say(f"Plugins.txt: FO4SF's list in place for this start (yours is kept in {journal} and comes back at the end)")
 
 
@@ -377,6 +402,11 @@ def swap_out(player, say=print, after_game=True):
         return False
     j = files.load_json(journal)
     player, now = j["player"], _read(j["player"])
+    mine = None if j.get("player_b64") is None else base64.b64decode(j["player_b64"])
+    if now == mine:                                    # already back (a put-back cut before the journal went)
+        os.remove(journal)
+        say("Plugins.txt: yours is back")
+        return True
     if now is not None and _sha(now) != j["wrote_sha256"]:
         if after_game and os.path.isdir(j["folder"]):
             ours_p = plugins_txt(j["folder"])
@@ -385,7 +415,6 @@ def swap_out(player, say=print, after_game=True):
             keep = _keep_after(os.path.join(os.path.dirname(journal), "Plugins.txt.after-"
                                             + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")), now)
             say(f"Plugins.txt: what stood in its place is kept as {keep}")
-    mine = None if j.get("player_b64") is None else base64.b64decode(j["player_b64"])
     _put(player, mine, _sha(now))
     os.remove(journal)
     say("Plugins.txt: yours is back")
@@ -458,7 +487,7 @@ def custom_ini_problems(my_games, values):
     if raw is None:
         return []
     keys, sec = {}, ""
-    for ln in raw.decode("utf-8", "surrogateescape").splitlines():
+    for ln in raw.decode("utf-8-sig", "surrogateescape").splitlines():   # Notepad may save a BOM
         s = ln.strip()
         if s.startswith("[") and s.endswith("]"):
             sec = s[1:-1].strip().casefold()
