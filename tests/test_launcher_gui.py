@@ -233,6 +233,10 @@ class PathsTests(unittest.TestCase):
         (self.tools / "procdump64.exe").write_bytes(b"")
         self.env = {"USERPROFILE": str(self.root / "user"), "ProgramFiles": str(self.root / "Program Files"),
                     "LOCALAPPDATA": str(self.root / "local")}
+        # Keep Windows' redirected Documents folder out of these synthetic path-discovery fixtures.
+        documents = mock.patch.object(paths, "_documents", return_value=[str(self.docs.parents[1])])
+        documents.start()
+        self.addCleanup(documents.stop)
 
     def find(self):
         return {"starfield": str(self.game), "fallout4": str(self.data.parent), "fallout4_depots": []}
