@@ -156,6 +156,14 @@ class P9PackageDriverTests(unittest.TestCase):
         self.assertLess(v.extra["closest_xy_m"], 10.0)
         v = probes.check_p9(col(log=walk))                                   # the same walk to a marker on the ground
         self.assertEqual(v.verdict, probes.PASS, v.to_dict())
+        # the guard's edges: a ground arrival only within the arrival distance, and only within the rung's seconds
+        miss = [re.sub(r"pos=([-\d.]+) 0\.000000", lambda m: f"pos={m[1]} 15.000000", ln) if " p9 sample " in ln else ln
+                for ln in floating(walk[:at] + stand + walk[at:])]                # 15 m off to the side all the way
+        v = probes.check_p9(col(log=miss))
+        self.assertFalse(any("across the ground" in r for r in v.reasons), v.reasons)
+        late = drive(driver="link", package=PATROL, slow=3.0)                 # arrives about 666 s in: too late
+        v = probes.check_p9(col(log=floating(late)))
+        self.assertFalse(any("across the ground" in r for r in v.reasons), v.reasons)
 
     def test_the_old_scripted_go_reads_as_before(self):
         v = probes.check_p9(col(log=drive(driver="script")))

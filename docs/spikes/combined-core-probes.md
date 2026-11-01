@@ -592,8 +592,15 @@ leaves one sample: too few for continuity (1 Nov run; #663 review). Rung c's 20 
 The long rung starts about 420 m out (the marker 440 m east of the player, the actor about 20 m east after rung c;
 P9 needs 400 m or more). Correction (#663 review): the 1 Nov 435 m link rung did not run out of time. Its actor stood
 1.7 m from the marker across the ground from about 500 s on, 26.8 m under it, because `P9Dest` left the marker at the
-player's height where the land falls, and P9Track measures in 3D. `P9Dest` now snaps the marker to the nearest navmesh
-point and logs `snapped_dz=`. The actor that walked rungs b
+player's height where the land falls, and P9Track measures in 3D. `P9Dest` now calls `MoveToNearestNavmeshLocation`
+after placing the marker and logs `snapped_dz=`. That is **unverified for a far marker**: every long rung's go logged
+`targetcell=None`, so the marker's cell was not loaded when it was placed, and the snap may have no navmesh to find
+(#663 review). Before the track, read `snapped_dz=` on the `p9 dest` line: 0 on a sloped route means the marker still
+floats. A sure fallback is to stand the player at the target (hops of 300 m or less), run `P9Dest 0.0 0.0` there,
+where the cell is loaded and the marker lands on the ground, then hop back. Meanwhile the judge never calls a floating
+marker a FAIL: when the actor came within the arrival distance across the ground and the 3D distance did not, the
+verdict is INCONCLUSIVE and names the height (1 Nov rerun: 420 m, 5 cells, 9.6 m across the ground 442 s in, the marker
+31 m up). The actor that walked rungs b
 and c is the one
 judged.
 

@@ -1501,9 +1501,9 @@ def check_p9(c: Collection) -> Verdict:
                              "ran is unknown")
         else:
             got = latest["package_after_go"]
-            v.reasons.append(f"two seconds after the go the actor ran package {got} "
-                             f"{('(' + P9_PACKAGE_NAMES[got] + ')') if got in P9_PACKAGE_NAMES else ''}, not {name} "
-                             f"({wanted}): the driver's package did not take")
+            label = f"{got} ({P9_PACKAGE_NAMES[got]})" if got in P9_PACKAGE_NAMES else got
+            v.reasons.append(f"two seconds after the go the actor ran package {label}, not {name} ({wanted}): the "
+                             "driver's package did not take")
         v.cite(*[e for e in evs if e.line == latest["package_line"]])
         return v
     if latest["path_returned_s"] is not None:
@@ -1625,10 +1625,12 @@ def check_p9(c: Collection) -> Verdict:
     xy_hit = next((k for k, d in enumerate(xy) if d < P["p9_arrive_m"] and rows[k][0] <= P["p9_seconds"]), None)
     if xy_hit is not None and not arrived:
         hit = rows[xy_hit]
+        dz = dpos[2] - hit[2][2]
         v.cite(hit[5])
         v.reasons.append(f"the actor reached the marker across the ground ({xy[xy_hit]:.1f} m) {hit[0]:.0f} s in, but the "
-                         f"marker stands {dpos[2] - hit[2][2]:.1f} m above it, so P9Track's 3D dist cannot close: a "
-                         f"marker off the ground, not the route (P9Dest snaps it to the navmesh since #663; run again)")
+                         f"marker is {abs(dz):.1f} m {'above' if dz >= 0 else 'below'} it, so P9Track's 3D dist did not "
+                         f"close under {P['p9_arrive_m']:g} m: the marker's height, not the route (a marker on the ground "
+                         f"needs its cell loaded when placed: docs/spikes/combined-core-probes.md)")
         return v
     # A FAIL says the navmesh does not carry the route, so it needs proof the command moves this actor at all: progress
     # on this route, or the ladder's short control. Without it a still actor is the command's failure as much as the
