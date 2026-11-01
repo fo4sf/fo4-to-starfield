@@ -222,19 +222,38 @@ class System:
         return None if order is None else {n.casefold() for n in order}
 
 
-def unticked_ours(system):
+TOGGLE_RECORD = "FO4SF.toggle.json"         # plugin_toggle.py's record in Data (scripts/game/exp_install.py TOGGLE)
+
+
+def _held_off(starfield):
+    """Casefolded plugins plugin_toggle.py holds off on purpose (its record's "off" list); empty when it cannot be read."""
+    import json
+    try:
+        with open(os.path.join(starfield, "Data", TOGGLE_RECORD), encoding="utf-8") as f:
+            return {str(x).casefold() for x in json.load(f).get("off", [])}
+    except (OSError, ValueError, AttributeError):
+        return set()
+
+
+def unticked_ours(system, values=None, starfield=None):
     """Why play refuses a Plugins.txt that lists plugins of ours with none of them ticked, else None. Starfield writes
     it so when "Save" is picked at its "different Creations load order" prompt on loading a save made with other
     plugins (the PC, 14 Oct and 1 Nov 2026): the game would start without FO4SF, and the bridge step refused with a
-    message that hid this cause (nine silent starts on 1 Nov). Play never ticks them itself: the player may have turned
-    them off on purpose."""
+    message that hid this cause (nine silent starts on 1 Nov). Plugins unticked on purpose do not count: those
+    plugin_toggle.py holds off (its record) and the bridge when the setting `bridge` manages it (#662 review). Play never
+    ticks them itself."""
     entries = getattr(system, "plugin_entries", lambda: None)()
-    ours = [n for n, _ in entries or () if loadset.ours(n)]
-    if not ours or any(ticked for n, ticked in entries if loadset.ours(n)):
+    managed = _held_off(starfield) if starfield else set()
+    if values is not None and values.get("bridge", "unchanged") != "unchanged":
+        managed.add(BRIDGE.casefold())
+    ours = [(n, ticked) for n, ticked in entries or () if loadset.ours(n) and n.casefold() not in managed]
+    if not ours or any(ticked for _, ticked in ours):
         return None
+    names = [n for n, _ in ours]
     path = getattr(system, "plugins_path", lambda: None)()
     good = None                                   # the newest copy kept beside it that has one of ours ticked
-    for bak in sorted(glob.glob(glob.escape(path) + ".bak-*") if path else (), reverse=True):
+    found = glob.glob(glob.escape(path) + ".bak-*") if path else []
+    for bak in sorted(found, key=lambda b: (os.path.getmtime(b), b), reverse=True):
         try:
             with open(bak, encoding="utf-8-sig", errors="replace") as f:
                 if any(ln.strip().startswith("*") and loadset.ours(ln.strip()[1:].strip()) for ln in f):
@@ -242,9 +261,12 @@ def unticked_ours(system):
                     break
         except OSError:
             continue
-    return (f"every FO4SF plugin in Plugins.txt is unticked ({len(ours)} listed: {', '.join(ours[:3])}"
-            f"{', ...' if len(ours) > 3 else ''}). Starfield writes it so when \"Save\" is picked at its \"different "
-            "Creations load order\" prompt. Tick them again in the game's Creations menu"
+    folder = bool(values and values.get("instance"))
+    fix = ("Tick them again in that file (the FO4SF game folder's own list: the game reads it only while play runs)"
+           if folder else "Tick them again in the game's Creations menu")
+    return (f"every FO4SF plugin in Plugins.txt is unticked ({len(names)} listed: {', '.join(names[:3])}"
+            f"{', ...' if len(names) > 3 else ''}; {path or 'Plugins.txt'}). Starfield writes it so when \"Save\" is "
+            f"picked at its \"different Creations load order\" prompt. {fix}"
             + (f", or put back {os.path.basename(good)}, the newest copy beside it with them ticked" if good else "")
             + "; play does not change Plugins.txt for this")
 
@@ -573,7 +595,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")
                                  if cw else "off")]
-    unticked = unticked_ours(system)
+    unticked = unticked_ours(system, values, starfield)
     if dry_run:
         if unticked:
             raise ValueError(unticked)
@@ -610,11 +632,13 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         if folder:
             inst.swap_in(folder, player, say)
             system.plugins_txt = player             # while the game runs, the folder's list stands there
-    except (ValueError, OSError) as e:
+    except Exception as e:
         if cw:
+            what = " | ".join(str(e).splitlines()) or type(e).__name__     # one timestamped line
             try:
-                _log(log_path, f"play: refused: {e}")
-            except OSError:                         # the refusal itself still reaches the window
+                _log(log_path, f"play: refused: {what}" if isinstance(e, (ValueError, OSError))
+                     else f"play: stopped by {type(e).__name__}: {what}")
+            except Exception:                       # the refusal itself still reaches the window, unchanged
                 pass
         raise
     try:
