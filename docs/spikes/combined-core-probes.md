@@ -568,6 +568,7 @@ Two seconds later it logs `p9 package`. `LinkEnd <id>` clears the link. The ladd
 ```
 rung a   cgf "FOCC_Probe.P9Dest" 0.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 60                     (no command)
 rung b   cgf "FOCC_Probe.P9Track" <id> 60 ; cgf "FOCC_P9Drive.Link" <id> 1                         (to the player)
+rung c   cgf "FOCC_Probe.P9Dest" 20.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 120 ; cgf "FOCC_P9Drive.Link" <id> 0
 rung L   cgf "FOCC_Probe.P9Dest" 480.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 600 ;
          cgf "FOCC_P9Drive.Link" <id> 0 ; cgf "FOCC_P9Drive.Shadow" <id> 600 25.0            (about 480 m east)
 end      cgf "FOCC_P9Drive.LinkEnd" <id>
@@ -582,7 +583,10 @@ The judge treats `driver=link` like the package driver:
 - the control must be a link rung whose own line names its target's package;
 - go targets are compared without case, since Papyrus logged `target=Player` on the PC.
 
-The long rung starts about 480 m out (P9 needs 400 m or more), so the actor that walked rung b to the player is the one
+Rung c is the control the judge can use. Rung b to the player arrives in seconds, and P9Track stops under 10 m, so it
+leaves one sample: too few for continuity (1 Nov run; #663 review). Rung c's 20 m walk to the marker left seven.
+`Shadow` keeps hopping the player until its seconds run out, even after the track ends at arrival; let it finish.
+The long rung starts about 480 m out (P9 needs 400 m or more), so the actor that walked rungs b and c is the one
 judged.
 
 ## P1: SFSE sidecar on save and load (last)

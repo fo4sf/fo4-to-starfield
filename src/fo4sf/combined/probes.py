@@ -1502,7 +1502,7 @@ def check_p9(c: Collection) -> Verdict:
         else:
             got = latest["package_after_go"]
             v.reasons.append(f"two seconds after the go the actor ran package {got} "
-                             f"{('(' + P9_PACKAGE_NAMES[got] + ') ') if got in P9_PACKAGE_NAMES else ''}, not {name} "
+                             f"{('(' + P9_PACKAGE_NAMES[got] + ')') if got in P9_PACKAGE_NAMES else ''}, not {name} "
                              f"({wanted}): the driver's package did not take")
         v.cite(*[e for e in evs if e.line == latest["package_line"]])
         return v
