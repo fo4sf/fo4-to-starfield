@@ -45,3 +45,132 @@ Function Go(int actorId, int toPlayer) global
     int r = a.PathToReference(target, 1.0, 1.0)
     q.Trace("p9 path returned actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " result=" + r + " after=" + (Utility.GetCurrentRealTime() - t0) + " dist=" + a.GetDistance(target))
 EndFunction
+
+; P9's package driver, the next rung after Go's PathToReference returned Failure in the Commonwealth and in vanilla
+; QASmoke alike (1 Nov 2026): the way the game moves its own actors. The probe quest's alias 0 (P9Walker, optional,
+; allow reserved) carries Starfield.esm's DefaultTraveltoLinkedRef (212FDB: Travel template, location "near linked
+; ref" with no keyword, no conditions; read from Starfield.esm 1.16.244 on the PC). Travel sets the actor's linked ref
+; to the target, forces the actor into the alias and re-evaluates its packages, so the alias package (above the base
+; NPC's own) walks it there. A package has no return code: the samples after the go are the answer, and the
+; `p9 package` line two seconds later names the package the actor then runs (2174939 = 212FDB when the alias took).
+;   cgf "FOCC_P9Drive.Travel" <actor id, signed decimal> 1      to the player
+;   cgf "FOCC_P9Drive.Travel" <actor id, signed decimal> 0      to FOCC_P9_Dest
+;   cgf "FOCC_P9Drive.TravelEnd" <actor id, signed decimal>     out of the alias, linked ref cleared
+Function Travel(int actorId, int toPlayer) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    ObjectReference target = q.P9Dest
+    string what = "dest"
+    if toPlayer != 0
+        target = Game.GetPlayer()
+        what = "player"
+    endif
+    ReferenceAlias walker = q.GetAlias(0) as ReferenceAlias
+    if a == None || target == None || walker == None
+        q.Trace("p9 go refused actor=" + actorId + " target=" + what + " driver=package walker=" + (walker != None))
+        return
+    endif
+    q.Trace("p9 context actor=" + a.GetFormID() + " target=" + what + " id=" + target.GetFormID() + " actorcell=" + q.Id(a.GetParentCell()) + " targetcell=" + q.Id(target.GetParentCell()))
+    q.Trace("p9 state actor=" + a.GetFormID() + " loaded=" + a.Is3DLoaded() + " dead=" + a.IsDead() + " disabled=" + a.IsDisabled() + " targetdisabled=" + target.IsDisabled() + " package=" + q.Id(a.GetCurrentPackage()))
+    float t0 = Utility.GetCurrentRealTime()
+    q.Trace("p9 go actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " id=" + target.GetFormID() + " dist=" + a.GetDistance(target) + " driver=package")
+    a.SetLinkedRef(target)
+    walker.ForceRefTo(a)
+    a.EvaluatePackage()
+    Utility.Wait(2.0)
+    q.Trace("p9 package actor=" + a.GetFormID() + " call=" + t0 + " linked=" + q.Id(a.GetLinkedRef()) + " package=" + q.Id(a.GetCurrentPackage()) + " dist=" + a.GetDistance(target))
+EndFunction
+
+Function TravelEnd(int actorId) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    ReferenceAlias walker = q.GetAlias(0) as ReferenceAlias
+    if a == None || walker == None
+        q.Trace("p9 package end refused actor=" + actorId)
+        return
+    endif
+    walker.Clear()
+    a.SetLinkedRef(None)
+    a.EvaluatePackage()
+    q.Trace("p9 package cleared actor=" + a.GetFormID() + " package=" + q.Id(a.GetCurrentPackage()))
+EndFunction
+
+; P9's linked-ref driver (job focc-P9l). The package rung of 1 Nov 2026 (#644) found the actor walking under Starfield's
+; own default master packages once its linked ref was set, never under the alias package: DefaultMaster_PatrolPackage
+; (301C3 = 197059) to a linked marker, DefaultMaster_FollowPackage (301C5 = 197061) to a linked player. Link tests that
+; alone: SetLinkedRef and EvaluatePackage, no alias. Its `p9 package` line two seconds later names the package then run.
+;   cgf "FOCC_P9Drive.Link" <actor id, signed decimal> 1      to the player
+;   cgf "FOCC_P9Drive.Link" <actor id, signed decimal> 0      to FOCC_P9_Dest
+;   cgf "FOCC_P9Drive.LinkEnd" <actor id, signed decimal>     the link cleared
+Function Link(int actorId, int toPlayer) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    ObjectReference target = q.P9Dest
+    string what = "dest"
+    if toPlayer != 0
+        target = Game.GetPlayer()
+        what = "player"
+    endif
+    if a == None || target == None
+        q.Trace("p9 go refused actor=" + actorId + " target=" + what + " driver=link")
+        return
+    endif
+    q.Trace("p9 context actor=" + a.GetFormID() + " target=" + what + " id=" + target.GetFormID() + " actorcell=" + q.Id(a.GetParentCell()) + " targetcell=" + q.Id(target.GetParentCell()))
+    q.Trace("p9 state actor=" + a.GetFormID() + " loaded=" + a.Is3DLoaded() + " dead=" + a.IsDead() + " disabled=" + a.IsDisabled() + " targetdisabled=" + target.IsDisabled() + " package=" + q.Id(a.GetCurrentPackage()))
+    float t0 = Utility.GetCurrentRealTime()
+    q.Trace("p9 go actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " id=" + target.GetFormID() + " dist=" + a.GetDistance(target) + " driver=link")
+    a.SetLinkedRef(target)
+    a.EvaluatePackage()
+    Utility.Wait(2.0)
+    q.Trace("p9 package actor=" + a.GetFormID() + " call=" + t0 + " linked=" + q.Id(a.GetLinkedRef()) + " package=" + q.Id(a.GetCurrentPackage()) + " dist=" + a.GetDistance(target))
+EndFunction
+
+Function LinkEnd(int actorId) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    if a == None
+        q.Trace("p9 link end refused actor=" + actorId)
+        return
+    endif
+    a.SetLinkedRef(None)
+    a.EvaluatePackage()
+    q.Trace("p9 link cleared actor=" + a.GetFormID() + " package=" + q.Id(a.GetCurrentPackage()))
+EndFunction
+
+; Keeps the actor loaded on a long rung: every 5 s, for `seconds`, the player is set `behind` metres short of the actor
+; along -X (the card's routes run east along +X) and 5 m up (tgm: the fall is harmless), so the actor stays inside the
+; loaded cells; the 1 Nov 330 m walk was unloaded in 79 of 130 samples. It moves only the player, never the actor.
+;   cgf "FOCC_P9Drive.Shadow" <actor id, signed decimal> <seconds> <behind m>
+Function Shadow(int actorId, float seconds, float behind) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    Actor p = Game.GetPlayer()
+    if a == None
+        q.Trace("p9 shadow refused actor=" + actorId)
+        return
+    endif
+    float t0 = Utility.GetCurrentRealTime()
+    int hops = 0
+    q.Trace("p9 shadow start actor=" + a.GetFormID() + " seconds=" + seconds + " behind=" + behind)
+    while Utility.GetCurrentRealTime() - t0 < seconds
+        p.SetPosition(a.GetPositionX() - behind, a.GetPositionY(), a.GetPositionZ() + 5.0)
+        hops += 1
+        Utility.Wait(5.0)
+    endwhile
+    q.Trace("p9 shadow done actor=" + a.GetFormID() + " hops=" + hops)
+EndFunction
