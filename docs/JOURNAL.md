@@ -2725,17 +2725,20 @@ a fight, going indoors, leaving the map). Offline; waits on a play test.
 
 The owner played #626 (the screen stays black from an arrival until the
 reload is back) and reported: "ok everything worked only issue left will be
-solved with the pipboy". So the Commonwealth's icons are on the first map
+solved with the pipboy". The owner named neither the icons nor which issue
+is left; the hold was built so the Commonwealth's icons are on the first map
 the player opens, with no trip to Cydonia. Option A stands; B and C were not
-built. The run's log was not read. What is left goes to the Pip-Boy map.
+built. The run's log was not read. The issue left is for the Pip-Boy, in the
+owner's words.
 
 ## 2026-11-01: Map markers: the dark hold's logs read; one Claude session
 
 The game's own script logs still held the play test's map log, so they were
 copied to the PC's test-log folder before they rotated out. The play test's
-hold ended with the reload after 30.8 s, as in the retest. A probe session
-on 1 Nov (coc to Red Rocket) ran the hold to its 60 s cap and the reload
-followed 2.3 s later: the hold works as written, and a long marker pass can
-show a full minute of black. The roadmap gains a short "since 24 October"
-update. The owner ended the many-thread setup: one Claude session on the PC
+hold ended with the reload after 30.8 s, as in the retest. In a probe
+session on 1 Nov (coc to Red Rocket) the markers were in 23.5 s into the
+hold, then the map log went quiet for 38.8 s until the 60 s cap released
+the hold; the reload went out 3.5 s later. The cap works as written; why no
+reload came in that gap is not known. The roadmap gains a short "since 24
+October" update. The owner ended the many-thread setup: one Claude session on the PC
 holds every Claude role, the cloud session pauses (decisions.md, 1 Nov).

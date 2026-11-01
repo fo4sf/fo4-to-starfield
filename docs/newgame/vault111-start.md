@@ -808,8 +808,9 @@ script's doc comments in total is not ruled out either: the quest script's 44 do
 
 ## 13b. In game, run 4 (31 Oct 2026, newgame_v12): PASS to stage 200, our own start
 
-**Setup:** newgame_v12 restaged from main 63c59599 (#623) and installed by Install on the owner's line ("Reinstall
-the new game", 20:13 UTC); one boot to the main menu, then the owner's New Game (the boot's `load` at 20:51:13.803
+**Setup:** newgame_v12 restaged from main 63c59599 (#623, merged 20:31:51 UTC) and installed by Install on the owner's
+line ("Reinstall the new game", given 20:13 UTC, before the merge; the installed FO4SFNewGame.esm's file time is
+20:39:46 UTC, after it, read on the PC 1 Nov); one boot to the main menu, then the owner's New Game (the boot's `load` at 20:51:13.803
 UTC). The owner: "v12 worked fine". Logs and `log_summary.txt`: `D:\Modding\testqueue\newgame_20261031_run4`
 (Install's read, through the coordinator).
 
@@ -850,7 +851,9 @@ section 13a was not in the relay.
 plus PodLift, -0.729), at about z 0.14, where section 12 expected about 0.1 m under it. The check only bounds a fall
 (at most 0.5 m under), so it reads ok. Why the player stood higher is **unresolved**: on the pod's base or step, or
 lifted out of something solid by the game, are guesses. The owner saw nothing wrong. If the player is ever seen
-standing on the pod or floating, this is the line to read.
+standing on the pod or floating, this is the line to read. It is not a one-off: the other three v12 new games in the
+game's own logs on 31 Oct (15:14, 16:11 and 20:53 PC time, copied 1 Nov to the PC's `mapmarkers_20261101_logsnap`)
+read `drop=` -0.993, -0.393 and -0.334, so the player stood above the start point in all four.
 
 **Also played (not a numbered run):** newgame_v10 on 31 Oct, 12:58 PC time (18:58 UTC): 489 s, a normal exit,
 stage 200 on the Mars surface, SPECIAL skipped; `post_data_load` 25.4 s after `load`; logs

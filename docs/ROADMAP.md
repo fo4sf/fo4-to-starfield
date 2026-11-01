@@ -13,20 +13,23 @@ Only an in-game PASS on the installed build counts as in game; everything else s
 
 - **Living world (combined core).** The 28 Oct calls are in [decisions.md](ai/decisions.md): the whole Commonwealth
   runs offline in the Python reference model, a 20-place slice goes in game first, and in game the simulation is a
-  C++ port inside our SFSE plugin, byte-identical to Python. Probes on the PC (28 Oct,
-  [results](spikes/combined-core-probes.md)): P2, P3's keyword half, P4 to P8 and P10 **done** (PASS); P3's cell
-  half and P9 (one actor walking 450 m) INCONCLUSIVE; P1 (the SFSE sidecar) not run. The C++ port, steps 1 to C5
-  (#649, #651 to #654), and its Windows build (#656, byte parity at C5) are **in review**.
+  C++ port inside our SFSE plugin with the same results as the Python model. Probes on the PC (28 Oct,
+  [results](spikes/combined-core-probes.md)): P2, P3's keyword half, P4 to P8 (P7 minimal, its vendor half
+  deferred) and P10 **done** (PASS); P3's cell half and P9 (one actor walking 450 m) INCONCLUSIVE; no P1 verdict yet
+  (the SFSE sidecar). The C++ port, steps 1 to C5 (#649, #651 to #654, held to byte-identical output after every
+  tick), and its Windows build (#656, byte parity at C5) are **in review**.
 - **New game.** Our own start (the new game's quest is Starfield's startup quest) passed run 4 on 31 Oct: newgame_v12
   booted and ran from Vault 111 to the surface (stage 200) with no Starfield intro
   ([vault111-start.md section 13b](newgame/vault111-start.md)). v11's boot crash came from a script doc comment over
-  4 KB (section 13a; the 3 KB rule in decisions.md). **Next**: the start picker in the launcher; the pre-war vault
-  waits on the owner's design answers.
-- **Map markers.** One reload once every marker is in (#624) and a dark screen until the reload is back (#626) put the
-  Commonwealth's icons on the first map the player opens. The owner's play test passed on 31 Oct and its log agrees
-  ([map-markers.md](terrain/map-markers.md), Dark hold). What is left goes to the Pip-Boy map.
-- **Strip Starfield down** (the owner, 29 Oct: too much breaks because we force ourselves into Starfield's systems;
-  Fallout: London is the model). Decided: our own planet inside Sol, in Earth's orbit in the end, with no other
+  4 KB (supported hypothesis, section 13a; v12's clean boot with the comment short fits it; the 3 KB rule in
+  decisions.md). **Next** (the owner's start picks, decisions.md 1 Nov): the start picked in the launcher, with two
+  test starts; the pre-war vault after that, built only once the owner has seen its design.
+- **Map markers.** One reload once every marker is in (#624) and a dark screen until the reload is back (#626), so the
+  Commonwealth's icons are on the first map the player opens. The owner's play test on 31 Oct: "ok everything worked
+  only issue left will be solved with the pipboy"; its log shows the hold ending with the reload
+  ([map-markers.md](terrain/map-markers.md), Dark hold). Which issue is left for the Pip-Boy was not said.
+- **Strip Starfield down** (the owner, 29 Oct: too much breaks because we force ourselves into Starfield's systems).
+  Decided (decisions.md, 29 Oct and 1 Nov): our own planet inside Sol, in Earth's orbit in the end, with no other
   planets and those hidden from the star map by our own overrides; our own start (above); the quieting switches go
   straight into the mod; the landing pad and its ship records go; a vanilla baseline New Game tells our errors from
   Starfield's ([baseline.md](testing/baseline.md)). The planet probe's run 1 (29 Oct,

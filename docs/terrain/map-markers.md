@@ -626,8 +626,8 @@ GAMMA start and a save loaded outdoors; a player who walks into the Commonwealth
 blink. The hold also ends (fading in) past `HoldMax` (60 s), when the player leaves the map or our world or goes
 indoors, whenever the reload would wait (a fight, dead, seated, in a scene, no movement controls), checked at every
 pass and between moves of a long pass, when the reload is skipped or called off, and at a load. Log lines: `dark hold: markers coming in <s> s after the player entered the
-world`, `dark hold ends with the reload after <s> s`, `dark hold released: <why>`. Offline only: whether the game
-keeps the screen black through the stop's loading screens is open (the loading menu may fade in on its own:
+world`, `dark hold ends with the reload after <s> s`, `dark hold released: <why>`. The offline reading (31 Oct, before
+the play test): whether the game keeps the screen black through the stop's loading screens is open (the loading menu may fade in on its own:
 FO4SF_NewGameQuest.psc FadeIn's note).
 
 Play test (owner, 2026-10-31 22:34Z, #626 installed from main d285a885 on core v6i with newgame_v12): "ok everything
@@ -640,7 +640,9 @@ Log reading (Claude, 1 Nov; the game's rotating script logs copied to the PC's t
 `dark hold ends with the reload after 30.750999 s` and `reload 1 back: ... same=true`: the hold ended with the reload,
 as in the retest (**verified, log**). A later session that day (20:56 PC time) held 20.9 s. A `coc
 FO4Core_RedRocketSpawn` session on 1 Nov (11:20 PC time, Codex's P9 probe session, FO4SFMission off) ran to the cap
-instead: `dark hold released: no reload after 62.257996 s` (rt 753.3 to 815.6, while the PC clock ran 3 min 27 s;
-cause not checked), and the reload followed 2.3 s later (`reload 1 back: ... same=true`). So the hold behaves as
-written, and a long marker pass can show the full 60 s of black. Whether the screen stayed black through the stop's
-loading screens is still the owner's report, not a log reading.
+instead: the last marker move came at rt 776.8 (23.5 s into the hold), then the log has no map line for 38.8 s of rt
+(3 min of PC clock) until `dark hold released: no reload after 62.257996 s` (rt 815.6); the reload went out 3.5 s
+after that (rt 819.1) and was back at rt 824.6 (`same=true`). So the cap works as written when no reload comes; why
+none came in that gap is not known (the 31 Oct pass reported every marker in place 7.4 s after its last move, this
+one 41 s after). Whether the screen stayed black through the stop's loading screens is still the owner's report, not
+a log reading.
