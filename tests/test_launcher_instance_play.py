@@ -40,6 +40,7 @@ class FolderPlayTests(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"LOCALAPPDATA": self.local})
         env.start()
         self.addCleanup(env.stop)
+        self.journal = instance.journal_path(self.player)
         self.said = []
 
     def read(self, p):
@@ -50,21 +51,22 @@ class FolderPlayTests(unittest.TestCase):
     def test_swap_round_trip_puts_the_players_list_back_byte_for_byte(self):
         instance.swap_in(self.folder, self.player, self.said.append)
         self.assertEqual(self.read(self.player), OURS)                       # the game reads FO4SF's list
-        backups = [n for n in os.listdir(instance.local_dir(self.folder)) if n.startswith("player-Plugins.txt.bak-")]
+        self.assertEqual(os.path.dirname(self.journal), os.path.join(self.local, "FO4SF"))   # outside the folder
+        backups = [n for n in os.listdir(os.path.dirname(self.journal)) if n.startswith("player-Plugins.txt.bak-")]
         self.assertEqual(len(backups), 1)                                    # a second copy, kept
         rewritten = b"*FO4TerrainCore.esm\r\n*FO4Port.esm\r\n"
         with open(self.player, "wb") as f:                                   # the game rewrites it at its start
             f.write(rewritten)
-        self.assertTrue(instance.swap_out(self.folder, self.said.append))
+        self.assertTrue(instance.swap_out(self.player, self.said.append))
         self.assertEqual(self.read(self.player), PLAYER)
         self.assertEqual(self.read(instance.plugins_txt(self.folder)), rewritten)   # FO4SF keeps the game's order
-        self.assertFalse(os.path.exists(os.path.join(self.folder, instance.SWAP)))
-        self.assertFalse(instance.swap_out(self.folder))                    # nothing left to put back
+        self.assertFalse(os.path.exists(self.journal))
+        self.assertFalse(instance.swap_out(self.player))                    # nothing left to put back
 
     def test_a_player_without_a_plugins_txt_gets_none_back(self):
         os.remove(self.player)
         instance.swap_in(self.folder, self.player, self.said.append)
-        instance.swap_out(self.folder, self.said.append)
+        instance.swap_out(self.player, self.said.append)
         self.assertFalse(os.path.exists(self.player))
 
     def test_a_left_journal_is_put_back_first_and_never_overwritten(self):
@@ -72,16 +74,62 @@ class FolderPlayTests(unittest.TestCase):
         with self.assertRaisesRegex(instance.InstanceRefused, "left from an earlier start"):
             instance.swap_in(self.folder, self.player, self.said.append)
         with self.assertRaisesRegex(instance.InstanceRefused, "running"):
-            instance.recover(self.folder, lambda: True, self.said.append)
+            instance.recover(self.player, lambda: True, self.said.append)
         self.assertEqual(self.read(self.player), OURS)                       # left alone under a running game
         with open(self.player, "wb") as f:                                   # whoever rewrote it, it is kept aside
             f.write(b"*Unknown.esm\r\n")
-        self.assertTrue(instance.recover(self.folder, lambda: False, self.said.append))
+        self.assertTrue(instance.recover(self.player, lambda: False, self.said.append))
         self.assertEqual(self.read(self.player), PLAYER)
         self.assertEqual(self.read(instance.plugins_txt(self.folder)), OURS)  # a recovery never adopts a stranger's
-        kept = [n for n in os.listdir(os.path.dirname(instance.plugins_txt(self.folder))) if ".after-" in n]
+        kept = [n for n in os.listdir(os.path.dirname(self.journal)) if ".after-" in n]
         self.assertEqual(len(kept), 1)
-        self.assertFalse(instance.recover(self.folder, lambda: False, self.said.append))
+        self.assertFalse(instance.recover(self.player, lambda: False, self.said.append))
+
+    def test_a_left_swap_comes_back_whatever_the_setting_and_without_the_folder(self):
+        # review of the stack, P2 2: the journal is found from the player's list, not from the setting `instance`
+        instance.swap_in(self.folder, self.player, self.said.append)
+        spec = importlib.util.spec_from_file_location("launcher_cli_left", os.path.join(ROOT, "scripts", "launcher.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.put_back_left_swap(dry_run=True)                            # a dry run only says so
+        self.assertIn("a swap is left", out.getvalue())
+        self.assertEqual(self.read(self.player), OURS)
+        import shutil
+        shutil.rmtree(self.folder)                                         # even the folder gone
+        with mock.patch.object(cli.restore, "game_running", return_value=False):
+            cli.put_back_left_swap(dry_run=False)
+        self.assertEqual(self.read(self.player), PLAYER)
+        self.assertFalse(os.path.exists(self.journal))
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}):
+            cli.put_back_left_swap(dry_run=False)                           # no LOCALAPPDATA: nothing to do
+
+    def test_a_swap_out_with_the_folder_gone_keeps_the_games_list_beside_the_journal(self):
+        instance.swap_in(self.folder, self.player, self.said.append)
+        with open(self.player, "wb") as f:
+            f.write(b"*Rewritten.esm\r\n")
+        import shutil
+        shutil.rmtree(self.folder)
+        self.assertTrue(instance.swap_out(self.player, self.said.append, after_game=True))
+        self.assertEqual(self.read(self.player), PLAYER)
+        kept = [n for n in os.listdir(os.path.dirname(self.journal)) if ".after-" in n]
+        self.assertEqual([self.read(os.path.join(os.path.dirname(self.journal), n)) for n in kept],
+                         [b"*Rewritten.esm\r\n"])
+
+    def test_starfieldcustom_ini_that_would_undo_the_folders_ini_is_named(self):
+        my_games = os.path.join(self.root, "My Games", "Starfield")
+        self.assertEqual(instance.custom_ini_problems(my_games, {"bridge": "on"}), [])          # no file
+        write(my_games, "StarfieldCustom.ini", b"[Papyrus]\r\nbEnableLogging=1\r\n")
+        self.assertEqual(instance.custom_ini_problems(my_games, {"bridge": "on"}), [])
+        write(my_games, "StarfieldCustom.ini", b"[General]\r\nSLocalSavePath=Saves\\Mine\\\r\n"
+                                               b"[Papyrus]\r\nbEnableLogging=0\r\n")
+        self.assertEqual(len(instance.custom_ini_problems(my_games, {"bridge": "on"})), 2)
+        self.assertEqual(len(instance.custom_ini_problems(my_games, {"bridge": "off"})), 1)
+        self.assertEqual(instance.custom_ini_problems("", {"bridge": "on"}), [])
+        with self.assertRaisesRegex(ValueError, "SLocalSavePath"):
+            self.play(self.values(my_games=my_games), self.game())
+        self.assertEqual(self.read(self.player), PLAYER)                    # refused before anything
 
     def test_a_kept_list_is_never_overwritten_and_a_retry_reuses_its_own(self):
         # #655 finding 3: the same second's name, with other bytes, gets -2; with the same bytes it is reused
@@ -108,7 +156,7 @@ class FolderPlayTests(unittest.TestCase):
         self.assertEqual(self.read(ini), before)                             # once
         os.remove(ini)
         os.link(os.path.join(self.root, "Steam", "Starfield", "Starfield.ini"), ini)
-        with self.assertRaisesRegex(instance.InstanceRefused, "hard-linked"):
+        with self.assertRaisesRegex(instance.InstanceRefused, "second name"):
             instance.ensure_saves(self.folder)                              # never through a link to Steam's file
 
     def test_set_ini_key(self):
@@ -127,9 +175,20 @@ class FolderPlayTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(seen["env"]["LOCALAPPDATA"], instance.local_dir(self.folder))
         steam = os.path.join(self.root, "Steam", "Starfield")
-        for cmd in (["x", "--starfield", steam], ["x", f"--starfield={steam}"]):
+        for cmd in (["x", "--starfield", steam], ["x", f"--starfield={steam}"], ["x", "--starf", steam],
+                    ["x", f"--sta={steam}"]):
             with self.assertRaisesRegex(instance.InstanceRefused, "is not the FO4SF game folder"):
                 instance.run(self.folder, cmd, call=lambda *a, **k: 0)
+        # review of the stack, P3 4: a tool's default --starfield is the player's install, so one must be named, once
+        for cmd in (["x", "run"], ["x", "--starfield", self.folder, "--starf", self.folder]):
+            with self.assertRaisesRegex(instance.InstanceRefused, "once"):
+                instance.run(self.folder, cmd, call=lambda *a, **k: 0)
+        rel = os.path.relpath(self.folder, self.root)                       # resolved from the command's own folder
+        self.assertEqual(instance.run(self.folder, ["x", "--starfield", rel], cwd=self.root,
+                                      call=lambda *a, **k: 0), 0)
+        with self.assertRaisesRegex(instance.InstanceRefused, "is not the FO4SF game folder"):
+            instance.run(self.folder, ["x", "--starfield", rel], cwd=os.path.join(self.root, "Steam"),
+                         call=lambda *a, **k: 0)
         with self.assertRaisesRegex(instance.InstanceRefused, "running"):
             instance.run(self.folder, ["x"], running=lambda: True, call=lambda *a, **k: 0)
         with self.assertRaisesRegex(instance.InstanceRefused, "not a finished FO4SF game folder"):
@@ -168,7 +227,7 @@ class FolderPlayTests(unittest.TestCase):
         ini = self.read(os.path.join(self.folder, "Starfield.ini")).decode()
         self.assertIn("bEnableLogging=1", ini)                               # Papyrus in the folder's own INI
         self.assertIn("SLocalSavePath=Saves\\FO4SF\\", ini)
-        self.assertFalse(os.path.exists(os.path.join(self.folder, instance.SWAP)))
+        self.assertFalse(os.path.exists(self.journal))
 
     def test_route_steam_is_refused_for_the_folder(self):
         with self.assertRaisesRegex(ValueError, "route=steam"):
@@ -181,7 +240,7 @@ class FolderPlayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "could not start"):
             self.play(self.values(), sys_)
         self.assertEqual(self.read(self.player), PLAYER)
-        self.assertFalse(os.path.exists(os.path.join(self.folder, instance.SWAP)))
+        self.assertFalse(os.path.exists(self.journal))
 
     def test_a_game_still_running_keeps_the_swap_until_it_closes(self):
         sys_ = FakeSystem([])
@@ -191,10 +250,10 @@ class FolderPlayTests(unittest.TestCase):
         sys_.pids = pids
         r = self.play(self.values(), sys_)
         self.assertFalse(r["started"])
-        self.assertTrue(os.path.exists(os.path.join(self.folder, instance.SWAP)))   # never swapped under a game
+        self.assertTrue(os.path.exists(self.journal))                       # never swapped under a game
         self.assertEqual(self.read(self.player), OURS)
-        self.assertTrue(any("comes back at the next launcher start" in s for s in self.said))
-        self.assertTrue(instance.recover(self.folder, lambda: False, self.said.append))   # once it has closed
+        self.assertTrue(any("comes back at the next launcher play" in s for s in self.said))
+        self.assertTrue(instance.recover(self.player, lambda: False, self.said.append))   # once it has closed
         self.assertEqual(self.read(self.player), PLAYER)
 
     def test_play_command_uses_the_setting_and_refuses_another_starfield(self):
@@ -207,7 +266,11 @@ class FolderPlayTests(unittest.TestCase):
                 mock.patch.object(cli.instance, "recover", return_value=False) as recover:
             self.assertEqual(cli.main(["play", "--settings", path, "--dry-run"]), 0)
             self.assertEqual(play.call_args.kwargs["folder"], self.folder)
+            recover.assert_not_called()                                     # a dry run only looks (P3 5)
+            play.return_value = {"started": True}
+            self.assertEqual(cli.main(["play", "--settings", path]), 0)
             recover.assert_called_once()
+            self.assertEqual(recover.call_args.args[0], self.player)        # found from the player's list
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(["play", "--settings", path, "--starfield", self.root]), 2)
         with mock.patch.object(cli.instance, "run", return_value=0) as run:

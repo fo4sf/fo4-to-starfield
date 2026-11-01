@@ -137,12 +137,83 @@ class InstanceTests(unittest.TestCase):
             self.create()
         with open(exe, "rb") as f:
             self.assertEqual(f.read(), b"MZ something else")
+        # checked before the record changes: the refused rerun leaves the finished folder finished (playable)
+        self.assertTrue(files.load_json(os.path.join(self.dst, instance.RECORD))["complete"])
+
+    # --- review of the stack, P2 1: a rerun or a resume never strands the folder -----------------------------------
+    def test_a_rerun_after_the_folder_changed_its_own_ini_is_fine(self):
+        self.create()
+        instance.ensure_saves(self.dst, say=lambda *_: None)               # what every play does
+        self.create()                                                      # e.g. after a Starfield update
+        self.assertTrue(files.load_json(os.path.join(self.dst, instance.RECORD))["complete"])
+        with open(os.path.join(self.dst, "Starfield.ini"), "rb") as f:
+            self.assertIn(b"SLocalSavePath", f.read())                      # the folder's own INI kept
+
+    def test_a_run_stopped_after_a_copy_but_before_its_record_goes_on(self):
+        from unittest import mock
+        real, calls = instance.files.save_json, []
+
+        def stop_at_the_first_copys_record(path, data):
+            calls.append(path)
+            if len(calls) == 2:                                            # 1: before the files, 2: after a copy
+                raise OSError("power cut")
+            real(path, data)
+        with mock.patch.object(instance.files, "save_json", side_effect=stop_at_the_first_copys_record):
+            with self.assertRaises(OSError):
+                self.create()
+        rec = files.load_json(os.path.join(self.dst, instance.RECORD))
+        self.assertFalse(rec["complete"])
+        self.assertEqual([r for r in rec["made"] if r.endswith(".ini")], [])   # the copy is there, its record not
+        self.create()
+        rec = files.load_json(os.path.join(self.dst, instance.RECORD))
+        self.assertTrue(rec["complete"])
+        self.assertIn("Starfield.ini", rec["made"])
+        # a copy the record lacks must still be the game's bytes
+        os.remove(os.path.join(self.dst, "Ultra.ini"))
+        rec["made"].remove("Ultra.ini")
+        files.save_json(os.path.join(self.dst, instance.RECORD), rec)
+        write(self.dst, "Ultra.ini", b"[Display]\r\nmine=1\r\n")
+        with self.assertRaisesRegex(instance.InstanceRefused, "not the game's file"):
+            self.create()
+
+    def test_a_copy_stopped_half_way_never_takes_its_name(self):
+        from unittest import mock
+        real = instance.shutil.copy2
+
+        def half(src, dst):
+            with open(dst, "wb") as f:
+                f.write(b"[Gen")
+            raise OSError("power cut")
+        with mock.patch.object(instance.shutil, "copy2", side_effect=half):
+            with self.assertRaises(OSError):
+                self.create()
+        self.assertFalse(os.path.exists(os.path.join(self.dst, "Starfield.ini")))
+        self.assertTrue(os.path.exists(os.path.join(self.dst, "Starfield.ini" + instance.PART)))
+        with mock.patch.object(instance.shutil, "copy2", side_effect=real):
+            self.create()
+        with open(os.path.join(self.dst, "Starfield.ini"), "rb") as f:
+            self.assertEqual(f.read(), GAME["Starfield.ini"])
+        self.assertFalse(os.path.exists(os.path.join(self.dst, "Starfield.ini" + instance.PART)))
+
+    def test_an_ini_in_a_kept_folder_is_copied_not_linked(self):
+        write(self.src, "Data/SFSE/Plugins/SomeOwnerPlugin.ini", b"[Main]\r\nOn=1\r\n")
+        p = instance.plan(self.src, self.dst, keep_data_dirs=["SFSE"])
+        self.assertIn("Data/SFSE/Plugins/SomeOwnerPlugin.ini", p["copy"])
+        self.assertIn("Data/SFSE/Plugins/SomeOwnerPlugin.dll", p["link"])
+
+    def test_a_drive_or_share_that_is_not_there_is_refused_not_looped(self):
+        from unittest import mock
+        with mock.patch.object(instance.os.path, "isdir", return_value=False):
+            with self.assertRaisesRegex(instance.InstanceRefused, "no such drive or share"):
+                instance.check_target(self.src, os.path.join(self.root, "nowhere", "FO4SF"), 0, 0, plenty)
 
     def test_refusals_before_anything_is_written(self):
         cases = [
             (os.path.join(self.src, "FO4SF"), "outside the Starfield install"),
             (os.path.join(self.root, "SteamLibrary", "steamapps", "FO4SF"), "steamapps"),
             (os.path.join(self.root, "OneDrive", "FO4SF"), "onedrive"),
+            (os.path.join(self.root, "OneDrive - Contoso", "FO4SF"), "onedrive - contoso"),
+            (os.path.join(self.root, "Dropbox", "FO4SF"), "dropbox"),
         ]
         for target, text in cases:
             with self.subTest(target=target):

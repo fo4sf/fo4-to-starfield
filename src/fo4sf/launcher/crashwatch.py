@@ -491,12 +491,15 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     if folder:
         folder = os.path.abspath(folder)
         inst.check_ready(folder)
+        player = inst.player_plugins_txt()
         starfield = folder
         system = system or System(env=inst.env_for(folder), plugins_txt=inst.plugins_txt(folder))
     system = system or System()
     bad = settings_mod.problems(values)
     if folder and values["route"] == "steam":
         bad.append("route=steam starts the Steam folder, not the FO4SF game folder: use route=sfse or exe")
+    if folder:
+        bad += inst.custom_ini_problems(values["my_games"], values)
     cw = values["crash_watch.enabled"]
     if cw:
         if values["crash_watch.procdump"] and not os.path.isfile(values["crash_watch.procdump"]):
@@ -556,7 +559,6 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
     if folder:
         inst.ensure_saves(folder, say)
-        player = inst.player_plugins_txt()
     order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
     if folder:
         inst.swap_in(folder, player, say)
@@ -578,15 +580,16 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
             except ValueError:                      # unknown: leave the journal; recover() puts it back later
                 closed = False
             if closed:
-                inst.swap_out(folder, say, after_game=True)
+                inst.swap_out(player, say, after_game=True)
         raise
     if folder:
         if system.pids():
             # a game that came up after the watch gave up still reads the list in place: the player's comes back at
-            # the next launcher start once Starfield is closed (instance.recover), never under a running game
-            say("Plugins.txt: Starfield is still running; yours comes back at the next launcher start after it closes")
+            # the next `play` (with or without the setting) or `instance recover` once Starfield is closed
+            say("Plugins.txt: Starfield is still running; yours comes back at the next launcher play (or `launcher.py "
+                "instance recover`) after it closes")
         else:
-            inst.swap_out(folder, say, after_game=True)
+            inst.swap_out(player, say, after_game=True)
         system.plugins_txt = inst.plugins_txt(folder)
     return result
 

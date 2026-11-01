@@ -5,13 +5,15 @@ own mod packs for that"). Design and the steps after this one: docs/ai/fo4sf-ins
 This module plans and makes the folder; it never writes in the player's install.
 * Every file of the install is hard-linked into the new folder, so it costs no disk (a hard link is the same file under a
   second name). That needs the same drive: on another drive it refuses, since a copy would cost the whole game.
-* INI files in the game folder (Starfield.ini, the Low to Ultra presets, ...) are copied instead, so the FO4SF folder's
-  settings can change without changing the player's (an edit through a hard link would change both).
+* INI files (Starfield.ini, the Low to Ultra presets, an SFSE plugin's settings in a kept Data folder, ...) are copied
+  instead, at every level, so the FO4SF folder's settings can change without changing the player's (an edit through a
+  hard link would change both). A copy goes to a temporary name first and takes its own name only when complete.
 * Data keeps only the game's own files: the plugins the game loads by itself (fo4sf.core.loadset.built_in) and the files
   named after them ("Starfield - Textures01.ba2", "SFBGS003 - Main.ba2", ...). Everything else in Data (the player's
   mods, our own installs, loose folders, SFSE plugins) is left out and listed, unless a Data folder is kept by name.
 * The record FO4SF-instance.json in the new folder lists what was made; a run that stopped goes on from there, and a
-  file that is already there and is not the one it would make is refused, never overwritten.
+  file that is already there and is not the one it would make is refused, never overwritten. Every file already there
+  is checked before the record changes, so a refused rerun leaves a finished folder finished.
 Read-only `plan` says all of it first: what is linked, copied and left out, and the disk it costs.
 """
 import os
@@ -24,9 +26,12 @@ RECORD = "FO4SF-instance.json"
 SCHEMA = 1
 GAME_EXE = "Starfield.exe"
 COPY_EXT = (".ini",)                         # changed per folder: copied, never linked
+PART = ".fo4sf-part"                         # a copy on its way: it takes its own name only when complete
 # where a game folder should not be made (a Steam library, Program Files, a synced folder: the same advice the Starfield
 # Launchpad Wabbajack instance gives, nexusmods.com/starfield/mods/18644)
-BAD_PARTS = ("steamapps", "program files", "program files (x86)", "onedrive")
+BAD_PARTS = ("steamapps", "program files", "program files (x86)", "dropbox", "google drive", "my drive",
+             "icloud drive", "iclouddrive")
+BAD_PREFIXES = ("onedrive",)                 # "OneDrive", "OneDrive - Contoso", ...
 
 
 class InstanceRefused(ValueError):
@@ -114,7 +119,7 @@ def plan(source, target, keep_data_dirs=()):
             size = os.path.getsize(os.path.join(d, n))
             if len(parts) == 1 and parts[0].casefold() == "data" and not game_file(n):
                 out["left_out"].append(rel)
-            elif not parts and n.casefold().endswith(COPY_EXT):
+            elif n.casefold().endswith(COPY_EXT):
                 out["copy"].append(rel)
                 out["copy_bytes"] += size
             else:
@@ -133,7 +138,8 @@ def check_target(source, target, min_free_gb, copy_bytes, disk_usage=shutil.disk
     if _inside(target, source) or _inside(source, target):
         raise InstanceRefused("the FO4SF folder must be outside the Starfield install (and not hold it)")
     # the spelling given and the path it resolves to (a junction or symlink may alias a Steam library)
-    bad = [p for p in _parts(target) + _parts(os.path.realpath(target)) if p in BAD_PARTS]
+    bad = [p for p in _parts(target) + _parts(os.path.realpath(target))
+           if p in BAD_PARTS or p.startswith(BAD_PREFIXES)]
     if bad:
         raise InstanceRefused(f"{target} is inside {bad[0]!r}: put the FO4SF folder elsewhere, for example D:\\FO4SF\\"
                               "Starfield (Steam, Program Files and synced folders can move or lock its files)")
@@ -147,13 +153,32 @@ def check_target(source, target, min_free_gb, copy_bytes, disk_usage=shutil.disk
                               "through it would land outside the folder)")
     parent = target
     while not os.path.isdir(parent):
-        parent = os.path.dirname(parent)
+        up = os.path.dirname(parent)
+        if up == parent:                          # a drive or share that is not there (Z:\ is its own dirname)
+            raise InstanceRefused(f"{target}: no such drive or share")
+        parent = up
     if _device(parent) != _device(source):
         raise InstanceRefused(f"{target} is on another drive than {source}: hard links need the same drive (a copy "
                               "would cost the whole game)")
     free = disk_usage(parent).free - copy_bytes
     if free < min_free_gb * 1024 ** 3:
         raise InstanceRefused(f"{free / 1024 ** 3:.1f} GB would be left free, under {min_free_gb:g} GB")
+
+
+def _same_link(src, dst):
+    return not _is_link(dst) and os.path.samefile(src, dst)
+
+
+def _own_copy(src, dst, recorded):
+    """dst is the folder's own copy of src: a plain file with no second name (not the game's file, not linked elsewhere).
+    A recorded copy may have changed since (the folder's INI is its own); one the record lacks must still be byte for
+    byte the game's (a run that stopped between the copy and its record)."""
+    if _is_link(dst) or not os.path.isfile(dst) or os.lstat(dst).st_nlink != 1:
+        return False
+    if recorded:
+        return True
+    import filecmp
+    return filecmp.cmp(src, dst, shallow=False)
 
 
 def create(source, target, keep_data_dirs=(), min_free_gb=40.0, say=print, disk_usage=shutil.disk_usage, link=os.link):
@@ -165,29 +190,42 @@ def create(source, target, keep_data_dirs=(), min_free_gb=40.0, say=print, disk_
     if rec is not None and os.path.normcase(os.path.abspath(rec.get("source", ""))) != os.path.normcase(source):
         raise InstanceRefused(f"{target} was made from {rec.get('source')}, not {source}")
     check_target(source, target, min_free_gb, p["copy_bytes"], disk_usage)
-    os.makedirs(target, exist_ok=True)
     rec = rec or {"schema": SCHEMA, "source": source, "made": [], "complete": False}
-    rec.update({"left_out": p["left_out"], "keep_data_dirs": sorted(keep_data_dirs), "complete": False})
     made = set(rec["made"])
-    files.save_json(rec_p, rec)
     todo = [(r, "link") for r in p["link"]] + [(r, "copy") for r in p["copy"]]
+    # every file already there is checked before the record changes: a refusal leaves a finished folder finished
+    found = []
+    for rel, how in todo:
+        src = os.path.join(source, *rel.split("/"))
+        dst = os.path.join(target, *rel.split("/"))
+        if os.path.lexists(dst):
+            if not (_same_link(src, dst) if how == "link" else _own_copy(src, dst, rel in made)):
+                raise InstanceRefused(f"{dst} is already there and is not the game's file; nothing overwritten")
+            if rel not in made:
+                found.append(rel)                    # made by a run that stopped before its record was saved
+    os.makedirs(target, exist_ok=True)
+    rec["made"] += found
+    rec.update({"left_out": p["left_out"], "keep_data_dirs": sorted(keep_data_dirs), "complete": False})
+    files.save_json(rec_p, rec)
     for k, (rel, how) in enumerate(todo):
         src = os.path.join(source, *rel.split("/"))
         dst = os.path.join(target, *rel.split("/"))
         if os.path.lexists(dst):
-            same = os.path.samefile(src, dst) if how == "link" else (
-                rel in made and os.path.getsize(dst) == os.path.getsize(src))
-            if not same:
-                raise InstanceRefused(f"{dst} is already there and is not the game's file; nothing overwritten")
-            continue
+            continue                                 # checked above
         _real_dir(target, os.path.dirname(rel))         # checked again per file: nothing written through a link
         if how == "link":
             link(src, dst)
         else:
-            shutil.copy2(src, dst)
+            part = dst + PART
+            if os.path.lexists(part):                # our own copy that stopped half way
+                if _is_link(part) or not os.path.isfile(part):
+                    raise InstanceRefused(f"{part} is not a file of ours; nothing overwritten")
+                os.remove(part)
+            shutil.copy2(src, part)
+            os.replace(part, dst)
         rec["made"].append(rel)
-        if k % 200 == 199:
-            files.save_json(rec_p, rec)              # a stop loses at most these: the rerun finds them by samefile
+        if how == "copy" or k % 200 == 199:
+            files.save_json(rec_p, rec)              # a stop loses at most 200 links: the rerun finds them by samefile
     rec["complete"] = True
     files.save_json(rec_p, rec)
     say(f"FO4SF game folder ready: {target} ({len(p['link'])} files linked, {len(p['copy'])} copied, "
@@ -211,6 +249,18 @@ def summary(p):
 LOCAL = "FO4SF-local"                 # the folder's own LOCALAPPDATA: <folder>\FO4SF-local\Starfield\Plugins.txt
 SWAP = "FO4SF-swap.json"              # the journal of a Plugins.txt swap, while FO4SF's list stands in the player's place
 SAVES = "Saves\\FO4SF\\"              # SLocalSavePath: the folder's saves, apart from the player's (H3)
+
+
+def journal_path(player):
+    """The swap journal, at a fixed place beside the launcher's settings (%LOCALAPPDATA%\\FO4SF), never in the FO4SF
+    folder: every start finds it whatever the setting `instance` says now, and removing the folder cannot lose it."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(player))), "FO4SF", SWAP)
+
+
+def pending(player):
+    """The journal of a swap that was not put back (None when there is none): a dry run reports it, never acts."""
+    j = journal_path(player)
+    return files.load_json(j) if os.path.exists(j) else None
 
 
 def local_dir(folder):
@@ -266,22 +316,24 @@ def _put(path, raw, expect):
 
 
 def swap_in(folder, player, say=print):
-    """Put the folder's list where the game reads it, after journaling the player's own bytes (SWAP). Refuses while a
-    journal is left from an earlier swap (recover() first)."""
+    """Put the folder's list where the game reads it, after journaling the player's own bytes (journal_path). Refuses
+    while a journal is left from an earlier swap (recover() first)."""
     import base64
-    journal = os.path.join(folder, SWAP)
+    journal = journal_path(player)
     if os.path.exists(journal):
         raise InstanceRefused(f"{journal} is left from an earlier start: the player's Plugins.txt is put back first")
     mine, ours = _read(player), _read(plugins_txt(folder))
     ours = b"" if ours is None else ours
+    os.makedirs(os.path.dirname(journal), exist_ok=True)
     if mine is not None:                               # a second copy outside the journal, kept: cheap insurance
         import datetime
-        bak = os.path.join(local_dir(folder), "player-Plugins.txt.bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-        os.makedirs(local_dir(folder), exist_ok=True)
+        bak = os.path.join(os.path.dirname(journal),
+                           "player-Plugins.txt.bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
         if not os.path.exists(bak):
             with open(bak, "wb") as f:
                 f.write(mine)
-    files.save_json(journal, {"schema": 1, "player": player, "wrote_sha256": _sha(ours),
+    files.save_json(journal, {"schema": 2, "player": player, "folder": os.path.abspath(folder),
+                              "wrote_sha256": _sha(ours),
                               "player_b64": None if mine is None else base64.b64encode(mine).decode("ascii")})
     try:
         _put(player, ours, _sha(mine))
@@ -313,24 +365,25 @@ def _keep_after(base, raw):
     raise InstanceRefused(f"{base}: too many kept lists; move some away")
 
 
-def swap_out(folder, say=print, after_game=True):
-    """Put the player's list back from the journal. after_game: the game ran and may have rewritten FO4SF's list (it does
-    at every start), so that becomes the folder's list. A recovery (the launcher did not see the end) keeps what stands
-    there as Plugins.txt.after-<time> beside the folder's list instead, since it cannot tell whose rewrite it is."""
+def swap_out(player, say=print, after_game=True):
+    """Put the player's list back from the journal. after_game: the game ran from the journal's folder and may have
+    rewritten FO4SF's list (it does at every start), so that becomes the folder's list. A recovery (the launcher did not
+    see the end), or a folder no longer there, keeps what stands there as Plugins.txt.after-<time> beside the journal
+    instead, since it cannot tell whose rewrite it is."""
     import base64
     import datetime
-    journal = os.path.join(folder, SWAP)
+    journal = journal_path(player)
     if not os.path.exists(journal):
         return False
     j = files.load_json(journal)
     player, now = j["player"], _read(j["player"])
     if now is not None and _sha(now) != j["wrote_sha256"]:
-        if after_game:
-            ours_p = plugins_txt(folder)
+        if after_game and os.path.isdir(j["folder"]):
+            ours_p = plugins_txt(j["folder"])
             _put(ours_p, now, _sha(_read(ours_p)))
         else:
-            keep = _keep_after(plugins_txt(folder) + ".after-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
-                               now)
+            keep = _keep_after(os.path.join(os.path.dirname(journal), "Plugins.txt.after-"
+                                            + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")), now)
             say(f"Plugins.txt: what stood in its place is kept as {keep}")
     mine = None if j.get("player_b64") is None else base64.b64decode(j["player_b64"])
     _put(player, mine, _sha(now))
@@ -339,14 +392,14 @@ def swap_out(folder, say=print, after_game=True):
     return True
 
 
-def recover(folder, running, say=print):
+def recover(player, running, say=print):
     """A journal left by a launcher that did not see the game end (a crash, a power cut): put the player's list back
-    once Starfield is closed. True when it did."""
-    if not os.path.exists(os.path.join(folder, SWAP)):
+    once Starfield is closed. True when it did. Every `play` calls it first, with or without the setting `instance`."""
+    if not os.path.exists(journal_path(player)):
         return False
     if running():
         raise InstanceRefused("Starfield is running with FO4SF's Plugins.txt in place: close it, then start again")
-    return swap_out(folder, say, after_game=False)
+    return swap_out(player, say, after_game=False)
 
 
 def set_ini_key(text, section, key, value):
@@ -384,30 +437,64 @@ def set_ini_key(text, section, key, value):
 def ensure_saves(folder, say=print):
     """SLocalSavePath in the folder's own Starfield.ini, so its saves go to My Games\\Starfield\\Saves\\FO4SF (H3)."""
     ini = os.path.join(folder, "Starfield.ini")
+    if _is_link(ini) or (os.path.lexists(ini) and os.lstat(ini).st_nlink > 1):
+        raise InstanceRefused(f"{ini} is a link or has a second name (the Steam install's?): it must be the folder's "
+                              "own copy")
     raw = _read(ini) or b""
-    if os.path.isfile(ini) and os.stat(ini).st_nlink > 1:
-        raise InstanceRefused(f"{ini} is hard-linked to the Steam install's: it must be the folder's own copy")
     text = raw.decode("utf-8", "surrogateescape")
     new, changed = set_ini_key(text, "General", "SLocalSavePath", SAVES)
     if changed:
-        with open(ini, "wb") as f:
+        part = ini + PART                              # a new file put in place: never a write into an old one
+        with open(part, "wb") as f:
             f.write(new.encode("utf-8", "surrogateescape"))
+        os.replace(part, ini)
         say(f"saves: the FO4SF folder saves to My Games\\Starfield\\{SAVES} (its Starfield.ini)")
+
+
+def custom_ini_problems(my_games, values):
+    """What My Games' StarfieldCustom.ini says that would undo the folder's own Starfield.ini (it wins over it, and both
+    Starfields read it): its own saves path, or Papyrus logging off under bridge=on. [] when it says neither."""
+    raw = _read(os.path.join(my_games, "StarfieldCustom.ini")) if my_games else None
+    if raw is None:
+        return []
+    keys, sec = {}, ""
+    for ln in raw.decode("utf-8", "surrogateescape").splitlines():
+        s = ln.strip()
+        if s.startswith("[") and s.endswith("]"):
+            sec = s[1:-1].strip().casefold()
+        elif "=" in s and not s.startswith((";", "#")):
+            k, v = s.split("=", 1)
+            keys[(sec, k.strip().casefold())] = v.strip()
+    out = []
+    if keys.get(("general", "slocalsavepath")):
+        out.append(f"StarfieldCustom.ini sets SLocalSavePath={keys[('general', 'slocalsavepath')]}, which overrides the "
+                   "FO4SF folder's own saves folder: remove that line to keep the two games' saves apart")
+    if values.get("bridge") == "on" and keys.get(("papyrus", "benablelogging")) == "0":
+        out.append("StarfieldCustom.ini sets bEnableLogging=0, which overrides the FO4SF folder's own Papyrus logging, "
+                   "so the bridge would be blind: remove that line or use bridge=off")
+    return out
 
 
 def run(folder, cmd, *, running=lambda: False, cwd=None, call=None):
     """Run one of our tools (an installer, plugin_toggle.py, load_order.py) on the folder, with its own Plugins.txt.
-    Refused while Starfield runs, and when the command names a --starfield that is not this folder (the player's
-    install is never an installer's target from here). Returns the command's exit code."""
+    Refused while Starfield runs, and unless the command names this folder by exactly one --starfield (or a prefix of it
+    that argparse would take, --starf), resolved from the command's own working folder: a tool's default --starfield is
+    the player's install, so the target is never left to it. Returns the command's exit code."""
     import subprocess
     check_ready(folder)
     if not cmd:
         raise InstanceRefused("instance run needs a command after --")
     if running():
         raise InstanceRefused("Starfield is running: close it first")
+    targets = []
     for i, arg in enumerate(cmd):
-        target = cmd[i + 1] if arg == "--starfield" and i + 1 < len(cmd) else (
-            arg.split("=", 1)[1] if arg.startswith("--starfield=") else None)
-        if target is not None and os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(folder)):
-            raise InstanceRefused(f"the command's --starfield {target} is not the FO4SF game folder {folder}")
+        name, eq, value = arg.partition("=")
+        if len(name) >= 3 and name.startswith("--") and "--starfield".startswith(name):
+            targets.append(value if eq else (cmd[i + 1] if i + 1 < len(cmd) else ""))
+    if len(targets) != 1:
+        raise InstanceRefused(f"the command must name the FO4SF game folder once, as --starfield {folder} "
+                              f"({len(targets)} --starfield found)")
+    target = os.path.join(cwd or os.getcwd(), targets[0])
+    if os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(folder)):
+        raise InstanceRefused(f"the command's --starfield {targets[0]} is not the FO4SF game folder {folder}")
     return (call or subprocess.call)(cmd, cwd=cwd, env=env_for(folder))

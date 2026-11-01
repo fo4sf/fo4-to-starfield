@@ -96,6 +96,26 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         self.assertEqual(after, before, "instance creation wrote into the junction target")
         self.assertIsNotNone(refusal, "instance creation must refuse a destination containing a junction")
 
+    def test_a_junction_planted_during_the_run_is_refused_at_that_file(self):
+        # the Windows form of test_launcher_instance's mid-run link test, which needs POSIX symlink rights here
+        source = os.path.join(self.root, "source", "Starfield")
+        write(os.path.join(source, "Starfield.exe"), b"synthetic game executable")
+        write(os.path.join(source, "Tools", "Archive2.exe"), b"synthetic tool")
+        target = os.path.join(self.root, "FO4SF", "Starfield")
+        exterior = os.path.join(self.root, "synthetic-exterior")
+        os.makedirs(exterior)
+        made = []
+
+        def link_then_plant(src, dst):
+            os.link(src, dst)
+            made.append(dst)
+            if len(made) == 1:                              # after Starfield.exe: a junction where Tools will go
+                self.make_junction(os.path.join(target, "Tools"), exterior)
+        with self.assertRaisesRegex(instance.InstanceRefused, "is a link or junction"):
+            instance.create(source, target, min_free_gb=0, disk_usage=self.disk_usage, say=lambda *_: None,
+                            link=link_then_plant)
+        self.assertEqual(tree_snapshot(exterior), {}, "instance creation wrote into the junction target")
+
     def test_refuses_target_whose_resolved_path_is_inside_steamapps(self):
         common = os.path.join(self.root, "SteamLibrary", "steamapps", "common")
         source = os.path.join(common, "Starfield")
@@ -120,13 +140,14 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
         folder = os.path.join(self.root, "FO4SF", "Starfield")
         player = os.path.join(self.root, "profile", "Local", "Starfield", "Plugins.txt")
         own_plugins = instance.plugins_txt(folder)
+        journal = instance.journal_path(player)
         write(own_plugins, FO4SF_BYTES)
         write(player, PLAYER_BYTES)
         preserved = {}
 
         def preserved_unknown_lists():
-            directory = os.path.dirname(own_plugins)
-            prefix = os.path.basename(own_plugins) + ".after-"
+            directory = os.path.dirname(journal)                # kept beside the journal, outside the folder
+            prefix = "Plugins.txt.after-"
             found = {}
             for name in os.listdir(directory):
                 path = os.path.join(directory, name)
@@ -160,13 +181,13 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
 
             with mock.patch.object(instance, "_put", side_effect=fail_once_after_unknown_bytes_are_preserved):
                 with self.assertRaisesRegex(OSError, "synthetic interruption"):
-                    instance.recover(folder, lambda: False, say=lambda *_: None)
+                    instance.recover(player, lambda: False, say=lambda *_: None)
 
             self.assertTrue(injected["done"], "the one-shot failure was not injected")
-            self.assertTrue(os.path.isfile(os.path.join(folder, instance.SWAP)), "journal must survive interruption")
+            self.assertTrue(os.path.isfile(journal), "journal must survive interruption")
             self.assertTrue(preserved_unknown_lists())
 
-            recovered = instance.recover(folder, lambda: False, say=lambda *_: None)
+            recovered = instance.recover(player, lambda: False, say=lambda *_: None)
 
             self.assertTrue(recovered)
             with open(player, "rb") as f:
@@ -175,7 +196,7 @@ class WindowsInstanceSafetyRegressions(unittest.TestCase):
             for path, original in preserved.items():
                 with open(path, "rb") as f:
                     self.assertEqual(f.read(), original, "retry must preserve the earlier evidence unchanged")
-            self.assertFalse(os.path.exists(os.path.join(folder, instance.SWAP)), "successful retry closes the journal")
+            self.assertFalse(os.path.exists(journal), "successful retry closes the journal")
 
 
 if __name__ == "__main__":
