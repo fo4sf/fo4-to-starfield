@@ -152,6 +152,8 @@ EndFunction
 ; Keeps the actor loaded on a long rung: every 5 s, for `seconds`, the player is set `behind` metres short of the actor
 ; along -X (the card's routes run east along +X) and 5 m up (tgm: the fall is harmless), so the actor stays inside the
 ; loaded cells; the 1 Nov 330 m walk was unloaded in 79 of 130 samples. It moves only the player, never the actor.
+; The first hop waits 3 s: on the PC (1 Nov) a hop typed in a console batch closed the console, and the batch's closing
+; key then reopened it, pausing the game (both long rungs). The wait lets the batch close the console first.
 ;   cgf "FOCC_P9Drive.Shadow" <actor id, signed decimal> <seconds> <behind m>
 Function Shadow(int actorId, float seconds, float behind) global
     FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
@@ -164,6 +166,7 @@ Function Shadow(int actorId, float seconds, float behind) global
         q.Trace("p9 shadow refused actor=" + actorId)
         return
     endif
+    Utility.Wait(3.0)
     float t0 = Utility.GetCurrentRealTime()
     int hops = 0
     q.Trace("p9 shadow start actor=" + a.GetFormID() + " seconds=" + seconds + " behind=" + behind)

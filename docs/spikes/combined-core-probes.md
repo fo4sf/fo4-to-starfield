@@ -569,12 +569,15 @@ Two seconds later it logs `p9 package`. `LinkEnd <id>` clears the link. The ladd
 rung a   cgf "FOCC_Probe.P9Dest" 0.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 60                     (no command)
 rung b   cgf "FOCC_Probe.P9Track" <id> 60 ; cgf "FOCC_P9Drive.Link" <id> 1                         (to the player)
 rung c   cgf "FOCC_Probe.P9Dest" 20.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 120 ; cgf "FOCC_P9Drive.Link" <id> 0
-rung L   cgf "FOCC_Probe.P9Dest" 480.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 600 ;
-         cgf "FOCC_P9Drive.Link" <id> 0 ; cgf "FOCC_P9Drive.Shadow" <id> 600 25.0            (about 480 m east)
+rung L   cgf "FOCC_Probe.P9Dest" 440.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 600 ;
+         cgf "FOCC_P9Drive.Link" <id> 0 ; cgf "FOCC_P9Drive.Shadow" <id> 600 25.0            (about 440 m east)
 end      cgf "FOCC_P9Drive.LinkEnd" <id>
 ```
 
-`Shadow` sets the player 25 m short of the actor along -X, 5 m up, every 5 s, so the actor stays loaded. The 330 m
+`Shadow` waits 3 s, then sets the player 25 m short of the actor along -X, 5 m up, every 5 s, so the actor stays
+loaded. The first run's hops, typed in the console batch, closed the console, and the batch's closing key reopened it,
+pausing the game (1 Nov, #644): the wait lets the batch close it first. A session should still check that the game's
+scripts run after each batch (the bridge heartbeat moves) and close the console only if they do not. The 330 m
 walk was unloaded in most samples, which the judge's continuity check refuses. Shadow moves only the player.
 
 The judge treats `driver=link` like the package driver:
@@ -586,7 +589,9 @@ The judge treats `driver=link` like the package driver:
 Rung c is the control the judge can use. Rung b to the player arrives in seconds, and P9Track stops under 10 m, so it
 leaves one sample: too few for continuity (1 Nov run; #663 review). Rung c's 20 m walk to the marker left seven.
 `Shadow` keeps hopping the player until its seconds run out, even after the track ends at arrival; let it finish.
-The long rung starts about 480 m out (P9 needs 400 m or more), so the actor that walked rungs b and c is the one
+The long rung starts about 420 m out (the marker 440 m east of the player, the actor about 20 m east after rung c;
+P9 needs 400 m or more): at the 0.73 m/s the 1 Nov 434 m walk averaged, 420 m fits 600 s. The actor that walked rungs b
+and c is the one
 judged.
 
 ## P1: SFSE sidecar on save and load (last)

@@ -425,6 +425,9 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("a.SetPosition", shadow)                              # never the walking actor
         self.assertNotIn("a.MoveTo", shadow)
         self.assertIn("Utility.Wait(5.0)", shadow)
+        # the first hop waits for the console batch to close the console (1 Nov: a hop closed it, the closing key
+        # reopened it and the game sat paused)
+        self.assertLess(shadow.index("Utility.Wait(3.0)"), shadow.index("p.SetPosition("))
         self.assertIn('"p9 shadow done actor="', shadow)
 
     def test_b0_scripts_declare_the_native_and_log_both_routes(self):
