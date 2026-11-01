@@ -2740,5 +2740,6 @@ session on 1 Nov (coc to Red Rocket) the last marker move came 23.5 s into
 the hold, then the map log went quiet for 38.8 s until the 60 s cap released
 the hold; the reload went out 3.5 s later. The cap works as written; why no
 reload came in that gap is not known. The roadmap gains a short "since 24
-October" update. By the owner's 1 Nov handoff, one Claude session on the PC
+October" update. By the owner's 1 Nov handoff (written by Claude, given by the
+owner), one Claude session on the PC
 holds every Claude role and the cloud session pauses (decisions.md, 1 Nov).

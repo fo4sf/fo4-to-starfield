@@ -644,6 +644,8 @@ instead: the last marker move came at rt 776.8 (23.5 s into the hold), then the 
 until `dark hold released: no reload after 62.257996 s` (rt 815.6); the reload went out 3.5 s after that (rt 819.1)
 and was back at rt 824.6 (`same=true`). So the cap works as written when no reload comes; why none came in that gap
 is not known (the 31 Oct pass reported every marker in place 7.4 s after its last move, this one 41 s after). One
-observation, not a cause: across that gap rt ran 38.8 s while the PC clock ran 3 min 3 s (11:21:20 to 11:24:23),
-where elsewhere in these logs the two agree within about a second. No one has said whether the screen stayed black
+observation, not a cause: across that gap rt ran 38.8 s while the PC clock ran 3 min 3 s (11:21:20 to 11:24:23). Most
+intervals in these logs agree within about a second, but rt also falls behind the PC clock by 8 to 113 s in other
+places (for example 31 Oct, 16:11 to 16:14, just before that play test's hold), so this is the largest such gap, not
+a new kind. No one has said whether the screen stayed black
 through the stop's loading screens; the owner's "everything worked" is all there is, and the logs cannot show it.

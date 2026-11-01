@@ -19,7 +19,7 @@ Only an in-game PASS on the installed build counts as in game; everything else s
   (the SFSE sidecar). The C++ port, steps 1 to C5 (#649, #651 to #654, held to byte-identical output after every
   tick), and its Windows build (#656, byte parity at C5) are **in review**.
 - **New game.** Our own start (the new game's quest is Starfield's startup quest) passed run 4 on 31 Oct: newgame_v12
-  booted and ran from Vault 111 to the surface (stage 200); MQ101 never ran, and the owner reported "v12 worked fine"
+  booted and ran from Vault 111 to the surface (stage 200); MQ101 was not running when checked, and the owner reported "v12 worked fine"
   ([vault111-start.md section 13b](newgame/vault111-start.md)). v11's boot crash came from a script doc comment over
   4 KB (supported hypothesis, section 13a; v12's clean boot with the comment short fits it; the 3 KB rule in
   decisions.md). **Next** (the owner's start picks, decisions.md 1 Nov): the start picked in the launcher, with two
