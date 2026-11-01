@@ -44,9 +44,10 @@ PROPERTIES = {"Holder": "Keyword", "Route": "Keyword", "P2Loc": "Location", "P3L
               "P4Marker": "ObjectReference", "P4Base": "Form", "P5Globals": "GlobalVariable[]", "P6List": "Form", "P6BaseA": "Form",
               "P6BaseB": "Form", "P7Rep": "GlobalVariable", "P7List": "Form", "P8Parents": "ObjectReference[]",
               "P8Children": "ObjectReference[]", "P9Dest": "ObjectReference", "P10Event": "Keyword", "P10Quest": "Quest"}
-# every Papyrus base type a script of the kit names (declarations, casts, static calls)
-PAPYRUS_TYPES = ("Actor", "Cell", "Debug", "Form", "Game", "GlobalVariable", "Keyword", "Location", "ObjectReference", "Quest",
-                 "Utility", "WorldSpace", "ScriptObject")
+# every Papyrus base type a script of the kit names (declarations, casts, static calls); Package for the driver's
+# GetCurrentPackage reads, Alias and ReferenceAlias for its package rung (the probe quest's alias)
+PAPYRUS_TYPES = ("Actor", "Alias", "Cell", "Debug", "Form", "Game", "GlobalVariable", "Keyword", "Location", "ObjectReference",
+                 "Package", "Quest", "ReferenceAlias", "Utility", "WorldSpace", "ScriptObject")
 
 
 OWN = 0x02 << 24          # the plugin's own records in the written file: masters Starfield.esm (00), the core (01)
@@ -339,7 +340,8 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("SendStoryEvent(None, Game.GetPlayer(), None, 0, 0)", PROBE)
 
     def test_p9_driver_calls_path_to_reference_between_two_lines_and_logs_its_result(self):
-        body = DRIVE[DRIVE.index("Function Go(int actorId, int toPlayer) global"):]
+        start = DRIVE.index("Function Go(int actorId, int toPlayer) global")
+        body = DRIVE[start:DRIVE.index("EndFunction", start)]
         self.assertIn("Scriptname FOCC_P9Drive Hidden", DRIVE)
         self.assertIn('FOCC_ProbeQuest q = FOCC_Probe.Q("p9")', body)          # the quest, or a logged refusal
         self.assertEqual(DRIVE.count("PathToReference("), 2)                  # the one call, and the declaration quoted
@@ -356,6 +358,28 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn('" after=" + (Utility.GetCurrentRealTime() - t0)', body)
         self.assertEqual(body.count('" call=" + t0'), 2)                    # the return names its own call
         self.assertNotIn("Debug.TraceUser", DRIVE)                             # every line through the quest's Trace
+
+    def test_p9_package_driver_sets_the_link_fills_the_alias_and_logs_the_package(self):
+        # Travel: Starfield.esm's DefaultTraveltoLinkedRef on the probe quest's alias 0 (dotnet/CombinedProbe)
+        start = DRIVE.index("Function Travel(int actorId, int toPlayer) global")
+        body = DRIVE[start:DRIVE.index("EndFunction", start)]
+        self.assertIn('FOCC_ProbeQuest q = FOCC_Probe.Q("p9")', body)
+        self.assertIn("ReferenceAlias walker = q.GetAlias(0) as ReferenceAlias", body)
+        self.assertNotIn("PathToReference(", body)                             # no return code: the samples answer
+        steps = [body.index(s) for s in ('"p9 go actor="', "a.SetLinkedRef(target)", "walker.ForceRefTo(a)",
+                                         "a.EvaluatePackage()", "Utility.Wait(2.0)", '"p9 package actor="')]
+        self.assertEqual(steps, sorted(steps))                                 # the go first: its rt= starts the walk
+        self.assertIn('" driver=package"', body)
+        self.assertEqual(body.count('" call=" + t0'), 2)                    # the package line names its go
+        self.assertIn('" package=" + q.Id(a.GetCurrentPackage())', body[body.index('"p9 package actor="'):])
+        self.assertIn('q.Trace("p9 go refused actor="', body)
+        start = DRIVE.index("Function TravelEnd(int actorId) global")
+        end = DRIVE[start:DRIVE.index("EndFunction", start)]
+        for s in ("walker.Clear()", "a.SetLinkedRef(None)", "a.EvaluatePackage()", '"p9 package cleared actor="'):
+            self.assertIn(s, end)
+        self.assertIn("0x804  QUST FOCC_ProbeQuest", PROGRAM)
+        self.assertIn("TravelToLinkedRef = 0x212FDB", PROGRAM)
+        self.assertIn("AQuestAlias.Flag.Optional | AQuestAlias.Flag.AllowReserved", PROGRAM)
 
     def test_b0_scripts_declare_the_native_and_log_both_routes(self):
         # the native stub the SFSE plugin binds (sfse/FOCCPing): one global native, no body, declared like Game.psc's
@@ -572,7 +596,8 @@ class StageTests(unittest.TestCase):
     def test_compile_commands_name_the_flags_and_both_include_folders(self):
         cmd = mcp.compile_cmd("PapyrusCompiler.exe", "FOCC_Probe", "SRC", "OUT")
         self.assertEqual(cmd, ["PapyrusCompiler.exe", "FOCC_Probe.psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={mcp.HERE};SRC", "-o=OUT"])
-        self.assertEqual(set(mcp.IMPORTS) - set(mcp.make_bridge.IMPORTS), {"Keyword"})       # the bridge's set plus Keyword
+        # the bridge's set plus Keyword, and the P9 driver's Package, Alias and ReferenceAlias
+        self.assertEqual(set(mcp.IMPORTS) - set(mcp.make_bridge.IMPORTS), {"Keyword", "Package", "Alias", "ReferenceAlias"})
 
 
 if __name__ == "__main__":

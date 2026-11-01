@@ -1285,6 +1285,11 @@ def check_p8(c: Collection) -> Verdict:
 # ----------------------------------------------------------------------------------------------- P9
 
 P9_RESULTS = {0: "Success", 1: "Failure", 2: "Stopped", 3: "Cleared", 4: "Timeout"}   # Actor.psc PathingResult_* (PC, 28 Oct 2026)
+# P9's package driver (FOCC_P9Drive.Travel): Starfield.esm's DefaultTraveltoLinkedRef on the probe quest's alias
+P9_TRAVEL_PACKAGE = "00212FDB"
+P9_DRIVERS = {"script": "FOCC_P9Drive.Go (Actor.PathToReference from Papyrus)",
+              "package": "FOCC_P9Drive.Travel (Starfield.esm DefaultTraveltoLinkedRef on the probe quest's alias, the "
+                         "actor's linked ref set to the target)"}
 
 
 def _p9_result_note(attempt: dict) -> str:
@@ -1337,7 +1342,9 @@ def _p9_continuous(samples: list[Event], origin: Event) -> bool | None:
 def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
     """One summary per `p9 start` in the log, oldest first: the ladder's rungs. A start's track is the started actor's
     samples up to its own `p9 done` or the next start. driver "script" when FOCC_P9Drive.Go sent this actor inside the
-    track (its `p9 go` after the start and before the done), else None: a console command, or none, leaves no line. When
+    track (its `p9 go` after the start and before the done), "package" when FOCC_P9Drive.Travel did (its go says
+    driver=package: no PathToReference, so no return line; its `p9 package` line, same call=, names the package the actor
+    ran two seconds later), else None: a console command, or none, leaves no line. When
     the script sent it, only the samples after the go count: where the actor stood before the command says nothing about
     the command, and a go after the done commanded nothing the track saw (Codex review of #560). Readings only; the
     verdict is the latest start's."""
@@ -1350,7 +1357,10 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
         track_end = done[0].line if done else end
         go = next((e for e in _by_kind(part, "p9 go") if e.form("actor") == s.form("actor")
                    and (track_end is None or e.line < track_end)), None)
-        back = _p9_returned(evs, go) if go is not None else None
+        kind = None if go is None else ("package" if go.fields.get("driver") == "package" else "script")
+        back = _p9_returned(evs, go) if kind == "script" else None
+        pkg = next((e for e in evs if e.kind == "p9 package" and e.line > go.line and e.form("actor") == go.form("actor")
+                    and e.fields.get("call") == go.fields.get("call")), None) if kind == "package" else None
         samples = [e for e in _by_kind(part, "p9 sample")
                    if (not done or e.line < done[0].line) and e.form("actor") == s.form("actor")
                    and (go is None or e.line > go.line)]
@@ -1382,7 +1392,9 @@ def _p9_attempts(evs: list[Event], starts: list[Event]) -> list[dict]:
                     "cells": len({e.form("cell") for e in samples if e.form("cell")}),
                     "arrived": closest is not None and closest < P["p9_arrive_m"],
                     "continuous": _p9_continuous(samples, go if go is not None else s),
-                    "driver": "script" if go is not None else None,
+                    "driver": kind,
+                    "package_line": pkg.line if pkg is not None else None,
+                    "package_after_go": pkg.form("package") if pkg is not None else None,
                     "go_line": go.line if go is not None else None,
                     "go_rt": go.rt if go is not None else None,
                     "target": go.fields.get("target") if go is not None else None,
@@ -1413,21 +1425,22 @@ def _p9_driver(attempts: list[dict], actor, driver=None) -> str | None:
     the destination is a setup fault, not the command walking (Codex review of #560). The control's go names the player
     (who stands at the destination for that rung, per the card) or the tracked destination itself (`to_dest`); a go to
     another reference commanded a different walk than the one the samples measure. Each a finished track of the same
-    actor to FOCC_P9_Dest. A recorded unsuccessful request cannot qualify as the successful control."""
+    actor to FOCC_P9_Dest. A recorded unsuccessful request cannot qualify as the successful control. The control must
+    use the judged rung's own driver: a scripted PathToReference that walks proves nothing about a package, and back."""
     P = PLACEHOLDERS
-    if driver != "script":
+    if driver not in P9_DRIVERS:
         return None
     cands = [a for a in attempts[:-1] if a["done"] and a["dest_ok"] and a["actor"] == actor]
     base = next((a for a in cands if a["start_dist_m"] is not None and a["start_dist_m"] <= P["p9_control_m"]), None)
     if base is None or base["closest_m"] is None or base["arrived"] or base["driver"] is not None:
         return None
-    ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == "script" and a["go_dist_m"] is not None
+    ctl = next((a for a in cands if a["line"] > base["line"] and a["driver"] == driver and a["go_dist_m"] is not None
                 and P["p9_control_min_m"] <= a["go_dist_m"] <= P["p9_control_m"] and a["arrived"]
                 and a["path_succeeded"] is not False
                 and a["continuous"] is True and (a["target"] == "player" or a["to_dest"] is True)), None)
     if ctl is None:
         return None
-    return (f"the baseline rung (line {base['line']}) stayed {base['closest_m']:.1f} m or more away and the scripted "
+    return (f"the baseline rung (line {base['line']}) stayed {base['closest_m']:.1f} m or more away and the {'scripted' if driver == 'script' else driver} "
             f"commanded rung (line {ctl['line']}) came from {ctl['go_dist_m']:.1f} m at its `p9 go` to "
             f"{ctl['closest_m']:.1f} m after it")
 
@@ -1449,8 +1462,14 @@ def check_p9(c: Collection) -> Verdict:
     v.extra["attempts"] = attempts
     latest = attempts[-1]
     driver = latest["driver"]
-    v.extra["driver"] = ("FOCC_P9Drive.Go (Actor.PathToReference from Papyrus)" if driver
-                         else "none logged (a console command, or none)")
+    v.extra["driver"] = P9_DRIVERS.get(driver, "none logged (a console command, or none)")
+    if driver == "package" and latest["package_after_go"] not in (None, P9_TRAVEL_PACKAGE):
+        # the actor ran another package two seconds after the go: the alias package did not take, so whatever the
+        # samples show was not this driver's walk
+        v.reasons.append(f"two seconds after the go the actor ran package {latest['package_after_go']}, not "
+                         f"DefaultTraveltoLinkedRef ({P9_TRAVEL_PACKAGE}): the alias package did not take")
+        v.cite(*[e for e in evs if e.line == latest["package_line"]])
+        return v
     if latest["path_returned_s"] is not None:
         v.reasons.append(f"FOCC_P9Drive's PathToReference returned after {latest['path_returned_s']:.1f} s"
                          f"{_p9_result_note(latest)}")

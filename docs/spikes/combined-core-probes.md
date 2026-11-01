@@ -515,6 +515,39 @@ are diagnostic reads, with no AI, package or navmesh changes. The owner's same-p
 requests both returned Failure; their cause remains unresolved, and the longer route stays held pending a working
 control. QASmoke under the same installed profile is not an unmodded-profile control.
 
+**The package driver (job focc-P9p, Claude, 1 Nov 2026).** The next driver the card named: a package on a quest alias,
+the way the game moves its own actors. Building a PACK record is not needed. Starfield.esm already has
+`DefaultTraveltoLinkedRef` (`212FDB`): on the Travel template (`2CB0`, 1,023 of the master's 3,548 packages use it),
+its location is "near linked ref" with no keyword, and it has no conditions (read from Starfield.esm 1.16.244 on the
+PC; xEdit's TES5/FO4 meaning of PLDT type 6, **supported**). The probe quest gets alias 0, `P9Walker`: empty, optional,
+allow reserved, with that package as its only one. `FOCC_P9Drive.Travel <id> <toPlayer>` logs `p9 go ... driver=package`
+first, then sets the actor's linked ref to the target, forces the actor into the alias and calls `EvaluatePackage`.
+Two seconds later it logs `p9 package ... package=<id>`: `2174939` (`212FDB`) when the alias package took.
+`FOCC_P9Drive.TravelEnd <id>` clears the alias and the link. All five script calls are declared in Starfield's own
+sources (ContentResources.zip on the PC). Whether an alias package outranks the citizen's own packages in game is
+**unverified**: that is what this rung tests.
+
+The ladder is the same as the card's, with Travel in place of Go:
+
+```
+rung a   cgf "FOCC_Probe.P9Dest" 0.0 0.0 ; cgf "FOCC_Probe.P9Track" <id> 60                        (no command)
+rung b   cgf "FOCC_Probe.P9Track" <id> 60 ; cgf "FOCC_P9Drive.Travel" <id> 1                         (to the player)
+rung c+  cgf "FOCC_Probe.P9Dest" <dx> 0.0 ; cgf "FOCC_Probe.P9Track" <id> <T> ; cgf "FOCC_P9Drive.Travel" <id> 0
+end      cgf "FOCC_P9Drive.TravelEnd" <id>
+```
+
+How the judge reads it:
+- A package rung has no return line. A `p9 path returned` line is never paired with its go, even when it carries the
+  same call=.
+- If the `p9 package` line names another package, the alias did not take, and the rung is INCONCLUSIVE whatever the
+  samples show.
+- Only a package rung can stand as a package rung's control. A scripted PathToReference control proves nothing about a
+  package, and the reverse holds too.
+- Everything else is as for Go: the walk's clock and distance start at the go, samples must be continuous, and the
+  verdict is the latest rung's.
+
+`tests/test_combined_p9_package.py` covers these rules on synthetic logs.
+
 ## P1: SFSE sidecar on save and load (last)
 
 Settles: **CC-02** option C' / B: whether an SFSE plugin can keep a file per save keyed to the save name through

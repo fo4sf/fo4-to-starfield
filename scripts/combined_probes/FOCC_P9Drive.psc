@@ -45,3 +45,58 @@ Function Go(int actorId, int toPlayer) global
     int r = a.PathToReference(target, 1.0, 1.0)
     q.Trace("p9 path returned actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " result=" + r + " after=" + (Utility.GetCurrentRealTime() - t0) + " dist=" + a.GetDistance(target))
 EndFunction
+
+; P9's package driver, the next rung after Go's PathToReference returned Failure in the Commonwealth and in vanilla
+; QASmoke alike (1 Nov 2026): the way the game moves its own actors. The probe quest's alias 0 (P9Walker, optional,
+; allow reserved) carries Starfield.esm's DefaultTraveltoLinkedRef (212FDB: Travel template, location "near linked
+; ref" with no keyword, no conditions; read from Starfield.esm 1.16.244 on the PC). Travel sets the actor's linked ref
+; to the target, forces the actor into the alias and re-evaluates its packages, so the alias package (above the base
+; NPC's own) walks it there. A package has no return code: the samples after the go are the answer, and the
+; `p9 package` line two seconds later names the package the actor then runs (2174939 = 212FDB when the alias took).
+;   cgf "FOCC_P9Drive.Travel" <actor id, signed decimal> 1      to the player
+;   cgf "FOCC_P9Drive.Travel" <actor id, signed decimal> 0      to FOCC_P9_Dest
+;   cgf "FOCC_P9Drive.TravelEnd" <actor id, signed decimal>     out of the alias, linked ref cleared
+Function Travel(int actorId, int toPlayer) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    ObjectReference target = q.P9Dest
+    string what = "dest"
+    if toPlayer != 0
+        target = Game.GetPlayer()
+        what = "player"
+    endif
+    ReferenceAlias walker = q.GetAlias(0) as ReferenceAlias
+    if a == None || target == None || walker == None
+        q.Trace("p9 go refused actor=" + actorId + " target=" + what + " driver=package walker=" + (walker != None))
+        return
+    endif
+    q.Trace("p9 context actor=" + a.GetFormID() + " target=" + what + " id=" + target.GetFormID() + " actorcell=" + q.Id(a.GetParentCell()) + " targetcell=" + q.Id(target.GetParentCell()))
+    q.Trace("p9 state actor=" + a.GetFormID() + " loaded=" + a.Is3DLoaded() + " dead=" + a.IsDead() + " disabled=" + a.IsDisabled() + " targetdisabled=" + target.IsDisabled() + " package=" + q.Id(a.GetCurrentPackage()))
+    float t0 = Utility.GetCurrentRealTime()
+    q.Trace("p9 go actor=" + a.GetFormID() + " call=" + t0 + " target=" + what + " id=" + target.GetFormID() + " dist=" + a.GetDistance(target) + " driver=package")
+    a.SetLinkedRef(target)
+    walker.ForceRefTo(a)
+    a.EvaluatePackage()
+    Utility.Wait(2.0)
+    q.Trace("p9 package actor=" + a.GetFormID() + " call=" + t0 + " linked=" + q.Id(a.GetLinkedRef()) + " package=" + q.Id(a.GetCurrentPackage()) + " dist=" + a.GetDistance(target))
+EndFunction
+
+Function TravelEnd(int actorId) global
+    FOCC_ProbeQuest q = FOCC_Probe.Q("p9")
+    if q == None
+        return
+    endif
+    Actor a = Game.GetForm(actorId) as Actor
+    ReferenceAlias walker = q.GetAlias(0) as ReferenceAlias
+    if a == None || walker == None
+        q.Trace("p9 package end refused actor=" + actorId)
+        return
+    endif
+    walker.Clear()
+    a.SetLinkedRef(None)
+    a.EvaluatePackage()
+    q.Trace("p9 package cleared actor=" + a.GetFormID() + " package=" + q.Id(a.GetCurrentPackage()))
+EndFunction
