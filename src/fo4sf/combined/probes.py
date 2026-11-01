@@ -1614,6 +1614,22 @@ def check_p9(c: Collection) -> Verdict:
     approach = start - min(r[1] for r in rows)
     moved = max(sum((a - b) ** 2 for a, b in zip(rows[0][2], r[2])) ** 0.5 for r in rows)
     v.extra["approach_m"], v.extra["moved_m"] = round(approach, 1), round(moved, 1)
+    # The marker must be on the ground: P9Track's dist is 3D, and a marker left above the land reads as a stall or a miss
+    # (1 Nov link rerun: the actor stood on the marker's x, y, 27.8 m under it, and the 3D dist stayed ~28 m). Where the
+    # actor reached the marker across the ground, the height is a setup fault, never the navmesh's: no FAIL, and no PASS
+    # either, since the card's arrival is 3D (#663).
+    dpos = pos(dest[-1])
+    xy = [((r[2][0] - dpos[0]) ** 2 + (r[2][1] - dpos[1]) ** 2) ** 0.5 for r in rows] if dpos else []
+    if xy:
+        v.extra["closest_xy_m"] = round(min(xy), 1)
+    xy_hit = next((k for k, d in enumerate(xy) if d < P["p9_arrive_m"] and rows[k][0] <= P["p9_seconds"]), None)
+    if xy_hit is not None and not arrived:
+        hit = rows[xy_hit]
+        v.cite(hit[5])
+        v.reasons.append(f"the actor reached the marker across the ground ({xy[xy_hit]:.1f} m) {hit[0]:.0f} s in, but the "
+                         f"marker stands {dpos[2] - hit[2][2]:.1f} m above it, so P9Track's 3D dist cannot close: a "
+                         f"marker off the ground, not the route (P9Dest snaps it to the navmesh since #663; run again)")
+        return v
     # A FAIL says the navmesh does not carry the route, so it needs proof the command moves this actor at all: progress
     # on this route, or the ladder's short control. Without it a still actor is the command's failure as much as the
     # path's (28 Oct: 600 s within about 3 m; no console command had ever walked a calm citizen beyond its own wander,

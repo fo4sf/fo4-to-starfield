@@ -127,6 +127,36 @@ class P9PackageDriverTests(unittest.TestCase):
         v = probes.check_p9(col(log=BASE + ctl[1:] + stalled[1:]))
         self.assertEqual(v.verdict, probes.FAIL, v.to_dict())
 
+    def test_a_marker_above_the_ground_is_never_a_fail(self):
+        # 1 Nov link rerun: the actor walked 420 m to the marker's x, y and stood there, 27.8 m under the marker that
+        # P9Dest left at the player's height; the 3D dist stuck near 28 m and the judge said FAIL (stuck)
+        dz = 28.0
+
+        def floating(lines):
+            out = []
+            for ln in lines:
+                if " p9 dest " in ln:
+                    ln = ln.replace("pos=450.000000 0.000000 0.000000", f"pos=450.000000 0.000000 {dz:.6f}")
+                m = re.search(r"pos=([-\d.]+) ", ln) if " p9 sample " in ln else None
+                if m:
+                    ln = re.sub(r"dist=[\d.]+", f"dist={((450.0 - float(m[1])) ** 2 + dz ** 2) ** 0.5:.6f}", ln)
+                out.append(ln)
+            return out
+        walk = drive(driver="link", package=PATROL)
+        samples = [ln for ln in walk if " p9 sample " in ln]
+        last_rt = float(re.search(r"rt=([\d.]+)", samples[-1])[1])
+        last_t = float(re.search(r" t=([\d.]+)", samples[-1])[1])
+        stand = [samples[-1].replace(f"rt={last_rt:.1f}", f"rt={last_rt + s:.1f}")
+                 .replace(f"t={last_t:.6f}", f"t={last_t + s:.6f}")
+                 for s in range(2, 160, 2)]                                  # then it stands there 158 s, loaded
+        at = walk.index(samples[-1]) + 1
+        v = probes.check_p9(col(log=floating(walk[:at] + stand + walk[at:])))
+        self.assertEqual(v.verdict, probes.INCONCLUSIVE, v.to_dict())
+        self.assertTrue(any("across the ground" in r and "above it" in r for r in v.reasons), v.reasons)
+        self.assertLess(v.extra["closest_xy_m"], 10.0)
+        v = probes.check_p9(col(log=walk))                                   # the same walk to a marker on the ground
+        self.assertEqual(v.verdict, probes.PASS, v.to_dict())
+
     def test_the_old_scripted_go_reads_as_before(self):
         v = probes.check_p9(col(log=drive(driver="script")))
         self.assertEqual(v.extra["attempts"][-1]["driver"], "script")
