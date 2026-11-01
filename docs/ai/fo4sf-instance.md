@@ -136,13 +136,17 @@ Default off: until the setting `instance` is set, play, the window and every too
   #309).
 - **H4, a Steam update.** After the next game update, check whether the folder's files still share their data with
   Steam's (`launcher.py measure` counts hard links once). Expected: Steam writes new files, the links break, and the
-  FO4SF folder stays on its version (what "Stock Game" setups rely on), costing disk for each changed file.
+  FO4SF folder stays on its version (what "Stock Game" setups rely on), costing disk for each changed file. If the
+  linked files still share their data after the update, Steam wrote into them in place: the FO4SF folder's Data and
+  Tools then changed with Steam's, while its copied exe and SFSE stayed on the old version, so it needs `instance
+  create` into a new folder (or SFSE for the new version) before it plays again.
 
 ## 5. What it costs
 
 - Disk: none for the linked files (Data, Tools); the copied rest is well under 1 GB of game files (step 1). After a
   Steam update, the changed linked files (H4).
-- Steam's "verify files" or an update never touch the FO4SF folder. A hard link removed on Steam's side keeps the
-  file alive in the folder.
+- Steam's "verify files" or an update never touch the FO4SF folder's copied files. The linked ones (Data, Tools) stay
+  as they were if Steam writes new files, which H4 checks; a hard link removed on Steam's side keeps the file alive in
+  the folder.
 - The player's own Starfield keeps its mods, Plugins.txt order and saves, apart from the shared INIs in section 1
   and a write in place into a linked Data or Tools file (step 1).

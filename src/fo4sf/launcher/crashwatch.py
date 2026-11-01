@@ -693,7 +693,12 @@ def _follow(values, system, say, t0, log_path, start_timeout_s, dump_wait_s, onl
         if log_path:
             _log(log_path, f"load order changed while the game ran: {moved}")
     if on_exit is not None:
-        on_exit()
+        try:
+            on_exit()
+        except Exception as e:     # never at the cost of the crash record: the caller's own path or recover() retries
+            say(f"after the game ended: {e}; the rest of the watch goes on")
+            if log_path:
+                _log(log_path, f"after the game ended: {e}")
     if proc is not None:
         try:
             result["procdump_exit"] = proc.wait(timeout=dump_wait_s)
