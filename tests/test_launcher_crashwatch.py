@@ -62,9 +62,17 @@ class FakeSystem:
         self.toggle_code = 0
         self.active = {"fo4sfbridge.esm"}
         self.orders = []                   # Plugins.txt orders handed out one per read; None once empty
+        self.entries = None                # Plugins.txt's (name, ticked) lines; None: unreadable (no check)
+        self.plugins_file = None
 
     def plugin_order(self):
         return self.orders.pop(0) if self.orders else None
+
+    def plugin_entries(self):
+        return self.entries
+
+    def plugins_path(self):
+        return self.plugins_file
 
     def now(self):
         return self.t
@@ -733,6 +741,62 @@ class CrashWatchTests(unittest.TestCase):
         r = self.play(self.values(crash_watch__dump_on_exit=False), FakeSystem([(5, 0, 100, 0)]), dry_run=True)
         self.assertIn("log only", r["plan"][-1])
         self.assertEqual((sys_.calls, sys_.ran, sys_.spawned), ([], [], []))
+
+    # --- the owner's PC, 1 Nov 2026: nine starts refused with nothing in the log, every FO4SF plugin unticked ---------
+    UNTICKED = [("FO4SFQuestProbe.esm", False), ("FO4Port.esm", False), ("FO4TerrainCore.esm", False),
+                ("FO4SFBridge.esm", False), ("SomeOtherMod.esm", True)]
+
+    def test_every_fo4sf_plugin_unticked_is_refused_with_its_cause_and_logged(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
+        sys_.entries = list(self.UNTICKED)
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(bridge="off"), sys_)
+        self.assertIn("every FO4SF plugin in Plugins.txt is unticked (4 listed", str(e.exception))
+        self.assertIn('"Save" is picked', str(e.exception))
+        self.assertEqual((sys_.calls, sys_.ran), ([], []))                  # nothing started, Plugins.txt untouched
+        self.assertIn("play: refused: every FO4SF plugin in Plugins.txt is unticked", self.log())
+        with self.assertRaisesRegex(ValueError, "every FO4SF plugin"):          # a dry run says so too
+            self.play(self.values(bridge="off"), sys_, dry_run=True)
+
+    def test_the_refusal_names_the_newest_copy_with_ours_ticked(self):
+        path = os.path.join(self.dir, "Plugins.txt")
+        for stamp, body in (("20261101-110758", "*FO4Port.esm\n"), ("20261101-123500", "FO4Port.esm\n")):
+            with open(f"{path}.bak-{stamp}", "w", encoding="utf-8") as f:
+                f.write("# header\n" + body)
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.entries, sys_.plugins_file = list(self.UNTICKED), path
+        with self.assertRaises(ValueError) as e:
+            self.play(self.values(), sys_, dry_run=True)
+        self.assertIn("put back Plugins.txt.bak-20261101-110758", str(e.exception))   # the newer one is unticked too
+
+    def test_a_list_with_one_of_ours_ticked_or_none_of_ours_is_left_alone(self):
+        for entries in ([("FO4Port.esm", True), ("FO4SFBridge.esm", False)], [("SomeOtherMod.esm", False)], [], None):
+            with self.subTest(entries=entries):
+                sys_ = FakeSystem([(5, 0, 100, 0)])
+                sys_.entries = entries
+                self.assertIsNone(crashwatch.unticked_ours(sys_))
+
+    def test_any_refusal_after_the_start_line_is_logged(self):
+        sys_ = FakeSystem([(5, 0, 100, 0)])
+        sys_.toggle_status = {"off": [], "owned": ["FO4SFBridge.esm"]}
+        sys_.active = set()                                                  # the bridge installed, not ticked
+        mg = os.path.join(self.dir, "mg")
+        os.makedirs(mg)
+        with self.assertRaises(ValueError):
+            self.play(self.values(bridge="on", papyrus_logging="on", my_games=mg), sys_)
+        self.assertIn("play: starting the game", self.log())
+        self.assertIn("play: refused: bridge=on: FO4SFBridge.esm is installed and not held off", self.log())
+
+    def test_the_real_system_reads_every_plugin_line_with_its_tick(self):
+        path = os.path.join(self.dir, "Plugins.txt")
+        with open(path, "w", encoding="utf-8-sig") as f:
+            f.write("# This file is used by Starfield\n*FO4Port.esm\nFO4SFMission.esm\n\n*FO4SFBridge.esm\n")
+        s = crashwatch.System(plugins_txt=path)
+        self.assertEqual(s.plugin_entries(), [("FO4Port.esm", True), ("FO4SFMission.esm", False),
+                                              ("FO4SFBridge.esm", True)])
+        self.assertEqual(s.plugin_order(), ["FO4Port.esm", "FO4SFBridge.esm"])
+        self.assertIsNone(crashwatch.System(plugins_txt=path + ".missing").plugin_entries())
 
     def test_bridge_setting_goes_through_plugin_toggle(self):
         sys_ = FakeSystem([(5, 0, 100, 0)])

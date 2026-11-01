@@ -25,6 +25,7 @@ Everything Windows-specific goes through a `System` object, so the flow is teste
 """
 import codecs
 import datetime
+import glob
 import os
 import re
 import subprocess
@@ -32,6 +33,7 @@ import sys
 import time
 
 from . import detect, manifest as mf, runtimes as rt, settings as settings_mod
+from ..core import loadset
 
 STEAM_URL = "steam://rungameid/1716740"
 ATTACH_CHECK_S = 5.0               # how long ProcDump must stay up after attaching before the watcher counts as armed
@@ -196,19 +198,55 @@ class System:
             return [f"this {GAME_EXE} (sha256 {exe[:12]}...) is not listed as a good runtime"]
         return rt.sfse_problems(known, g)
 
+    def plugins_path(self):
+        return self.plugins_txt or os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
+
     def plugin_order(self):
         """The plugins ticked in the player's Plugins.txt, in file order, or None when it cannot be read."""
-        path = self.plugins_txt or os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
+        entries = self.plugin_entries()
+        return None if entries is None else [n for n, ticked in entries if ticked]
+
+    def plugin_entries(self):
+        """(name, ticked) for every plugin line of the player's Plugins.txt, in file order, or None when it cannot be
+        read."""
         try:
-            with open(path, encoding="utf-8-sig", errors="replace") as f:
-                return [ln.strip()[1:].strip() for ln in f if ln.strip().startswith("*")]
+            with open(self.plugins_path(), encoding="utf-8-sig", errors="replace") as f:
+                lines = [ln.strip() for ln in f]
         except OSError:
             return None
+        return [(ln.lstrip("*").strip(), ln.startswith("*")) for ln in lines if ln and not ln.startswith("#")]
 
     def plugins_active(self):
         """Casefolded names ticked in the player's Plugins.txt, or None when it cannot be read."""
         order = self.plugin_order()
         return None if order is None else {n.casefold() for n in order}
+
+
+def unticked_ours(system):
+    """Why play refuses a Plugins.txt that lists plugins of ours with none of them ticked, else None. Starfield writes
+    it so when "Save" is picked at its "different Creations load order" prompt on loading a save made with other
+    plugins (the PC, 14 Oct and 1 Nov 2026): the game would start without FO4SF, and the bridge step refused with a
+    message that hid this cause (nine silent starts on 1 Nov). Play never ticks them itself: the player may have turned
+    them off on purpose."""
+    entries = getattr(system, "plugin_entries", lambda: None)()
+    ours = [n for n, _ in entries or () if loadset.ours(n)]
+    if not ours or any(ticked for n, ticked in entries if loadset.ours(n)):
+        return None
+    path = getattr(system, "plugins_path", lambda: None)()
+    good = None                                   # the newest copy kept beside it that has one of ours ticked
+    for bak in sorted(glob.glob(glob.escape(path) + ".bak-*") if path else (), reverse=True):
+        try:
+            with open(bak, encoding="utf-8-sig", errors="replace") as f:
+                if any(ln.strip().startswith("*") and loadset.ours(ln.strip()[1:].strip()) for ln in f):
+                    good = bak
+                    break
+        except OSError:
+            continue
+    return (f"every FO4SF plugin in Plugins.txt is unticked ({len(ours)} listed: {', '.join(ours[:3])}"
+            f"{', ...' if len(ours) > 3 else ''}). Starfield writes it so when \"Save\" is picked at its \"different "
+            "Creations load order\" prompt. Tick them again in the game's Creations menu"
+            + (f", or put back {os.path.basename(good)}, the newest copy beside it with them ticked" if good else "")
+            + "; play does not change Plugins.txt for this")
 
 
 def decode_mixed(data):
@@ -535,7 +573,10 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                                  + ("a dump on every exit" if values["crash_watch.dump_on_exit"]
                                     else "log only when the game exits without a crash")
                                  if cw else "off")]
+    unticked = unticked_ours(system)
     if dry_run:
+        if unticked:
+            raise ValueError(unticked)
         # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
         plan[3 + bool(folder)] += _without_sfse(values, starfield, system)
         for p in plan:
@@ -549,23 +590,33 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         except OSError as e:
             raise ValueError(f"crash watcher: cannot write to {values['crash_watch.folder']} ({e.strerror or e})") \
                 from None
-    # never a blind bridge, even half way: logging goes on before the bridge comes back, and off only after the
-    # bridge is held (Codex, #449)
-    ini = os.path.join(folder, "Starfield.ini") if folder else None
-    if values["bridge"] == "on":
-        apply_papyrus(values, say, ini)
-        apply_bridge(values, starfield, system, say)
-    else:
-        apply_bridge(values, starfield, system, say)
-        apply_papyrus(values, say, ini)
+    try:                                            # a refusal from here on is logged too: the window alone forgets it
+        if unticked:
+            raise ValueError(unticked)
+        # never a blind bridge, even half way: logging goes on before the bridge comes back, and off only after the
+        # bridge is held (Codex, #449)
+        ini = os.path.join(folder, "Starfield.ini") if folder else None
+        if values["bridge"] == "on":
+            apply_papyrus(values, say, ini)
+            apply_bridge(values, starfield, system, say)
+        else:
+            apply_bridge(values, starfield, system, say)
+            apply_papyrus(values, say, ini)
 
-    apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
-    if folder:
-        inst.ensure_saves(folder, say)
-    order = system.plugin_order()                   # compared at the end: the game may rewrite Plugins.txt
-    if folder:
-        inst.swap_in(folder, player, say)
-        system.plugins_txt = player                 # while the game runs, the folder's list stands there
+        apply_load_order(values, starfield, system, say)   # after the bridge: a toggle rewrites Plugins.txt too
+        if folder:
+            inst.ensure_saves(folder, say)
+        order = system.plugin_order()               # compared at the end: the game may rewrite Plugins.txt
+        if folder:
+            inst.swap_in(folder, player, say)
+            system.plugins_txt = player             # while the game runs, the folder's list stands there
+    except (ValueError, OSError) as e:
+        if cw:
+            try:
+                _log(log_path, f"play: refused: {e}")
+            except OSError:                         # the refusal itself still reaches the window
+                pass
+        raise
     try:
         t0 = system.now()
         try:
