@@ -42,7 +42,7 @@ class PresenceIdentityTests(unittest.TestCase):
         self.assertEqual((delta.keep, delta.dissolve), ([], []))
 
     def test_colons_and_literal_escape_text_cannot_alias(self):
-        tokens = ("a", "a:b", "b:c", "c", "a%3Ab", "b%3Ac", "%", "a%253Ab", "caf\u00e9:\u03b2%")
+        tokens = ("a", "a:b", "b:c", "c", "a%3Ab", "b%3Ac", "%", "a%253Ab", "cafe:beta%")
         seen = {}
         for place in tokens:
             for faction in tokens:
