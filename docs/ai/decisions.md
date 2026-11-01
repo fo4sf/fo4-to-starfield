@@ -1321,3 +1321,27 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Boundary: the 4 KB buffer is inferred from one dump, and whether string literals go through the same buffer is not
   known (none of ours is near). If newgame_v12 dies the same way, the next suspect is the startup override record (a
   build without it tells).
+
+## 2026-10-31: the launcher can update its own checkout from GitHub's main, fast-forward only, opt-in (Claude-cloud-2)
+
+- Decision: a launcher setting `update` (off by default; check; pull) and a command `launcher.py update [--check]`.
+  With pull, `launcher.py play` and `launcher.py gui` run `git fetch origin main` first, fast-forward the checkout they
+  run from, and start the same command again on the new code (`src/fo4sf/launcher/selfupdate.py`). The checkout moves
+  only when it is on main, has no uncommitted change to a tracked file, no merge, rebase, cherry-pick, revert or bisect
+  in progress, and no commit GitHub's main lacks. Starfield must be closed. A refusal or a network failure prints one
+  line, and the command goes on with the code it has.
+- Why: the owner, 31 Oct: "a way for the launcher to auto update itself so once everything is merged, I don't need to
+  tell anybody to install it". Merged work reached the PC only when somebody pulled it by hand.
+- Alternatives:
+  - Download a ZIP of main and copy it over the checkout: rejected. It would overwrite local edits and leave deleted
+    files behind, and git already knows what changed.
+  - `git pull` or `git reset --hard origin/main`: rejected. A pull can make a merge commit; a reset throws away the
+    owner's or an agent's work.
+  - A release channel with tagged versions: later, if outside players use the launcher. It needs a release process
+    first.
+  - On by default: no. The rule for the owner's PC is opt-in. `settings --set update=pull` turns it on once.
+- Boundary: this updates code only; built plugins, archives and installs change only through their own steps. The
+  first update has to be by hand, because the checkout that lacks this code cannot fetch it. A command that is already
+  running keeps its old code until it starts again (the restart covers play and the window; the window's own Play
+  button runs `play`, which updates too). Not tested on Windows yet: the PC's first `launcher.py update --check`
+  shows it.

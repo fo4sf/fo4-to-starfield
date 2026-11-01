@@ -14,9 +14,10 @@ Code: `src/fo4sf/launcher/` (manifest, driver, restore, same_ids), CLI `scripts/
 | Build manifest | `launcher.py manifest --out m.json --fo4-data <Data> ... --starfield <game> --output <build>` | the checkpoint identity policy (docs/RESUMING-BUILDS.md) | synthetic tests |
 | Manifest diff | `launcher.py manifest-diff a.json b.json` (paths ignored, identities and pins compared) | | synthetic tests |
 | Build driver | `launcher.py build <recipe.json> --set k=v [--dry-run] [--min-free-gb 40 --disk D:\ ] [--idle]` | wraps make_core64c.py, make_mission.py, convert_batch.py, vmad_patch.py, light_patch.py, the dotnet writers as steps; their own checkpoints stay in charge inside a step | synthetic tests |
-| Snapshot | `launcher.py snapshot --starfield <game> --out snap.json` (read only) | the three install records | synthetic tests |
+| Snapshot | `launcher.py snapshot --starfield <game> --out snap.json` (read only) | every install record (`restore.COMPONENTS`) | synthetic tests |
 | Restore | `launcher.py restore --snapshot snap.json` (plan; `--apply` acts) | deploy_starfield.py, exp_install.py, bridge_install.py do every file change | synthetic tests, incl. a real exp_install round trip |
 | Build status | `launcher.py status <recipe.json> [--set k=v] [--json out.json]` (read only) | the driver's state.json | synthetic tests |
+| Self-update | `launcher.py update [--check]`; setting `update=off/check/pull` (default off) runs it before `play` and `gui` | git: fetch, then fast-forward only (src/fo4sf/launcher/selfupdate.py) | synthetic tests on throwaway git repos |
 | Same-ids check | `launcher.py same-ids <build A> <build B>` | make_core64c.py's `formids_diff` (compare-ids) when both have formids.json | synthetic tests |
 
 ### Build manifest
@@ -52,9 +53,23 @@ launcher's progress screen and the install thread read instead of opening state.
 
 ### Recorded restore
 `snapshot` keeps Plugins.txt byte for byte, every top-level plugin and archive in Data (plugins hashed; Starfield's
-own archives by size and time) and the three install records verbatim. `restore` plans in the swap scripts' order
-(bridge off, experiment off, port off; port on, experiment on, `exp_install.py order`, bridge on), reinstalling from
-the source folder each record names. It restores Plugins.txt bytes only when every differing line names a plugin an
+own archives by size and time) and every install record verbatim: the port, the experiment, the planet, quest and
+combined probes, the map markers and the bridge (the probes and the markers since 2026-10-31; before, the markers'
+Plugins.txt line read as an owner's edit and every restore with them installed was refused). `restore` plans in the
+swap scripts' uninstall order (bridge off, markers off, the probes off, experiment off, port off); installation
+puts the target experiment/core back first, then restores the port and its riders. When both are reinstalled,
+`exp_install.py order` waits until the port is back, because an experiment plugin can master FO4Port.esm.
+A source folder that is gone is a conflict (the `--port-staging` folder too). Before any uninstall, staged input
+inventories and marker/quest-probe pins are checked against the target receipts; legacy experiment records without
+`source_inputs` are noted as unverified. Bridge-kit receipts without inventories refuse reinstallation because their
+staged inputs cannot be checked against the snapshot. Stages must remain unchanged until apply finishes. The markers
+and the combined probe ride on the experiment and the quest probe on the port
+(`restore.RIDES_ON`: their installers pin that build), so when the base changes they come off first and go back on
+after it, even with their own record unchanged; a snapshot that keeps a rider while restore would uninstall its base
+is refused before anything runs (its installer would refuse to put it back once the base is gone). So is any change
+while `plugin_toggle.py` holds a plugin off (the launcher's bridge=off, a crash split; the snapshot keeps the hold as
+`held`): the installers refuse under a hold, and only `plugin_toggle.py on` may tick a held line again. The hold
+record that `on` leaves empty is not counted as a difference. It restores Plugins.txt bytes only when every differing line names a plugin an
 installer owns. It never deletes a file itself, leaves unowned new files alone (reported), refuses while
 Starfield.exe runs, refuses on any conflict before changing anything (an owner's Plugins.txt edit, a vanished
 unowned file, a port record with no staging folder unless `--port-staging`), and checks the result against the
@@ -64,6 +79,15 @@ restore refuses. That holds for the target too: a snapshot taken while an owned 
 `plugins_restore_pending` set (it owns the later uninstall's Plugins.txt restoration) is healthy and left alone; only
 `complete: false` or `cleanup_pending` counts as an interrupted install to recover (Codex review, 2026-10-19). The install thread's swap scripts on the PC are not replaced or touched; this is the same
 practice in code, so the launcher can later call it.
+
+Recorded port restore treats `--port-staging` as a source of **prebuilt** plugin/archive files, including complete
+texture-companion pairs. An ordinary stage, an interior batch root, or its `port` folder is accepted only when every
+recorded size and SHA256 matches before any uninstall; failed/incomplete stage metadata refuses too. Restore passes
+the snapshot's artifact and core pins to the deployer over stdin, which checks them again and copies those outputs
+without Archive2 or repacking. The core is restored first so the installed core pin can be checked before publishing
+the port. Old port receipts without complete artifact identities cannot be replayed automatically. This does not
+lock a stage against edits during apply or make multiple installers atomic; keep source folders immutable and retain
+the snapshot and installer recovery records after any failure.
 
 ### Same-ids check
 Level 1 plugin bytes; level 2 a raw record walk (no Mutagen, no load order): FormID set, type and editor id per
@@ -112,7 +136,7 @@ synthetic files only; neither registry lookup has run on a real Windows install.
 ### bundle
 `launcher.py bundle --out <support.zip> [--state-dir ...] [--manifest ...] [--detect-report ...] [--starfield ...]
 [--my-games ...]` writes one local zip for a GitHub issue (framework A11; the owner's RE-18 answer, GitHub only):
-driver state and each step's newest log, the build manifest and detect report, the three install records,
+driver state and each step's newest log, the build manifest and detect report, every install record,
 Plugins.txt, and the game's INIs from the game folder and My Games. Text only, no game data. The home folder becomes
 `%USERPROFILE%` and the user name `<user>`, in either slash style and JSON's doubled backslashes; a name under three
 letters is left alone so ordinary words survive. A file over 2 MiB keeps its tail and says so. BUNDLE.txt lists

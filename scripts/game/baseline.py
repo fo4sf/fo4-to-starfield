@@ -29,13 +29,13 @@ prepare  refuses while Starfield runs, when --out holds a baseline (one never re
          when Plugins.txt changed after it was read, and a write that fails removes the record and the note again).
 collect  refuses while Starfield runs, after a restore that stopped before its record, and when the game folder is not
          readable; joins every Papyrus log of the My Games folders written after prepare and before restore
-         (Papyrus.0.log, and the older ones the game has moved on), oldest first, into <out>, once. A log that was
-         there at prepare (its sha256) is never taken, whatever its time. The session was not vanilla when its log
-         names any of ours (FO4* or FOCC*), when Plugins.txt has a plugin the game does not ship ticked again (now, or
-         when restore ran), or when SFSE wrote a log meanwhile (a start through sfse_loader.exe; found now, or when
-         restore ran); and it is no baseline either when the game changed since prepare (the built-in plugins by name
-         and size, Starfield.exe by size and sha256: a Steam update, and which build the session ran on is not known).
-         The log is then kept as Papyrus.0.log.not-vanilla instead, and the baseline has none.
+         (Papyrus.0.log, and the older ones the game has moved on), oldest first, into <out>, once. A log that was there
+         at prepare (its sha256) is never taken, whatever its time. The session was not vanilla when its log names any
+         of ours (FO4*, FOCC*, FOSF*, FO3SF*, FNVSF*), when Plugins.txt has a plugin the game does not ship ticked again
+         (now, or when restore ran), or when SFSE wrote a log meanwhile (a start through sfse_loader.exe; found now, or
+         when restore ran); and it is no baseline either when the game changed since prepare (the built-in plugins by
+         name and size, Starfield.exe by size and sha256: a Steam update, and which build the session ran on is not
+         known). The log is then kept as Papyrus.0.log.not-vanilla instead, and the baseline has none.
 restore  refuses while Starfield runs; puts Plugins.txt back byte for byte, and ends the time collect takes logs from.
          The game rewrites Plugins.txt at startup (verified: docs/research/framework/launcher-sources/sfstack.md), so a
          rewrite that ticked no plugin is restored over; one that ticked a plugin the game does not ship refuses

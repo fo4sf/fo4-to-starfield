@@ -177,6 +177,29 @@ class LoadOrderTests(unittest.TestCase):
         self.assertEqual(self.run_("fix"), 0)
         self.assertFalse(os.path.exists(self.txt))
 
+    def test_every_plugin_of_ours_active_must_be_in_data_slices_probes_and_reserved_names_too(self):
+        # the old list here (fo4terrain, fo4actor, fo4sf, fo4port) let an active slice, FOCC probe or FOSF_ plugin
+        # that is missing from Data pass unjudged; the one list (fo4sf.core.loadset) holds them to the same rule
+        for p in ("FO4SliceRedRocketCore.esm", "FOCCProbe.esp", "FOSF_Start.esm", "FNVSF_Goodsprings.esm"):
+            with self.subTest(plugin=p):
+                self.write(["*" + g for g in GAME] + ["*" + p])
+                old, self.said = self.read(), []
+                self.assertEqual(self.run_("fix"), 6)
+                self.assertIn(f"{p} is active but not in", self.said[-1])
+                self.assertEqual(self.read(), old)
+        self.write(["*SomeoneElses.esm"] + ["*" + g for g in GAME])     # not ours: absent from Data, not judged
+        self.said = []
+        self.assertEqual(self.run_("check"), 0)
+
+    def test_it_runs_isolated_as_the_launcher_starts_it(self):
+        # crashwatch.apply_load_order runs `python -I load_order.py`: -I leaves the script's folder and src off sys.path
+        import subprocess
+        env = dict(os.environ, LOCALAPPDATA="")
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "game", "load_order.py"), "check",
+                            "--starfield", self.game], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        self.assertIn("no LOCALAPPDATA folder", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
