@@ -165,6 +165,20 @@ class P9PackageDriverTests(unittest.TestCase):
         v = probes.check_p9(col(log=floating(late)))
         self.assertFalse(any("across the ground" in r for r in v.reasons), v.reasons)
 
+    def test_still_periods_are_reported_with_the_package_and_the_player(self):
+        # 1 Nov 2026 (#644): loaded actors stood 95-200 s mid-route and walked on; the judge lists such spans
+        self.assertEqual(probes.check_p9(col(log=drive(driver="link", package=PATROL))).extra["still_periods"], [])
+        lines = [re.sub(r" dist=", f" package={PATROL} player_m=25.000000 dist=", ln) if " p9 sample " in ln else ln
+                 for ln in drive(driver="link", package=PATROL, stuck_from=100)]
+        v = probes.check_p9(col(log=lines))
+        still = v.extra["still_periods"]
+        self.assertEqual(len(still), 1, still)
+        self.assertEqual(still[0]["from_s"], 98.0)                  # the go at rt 1.5; the last step lands at t=98
+        self.assertGreaterEqual(still[0]["for_s"], 500.0)
+        self.assertEqual(still[0]["packages"], [str(PATROL)])
+        self.assertEqual(still[0]["player_m"], [25.0, 25.0])
+        self.assertEqual(v.verdict, probes.FAIL, v.to_dict())       # stuck 500 s while loaded: P9's own rule, unchanged
+
     def test_the_old_scripted_go_reads_as_before(self):
         v = probes.check_p9(col(log=drive(driver="script")))
         self.assertEqual(v.extra["attempts"][-1]["driver"], "script")

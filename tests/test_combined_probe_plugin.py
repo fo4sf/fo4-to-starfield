@@ -441,6 +441,19 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(shadow.index("Utility.Wait(3.0)"), shadow.index("p.SetPosition("))
         self.assertIn('"p9 shadow done actor="', shadow)
 
+    def test_p9_samples_log_the_package_and_the_player_with_dist_last(self):
+        # 1 Nov 2026 (#644): loaded actors stood still 95-200 s mid-route; each sample now says what the actor ran and
+        # how far the player was. dist= stays last: the sessions read the sample's dist with a greedy pattern
+        body = QUEST[QUEST.index("Function P9Sample()"):]
+        body = body[:body.index("EndFunction")]
+        line = next(ln for ln in body.splitlines() if '"p9 sample t="' in ln)
+        self.assertIn('" package=" + Id(pk)', line)
+        self.assertIn('" player_m=" + a.GetDistance(Game.GetPlayer())', line)
+        self.assertTrue(line.rstrip().endswith('" dist=" + dist)'), line)
+        self.assertNotIn("pdist", line)
+        self.assertLess(body.index("Actor act = a as Actor"), body.index("pk = act.GetCurrentPackage()"))
+        self.assertLess(body.index("if act != None"), body.index("pk = act.GetCurrentPackage()"))
+
     def test_p9_dest_is_snapped_to_the_ground_and_logs_the_drop(self):
         # #663 review: P9Track's distance is 3D; a marker left at the player's height floats where the land falls
         start = QUEST.index("Function P9PlaceDest(float dx, float dy)")
