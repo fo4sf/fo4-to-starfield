@@ -5,6 +5,7 @@ Extends the [Fallout-shell packet](../../testing/fallout-shell-preparation.md), 
 implementation. Source observations below are research, not native acceptance. The [pilot matrix](../../testing/multi-game-world-pilots.json)
 is non-executable; the [source register](multi-game-world-sources-nov01.json) distinguishes developer accounts, mod
 authors, source code and project decisions. No third-party converter was run or adopted.
+For execution order, required inputs and receipts, use the [Claude PC action cards](../../testing/claude-world-staging-handoff.md).
 
 ## Owner decisions carried forward
 
