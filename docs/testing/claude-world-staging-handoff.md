@@ -81,12 +81,21 @@ Read the private `recovery-source-protection.json` and refresh its receipt hashe
 name stage roots for the experiment/core, bridge, combined probe, map markers and quest probe. All five existed at the
 read-only observation. The port receipt stores no source staging directory **by design**: provide `--port-staging` and
 validate it with the supported restore preflight rather than guessing its folder from a build name.
-A bounded read-only scan of immediate stage folders found no byte-identical port-plugin candidate. That does not
-prove the source is gone: nested stages and other locations were outside the scan. The installed plugin itself
-matched its receipt. The exact source binding remains open; do not replace it with a similarly named older build.
+A follow-up lookup using the restore tool's supported layouts found the matching port stage under a nested `port/`
+directory. The existing `port_restore.snapshot_spec/check_stage/check_core` preflight passed for all three recorded
+source artifacts (plugin, main archive and texture archive), against the current receipt and observed core identity.
+Receipt/core context stayed stable during that check. The exact root and hashes are in the private checkpoint's
+`port-source-preflight.json`; source-stage binding is resolved for that observation. The earlier limited scan remains
+preserved as an incomplete search, not evidence that the source was lost.
 
-**Output:** exact source root/pin for each installed component and its riders, port staging binding, source-drift
-preflight and a restore dry run. The protection inventory deliberately did not hash whole asset trees during live work.
+Revalidate this binding against fresh records before a swap. The check hashed the staged archives; it did not rehash
+the installed archives, validate every other component's source tree or perform a restore. Its observed core hash is
+not an independently approved compatibility pin. Source availability does not establish whole-setup recovery or
+native acceptance.
+
+**Output:** exact source root/pin for each installed component and its riders, refreshed port/source-drift
+preflight and a restore dry run. The original protection inventory did not hash whole asset trees; the follow-up
+hashed only the port source cohort named above.
 It is not a restore target. Preserve installed assets, saves, queues, rollback/history, worktrees, frozen index sources
 and unindexed recovery. An unreferenced directory is not a deletion candidate. No cleanup release is included here.
 
