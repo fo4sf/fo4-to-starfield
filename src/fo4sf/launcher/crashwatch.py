@@ -671,7 +671,11 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                 say(STILL_SWAPPED)
         raise
     if folder:
-        if inst.pending(player) and system.pids():
+        try:
+            running = bool(system.pids())
+        except ValueError:                          # unknown (review of 66c353dd): leave the journal and say so, as above
+            running = True
+        if inst.pending(player) and running:
             # a game that came up after the watch gave up still reads the list in place: the player's comes back at
             # the next `play` (with or without the setting) or `instance recover` once Starfield is closed
             say(STILL_SWAPPED)

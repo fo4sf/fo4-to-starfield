@@ -136,10 +136,12 @@ Default off: until the setting `instance` is set, play, the window and every too
   #309).
 - **H4, a Steam update.** After the next game update, check whether the folder's files still share their data with
   Steam's (`launcher.py measure` counts hard links once). Expected: Steam writes new files, the links break, and the
-  FO4SF folder stays on its version (what "Stock Game" setups rely on), costing disk for each changed file. If the
-  linked files still share their data after the update, Steam wrote into them in place: the FO4SF folder's Data and
-  Tools then changed with Steam's, while its copied exe and SFSE stayed on the old version, so it needs `instance
-  create` into a new folder (or SFSE for the new version) before it plays again.
+  FO4SF folder stays on its version (what "Stock Game" setups rely on), costing disk for each changed file. The test
+  is on the files the update changed (newer than the update in Steam's folder): files it left alone always still
+  share, and `measure` gives folder totals only, so its count alone cannot tell. If a changed file still shares its
+  data, Steam wrote into it in place: the FO4SF folder's Data and Tools then changed with Steam's while its copied exe
+  and DLLs stayed on the old version, so it needs `instance create` into a new folder (the new exe and DLLs, with the
+  SFSE for that version) before it plays again (review of 66c353dd).
 
 ## 5. What it costs
 

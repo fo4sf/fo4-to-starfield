@@ -173,6 +173,28 @@ class FolderPlayTests(unittest.TestCase):
         self.assertIn("ended: process", log)                                # the crash record is still written
         self.assertEqual(self.read(self.player), PLAYER)                    # and the after-path put the list back
 
+    def test_an_unreadable_process_list_after_the_game_says_where_the_players_list_is(self):
+        # review of 66c353dd, P3: tasklist failing after the game ended made the put-back fail quietly, then raised out
+        # of play from the after-path, and STILL_SWAPPED was never said; now it is, and the journal waits for recover()
+        sys_ = self.game()
+        pids, seen = sys_.pids, []
+
+        def pids_until_the_end(*a, **k):
+            out = pids(*a, **k)
+            if out:
+                seen.append(1)
+            elif seen:                              # the game came and went: from here on tasklist fails
+                raise ValueError("Cannot check the running processes")
+            return out
+        sys_.pids = pids_until_the_end
+        r = self.play(self.values(), sys_)
+        self.assertTrue(r["started"])
+        self.assertTrue(any("after the game ended: Cannot check" in s for s in self.said), self.said)
+        self.assertTrue(any("still in your place" in s for s in self.said), self.said)
+        self.assertTrue(instance.pending(self.player))                      # the journal stays for recover()
+        self.assertTrue(instance.recover(self.player, lambda: False, self.said.append))
+        self.assertEqual(self.read(self.player), PLAYER)
+
     def test_a_stop_under_a_running_game_says_where_the_players_list_is(self):
         sys_ = self.game()
         start = sys_.start_game
