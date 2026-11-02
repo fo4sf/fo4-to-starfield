@@ -421,7 +421,18 @@ class ScriptContractTests(unittest.TestCase):
         for s in ("a.SetLinkedRef(None)", "a.EvaluatePackage()", '"p9 link cleared actor="'):
             self.assertIn(s, end)
         shadow = fn("Function Shadow(int actorId, float seconds, float behind) global")
-        self.assertIn("p.SetPosition(a.GetPositionX() - behind, a.GetPositionY(), a.GetPositionZ() + 5.0)", shadow)
+        # 5 m above the higher of the actor and the player: run A2 (1 Nov) put the player under the quarry rim
+        self.assertIn("p.SetPosition(a.GetPositionX() + ux * behind, a.GetPositionY() + uy * behind, az + 5.0)", shadow)
+        # behind = back along the line from the marker through the actor, any route direction (the owner, 1 Nov: the
+        # east route crosses the quarry, which a scripted event changes); -X without a marker, as before
+        self.assertIn("ObjectReference dest = q.P9Dest", shadow)
+        self.assertIn("float ux = -1.0", shadow)
+        self.assertLess(shadow.index("if adx >= ady"), shadow.index("p.SetPosition("))   # the main axis, no Math
+        self.assertLess(shadow.index("if adx + ady > 1.0"), shadow.index("if adx >= ady"))  # at the marker: keep the last
+        self.assertLess(shadow.index("az = a.GetPositionZ()"), shadow.index("if pz > az"))
+        self.assertLess(shadow.index("if pz > az"), shadow.index("az = pz"))
+        self.assertLess(shadow.index("az = pz"), shadow.index("p.SetPosition("))
+        self.assertIn('"p9 shadow rim actor="', shadow)
         self.assertNotIn("a.SetPosition", shadow)                              # never the walking actor
         self.assertNotIn("a.MoveTo", shadow)
         self.assertIn("Utility.Wait(5.0)", shadow)
