@@ -930,7 +930,97 @@ What each other outcome means:
 Every page shows the movie's own defaults, not the player's values; that is S3. The device route stays separate: the
 wrist model is #780 (card A''), which still waits for the owner's release. No kit screen on the device path. The
 owner's direction on the arm (14 Nov): opening the Pip-Boy plays the raise and closing plays the lower; no held or
-frozen pose. That belongs to the device plan (`pipboy-device-plan`, FAL-680), not to this flat screen.
+frozen pose. That belonged to the device plan (`pipboy-device-plan`, FAL-680), not to this flat screen, until the
+owner's S6 card (FAL-843, 14 Nov, 21:40Z) put the raise and the lower on this screen too: S1-arm, below.
+
+**S1-arm, the slice: Fallout 4's screen on its own key, with the raise, the pause and the lower (plugin code, FAL-852,
+the owner's S6 card FAL-843).** Since S1-c the owner set four rules for this screen (14 Nov):
+- F10 is their faction device (the #739 page kit, restored at 21:31Z by their choice), so Fallout 4's screen has its own
+  key. Its sessions run with their own kit, removed afterwards.
+- The raise (`idleexaminewatch`, their choice, FAL-783) plays when it opens and the lower when it closes. No frozen
+  pose.
+- It pauses the game, as Fallout 4 does.
+- The pages and tabs are S1-c's.
+
+So the arm moves from the device plan onto this screen as well, in the device plan's rev 23 order (FAL-680). Open key:
+the raise plays with the game running; when it has reached the screen, the screen shows and the pause starts. Close
+key: the screen hides and the pause ends; then the lower plays with the game running.
+
+| Rule | S1-arm supplies (all off as shipped) |
+| --- | --- |
+| its own key | `Arm=1` makes `Key` the screen's own key and refuses F10 (and F5, F9, `WorldKey`): `refuse step=ini reason=arm_key`. The card uses F7 (`0x76`), the key #776's sessions used |
+| the raise on open | `Key` sends `ArmRaiseIdle`'s animation event to the player, then shows the screen `ArmRaiseMs` (2000) later. #776's route (FAL-714, FAL-725), written there for its kit: the idle by editor id through the engine's `LookupByEditorID`, its event through the player's `NotifyAnimationGraphImpl`, both checked before use, a refused send retried every 100 ms |
+| the pause | `Pause=1`, the owner's setting at stages (d) and (e), is now read at stage (b) with `Movie=` too and adds the same bit `0x2` to `Flags` |
+| the lower on close | after every hide of that screen. **No lower set (shipped):** nothing is sent; the raise's own clip, held on its frame by the pause, carries on once the pause ends and lowers the arm by itself. PB-HOLD-1 found that the clip resumes from its frozen frame (FAL-680), so the arm is down about 5.5 s less `ArmRaiseMs` after the close, 3.5 s with the shipped 2.0 s. **Or** `ArmLowerIdle=` (an idle) or `ArmLowerEvent=` (a graph event by name, `ActionInterrupt`, which PB-HOLD-2's X0 found the console's `sae` accepts) to cut that short: X1's question, still open |
+| pages and tabs | S1-c's keys and answers, unchanged; Q, E, A, D, Page Up and Page Down are not F7 |
+
+**What it does not settle without the PC (hypotheses):**
+- **That the event alone plays `idleexaminewatch`.** PB-DATA-3 read its event as `DynamicIdle` plus a clip file.
+  #776's raise and lower were DataSlate idles, each with an event of its own; the owner saw `idleexaminewatch` through
+  the console's `playidle`, which sets the idle up before it sends the event. The `step=arm_idle ... event=` line names
+  the event; the screenshots show whether the arm moved. If it did not, the fallback is **B1**: a global Papyrus
+  function of ours that plays the idle on the player, called with no arguments through `DispatchStaticCall` (stage (c)'s
+  route, proven by FAL-246), as a PEX built on the PC. Arguments cannot be passed from the plugin yet (the scrap heap's
+  ids are `REL::ID{ 0 }` in libxse 9d090c4), so `Actor.PlayIdle` cannot be called directly.
+- That the pause holds the clip behind this screen as it did behind the kit's (PB-HOLD-1 ran with the kit at
+  `PageFlagSets=0x1B`), and that S1-c's pages still turn under the pause (S1-c's own question).
+- The gun rule: the idle is refused with a gun out (PB-DATA-3). The raise is retried for `ArmRetryMs` and gives up;
+  the screen still opens. Holstering first is a later slice.
+
+**S1-arm, the card (Claude PC; one session after the owner's launch release; the dll built at this commit).** A PC
+session with its own kit: the owner's F10 kit (#739) is taken out for it, with hashes, and put back afterwards.
+0. **Before:** record the owner's installed `FO4SFPipboyMenu.dll` and `FO4SFPipboyMenu.ini` (sha256) and keep both
+   aside as the rollback. The test save as in PB-HOLD-1 and PB-HOLD-2, outdoors, nothing drawn. No save.
+1. **Build** the plugin from this commit with `build.ps1`. A build error is a **STOP**: send it.
+2. **Install** exactly as S1-c: the six movies, `--extra-movie FO4SF_Fo4Shell` and the five `--page-movie` options.
+   Then the new dll and its ini.
+3. **The ini:** S1-c's card's, with these changed or added (nothing else):
+   - `Key=0x76` (F7; F10 is the owner's faction device and has no part in this session)
+   - `Flags=0x19` and `Pause=1` (together `0x1B`, the flags S1-c's card opens with)
+   - `Arm=1`, `ArmRaiseIdle=idleexaminewatch`, `ArmRaiseMs=2000`, `ArmLowerIdle=`, `ArmLowerEvent=`,
+     `ArmLowerMs=3500`, `ArmRetryMs=2000` (the shipped values)
+4. **Run, one launch:** outdoors, nothing drawn.
+   1. F7. Screenshots at about 1 s (the raise under way) and 3 s (the screen up).
+   2. Wait 5 s; look whether the world is paused (an NPC or the sky). Press E twice and Q twice, a second apart, with a
+      screenshot of each page.
+   3. F7 to close. Screenshots at about 0.5 s, 2 s and 4 s after it (the lower), then walk a few steps.
+   4. Steps 1 to 3 once more.
+   5. Only if the owner's release allows a weapon: draw a pistol, F7 once, then F7 to close, as in PB-HOLD-2's G1.
+5. **Send:** `step=load_b`, `step=load_arm`, `step=arm_id`, `step=arm_holder`, every `step=arm_idle` and
+   `step=arm_idle_slots` line, every `step=arm_*` line in order with its `t_ms`, the `step=toggle`, `step=close`,
+   `step=state` and `step=create` lines, S1-c's `code_call`, `shell_key` and `code_answer` lines, any `refuse` line;
+   the screenshots described (the arm's pose in each, whether the screen covers it, which page); whether the world
+   paused; whether the arm came down after each close and how long it took by eye; whether the game acted on F7.
+6. **After:** uninstall as S1-c, put the owner's dll and ini back, and compare their sha256 with step 0.
+
+**PASS S1-arm:**
+- `step=load_b pause=1 flags=0x1b`, `step=load_arm key=0x76 raise_idle=idleexaminewatch lower=none raise_ms=2000`,
+  `step=arm_id ...`, no `refuse` line;
+- `step=arm_idle which=raise editor_id=idleexaminewatch form=000C154F ... event=<the event>`;
+- `step=arm_raise n=1 result=1`, then `step=arm_raise_done ... result=1`, and on screen the arm raising;
+- about 2 s later `step=arm_show ... sent=show` and `step=arm_shown`, the screen up, the world paused;
+- E and Q turn the pages under the pause (S1-c's PASS lines);
+- F7: `step=arm_key ... open=1`, `step=close ... by=key`, `step=arm_lower ... send=none`, and the arm comes down by
+  itself with the world running again; not held, not frozen; the player walks;
+- the second open and close the same; no crash.
+
+What each other outcome means:
+- `refuse step=arm_idle ... reason=not_found`: the editor id is not the one the engine knows. Send the line; the PC
+  reads the idle's editor id (PB-DATA-3's form `000C154F`).
+- `arm_raise ... result=1` but the arm does not move: the event alone does not play this idle (the `DynamicIdle`
+  hypothesis above). The next card is B1.
+- `arm_raise_done result=gave_up` with nothing drawn: the graph refused the event each time for 2 s. Send the lines
+  and the shot; the next card is B1.
+- The arm rises but the screen comes too early or too late for the owner's eye: `ArmRaiseMs` only (ini).
+- The world does not pause: send the `step=create` line (`flags=`).
+- The world pauses but the pages stop turning: S1-c's outcome; once more with `Pause=0`.
+- After the close the arm stays up, or stays frozen: the clip did not carry on. Send the shots and the `arm_lower`
+  line; the next run sets `ArmLowerEvent=ActionInterrupt` (a second launch, only with the owner's release for it).
+- The arm comes down but too slowly for the owner: the same `ArmLowerEvent=ActionInterrupt` run (PB-HOLD-2's X1).
+- F7 also does something in the game: send what; the next card picks another key.
+- A crash: send the crash log privately, restore the owner's kit (step 6), and stop.
+
+No kit screen on this route and nothing from either game in Git; the device route (#780) stays separate.
 
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
@@ -1045,6 +1135,11 @@ delivery.
 8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above). Installed in the owner's game on 14 Nov. Their first
    words: it looks like the Pip-Boy, and it does not pause. The log and the STAT body are not in yet.
 9. Next: S1-c (plugin code at this commit: `CodeObjAt=`, `CodeObjPages=`, `ShellKeys=`; its card above). It needs a
-   review, a CARRY, then the PC's build and run after S1-b's result and the owner's release. Then S1-d (the gamepad
+   review, a CARRY, then the PC's build and run after S1-b's result and the owner's release. Done since: the Scribe's
+   review of `69817eae` (FAL-821), and `3562dd99` adds the pause to its card.
+10. Next with it: S1-arm (FAL-852, plugin code at this commit: `Arm=`, and `Pause=` at stage (b); its card above). F10
+   stays the owner's faction device; this screen opens on F7. It needs a review, a CARRY, then the PC's build and one
+   session under the owner's release (after S1-c's steps, in a launch of its own: the ini is read once at load). Then
+   S1-d (the gamepad
    through the menu's input handler) and S3's first branch (STAT, HP by name) through the shell, each with its own
    card.

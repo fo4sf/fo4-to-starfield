@@ -126,7 +126,7 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("if (attempt > kMaxCodeObjTries) {", self.main)
         self.assertIn("step=code_obj when={} try={} root_of={} get_variable={} root={}", self.main)
         # proof 1b's second run: root_of=0 on every try, because stage b had not read stage c's ids (RootOf's RTTI)
-        self.assertIn("bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && g_codeObj); }", self.main)
+        self.assertIn("bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }", self.main)
         self.assertLess(self.main.index("g_codeObj = ReadNumber(ini, L\"CodeObj\", 0) != 0;"),
                         self.main.index("if (!CheckEverything(dir)) {"))
         destroy = self.main[self.main.index("void* MenuDestroy("):]
@@ -459,6 +459,92 @@ class RebuildPlanTests(unittest.TestCase):
                      "refuse step=ini code_obj_pages=1", "refuse step=ini shell_keys=", "step=code_answer n= page= tab=",
                      "step=shell_key n= vk= path= found= called=", "step=code_obj_shell at= pages= shell_keys=",
                      "up to 256 calls"):
+            self.assertIn(text, readme, text)
+
+    def test_s1_arm_own_key_raise_pause_lower(self):
+        # FAL-852 (the owner's S6 card FAL-843): Fallout 4's screen on its own key, the raise, the pause and the lower
+        for text in ("**S1-arm, the slice: Fallout 4's screen on its own key", "**S1-arm, the card (Claude PC;",
+                     "**PASS S1-arm:**", "10. Next with it: S1-arm", "F10 is their faction device", "**B1**",
+                     "PB-HOLD-1 found that the clip resumes from its frozen frame", "No kit screen on this route"):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-arm, the card"):self.plan.index("**PASS S1-arm:**")]
+
+        def setting(key):
+            value = card[card.index(f"`{key}=") + len(key) + 2:]
+            return value[:value.index("`")]
+
+        key = int(setting("Key"), 0)
+        self.assertNotIn(key, (0x79, 0x74, 0x78, 0x77))                    # not F10, F5, F9 or WorldKey (F8)
+        s1c = self.plan[self.plan.index("**S1-c, the card"):self.plan.index("**PASS S1-c:**")]
+        shell = s1c[s1c.index("`ShellKeys=") + 11:]
+        shell_vks = [int(e.split(":")[0], 0) for e in shell[:shell.index("`")].split(",")]
+        self.assertNotIn(key, shell_vks)                                   # ParseShellKeys refuses Key among them
+        self.assertEqual(int(setting("Flags"), 0) | 0x2, 0x1B)             # with Pause=1: S1-c's card's flags
+        self.assertEqual(setting("Pause"), "1")
+        self.assertEqual(setting("Arm"), "1")
+        self.assertEqual(setting("ArmRaiseIdle"), "idleexaminewatch")      # the owner's choice, FAL-783
+        for name in ("ArmRaiseMs", "ArmLowerMs", "ArmRetryMs"):
+            self.assertLessEqual(int(setting(name)), 6000, name)           # kMaxArmMs
+        self.assertEqual(setting("ArmLowerIdle"), "")
+        self.assertEqual(setting("ArmLowerEvent"), "")
+        # the ini: off as shipped, the card's other values as shipped
+        ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+        for line in ("Arm=0", "ArmRaiseIdle=idleexaminewatch", "ArmRaiseMs=2000", "ArmLowerIdle=", "ArmLowerEvent=",
+                     "ArmLowerMs=3500", "ArmRetryMs=2000", "Pause=0", "Key=0x79"):
+            self.assertRegex(ini, rf"\n{line}\r?\n", line)
+        for name in ("ArmRaiseMs", "ArmLowerMs", "ArmRetryMs"):
+            self.assertEqual(setting(name), re.search(rf"\n{name}=(\d+)", ini).group(1), name)
+        # the plugin: read only at Stage=2 with Movie=, F10 refused, the lookup id checked after the shared ids
+        self.assertIn("return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm));", self.main)
+        read = self.main[self.main.index("bool ReadArm("):]
+        read = read[:read.index("\n\t}\n")]
+        self.assertLess(read.index('ReadNumber(a_ini, L"Arm", 0) == 0'), read.index("g_stage != 2 || g_movie.empty()"))
+        self.assertIn("g_key == kF10 || g_key == kQuickSaveKey || g_key == kQuickLoadKey || g_key == worldKey", read)
+        self.assertIn("(!g_armLowerIdle.empty() && !g_armLowerEvent.empty())", read)   # at most one lower
+        self.assertIn("constexpr std::uint32_t kF10 = 0x79;", self.main)
+        self.assertIn("constexpr std::uint32_t kLookupByEditorId = 47403;", self.main)
+        self.assertIn("constexpr std::size_t   kIdleEventAt = 0x70;", self.main)
+        load = self.main[self.main.index("SFSE_PLUGIN_LOAD("):]
+        order = [load.index(s) for s in ('ReadNumber(ini, L"Pause", 0) != 0', "if (!ReadArm(ini)) {",
+                                         "if (!CheckEverything(dir)) {", 'CheckArmId(dir / "versionlib-1-16-244-0.bin")')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("if (g_stage == 2 && !g_movie.empty() && ReadNumber(ini, L\"Pause\", 0) != 0) {", load)
+        self.assertIn("g_flags |= kPauseFlag;", load)
+        # the key: the raise while closed, the close while shown; the lower follows every hide of a shown screen
+        key_fn = self.main[self.main.index("void ArmKey("):]
+        key_fn = key_fn[:key_fn.index("\n\t}\n")]
+        self.assertLess(key_fn.index('Close(n, "key")'), key_fn.index("ArmRaise(n)"))
+        self.assertIn("if (now && !down && GameInFront() && g_arm) {", self.main)
+        message = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
+        message = message[:message.index("\n\t}\n")]
+        self.assertIn("ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);", message)
+        self.assertLess(message.index("g_engineProcessMessage(a_self, a_message)"), message.index("ArmMessage("))
+        hide = self.main[self.main.index("void ArmMessage("):]
+        hide = hide[:hide.index("\n\t}\n")]
+        self.assertLess(hide.index("g_armShown.exchange(false)"), hide.index("ArmLowerSet()"))
+        self.assertIn("send=none (the raise's clip carries on)", hide)
+        # the show waits for the raise's outcome; a refused arm does not open the screen
+        raise_fn = self.main[self.main.index("void ArmRaise("):]
+        raise_fn = raise_fn[:raise_fn.index("\n\t}\n")]
+        self.assertLess(raise_fn.index("if (outcome.empty()) {"), raise_fn.index("g_armShowAt = NowMs() + g_armRaiseMs;"))
+        show = self.main[self.main.index("void ArmShow("):]
+        show = show[:show.index("\n\t}\n")]
+        self.assertLess(show.index("reason=not_ready"), show.index("Toggle(a_n);"))
+        # every log line the card's PASS names is one the plugin writes
+        for line, source in (("step=load_b pause=1", "step=load_b pause=1 flags={}"),
+                             ("step=load_arm key=", "step=load_arm key={} raise_idle={} lower={} raise_ms={}"),
+                             ("step=arm_idle which=raise", "step=arm_idle which={} editor_id={} form={:08X}"),
+                             ("step=arm_raise n=1", "step=arm_raise n={} result={} try=1"),
+                             ("step=arm_raise_done", "step=arm_raise_done n={} result={}"),
+                             ("step=arm_show", "step=arm_show n={} sent=show raise={}"),
+                             ("step=arm_shown", "step=arm_shown n={}"),
+                             ("step=arm_key ... open=1", "step=arm_key n={} open=1"),
+                             ("step=arm_lower ... send=none", "step=arm_lower n={} send=none")):
+            self.assertIn(line, self.plan[self.plan.index("**PASS S1-arm:**"):], line)
+            self.assertIn(source, self.main, source)
+        readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
+        for text in ("### The arm (FAL-852, S1-arm)", "refuse step=ini reason=arm_key", "refuse step=ini reason=arm_stage",
+                     "| TESForm.LookupByEditorID | 47403 | libxse |", "`Arm` (0) to `ArmRetryMs` (FAL-852)"):
             self.assertIn(text, readme, text)
 
     def test_reads_recorded(self):
