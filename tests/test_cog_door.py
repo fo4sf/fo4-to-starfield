@@ -202,43 +202,37 @@ class CogDoorFo4BodyTests(unittest.TestCase):
         _, half = sfcollision.read_box(blob)
         self.assertAlmostEqual(min(half), sfcollision.MIN_LEAF_HALF, places=3)   # thin, not the 0.7 m leaf-sized block
 
-    def test_body_position_is_model_space_and_not_doubled_by_the_helper_node(self):
-        # FO4 body transforms are absolute (model space): the helper node's own offset must not be added (PR #788 read: 2x).
-        files, door = self.run_convert(pack=OffsetPack)
-        model = nif.parse(files["meshes/fo4port/interiors/vault/vltgeardoor01.nif"])
-        worlds = nif.world_transforms(model)
-        body = next(i for i in range(len(model.blocks)) if model.type_of(i) == "bhkNPCollisionObject")
-        node = struct.unpack_from("<i", model.blocks[body])[0]
-        t = worlds(node)[0]
-        for got, want in zip(t, (-1.0, 2.0, 0.5)):
-            self.assertAlmostEqual(got, want, places=3)
-        self.assertEqual(door["fo4_collision"]["carried_bodies"][0]["model_centre_m"], [-1.0, 2.0, 0.5])
+    def test_hull_is_in_the_collision_nodes_frame_so_the_body_position_is_not_added(self):
+        # PC read of bbecf324 on the real cog door: staged = 2 x body - node. Real base deck: node (-5.600, 1.275, 2.346),
+        # body (-4.256, 1.273, 0.920), hull centroid = body - node; the box must land on the body, not 1.4 m below it.
+        from fo4sf import fo4collision, hkpackfile, meshcollision
+        src = with_deck_collision(cog_nif())
+        deck = next(i for i in range(len(src.blocks)) if src.type_of(i) == "NiNode"
+                    and src.strings[struct.unpack_from("<i", src.blocks[i])[0]] == b"c_Deck")
+        node_m = tuple(v / 70 for v in nif.world_transforms(src, placed=True)(deck)[0])      # the helper node's model position
+        body = (node_m[0] + 0.744, node_m[1] + 0.001, node_m[2] - 1.4)
+        offset = tuple(b - n for b, n in zip(body, node_m))
+        hull = [(x + offset[0], y + offset[1], z + offset[2]) for x, y, z in SLAB]
 
-    def test_body_away_from_the_origin_under_a_bone_away_from_the_origin_stays_where_the_source_put_it(self):
-        from fo4sf import convert_static as cs, fo4collision, hkpackfile, meshcollision
-        f = with_deck_collision(cog_nif())
-        blk = bytearray(f.blocks[1])
-        _, nextra = struct.unpack_from("<iI", blk, 0)
-        struct.pack_into("<3f", blk, 8 + 4 * nextra + 8, 35.0, -70.0, 70.0)     # the part's own bone offset, FO4 units
-        f.blocks[1] = bytes(blk)
-        with patch.object(hkpackfile, "Packfile", return_value=OffsetPack()), \
+        class Pack(FakePack):
+            position = body
+        with patch.object(hkpackfile, "Packfile", return_value=Pack()), \
                 patch.object(meshcollision, "_shape_parts", return_value=[("convex", 1000, meshcollision.IDENTITY3, (0, 0, 0))]), \
-                patch.object(fo4collision, "_convex", return_value=(SLAB, SLAB_TRIS)):
-            count = len([x for x in nif.fo4_trishapes(f) if x.positions and x.triangles])
-            files, door = convert_static.convert_multipart_door(           # the moved bone no longer starts at its clips' bind pose
-                nif.serialize(f), "fo4port/interiors/vault/vltgeardoor01", ["x.mat"] * count, fake_clip_files,
-                collision_template=fake_template(), leaf_physics_donor=donor(), rest_pose_check=False, aliases=ALIASES)
+                patch.object(fo4collision, "_convex", return_value=(hull, SLAB_TRIS)):
+            files, door = convert(src, aliases=ALIASES)
         model = nif.parse(files["meshes/fo4port/interiors/vault/vltgeardoor01.nif"])
         worlds = nif.world_transforms(model)
-        body = next(i for i in range(len(model.blocks)) if model.type_of(i) == "bhkNPCollisionObject")
-        for got, want in zip(worlds(struct.unpack_from("<i", model.blocks[body])[0])[0], (-1.0, 2.0, 0.5)):
+        carried = next(i for i in range(len(model.blocks)) if model.type_of(i) == "bhkNPCollisionObject")
+        for got, want in zip(worlds(struct.unpack_from("<i", model.blocks[carried])[0])[0], body):
+            self.assertAlmostEqual(got, want, places=3)
+        for got, want in zip(door["fo4_collision"]["bodies"][0]["model_position_m"], body):
             self.assertAlmostEqual(got, want, places=3)
 
     def test_the_report_lists_every_moving_body_with_bone_node_shape_size_and_position(self):
         _, door = self.run_convert(pack=OffsetPack)
         (entry,) = door["fo4_collision"]["bodies"]
         self.assertEqual(entry["status"], "carried")
-        self.assertEqual(entry["model_position_m"], [-1.0, 2.0, 0.5])
+        self.assertEqual(len(entry["model_position_m"]), 3)
         self.assertEqual(entry["shape"], "oriented box")
         for key in ("bone", "source_node", "source_node_name", "half_m"):
             self.assertIn(key, entry)

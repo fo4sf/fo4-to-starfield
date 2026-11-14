@@ -653,7 +653,7 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
     moving = [a for a in found["attachments"] if a["follows_animated_ancestor"]]
     if not moving:
         return None
-    worlds = nifmod.world_transforms(src, placed=True)      # FO4 body transforms are absolute (model space), not node-relative
+    worlds = nifmod.world_transforms(src, placed=True)      # hull vertices are in the collision node's frame (see below)
     packs = {}
     out, skipped, carried, fallback, listing = {}, [], [], set(), []
 
@@ -668,6 +668,9 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
         wt, wr, ws = worlds(bone_node)                       # bone -> model, source units
         if abs(ws - 1.0) > 1e-4:
             raise nifmod.NifError("door rig bone is scaled")
+        nt, nr, ns = worlds(a["node"])                       # the collision node: hull vertices are in ITS frame
+        if abs(ns - 1.0) > 1e-4:
+            raise nifmod.NifError("door collision node is scaled")
         if a["system_block"] not in packs:
             pack = hkpackfile.Packfile(src.blocks[a["system_block"]][4:])
             packs[a["system_block"]] = (pack, dict(pack.objects()))
@@ -680,7 +683,6 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
             skipped.append(label + " (rotated body)")
             listing.append({**entry, "status": "skipped", "reason": "rotated body"})
             continue
-        pos = pack.unpack("<3f", body + fc.BODY_POS)
         for kind, obj, R, tr in meshcollision._shape_parts(pack, classes, pack.pointer(body), meshcollision.IDENTITY3, (0.0, 0.0, 0.0)):
             if kind == "convex":
                 pts, tris = fc._convex(pack, obj)
@@ -696,11 +698,15 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
                 skipped.append(f"{label} (part without faces)")
                 listing.append({**entry, "status": "skipped", "reason": "part without faces"})
                 continue
-            pts = [tuple(sum(R[3 * r + k] * v[k] for k in range(3)) + tr[r] + pos[r] for r in range(3)) for v in pts]   # model metres
+            # PC read of bbecf324 on the real source: node + hull centroid = the source body position, so the hull is in the
+            # collision node's frame and the body position must not be added again (2 x body - node otherwise).
+            pts = [tuple(sum(R[3 * r + k] * v[k] for k in range(3)) + tr[r] for r in range(3)) for v in pts]       # node frame, metres
+            pts = [tuple(sum(nr[3 * r + k] * v[k] for k in range(3)) + nt[r] * unit_scale for r in range(3)) for v in pts]   # model metres
             centre, half, rot = sfcollision.convex_obb(pts, tris)
             local = tuple(sum(wr[3 * k + r] * (centre[k] / unit_scale - wt[k]) for k in range(3)) * unit_scale for r in range(3))
             rot_local = tuple(sum(wr[3 * k + r] * rot[3 * k + c] for k in range(3)) for r in range(3) for c in range(3))
             out.setdefault(bone_node, []).append((local, half, rot_local, a["node"]))
+            half = tuple(max(sfcollision.MIN_LEAF_HALF, h) for h in half)       # the size the box is actually written with
             carried.append({"node": a["node"], "bone": plan["bones"][a["bone"]]["name"], "model_centre_m": [round(v, 3) for v in centre],
                             "half_m": [round(v, 3) for v in half]})
             listing.append({**entry, "status": "carried", "shape": "oriented box", "source_shape": kind,
@@ -845,6 +851,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
                 child_bodies.setdefault(node, []).append((f"Collision_{source_node}_{k}", centre, rot,
                                                           sfcollision.keyframed(blob, leaf_physics_donor)))
     keep_box = {bones[i]["node"] for i in bone_pts} & set(fo4_report.get("fallback_nodes", [])) if fo4_bodies is not None else set()
+    if fo4_bodies is not None:                       # say which fallback bones really got a box (a bone with no geometry gets none)
+        fo4_report["box_fallback_bones"] = sorted(bones[i]["name"] for i in bone_pts if bones[i]["node"] in keep_box)
     for i, pts in sorted(bone_pts.items()):
         if fo4_bodies is not None and bones[i]["node"] not in keep_box:
             continue
