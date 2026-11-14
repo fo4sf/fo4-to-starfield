@@ -283,6 +283,40 @@ class CogDoorFo4BodyTests(unittest.TestCase):
                 self.assertAlmostEqual(got, want, places=2, msg=str(body))
             self.assertNotAlmostEqual(node_m[2], body[2], places=1)      # the helper is far from the body: no cancelling
 
+    def test_a_rotated_railing_stands_on_the_deck_edge_with_the_collision_nodes_own_rotation(self):
+        # FAL-813: the real c_WalkWay01RailL numbers from the PC read of 306faa71 (FAL-810 comment 3e2e35ee). Node model transform:
+        # t (-354.187, 161.235, 137.794) source units, R row-major [-1 0 0 / 0 0 -1 / 0 -1 0]; body quaternion (0, .7071, -.7071, 0) is NOT used.
+        # Hull in the node frame x -2.835..1.224, y -0.139..1.021, z 0.010..0.064 m -> model x -6.284..-2.225, y 2.239..2.293,
+        # z 0.947..2.107 (the deck's length, on its +y edge, standing 1.16 m up from the deck top).
+        from fo4sf import fo4collision, hkpackfile, meshcollision
+        node_t, node_r = (-354.187, 161.235, 137.794), (-1, 0, 0, 0, 0, -1, 0, -1, 0)
+        xs, ys, zs = (-2.835, 1.224), (-0.139, 1.021), (0.010, 0.064)
+        hull = [(x, y, z) for x in xs for y in ys for z in zs]
+        src = with_deck_collision(cog_nif())
+        deck = next(i for i in range(len(src.blocks)) if src.type_of(i) == "NiNode"
+                    and src.strings[struct.unpack_from("<i", src.blocks[i])[0]] == b"c_Deck")
+        real_worlds = nif.world_transforms
+
+        def worlds_with_rotated_node(f, *args, **kw):
+            inner = real_worlds(f, *args, **kw)
+            return lambda i: (node_t, node_r, 1.0) if i == deck else inner(i)
+
+        class Pack(FakePack):
+            position, rotation = (-4.255, 2.267, 1.527), (-0.0, 0.707107, -0.707107, 0.0)
+        with patch.object(hkpackfile, "Packfile", return_value=Pack()), \
+                patch.object(nif, "world_transforms", worlds_with_rotated_node), \
+                patch.object(meshcollision, "_shape_parts", return_value=[("convex", 1000, meshcollision.IDENTITY3, (0, 0, 0))]), \
+                patch.object(fo4collision, "_convex", return_value=(hull, SLAB_TRIS)):
+            _, door = convert(src, aliases=ALIASES)
+        (entry,) = door["fo4_collision"]["bodies"]
+        self.assertEqual(entry["status"], "carried")
+        self.assertTrue(entry["rotation_ignored"])
+        for got, lo, hi in zip(entry["model_position_m"], (-6.284, 2.239, 0.947), (-2.225, 2.293, 2.107)):
+            self.assertAlmostEqual(got, (lo + hi) / 2, places=2)
+        # half sizes: length along model x, 5 cm plate (clamped up to the minimum half) on y, 1.16 m tall on z
+        for got, want in zip(entry["half_m"], (2.0295, 0.05, 0.58)):
+            self.assertAlmostEqual(got, want, places=2)
+
     def test_a_large_mesh_part_is_refused(self):
         from fo4sf import fo4collision, meshcollision
         many = SLAB_TRIS * 5
