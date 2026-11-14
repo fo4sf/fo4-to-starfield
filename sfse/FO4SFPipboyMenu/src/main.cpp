@@ -148,9 +148,13 @@ namespace
 	constexpr std::size_t   kGameVmImplAt = 0xE0;            // libxse RE::GameVM::impl (BSTSmartPointer<IVirtualMachine>)
 	constexpr std::size_t   kDispatchStaticCallSlot = 0x2F;  // libxse IVirtualMachine::DispatchStaticCall
 	constexpr std::size_t   kMaxName = 64;                   // ClickCall: each of the script's and function's names
-	constexpr std::uint32_t kMaxCodeCalls = 64;              // FAL-614 proof 1b: stand-in BGSCodeObj calls logged
+	constexpr std::uint32_t kMaxCodeCalls = 256;             // FAL-614 proof 1b: stand-in BGSCodeObj calls logged (S1-c: 256, paging)
 	constexpr std::size_t   kMaxCodeArg = 64;                // and the first characters of a string argument
+	constexpr std::uint32_t kMaxCodeArgs = 4;                // FAL-614 S1-c: the arguments logged per call
 	constexpr std::size_t   kMaxCodeNames = 16;              // CodeObjNames: the stand-in's functions
+	constexpr std::size_t   kMaxShellKeys = 8;               // FAL-614 S1-c: ShellKeys=, keys that call a shell path
+	constexpr std::uint32_t kMaxAnswers = 512;               // FAL-614 S1-c: page and tab answers per movie
+	constexpr std::int64_t  kMaxAnswerIndex = 63;            // the highest page or tab index answered
 	constexpr std::uint32_t kMaxCodeObjTries = 40;           // tries per movie (load, show, then one per kUpdate)
 	constexpr std::uint32_t kLoggedCodeObjTries = 5;
 	constexpr std::size_t   kMaxSoundBytes = 32u << 20;      // FAL-614 proof 1d: one converted sound file, at most
@@ -448,6 +452,21 @@ namespace
 	std::size_t                              g_probeCount = 0;
 	std::array<std::string, kMaxCodeNames>   g_rootCallNames;           // FAL-614 proof 2b-ii: CodeObjCalls=, called once after the hand-over
 	std::size_t                              g_rootCallCount = 0;
+	std::string                              g_codeObjAt;               // FAL-614 S1-c: CodeObjAt=<path>, the stand-in also as <path>.BGSCodeObj
+	bool                                     g_codeObjPages = false;    // FAL-614 S1-c: CodeObjPages=1, onNewPage and onNewTab answered
+	struct ShellKey   // FAL-614 S1-c: ShellKeys=<key>:<path>,...
+	{
+		std::uint32_t vk = 0;
+		std::string   path;
+	};
+	std::array<ShellKey, kMaxShellKeys>      g_shellKeys;
+	std::size_t                              g_shellKeyCount = 0;
+	std::atomic<std::uint32_t>               g_shellKeyPending{ 0 };    // key thread: one bit per ShellKeys entry pressed
+	std::atomic<std::uint32_t>               g_shellKeyLines{ 0 };
+	std::atomic<std::int32_t>                g_answerPage{ -1 };        // menu's thread: the page the shell asked for, -1 = none
+	std::atomic<std::int32_t>                g_answerTab{ -1 };         // and the tab
+	std::atomic<bool>                        g_answerNow{ false };      // key thread: send a kUpdate to answer
+	std::atomic<std::uint32_t>               g_answers{ 0 };            // answers on g_codeObjMovie
 	std::filesystem::path                    g_soundDir;                // <dll folder>/FO4SFPipboyMenuSounds
 	std::atomic<std::uint32_t>               g_soundsPlaying{ 0 };
 	std::atomic<std::uint32_t>               g_soundLines{ 0 };
@@ -3279,6 +3298,9 @@ namespace
 			}
 			if (g_codeObjMovie == movie) {   // FAL-614 proof 1b: a later movie at the same address gets its own stand-in
 				g_codeObjMovie = nullptr;
+				g_shellKeyPending = 0;       // S1-c: nothing pressed or asked for carries over to the next movie
+				g_answerPage = -1;
+				g_answerTab = -1;
 			}
 			if (g_codeObjTriedMovie == movie) {
 				g_codeObjTriedMovie = nullptr;
@@ -3500,6 +3522,59 @@ namespace
 		REX::W32::CloseHandle(thread);
 	}
 
+	// FAL-614 S1-c: one argument of a stand-in call as logged: a string's first 64 characters, a boolean or a number after
+	// '#' (#true, #2), else its type (type<n>: an object such as the shell's DataObj, null, undefined)
+	std::string ArgText(const RE::Scaleform::GFx::Value& a_arg)
+	{
+		if (a_arg.IsString()) {
+			return std::string(a_arg.GetString()).substr(0, kMaxCodeArg);
+		}
+		if (a_arg.IsBoolean()) {
+			return a_arg.GetBoolean() ? "#true" : "#false";
+		}
+		if (a_arg.IsInt()) {
+			return std::format("#{}", a_arg.GetInt());
+		}
+		if (a_arg.IsUInt()) {
+			return std::format("#{}", a_arg.GetUInt());
+		}
+		if (a_arg.IsNumber()) {
+			return std::format("#{}", a_arg.GetNumber());
+		}
+		return std::format("type{}", static_cast<int>(a_arg.GetType()));
+	}
+
+	// FAL-614 S1-c (CodeObjPages=1): the shell asks its engine for another page or tab (R1: TryToSetPage calls onNewPage,
+	// TryToSetTab onNewTab, through BGSExternalInterface; the index is taken to be the one argument, a **hypothesis** the
+	// code_call line shows). Noted here, on the menu's thread inside the shell's call, and answered at the menu's next
+	// kUpdate (ShellUpdate), after the shell's own call has returned
+	void NoteAnswer(const std::string& a_name, const RE::Scaleform::GFx::FunctionHandler::Params& a_params)
+	{
+		const bool page = a_name == "onNewPage";
+		if (!g_codeObjPages || (!page && a_name != "onNewTab")) {
+			return;
+		}
+		std::int64_t index = -1;
+		if (a_params.argCount > 0) {
+			const auto& arg = a_params.args[0];
+			if (arg.IsUInt()) {
+				index = arg.GetUInt();
+			} else if (arg.IsInt()) {
+				index = arg.GetInt();
+			} else if (arg.IsNumber() && arg.GetNumber() >= 0.0 && arg.GetNumber() <= 64.0 && std::floor(arg.GetNumber()) == arg.GetNumber()) {
+				index = static_cast<std::int64_t>(arg.GetNumber());
+			}
+		}
+		if (index < 0 || index > kMaxAnswerIndex) {
+			if (g_answers.load() < kMaxAnswers) {
+				REX::INFO("step=code_answer name={} result=bad_index args={}", a_name, a_params.argCount);
+			}
+			return;
+		}
+		(page ? g_answerPage : g_answerTab).store(static_cast<std::int32_t>(index));
+		g_answerNow = true;
+	}
+
 	class CodeObjFunction final : public RE::Scaleform::GFx::FunctionHandler
 	{
 	public:
@@ -3508,15 +3583,15 @@ namespace
 		void Call(const Params& a_params) override
 		{
 			const auto n = ++g_codeCalls;
+			NoteAnswer(_name, a_params);   // FAL-614 S1-c: before the log's cap, so every page or tab change is answered
 			if (n > kMaxCodeCalls) {
 				return;
 			}
-			std::string arg0 = "none";
-			if (a_params.argCount > 0) {
-				arg0 = a_params.args[0].IsString() ? std::string(a_params.args[0].GetString()).substr(0, kMaxCodeArg) :
-				                                     std::format("type{}", static_cast<int>(a_params.args[0].GetType()));
+			std::string args = a_params.argCount ? "" : " arg0=none";
+			for (std::uint32_t i = 0; i < a_params.argCount && i < kMaxCodeArgs; ++i) {   // S1-c: every argument, up to 4
+				args += std::format(" arg{}={}", i, ArgText(a_params.args[i]));
 			}
-			REX::INFO("step=code_call n={} name={} args={} arg0={}", n, _name, a_params.argCount, arg0);
+			REX::INFO("step=code_call n={} name={} args={}{}", n, _name, a_params.argCount, args);
 			// FAL-614 proof 1c (CodeObjHide=1): the movie's HideMenu closes our menu, on the main thread as the CLOSE
 			// button and F10 do; every other name only logs
 			if (g_codeObjHide && _name == "HideMenu" && g_task) {
@@ -3560,6 +3635,22 @@ namespace
 		return true;
 	}
 
+	// FAL-614 S1-c: the function at a path from a_from (as CodeObjCalls= reads it) called on its owner with a_args;
+	// a_found when the path ends in a function
+	bool CallPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, const RE::Scaleform::GFx::Value* a_args,
+		std::size_t a_count, bool& a_found)
+	{
+		RE::Scaleform::GFx::Value owner = a_from;
+		RE::Scaleform::GFx::Value function;
+		RE::Scaleform::GFx::Value result;
+		const auto                last = a_path.rfind('.');
+		const auto                name = last == std::string::npos ? a_path : a_path.substr(last + 1);
+		const bool                read = (last == std::string::npos || ReadPath(a_from, a_path.substr(0, last), owner)) &&
+		                  ReadPath(owner, name, function);
+		a_found = read && function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure;
+		return a_found && owner.Invoke(name.c_str(), &result, a_args, a_count);
+	}
+
 	bool CodeObjInstall(const void* a_menu, const char* a_when)
 	{
 		const void* const movie = MovieOf(a_menu);
@@ -3593,6 +3684,20 @@ namespace
 		const std::size_t set = members + (topSet ? 1 : 0);
 		const bool        readBack = gotRoot && top.GetMember("BGSCodeObj", &back) && back.IsObject();
 		const bool        holderReady = gotRoot && !holder.IsUndefined() && members == g_codeObjCount;
+		// FAL-614 S1-c (CodeObjAt=<path>): R1 found the shell's engine object on its placed instance, Menu_mc.BGSCodeObj
+		// (a public slot of the sealed PipboyMenu), not on the root, so the shell and its pages saw null there. The
+		// stand-in is set on that path too, and the hand-over is done only once it reads back: the instance may not
+		// exist yet at the load try, so the show and update tries go on until it does
+		bool atSet = false;
+		bool atReadBack = false;
+		if (holderReady && !g_codeObjAt.empty()) {
+			RE::Scaleform::GFx::Value at;
+			RE::Scaleform::GFx::Value atBack;
+			atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);
+			atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&
+			             (atBack.IsObject() || atBack.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure);   // our holder is a function
+		}
+		const bool atDone = g_codeObjAt.empty() || atReadBack;
 		// FAL-614 proof 2a (CodeObjInit=<name>): a page loaded alone has no shell to hand it its engine object (D2's
 		// STAT page names InitCodeObj and codeObj). Proof 2a's run: the page's root is its own sealed class, so
 		// root.BGSCodeObj could not be set (set=16 of=17 read_back=0). So once the stand-in is built the plugin calls
@@ -3614,9 +3719,10 @@ namespace
 					gotCodeObj ? 1 : 0, TypeCode(codeObj));
 			}
 		}
-		const bool done = holderReady && ((readBack && topSet) || called);
+		const bool done = holderReady && ((readBack && topSet) || called) && atDone;
 		if (done) {
 			g_codeObjMovie = movie;
+			g_answers = 0;   // S1-c: this movie's answers
 		}
 		// FAL-614 proof 2b-ii (CodeObjCalls=<path>,...): proof 2b-i found no data entry on the STAT page's root, but a
 		// public onAcquiredByNativeCode with bAcquiredByNativeCode false: an acquire step Fallout 4's engine makes and
@@ -3665,9 +3771,10 @@ namespace
 				names += std::format("{}{}", i ? "," : "", g_codeObjNames[i]);
 			}
 			REX::INFO("step=code_obj when={} try={} root_of={} get_variable={} root={} root_type={} holder_type={} set={} of={} "
-					  "read_back={} names={}",
+					  "read_back={} names={} at={} at_set={} at_read_back={}",
 				a_when, attempt, root ? 1 : 0, gotVariable ? 1 : 0, gotRoot ? 1 : 0, TypeCode(top), TypeCode(holder), set,
-				g_codeObjCount + 1, readBack ? 1 : 0, names);
+				g_codeObjCount + 1, readBack ? 1 : 0, names, g_codeObjAt.empty() ? "none" : g_codeObjAt, atSet ? 1 : 0,
+				atReadBack ? 1 : 0);
 		}
 		return done;
 	}
@@ -3677,6 +3784,60 @@ namespace
 	bool CodeObjPending()
 	{
 		return g_codeObj && g_codeObjMovie.load() == nullptr && g_codeObjTries.load() < kMaxCodeObjTries;
+	}
+
+	// FAL-614 S1-c, stage b with CodeObj=1, on the menu's thread at each kUpdate once the stand-in is in place. First each
+	// shell key pressed since the last update: its path called with no arguments (R1: the shell's public gotoNextPage,
+	// gotoPrevPage, gotoNextTab, gotoPrevTab). Then the answer to a page or tab change the shell asked for (NoteAnswer),
+	// as Fallout 4's engine gives it (a reading, FAL-819): <CodeObjAt>.DataObj.CurrentPage or .CurrentTab set to the
+	// index asked for, read back, then <CodeObjAt>.InvalidateData() once, which is what loads a page (S1-R1)
+	void ShellUpdate(const void* a_menu)
+	{
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_codeObjMovie.load() != movie) {
+			return;
+		}
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		const auto keys = g_shellKeyPending.exchange(0);
+		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
+			if (!(keys & (1u << i))) {
+				continue;
+			}
+			bool       found = false;
+			const bool called = CallPath(top, g_shellKeys[i].path, nullptr, 0, found);
+			if (const auto line = ++g_shellKeyLines; line <= kMaxCodeCalls) {
+				REX::INFO("step=shell_key n={} vk={} path={} found={} called={}", line, Hex(g_shellKeys[i].vk),
+					g_shellKeys[i].path, found ? 1 : 0, called ? 1 : 0);
+			}
+		}
+		const auto page = g_answerPage.exchange(-1);
+		const auto tab = g_answerTab.exchange(-1);
+		if ((page < 0 && tab < 0) || g_codeObjAt.empty()) {
+			return;
+		}
+		const auto n = ++g_answers;
+		if (n > kMaxAnswers) {
+			return;   // the cap, against a shell that asks again at every InvalidateData
+		}
+		RE::Scaleform::GFx::Value data;
+		RE::Scaleform::GFx::Value now;
+		const bool                gotData = ReadPath(top, g_codeObjAt + ".DataObj", data) && data.IsObject();
+		const bool pageSet = page >= 0 && gotData && data.SetMember("CurrentPage", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(page)));
+		const bool tabSet = tab >= 0 && gotData && data.SetMember("CurrentTab", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(tab)));
+		const auto read = [&](const char* a_member) {
+			return gotData && data.GetMember(a_member, &now) ? ArgText(now) : std::string("none");
+		};
+		const auto pageNow = read("CurrentPage");
+		const auto tabNow = read("CurrentTab");
+		bool       found = false;
+		const bool invalidated = gotData && CallPath(top, g_codeObjAt + ".InvalidateData", nullptr, 0, found);
+		REX::INFO("step=code_answer n={} page={} tab={} data={} page_set={} tab_set={} page_now={} tab_now={} "
+				  "invalidate_found={} invalidated={}",
+			n, page, tab, gotData ? 1 : 0, pageSet ? 1 : 0, tabSet ? 1 : 0, pageNow, tabNow, found ? 1 : 0, invalidated ? 1 : 0);
 	}
 
 	bool MenuLoadMovie(void* a_self, bool a_dispatcher, bool a_arg2)
@@ -3730,6 +3891,9 @@ namespace
 		if (g_stage == 2 && g_codeObj &&
 			(type == RE::UI_MESSAGE_TYPE::kShow || type == RE::UI_MESSAGE_TYPE::kUpdate)) {   // FAL-614 proof 1b
 			CodeObjInstall(a_self, type == RE::UI_MESSAGE_TYPE::kShow ? "show" : "update");
+		}
+		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {   // FAL-614 S1-c: keys, then answers
+			ShellUpdate(a_self);
 		}
 		if (g_stage >= 3) {   // stages c, d and e: after the engine's own handling, on its thread for this menu
 			if (type == RE::UI_MESSAGE_TYPE::kShow) {
@@ -4205,6 +4369,25 @@ namespace
 		return pid == W32_IMPL_GetCurrentProcessId();
 	}
 
+	// FAL-614 S1-c, every 30 ms on the key thread, stage b with ShellKeys=: a press (not a hold) of a shell key while the
+	// menu is open and the game in front is noted for the menu's thread, and a kUpdate is sent to carry it there
+	void ShellKeys(std::uint32_t& a_held)
+	{
+		const bool    live = g_open && GameInFront();
+		std::uint32_t held = 0;
+		for (std::size_t i = 0; live && i < g_shellKeyCount; ++i) {
+			if (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_shellKeys[i].vk)) & 0x8000) {
+				held |= 1u << i;
+			}
+		}
+		const auto pressed = held & ~a_held;
+		a_held = held;
+		if (pressed) {
+			g_shellKeyPending.fetch_or(pressed);
+			g_task->AddTask([]() { SendUpdate(); });
+		}
+	}
+
 	std::uint32_t KeyThread(void*)
 	{
 		std::uint32_t presses = 0;
@@ -4212,6 +4395,7 @@ namespace
 		bool          down = false;
 		bool          snapDown = false;
 		std::array<std::uint32_t, 6> kitHeld{};   // stage e: how many 30 ms ticks each kit key has been held
+		std::uint32_t                shellHeld = 0;   // FAL-614 S1-c: the shell keys held at the last tick, one bit each
 		for (;;) {
 			REX::W32::Sleep(30);
 			const bool now = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_key)) & 0x8000) != 0;
@@ -4224,6 +4408,12 @@ namespace
 			down = now;
 			if (g_stage == 2 && CodeObjPending() && ++ticks % 17 == 0) {   // FAL-614 proof 1b: retry the stand-in
 				g_task->AddTask([]() { SendUpdate(); });   // nothing while the menu is closed
+			}
+			if (g_stage == 2 && g_shellKeyCount) {   // FAL-614 S1-c: the shell keys
+				ShellKeys(shellHeld);
+			}
+			if (g_stage == 2 && g_answerNow.exchange(false)) {   // S1-c: the shell asked for a page or tab (a click, a key)
+				g_task->AddTask([]() { SendUpdate(); });
 			}
 			if (g_stage < 3) {
 				continue;
@@ -4370,6 +4560,41 @@ namespace
 		return true;
 	}
 
+	// FAL-614 S1-c: ShellKeys=<key>:<path>,... (empty: none), 1 to 8 entries; the key a virtual-key code (0x01 to 0xFE,
+	// not Key, none twice), the path as one of CodeObjCalls=
+	bool ParseShellKeys(std::string_view a_list)
+	{
+		g_shellKeyCount = 0;
+		if (a_list.empty()) {
+			return true;
+		}
+		const std::string list(a_list);
+		std::size_t       start = 0;
+		while (start <= list.size()) {
+			const auto  end = std::min(list.find(',', start), list.size());
+			const auto  entry = list.substr(start, end - start);
+			const auto  colon = entry.find(':');
+			char*       stop = nullptr;
+			const auto  vk = colon == std::string::npos ? 0 : static_cast<std::uint32_t>(std::strtoul(entry.c_str(), &stop, 0));
+			std::array<std::string, kMaxCodeNames> path{};
+			std::size_t count = 0;
+			const bool  ok = colon != std::string::npos && stop == entry.c_str() + colon && vk >= 1 && vk <= 0xFE && vk != g_key &&
+			                g_shellKeyCount < kMaxShellKeys && colon + 1 < entry.size() &&
+			                std::ranges::none_of(g_shellKeys.begin(), g_shellKeys.begin() + g_shellKeyCount,
+								[&](const ShellKey& a_key) { return a_key.vk == vk; }) &&
+			                ParsePaths(entry.substr(colon + 1), path, count, "shell_keys") && count == 1;
+			if (!ok) {
+				Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only; 1 to {} <key>:<path>, the key 0x01 to 0xFE, not Key, "
+										  "none twice)", list, kMaxShellKeys));
+				g_shellKeyCount = 0;
+				return false;
+			}
+			g_shellKeys[g_shellKeyCount++] = { vk, path[0] };
+			start = end + 1;
+		}
+		return true;
+	}
+
 	// FAL-614 proof 1b: CodeObjNames=<name>,<name>,... (empty: PlaySound,HideMenu), 1 to 16 names of 1 to 64 letters,
 	// digits and '_', none twice; each becomes one logging function on the stand-in BGSCodeObj
 	bool ParseCodeObjNames(std::string_view a_list)
@@ -4467,6 +4692,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_codeObjInit = ReadText(ini, L"CodeObjInit");   // FAL-614 proof 2a: with CodeObj=1 only
 	const auto probe = ReadText(ini, L"CodeObjProbe");   // FAL-614 proof 2b-i: with CodeObj=1 only
 	const auto calls = ReadText(ini, L"CodeObjCalls");   // FAL-614 proof 2b-ii: with CodeObj=1 only
+	g_codeObjAt = ReadText(ini, L"CodeObjAt");   // FAL-614 S1-c: with CodeObj=1 only
+	g_codeObjPages = ReadNumber(ini, L"CodeObjPages", 0) != 0;   // S1-c: with CodeObjAt= only
+	const auto shellKeys = ReadText(ini, L"ShellKeys");   // S1-c: with CodeObj=1 only
 	// FAL-414: up to four keyboard ids that close the menu while it is open (0 = unused)
 	g_cancelCodes = { ReadNumber(ini, L"CancelCode1", 0x1B), ReadNumber(ini, L"CancelCode2", 0x09), ReadNumber(ini, L"CancelCode3", 0),
 		ReadNumber(ini, L"CancelCode4", 0) };
@@ -4531,6 +4759,37 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (!ParsePaths(probe, g_probeNames, g_probeCount, "code_obj_probe") ||
 		!ParsePaths(calls, g_rootCallNames, g_rootCallCount, "code_obj_calls")) {
 		return true;
+	}
+	// FAL-614 S1-c: CodeObjAt=<path> (one path, as CodeObjCalls=), CodeObjPages=1 (with CodeObjAt= and onNewPage and onNewTab
+	// among CodeObjNames) and ShellKeys=, each with CodeObj=1 only
+	std::array<std::string, kMaxCodeNames> atPath{};
+	std::size_t                            atCount = 0;
+	if (!g_codeObjAt.empty() && (!g_codeObj || !ParsePaths(g_codeObjAt, atPath, atCount, "code_obj_at") || atCount != 1)) {
+		Refuse("ini", std::format("code_obj_at={} (with CodeObj=1 only; one path of letters, digits, _ and .)", g_codeObjAt));
+		return true;
+	}
+	const auto named = [](const char* a_name) {
+		return std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount, std::string(a_name)) !=
+		       g_codeObjNames.begin() + g_codeObjCount;
+	};
+	if (g_codeObjPages && (g_codeObjAt.empty() || !named("onNewPage") || !named("onNewTab"))) {
+		Refuse("ini", "code_obj_pages=1 (with CodeObjAt= and onNewPage and onNewTab in CodeObjNames only)");
+		return true;
+	}
+	if (!shellKeys.empty() && !g_codeObj) {
+		Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only)", shellKeys));
+		return true;
+	}
+	if (!ParseShellKeys(shellKeys)) {
+		return true;
+	}
+	if (g_codeObj) {
+		std::string keys;
+		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
+			keys += std::format("{}{}:{}", i ? "," : "", Hex(g_shellKeys[i].vk), g_shellKeys[i].path);
+		}
+		REX::INFO("step=code_obj_shell at={} pages={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
+			g_codeObjPages ? 1 : 0, keys.empty() ? "none" : keys);
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;
