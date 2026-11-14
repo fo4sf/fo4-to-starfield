@@ -13,8 +13,8 @@ consistent with several sources or one non-primary source; **unresolved** = no u
 WebFetch was refused with HTTP 429 (rate limited) on **every** page I tried, on five different hosts, and direct
 `curl` was refused by the proxy (CONNECT 403). Per the rules I did not retry. Pages I could **not** read:
 
-- https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
-- https://www.inverse.com/gaming/fallout-london-dlc-first-2025
+- a third-party source
+- a third-party source
 - https://www.nexusmods.com/starfield/articles/635 (High Mod Index Warning)
 - https://forums.nexusmods.com/topic/9981963-how-do-i-update-a-start-game-enabled-quest-to-work-on-existing-saves/
 - https://taleoftwowastelands.com/faq
@@ -121,9 +121,9 @@ in-game evidence (docs and scripts, cited by path). Everything a web page would 
 
 ## 2. Save versioning and update policy precedents
 
-- **Fallout: London**, Rabbit & Pork (30 Sep 2025): new launcher, **"requires a new save"**. **verified, via note 02**
+- **A well-known Fallout 4 total conversion**, Rabbit & Pork (30 Sep 2025): new launcher, **"requires a new save"**. **verified, via note 02**
   (GamingOnLinux and Wikipedia). German press headline: "Erster DLC mit XXL-Patch erschienen, doch ihr braucht ein
-  neues Savegame" (https://www.pcgames.de/Fallout-4-Spiel-18293/News/London-DLC-Patch-Savegame-1483376/ , title
+  neues Savegame" (a third-party source, title
   only). Lesson: even the largest Creation Engine TC chose "new save" over migration for a major content update.
 - **Tale of Two Wastelands**: FAQ exists (https://taleoftwowastelands.com/faq ,
   https://thebestoftimes.moddinglinked.com/faq.html); the 3.x "total rebuild" was reported by the press
@@ -159,7 +159,7 @@ precedents above):
 ## 3. Uninstall and reversibility
 
 - Start mods document removal as "not removable mid-save; start a new game" (SKK Fast Start, verified via note 01;
-  Fallout: London: base FO4 cannot be played with FOLON installed, going back means uninstalling both and
+  a well-known Fallout 4 total conversion: base FO4 cannot be played with that total conversion installed, going back means uninstalling both and
   reinstalling FO4, verified via note 02, PC Gamer). **supported hypothesis** that this is the norm.
 - INI keys:
   - `sTestFile1..10` (`[General]`): disable Plugins.txt entirely when set. **verified, via note 05.** A clean install
@@ -206,7 +206,7 @@ precedents above):
 - **Test saves**: preset/background saves were how Starfield "starts" worked before the CK (Alternate Start Starfield,
   Nexus 2076; verified via notes 01 and 03). For us a save is useful only for the **negative** test (the guard stands
   down on an existing save), never as the start itself.
-- **Loud failure**: Fallout: London's lesson "fail loud on a broken start" (note 02); SKK documents known silent
+- **Loud failure**: A well-known Fallout 4 total conversion's lesson "fail loud on a broken start" (note 02); SKK documents known silent
   hangs (Fast Start menu not shown, controls locked; "dialogs or message boxes shown before setup completes can block
   it", verified via note 01). Our quest already logs every step and a status line every 5 s to
   `Logs\Script\User\fo4sf_newgame.0.log` and stands down with a log line (`FO4SF_NewGameQuest.psc` header,
@@ -238,7 +238,7 @@ Patch dates from search-result titles and note 05 (titles alone = **supported hy
   survive, but plugin **form version** and Starfield.esm record changes can break plugins built by external tools
   (Mutagen form version 576 in our spike, note 05). Pure plugin + Papyrus mods (like our start) are the most
   robust. **supported hypothesis** (pattern across the SFSE changelog; no plugin-format break in 2025-26 found).
-- Pinning practice: Fallout: London shipped a downgrader and told Steam users to make `appmanifest_377160.acf`
+- Pinning practice: A well-known Fallout 4 total conversion shipped a downgrader and told Steam users to make `appmanifest_377160.acf`
   read-only. **verified, via note 02.** The Steam equivalent for Starfield would be `appmanifest_1716740.acf`
   (app id from the Steam discussion URLs above). **supported hypothesis.** Our repo already pins and checks the exe
   version (`testqueue.py pin-game-version`, `docs/ai/test-queue.md` line 13; `docs/SETUP.md` pins 1.16.244 and SFSE
@@ -257,13 +257,13 @@ Patch dates from search-result titles and note 05 (titles alone = **supported hy
 2. **Should the install write a separate profile (MO2 profile, or our own launcher's Plugins.txt swap) rather than
    edit the user's Plugins.txt?** Why: Plugins.txt is rewritten by the game and shared with every save. How: owner
    decision; offline check of MO2 profile behaviour on the PC (read-only).
-3. **Do we store a save-format version in the save (global or quest property) from v1?** Why: Fallout: London had to
+3. **Do we store a save-format version in the save (global or quest property) from v1?** Why: A well-known Fallout 4 total conversion had to
    say "new save" with no way to detect it; without a stored value we cannot even warn. How: owner decision, then an
    offline unittest of the writer and an in-game load test.
 4. **Do we record the FO4Port / FO4TerrainCore build ids the save started with?** Why: regenerated ports can change
    form ids and break saves silently (CODEX-HANDOFF line 24). How: owner decision; offline design in decisions.md.
 5. **What is our update policy: "new game on any port rebuild", "new game on save-format bump only", or migration?**
-   Why: precedents (FOLON, TTW) pick "new game" for major versions. How: owner decision.
+   Why: precedents (a well-known Fallout 4 total conversion, TTW) pick "new game" for major versions. How: owner decision.
 6. **Does Starfield's Papyrus have `OnPlayerLoadGame` (or an equivalent) for a version checker?** Why: needed for the
    per-load check in 2.3. How: offline check of ContentResources.zip sources (Actor.psc / ReferenceAlias.psc).
 7. **Does our Run Once quest that `Stop()`ped on an existing save behave correctly on NG+?** Why: Unity may reset or
@@ -299,7 +299,7 @@ Patch dates from search-result titles and note 05 (titles alone = **supported hy
 19. **Do we gate by Starfield exe version in the installer, and what happens on an unknown build (refuse, warn,
     allow)?** Why: every patch breaks SFSE; a plugin-only start may survive but is untested. How: owner decision;
     offline unittest of the version reader; read-only PC check of the exe version.
-20. **Do we tell players how to stop Steam auto-updating (read-only `appmanifest_1716740.acf`) as FOLON did?** Why:
+20. **Do we tell players how to stop Steam auto-updating (read-only `appmanifest_1716740.acf`) as a well-known Fallout 4 total conversion did?** Why:
     pinning protects saves but has support and Steam-policy costs. How: owner decision; read-only PC check that the
     file exists at that name.
 21. **How do we document achievements being off?** Why: players will ask; console use on our test PC already shows
@@ -314,7 +314,7 @@ Patch dates from search-result titles and note 05 (titles alone = **supported hy
 ## Sources to read when the fetch limit clears
 
 - TTW FAQ (update and save rules): https://taleoftwowastelands.com/faq
-- Fallout: London Rabbit & Pork save notes: https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
+- A well-known Fallout 4 total conversion Rabbit & Pork save notes: a third-party source
 - CK wiki Quest Data tab and Quest pages: https://ck.uesp.net/wiki/Quest_Data_Tab
 - Nexus: "How do I update a start game enabled quest to work on existing saves?": https://forums.nexusmods.com/topic/9981963-how-do-i-update-a-start-game-enabled-quest-to-work-on-existing-saves/
 - Nexus Starfield articles 635 (High Mod Index Warning), 702, 1042; forum 13490787, 13524420, 13253886

@@ -118,7 +118,7 @@ Name table: entries of u16 length + bytes, written with `/` by Archive2 (`:1499`
   - **verified:** the AppData/My Games folder is **`Fallout4`**, the same as Steam. LOOT `gog.cpp:114-115` and libloadorder `game_settings.rs:447-456` only switch names for MS and Epic.
   - **supported hypothesis:** the GOG build is Steam-derived and ships `Galaxy64.dll` plus a `steam_api64.dll` shim (GOG forum post above). F4SE 0.6.23 works on it only with `-forcesteamloader` (MO2 issue #1856, member Silarn, 2023-08-21).
 - **Do GOG data files match Steam 1.10.163?** **unresolved.** Nobody I found publishes a hash comparison. One forum post says the files were "originally sourced from an edition built for Steam", which fits identical `Data\*.esm/*.ba2`, but that is not proof. Don't treat them as identical without hashing.
-- **verified:** MO2's FO4 plugin has **no GOG detection**. `gamefallout4.cpp:61-64` → `GameGamebryo::identifyGamePath` (`gamegamebryo.cpp:211-216`) reads only `HKLM\Software\Bethesda Softworks\Fallout4\Installed Path`. The London plugin even says `// TODO: Add GOG support` (`gamefo4london.cpp:71`).
+- **verified:** MO2's FO4 plugin has **no GOG detection**. `gamefallout4.cpp:61-64` → `GameGamebryo::identifyGamePath` (`gamegamebryo.cpp:211-216`) reads only `HKLM\Software\Bethesda Softworks\Fallout4\Installed Path`. That total conversion's plugin even says `// TODO: Add GOG support` (its game plugin source).
 
 ## 3. Microsoft Store / Game Pass
 

@@ -206,7 +206,7 @@ needed them are marked **unresolved**, not guessed.
   from 1.9.51 (xEdit 4.1.5c). Lesson: re-run our Mutagen round-trip and header tests on each game version.
 - **xEdit Discord-only distribution**: a key community tool can become unscriptable to fetch. Lesson: depend only on
   tools with stable public packages (NuGet Mutagen, GitHub NifSkope), use others as optional oracles.
-- **Fallout: London downgrader** (project roadmap): pinning a game version through credentials is a support and trust
+- **A well-known Fallout 4 total conversion downgrader** (project roadmap): pinning a game version through credentials is a support and trust
   cost we already decided not to pay.
 
 ## Risks

@@ -1,7 +1,7 @@
 # Precedents: how "build it from the player's own files" installers work and fail
 
 Research date: 2026-10-19. Author: Claude (research subagent).
-Scope: TTW, Wabbajack, GAMMA, Fallout: London, TES Renewal / SureAI projects, and earlier cross-engine conversions.
+Scope: TTW, Wabbajack, GAMMA, a well-known Fallout 4 total conversion, TES Renewal / SureAI projects, and earlier cross-engine conversions.
 Labels follow docs/ai/research-log.md: **verified** (with a URL I actually read, or source code I downloaded and read),
 **supported hypothesis** (an inference from verified material), **unresolved** (looked for it, didn't find an answer).
 
@@ -148,7 +148,7 @@ https://github.com/wabbajack-tools/wabbajack (main), fetched via raw.githubuserc
   GOG, EGS, EA Desktop, Origin handlers; Downloaders.GameFile.csproj).
 - **supported hypothesis**: Wabbajack does not "downgrade" the user's game folder. It sources wrong-version game files
   from Steam depots into its downloads folder and builds the list into a separate install (the Stock Game pattern).
-  That leaves the user's Steam install alone and avoids the Fallout: London-style "make the ACF read-only" hack.
+  That leaves the user's Steam install alone and avoids that total conversion's "make the ACF read-only" hack.
 - **verified** (CHANGELOG 4.3.0.0): New **preflight** checklist before every install: "game, archives, game files,
   Nexus login, manual and automated downloads, disk space". Preflight does all downloading, manual downloads come
   first, and files downloaded in the browser are picked up from the Downloads folder. WebView2 was removed; Nexus
@@ -206,40 +206,40 @@ https://github.com/wabbajack-tools/wabbajack (main), fetched via raw.githubuserc
 
 ---
 
-## 4. Fallout: London (FO4 total conversion, GOG-distributed)
-- **verified**: Released 25 July 2024 by Team FOLON, distributed by **GOG** because it was too large to host on Nexus.
-  Release was delayed by Bethesda's FO4 next-gen update. https://en.wikipedia.org/wiki/Fallout:_London ;
-  https://www.eurogamer.net/fallout-london-mod-will-work-with-fallout-4-on-gog-and-steam-but-not-epic
+## 4. A well-known Fallout 4 total conversion (GOG-distributed)
+- **verified**: Released 25 July 2024 by that team, distributed by **GOG** because it was too large to host on Nexus.
+  Release was delayed by Bethesda's FO4 next-gen update. a third-party source;
+  a third-party source
 - **verified**: Requirements: FO4 + all DLC or GOTY on GOG or Steam; HD texture pack not needed; "pre-next-gen";
   Steam must be downgraded to **1.10.163.0**. The official recommended flow is: uninstall FO4, clean `Documents\My
-  Games` and `AppData\Local` FO4 folders, reinstall, downgrade (Steam only), run FO4 once, then run the London
+  Games` and `AppData\Local` FO4 folders, reinstall, downgrade (Steam only), run FO4 once, then run that total conversion's
   installer from GOG. The manual route uses Steam console `download_depot` commands for the base game, the exe,
   the English pack and every DLC, merges the depot folders, then sets `appmanifest_377160.acf` read-only.
-  https://fallout4london.com/?page_id=6
+  a third-party source
 - **verified**: **Epic is unsupported** because the store can't roll back game versions. GOG said the GOG and Steam
   versions work, Steam via manual downgrade or a tool "in progress". It also said the installer had to pass GOG QA
   "on all supported machines". (Eurogamer URL above)
 - **verified**: PC Gamer's guide: Steam users run a single-exe downgrader from Nexus, **log into Steam inside it**
-  (Steam Guard approvals caused trouble; a manual method exists), set the ACF read-only, then run London's installer
+  (Steam Guard approvals caused trouble; a manual method exists), set the ACF read-only, then run a well-known Fallout 4 total conversion's installer
   pointing at the same folder. Reverting means uninstalling both and reinstalling FO4.
-  https://pcgamer.com/games/fallout/fallout-london-how-to-install
+  a third-party source
 - **verified**: The widely used "Fallout 4 Downgrader" (Nexus fallout4/mods/81630) is by **zerratar**, uses
   DepotDownloader, and has two modes: patch the exes (keeps next-gen data files) or download full depots (replaces
   data files). It asks for Steam credentials or a QR login for depots ("Now without need of steam login!" for
   patching), targets 1.10.163.0, offers "Delete creation club files", warns that Steam may re-update (make the ACF
   read-only) and that non-English selections may still show English, and needs .NET 8/9. Uploaded 27 Apr 2024,
   updated 13 Aug 2025. https://www.nexusmods.com/fallout4/mods/81630
-- **verified**: As of 2 Oct 2025 Team FOLON had "no plan to move it to the next-gen": "The current next-gen
+- **verified**: As of 2 Oct 2025 that team had "no plan to move it to the next-gen": "The current next-gen
   [iteration] has issues … and would likely be broken by any future update that they may also do on a whim". GOG
   copies have a "built-in downgrader" (version rollback); Steam copies need the downgrader. The Rabbit and Pork DLC
   required a fresh save.
-  https://www.rockpapershotgun.com/fallout-london-modders-still-have-no-plans-to-port-it-to-next-gen-fallout-4-unless-a-console-version-becomes-possible
+  a third-party source
 - **verified**: FO4 kept changing after that. The Anniversary Edition shipped 11/10/2025 with an in-game Creations
   menu and 150+ CC items; F4SE got no early access, and Nexus published rollback guidance plus a "Works with
   Anniversary Upgrade" tag (https://www.nexusmods.com/news/15400). Further PC-affecting patches followed: 17 Nov 2025,
   16 Dec 2025, 27 May 2026, **18 Aug 2026 (BA2 archive limit raised 256 → 1024)** and 15 Oct 2026 (CK/PlayStation).
   https://help.bethesda.net/app/answers/detail/a_id/72995/~/fallout-4---patch-notes
-- **verified**: GOG Galaxy auto-updates also broke London for some users (Facebook group post, search snippet only;
+- **verified**: GOG Galaxy auto-updates also broke a well-known Fallout 4 total conversion for some users (Facebook group post, search snippet only;
   low weight).
 - **supported hypothesis**: Our project faces the same thing on **two** moving targets. FO4 inputs (which GOTY, NG or
   AE build and which BA2 hashes the user has) and the Starfield output (which runtime our generated ESM/BA2 must
@@ -310,7 +310,7 @@ https://github.com/wabbajack-tools/wabbajack (main), fetched via raw.githubuserc
    textures (verified). The TTW Linux port's output is about 18 GB where the official one is 17 GB (verified). Our
    pipeline needs a verification model for non-deterministic outputs (perceptual or structural checks, or making the
    encoder deterministic).
-4. **Version drift is the number-one killer.** Fallout: London is pinned to 1.10.163 with Epic excluded, plus
+4. **Version drift is the number-one killer.** a well-known Fallout 4 total conversion is pinned to 1.10.163 with Epic excluded, plus
    read-only ACF hacks and a third-party downgrader that takes Steam credentials. Wabbajack answered with Steam depot
    sourcing into its own folder (4.3.0.0). FO4 kept patching through 2026.
 5. **Re-run is the update and resume.** Wabbajack prunes unmodified outputs by hash and asks before deleting
@@ -319,10 +319,10 @@ https://github.com/wabbajack-tools/wabbajack (main), fetched via raw.githubuserc
    OneDrive or Program Files, 7-Zip versus WinRAR, CPU overheating during long encodes, E-cores, and free disk space.
    Preflight checks (Wabbajack 4.3, TTW `Checks`) remove whole classes of them.
 7. **Store coverage is a legal and technical axis:** Steam and GOG are always supported; Epic is excluded when it
-   can't roll back (London) or its files differ (Skyblivion); Microsoft Store is excluded everywhere (TTW, Skyblivion)
+   can't roll back (a well-known Fallout 4 total conversion) or its files differ (Skyblivion); Microsoft Store is excluded everywhere (TTW, Skyblivion)
    because the files are encrypted or different.
 8. **Host risk:** GAMMA's dependence on ModDB with no pinned hashes versus Wabbajack's CDN, retries and manual
-   fallback. Big projects end up mirroring onto infrastructure they control (GAMMA on GitHub; London on GOG).
+   fallback. Big projects end up mirroring onto infrastructure they control (GAMMA on GitHub; a well-known Fallout 4 total conversion on GOG).
 9. **Asset-port projects tend to become remakes.** Skyblivion and Skywind both started as automated ports, hit
    broken output, and (for Skyblivion, per Wikipedia) had Bethesda require 100% replacement for distribution. Our
    on-PC conversion avoids distribution, but the technical "broken map" failure is the same risk.
@@ -343,9 +343,9 @@ Each question gives what to answer, why it matters, and what would answer it.
    prototype preflight on two real installs, one clean and one with a Vortex-deployed Data folder, logging what each
    method catches.
 3. **Does the AE "Creations" content (150+ CC items now in AE) count as input, get ignored, or get rejected?** *Why:*
-   London tells users to delete `cc*` files; Wabbajack 4.3 sources CC content from Steam. *Answer:* inventory the AE
+   a well-known Fallout 4 total conversion tells users to delete `cc*` files; Wabbajack 4.3 sources CC content from Steam. *Answer:* inventory the AE
    Data folder and decide per file; check whether CC assets are covered by the same ownership as base FO4.
-4. **What do we do with a modded FO4 Data folder (Vortex hardlinks, loose files, ENBs)?** *Why:* London's flow starts
+4. **What do we do with a modded FO4 Data folder (Vortex hardlinks, loose files, ENBs)?** *Why:* a well-known Fallout 4 total conversion's flow starts
    with "uninstall and clean"; Wabbajack hash-matches only vanilla files. *Answer:* define "vanilla set = files whose
    hash is in our whitelist" and ignore or warn on the rest. Test against a Vortex-deployed install.
 5. **Which stores do we support: Steam, GOG, Epic, Microsoft Store/Game Pass?** *Why:* Microsoft Store files are
@@ -357,7 +357,7 @@ Each question gives what to answer, why it matters, and what would answer it.
 
 ### B. Output target (the player's Starfield)
 7. **Which Starfield builds must our generated ESM/BA2 load in, and how do we detect a Starfield update that breaks
-   us?** *Why:* London's "would likely be broken by any future update … on a whim"; we depend on a second moving
+   us?** *Why:* a well-known Fallout 4 total conversion's "would likely be broken by any future update … on a whim"; we depend on a second moving
    target. *Answer:* the Bethesda Starfield patch-notes history, plus a smoke test (load a generated ESM and BA2 in
    each build) run by Claude's live-game control after every Starfield update.
 8. **Is Starfield Steam-only for us, like Wabbajack's registry (Steam 1716740, no GOG/Epic/MS IDs)?** *Why:* the
@@ -365,7 +365,7 @@ Each question gives what to answer, why it matters, and what would answer it.
    *Answer:* check SFSE and Plugins.txt support on Game Pass Starfield; decide whether it's supported or explicitly
    rejected in preflight.
 9. **Do we install into the Starfield Data folder, a Stock-Game-style copy, or MO2 VFS only?** *Why:* Wabbajack
-   avoids touching the user's install; TTW outputs an MO2 mod folder; London writes into the game. *Answer:* measure
+   avoids touching the user's install; TTW outputs an MO2 mod folder; a well-known Fallout 4 total conversion writes into the game. *Answer:* measure
    Starfield's Data size, decide whether a Stock Game copy is acceptable on disk, and test that MO2 USVFS works with
    Starfield plus our BA2 count.
 
@@ -401,18 +401,18 @@ Each question gives what to answer, why it matters, and what would answer it.
 
 ### E. Distribution, hosting, legal
 17. **Where do we host our own (non-Bethesda) data packs, and what happens if that host is down?** *Why:* GAMMA's 90%
-    ModDB dependency with no pinned hashes; London needed GOG because Nexus couldn't host its size. *Answer:* the size
+    ModDB dependency with no pinned hashes; a well-known Fallout 4 total conversion needed GOG because Nexus couldn't host its size. *Answer:* the size
     of our redistributable pack, plus a decision on GitHub Releases, our own CDN or Nexus, with mirrors and pinned
     SHA-256 in the manifest.
 18. **Does anything we produce or ship count as "assets from another Bethesda game" under Nexus rules, even as
     deltas?** *Why:* Nexus forbids other-Bethesda-game assets; Skyblivion was required to replace 100% of assets to
     distribute. *Answer:* a written query to Nexus moderation about the delta-only, on-PC-generated model (cite the
     TTW and Morroblivion precedents); record the answer in docs/ai/decisions.md.
-19. **Can we get GOG-style distribution (like Fallout: London and GAMMA's one-click install) or a Bethesda
-    blessing?** *Why:* GOG did QA and distribution for London; Bethesda supported Skyblivion publicly. *Answer:*
+19. **Can we get GOG-style distribution (like a well-known Fallout 4 total conversion and GAMMA's one-click install) or a Bethesda
+    blessing?** *Why:* GOG did QA and distribution for a well-known Fallout 4 total conversion; Bethesda supported Skyblivion publicly. *Answer:*
     an owner decision on outreach (outreach is outside agent scope per AGENTS.md).
 20. **Do we need the player's Steam credentials for anything (depot downloads for version repair)?** *Why:* the
-    London downgrader and Wabbajack 4.3 both ask for a Steam login, Steam Guard caused failures, and it's a trust and
+    a well-known Fallout 4 total conversion downgrader and Wabbajack 4.3 both ask for a Steam login, Steam Guard caused failures, and it's a trust and
     security cost. *Answer:* a design decision; prefer "detect and refuse with instructions" over a credential flow
     unless input-version drift makes it unavoidable.
 

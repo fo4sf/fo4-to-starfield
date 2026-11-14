@@ -123,9 +123,9 @@ Hostility, combat, stealth
   Fools article. **verified**
   https://starfieldportal.com/article/the-elder-scrolls-morrowind-remake-shifts-to-starfield-engine . So no one has
   published how FO4 companions or factions behave on CE2; we are first. **supported hypothesis**
-- **Fallout: London** (FO4 total conversion): one canine companion (Churchill), over 100 mostly volunteer voice
+- **A well-known Fallout 4 total conversion**: one canine companion (Churchill), over 100 mostly volunteer voice
   actors, launch crashes and quest problems, about 20 testers against FO4's 150, and the mod pinned to the
-  pre-next-gen FO4 build after the April 2024 update. **verified** https://en.wikipedia.org/wiki/Fallout:_London .
+  pre-next-gen FO4 build after the April 2024 update. **verified** a third-party source.
   Lessons: plan QA capacity for companion and quest content, and pin to a known game build because SFSE plugins
   (Offence Suppression lists game versions per release) break on updates.
 - **Follower frameworks fight each other.** AFT Plus lists four incompatible frameworks; Everyone's Best Friend
@@ -294,8 +294,8 @@ Fallout systems, **REL** release.
 |---|---|---|---|---|---|---|---|
 | R1 | Which community tools may we reuse or study, given licences (Swiftly Order Squad CC BY-SA 4.0; Command NPCs, GRiNDTerra and the NPC template forbid modification or conversion; Offence Suppression has public source)? | GPL-3 code; we may learn from but not copy restricted mods | licences as listed on pages (verified) | keep a licence table in the release checklist; ask authors before any reuse | REL | REL | key |
 | R2 | Do we ship an SFSE plugin for hostility or command mode, or keep the companion layer data and Papyrus only? **Decided by owner, 2026-10-19 (page NG-1, talk-through 21:56Z): SFSE is required; the game is blocked when SFSE breaks; we write our own small SFSE plugins where needed, dismemberment first.** Owner's note: "Hey so we might want to make our own script extender because we are eventually going to be needing To make scripts from older fallouts, and stuff work" | Each SFSE plugin breaks on game updates (version lists on Offence Suppression) | SFSE allowed by settled decision | decide after H2 and C1 results | H2, C1 | REL | key |
-| R3 | Which Starfield game build do we pin to, as Fallout London pinned FO4? | Script and SFSE stability | Fallout London precedent (verified) | owner decision at release | R2 | REL | |
-| R4 | QA capacity for companion and quest content (Fallout London: 20 testers vs 150) | Companions are the most scripted, most voiced content | precedent verified | plan the test chain coverage per companion | test automation | REL | |
+| R3 | Which Starfield game build do we pin to, as a well-known Fallout 4 total conversion pinned FO4? | Script and SFSE stability | That total conversion precedent (verified) | owner decision at release | R2 | REL | |
+| R4 | QA capacity for companion and quest content (a well-known Fallout 4 total conversion: 20 testers vs 150) | Companions are the most scripted, most voiced content | precedent verified | plan the test chain coverage per companion | test automation | REL | |
 
 ## Sources
 
@@ -327,7 +327,7 @@ Fallout 4 and Skyrim
 - https://www.nexusmods.com/fallout4/mods/75292 (Simple Offence Suppression F4)
 - https://ck.uesp.net/wiki/Friendly_Fire
 - https://ck.uesp.net/wiki/Creating_a_Custom_Crime_Faction
-- https://en.wikipedia.org/wiki/Fallout:_London
+- a third-party source
 
 Not read (HTTP 429, to retry): https://www.nexusmods.com/starfield/mods/7120 (PEAK),
 https://starfieldwiki.net/wiki/Starfield:Affinity, https://ck.uesp.net/wiki/Relationship,

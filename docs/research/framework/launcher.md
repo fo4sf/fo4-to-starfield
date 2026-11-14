@@ -25,7 +25,7 @@ LA-5 in brackets) are in the Status column and on each mapped question below.
 
 | # | Decision | Recommended default | Why | Status |
 |---|---|---|---|---|
-| D1 | Which Fallout 4 data versions to accept (1.10.163 only, or also next-gen 1.10.984 and current 1.11.240) | 1.10.163 first (what the owner has), then add 1.11.240 once a record diff shows how far it differs | Most players are on 1.11.240 now (fo4source §1, versions-performance Q7); Fallout London forced a downgrade and paid for it in support load | **Status: decided by owner, 2026-10-19 (talk-through, LA-3, 21:56Z): accept 1.10.163 now; add 1.11.240 after a record diff of the two (S3).** |
+| D1 | Which Fallout 4 data versions to accept (1.10.163 only, or also next-gen 1.10.984 and current 1.11.240) | 1.10.163 first (what the owner has), then add 1.11.240 once a record diff shows how far it differs | Most players are on 1.11.240 now (fo4source §1, versions-performance Q7); a well-known Fallout 4 total conversion forced a downgrade and paid for it in support load | **Status: decided by owner, 2026-10-19 (talk-through, LA-3, 21:56Z): accept 1.10.163 now; add 1.11.240 after a record diff of the two (S3).** |
 | D2 | Which stores to support (Steam, GOG, Game Pass, Epic) for Fallout 4 and Starfield | Steam for both; GOG Fallout 4 as soon as one GOG install is hashed (GOG ships only 1.10.163.0, dated 2023-08-11, per gogdb.org, so GOG players need no downgrade); Game Pass and Epic refused with a clear message until tested | TTW, Wabbajack and Skyblivion exclude the Microsoft Store; SFSE is Steam-only; Epic can't roll back (installers-precedents §1, §7; sfstack §1) | **Status: decided by owner, 2026-10-19 (LA-5: Steam, then GOG; refuse others).** **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): Starfield on Steam only for version 1, said plainly; no Game Pass build, since SFSE is required.** Owner's note: "I genuinely don’t believe we’ll be able to implement this for Console users but if possible, then yeah" (Game Pass Starfield) |
 | D3 | Starfield runtime policy after a Steam update | refuse to build or launch on an unknown Starfield.exe hash, keep a known-good table, tell the player how to stay on the last good build | Starfield shipped 1.16.236, .242 and .244 between April and June 2026; updates broke SFSE twice (sfstack §1) | **Status: decided by owner, 2026-10-19 (LA-15: Refuse until we list it as good).** **Status: decided by owner, 2026-10-19 (LA-16: Refuse, advise 'update only when launched').** Also NG-1 (decided by owner, 2026-10-19): SFSE is required, so the launcher blocks the game when SFSE is missing or broken for the installed runtime. |
 | D4 | Where the built game goes: our own folder plus restore, an MO2 instance, or a Vortex package | our own install plus snapshot and restore (built), with an MO2 mod-folder export later | MO2's last public build is 2.5.2 (Aug 2024) with 2026 reports of disabled masters, though wave 1 says it handles Starfield natively; Vortex 1.10.5 is current (sfstack §4; distribution-community); TTW builds an MO2 mod folder | **Status: decided by owner, 2026-10-19 (NG-21: Own install, snapshot and restore).** Owner's note: "If we can have it be its own EXE or launcher for remote play etc to be best  that’d be best" |
@@ -296,7 +296,7 @@ drive roots (verified, appeng §6-7). Our code still guesses `~/OneDrive/Documen
   subprocess I/O, paths as arguments. A run on an accented and CJK account. **outside / PC.**
 - A11b. A preflight check per known install-failure cause: protected folders and OneDrive, wrong game version,
   leftover mods and INI edits, antivirus, low disk, missing runtimes, overclocks, Windows blocking downloaded files
-  (Mark of the Web), launching the wrong exe (ops.md §6, 15 causes from GAMMA, Wabbajack, TTW, Fallout London,
+  (Mark of the Web), launching the wrong exe (ops.md §6, 15 causes from GAMMA, Wabbajack, TTW, a well-known Fallout 4 total conversion,
   Nolvus). Each becomes a detect line or a documented message. **offline.**
 - A11. What goes in the support bundle? Nolvus is the model: a "safe to upload" log and a Report button (ops.md §5).
   Default: a local zip of driver state, step logs, build manifest, detect output,
@@ -339,15 +339,15 @@ ties.
 ## 7. Distribution, legal, community
 
 **Known.** See D5 to D8, D12, D13. More: Bethesda's Community Standards ban "Crowdfunding or Monetization mod
-projects" (verified, community §6). GOG now distributes free total conversions that need the base game (Fallout
-London, Fallout: New California in July 2026, STALKER GAMMA in December 2025) (community §8). Skyblivion was told to
+projects" (verified, community §6). GOG now distributes free total conversions that need the base game (a well-known Fallout 4 total
+conversion, Fallout: New California in July 2026, STALKER GAMMA in December 2025) (community §8). Skyblivion was told to
 replace 100% of its assets; Morroblivion's installer converts the player's own Morrowind data into a generated esm,
 the closest same-publisher precedent to ours (installers-precedents §8-9). We found no published Fallout 4 to
 Starfield total conversion and no takedown of one (unresolved).
 
 **Questions.**
 - L0. Nexus wave-2 points: auto-update is not "crucial" internet use; any network feature needs a staff review with
-  source; an AI-content tag is required now. Fallout London's troubleshooting guide is a ready check list for A11b,
+  source; an AI-content tag is required now. A well-known Fallout 4 total conversion's troubleshooting guide is a ready check list for A11b,
   and its downgrader's Steam login prompts were a top support issue, which backs "never handle Steam credentials".
 - L1. What exactly do we ask Nexus staff? (a) is a no-assets converter that runs on the player's PC a "modding tool";
   (b) is any internet use allowed, or must the Nexus build be offline; (c) may add-ons that depend on generated masters
@@ -384,7 +384,7 @@ Starfield total conversion and no takedown of one (unresolved).
   **owner.**
   **Status: decided by owner, 2026-10-19 (RE-6: Fallout name and art).** Owner's note: "Their are other games that have been given the go ahead with stuff like this and other Bethesda works voice lines is the big issue because fallout 3 was recorded outside of Bethesda, but other games were recorded in-house so they have retained the rights to them besides like new Vegas, but obsidian has not shown an issue with using that stuff with fallout Vegas, and under My understanding of copyright law We are not distributing anything or using anything In a manner a user Who owns the game and modifies it is allowed to. So For example, if somebody wanted to modify and make all of the characters in one game consistently use the same voice line there is nothing against that, In this situation It is the same you are using that NPC’s voice line so the NPC can still talk. There’s no changes modifications or anything for distribution or any of that sort." This is against the recommended neutral name.
 - L6. Donations at all? Default none, given Bethesda's monetisation rule. **owner.**
-  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like fallout London and stalker gamma. Monetization and making money is a big no-no."
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like a well-known Fallout 4 total conversion and stalker gamma. Monetization and making money is a big no-no."
 - L7. A first-run screen saying the player owns both games, the output is for personal use and must not be
   re-uploaded, and a marker in generated plugins saying they were generated locally? **owner.**
   **Status: decided by owner, 2026-10-19 (LA-17: One-time screen plus plugin marker).**
@@ -393,7 +393,7 @@ Starfield total conversion and no takedown of one (unresolved).
   **Status: decided by owner, 2026-10-19 (LA-12: Source zip on the same release).**
 - L9. Is GOG a better partner than Nexus once the GitHub release is stable? Read GOG's total-conversion terms.
   **outside.**
-  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like fallout London and stalker gamma. Monetization and making money is a big no-no."
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like a well-known Fallout 4 total conversion and stalker gamma. Monetization and making money is a big no-no."
 - L10. Linux and Steam Deck: a target or not? Every precedent grew Linux late through community rewrites. Default:
   keep stages headless and scriptable, avoid new PowerShell-only steps. **owner.**
   **Status: decided by owner, 2026-10-19 (LA-10: Not a target, keep it possible).**
@@ -429,5 +429,5 @@ picks them up:
 - GOG and Game Pass file layouts for both games (no samples).
 - Which Fallout 4 build writes BA2 v7 and which v8 (the layout is the same).
 - Whether GOG's 1.10.163 data files match Steam's byte for byte (one GOG install's hashes settle it).
-- Real support-load numbers: none published. Only sizes: GAMMA's Discord 710,517 members, Skywind's 41,686, Fallout
-  London 500k GOG redemptions in 24 hours (ops.md §4).
+- Real support-load numbers: none published. Only sizes: GAMMA's Discord 710,517 members, Skywind's 41,686, a well-known Fallout 4 total
+  conversion 500k GOG redemptions in 24 hours (ops.md §4).

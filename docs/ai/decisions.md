@@ -1389,7 +1389,7 @@ decided the import path); keeping the order as a parameter (two orders in the co
 ## 2026-11-01: the owner's strip-down and start picks, recorded (owner, 29 and 31 Oct)
 - **Decision:** the owner's answers on the strip-down and next-steps plan pages (private pages; copied into the 1 Nov
   handoff), recorded here so the repo has them. Strip-down, 29 Oct (the owner: "too many things are breaking because
-  we are forcing ourselves into the Starfield system"; the handoff names Fallout: London, own plugins over an
+  we are forcing ourselves into the Starfield system"; the handoff names a well-known Fallout 4 total conversion, own plugins over an
   untouched master with its own start, menu and intro, as the model): **B** our planet inside Sol, and in the end no other planets; **X** the other planets
   gone from the star map too, by overrides in our plugin; **F** our own start overriding `StartupQuest_DO` (done,
   #588); **I** the quieting switches go straight into the mod, no test profile; **N** drop the landing pad and its ship

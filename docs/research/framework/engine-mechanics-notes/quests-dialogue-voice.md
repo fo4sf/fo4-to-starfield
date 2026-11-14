@@ -126,13 +126,13 @@ TechRaptor, the GameSkinny article on FO4's line count, and a WEPC page on Starf
     Bethesda engine. Our launcher reuses FO4's voices in Starfield, which is the Capital Wasteland situation. The owner
     should treat this as a release-phase legal question, not a technical one.
 - **Volunteer voice casts are feasible but slow and uneven.**
-  - Fallout: London had over 100 mostly volunteer actors; a reviewer criticised uneven recordings.
-    https://en.wikipedia.org/wiki/Fallout:_London **verified**
+  - A well-known Fallout 4 total conversion had over 100 mostly volunteer actors; a reviewer criticised uneven recordings.
+    a third-party source **verified**
   - Skywind cast about 3,000 NPCs with nearly 300 volunteer actors and is about 92% recorded, years in.
     https://wccftech.com/skywind-2026-milestone-quests-written-no-release-date/amp/ **verified**
   - For us a recast is the fallback if the rights question goes badly, and it is a multi-year job at FO4's scale.
     **supported hypothesis**
-- **Pin the game version.** Fallout: London had to stay on the pre-next-gen FO4 build, and Steam users had to downgrade
+- **Pin the game version.** a well-known Fallout 4 total conversion had to stay on the pre-next-gen FO4 build, and Steam users had to downgrade
   by hand (Wikipedia, above). **verified**. The project already pins Starfield 1.16.244 and SFSE 0.2.21. Starfield
   Silent Voice's changelog shows plugins break and come back per runtime (v1.5 for 1.14.70). **verified**
 - **AI voice draws pushback.**
@@ -281,7 +281,7 @@ The full Papyrus route is in papyrus-and-script-extenders.md. These are only the
 |---|---|---|---|---|---|---|---|
 | A1 | Is converting FO4's licensed voice acting on the player's PC for use in another Bethesda game acceptable to Bethesda? Do we ask them before the Nexus release? **Decided by owner, 2026-10-19 (page RE-1):** as recommended, no voice reuse for now, subtitles only. Owner's note: "Did you guys ask? You have access to my email to send any" Whether to write to Bethesda is part of the RE-8 talk-through; nothing sent. | Capital Wasteland stopped on exactly this; voice is licensed, not owned | Capital Wasteland quotes (PCGamesN); TTW and Skyblivion use the player's own installs within or into Bethesda games | owner decision; optionally a polite written question to Bethesda's mod or community contact; read Bethesda's mod EULA wording on voice | blocks the release of any converted voice | REL | **key** |
 | A2 | Policy: does the project use **no AI voice at all**, AI only for gap-filling with consent and labels, or AI never for real actors' voices? **Decided by owner, 2026-10-19 (page RE-2):** as recommended, no new voice in early releases. | Creations bans generative AI (reported); Nexus allows it with tags and removes it on complaint; voice actors object | sources in Precedents | owner decision, written in decisions.md | A1; decides whether Creations is ever an option | REL | **key** |
-| A3 | If new lines are ever needed (patching gaps, our own connective quests), do we use volunteer actors (Fallout: London, Skywind model), the silent route, or text-only? | our own glue content will need lines | volunteer casts work but take years | owner decision; count the glue lines once quests are mapped | A2 | QP | |
+| A3 | If new lines are ever needed (patching gaps, our own connective quests), do we use volunteer actors (a well-known Fallout 4 total conversion, Skywind model), the silent route, or text-only? | our own glue content will need lines | volunteer casts work but take years | owner decision; count the glue lines once quests are mapped | A2 | QP | |
 | A4 | Which Nexus AI tag applies if any tool in the pipeline is AI (for example AI translation with Bethesda Strings Editor or machine-made lip curves)? | undisclosed AI use is moderated on Nexus | tiered tags since 2026 (PC Gamer) | read Nexus's tag definitions at release time | A2 | REL | |
 
 ### 11. Subtitles, strings and localisation
@@ -298,7 +298,7 @@ The full Papyrus route is in papyrus-and-script-extenders.md. These are only the
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
 |---|---|---|---|---|---|---|---|
 | X1 | What are the real totals with all DLC (QUST, DIAL, INFO, SCEN, `.fuz` count and bytes per voice type)? | sizes every stage; Far Harbor and Nuka-World add a lot | base game only measured (npcs-ai page section 2) | recon.py over DLC esm and Voices ba2 (read-only PC job) | launcher budget | QP | **key** |
-| X2 | Per-stage throughput on the owner's PC: decode, encode, lips, strings, records. What is the total first-run time, and can each stage resume? | TTW takes about 40 minutes and Fallout: London users complained about installs; ours could be many hours | Codsworth 20-line run only | time 1,000 lines through each stage | V1, L1 | REL | **key** |
+| X2 | Per-stage throughput on the owner's PC: decode, encode, lips, strings, records. What is the total first-run time, and can each stage resume? | TTW takes about 40 minutes and a well-known Fallout 4 total conversion users complained about installs; ours could be many hours | Codsworth 20-line run only | time 1,000 lines through each stage | V1, L1 | REL | **key** |
 | X3 | Final disk size: `.wem` (Vorbis about 4 GB estimated), `.ffxanim`, temporary WAV | player requirements page | estimate only (voice-lipsync-companions.md) | measure on the 1,000-line batch and scale | X2 | REL | |
 | X4 | Which quests ship in the first breadth release (new game, then main quest, then factions), and is text-only dialogue acceptable for the rest at first? | breadth before polish (settled) | settled order: new game first | owner decision with a quest list from the census | X1 | QP | **key** |
 | X5 | Can the converter generate every quest, scene and dialogue record **deterministically**, so the launcher can patch or resume with stable FormIDs across versions? | saves survive updates; voice file names derive from ids | deterministic FormID map exists for the mission | unit tests with synthetic fixtures (repo rule) | S3, V2 | QP | |
@@ -344,7 +344,7 @@ Web (read unless marked "not read"):
 - Fallout 4: New Vegas recast: https://kotaku.com/fallout-4-modders-cant-use-new-vegas-voice-acting-so-t-1829149325
 - Tale of Two Wastelands install: https://thebestoftimes.moddinglinked.com/ttw.html
 - Skyblivion: https://content1.uesp.net/wiki/Skyrim_Mod:Skyblivion
-- Fallout: London: https://en.wikipedia.org/wiki/Fallout:_London
+- A well-known Fallout 4 total conversion: a third-party source
 - Skywind 2026: https://wccftech.com/skywind-2026-milestone-quests-written-no-release-date/amp/
 - Not read (rate-limited or search hit only): https://thebestoftimes.moddinglinked.com/faq.html ,
   https://techraptor.net/gaming/news/your-starfield-character-does-not-have-voice-bethesda-says ,

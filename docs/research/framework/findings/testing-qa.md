@@ -4,7 +4,7 @@ Research agent testing-qa, 2026-10-19. Offline web research plus read-only reads
 the two notes named in the task (research/next-phase/testing-automation.md, docs/PLAY-AND-TEST.md), which this file
 does not repeat.
 
-**Bottom line.** The big total conversions (Skywind, Fallout London, TTW, Skyblivion, Sim Settlements 2) test almost
+**Bottom line.** The big total conversions (Skywind, a well-known Fallout 4 total conversion, TTW, Skyblivion, Sim Settlements 2) test almost
 entirely with **people**: closed tester pools, a GitHub or board-based bug lifecycle with QA-owned closing, per-feature
 checklists and quest test guidelines. None of them runs anything like this project's unattended in-game runner;
 the nearest public precedent is **AutoTest** for Skyrim SE (teleport to locations and circle the camera to catch
@@ -57,13 +57,13 @@ are listed as **unresolved** where they matter.
   repeats or bypasses conditions is a bug; use `moveto` to drag escort NPCs through unfinished navmesh.
   **verified** (https://handbook.tesrskywind.com/dev/quest-testing-guidelines)
 
-**Fallout London (Team FOLON).**
+**A well-known Fallout 4 total conversion (that team).**
 - The release was delayed from April 2024 because Fallout 4's Next-Gen update broke required tools (the FO4 Script
-  Extender and other mods). **verified** (https://overclock3d.net/news/software/fallout-london-is-in-its-final-stage-of-qa-testing-at-gog/)
+  Extender and other mods). **verified** (a third-party source)
 - GOG ran a final QA stage on several builds before release. **verified** (same)
 - After launch (late July 2024) it crashed a lot; the first hotfix **merged Buffout 4 (a crash logger and engine
   fix)** into the mod, and the team ran "dedicated 1-on-1 troubleshooting sessions" for installs and crashes on
-  Discord. **verified** (https://pcgamer.com/games/rpg/fallout-london-devs-are-working-on-a-huge-patch-offering-dedicated-1-on-1-troubleshooting-sessions-to-help-players-with-installs-and-crashes)
+  Discord. **verified** (a third-party source)
 - Inference: a crash logger was added only after release, under pressure. **supported hypothesis**
 
 **Tale of Two Wastelands (TTW): the closest precedent for our launcher** (it builds from two owned games on the
@@ -207,7 +207,7 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 | Skywind label lifecycle | Developers "Claim Fix"; QA closes only after retest in a named build; "Known Shippable" for engine bugs | Map onto our PASS/FAIL ledger: a bug closes only when a runner or human PASS on a build id later than the fix exists. Add a "known shippable" class for Starfield engine bugs we can't fix. |
 | Skywind "checklist required before QA" | A card can't enter QA without a checklist | Every new capability (doors, quests) needs its proof list in the inventory table before it gets in-game time. Our §2.1 table is this, keep it mandatory. |
 | Skywind clean-install rule | Testers use a clean game + SKSE + SkyUI only | Community testers need a defined "clean Starfield" profile (no other plugins, SFSE pinned) or reports are noise. |
-| Fallout London | Next-Gen patch broke tools and delayed release; crash logger merged after launch; 1-on-1 support | Pin versions (we do), and ship crash logging and a support bundle in release 1, not after. |
+| A well-known Fallout 4 total conversion | Next-Gen patch broke tools and delayed release; crash logger merged after launch; 1-on-1 support | Pin versions (we do), and ship crash logging and a support bundle in release 1, not after. |
 | TTW | Builds from owned games on the player's PC; verify = folder size; most failures are environment (CFA, language, CPU heat) | Launcher `verify` should hash outputs and preflight the environment (CFA, language, free disk, version), which TTW never did. |
 | AutoTest | Locations "visit and spin camera" + NPC screenshot suites, JSON status, auto-exit | Confirms our smoke tier design; add the camera spin (loads all directions) and the NPC portrait sheet for the people-and-story phase. |
 | Lilac | Papyrus unit tests run by a test quest | Our Papyrus (bridge, mission, map markers) has no in-engine unit test; a small Lilac-style harness could test it in one launch. |
@@ -228,12 +228,12 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 4. **Human QA does not scale with breadth either.** Skywind needs 40+ people and monthly merges. Our owner is one
    person. Without a contact-sheet workflow (§2.6 of the next-phase note) visual review becomes the bottleneck.
    Likelihood high once interiors and world breadth land.
-5. **Community reports are mostly environment noise** (TTW, Fallout London experience). Likelihood high at the
+5. **Community reports are mostly environment noise** (TTW, a well-known Fallout 4 total conversion experience). Likelihood high at the
    GitHub release. Mitigation: a support bundle (load order, versions, crash signature, ledger fold) attached by
    the launcher.
 6. **Performance regressions go unnoticed** because no test measures frame time; Starfield is already CPU-bound and
    our cells carry up to 6,049 references each (docs/terrain/core64c.md:271). Likelihood high at world breadth.
-7. **Version pinning vs Steam updates.** Fallout London lost months to a Bethesda patch. A Starfield update would
+7. **Version pinning vs Steam updates.** a well-known Fallout 4 total conversion lost months to a Bethesda patch. A Starfield update would
    break SFSE, Address Library, crash loggers and our bridge's assumptions at once. Likelihood: medium per year.
 8. **SFSE-dependent test tooling vs players without SFSE.** If test hooks need SFSE but play does not, tests run a
    different configuration from what players run. Likelihood medium.
@@ -284,13 +284,13 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
     hash every output against a shipped manifest (ids, not assets), preflight CFA, game language, disk, FO4 and
     Starfield versions, and tier-0 + short tier-1. Evidence: run the build on a second PC and diff hashes. Who:
     offline + a second machine (community contact).
-11. **Do we ship an SFSE crash logger with the launcher, and which one?** Why: Fallout London merged Buffout 4 only
+11. **Do we ship an SFSE crash logger with the launcher, and which one?** Why: A well-known Fallout 4 total conversion merged Buffout 4 only
     after a rough launch. Options: sf-crash-logger (minidump, signature, breadcrumbs, load order; GPL-3, compatible
     with our GPL-3 notice), Trainwreck (stack + module hashes; not updated since Jan 2024), Starfield Engine Fixes'
     Detailed Crash Logger (supports 1.16.244). Evidence: deliberately trigger a known crash (the Havok collision
     assertion from 16 Oct) with each and compare output and dump size. Who: PC probe + owner decision.
 12. **Does the support bundle a player attaches carry the crash signature, load order, versions and the ledger fold,
-    and nothing personal?** Why: community reports are mostly noise otherwise (TTW/FOLON). Who: offline design,
+    and nothing personal?** Why: community reports are mostly noise otherwise (TTW/a well-known Fallout 4 total conversion). Who: offline design,
     owner decision on what is collected.
 13. **Do we require SFSE for players, or only for testing?** Why: if crash logging and probes need SFSE, play
     without SFSE is an untested configuration. Options: require it (brief allows); two profiles with a reduced
@@ -330,8 +330,8 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
     input-heavy, and our runner can only type whitelisted console lines. Options: Papyrus events logged by the bridge
     (menu open/close, item added, workshop object placed), screenshot checkpoints, human sessions with the report
     kit. Who: offline research per system.
-22. **Does a Starfield update need a "freeze" policy like Fallout London learned the hard way?** Why: one patch broke
-    FOLON's toolchain. Options: Steam beta branch pinning, documented downgrade, block launches on version mismatch
+22. **Does a Starfield update need a "freeze" policy like a well-known Fallout 4 total conversion learned the hard way?** Why: one patch broke
+    a well-known Fallout 4 total conversion's toolchain. Options: Steam beta branch pinning, documented downgrade, block launches on version mismatch
     (preflight). Who: owner decision + offline research.
 
 ### Release and community
@@ -344,7 +344,7 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 25. **What is a "clean test profile" for community testers?** Why: Skywind insists on clean game + SKSE + SkyUI;
     mixed mod lists make reports unusable. Option: launcher checks Plugins.txt against an allowed list and stamps
     the result into reports. Who: owner decision + offline.
-26. **Will we offer FOLON-style 1-on-1 help, or a self-diagnosis tool instead?** Why: support time is the owner's
+26. **Will we offer 1-on-1 help like that of a well-known Fallout 4 total conversion, or a self-diagnosis tool instead?** Why: support time is the owner's
     scarcest resource. Who: owner decision.
 
 ### Tooling and testing
@@ -400,8 +400,8 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 - https://handbook.tesrskywind.com/qa/onboarding
 - https://handbook.tesrskywind.com/dev/quest-testing-guidelines
 - https://github.com/TESRSkywind/QA/issues (linked from the handbook; not opened)
-- https://overclock3d.net/news/software/fallout-london-is-in-its-final-stage-of-qa-testing-at-gog/
-- https://pcgamer.com/games/rpg/fallout-london-devs-are-working-on-a-huge-patch-offering-dedicated-1-on-1-troubleshooting-sessions-to-help-players-with-installs-and-crashes
+- a third-party source
+- a third-party source
 - https://thebestoftimes.moddinglinked.com/faq.html
 - https://taleoftwowastelands.com/viewtopic.php@t=2111
 - https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions

@@ -20,7 +20,7 @@ unresolved. Every question names how it gets answered: offline check, PC read-on
 
 ## Areas
 1. Alternate-start and skip-intro precedents (Starfield, Fallout 4, Skyrim)
-2. Total conversions and merged games (Fallout London, Tale of Two Wastelands, Skyblivion and others)
+2. Total conversions and merged games (a well-known Fallout 4 total conversion, Tale of Two Wastelands, Skyblivion and others)
 3. Starfield's new-game flow and what depends on the main quest
 4. Character creation, player identity, Pip-Boy and UI in Starfield
 5. Tools and the modding ecosystem for a start mod
@@ -53,8 +53,8 @@ Every Starfield start mod hits the same wall: almost everything the player start
 scanner, ship, fast travel, tutorials, Cruise Mode, sustenance, Shattered Space) hangs off MQ101, so skipping it
 silently turns systems off and the mod must give back each one it wants. Our current design (stop MQ00 and MQ101 from
 our own quest, then ShowRaceMenu in the vault) has no public Starfield precedent; the closest are a quest override of
-`StartupQuest_DO` (No Ship Fast Start) and the debug global `MQ101Debug` (SKK Fast Start, Crimson Start). Fallout
-London's worst start bug was a broken install silently giving the base game's opening, so a loud check matters more
+`StartupQuest_DO` (No Ship Fast Start) and the debug global `MQ101Debug` (SKK Fast Start, Crimson Start). a well-known Fallout 4 total
+conversion's worst start bug was a broken install silently giving the base game's opening, so a loud check matters more
 than any clever start. Legally, the only model that has lasted is building from the user's own install and shipping no
 Bethesda files; voice files are the known danger (Capital Wasteland was cancelled over them).
 
@@ -159,7 +159,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-E1. Do Starfield's radiant and story events (SSNN, encounters, Constellation calls) fire in our world?** Our
   probe's E5 tests our own Story Manager branch. OFF (event list), then GAME. n02, n03.
 - **NG-E2. Which UI and systems depend on "One Small Step" being done?** PC and GAME. n02, n03.
-- **NG-E3. Shattered Space and Creations that start their own quests: do we need a block plugin like Fallout London's
+- **NG-E3. Shattered Space and Creations that start their own quests: do we need a block plugin like a well-known Fallout 4 total conversion's
   DLC block?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* OWNER, then PC scan. n01, n02.
 - **NG-E4. Anything tied to a home system or Unity state our world lacks? What do NG+ and Unity do if MQ101 never
   completes?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* GAME, OWNER. n02, n03.
@@ -168,9 +168,9 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 ## F. Install, launcher, versions, saves
 - **NG-F1. How does the player choose our game over vanilla Starfield: a separate profile and INI, or in game?** *Status: decided by owner, 2026-10-19: an in-game menu entry (page NG-20). Owner note: "Like stalker gamma you will be given a menu to pick for the core that's just gives you the ability to load one game for a creation engine 2 just has you pick which game you want the save from and any settings that should be picked before you launch the game."*
   OWNER. n02.
-- **NG-F2. Loud broken-start check, both in the launcher and in game.** Fallout London's commonest failure. OFF
+- **NG-F2. Loud broken-start check, both in the launcher and in game.** a well-known Fallout 4 total conversion's commonest failure. OFF
   (launcher check, unittest), in-game script line. n02.
-- **NG-F3. Supported Starfield builds and what happens after an update?** Fallout London needed a downgrader and a new
+- **NG-F3. Supported Starfield builds and what happens after an update?** a well-known Fallout 4 total conversion needed a downgrader and a new
   save. Launcher version gate (PR #394 records versions). n02, n05.
 - **NG-F4. Full undo of the install (INIs, Plugins.txt).** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER policy; launcher already restores Data and
   Plugins.txt. n02.
@@ -254,7 +254,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   hypothesis: ShowRaceMenu and SetInChargen exist in Starfield's sources). The first proof answers it.
   findings/starfield-toolchain.md Q2.
 - **NG-J5. What happens to the start quest's overrides after a Starfield patch?** Diff Starfield.esm's start quests
-  across two game versions (Fallout London's next-gen lesson). OFF plus PC. findings/precedents.md Q2;
+  across two game versions (a well-known Fallout 4 total conversion's next-gen lesson). OFF plus PC. findings/precedents.md Q2;
   findings/starfield-toolchain.md Q1, Q3.
 
 ## K. Fallout 4's own opening chain: what we recreate (n06)
@@ -267,7 +267,7 @@ and 15, and SKK's fallback has a stated blind spot for a start that skips MQ102 
   of Fallout4.esm. Unresolved conflict. n06 Q1. *Status: answered from the records report, 2026-10-21 (section O).*
 - **NG-K2. MQ101 stages 710 to 1000 (cryo scene, Kellogg, 770 which spawns the pod corpses, 900 the move and second
   RemoveAllItems).** OFF/PC. n06 Q2. *Status: answered from the records report, 2026-10-21 (section O).*
-- **NG-K3. MQ102 stage 6 (Fallout London teleports into the vault with it).** OFF. n06 Q3.
+- **NG-K3. MQ102 stage 6 (a well-known Fallout 4 total conversion teleports into the vault with it).** OFF. n06 Q3.
 - **NG-K4. Where the Pip-Boy skeleton is: by the cog door (wiki) or in the overseer's office (our
   docs/newgame/vault111-start.md section 4).** Our doc may be wrong; an offline read of the converted cell settles it.
   Unresolved. n06 Q4. *Status: answered from the records report, 2026-10-21 (section O).*
@@ -304,7 +304,7 @@ menu opens (findings/people-story.md wave 2, supported hypothesis).
 - **NG-L8. INI rules: never write sTestFile; sStartingConsoleCommand only in test profiles; bInvalidateOlderFiles not
   needed (ba2 only); MO2 keeps INIs per profile; restore the Starfield.ini backup our logging setup made.** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER, PC
   read-only. n08 Q15, Q16.
-- **NG-L9. Steam auto-update: read-only appmanifest as Fallout London did, or an installer version gate only?** A
+- **NG-L9. Steam auto-update: read-only appmanifest as a well-known Fallout 4 total conversion did, or an installer version gate only?** A
   Papyrus-only mod cannot read the game version. OWNER. n08 Q19, Q20.
 - **NG-L10. Clean-uninstall checklist and the achievements note for players.** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER, OFF check of
   `exp_install.py uninstall`. n08 Q21, Q23.

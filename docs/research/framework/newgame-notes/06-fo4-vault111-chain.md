@@ -30,7 +30,7 @@ Read today:
 - Fextralife Dogmeat: https://fallout4.wiki.fextralife.com/Dogmeat
 - Project evidence: spike B4 (`docs/spikes/B4-mission-anatomy.md`), research log 2026-10-17,
   `docs/newgame/vault111-start.md`; sibling note `01-alternate-starts.md` in this folder (Start Me Up 18946, Redux
-  70364, Skip 88418, SPECIAL Speed Start 99690, Fallout London reintegration 641, SKK FastStart 29227). Findings taken
+  70364, Skip 88418, SPECIAL Speed Start 99690, a well-known Fallout 4 total conversion reintegration 641, SKK FastStart 29227). Findings taken
   from note 01 say "(via note 01)"; its quotes and URLs are there.
 
 Could not read (the WebFetch proxy answered HTTP 429, rate limited; none was retried):
@@ -55,7 +55,7 @@ table with fragments is cheapest to get offline on the PC (question 1).
 
 | quest | editor id | form id | role | evidence |
 |---|---|---|---|---|
-| War Never Changes | `MQ101` | 0001ED86 | pre-war house, the mirror, Codsworth (pre-war), the Vault-Tec Rep and SPECIAL, the run to the vault, the pod | **verified**: fallout.wiki War_Never_Changes infobox "Editor ID: MQ101", "Form ID: 0001ED86", reward "Vault 111 Jumpsuit"; the fragment `QF_MQ101_0001ED86` (via note 01, Fallout London) |
+| War Never Changes | `MQ101` | 0001ED86 | pre-war house, the mirror, Codsworth (pre-war), the Vault-Tec Rep and SPECIAL, the run to the vault, the pod | **verified**: fallout.wiki War_Never_Changes infobox "Editor ID: MQ101", "Form ID: 0001ED86", reward "Vault 111 Jumpsuit"; the fragment `QF_MQ101_0001ED86` (via note 01, a well-known Fallout 4 total conversion) |
 | Out of Time | `MQ102` | 0001CC2A | **the driver** from the pod to Concord: the Vault 111 exit, Codsworth, the Sanctuary search, Concord, the museum, the power armor | **verified**: fallout.wiki Out_of_Time ("Editor ID: MQ102", "Form ID: 0001CC2A", rewards incl. "Pip-Boy 3000 Mark IV", Codsworth and Dogmeat as companions); B4: 54 stages, 19 objectives, 73 aliases, no dialogue of its own |
 | When Freedom Calls | `Min00` | 001A001C | the Pip-Boy face of Concord; logic in MQ102 | **verified** (B4) |
 | (museum fight) | `DN092` | 0001D806 | raiders, waves, deathclaw | **verified** (B4) |
@@ -85,7 +85,7 @@ Stages that are not in that table but are pinned elsewhere:
 | 20 | SKK FastStart "intercepts MQ101 at Stage(20) to take control and bypass the Stage(900) inventory clear down" | **verified**, article 1038 |
 | 770 | Skip's trigger sets 770 "so the cryo corpses spawn properly" (v001 used 900) | **verified** via note 01 |
 | 900 | the move from the pre-war to the post-war vault; `RemoveAllItems()` again. Forum: "don't mess with the inventory before or on mq101 stage 900"; SKKmods: "The base game clears the player inventory between pre-war sanctuary and vault 111", a `RemoveAllItems` in MQ101's fragment | **verified**, article 1038 and forum 6445046 |
-| 1000 | completion (table above); London's reintegration lets MQ101 reach 900 and 1000 | **verified** |
+| 1000 | completion (table above); a well-known Fallout 4 total conversion's reintegration lets MQ101 reach 900 and 1000 | **verified** |
 | the cryo cut scene, the Kellogg scene | between 710 and 900 | **unresolved**: numbers not read |
 
 FO4 has an `MQ101Debug` global like Starfield's: **verified** via note 01 (Skip advances "by changing the
@@ -104,7 +104,7 @@ Combined with the ESM read and the mod authors:
 | 0 | start; SKK SyntheticPlayer sets 0, 10 and 15 done | **verified**, article 1038 |
 | 1 | objective "Exit Vault 111" | **verified**, fallout.wiki |
 | 5 | the cog door console used **without** a Pip-Boy: stage 5 and a fail sound | **verified** (B4) |
-| 6 | Fallout London's reintegration teleports into Vault 111 and starts MQ102 at 6 | **verified** via note 01; its meaning **unresolved** |
+| 6 | A well-known Fallout 4 total conversion's reintegration teleports into Vault 111 and starts MQ102 at 6 | **verified** via note 01; its meaning **unresolved** |
 | 7 | console **with** Pip-Boy: the player is seated at `Vault111DoorConsoleFurnitureREF` 00054FED for the plug-in | **verified** (B4) |
 | 9 | the button: klaxon, `Vault111ExitDoorREF01/02` closed, then the gear door opens | **verified** (B4) |
 | 8 | set later in the gear-door sequence | **verified** (B4); meaning **unresolved** |
@@ -215,7 +215,7 @@ vanilla Papyrus sources as a zip is a **supported hypothesis** for the PC check.
 
 Engine-hardcoded claims:
 - "MQ101 is hardcoded in Fallout4.exe": **unresolved**; no page read today says so. Against a full hardcode: SKK,
-  Skip, Start Me Up and London all bypass MQ101 with stages, records and scripts. **supported hypothesis**: the engine
+  Skip, Start Me Up and a well-known Fallout 4 total conversion all bypass MQ101 with stages, records and scripts. **supported hypothesis**: the engine
   owns the new-game sequence (main menu, intro video, then the start-game-enabled quests), the looks and SPECIAL
   menus (called from script), and per Skip "an engine image space modifier" white flash (via note 01).
 - No Papyrus call opens the Pip-Boy: "As far as I know, there is no papyrus solution for opening the Pipboy, at all"
@@ -244,7 +244,7 @@ Engine-hardcoded claims:
 - **Skip:** MQ101 900, then 770 for the corpses; a variant gets the SPECIAL menu on exit; skipping chargen leaves the
   default male body.
 - **SPECIAL Speed Start:** a time scale left wrong stopped the Concord scene.
-- **Fallout London reintegration:** a one-shot teleport into Vault 111 starts MQ102 at 6.
+- **A well-known Fallout 4 total conversion reintegration:** a one-shot teleport into Vault 111 starts MQ102 at 6.
 
 Lessons for us (**supported hypothesis**): (a) Starfield has no FO4 MQ102, so the listener problem is reversed:
 whatever we port later that listened to MQ102 1/10/15 needs our own "out of the pod", "left the vault" and "radios
@@ -275,7 +275,7 @@ that eats items other content gave in the vault.
 |---|---|---|---|
 | 1 | What are all 54 MQ102 stages, with their fragments, and which stage calls `CompleteQuest`/`Stop` (the wiki says 65, B4 sees 200)? | the wiki lists only 10 log stages; we need the full list to choose which moments our start mirrors | offline read of Fallout4.esm (the B4 walker) plus the fragment call lists, or the CK source zip on the PC |
 | 2 | Which MQ101 stages fall between 710 and 1000 (the cryo scene, Kellogg, 770, 900), and what does each fragment do? | Skip shows corpses depend on 770; 900 wipes the inventory; we must know what state the vault expects | offline read of `QF_MQ101_0001ED86` |
-| 3 | What does MQ102 stage 6 mean, and is it the right model for "player stands outside the pod"? | London starts MQ102 at 6 after a teleport, the closest precedent to our start | offline read of the stage-6 fragment and its conditions |
+| 3 | What does MQ102 stage 6 mean, and is it the right model for "player stands outside the pod"? | A well-known Fallout 4 total conversion starts MQ102 at 6 after a teleport, the closest precedent to our start | offline read of the stage-6 fragment and its conditions |
 | 4 | Where exactly is the Pip-Boy skeleton: beside the cog door (wiki) or in the overseer's office (our doc)? | `docs/newgame/vault111-start.md` §4 may need a public correction | offline read of Vault111Cryo's placed refs (the Pip-Boy item and the skeleton) |
 | 5 | Do we ever give a Pip-Boy-like item in the vault, or is the console open without one for good? | decides whether the cog door needs a "fail without it" branch like FO4's stage 5 | owner decision |
 | 6 | Do we show SPECIAL (or a Starfield equivalent) at all, and where: in the vault, or on the elevator like `vaultExitElevatorSCRIPT`? | FO4 offers SPECIAL and looks twice (the door, the elevator) | owner decision, then an in-game test of the menu we call |

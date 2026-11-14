@@ -336,7 +336,7 @@ Further UI facts:
 ## Gaps (not read this pass)
 Web search budget ran out and Nexus then rate-limited fetches (HTTP 429). Not read: rbtUI2 (SF 17873), Starfield
 Portal survival-options article, Fallout 42 PA (SF 6038, covered in power-armor.md), Pip-Boy 2500 (NV 38844), FO4
-106120; not searched: Sim Settlements 2, PrismaUI (Skyrim), FallUI page, HUDFramework page, Fallout London, FNV-in-FO4
+106120; not searched: Sim Settlements 2, PrismaUI (Skyrim), FallUI page, HUDFramework page, a well-known Fallout 4 total conversion, FNV-in-FO4
 recreations, Starfield outpost-crew and junk-scrap overhauls, SFSE Menu Framework (ImGui) page.
 
 ## Sources

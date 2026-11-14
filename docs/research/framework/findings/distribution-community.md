@@ -5,7 +5,7 @@ next-phase/launcher-gamma-model-and-community-tools.md and next-phase/launcher-a
 Labels: **verified** (read in the linked source or a repo file), **supported hypothesis**, **unresolved**.
 Limits of this pass: the shared web-search budget ran out part-way and three pages were refused with HTTP 429
 (the Nexus forum thread "game launch deactivates starfield plugins", starfieldwiki.net Mod:Main_Page, the STEP
-Starfield portal). Topics that needed further searching (Fallout London's launch, Skyblivion's volunteer model,
+Starfield portal). Topics that needed further searching (a well-known Fallout 4 total conversion's launch, Skyblivion's volunteer model,
 Starfield update/SFSE breakage history, localization language lists, r/FalloutMods rules) are marked **unresolved**
 and listed as follow-ups rather than filled in from memory.
 
@@ -326,7 +326,7 @@ expectation management has effectively started.
 31. **How do we keep the public description from reading as a remaster or a "free FO4"?** Why: the legal-safety pattern
     (TTW, FNV to FO4) is "you must own both games; nothing is shipped"; the Lemmy thread shows the takedown fear is the
     first reaction. Options: put the ownership requirement in the first sentence of every page. Who: owner wording.
-32. **Is a GOG-style store listing ever a goal?** Why: GOG now sells GAMMA gated on game ownership; Fallout London went
+32. **Is a GOG-style store listing ever a goal?** Why: GOG now sells GAMMA gated on game ownership; a well-known Fallout 4 total conversion went
     through GOG (earlier note). Options: not a goal; revisit after 1.0. Who: owner.
 
 ### Tooling and testing
@@ -360,7 +360,7 @@ expectation management has effectively started.
   Dec 2025 (section 2 above).
 
 ## Follow-ups not done (search budget exhausted / 429)
-Fallout London's release-date history and launch problems; Skyblivion and Skywind volunteer recruitment pages;
+A well-known Fallout 4 total conversion's release-date history and launch problems; Skyblivion and Skywind volunteer recruitment pages;
 Collective Modding and Starfield Modding Discord rules; r/FalloutMods rules; starfieldwiki.net modding namespace;
 history of Starfield patches that broke SFSE; FO4 and Starfield language lists; current Steam Deck rating for Starfield;
 whether Vortex now handles BA2 conflicts.

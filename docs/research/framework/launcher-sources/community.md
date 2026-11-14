@@ -81,7 +81,7 @@ Things that limited the reading:
 | **Capital Wasteland (FO3 remade in FO4)** | Shut down by the team itself after legal advice, not by a Bethesda takedown. Lead: "Bethesda didn't technically shut us down. But a few members of staff heavily hinted at our methods being illegal". A lawyer called the approach "sketchy as all hell". The core problem was reusing Fallout 3 voice files. | **verified (secondary)**: https://pcgamesn.com/fallout-4/fallout-4-fallout-3-capital-wasteland-mod (the March 13 update; year not on the page, contemporaneous reports date it to 2018) |
 | **Skyblivion (Oblivion in Skyrim)** | Wikipedia: "To release Skyblivion, Bethesda required the project to fully replace 100% of all assets from the original to not redistribute their own proprietary content." In April 2025 the team said "Bethesda made it clear that they have no intention of shutting down our project" and Bethesda gave the team Oblivion Remastered keys. Release slipped to 2026 (December 2025). | **verified (secondary)**: https://en.wikipedia.org/wiki/Skyblivion, https://www.neowin.net/news/bethesda-confirms-it-has-no-intention-of-shutting-down-skyblivion-modding-project/. I found no formal licence. |
 | **Skywind (Morrowind in Skyrim)** | Wikipedia says it "has been officially approved by the publisher Bethesda Softworks" (citing VG247, 2024) and needs ownership of Morrowind and Skyrim SE. In 2012 the team switched from porting Morrowind assets to "remaking or replacing everything". | **verified (secondary)**: https://en.wikipedia.org/wiki/Skywind. "Officially approved" rests on one press citation, so the form of approval is **unresolved**. |
-| **Fallout London (FO4 total conversion)** | Original assets, distributed through GOG (partly because "its size would overwhelm sites like Nexus"). Bethesda later hired two FOLON members (VGC). Todd Howard, January 2026: "Only some videos that I've seen online; I have not played it"; "It seems a lot of fans love it." No formal Bethesda endorsement found. | **verified**: https://pcper.com/2024/07/fallout-londons-coming-youll-need-to-downgrade-though/, https://videogameschronicle.com/news/a-fallout-london-modder-has-joined-bethesda-while-the-projects-lead-has-rejected-a-fallout-job-offer, https://insider-gaming.com/todd-howard-no-interest-fallout-4-mod-london/ |
+| **A well-known Fallout 4 total conversion** | Original assets, distributed through GOG (partly because "its size would overwhelm sites like Nexus"). Bethesda later hired two members of that total conversion's team (VGC). Todd Howard, January 2026: "Only some videos that I've seen online; I have not played it"; "It seems a lot of fans love it." No formal Bethesda endorsement found. | **verified**: a third-party source, a third-party source, a third-party source |
 | **Fallout: New California (FNV)** | Original-asset mod. Wikipedia: "received an official release on GOG in July 2026, requiring the original game". No Bethesda dispute found. | **verified (secondary)**: https://en.wikipedia.org/wiki/Fallout:_New_California |
 | **"Fallout 4 assets in Starfield" mods** | I found no Nexus takedown record or Bethesda statement specific to this. The general Nexus rule (Section 2) forbids it without permission. | **unresolved** |
 | **Bethesda DMCA history against ports** | I found no DMCA notice in any of the cases above. The pattern is informal pressure (TTW, Capital Wasteland) or conditions (Skyblivion), not litigation. | **supported hypothesis** (absence of evidence in the sources I read) |
@@ -110,8 +110,8 @@ Things that limited the reading:
   - "As usual, beta updates are not supported."
   - 1.14.70 made "a major change to the base form type", so "all gameplay plugins will need to be recompiled".
 - **verified**: The FO4 Next-Gen update (2024-04-25, 1.10.980) broke F4SE (https://shacknews.com/article/139690/...).
-  It delayed Fallout London, which then shipped with a downgrader to the pre-next-gen build (pcper, above). Fallout
-  London was "a no go on the Epic Games Store given the version of the base game on there doesn't support update
+  It delayed a well-known Fallout 4 total conversion, which then shipped with a downgrader to the pre-next-gen build (pcper, above). a well-known Fallout 4 total
+  conversion was "a no go on the Epic Games Store given the version of the base game on there doesn't support update
   rollbacks" (Mirror, 2024-10-18).
 
 ---
@@ -268,7 +268,7 @@ Things that limited the reading:
 | **TTW / The Best of Times guide** | Forum now read-only; "For community discussion and questions, head over to our Discord". Guide says to ask in ModdingLinked or TTW Discords. | Strict requirements: English copies on Steam/GOG/Epic, "Microsoft Store versions are not supported". Modified/LTSC Windows: "We can refuse to provide help in such cases." | Advises antivirus exclusions for the MO2 folder. | Verifying game files reverts patches, so re-run the patcher. | **verified**: https://thebestoftimes.moddinglinked.com/intro.html, https://thebestoftimes.moddinglinked.com/faq.html, TTW forum |
 | **Wabbajack** | Discord plus wiki; site says "Requires Windows 10/11 Home or Pro. LTSC, IoT Enterprise, and modified Windows versions are not supported." Linux: community guides. | Logs live in the versioned folder's `logs`; the list of failed downloads is at the end of the log. Game Pass: "Short answer - NO." | List authors tell users to add exclusions or disable third-party antivirus (Genesis, Begin Again). | Script extenders support only the latest Steam version. | **verified**: https://www.wabbajack.org/, https://wiki.wabbajack.org/user_documentation/Troubleshooting FAQ.html, https://genesismodlist.com/wabbajack-issues/ |
 | **Begin Again (Wabbajack list for TTW)** | Separate Discord; "DO NOT spam the TTW discord server". "Please don't spam the comments with entire crash logs." Modifying the list will "void all support". Includes a "debug mode" profile. | Clean vanilla reinstall, no UAC-protected folders, English language. | "add the folders you will be working in as an exemption". | "The list is up to date with the latest version of TTW (3.4) It is incompatible with older versions." | **verified**: https://www.nexusmods.com/newvegas/mods/79547 |
-| **Fallout London** | Discord-first. At launch the team ran "dedicated 1-on-1 troubleshooting sessions" and folded Buffout 4 (crash logger) into the hotfix. Per-quest bug channel. Full change log in a public spreadsheet. Twitch dev streams. | Quest name + stage for quest bugs. | not found | Ships a downgrader. Not on Epic (no rollback). Patch 1.02 warns Papyrus properties in saves may make updated quests "act in unexpected ways". Rabbit & Pork (Sep 2025) recommends a new save and adds an Overwolf-powered launcher next to GOG. | **verified**: PC Gamer (https://pcgamer.com/games/rpg/fallout-london-devs-are-working-on-a-huge-patch-...), Mirror (https://www.mirror.co.uk/gaming/fallout-london-patch-102-makes-33923964), GamingOnLinux (https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/) |
+| **A well-known Fallout 4 total conversion** | Discord-first. At launch the team ran "dedicated 1-on-1 troubleshooting sessions" and folded Buffout 4 (crash logger) into the hotfix. Per-quest bug channel. Full change log in a public spreadsheet. Twitch dev streams. | Quest name + stage for quest bugs. | not found | Ships a downgrader. Not on Epic (no rollback). Patch 1.02 warns Papyrus properties in saves may make updated quests "act in unexpected ways". Rabbit & Pork (Sep 2025) recommends a new save and adds an Overwolf-powered launcher next to GOG. | **verified**: PC Gamer (a third-party source...), Mirror (a third-party source), GamingOnLinux (a third-party source) |
 | **STALKER GAMMA** | Discord (community). As of 2025-12-01 it is also available as a free one-click GOG package; a reader quotes the listing as requiring ownership of STALKER 2 or Call of Pripyat EE. | not found | not found | Linux users report the GOG version doesn't work. | **verified** (article), ownership requirement **supported hypothesis** (reader comment): https://gamingonlinux.com/2025/12/gog-add-stalker-gamma-as-a-one-click-mod-install |
 | **SFSE / F4SE (core dependency)** | Status log in a pinned Nexus comment; "Do not email with questions." "Game Pass discussion is off topic." Users must paste `sfse_loader.txt` "inside spoiler tags". | The log file | Code-signing certificate; Nexus CM sticky about false positives. | Rebuilds within hours or days of each Starfield patch; beta branches unsupported. | **verified**: https://www.nexusmods.com/starfield/mods/106?tab=posts |
 
@@ -318,7 +318,7 @@ Things that limited the reading:
   - Released versions "MUST NOT be modified".
 - **verified**: Practice in big mod projects. Most state save compatibility per release in plain words rather than
   through the version number:
-  - Fallout London 1.02: saves "may act in unexpected ways"; "The be all and end all fix is to try a new game".
+  - A well-known Fallout 4 total conversion 1.02: saves "may act in unexpected ways"; "The be all and end all fix is to try a new game".
   - Rabbit & Pork: start a new save.
   - TTW 3.4: Begin Again calls it "incompatible with older versions".
   - Nexus collection Immersive Survival: per-revision changelogs keyed to the game build ("works with Fallout 4
@@ -396,12 +396,12 @@ Each question gives why it matters (**Why**) and what would answer it (**Answer*
 12. **Which game builds do we support, and how do we announce breakage?**
     - **Why:** Starfield shipped runtime updates 1.16.236, .242 and .244 in roughly two months of 2026. SFSE notes
       breaking changes (1.14.70 form type, 1.15.216 broke "most if not all plugins"). FO4 Next-Gen and Anniversary
-      updates broke F4SE, and Fallout London needed a downgrader.
+      updates broke F4SE, and a well-known Fallout 4 total conversion needed a downgrader.
     - **Answer:** a support matrix (FO4 source builds, Starfield runtime, SFSE version, stores: Steam/GOG/Game Pass),
       a launcher check that refuses unknown runtimes, and a pinned status post like SFSE's.
 13. **Do we support Game Pass / Microsoft Store and Epic copies?**
     - **Why:** Wabbajack says no to Game Pass; TTW excludes Microsoft Store; SFSE "only works through Steam
-      installations" (per a community reply). Fallout London couldn't support Epic because there is no rollback.
+      installations" (per a community reply). A well-known Fallout 4 total conversion couldn't support Epic because there is no rollback.
     - **Answer:** test whether our FO4 reader and Starfield output work on each store's files, and publish the result.
 14. **What is our support channel and minimum bug report?**
     - **Why:** every comparable project is Discord-first, with strict supported configurations. They ask for logs (a
@@ -416,12 +416,12 @@ Each question gives why it matters (**Why**) and what would answer it (**Answer*
     - **Answer:** run our release binaries through VirusTotal before release and record the engine count. Decide on
       code signing (cost, who holds the certificate), and write a FAQ entry modelled on the Nexus CM sticky.
 16. **What is our versioning promise for saves?**
-    - **Why:** the save "API" is the generated plugin's FormIDs and records. Fallout London and TTW broke saves
+    - **Why:** the save "API" is the generated plugin's FormIDs and records. A well-known Fallout 4 total conversion and TTW broke saves
       between versions and told users in plain words.
     - **Answer:** an ADR defining what counts as a breaking change (FormID or EditorID renumbering, removed records).
       SemVer major for breaking changes, 0.y.z until the first public in-game acceptance. A "save compatible: yes/no"
       line in every changelog.
-17. **Is GOG (as with Fallout London, FNC and GAMMA) a better distribution partner than Nexus?**
+17. **Is GOG (as with a well-known Fallout 4 total conversion, FNC and GAMMA) a better distribution partner than Nexus?**
     - **Why:** GOG now distributes free total conversions and modpacks that require the base game. That avoids Nexus
       upload rules, but GOG would want a vetted, asset-free installer.
     - **Answer:** read GOG's mod/total-conversion partnership terms (not researched here) and decide once the GitHub

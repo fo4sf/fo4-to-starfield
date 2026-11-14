@@ -12,7 +12,7 @@ refers to them as "P1" and so on). Labels: **verified** (read on the source page
 hypothesis**, **unresolved**.
 
 Pages I could not read: the Nexus Mods proxy rate-limited me (HTTP 429) on gamingbolt.com "Everything you need to
-know about Fallout London", nexusmods.com/fallout4london/mods/547 and nexusmods.com/fallout4/articles/1597 (SKK
+know about a well-known Fallout 4 total conversion", a third-party source and nexusmods.com/fallout4/articles/1597 (SKK
 Settlement Attack System notes). Nothing in this file comes from those pages.
 
 ## What the community and tools offer today
@@ -131,9 +131,9 @@ Settlement Attack System notes). Nothing in this file comes from those pages.
 - **Load-order fights over shared FLSTs**: both the Community Categories and Ship Builder Categories authors built
   workarounds for menu FLST overwrites. **verified** (sources above). Lesson: we own the build activators we place, so
   give them our own category FLST and keywords and never touch Starfield's `OutpostRecipeCategories`.
-- **Fallout London kept a workshop**: six settlements, a workshop object, scrap for materials; players report
+- **A well-known Fallout 4 total conversion kept a workshop**: six settlements, a workshop object, scrap for materials; players report
   settlements as bugged (crashes, clipping). **verified** as reported
-  (https://primagames.com/tips/best-base-and-settlement-locations-in-fallout-london). Lesson: a total conversion can
+  (a third-party source). Lesson: a total conversion can
   ship a smaller settlement set; stability is what players judge.
 - **kinggath's critique** of Starfield outposts (people don't matter) is the gap a Fallout settlement layer fills.
   **verified** as reported (wccftech above).
@@ -188,7 +188,7 @@ Phases: **NG** new game, **INT** interiors, **QP** quests/people, **FS** Fallout
 | S5 | Can the recruitment beacon (radio) spawn and walk settlers to a settlement across our planet? | Core FO4 loop | none | prototype after AI basics; check navmesh across overlay landings | world/navmesh area | FS | |
 | S6 | Is the settlement status shown on the workbench prompt, a message, or a custom UI (Scaleform/SWF)? | Players need ratings visible | FO4 uses workshop HUD; Starfield has no such HUD | decide UI path with the UI area; a message box first | UI area | FS | |
 | S7 | Do we want a Workshop-Framework-like public API (events, registration) for future add-ons? | Avoids the FO4 script-overwrite mess | WF and SS2 lessons (verified) | design decision, written in docs/ai/decisions.md | S1 | REL | |
-| S8 | How many settlements in the first release, and which ones (Sanctuary, Red Rocket, Abernathy...)? | Breadth vs stability (Fallout London players call settlements buggy) | 29 workshops exist as ACTIs in v6 | owner decision with a test list | B5 | FS | |
+| S8 | How many settlements in the first release, and which ones (Sanctuary, Red Rocket, Abernathy...)? | Breadth vs stability (a well-known Fallout 4 total conversion players call settlements buggy) | 29 workshops exist as ACTIs in v6 | owner decision with a test list | B5 | FS | |
 
 ### 3. Supply lines, attacks, ownership and faction ties
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
@@ -289,6 +289,6 @@ Phases: **NG** new game, **INT** interiors, **QP** quests/people, **FS** Fallout
 - https://www.nexusmods.com/starfield/mods/16345 (kine's Terran Robot Frames)
 - https://starfieldportal.com/article/starfield-junk-now-become-useful-resources (Galactic Junk Recycler)
 - https://www.nexusmods.com/starfield/mods/6329 (vendor restock SFSE) ; https://www.nexusmods.com/starfield/mods/6868 (Leveled Vendor Credits) ; https://www.nexusmods.com/starfield/mods/4660 (credit mesh)
-- https://primagames.com/tips/best-base-and-settlement-locations-in-fallout-london (Fallout London settlements)
+- a third-party source (a well-known Fallout 4 total conversion settlements)
 - Repo: docs/research/engine-mechanics/papyrus-and-script-extenders.md:135-175 (PC probe job 15)
 - Shared: /mnt/project-files/research/engine-mechanics/ (five area pages above), /mnt/project-files/research/next-phase/doors-activators-workshops.md

@@ -22,7 +22,7 @@ all precedents the mechanics lesson is the same: records and links convert autom
 project ended up with (a) a function map from source script calls to target calls with an explicit "unmapped" policy,
 (b) hand-written fills for scripts that do not port, (c) small native plugins for engine behaviour the target lacks,
 (d) rebuilt "joins" where a source system has no target record, and (e) a separate QA pass per quest. Saves break on
-updates because Papyrus stores script properties in the save (Fallout London 1.03 needed a new game).
+updates because Papyrus stores script properties in the save (a well-known Fallout 4 total conversion 1.03 needed a new game).
 
 ## What the community and tools offer today
 
@@ -154,23 +154,23 @@ updates because Papyrus stores script properties in the save (Fallout London 1.0
   FNV's systems and rebalanced. Our plan to move FO4 content onto Starfield's systems where they fit (affinity,
   legendaries, build mode) is the TTW pattern; balance is its own work item, not a side effect.
 
-### Fallout: London (new content on FO4)
+### A well-known Fallout 4 total conversion (new content on FO4)
 - **Systems changed from FO4.** Pre-FO4 dialogue with full option text and a silent player; the ATTA-Boy replaces the
   Pip-Boy; power armour removed; "Horses and bicycles were planned, but ultimately cut due to bugs"; combat, VATS and
-  settlements "work similarly to Fallout 4". **verified** ([Wikipedia](https://en.wikipedia.org/wiki/Fallout:_London))
+  settlements "work similarly to Fallout 4". **verified** (Wikipedia)
 - **The silent-player menu broke at launch for some players.** With a stale `dialoguemenu.swf` or Full Dialogue
   Interface installed, players saw only "Positive / Neutral / Negative" and "the player just sits there in silence for a
   solid 3 to 5 seconds"; the fix was deleting `Data/interface/dialoguemenu.swf` or the other dialogue mod. **verified**
-  (player reports: [r/fallout4london](https://www.reddit.com/r/fallout4london/comments/1edjm65/dialogue_question/)).
+  (player reports: a third-party source).
   The 3 to 5 seconds is a **supported hypothesis** that unvoiced player lines still wait on a line duration.
 - **Patch 1.03 "Rabbit & Pork" (2025-09-30).** "Due to how the papyrus scripting language stores properties in your
   save file you will **require** a new save game start ... continuing an existing save after updating will certainly
-  break quests". Over 380 quest fixes, 126 NPC fixes. Their own `Folon_WorkshopParent` quest was "Gutted ... to avoid
+  break quests". Over 380 quest fixes, 126 NPC fixes. Their own workshop-parent quest was "Gutted ... to avoid
   conflicts with the vanilla equivalent"; a "Dialogue blocker placed on vanilla dialogue in WorkshopParent to help
   prevent Boston voices slipping through"; vanilla dialogue removed from generic traders; settlers "would become
   unassigned"; perks that could be qualified for with buff items. They also bundled X-Cell, Buffout 4 and the High FPS
   Physics Fix and regenerated precombines, LOD and AnimTextData. **verified**
-  ([fallout.wiki V1.03](https://fallout.wiki/wiki/Mod:Fallout_London/V1.03))
+  (fallout.wiki V1.03)
 - **Lesson for us.** Three direct transfers: (1) expect each content update to need a new game unless script
   properties stay stable; (2) Starfield's own generic dialogue, workshop and follower quests will leak into our world
   ("Starfield voices slipping through") unless we condition or block them; (3) a parallel copy of a vanilla framework
@@ -247,7 +247,7 @@ updates because Papyrus stores script properties in the save (Fallout London 1.0
 - **Possible: native plugins for engine behaviour the target lacks** (jail on arrest, gun handling, animation
   registration, a whole foreign dialogue engine). **verified** for Skyrim SE (SKSE). For Starfield this runs into
   SFSE's update breakage and disabled co-save (engine-mechanics.md). **supported hypothesis**
-- **Limit: save compatibility across our updates.** Papyrus stores properties in saves (Fallout London 1.03,
+- **Limit: save compatibility across our updates.** Papyrus stores properties in saves (a well-known Fallout 4 total conversion 1.03,
   tes4skyrim README). **verified** for FO4 and Skyrim; assumed for Starfield (**supported hypothesis**).
 - **Limit: scripts attached to the player's base record.** BACUP moved them to a PlayerRef alias because FO4 could not
   carry the FO76 player record. Whether Starfield can carry scripts on the player `NPC_` record we write is
@@ -288,20 +288,20 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
 |---|---|---|---|---|---|---|---|
-| C1 | Which Starfield generic dialogue, workshop and follower lines would fire in our world, and how do we block them? | Fallout London had "Boston voices slipping through" and needed a dialogue blocker | FOLON 1.03 notes (this page); Starfield follower lines locked by MQ101 (companions notes) | in game, talk to a converted settler and a vendor; list every Starfield INFO that plays; check its conditions | C2; companions F2 | P3 | **key** |
-| C2 | Do we extend Starfield's framework quests (workshop, followers, dialogue hubs) or replace them with our own, never both? | FOLON's parallel WorkshopParent conflicted with vanilla; TTW forbids editing the Followers quest | precedents agree: one owner per system | decide per system in decisions.md, starting with workshop and followers | workshop B1, companions F2 | P3, P4 | **key** |
+| C1 | Which Starfield generic dialogue, workshop and follower lines would fire in our world, and how do we block them? | A well-known Fallout 4 total conversion had "Boston voices slipping through" and needed a dialogue blocker | That total conversion 1.03 notes (this page); Starfield follower lines locked by MQ101 (companions notes) | in game, talk to a converted settler and a vendor; list every Starfield INFO that plays; check its conditions | C2; companions F2 | P3 | **key** |
+| C2 | Do we extend Starfield's framework quests (workshop, followers, dialogue hubs) or replace them with our own, never both? | A well-known Fallout 4 total conversion's parallel WorkshopParent conflicted with vanilla; TTW forbids editing the Followers quest | precedents agree: one owner per system | decide per system in decisions.md, starting with workshop and followers | workshop B1, companions F2 | P3, P4 | **key** |
 | C3 | After conversion, do FO4 topics unlock at the right quest stage, or are conversations available too early (Skywind's failure)? | an automated import can keep text but lose timing | Skywind: "directions ... appearing before a quest was assigned" | pick 3 FO4 quests; compare INFO conditions on stage in FO4 vs our output; one in-game run each | quests Q1, D1 | P3 | **key** |
 | C4 | Where does converted dialogue that belongs to no quest go, and is that grouping stable enough to key voice and lip filenames on? | Skywind had to split its catch-all quest in 2021 to keep voice filenames | Skywind rule: filenames from quest and topic ID prefixes | read Starfield's voice path scheme; decide grouping before any voice work | V2 voice path rule, X5 | P3 | |
 | C5 | Do our aliases fill: unique actors placed once, persist locations set, fill order respected? | "All aliases must fill properly for a quest to start"; a failed fill stops a quest silently (quests notes) | Skywind rules; our quest notes on silent alias failure | offline check over our output: unique NPC_ placed more than once, missing persist locations; `sqv` in game | quests Q1 | P3 | |
 | C6 | Which FO4 journal behaviour do we need on Starfield's Missions menu (old log entries, objectives tied to stages)? | Skyrim lost old entries and both Skywind and tes4skyrim had to work around it | UI 9.4 (Missions menu) open | in game, run one converted quest through three stages and read the Missions menu | UI 9.4 | P3 | |
-| C7 | How do we test quests: happy path only, or Skywind's "try to break it" list (kill NPCs early, take items early, wrong order)? | precedents say quest QA is the long tail (FOLON 380 quest fixes in one patch) | Skywind testing guidelines | adopt a per-quest checklist in docs; run it on the first converted quest | QA capacity | P3 | |
+| C7 | How do we test quests: happy path only, or Skywind's "try to break it" list (kill NPCs early, take items early, wrong order)? | precedents say quest QA is the long tail (a well-known Fallout 4 total conversion 380 quest fixes in one patch) | Skywind testing guidelines | adopt a per-quest checklist in docs; run it on the first converted quest | QA capacity | P3 | |
 
 ### D. Voice and the silent player
 
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
 |---|---|---|---|---|---|---|---|
-| D1 | How long does Starfield hold an unvoiced player line, and does our silent player cause FOLON's 3 to 5 second pause? | a pause after every choice makes the silent player feel broken | FOLON player reports; Starfield Silent Voice mod exists (quests notes) | in game, pick a player line with no voice file; time it; repeat with a silent file | quests D3, V5 | P1, P3 | **key** |
-| D2 | Do we keep the dialogue menu vanilla (no menu file replacement) so stale or third-party menu files cannot break it? | FOLON's replaced dialogue menu failed when another `dialoguemenu.swf` was present | FOLON fix was deleting the loose file | decide in UI 1.3; if we replace, have the launcher check for conflicting loose files | UI 1.3 | P3, P5 | |
+| D1 | How long does Starfield hold an unvoiced player line, and does our silent player cause a well-known Fallout 4 total conversion's 3 to 5 second pause? | a pause after every choice makes the silent player feel broken | That total conversion player reports; Starfield Silent Voice mod exists (quests notes) | in game, pick a player line with no voice file; time it; repeat with a silent file | quests D3, V5 | P1, P3 | **key** |
+| D2 | Do we keep the dialogue menu vanilla (no menu file replacement) so stale or third-party menu files cannot break it? | A well-known Fallout 4 total conversion's replaced dialogue menu failed when another `dialoguemenu.swf` was present | That total conversion fix was deleting the loose file | decide in UI 1.3; if we replace, have the launcher check for conflicting loose files | UI 1.3 | P3, P5 | |
 | D3 | If voice conversion is ever allowed, do we write a per-line manifest with statuses (written, source missing, transcript missing, lip failed) like BACUP? | lets the launcher report coverage and resume instead of failing silently | BACUP manifest and status enum verified; owner voice decision open | design only; no work until voice decision A1 in quests notes | owner voice decision | P3, P5 | |
 
 ### E. Systems rebuild
@@ -318,7 +318,7 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
 |---|---|---|---|---|---|---|---|
-| F1 | Which of our changes force a new game (script property changes, alias changes, record removals), and do we promise save compatibility at all? | FOLON 1.03 and tes4skyrim both require new saves after updates | verified for FO4 and Skyrim | in game: save, change one script property, load; record the result | release notes, launcher update flow | P5 | **key** |
+| F1 | Which of our changes force a new game (script property changes, alias changes, record removals), and do we promise save compatibility at all? | A well-known Fallout 4 total conversion 1.03 and tes4skyrim both require new saves after updates | verified for FO4 and Skyrim | in game: save, change one script property, load; record the result | release notes, launcher update flow | P5 | **key** |
 | F2 | Does the launcher warn when a rebuild would break the player's current save? | players lose progress silently otherwise | none | compare converter version and script property hashes stored at build time | F1 | P5 | |
 | F3 | Is the output one master or several, and what reference count makes a non-master hang on Starfield's main menu? | Skyrim SE hangs past about a million references in a non-master; we have 683,870 FormIDs | tes4skyrim README; plugin-type question in tools notes | load our v6 build as non-master and as master; time the main menu | tools master type question | P1, P5 | |
 
@@ -327,7 +327,7 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase | key |
 |---|---|---|---|---|---|---|---|
 | G1 | How do we present an AI-agent-built converter so the community judges it on results, given the "number one contributor is Claude" reaction? | tes4skyrim drew both praise and refusal for the same reason | r/skyrimmods thread | owner decides wording on the release page; show test evidence and a known-issues list | release page | P5 | |
-| G2 | Do we sign or otherwise vouch for the launcher binary to avoid antivirus false positives? | a "trojan detected" report appeared for tes4skyrim | one forum comment | check how TTW, BACUP and FOLON ship their exes; ask on release | launcher packaging | P5 | |
+| G2 | Do we sign or otherwise vouch for the launcher binary to avoid antivirus false positives? | a "trojan detected" report appeared for tes4skyrim | one forum comment | check how TTW, BACUP and a well-known Fallout 4 total conversion ship their exes; ask on release | launcher packaging | P5 | |
 | G3 | How do we avoid Skywind's duplicate-bug-report deluge when a public build appears? | Skywind pulled a public alpha for this reason | Skywind history | issue template plus a known-issues list before any public build | community report flow in AGENTS.md | P5 | |
 
 ## Corrections to project notes
@@ -362,9 +362,9 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 - https://mod.pub/ttw/133/docs/17-mod-conversion-guidelines and
   https://geckwiki.com/index.php?title=TTW_Mod_Conversion_Package_and_Guidelines (WebFetch summary)
 - https://thebestoftimes.moddinglinked.com/ttw.html
-- https://en.wikipedia.org/wiki/Fallout:_London
-- https://fallout.wiki/wiki/Mod:Fallout_London/V1.03
-- https://www.reddit.com/r/fallout4london/comments/1edjm65/dialogue_question/
+- a third-party source
+- a third-party source
+- a third-party source
 - https://capitalwasteland.com/available-content
 - https://www.nexusmods.com/fallout4/mods/80425 (search snippet only)
 - https://morroblivion.com/comment/58279
@@ -375,4 +375,4 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 - https://handbook.tesrskywind.com/dev/quest-testing-guidelines
 - Project files read: ../findings/precedents.md, ../engine-mechanics.md, wave2-rechecks.md, ../README.md
 - Not readable this run: m.morroblivion.com/forums/skywind/skywind-development/2762 (HTTP 400), fallout.wiki
-  Mod:Fallout_London and its Traits page (timeouts), mod.pub/ttw/133 (bot block)
+  its mod page and its Traits page (timeouts), mod.pub/ttw/133 (bot block)

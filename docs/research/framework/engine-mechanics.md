@@ -142,7 +142,7 @@ planet; 9.4 do FO4 quests read cleanly in the Missions menu; 11.1 to 11.4 full V
 positions for targeting, how queued shots fire.
 
 Still open from this agent: SFSE / CommonLibSF source not read (needed for 1.2); Cassiopeia Papyrus Extender support
-for 1.16.244 (answered by the tools agent: 9.x supports it); Fallout London and TTW not yet read for UI lessons.
+for 1.16.244 (answered by the tools agent: 9.x supports it); a well-known Fallout 4 total conversion and TTW not yet read for UI lessons.
 
 ### Tools and scripting ([notes](engine-mechanics-notes/tools-and-scripting.md), 10 question groups)
 
@@ -275,7 +275,7 @@ Findings (labels and sources in the notes):
   dismissed. So: one framework of our own, never edit Starfield's follower quest, "new game only" in release notes.
 - Stealth: "FO4 Gameplay Setting Merge" already applies FO4 sneak and detection settings in Starfield, so the names
   largely carry; a settings diff of both esm files is the route to FO4's stealth feel.
-- Precedents: no shipped CE1-to-CE2 conversion; Fallout London warns on QA capacity (about 20 testers against FO4's 150)
+- Precedents: no shipped CE1-to-CE2 conversion; a well-known Fallout 4 total conversion warns on QA capacity (about 20 testers against FO4's 150)
   and on pinning one game build.
 - Licences: Command NPCs, GRiNDTerra and the NPC template forbid conversion; Swiftly Order Squad is CC BY-SA 4.0.
 
@@ -500,7 +500,7 @@ Lessons that change plans (labels and sources in the notes):
   call and the build stops on anything unmapped (B1, our 77 names); fixes are original code spliced into scripts, never
   Bethesda's sources; a small contract per system with no Starfield record, bound to an original script (E1); verify
   the toolchain before dropping script links after failed compiles (BACUP once lost 13,624 script links silently, B2).
-- Fallout London 1.03 forced a new game because Papyrus keeps script properties in saves: we need a save-compatibility
+- A well-known Fallout 4 total conversion 1.03 forced a new game because Papyrus keeps script properties in saves: we need a save-compatibility
   policy (F1). Vanilla dialogue leaked into its world, and a copied vanilla framework quest beside the original
   conflicted: own a system or extend Starfield's, never both, and block Starfield's generic lines (C1, C2).
 - A 3 to 5 second pause after each player choice appeared with another dialogue menu installed: time unvoiced player
