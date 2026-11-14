@@ -27,7 +27,7 @@ and logs every step. The stage is picked by `Stage` in `FO4SFPipboyMenu.ini`:
 | --- | --- |
 | `src/main.cpp` | the plugin: version guard, checks before use, the menu object, the key thread |
 | `src/pch.h` | precompiled header (libxse's game headers and SFSE layer) |
-| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (b): `Movie` (empty: ours, FAL-614), `CodeObj` (0), `CodeObjNames` (empty: `PlaySound,HideMenu`), `CodeObjHide` (0), `CodeObjSound` (0), `CodeObjInit` (empty), `CodeObjProbe` (empty), `CodeObjCalls` (empty), `CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
+| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (b): `Movie` (empty: ours, FAL-614), `CodeObj` (0), `CodeObjNames` (empty: `PlaySound,HideMenu`), `CodeObjHide` (0), `CodeObjSound` (0), `CodeObjInit` (empty), `CodeObjProbe` (empty), `CodeObjCalls` (empty), `CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty); with `Movie=` also `Pause` (0) and the arm, `Arm` (0) to `ArmRetryMs` (FAL-852); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
 | `xmake.lua`, `build.ps1` | the PC build: FOCCPing's build path (`docs/spikes/combined-core-probes.md`, B0-2) |
 | `scripts/ui/make_probe_swf.py` | writes the stage (b) movie, with `--channel` the stage (c) one and with `--page` the stage (d) one (pure Python; tests `tests/test_make_probe_swf.py`, `tests/test_pipboy_stat_page.py`) |
 | `scripts/ui/make_pipboy_kit.py` | the page kit (stage (e)): reads and checks the pages of the ini (`--check`) and writes the kit's movie for them (pure Python, on `make_probe_swf.py`; tests `tests/test_pipboy_kit.py`) |
@@ -647,6 +647,77 @@ S1-c (FAL-819; with `CodeObj=1` only, each refused otherwise; at load `step=code
   `kUpdate`, after the hand-over: `step=shell_key n= vk= path= found= called=`. The keys are read beside the game, not
   taken from it: whether the game also acts on them depends on `Flags=` (stages (d) and (e) open with `0x19`), the
   PC's finding. It reads the keyboard only: a gamepad's LB and RB do not reach the movie at stage (b).
+
+### The arm (FAL-852, S1-arm): Fallout 4's screen on its own key, raised, paused, lowered
+
+The owner's rules for the Pip-Boy (14 Nov, FAL-843): the raise (`idleexaminewatch`) plays when it opens and the lower
+when it closes, with no frozen pose; it pauses the game, as Fallout 4 does; and F10 stays the owner's faction device,
+so Fallout 4's screen has its own key. Both settings below are off as shipped.
+
+**`Pause=1` at stage (b)** (with `Movie=` only; `Pause=` was read at stages (d) and (e) only) adds the pause bit `0x2`
+to `Flags`, as it adds it to every `PageFlagSets` entry there (the PC's sweep of #738 at `14176a5e`): at load,
+`step=load_b pause=1 flags=<f>`. `Flags=0x19` with `Pause=1` opens with S1-c's card's `0x1B`.
+
+**`Arm=1`** (with `Stage=2` and `Movie=` only, else `refuse step=ini reason=arm_stage`). `Key` is then the screen's own
+key: never `0x79` (F10, the faction device), `0x74` or `0x78` (F5 and F9, the game's Quick Save and Quick Load: the
+key thread only polls, so a press with the screen closed reaches the game too; at `6040290d` F9 loaded a save) or
+`WorldKey`: `refuse step=ini reason=arm_key`. With it, stage (b) checks stage (c)'s ids too (`step=channel_ids`), for
+the player. At load `step=load_arm key= raise_idle= lower= raise_ms= lower_ms= retry_ms= flags=`, then, after
+`step=ready`, the editor-id lookup's id:
+
+| Name | Id | Source | Checked by |
+| --- | --- | --- | --- |
+| TESForm.LookupByEditorID | 47403 | libxse | the Address Library file (below the count, non-zero, inside the image) and libxse's own lookup the same offset: `step=arm_id ...` or `refuse step=arm_id`. Not one of the shared ids, so `Arm=0` reads and logs exactly the ids it did before |
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Arm` | `0` | `1` = the raise before the screen and the lower after it |
+| `ArmRaiseIdle` | `idleexaminewatch` | the raise idle's editor id (the owner's choice, FAL-783) |
+| `ArmRaiseMs` | `2000` | the raise's lead before the screen shows, 0 to 6000: the wrist is face-on from about 1.9 s to 4.3 s of the clip (PB-DATA-3, about 5.5 s in all) |
+| `ArmLowerIdle` | empty | the lower idle's editor id |
+| `ArmLowerEvent` | empty | the lower as a graph event by name, as the console's `sae` sends one (`ActionInterrupt`); at most one of the two |
+| `ArmLowerMs` | `3500` | `Key` is ignored this long after the close (no lower sent) or the accepted lower, 0 to 6000: 5.5 s less `ArmRaiseMs` |
+| `ArmRetryMs` | `2000` | a raise or lower the player's graph refuses (`result=0`) is sent again every 100 ms for up to this long, 0 to 6000 (`0` = one send) |
+
+**The sequence.** #776's (FAL-714, FAL-725, written there for its kit), taken over for this screen. Every line carries
+`t_ms`, the milliseconds since the press that started the raise (steady clock).
+
+1. `Key` with the screen closed: `step=arm_key n= open=0 t_ms=0`.
+2. Main thread, once, at the first raise with a player: the player's `IAnimationGraphManagerHolder` (libxse:
+   `TESObjectREFR`'s base at `+0x60`) from `PlayerCharacter`'s RTTI hierarchy, its vtable naming `PlayerCharacter`
+   there, slot 0x00 the adjustor thunk to the player's destructor, slot 0x01 (`NotifyAnimationGraphImpl`) inside the
+   image: `step=arm_holder ...`. Then the raise idle (and a lower idle) by editor id: a `TESIdleForm` by RTTI, form type
+   IDLE (`0x5C` at `+0x2E`); one read-only line of every pool string from `+0x58` to `+0x80`
+   (`step=arm_idle_slots which= form= s58= ... s80=`), then its graph (`+0x68`) and event (`+0x70`), 1.16.244's as
+   #776's 3b session found them: `step=arm_idle which=raise editor_id= form= type= graph= event=`. An event that looks
+   like a file path is refused (`reason=event_is_path`). `ArmLowerEvent` logs `step=arm_idle which=lower event=`.
+3. The raise: the idle's own animation event to the player, `step=arm_raise n= result=1|0 try=1`, retried as above,
+   then `step=arm_raise_done n= result=1|gave_up tries= waited_ms= show_in_ms=`. `holder_changed`, `no_player` or
+   `refused` end it at once.
+4. `ArmRaiseMs` after the accepted (or given-up) raise: `step=arm_show n= sent=show raise=` (and the usual
+   `step=toggle`), then, from our kShow handling, `step=arm_shown n=`; 750 ms later `step=state`. A refused arm does
+   not open the screen (`step=arm_show ... result=skipped reason=not_ready`).
+5. A close of that screen by any route (`Key` again: `step=arm_key n= open=1`, then `step=close n= by=key`; or the
+   movie's `HideMenu` with `CodeObjHide=1`), from our kHide handling:
+   - no lower set: `step=arm_lower n= send=none (the raise's clip carries on) lock_ms=`. With the pause, the clip was
+     held on its frame while the screen was up and carries on once the pause ends (PB-HOLD-1: it resumes from its
+     frozen frame), lowering the arm by itself;
+   - a lower set: `step=arm_lower n= send=idle|event result= try=1`, retried as the raise, then
+     `step=arm_lower_done n= result=1|gave_up tries= waited_ms= lock_ms=`.
+6. `Key` while a raise, its show, a state check or a lower is due, or inside the lock: `step=arm_key
+   ignored=opening|lowering ...`.
+
+**Hypotheses the PC's session decides** (the card: `docs/spikes/pipboy-fo4-rebuild-plan.md`, S1-arm):
+- that the graph plays `idleexaminewatch` from its event alone. PB-DATA-3 read its event as `DynamicIdle` plus a clip
+  file; #776's raise and lower were DataSlate idles, each with an event of its own, and the console's `playidle`
+  (the route the owner saw) sets the idle up before the event. If the graph takes the event and nothing moves, the
+  fallback is B1: a global Papyrus function of ours that plays the idle, called with no arguments through
+  `DispatchStaticCall` (stage (c)'s route), a PEX built on the PC;
+- that the pause holds the clip and our screen still takes its pages and keys (S1-c's card's `Flags=0x1B` question);
+- the gun rule: the idle is refused with a gun out (PB-DATA-3); the screen still opens after `ArmRetryMs`.
+
+Not in this slice: holstering a weapon, the camera or the FOV, the Pip-Boy model on the arm (the device route, #780),
+a gamepad key, the Tab binding.
 
 ### PASS at (c), `Stage=3` (steps: `docs/spikes/pipboy-channel-bridge-session.md`)
 

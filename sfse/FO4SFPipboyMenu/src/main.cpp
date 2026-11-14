@@ -84,6 +84,13 @@
 // menu's through `text` and `visible` only, each change read back. Keys (polled while the page is open and the game in
 // front) and clicks (one listener on the movie's root, which reads the click's target name) move the selection, the
 // sub-tab and the main tab; CLOSE keeps stage d's handler. Stage (d)'s checks and ids; nothing new is called.
+//
+// Stage=2 with Movie= and Arm=1, FAL-852 (S1-arm; README "The arm"; off by default): Key, which may not be F10 (the
+// owner's faction device), plays the raise first and opens Fallout 4's screen ArmRaiseMs later, and every close of it is
+// followed by the lower. The raise and the lower are idles named by editor id, found with the engine's own lookup
+// (TESForm::LookupByEditorID, libxse id 47403, checked in the Address Library file like the others), and their
+// animation events are sent to the player (IAnimationGraphManagerHolder at +0x60, slot 0x01 NotifyAnimationGraphImpl,
+// checked by RTTI): #776's route (FAL-714, FAL-725), taken over for this screen. Pause=1 adds the pause bit to Flags.
 
 #include "pch.h"
 
@@ -161,6 +168,25 @@ namespace
 	constexpr std::uint32_t kMaxSoundsPlaying = 4;           // sounds at once (the boot sequence overlaps two)
 	constexpr std::uint32_t kMaxSoundLines = 64;             // step=sound lines logged
 	constexpr auto          kSoundFolder = "FO4SFPipboyMenuSounds";   // beside the dll: the player's converted files         // the first tries logged; the one that sets it always
+
+	// FAL-852, the arm (Arm=1 at Stage=2 with Movie= only; README, "The arm"). #776's ids and offsets (FAL-714, FAL-719),
+	// read there on the PC at 1.16.244. The idles are named by editor id, never by form id: step 3a's playidle by form id
+	// showed nothing
+	constexpr std::uint32_t kLookupByEditorId = 47403;       // libxse 9d090c4 ID::TESForm::LookupByEditorID (not in kIds)
+	constexpr std::size_t   kFormTypeAt = 0x2E;              // libxse RE::TESForm::formType (a u8)
+	constexpr std::uint8_t  kIdleType = 0x5C;                // libxse FormType kIDLE (TESIdleForm)
+	constexpr std::size_t   kIdleGraphAt = 0x68;             // FAL-719, the 3b session at 1.16.244 (the Sep 2025 libxse header:
+	constexpr std::size_t   kIdleEventAt = 0x70;             //   0x60 and 0x68)
+	constexpr std::size_t   kIdleSlotFirst = 0x58;           // FAL-719: step=arm_idle_slots reads s58 to s80, 8 bytes apart
+	constexpr std::size_t   kIdleSlotLast = 0x80;
+	constexpr std::uint32_t kAnimHolderAt = 0x60;            // libxse RE::TESObjectREFR: IAnimationGraphManagerHolder base
+	constexpr std::size_t   kNotifyGraphSlot = 0x01;         // libxse IAnimationGraphManagerHolder::NotifyAnimationGraphImpl
+	constexpr std::size_t   kMaxIdleName = 96;               // an idle's editor id or an event's name: letters, digits, '_'
+	constexpr std::uint32_t kMaxArmMs = 6000;                // ArmRaiseMs, ArmLowerMs and ArmRetryMs, at most
+	constexpr std::int64_t  kArmRetryEveryMs = 100;          // FAL-725: a refused raise or lower is resent this often
+	constexpr std::uint32_t kF10 = 0x79;                     // the owner's faction device (14 Nov): never Key at Arm=1
+	constexpr std::uint32_t kQuickSaveKey = 0x74;            // FAL-719: F5 Quick Save and F9 Quick Load; the key thread only
+	constexpr std::uint32_t kQuickLoadKey = 0x78;            //   polls, so a press with the screen closed reaches the game too
 
 	// stage d (the STAT page)
 	constexpr std::uint32_t kDataHandlerRva = 0x5FD9B28;     // SFSE 0.2.21 sfse/GameData.h: TESDataHandler::GetSingleton
@@ -474,6 +500,49 @@ namespace
 	std::atomic<const void*>                 g_codeObjMovie{ nullptr }; // the movie the stand-in is set on (done for it)
 	std::atomic<const void*>                 g_codeObjTriedMovie{ nullptr };
 	std::atomic<std::uint32_t>               g_codeObjTries{ 0 };       // tries on g_codeObjTriedMovie
+
+	// FAL-852, the arm (INI Arm ... ArmRetryMs; read at Stage=2 with Movie= only, used only at Arm=1)
+	bool                                     g_arm = false;
+	std::string                              g_armRaiseIdle;            // an editor id
+	std::string                              g_armLowerIdle;            // an editor id, or empty
+	std::string                              g_armLowerEvent;           // an event's name (ActionInterrupt), or empty
+	std::uint32_t                            g_armRaiseMs = 2000;
+	std::uint32_t                            g_armLowerMs = 3500;
+	std::uint32_t                            g_armRetryMs = 2000;
+	std::uint32_t                            g_armLookupRva = 0;        // TESForm::LookupByEditorID, CheckArmId
+	std::atomic<std::int64_t>                g_armPressAt{ 0 };         // the last Key press that started a raise, steady ms
+	std::atomic<std::uint32_t>               g_armN{ 0 };               // that press's n
+	std::atomic<std::int64_t>                g_armLowerUntil{ 0 };      // Key ignored until then (ArmLowerMs)
+
+	// FAL-725: one pending send (the raise or the lower). The main thread sends and writes the outcome; the key thread's
+	// 30 ms tick queues the next try at nextAt. kIdle: nothing pending; kInFlight: a try is queued on the main thread;
+	// kWaiting: the last try gave 0 and the next is due at nextAt
+	enum : int
+	{
+		kRetryIdle,
+		kRetryInFlight,
+		kRetryWaiting
+	};
+	struct ArmRetry
+	{
+		std::atomic<int>           state{ kRetryIdle };
+		std::atomic<std::uint32_t> n{ 0 };
+		std::atomic<std::int64_t>  firstAt{ 0 };    // the first try, steady ms
+		std::atomic<std::int64_t>  nextAt{ 0 };
+		std::atomic<std::int64_t>  deadline{ 0 };   // firstAt + ArmRetryMs
+		std::atomic<std::uint32_t> tries{ 0 };
+	};
+	ArmRetry                                 g_raiseRetry;
+	ArmRetry                                 g_lowerRetry;
+	std::atomic<std::int64_t>                g_armShowAt{ 0 };          // the screen's show due (0 = none), set by the raise's outcome
+	std::string                              g_armRaiseOutcome;         // main thread only: "1", "gave_up", or a stop word
+	std::atomic<bool>                        g_armShown{ false };       // our ProcessMessage saw kShow and no kHide since
+	int                                      g_armState = -1;           // main thread only: -1 unresolved, 0 refused, 1 ready
+	std::uintptr_t                           g_raiseIdle = 0;           // main thread only: the TESIdleForms
+	std::uintptr_t                           g_lowerIdle = 0;
+	RE::BSFixedString*                       g_lowerEvent = nullptr;    // main thread only: ArmLowerEvent's string, never freed
+	std::uintptr_t                           g_armHolderVtable = 0;     // the player's IAnimationGraphManagerHolder vtable
+	std::uintptr_t                           g_armNotify = 0;           // its checked slot 0x01
 	ProcessMessage_t                         g_engineProcessMessage = nullptr;
 	const SFSE::TaskInterface*               g_task = nullptr;
 	std::atomic<bool>                        g_registered{ false };
@@ -519,7 +588,7 @@ namespace
 
 	// FAL-614 proof 1b: stage b with CodeObj=1 reaches the movie's root as stage c does (RootOf's RTTI, the Value
 	// functions), so it reads and checks stage c's ids too; without them RootOf compared against an unread RTTI address
-	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && g_codeObj); }
+	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm's player
 
 	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : ChannelIdsNeeded() ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
 
@@ -3866,6 +3935,280 @@ namespace
 		return loaded;
 	}
 
+	// ------------------------------------------------------------------------------------------- FAL-852: the arm
+	// Arm=1 at Stage=2 with Movie= (README, "The arm"). Key while the screen is closed sends the raise idle's animation
+	// event to the player and opens the screen ArmRaiseMs after the graph took it; every close of a screen opened that
+	// way (Key, or the movie's HideMenu with CodeObjHide=1) is followed by the lower: the lower idle's event, ArmLowerEvent
+	// by name, or nothing, and then the raise's own clip, held by the pause while the screen was up, carries on and lowers
+	// the arm by itself (PB-HOLD-1: the clip resumes from its frozen frame). Every arm line carries t_ms, the milliseconds
+	// since the press that started the raise (steady clock). #776's code (FAL-714, FAL-719, FAL-725), written there for
+	// its kit, taken over for Fallout 4's screen. At Arm=0 none of it runs and none of its lines is logged.
+	std::int64_t NowMs()
+	{
+		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
+
+	std::int64_t SincePress() { return NowMs() - g_armPressAt.load(); }
+
+	using LookupByEditorId_t = void* (*)(const RE::BSFixedString&);
+	using NotifyGraph_t = bool (*)(void*, const RE::BSFixedString&);
+
+	// FAL-719: an event name that looks like a file path: a '\' or '/', or ending .agx, .hkx or .hkt (any case)
+	bool EventIsPath(std::string_view a_event)
+	{
+		if (a_event.find_first_of("\\/") != std::string_view::npos) {
+			return true;
+		}
+		for (const std::string_view ext : { ".agx"sv, ".hkx"sv, ".hkt"sv }) {
+			if (a_event.size() >= ext.size() && SameText(a_event.substr(a_event.size() - ext.size()), ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// one idle by its editor id, through the engine's lookup (libxse TESForm::LookupByEditorID, CheckArmId), on the main
+	// thread: a TESIdleForm by its RTTI, form type IDLE (+0x2E), with an animation event. Its form id, graph and event are
+	// logged, and every pool string from +0x58 to +0x80 once, read only (FAL-719: the layout is shown, not assumed)
+	std::uintptr_t ArmIdleForm(std::string_view a_which, const std::string& a_editorId)
+	{
+		static std::vector<RE::BSFixedString*> names;   // process lifetime: a BSFixedString destructor calls the engine
+		names.push_back(new RE::BSFixedString(a_editorId.c_str()));
+		const auto form = reinterpret_cast<std::uintptr_t>(
+			reinterpret_cast<LookupByEditorId_t>(g_base + g_armLookupRva)(*names.back()));
+		if (!form) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=not_found t_ms={}", a_which, a_editorId, SincePress()));
+			return 0;
+		}
+		ObjectType    type;
+		std::uint32_t formId = 0;
+		std::uint8_t  formType = 0;
+		const bool    typed = IsType(form, "TESIdleForm@@", type);
+		Peek(form + kFormIdAt, formId);
+		Peek(form + kFormTypeAt, formType);
+		if (!typed || formType != kIdleType) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=not_idle form={:08X} type={:#x} rtti={} t_ms={}",
+				a_which, a_editorId, formId, formType, type.name.empty() ? "unreadable" : type.name, SincePress()));
+			return 0;
+		}
+		std::string slots;
+		for (std::size_t at = kIdleSlotFirst; at <= kIdleSlotLast; at += 8) {
+			std::uintptr_t entry = 0;
+			std::string    text;
+			const bool     read = Peek(form + at, entry) && ReadPoolString(entry, text);
+			slots += std::format(" s{:x}={}", at, read && !text.empty() ? text : "-");
+		}
+		REX::INFO("step=arm_idle_slots which={} form={:08X}{} t_ms={}", a_which, formId, slots, SincePress());
+		std::uintptr_t graphEntry = 0;
+		std::uintptr_t eventEntry = 0;
+		std::string    graph;
+		std::string    event;
+		const bool     gotGraph = Peek(form + kIdleGraphAt, graphEntry) && ReadPoolString(graphEntry, graph);
+		const bool     gotEvent = Peek(form + kIdleEventAt, eventEntry) && ReadPoolString(eventEntry, event);
+		if (!gotEvent || event.empty()) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=no_event form={:08X} type={:#x} graph={} t_ms={}",
+				a_which, a_editorId, formId, formType, gotGraph && !graph.empty() ? graph : "-", SincePress()));
+			return 0;
+		}
+		if (EventIsPath(event)) {   // FAL-719: a file path is not an animation event
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=event_is_path slot={:#x} value={} form={:08X} t_ms={}",
+				a_which, a_editorId, kIdleEventAt, event, formId, SincePress()));
+			return 0;
+		}
+		REX::INFO("step=arm_idle which={} editor_id={} form={:08X} type={:#x} graph={} event={} t_ms={}", a_which, a_editorId,
+			formId, formType, gotGraph && !graph.empty() ? graph : "-", event, SincePress());
+		return form;
+	}
+
+	// the player's IAnimationGraphManagerHolder, as CheckActorValues checks ActorValueOwner: the base's offset from
+	// PlayerCharacter's RTTI hierarchy (libxse: 0x60), its vtable's locator naming PlayerCharacter there, slot 0x00 the
+	// adjustor thunk to the player's own destructor, and slot 0x01 (NotifyAnimationGraphImpl, libxse's declaration after
+	// the destructor) inside the image. -1: no player yet (not cached), 0: refused, 1: checked
+	int ArmHolder()
+	{
+		ObjectType type;
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player) {
+			return -1;
+		}
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) || !TypeOf(player, type)) {
+			Refuse("arm_holder", std::format("reason=player_type t_ms={}", SincePress()));
+			return 0;
+		}
+		const auto     at = BaseOffset(type, "IAnimationGraphManagerHolder@@");
+		std::uintptr_t primary = 0;
+		std::uintptr_t holder = 0;
+		if (!at || *at != kAnimHolderAt || !CheckSubobject(player, type, *at) || !Peek(player, primary) ||
+			!Peek(player + *at, holder) || !InImage(primary, 8) || !InImage(holder, (kNotifyGraphSlot + 1) * 8)) {
+			Refuse("arm_holder", std::format("reason=holder offset={} expected={} t_ms={}", at ? Hex(*at) : "none",
+				Hex(kAnimHolderAt), SincePress()));
+			return 0;
+		}
+		const auto* slots = reinterpret_cast<const std::uintptr_t*>(holder);
+		const auto  destructor = *reinterpret_cast<const std::uintptr_t*>(primary);
+		const auto  target0 = ThunkTarget(slots[0], *at);
+		const auto  rva = [](std::uintptr_t a_addr) { return InImage(a_addr, 1) ? Hex(a_addr - g_base) : Hex(a_addr); };
+		if (target0 != destructor || !InImage(slots[kNotifyGraphSlot], 1)) {
+			Refuse("arm_holder", std::format("reason=slots offset={} slot0={} target0={} destructor={} slot1={} t_ms={}",
+				Hex(*at), rva(slots[0]), rva(target0), rva(destructor), rva(slots[kNotifyGraphSlot]), SincePress()));
+			return 0;
+		}
+		g_armHolderVtable = holder;
+		g_armNotify = slots[kNotifyGraphSlot];
+		REX::INFO("step=arm_holder offset={} vtable={} destructor_slot=0x00 notify_slot=0x01 slot={} t_ms={}", Hex(*at),
+			rva(holder), rva(g_armNotify), SincePress());
+		return 1;
+	}
+
+	// main thread, once (on the first raise with a player): the player's holder, the raise idle, and the lower (an idle,
+	// an event by name, or none)
+	bool ArmResolve()
+	{
+		if (g_armState >= 0) {
+			return g_armState == 1;
+		}
+		const int holder = ArmHolder();
+		if (holder < 0) {
+			return false;   // no player yet: tried again on the next press
+		}
+		g_raiseIdle = ArmIdleForm("raise", g_armRaiseIdle);
+		bool lower = true;
+		if (!g_armLowerIdle.empty()) {
+			g_lowerIdle = ArmIdleForm("lower", g_armLowerIdle);
+			lower = g_lowerIdle != 0;
+		} else if (!g_armLowerEvent.empty()) {
+			g_lowerEvent = new RE::BSFixedString(g_armLowerEvent.c_str());   // process lifetime, as ArmIdleForm's
+			REX::INFO("step=arm_idle which=lower event={} (by name, no idle) t_ms={}", g_armLowerEvent, SincePress());
+		}
+		g_armState = holder == 1 && g_raiseIdle && lower ? 1 : 0;
+		return g_armState == 1;
+	}
+
+	// an animation event to the player (NotifyAnimationGraphImpl, called with this = player + 0x60), main thread only.
+	// "no_player" if there is none, "holder_changed" if the player's holder vtable is no longer the one ArmHolder checked
+	std::string ArmNotify(const RE::BSFixedString& a_event)
+	{
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t holder = 0;
+		if (!player) {
+			return "no_player";
+		}
+		if (!Peek(player + kAnimHolderAt, holder) || holder != g_armHolderVtable) {
+			return "holder_changed";
+		}
+		const bool sent = reinterpret_cast<NotifyGraph_t>(g_armNotify)(reinterpret_cast<void*>(player + kAnimHolderAt), a_event);
+		return sent ? "1" : "0";
+	}
+
+	// an idle's own event (its BSFixedString at +0x70; no string of ours)
+	std::string ArmNotifyIdle(std::uintptr_t a_idle) { return ArmNotify(*reinterpret_cast<const RE::BSFixedString*>(a_idle + kIdleEventAt)); }
+
+	bool ArmLowerSet() { return !g_armLowerIdle.empty() || !g_armLowerEvent.empty(); }
+
+	// FAL-725: a pending send begins (the key thread for the raise, our kHide handling for the lower): its first try is
+	// queued on the main thread now, the retries until ArmRetryMs from now
+	void ArmRetryStart(ArmRetry& a_retry, std::uint32_t a_n)
+	{
+		const auto now = NowMs();
+		a_retry.n = a_n;
+		a_retry.firstAt = now;
+		a_retry.nextAt = now;
+		a_retry.deadline = now + g_armRetryMs;
+		a_retry.tries = 0;
+		a_retry.state = kRetryInFlight;
+	}
+
+	// FAL-725, main thread, after a try: "0" (the graph did not take the event; a no-op there) is tried again every
+	// kArmRetryEveryMs, on the key thread's tick, while that stays inside ArmRetryMs. "1", the deadline ("gave_up") or
+	// any other word (holder_changed, no_player, refused) ends it. "" while a try is still due
+	std::string ArmRetryOutcome(ArmRetry& a_retry, const std::string& a_result)
+	{
+		const auto now = NowMs();
+		if (a_result == "0" && now + kArmRetryEveryMs <= a_retry.deadline.load()) {
+			a_retry.nextAt = now + kArmRetryEveryMs;
+			a_retry.state = kRetryWaiting;
+			return {};
+		}
+		a_retry.state = kRetryIdle;
+		return a_result == "0" ? std::string("gave_up") : a_result;
+	}
+
+	// main thread: Key while closed, and each retry of it. The first try is logged, then one closing line; the screen's
+	// show is due ArmRaiseMs after the accepted (or given-up) raise, on the key thread's tick
+	void ArmRaise(std::uint32_t a_n)
+	{
+		const auto  tries = ++g_raiseRetry.tries;
+		std::string result;
+		if (!ArmResolve()) {
+			result = g_armState == 0 ? "refused" : "no_player";
+		} else {
+			result = ArmNotifyIdle(g_raiseIdle);
+		}
+		if (tries == 1) {
+			REX::INFO("step=arm_raise n={} result={} try=1 t_ms={}", a_n, result, SincePress());
+		}
+		if (g_armRetryMs == 0) {   // one send, no retry
+			g_raiseRetry.state = kRetryIdle;
+		}
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_raiseRetry, result);
+		if (outcome.empty()) {
+			return;
+		}
+		g_armRaiseOutcome = outcome;
+		REX::INFO("step=arm_raise_done n={} result={} tries={} waited_ms={} show_in_ms={} t_ms={}", a_n, outcome, tries,
+			NowMs() - g_raiseRetry.firstAt.load(), g_armRaiseMs, SincePress());
+		g_armShowAt = NowMs() + g_armRaiseMs;
+	}
+
+	// main thread: the screen opened by the arm was hidden (any route), and a lower is set: its send, and each retry of
+	// it. Key waits ArmLowerMs from the accepted lower
+	void ArmLower(std::uint32_t a_n)
+	{
+		const auto tries = ++g_lowerRetry.tries;
+		std::string result = "refused";
+		if (g_armState == 1) {
+			result = g_lowerIdle ? ArmNotifyIdle(g_lowerIdle) : g_lowerEvent ? ArmNotify(*g_lowerEvent) : std::string("refused");
+		}
+		if (tries == 1) {
+			REX::INFO("step=arm_lower n={} send={} result={} try=1 t_ms={}", a_n, g_lowerIdle ? "idle" : "event", result,
+				SincePress());
+		}
+		if (g_armRetryMs == 0) {
+			g_lowerRetry.state = kRetryIdle;
+		}
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_lowerRetry, result);
+		if (outcome.empty()) {
+			return;
+		}
+		if (outcome == "1") {   // the lock counts from the accepted lower; none after gave_up, so the next key tries again
+			g_armLowerUntil = NowMs() + g_armLowerMs;
+		}
+		REX::INFO("step=arm_lower_done n={} result={} tries={} waited_ms={} lock_ms={} t_ms={}", a_n, outcome, tries,
+			NowMs() - g_lowerRetry.firstAt.load(), outcome == "1" ? g_armLowerMs : 0, SincePress());
+	}
+
+	// on the menu's thread, after the engine's own handling of kShow or kHide: a hide of a shown screen starts the lower
+	// (or, with none set, the lock from here: the raise's clip carries on by itself once the pause has ended)
+	void ArmMessage(bool a_show)
+	{
+		if (a_show) {
+			g_armShown = true;
+			REX::INFO("step=arm_shown n={} t_ms={}", g_armN.load(), SincePress());
+			return;
+		}
+		if (!g_armShown.exchange(false)) {
+			return;
+		}
+		const auto n = g_armN.load();
+		if (!ArmLowerSet()) {
+			g_armLowerUntil = NowMs() + g_armLowerMs;
+			REX::INFO("step=arm_lower n={} send=none (the raise's clip carries on) lock_ms={} t_ms={}", n, g_armLowerMs, SincePress());
+			return;
+		}
+		ArmRetryStart(g_lowerRetry, n);   // FAL-725: pending from here, so Key waits for it
+		g_task->AddTask([n]() { ArmLower(n); });
+	}
+
 	RE::UI_MESSAGE_RESULT MenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
 	{
 		const auto type = a_message.type;
@@ -3894,6 +4237,9 @@ namespace
 		}
 		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {   // FAL-614 S1-c: keys, then answers
 			ShellUpdate(a_self);
+		}
+		if (g_arm && showOrHide) {   // FAL-852: the lower follows every hide of the screen
+			ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
 		}
 		if (g_stage >= 3) {   // stages c, d and e: after the engine's own handling, on its thread for this menu
 			if (type == RE::UI_MESSAGE_TYPE::kShow) {
@@ -4388,24 +4734,115 @@ namespace
 		}
 	}
 
+	// main thread, ArmRaiseMs after the raise: the screen's show. Not if the arm was refused (the refuse line says why),
+	// nor if the screen was opened another way meanwhile (then a set lower is sent at once)
+	void ArmShow(std::uint32_t a_n)
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (g_armState != 1) {
+			REX::INFO("step=arm_show n={} result=skipped reason=not_ready t_ms={}", a_n, SincePress());
+			return;
+		}
+		if (!ui || ui->IsMenuOpen(MenuName())) {
+			const auto lower = !ArmLowerSet() ? std::string("none") : g_lowerIdle ? ArmNotifyIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
+			REX::INFO("step=arm_show n={} result=skipped reason={} lower={} t_ms={}", a_n, ui ? "already_open" : "no_ui", lower,
+				SincePress());
+			return;
+		}
+		Toggle(a_n);
+		REX::INFO("step=arm_show n={} sent=show raise={} t_ms={}", a_n, g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome,
+			SincePress());
+	}
+
+	// FAL-852, the key thread's state check after an arm open or close: due at `at` (0 = none), for press n
+	struct ArmCheck
+	{
+		std::uint32_t n = 0;
+		std::int64_t  at = 0;
+	};
+
+	// FAL-852, Key at Arm=1 (game in front): the raise while the screen is closed, the close while it is shown (our kHide
+	// handling then sends the lower). Ignored while a lower is pending or locked, or a raise, its show or a check is due
+	void ArmKey(std::uint32_t& a_presses, ArmCheck& a_check)
+	{
+		const auto at = NowMs();
+		const bool opening = g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0 || a_check.at != 0;
+		if (g_lowerRetry.state.load() != kRetryIdle) {
+			REX::INFO("step=arm_key ignored=lowering pending=1 t_ms={}", at - g_armPressAt.load());
+		} else if (at < g_armLowerUntil.load()) {
+			REX::INFO("step=arm_key ignored=lowering lock_left_ms={} t_ms={}", g_armLowerUntil.load() - at, at - g_armPressAt.load());
+		} else if (opening) {
+			REX::INFO("step=arm_key ignored=opening pending=1 t_ms={}", at - g_armPressAt.load());
+		} else {
+			const auto n = ++a_presses;
+			const bool shown = g_armShown.load();
+			if (shown) {
+				REX::INFO("step=arm_key n={} open=1 t_ms={}", n, at - g_armPressAt.load());
+				g_task->AddTask([n]() { Close(n, "key"); });
+				a_check = { n, at + 750 };   // the engine handles the message on a later frame
+			} else {
+				g_armPressAt = at;
+				g_armN = n;
+				REX::INFO("step=arm_key n={} open=0 t_ms=0", n);
+				ArmRetryStart(g_raiseRetry, n);
+				g_task->AddTask([n]() { ArmRaise(n); });
+			}
+		}
+	}
+
+	// FAL-852 (FAL-725's tick, no sleep on the arm's path): every 30 ms, each due retry is queued (waiting -> in flight),
+	// the screen's show ArmRaiseMs after the raise, and the state check 750 ms after a show or close
+	void ArmTick(ArmCheck& a_check)
+	{
+		const auto tick = NowMs();
+		for (auto* retry : { &g_raiseRetry, &g_lowerRetry }) {
+			int waiting = kRetryWaiting;
+			if (retry->state.load() == kRetryWaiting && tick >= retry->nextAt.load() &&
+				retry->state.compare_exchange_strong(waiting, kRetryInFlight)) {
+				const auto rn = retry->n.load();
+				if (retry == &g_raiseRetry) {
+					g_task->AddTask([rn]() { ArmRaise(rn); });
+				} else {
+					g_task->AddTask([rn]() { ArmLower(rn); });
+				}
+			}
+		}
+		if (auto showAt = g_armShowAt.load(); showAt && tick >= showAt && g_armShowAt.compare_exchange_strong(showAt, 0)) {
+			const auto sn = g_armN.load();
+			g_task->AddTask([sn]() { ArmShow(sn); });
+			a_check = { sn, tick + 750 };
+		}
+		if (a_check.at && tick >= a_check.at) {
+			const auto cn = a_check.n;
+			a_check.at = 0;
+			g_task->AddTask([cn]() { CheckState(cn); });
+		}
+	}
+
 	std::uint32_t KeyThread(void*)
 	{
 		std::uint32_t presses = 0;
 		std::uint32_t ticks = 0;
 		bool          down = false;
 		bool          snapDown = false;
+		ArmCheck      armCheck;   // FAL-852
 		std::array<std::uint32_t, 6> kitHeld{};   // stage e: how many 30 ms ticks each kit key has been held
 		std::uint32_t                shellHeld = 0;   // FAL-614 S1-c: the shell keys held at the last tick, one bit each
 		for (;;) {
 			REX::W32::Sleep(30);
 			const bool now = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_key)) & 0x8000) != 0;
-			if (now && !down && GameInFront()) {
+			if (now && !down && GameInFront() && g_arm) {   // FAL-852: the raise first, or the close (then the lower)
+				ArmKey(presses, armCheck);
+			} else if (now && !down && GameInFront()) {
 				const auto n = ++presses;
 				g_task->AddTask([n]() { Toggle(n); });
 				REX::W32::Sleep(750);   // the engine handles the message on a later frame
 				g_task->AddTask([n]() { CheckState(n); });
 			}
 			down = now;
+			if (g_arm) {
+				ArmTick(armCheck);
+			}
 			if (g_stage == 2 && CodeObjPending() && ++ticks % 17 == 0) {   // FAL-614 proof 1b: retry the stand-in
 				g_task->AddTask([]() { SendUpdate(); });   // nothing while the menu is closed
 			}
@@ -4671,6 +5108,85 @@ namespace
 			}
 		}
 	}
+
+	// FAL-852: an idle's editor id or an event's name from the ini: 1 to 96 letters, digits and '_'
+	bool ArmName(std::string_view a_name)
+	{
+		return !a_name.empty() && a_name.size() <= kMaxIdleName && std::all_of(a_name.begin(), a_name.end(), [](char c) {
+			return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+		});
+	}
+
+	// FAL-852, the arm (Stage=2 with Movie= only): at Arm=0 nothing more is read and nothing is logged. At Arm=1 Key (not
+	// F10, the owner's faction device; not F5 or F9, the game's Quick Save and Quick Load; not WorldKey), the raise idle,
+	// the lower (an idle or an event, at most one) and the three times (0 to 6000 ms) are checked, and any wrong one is
+	// refused as the other ini checks are
+	bool ReadArm(const std::filesystem::path& a_ini)
+	{
+		if (ReadNumber(a_ini, L"Arm", 0) == 0) {
+			return true;
+		}
+		if (g_stage != 2 || g_movie.empty()) {
+			return Refuse("ini", std::format("reason=arm_stage stage={} movie={} (Arm=1 with Stage=2 and Movie= only)", g_stage,
+				g_movie.empty() ? "-" : g_movie));
+		}
+		const auto worldKey = ReadNumber(a_ini, L"WorldKey", 0x77);
+		if (g_key == kF10 || g_key == kQuickSaveKey || g_key == kQuickLoadKey || g_key == worldKey) {
+			return Refuse("ini", std::format("reason=arm_key key={} world_key={} (at Arm=1 the screen has its own key: not F10, "
+				"the faction device; not F5 or F9, the game's Quick Save and Quick Load; not WorldKey)", Hex(g_key), Hex(worldKey)));
+		}
+		g_armRaiseIdle = ReadText(a_ini, L"ArmRaiseIdle");
+		g_armLowerIdle = ReadText(a_ini, L"ArmLowerIdle");
+		g_armLowerEvent = ReadText(a_ini, L"ArmLowerEvent");
+		if (!ArmName(g_armRaiseIdle) || (!g_armLowerIdle.empty() && !ArmName(g_armLowerIdle)) ||
+			(!g_armLowerEvent.empty() && !ArmName(g_armLowerEvent)) || (!g_armLowerIdle.empty() && !g_armLowerEvent.empty())) {
+			return Refuse("ini", std::format("reason=arm_idle raise={} lower_idle={} lower_event={} (the raise an editor id; at "
+				"most one of ArmLowerIdle and ArmLowerEvent; letters, digits, _)", g_armRaiseIdle.empty() ? "-" : g_armRaiseIdle,
+				g_armLowerIdle.empty() ? "-" : g_armLowerIdle, g_armLowerEvent.empty() ? "-" : g_armLowerEvent));
+		}
+		g_armRaiseMs = ReadNumber(a_ini, L"ArmRaiseMs", 2000);
+		g_armLowerMs = ReadNumber(a_ini, L"ArmLowerMs", 3500);
+		g_armRetryMs = ReadNumber(a_ini, L"ArmRetryMs", 2000);
+		if (g_armRaiseMs > kMaxArmMs || g_armLowerMs > kMaxArmMs || g_armRetryMs > kMaxArmMs) {
+			return Refuse("ini", std::format("reason=arm_ms raise_ms={} lower_ms={} retry_ms={} (0 to {})", g_armRaiseMs, g_armLowerMs,
+				g_armRetryMs, kMaxArmMs));
+		}
+		g_arm = true;
+		REX::INFO("step=load_arm key={} raise_idle={} lower={} raise_ms={} lower_ms={} retry_ms={} flags={}", Hex(g_key),
+			g_armRaiseIdle, !g_armLowerIdle.empty() ? "idle:" + g_armLowerIdle : !g_armLowerEvent.empty() ? "event:" + g_armLowerEvent : "none",
+			g_armRaiseMs, g_armLowerMs, g_armRetryMs, Hex(g_flags));
+		return true;
+	}
+
+	// FAL-852, Arm=1: libxse's TESForm::LookupByEditorID id in the same Address Library file, with ReadAddressLibrary's
+	// checks (below the count, non-zero, inside the image) and libxse's own lookup giving the same offset (#776's
+	// CheckDeviceId). It is not one of kIds, so Arm=0 reads and logs exactly the ids it did before
+	bool CheckArmId(const std::filesystem::path& a_file)
+	{
+		std::ifstream in(a_file, std::ios::binary);
+		std::uint32_t count = 0;
+		std::uint32_t offset = 0;
+		in.seekg(92);   // libxse HEADER_V5: the offset count (ReadAddressLibrary checked the header)
+		in.read(reinterpret_cast<char*>(&count), sizeof count);
+		if (!in || kLookupByEditorId >= count) {
+			return Refuse("arm_id", std::format("name=TESForm.LookupByEditorID id={} reason=beyond_count count={}",
+				kLookupByEditorId, count));
+		}
+		in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * kLookupByEditorId));
+		in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+		if (!in || !offset || offset >= g_imageSize) {
+			return Refuse("arm_id", std::format("name=TESForm.LookupByEditorID id={} rva={} reason={}", kLookupByEditorId,
+				Hex(offset), !in ? "short_file" : !offset ? "missing" : "outside_image"));
+		}
+		const auto viaLibrary = REL::ID(kLookupByEditorId).offset();
+		if (viaLibrary != offset) {
+			return Refuse("arm_id", std::format("name=TESForm.LookupByEditorID id={} reason=library_mismatch file={} libxse={}",
+				kLookupByEditorId, Hex(offset), Hex(viaLibrary)));
+		}
+		g_armLookupRva = offset;
+		REX::INFO("step=arm_id name=TESForm.LookupByEditorID id={} rva={} source=libxse", kLookupByEditorId, Hex(offset));
+		return true;
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
@@ -4837,7 +5353,19 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (g_stage == 5 && (!ReadKitKeys(ini) || !ReadKit(ini))) {   // the kit's keys and pages, before any check of the game
 		return true;
 	}
+	// FAL-852: Fallout 4's screen pauses the game as Fallout 4 does when Pause=1 (the owner's setting, read at stages d and
+	// e above): the same bit 0x2, here in Flags
+	if (g_stage == 2 && !g_movie.empty() && ReadNumber(ini, L"Pause", 0) != 0) {
+		g_flags |= kPauseFlag;
+		REX::INFO("step=load_b pause=1 flags={}", Hex(g_flags));
+	}
+	if (!ReadArm(ini)) {   // FAL-852: at Arm=0 (the default) nothing is read or logged
+		return true;
+	}
 	if (!CheckEverything(dir)) {
+		return true;
+	}
+	if (g_arm && !CheckArmId(dir / "versionlib-1-16-244-0.bin")) {
 		return true;
 	}
 	World::Configure(ini, g_stage, g_key, g_base, g_imageSize);
