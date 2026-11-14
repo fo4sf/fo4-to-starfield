@@ -682,8 +682,8 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
         label = f"block {a['collision_block']} body {a['body_id']}"
         quat = pack.unpack("<4f", body + fc.BODY_ROT)
         if any(abs(x) > 1e-4 for x in quat[:3]):             # FAL-810: the hull is already in the node frame (position is not added
-            entry["body_rotation_quat"] = [round(v, 4) for v in quat]    # again), so the rotation is taken as redundant too: UNVERIFIED,
-            entry["rotation_ignored"] = True                              # carried and flagged (railings) rather than lost; PC checks vs mesh
+            entry["body_rotation_quat"] = [round(v, 4) for v in quat]    # again); the node's own rotation stands the part up. PC read of c_WalkWay01RailL: node-frame rule only matches the mesh,
+            entry["rotation_ignored"] = True                              # body quaternion not needed. Verified on one railing; the other nine are flagged, not yet checked
         for kind, obj, R, tr in meshcollision._shape_parts(pack, classes, pack.pointer(body), meshcollision.IDENTITY3, (0.0, 0.0, 0.0)):
             if kind == "convex":
                 pts, tris = fc._convex(pack, obj)
