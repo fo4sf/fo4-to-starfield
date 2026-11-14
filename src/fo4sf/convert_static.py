@@ -639,7 +639,8 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
     Returns {bone node block: [(centre, half, rotation row-major, source collision node)]} (metres), or None when the source
     has no collision object on a moving bone (the caller then keeps the one-box-per-bone fallback). Each body is boxed with
     sfcollision.convex_obb, so a thin walkway deck stays thin instead of becoming a block up to its rails. Bodies with a
-    rotation (the quaternion convention is unverified against a real body), convex parts without faces, and spheres are
+    rotation are carried with the rotation ignored and flagged rotation_ignored (the hull is already in the node frame; the
+    quaternion convention is unverified, FAL-810: railings must not vanish), convex parts without faces, and spheres are
     skipped and listed in report["skipped"]/report["bodies"]; a bone left with no carried body keeps its bounding box
     (report["fallback_nodes"]) so it still blocks; a bone with some carried bodies does not get one. A mesh part with more
     than MAX_DOOR_MESH_PART_TRIS triangles, or a scaled collision node, is refused (NifError)."""
@@ -679,10 +680,10 @@ def fo4_door_bodies(src, plan, unit_scale, report=None):
         at, _ = pack.array(root + fc.SYS_BODIES)
         body = at + fc.BODY_SIZE * a["body_id"]
         label = f"block {a['collision_block']} body {a['body_id']}"
-        if any(abs(x) > 1e-4 for x in pack.unpack("<4f", body + fc.BODY_ROT)[:3]):
-            skipped.append(label + " (rotated body)")
-            listing.append({**entry, "status": "skipped", "reason": "rotated body"})
-            continue
+        quat = pack.unpack("<4f", body + fc.BODY_ROT)
+        if any(abs(x) > 1e-4 for x in quat[:3]):             # FAL-810: the hull is already in the node frame (position is not added
+            entry["body_rotation_quat"] = [round(v, 4) for v in quat]    # again), so the rotation is taken as redundant too: UNVERIFIED,
+            entry["rotation_ignored"] = True                              # carried and flagged (railings) rather than lost; PC checks vs mesh
         for kind, obj, R, tr in meshcollision._shape_parts(pack, classes, pack.pointer(body), meshcollision.IDENTITY3, (0.0, 0.0, 0.0)):
             if kind == "convex":
                 pts, tris = fc._convex(pack, obj)

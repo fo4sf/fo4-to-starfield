@@ -238,14 +238,50 @@ class CogDoorFo4BodyTests(unittest.TestCase):
             self.assertIn(key, entry)
         _, door = self.run_convert(pack=RotatedPack)
         (entry,) = door["fo4_collision"]["bodies"]
-        self.assertEqual((entry["status"], entry["reason"]), ("skipped", "rotated body"))
+        self.assertEqual(entry["status"], "carried")                # FAL-810: railings are rotated bodies; they must not vanish
+        self.assertTrue(entry["rotation_ignored"])
+        self.assertEqual(entry["body_rotation_quat"], [0.0, 0.0, 0.7071, 0.7071])
 
-    def test_a_bone_whose_only_fo4_body_is_rotated_keeps_its_bounding_box(self):
-        files, door = self.run_convert(pack=RotatedPack)
+    def test_a_bone_whose_only_fo4_body_cannot_be_boxed_keeps_its_bounding_box(self):
+        from fo4sf import fo4collision, hkpackfile, meshcollision
+        with patch.object(hkpackfile, "Packfile", return_value=FakePack()), \
+                patch.object(meshcollision, "_shape_parts", return_value=[("sphere", 1000, meshcollision.IDENTITY3, (0, 0, 0))]):
+            files, door = convert(with_deck_collision(cog_nif()), aliases=ALIASES)
         self.assertEqual(len(door["fo4_collision"]["skipped"]), 1)
-        self.assertIn("(rotated body)", door["fo4_collision"]["skipped"][0])
         self.assertEqual(door["fo4_collision"]["carried_bodies"], [])
         self.assertGreaterEqual(door["moving_bodies"], 1)          # not left without collision
+        self.assertEqual(len(door["fo4_collision"]["box_fallback_bones"]), 1)
+
+    def test_the_three_real_rows_from_the_pc_read_land_on_the_source_body_with_the_bone_away_from_the_helper(self):
+        # FAL-810: (helper node, source body) in metres, from the PC read of bbecf324 on the real cog door. Staged was 2 x body - node.
+        from fo4sf import fo4collision, hkpackfile, meshcollision
+        rows = [((-5.600, 1.275, 2.346), (-4.256, 1.273, 0.920)),      # WalkWay01Base deck
+                ((-5.284, 1.275, 2.346), (-4.262, 1.273, 0.939)),      # WalkWay03Base deck
+                ((-0.995, 1.172, 3.474), (-1.120, 1.258, 6.093))]      # key support
+        for node_m, body in rows:
+            src = with_deck_collision(cog_nif())
+            deck = next(i for i in range(len(src.blocks)) if src.type_of(i) == "NiNode"
+                        and src.strings[struct.unpack_from("<i", src.blocks[i])[0]] == b"c_Deck")
+            blk = bytearray(src.blocks[deck])
+            at = 8 + 4 * struct.unpack_from("<I", blk, 4)[0] + 8
+            have = nif.world_transforms(src, placed=True)(deck)[0]           # the helper sits under a moved part: fix up the local offset
+            local = struct.unpack_from("<3f", blk, at)
+            struct.pack_into("<3f", blk, at, *(l + n * 70 - h for l, n, h in zip(local, node_m, have)))
+            src.blocks[deck] = bytes(blk)
+            self.assertEqual(tuple(round(v / 70, 3) for v in nif.world_transforms(src, placed=True)(deck)[0]), node_m)
+            hull = [tuple(c + b - n for c, b, n in zip(v, body, node_m)) for v in SLAB]   # hull centroid = body - node
+            class Pack(FakePack):
+                position = body
+            with patch.object(hkpackfile, "Packfile", return_value=Pack()), \
+                    patch.object(meshcollision, "_shape_parts", return_value=[("convex", 1000, meshcollision.IDENTITY3, (0, 0, 0))]), \
+                    patch.object(fo4collision, "_convex", return_value=(hull, SLAB_TRIS)):
+                files, door = convert(src, aliases=ALIASES)
+            model = nif.parse(files["meshes/fo4port/interiors/vault/vltgeardoor01.nif"])
+            worlds = nif.world_transforms(model)
+            carried = next(i for i in range(len(model.blocks)) if model.type_of(i) == "bhkNPCollisionObject")
+            for got, want in zip(worlds(struct.unpack_from("<i", model.blocks[carried])[0])[0], body):
+                self.assertAlmostEqual(got, want, places=2, msg=str(body))
+            self.assertNotAlmostEqual(node_m[2], body[2], places=1)      # the helper is far from the body: no cancelling
 
     def test_a_large_mesh_part_is_refused(self):
         from fo4sf import fo4collision, meshcollision
