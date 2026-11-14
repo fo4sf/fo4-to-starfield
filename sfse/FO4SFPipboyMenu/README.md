@@ -27,7 +27,7 @@ and logs every step. The stage is picked by `Stage` in `FO4SFPipboyMenu.ini`:
 | --- | --- |
 | `src/main.cpp` | the plugin: version guard, checks before use, the menu object, the key thread |
 | `src/pch.h` | precompiled header (libxse's game headers and SFSE layer) |
-| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (b): `Movie` (empty: ours, FAL-614), `CodeObj` (0), `CodeObjNames` (empty: `PlaySound,HideMenu`), `CodeObjHide` (0), `CodeObjSound` (0), `CodeObjInit` (empty), `CodeObjProbe` (empty) and `CodeObjCalls` (empty); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
+| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (b): `Movie` (empty: ours, FAL-614), `CodeObj` (0), `CodeObjNames` (empty: `PlaySound,HideMenu`), `CodeObjHide` (0), `CodeObjSound` (0), `CodeObjInit` (empty), `CodeObjProbe` (empty), `CodeObjCalls` (empty), `CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
 | `xmake.lua`, `build.ps1` | the PC build: FOCCPing's build path (`docs/spikes/combined-core-probes.md`, B0-2) |
 | `scripts/ui/make_probe_swf.py` | writes the stage (b) movie, with `--channel` the stage (c) one and with `--page` the stage (d) one (pure Python; tests `tests/test_make_probe_swf.py`, `tests/test_pipboy_stat_page.py`) |
 | `scripts/ui/make_pipboy_kit.py` | the page kit (stage (e)): reads and checks the pages of the ini (`--check`) and writes the kit's movie for them (pure Python, on `make_probe_swf.py`; tests `tests/test_pipboy_kit.py`) |
@@ -600,8 +600,9 @@ first run found no root there), after the engine's own `kShow` (`when=show`) and
 which the key thread sends about every half second while the stand-in is not set, up to 40 tries per movie. The
 first five tries and the one that sets it log
 `step=code_obj when= try= root_of= get_variable= root= root_type= holder_type= set= of= read_back= names=`. Each
-call logs `step=code_call n= name= args= arg0=`
-(the first 64 characters of a string argument, else its type), up to 64 calls, and does nothing else: no sound, and
+call logs `step=code_call n= name= args= arg0=` and, since S1-c, `arg1=` to `arg3=` for each further argument (a
+string's first 64 characters; a boolean or a number after `#`, `#true`, `#2`; else its type, `type<n>`; `arg0=none`
+with no argument), up to 256 calls, and does nothing else: no sound, and
 `HideMenu` leaves the menu open. With `CodeObjHide=1` (with `CodeObj=1` only, else `refuse step=ini code_obj_hide=1`)
 `HideMenu` also closes our menu on the main thread, as the CLOSE button and F10 do: `step=close n= by=hide_menu`.
 With `CodeObjSound=1` (with `CodeObj=1` and `PlaySound` among the names only, else
@@ -627,6 +628,25 @@ on the same try and before the probe, and logged as `step=code_obj_root_call n= 
 result_type=`.
 It does not follow the game's volume sliders. The folder is the player's, made by hand on the PC; no installer here
 writes or removes it, and nothing of it enters Git.
+
+S1-c (FAL-819; with `CodeObj=1` only, each refused otherwise; at load `step=code_obj_shell at= pages= shell_keys=`):
+- `CodeObjAt=<path>` (one path, as `CodeObjCalls=`, else `refuse step=ini code_obj_at=`) also sets the stand-in as
+  `<path>.BGSCodeObj` and reads it back; the hand-over (and with it the calls and the probe) is done only once that
+  read-back holds, so the show and update tries go on while the path is not there yet. The `step=code_obj` line ends
+  `at= at_set= at_read_back=`. For the Fallout 4 shell: `CodeObjAt=Menu_mc`.
+- `CodeObjPages=1` (with `CodeObjAt=` and `onNewPage` and `onNewTab` among the names, else
+  `refuse step=ini code_obj_pages=1`) answers the movie's `onNewPage(<index>)` and `onNewTab(<index>)` as its engine
+  would (**a reading**): noted inside the call and, at the menu's next `kUpdate` (which the key thread sends at once),
+  `<CodeObjAt>.DataObj.CurrentPage` or `.CurrentTab` set to the index (0 to 63), read back, then
+  `<CodeObjAt>.InvalidateData()` called once: `step=code_answer n= page= tab= data= page_set= tab_set= page_now=
+  tab_now= invalidate_found= invalidated=` (`-1`: not asked; up to 512 per movie). A first argument that is not an
+  index logs `step=code_answer name= result=bad_index args=`.
+- `ShellKeys=<key>:<path>,...` (1 to 8; the key a Windows virtual-key code `0x01` to `0xFE`, not `Key`, none twice;
+  the path as `CodeObjCalls=`; else `refuse step=ini shell_keys=`) reads those keys every 30 ms while the menu is open
+  and the game in front. A press (not a hold) calls the path with no arguments on the menu's thread at the next
+  `kUpdate`, after the hand-over: `step=shell_key n= vk= path= found= called=`. The keys are read beside the game, not
+  taken from it: whether the game also acts on them depends on `Flags=` (stages (d) and (e) open with `0x19`), the
+  PC's finding. It reads the keyboard only: a gamepad's LB and RB do not reach the movie at stage (b).
 
 ### PASS at (c), `Stage=3` (steps: `docs/spikes/pipboy-channel-bridge-session.md`)
 

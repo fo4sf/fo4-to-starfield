@@ -220,7 +220,9 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("if (holderReady && !g_codeObjInit.empty()) {", install)
         self.assertIn("called = found && top.Invoke(g_codeObjInit.c_str(), &result, &holder, 1);", install)
         self.assertIn('top.GetMember("codeObj", &codeObj)', install)
-        self.assertIn("const bool done = holderReady && ((readBack && topSet) || called);", install)
+        # S1-c: with CodeObjAt= the hand-over also waits for <path>.BGSCodeObj to read back (atDone is true without it)
+        self.assertIn("const bool done = holderReady && ((readBack && topSet) || called) && atDone;", install)
+        self.assertIn("const bool atDone = g_codeObjAt.empty() || atReadBack;", install)
         self.assertLess(install.index("top.Invoke(g_codeObjInit.c_str()"), install.index("g_codeObjMovie = movie;"))
         for text in ("**Proof 2a, the first run (owner PC, 13 Nov, 05:48 to 05:52 UTC, at `95e79c5a`)",
                      "set=16 of=17 read_back=0", "**Proof 2a, the second run: the card.**", "code_obj=1 code_obj_type=8"):
@@ -366,6 +368,93 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("a_path.find('.', start)", self.main)
         self.assertIn("std::array<wchar_t, kMaxCodeNames * (kMaxName + 1) + 1> text{};", self.main)
         self.assertLessEqual(max(len(",".join(p)) for p in (names, calls, probe)), 16 * 65)
+
+    def test_s1c_our_object_on_menu_mc_and_the_page_answers(self):
+        # FAL-614 / FAL-819: S1-c sets the stand-in on Menu_mc.BGSCodeObj, answers onNewPage and onNewTab, and passes keys
+        for text in ("**S1-c, the slice: our object where the shell looks for it", "**The input the shell needs, and how our "
+                     "menu passes it in S1-c.**", "**S1-c, the card (Claude PC;", "**PASS S1-c:**", "9. Next: S1-c",
+                     "Gamepad LB and RB", "#780 (card A'')", "No kit screen on the device path."):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-c, the card"):self.plan.index("**PASS S1-c:**")]
+
+        def setting(key):
+            value = card[card.index(f"`{key}=") + len(key) + 2:]
+            return value[:value.index("`")]
+
+        path = r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*"
+        names = setting("CodeObjNames").split(",")
+        self.assertIn("onNewPage", names)
+        self.assertIn("onNewTab", names)                                   # CodeObjPages=1 refuses without both
+        self.assertLessEqual(len(names), 8)                                # room for step 0's verbs, 16 at most
+        self.assertEqual(setting("CodeObjAt"), "Menu_mc")
+        self.assertEqual(setting("CodeObjPages"), "1")
+        self.assertEqual(setting("CodeObjCalls").split(","), ["Menu_mc.onCodeObjCreate", "Menu_mc.InvalidateData"])
+        keys = setting("ShellKeys").split(",")
+        self.assertLessEqual(len(keys), 8)                                 # kMaxShellKeys
+        vks = []
+        for entry in keys:                                                 # ParseShellKeys: <key>:<path>, none twice
+            vk, target = entry.split(":")
+            vks.append(int(vk, 0))
+            self.assertTrue(1 <= int(vk, 0) <= 0xFE and int(vk, 0) != 0x79, entry)   # not Key (F10)
+            self.assertRegex(target, rf"^{path}$")
+            self.assertLessEqual(len(target), 64)
+            self.assertIn(target.split(".")[-1], ("gotoPrevPage", "gotoNextPage", "gotoPrevTab", "gotoNextTab"))
+        self.assertEqual(len(set(vks)), len(vks))
+        self.assertLessEqual(len(setting("ShellKeys")), 16 * 65)           # ReadText's buffer
+        # the plugin: the stand-in on the path, read back, and the hand-over waits for it
+        install = self.main[self.main.index("bool CodeObjInstall("):]
+        install = install[:install.index("\n\t}\n")]
+        self.assertIn('atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);', install)
+        self.assertIn('atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&', install)
+        self.assertIn("(atBack.IsObject() || atBack.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure)", install)
+        self.assertIn("at={} at_set={} at_read_back={}", install)
+        # every argument logged, and the answer noted before the log's cap; the handler itself still only logs
+        handler = self.main[self.main.index("class CodeObjFunction final"):]
+        handler = handler[:handler.index("\n\t};\n")]
+        self.assertLess(handler.index("NoteAnswer(_name, a_params);"), handler.index("if (n > kMaxCodeCalls) {"))
+        self.assertIn("i < a_params.argCount && i < kMaxCodeArgs", handler)
+        for absent in ("Invoke(", "SetMember(", "AddMessage"):
+            self.assertNotIn(absent, handler, absent)
+        note = self.main[self.main.index("void NoteAnswer("):]
+        note = note[:note.index("\n\t}\n")]
+        for absent in ("Invoke(", "SetMember(", "g_task"):                 # inside the shell's call: note only
+            self.assertNotIn(absent, note, absent)
+        # the answer, on the menu's thread at kUpdate: keys first, then DataObj's page or tab, then InvalidateData once
+        update = self.main[self.main.index("void ShellUpdate("):]
+        update = update[:update.index("\n\t}\n")]
+        self.assertIn("g_codeObjMovie.load() != movie", update)            # only after the hand-over
+        order = [update.index(s) for s in ("g_shellKeyPending.exchange(0)", 'data.SetMember("CurrentPage"',
+                                           'data.SetMember("CurrentTab"', 'g_codeObjAt + ".InvalidateData"')]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(update.count("CallPath("), 2)                     # each key's path, and InvalidateData once
+        self.assertIn("if (n > kMaxAnswers) {", update)
+        message = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
+        message = message[:message.index("\n\t}\n")]
+        self.assertIn("if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {", message)
+        self.assertLess(message.index("CodeObjInstall(a_self, type"), message.index("ShellUpdate(a_self);"))
+        self.assertIn("if (g_stage == 2 && g_shellKeyCount) {", self.main)
+        self.assertIn("if (g_stage == 2 && g_answerNow.exchange(false)) {", self.main)
+        keys_fn = self.main[self.main.index("void ShellKeys("):]
+        keys_fn = keys_fn[:keys_fn.index("\n\t}\n")]
+        self.assertIn("const bool    live = g_open && GameInFront();", keys_fn)
+        self.assertIn("const auto pressed = held & ~a_held;", keys_fn)     # a press, not a hold
+        # the ini: each off by default and refused without CodeObj=1
+        ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+        for key in ("CodeObjAt=", "CodeObjPages=0", "ShellKeys="):
+            self.assertRegex(ini, rf"\n{key}\r?\n")
+        for text in ('Refuse("ini", std::format("code_obj_at={} (with CodeObj=1 only;',
+                     'Refuse("ini", "code_obj_pages=1 (with CodeObjAt= and onNewPage and onNewTab in CodeObjNames only)");',
+                     'Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only)", shellKeys));',
+                     "vk >= 1 && vk <= 0xFE && vk != g_key"):
+            self.assertIn(text, self.main, text)
+        destroy = self.main[self.main.index("void* MenuDestroy("):]
+        self.assertIn("g_shellKeyPending = 0;", destroy[:destroy.index("g_engineDtor(")])
+        readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
+        for text in ("`CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty)", "refuse step=ini code_obj_at=",
+                     "refuse step=ini code_obj_pages=1", "refuse step=ini shell_keys=", "step=code_answer n= page= tab=",
+                     "step=shell_key n= vk= path= found= called=", "step=code_obj_shell at= pages= shell_keys=",
+                     "up to 256 calls"):
+            self.assertIn(text, readme, text)
 
     def test_reads_recorded(self):
         for text in ("**Read on the PC (D1, 13 Nov,", "**Read on the PC (D3, 13 Nov): verified.**",

@@ -819,6 +819,103 @@ What each other outcome means:
     shell's page loads (plugin code; "not chosen now" above).
 - A crash: send the crash log privately. With `CodeObjCalls=` empty, S1 is back as it passed.
 
+**S1-b, installed (14 Nov, about 17:10 UTC, owner PC, FAL-819).** At the owner's request the PC installed S1-b in their
+game as their own Pip-Boy, on F10: the dll of `e3a754b4`, the shell and its five pages from their own archive, and the
+three ini lines above. The rollback is kept. The owner's verdict and the log are not in yet. The owner's question: can
+they go through the pages, or is the screen static? By R1, it is static: changing a page or a tab asks the engine
+object, and in S1-b there is none where the shell looks. That is S1-c.
+
+**S1-c, the slice: our object where the shell looks for it, and an answer to a page or tab change (plugin code,
+FAL-819).**
+
+How the shell changes a page, by R1's names (a reading; R1 did not list the `uses` lines of the `goto` methods):
+- A page change starts in the public `gotoNextPage` or `gotoPrevPage`, or in the header's private `onPageClicked`.
+  Each ends in `TryToSetPage`, which calls `onNewPage` on `BGSCodeObj` through `BGSExternalInterface`.
+- Tabs work the same way: `gotoNextTab`, `gotoPrevTab` or `onTabClicked`, then `TryToSetTab`, which calls `onNewTab`.
+- The engine's answer (**hypothesis**): it records the page or tab in the shell's `DataObj` and calls `InvalidateData`.
+  That loads the page (`LoadCurrentPage`) or sends the change event that shows a tab (`PipboyTab` shows itself when
+  `DataObj.CurrentTab` is its index).
+
+| The shell needs | S1-c supplies (three ini keys; all off by default) |
+| --- | --- |
+| an engine object at `Menu_mc.BGSCodeObj` | `CodeObjAt=Menu_mc`: the stand-in is set there as well as on the root, and read back. The hand-over waits until it reads back, so `Menu_mc.onCodeObjCreate` from `CodeObjCalls=` now reaches us with `PopulatePipboyInfoObj`, and every page gets our object through `InitCodeObj` |
+| an answer to `onNewPage` and `onNewTab` | `CodeObjPages=1`: the index the shell passes is noted and, at the menu's next update, `Menu_mc.DataObj.CurrentPage` (or `.CurrentTab`) is set to it and read back, then `Menu_mc.InvalidateData()` is called once (`step=code_answer`) |
+| the player's input | `ShellKeys=`: keys the plugin reads itself, each calling one of the shell's `goto` methods (the table below) |
+| nothing else | `PopulatePipboyInfoObj`, `PlaySound`, `ShowPerksMenu`, `onBackButtonHandled`, `onPerksTabOpen` and `onPerksTabClose` only log. `DataObj` keeps the movie's own defaults: the player's values are S3 |
+
+Every call on our object is now logged with up to four arguments: `step=code_call n= name= args= arg0= arg1= ...`. A
+string is logged as text, a number or boolean after `#` (`#2`), and an object by its type. The log keeps the first 256
+calls (it was 64).
+
+**The input the shell needs, and how our menu passes it in S1-c.**
+
+| Input | What the shell has for it (R1's names) | S1-c |
+| --- | --- | --- |
+| Keyboard | `ProcessUserEvent` (public) takes the engine's input events by name. R1 did not report which event names it compares | Not through `ProcessUserEvent`. Our menu binds no menu object (its `GetRootPath` answers empty), so Starfield's engine sends the movie no events. The plugin reads the keys itself (`ShellKeys=`) and calls the shell's own public `gotoPrevPage`, `gotoNextPage`, `gotoPrevTab` and `gotoNextTab`, with no arguments, on the menu's thread |
+| Mouse | the header's `onPageClicked` and `onTabClicked` (private, click handlers by their names) | The engine's own mouse delivery to our movie, once the menu opens with the cursor (`Flags=` with `0x8`; FAL-216 saw clicks reach our movie at `0x9`). The answer then comes from `CodeObjPages=1`, as for a key |
+| Gamepad LB and RB (and LT and RT, which S1's tab bar showed as hints) | `ProcessUserEvent`, by event name | Not in S1-c. `GetAsyncKeyState` does not read a pad. The route is the menu's input handler (slot `0x08`, `OnButtonEvent`, which stages (d) and (e) already replace): it sees Starfield's own user events, which a later slice (S1-d) maps to the same four calls |
+| Right stick | `onRightThumbstickInput` (public) | Not in S1-c |
+
+**S1-c, the card (Claude PC; after S1-b's result, and after the owner's release; the dll built at this commit).**
+Install it the same way as S1-b, in the owner's game as their own Pip-Boy on F10, with a rollback.
+0. **Read first (PC, names only, no launch, optional).** Run `swf_names.py` as in R1 on the other four pages:
+   `Pipboy_InvPage.swf Pipboy_DataPage.swf Pipboy_MapPage.swf Pipboy_RadioPage.swf`. Report the verb strings of the
+   `uses` lines whose `names=` hold `codeObj` or `BGSCodeObj` and whose `calls=` hold `call`, by page. Up to 8 of
+   them, those used when a page arrives or changes tab, go after the 8 names in step 3 (16 at most). Names
+   only. Without this read the pages still load, but a page whose verb is missing may stop partway; that is a finding,
+   not a STOP.
+1. **Build** the plugin from this commit with `build.ps1`, as for `e3a754b4`. A build error is a **STOP**: send it.
+   Keep S1-b's dll and ini aside as the rollback.
+2. **Install** exactly as S1-b: the same six movies, `--extra-movie FO4SF_Fo4Shell` and the five `--page-movie`
+   options. Then the new dll and its ini.
+3. **The ini:** S1-b's, with these changed or added:
+   - `CodeObjNames=PopulatePipboyInfoObj,onNewPage,onNewTab,PlaySound,ShowPerksMenu,onBackButtonHandled,onPerksTabOpen,onPerksTabClose`, plus step 0's verbs if read
+   - `CodeObjCalls=Menu_mc.onCodeObjCreate,Menu_mc.InvalidateData` (as S1-b)
+   - `CodeObjAt=Menu_mc`
+   - `CodeObjPages=1`
+   - `ShellKeys=0x51:Menu_mc.gotoPrevPage,0x45:Menu_mc.gotoNextPage,0x21:Menu_mc.gotoPrevPage,0x22:Menu_mc.gotoNextPage,0x41:Menu_mc.gotoPrevTab,0x44:Menu_mc.gotoNextTab,0x25:Menu_mc.gotoPrevTab,0x27:Menu_mc.gotoNextTab`
+     (Q and E or Page Up and Page Down for the page, A and D or the arrows for the tab, as on the kit's page; Page Up
+     and Page Down because the kit's Q did nothing through the PC's key sender, FAL-614)
+   - `Flags=0x19`: the cursor and the input contexts the kit's page opens with (`PageFlagSets=0x19`; `Pause=0` adds
+     nothing at stage (b)). Whether the game still acts on Q, E, A and D behind the screen is the run's finding.
+   - `CodeObjProbe=` as S1-b.
+4. **Run:** outdoors, F10, wait 5 s. Press E four times, a second apart (STAT, INV, DATA, MAP, RADIO), then Q four
+   times back. On STAT, press D twice and A twice. Then click INV and then STAT in the tab bar. Take a screenshot of
+   each page. Close with F10; Esc may not close the menu at stage (b).
+5. **Send:** the `step=code_obj_shell` and `step=code_obj` lines, both `code_obj_root_call` lines, the probe lines,
+   every `code_call`, `shell_key` and `code_answer` line, any `refuse` line, the screenshots described (which page, which
+   tab, placeholders), whether the game moved the player or did anything else on those keys, and whether it stayed
+   playable. Once the owner has played it, their verdict.
+
+**PASS S1-c:**
+- `step=code_obj ... at=Menu_mc at_set=1 at_read_back=1`, and `code_call ... name=PopulatePipboyInfoObj args=1
+  arg0=type<n>` (the shell's arrival now reaches our object);
+- on E: `shell_key ... path=Menu_mc.gotoNextPage found=1 called=1`, `code_call ... name=onNewPage args=1 arg0=#1`,
+  `code_answer ... page=1 ... page_set=1 page_now=#1 ... invalidated=1`, and INV's body in place of STAT's. The same
+  through all five pages and back, and for the tabs with `onNewTab` and `tab=`;
+- a click on the tab bar does the same, with no `shell_key` line;
+- no crash.
+
+What each other outcome means:
+- `at_read_back=0` on every try, and no `code_obj_root_call` lines: `Menu_mc.BGSCodeObj` did not take our object. Send
+  the 40 tries' lines. The next card reads the slot's type.
+- `shell_key ... found=0`: the `goto` names are not reachable by that path. Send the line; the PC reads the four
+  methods' `trait` lines.
+- `shell_key ... called=1`, but no `onNewPage`: the shell refused the change, or it takes another route. Send the
+  probe's `CurrentPage` and the `code_call` lines. If it is the route, the next card calls `TryToSetPage` with an index
+  (plugin code: a call with an argument).
+- `onNewPage` with `code_answer ... page_set=1 invalidated=1`, but the page stays: `InvalidatePartialData` did not
+  reload. The next card calls it with an update mask (plugin code; see S1-b's outcomes).
+- `invalidate_found=1 invalidated=0`: `InvalidateData` needs an argument, as in S1-b's case.
+- `result=bad_index`: the shell passed something other than an index. The `code_call` line shows what.
+- The page changes but its body is empty or half drawn: a verb the page calls is not among `CodeObjNames`. That error
+  stays inside the movie, so step 0's read names it.
+- The game also acts on the keys (the player moves): send which. The next card picks other keys or flags.
+- A crash: send the crash log privately and restore S1-b (its dll and ini), which is how the owner played it.
+
+Every page shows the movie's own defaults, not the player's values; that is S3. The device route stays separate: the
+wrist model is #780 (card A''), which still waits for the owner's release. No kit screen on the device path.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -929,6 +1026,9 @@ delivery.
 6. Done: S1, the shell with its pages (14 Nov, PARTIAL: the tab bar and footer draw; no page).
 7. Done: S1-R1 (14 Nov, names only, no launch): the shell loads its first page only when `Menu_mc.InvalidateData` is
    called from outside.
-8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above), the PC's run after the owner's launch release. Then
-   S1-c (our object on `Menu_mc.BGSCodeObj`) and S3's first branch (STAT, HP by name) through the shell, each with its
-   own card, tests, a CARRY line, a review, and the PC's run.
+8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above). Installed in the owner's game on 14 Nov; their
+   verdict and the log are not in yet.
+9. Next: S1-c (plugin code at this commit: `CodeObjAt=`, `CodeObjPages=`, `ShellKeys=`; its card above). It needs a
+   review, a CARRY, then the PC's build and run after S1-b's result and the owner's release. Then S1-d (the gamepad
+   through the menu's input handler) and S3's first branch (STAT, HP by name) through the shell, each with its own
+   card.
