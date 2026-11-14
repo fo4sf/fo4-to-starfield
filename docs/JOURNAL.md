@@ -2930,3 +2930,16 @@ receipts are tracked in FAL-743 document reconciliation. Independent delta revie
 Minuteman FAL-741 landing gates remain. Earlier PC PASS dde84927 covers only the core
 receipt/Play-eligibility regression; actual kit/archive/Remove/instance/bridge gates
 remain separate. No native Windows, game, deploy or real-kit action in this run.
+
+
+## 2026-11-14 — Codex: initial lift pose (FAL-848, first source slice)
+
+Added an opt-in mapped end pose for an animated object's initial idle. The existing
+moving clips, model and collision bindings remain; the manifest names the selected
+source sequence. Synthetic pose and converter controls cover the exported idle,
+unchanged moving clips/model, malformed input and pre-publication refusal.
+`python -m unittest discover -s tests`: 5,330 tests, OK (183 skipped: unavailable
+toolchains/platform checks). `python scripts/guard.py`: ok. Follow-up focused
+checks include the additional converter/preflight controls. This is source-only;
+no game version was exercised, no Papyrus/native compile or owner installation ran.
+Independent review and production ride/map/console integration remain outstanding.

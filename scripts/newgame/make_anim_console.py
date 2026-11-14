@@ -285,6 +285,9 @@ def load_plan(stage_dir):
 def stage(a, converter=None):
     """converter: (a, staging) -> (src, conv) for tests; default build_converter."""
     states = anim_object.parse_states(a.states)
+    rest_after = getattr(a, "rest_after", None)
+    if rest_after is not None and (getattr(a, "idles", "toggle") != "toggle" or rest_after not in states):
+        sys.exit("--rest-after needs toggle idles and a mapped source sequence")
     final = os.path.abspath(a.out)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
@@ -299,7 +302,7 @@ def stage(a, converter=None):
     info = parse_info(run(tool + ["info", port_esm, sf_esm, "--edid", a.edid]).stdout)
     src, conv = (converter or build_converter)(a, staging)
     original, _raw = find_original(src, info["model"], a.model)
-    extra = {}
+    extra = {"rest_after": rest_after} if rest_after is not None else {}
     if getattr(a, "swap_siblings", False):
         extra["swap_siblings"] = True
     if getattr(a, "idles", "toggle") != "toggle":
@@ -621,6 +624,7 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--states", required=True, help='FO4 sequence = Play slot, e.g. "Stage1=StateA_Play,Stage2=StateB_Play" (see `clips`)')
     s.add_argument("--foley", default="", help="a Starfield foley name for the clips' sound frames (default: none, no sound)")
+    s.add_argument("--rest-after", default=None, help="start at this mapped sequence's end pose (select the measured floor pose for the lift)")
     s.add_argument("--swap-siblings", action="store_true", help="EXPERIMENT (FAL-489 session 6): write the root's two children (Lid, Button) with their indices exchanged: rig, .af blocks, model nodes and attachments; nothing else changes")
     s.add_argument("--idles", choices=("toggle", "hold"), default="toggle",
                    help="toggle (default, FAL-489 session 7): StateA_Idle = first frame of slot A's clip, StateB_Idle = its last frame, slot B starts from there; "
