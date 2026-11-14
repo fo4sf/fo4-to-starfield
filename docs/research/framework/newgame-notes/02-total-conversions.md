@@ -11,7 +11,7 @@ are marked accordingly.
 
 ---
 
-## 1. A well-known Fallout 4 total conversion, FO4 total conversion
+## 1. A well-known Fallout 4 total conversion
 
 - Links: a third-party source,
   a third-party source,

@@ -344,7 +344,7 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 25. **What is a "clean test profile" for community testers?** Why: Skywind insists on clean game + SKSE + SkyUI;
     mixed mod lists make reports unusable. Option: launcher checks Plugins.txt against an allowed list and stamps
     the result into reports. Who: owner decision + offline.
-26. **Will we offer a well-known Fallout 4 total conversion-style 1-on-1 help, or a self-diagnosis tool instead?** Why: support time is the owner's
+26. **Will we offer 1-on-1 help like that of a well-known Fallout 4 total conversion, or a self-diagnosis tool instead?** Why: support time is the owner's
     scarcest resource. Who: owner decision.
 
 ### Tooling and testing

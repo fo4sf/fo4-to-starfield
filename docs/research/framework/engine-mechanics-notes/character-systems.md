@@ -137,7 +137,7 @@ them; recheck later.
   a **supported hypothesis** at best). https://www.nexusmods.com/starfield/mods/9427
 
 ## Precedents and lessons
-- **A well-known Fallout 4 total conversion** (FO4 total conversion) kept FO4's SPECIAL/perk engine and swapped content: its own traits chosen
+- **A well-known Fallout 4 total conversion** kept FO4's SPECIAL/perk engine and swapped content: its own traits chosen
   at character creation (Acrobat, Hoarder, Chem Head, Puritan) and SPECIAL-gated perks. **verified** (Prima Games guide).
   Lesson: data-level perks and traits on the engine's own machinery are the cheap path; we lose that because CE2's
   menu is skills-shaped. a third-party source

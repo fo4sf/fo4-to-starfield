@@ -123,7 +123,7 @@ Hostility, combat, stealth
   Fools article. **verified**
   https://starfieldportal.com/article/the-elder-scrolls-morrowind-remake-shifts-to-starfield-engine . So no one has
   published how FO4 companions or factions behave on CE2; we are first. **supported hypothesis**
-- **A well-known Fallout 4 total conversion** (FO4 total conversion): one canine companion (Churchill), over 100 mostly volunteer voice
+- **A well-known Fallout 4 total conversion**: one canine companion (Churchill), over 100 mostly volunteer voice
   actors, launch crashes and quest problems, about 20 testers against FO4's 150, and the mod pinned to the
   pre-next-gen FO4 build after the April 2024 update. **verified** a third-party source.
   Lessons: plan QA capacity for companion and quest content, and pin to a known game build because SFSE plugins

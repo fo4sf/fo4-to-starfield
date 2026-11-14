@@ -206,7 +206,7 @@ https://github.com/wabbajack-tools/wabbajack (main), fetched via raw.githubuserc
 
 ---
 
-## 4. A well-known Fallout 4 total conversion (FO4 total conversion, GOG-distributed)
+## 4. A well-known Fallout 4 total conversion (GOG-distributed)
 - **verified**: Released 25 July 2024 by that team, distributed by **GOG** because it was too large to host on Nexus.
   Release was delayed by Bethesda's FO4 next-gen update. a third-party source;
   a third-party source

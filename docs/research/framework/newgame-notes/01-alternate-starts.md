@@ -192,7 +192,7 @@ URL: https://nexusmods.com/fallout4/mods/88418
   Lesson: global state (time scale) left by the intro must be reset by a skip.
 - PC Gamer overview: https://pcgamer.com/begin-a-new-life-in-fallout-4-with-an-alternate-start-mod (not read; 429).
 
-### 2.5 a well-known Fallout 4 total conversion (that team), a world without the base game's main quest
+### 2.5 a well-known Fallout 4 total conversion, a world without the base game's main quest
 URLs: a third-party source; reintegration mod a third-party source;
 a third-party source;
 a third-party source
@@ -202,7 +202,7 @@ a third-party source
   is not started or stopped, and a one-shot teleport to Vault 111 starts MQ102 at stage 6.
 - **verified**: A well-known Fallout 4 total conversion has its own chargen (containment chamber, appearance, SPECIAL, traits) and needs a new game.
 - **supported hypothesis** (comments on mod 17, unverified user reports): with FO4's quests revived in Boston, speech
-  checks broke, the Pip-Boy map stayed on a well-known Fallout 4 total conversion, companions stuck in Boston, the Kellogg terminal froze.
+  checks broke, the Pip-Boy map stayed on that total conversion's own world map, companions stuck in Boston, the Kellogg terminal froze.
 - Lessons: this is the closest precedent to us in reverse (a total conversion on Creation Engine that keeps the base
   master but turns off its start, DLC and main quest from script). It shows (a) a "disable list" script is the
   practical way; (b) the world map (Pip-Boy/starmap) follows the active worldspace logic and is a pain point; (c)
