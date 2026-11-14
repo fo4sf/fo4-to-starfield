@@ -314,7 +314,7 @@ class RebuildPlanTests(unittest.TestCase):
                      "**S1's next slice: the decision (14 Nov, FAL-786). Read first, then an ini-only card on the same dll.**",
                      "**S1-R1, the card (Claude PC; read-only, no launch; names only, the output stays private).**",
                      "**What S1-b does with R1 (its card follows R1; ini only, the dll of `e3a754b4` unchanged).**",
-                     "6. Done: S1, the shell with its pages (14 Nov, PARTIAL", "7. Now: S1-R1"):
+                     "6. Done: S1, the shell with its pages (14 Nov, PARTIAL", "7. Done: S1-R1"):
             self.assertIn(text, self.plan, text)
         card = self.plan[self.plan.index("**S1-R1, the card"):self.plan.index("**What S1-b does with R1")]
         self.assertIn("python scripts/ui/swf_names.py --ba2", card)
@@ -332,6 +332,40 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(f"`{setting}=`", s1b)
             self.assertIn(f'ReadText(ini, L"{setting}")', self.main)
         self.assertIn("16 at\n  most", s1b)
+
+    def test_s1_r1_result_and_the_s1b_card(self):
+        # FAL-614 / FAL-803: S1-R1 recorded; S1-b calls Menu_mc.InvalidateData from outside, ini only, on the same dll
+        for text in ("**S1-R1, the result (Claude PC, 14 Nov, read at `0ae13422`, no launch): verified, names only.**",
+                     "**S1-b, the slice: what the shell needs from outside to draw the STAT page body",
+                     "**S1-b, the card (Claude PC; one session after the owner's launch release; the dll of `e3a754b4`, ini only).**",
+                     "**PASS S1-b:**", "8. Now: S1-b"):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-b, the card"):self.plan.index("**Proof 2, the outline")]
+
+        def setting(key):
+            value = card[card.index(f"`{key}=") + len(key) + 2:]
+            return value[:value.index("`")].split(",")
+
+        path = r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*"   # ParsePaths: letters, digits, '_' and '.', no empty part
+        names, calls, probe = setting("CodeObjNames"), setting("CodeObjCalls"), setting("CodeObjProbe")
+        self.assertTrue(all(re.fullmatch(r"[A-Za-z0-9_]{1,64}", n) for n in names), names)
+        for paths in (names, calls, probe):
+            self.assertLessEqual(len(paths), 16)                 # kMaxCodeNames
+            self.assertEqual(len(set(paths)), len(paths))
+            self.assertTrue(all(len(p) <= 64 and re.fullmatch(path, p) for p in paths), paths)
+        self.assertEqual(len(probe), 16)
+        self.assertEqual(calls, ["Menu_mc.onCodeObjCreate", "Menu_mc.InvalidateData"])   # the arrival, then the load
+        for call in calls:
+            self.assertIn(call, probe)
+        self.assertIn("code_obj_root_call n=2 name=Menu_mc.InvalidateData found=1 type=11 called=1", card)
+        # the dll of e3a754b4 walks dotted paths for both settings and calls with no arguments, calls before the probe
+        install = self.main[self.main.index("bool CodeObjInstall("):]
+        install = install[:install.index("\n\t}\n")]
+        self.assertIn("ReadPath(top, g_rootCallNames[i].substr(0, last), owner) && ReadPath(owner, name, function)", install)
+        self.assertIn("ReadPath(top, g_probeNames[i], at)", install)
+        self.assertIn("a_path.find('.', start)", self.main)
+        self.assertIn("std::array<wchar_t, kMaxCodeNames * (kMaxName + 1) + 1> text{};", self.main)
+        self.assertLessEqual(max(len(",".join(p)) for p in (names, calls, probe)), 16 * 65)
 
     def test_reads_recorded(self):
         for text in ("**Read on the PC (D1, 13 Nov,", "**Read on the PC (D3, 13 Nov): verified.**",
