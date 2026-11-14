@@ -45,7 +45,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | Wwise: free trial is non-commercial and limited to 200 media assets in SoundBanks; a free Non-Commercial licence is issued per registered project. Nothing found on redistributing `WwiseConsole` or on batch conversion counting toward the limit | **verified** ([Wwise pricing](https://www.audiokinetic.com/en/wwise/pricing/)); redistribution and limit **unresolved** (legal-policy W2-B) |
 | Languages on Steam: FO4 full audio EN, FR, IT, DE, ES, JA, text only PL, PT-BR, RU, Traditional Chinese; Starfield full audio EN, FR, DE, ES, JA, text only IT, PL, PT-BR, Simplified Chinese; Starfield CK English only. TTW requires both games "installed with all DLCs and in English" | **verified** (Steam store API; [TTW FAQ](https://thebestoftimes.moddinglinked.com/faq.html); distribution-community W2-4) |
 | Enderal is a free Steam "Community-Made Mod" that "requires that you own The Elder Scrolls V: Skyrim", installed and launched separately with separate saves; no Bethesda agreement text found | **verified** listing ([Steam 933480](https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/)); Bethesda sign-off **unresolved** (precedents W2-2) |
-| Fallout London's official Downgrader asked for the Steam username and password and could need Steam Guard "2 or 3 times"; its quick-start and FAQ are mostly environment fixes | **verified** ([GOG forum quick start](https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1); precedents W2-3) |
+| A well-known Fallout 4 total conversion's official Downgrader asked for the Steam username and password and could need Steam Guard "2 or 3 times"; its quick-start and FAQ are mostly environment fixes | **verified** (GOG forum quick start; precedents W2-3) |
 
 ## Possibilities
 
@@ -66,7 +66,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | Nexus (Starfield page) | Main audience | Cross-game rules, internet-executable rule, scanner flags | FNV to FO4, Outfit Porter | verified precedents |
 | ModPub plus Discord | Fallback host | Smaller reach | TTW moved there ([ModPub](https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions)) | verified |
 | Bethesda Creations | Official channel | CK EULA bars ZeniMax-owned content there; useless without the local build | none | ~~supported hypothesis: not a channel~~ [Correction 2026-10-19: **verified**: not a channel; Bethesda's guideline (help.bethesda.net article 51731) rules Creations out (quoted in newgame.md section M)] |
-| GOG-style store listing | Mainstream reach, ownership gate | Needs a publisher deal | GAMMA on GOG since Dec 2025 ([GamingOnLinux](https://www.gamingonlinux.com/2025/12/gog-add-stalker-gamma-as-a-one-click-mod-install/page=1)); Fallout London on GOG | verified |
+| GOG-style store listing | Mainstream reach, ownership gate | Needs a publisher deal | GAMMA on GOG since Dec 2025 ([GamingOnLinux](https://www.gamingonlinux.com/2025/12/gog-add-stalker-gamma-as-a-one-click-mod-install/page=1)); a well-known Fallout 4 total conversion on GOG | verified |
 | Free Steam "Community-Made Mod" app | Ownership check, separate install and saves | Needs two games owned, which a single-parent listing may not express; Steam's rules unread | Enderal (precedents W2-2) | verified precedent, fit unresolved |
 
 ### Money
@@ -76,7 +76,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | No donations | Lowest legal exposure | No hosting money | Skywind: "We will never charge" ([FAQ](https://tesrskywind.com/faq/)) | verified |
 | Nexus Donation Points only | Tactful, platform-managed | Must follow DP rules (unread) | Nexus help 28 | verified rule, unread detail |
 | Optional hosting-cost link | Small income | Nexus bans active soliciting | Microsoft rules allow optional donation pages for Microsoft Studios content | verified, scope unresolved |
-| Patreon or crowdfunding | Income | Bethesda bans it; most likely takedown trigger | Fallout London Kickstarter (physical goods) is the edge case | verified rule |
+| Patreon or crowdfunding | Income | Bethesda bans it; most likely takedown trigger | A well-known Fallout 4 total conversion Kickstarter (physical goods) is the edge case | verified rule |
 
 ### Voice and audio (legal side)
 
@@ -95,14 +95,14 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | GitHub Issues and Discussions only | Fits the owner-only triage rule | Players expect Discord | none | supported hypothesis |
 | Own Discord with #how-to-install and #known-issues | Fast install support | Needs human moderators | GAMMA, TTW | verified |
 | A channel on an existing server (Starfield Modding, Collective Modding) | No server to run | Their rules (unread) | Community Patch uses Starfield Modding Discord | verified (patch), unresolved (rules) |
-| Launcher diagnostic bundle plus one support form | Cuts install support | Implementation work | Fallout London's week one was install problems | supported hypothesis |
+| Launcher diagnostic bundle plus one support form | Cuts install support | Implementation work | A well-known Fallout 4 total conversion's week one was install problems | supported hypothesis |
 
 ### Dates and communication
 
 | Option | What it gives | Cost or risk | Precedent | Label |
 |---|---|---|---|---|
 | No dates, only "what works now" | No missed dates | Less hype | Skywind, Cascadia | verified |
-| Windows with a slip policy | Some planning signal | Slips cost trust; crunch claims | Skyblivion 2025 to 2026, Fallout London 2023 to Jul 2024 | verified |
+| Windows with a slip policy | Some planning signal | Slips cost trust; crunch claims | Skyblivion 2025 to 2026, a well-known Fallout 4 total conversion 2023 to Jul 2024 | verified |
 | Public feature matrix (not yet / partial / works) | Closes the expectation gap | Upkeep | none verified | supported hypothesis |
 
 ## Questions
@@ -178,8 +178,8 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-14. Does the launcher check ownership beyond file hashes?**
 - Why it matters: CK EULA "distribute ... to users who have purchased the Product"; hashes also accept pirated copies.
-- Options: hashes only (TTW-like); refuse known cracked executables. Do not ask for store credentials (Fallout London's downgrader needed a Steam login and broke on Steam Guard, verified [PC Gamer](https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/)).
-- Wave 2: Fallout London's Downgrader asked for the Steam password and Steam Guard loops were a top support issue (**verified**); proposed rule: never ask for store credentials; detect, instruct, refuse (**supported hypothesis**). DLC ownership is REL-56.
+- Options: hashes only (TTW-like); refuse known cracked executables. Do not ask for store credentials (a well-known Fallout 4 total conversion's downgrader needed a Steam login and broke on Steam Guard, verified PC Gamer).
+- Wave 2: A well-known Fallout 4 total conversion's Downgrader asked for the Steam password and Steam Guard loops were a top support issue (**verified**); proposed rule: never ask for store credentials; detect, instruct, refuse (**supported hypothesis**). DLC ownership is REL-56.
 - Answer by: how TTW and Wabbajack handle it. Who: offline research, owner. Blocks: Launcher. Status: narrowed (wave 2): credentials ruled out by precedent [precedents W2-3]. (also: legal-policy Q12, precedents wave 2 Q2)
 
 **REL-15. Does the launcher show an acceptance screen?**
@@ -257,7 +257,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 ### Contacting Bethesda and Nexus
 
 **REL-30. Do we contact Bethesda/ZeniMax before the Nexus release, and what do we ask?**
-- Why it matters: ~~the Starfield CK EULA names an approval route for cross-game mods.~~ [Correction 2026-10-19: clause (ii) covers paid Creations only (launcher-sources/eula.md). No licence text covers what we do, so a written question to ZeniMax is the only way to move from tolerance toward permission (matches launcher.md D6).] Contact killed CW v1; Skyblivion got conditions (100% asset replacement) and later praise; Skywind is described as "officially approved"; Fallout London reported "zero correspondence" (precedents 3, 4, 5, 2).
+- Why it matters: ~~the Starfield CK EULA names an approval route for cross-game mods.~~ [Correction 2026-10-19: clause (ii) covers paid Creations only (launcher-sources/eula.md). No licence text covers what we do, so a written question to ZeniMax is the only way to move from tolerance toward permission (matches launcher.md D6).] Contact killed CW v1; Skyblivion got conditions (100% asset replacement) and later praise; Skywind is described as "officially approved"; a well-known Fallout 4 total conversion reported "zero correspondence" (precedents 3, 4, 5, 2).
 - Options: no contact (TTW model); an informational letter; an explicit approval request covering REL-10, REL-20, REL-25, REL-26. Who: owner decision; Bethesda contact. Blocks: Release, People and story. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-8): informational letter with specific questions (voice, our own text, naming, the local build); Claude drafts, nothing is sent until the owner approves the exact text; the offer of control is the owner's to include. Owner's note: "Talk it through with people first. Realistically, given the efforts and intentions of this project, Bethesda should have no copyright issue, because it is not intended to be anything they could take down, like the Fallout New York game. If you do message them, include a mention that I am willing to change the goal of the project and give them rights and control over it when I'm done, if they let me finish it and get it to a good state. I just really want a S.T.A.L.K.E.R. GAMMA-style Fallout experience.". Before: open. (also: legal-policy Q20, precedents Q23)
 
 **REL-31. What exactly do we ask Nexus staff, and in what order?**
@@ -291,11 +291,11 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-37. Do we accept donations at all?**
 - Options: none; Nexus Donation Points only; a tactful optional hosting link. Never Patreon or crowdfunding (Community Standards).
-- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: legal-policy Q22)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like a well-known Fallout 4 total conversion and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: legal-policy Q22)
 
 **REL-38. Is a GOG-style store listing ever a goal?**
 - Options: not a goal; revisit after 1.0; a free Steam "Community-Made Mod" app (REL-59).
-- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: distribution-community Q32)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like a well-known Fallout 4 total conversion and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: distribution-community Q32)
 
 ### Community home and support
 
@@ -307,16 +307,16 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 - Options: trusted human volunteers with a triage role; AI-drafted summaries the owner approves in bulk; a known-issues auto-reply. Needs an AGENTS.md change. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-19): "AI drafts, you approve in bulk" (as recommended). Before: open. (also: distribution-community Q24)
 
 **REL-41. What is the day-one support model?**
-- Why it matters: Fallout London's first week was install problems (INI overwrites, CC files, wrong `Fallout4.esm` size; [GameStar](https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html)); TTW's FAQ is mostly environment errors (quotes in paths, Controlled Folder Access, Unblock, CPU heat).
-- Wave 2: Fallout London's own quick-start and FAQ are dominated by wrong entry exe (`Fallout4.exe` instead of `f4se_loader.exe`), stale INIs, leftover mods and CC files, the HD pack, missing first-run registry keys, resolution mismatch and admin rights (**verified**). A known Starfield symptom to seed the FAQ: loading a save or opening the Creations load-order menu deselected every plugin in `Plugins.txt` (Vortex and plain Steam; trigger **unresolved**), and MO2 2.5.2 disabled `SFBGS004.esm` and `ShatteredSpace.esm` until an updated `game_starfield.dll` (**verified**, distribution-community W2-1).
-- Options: launcher writes a diagnostic bundle (hashes, plugin list as active in game, INIs, crash log) for one support form; an FAQ seeded from TTW's and FOLON's lists. Who: owner, Implementation. Blocks: Launcher, Release. Status: narrowed (wave 2): concrete failure list for the FAQ and preflight [precedents W2-3, distribution-community W2-1]. (also: precedents Q26)
+- Why it matters: A well-known Fallout 4 total conversion's first week was install problems (INI overwrites, CC files, wrong `Fallout4.esm` size; GameStar); TTW's FAQ is mostly environment errors (quotes in paths, Controlled Folder Access, Unblock, CPU heat).
+- Wave 2: A well-known Fallout 4 total conversion's own quick-start and FAQ are dominated by wrong entry exe (`Fallout4.exe` instead of `f4se_loader.exe`), stale INIs, leftover mods and CC files, the HD pack, missing first-run registry keys, resolution mismatch and admin rights (**verified**). A known Starfield symptom to seed the FAQ: loading a save or opening the Creations load-order menu deselected every plugin in `Plugins.txt` (Vortex and plain Steam; trigger **unresolved**), and MO2 2.5.2 disabled `SFBGS004.esm` and `ShatteredSpace.esm` until an updated `game_starfield.dll` (**verified**, distribution-community W2-1).
+- Options: launcher writes a diagnostic bundle (hashes, plugin list as active in game, INIs, crash log) for one support form; an FAQ seeded from TTW's and a well-known Fallout 4 total conversion's lists. Who: owner, Implementation. Blocks: Launcher, Release. Status: narrowed (wave 2): concrete failure list for the FAQ and preflight [precedents W2-3, distribution-community W2-1]. (also: precedents Q26)
 
 **REL-42. What must every bug report carry to be reproducible?**
 - Options: cell, position and a build hash printed by the launcher; reproducible "on a new save" bar like the Community Patch ([starfieldpatch.dev](https://starfieldpatch.dev)); our report hotkey already records cell and position (docs/community/reporting-tool.md); Skywind's bar is "easily reproducible by another tester", "Search existing bugs first", with a retest before close (**verified**, precedents W2-5; label adoption is a tooling question, handed off below).
 - Who: offline design, owner sign-off. Blocks: All interiors, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-5): "Cell, position, build hash" (not the recommended option). Before: open. (also: distribution-community Q5, Q35)
 
 **REL-43. How do we recruit testers and specialists, and which environments must be tested before a public release?**
-- Why it matters: agents cannot test other PCs, languages, Linux or Game Pass; Fallout London had about 20 testers and launched "barely playable".
+- Why it matters: agents cannot test other PCs, languages, Linux or Game Pass; a well-known Fallout 4 total conversion had about 20 testers and launched "barely playable".
 - Options: tester sign-up issue form; ask in r/starfieldmods; matrix of Steam Windows English, non-English, OneDrive-redirected Documents, Proton, Steam Deck. Who: owner, community. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-13): "Small closed pool, clean profile" (as recommended). Before: open. (also: distribution-community Q26, Q33; precedents Q6)
 
 **REL-44. Is "all interiors" a public milestone or internal?**
@@ -357,7 +357,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 - Who: owner decision. Blocks: World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-10): "Wait for a fuller game" (not the recommended option). Before: narrowed (wave 2): slice model has a precedent [precedents W2-1]. (also: precedents Q15 and wave 2 Q1)
 
 **REL-53. What is our realistic time scale?**
-- Precedents: Enderal 5 years with 14 people; Fallout London 5 years with about 100; Skyblivion and Skywind 13 years or more. Converting rather than remaking is our structural advantage (supported hypothesis).
+- Precedents: Enderal 5 years with 14 people; a well-known Fallout 4 total conversion 5 years with about 100; Skyblivion and Skywind 13 years or more. Converting rather than remaking is our structural advantage (supported hypothesis).
 - Answer by: hours per converted interior cell now, extrapolated. Who: owner, QA. Blocks: Release. Status: open. (also: precedents Q32)
 
 ### Localization
@@ -390,7 +390,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-59. Is a free Steam "Community-Made Mod" listing (Enderal model) ever an option for a tool that needs two games?**
 - Why it matters: it gives an ownership check, separate install and saves; Enderal's needs one base game, ours needs FO4 and Starfield (**unresolved** whether Steam's listing can express that).
-- Answer by: read Steam's rules for Community-Made Mod apps; Valve contact. Who: offline research, owner. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open (wave 2) [precedents W2-2]. (also: precedents wave 2 Q7)
+- Answer by: read Steam's rules for Community-Made Mod apps; Valve contact. Who: offline research, owner. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like a well-known Fallout 4 total conversion and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open (wave 2) [precedents W2-2]. (also: precedents wave 2 Q7)
 
 **REL-60. Do Fallout 76's terms allow converting its quests and places from the player's own install?** (new 2026-10-19, findings/fo76-terms.md)
 - Why it matters: the owner wants 76's single-player story and places in the combined core (MU-2). 76 is under the general ZeniMax/Bethesda.net Terms of Service as a "game as a service", not a single-player EULA.
@@ -421,7 +421,7 @@ Recommendations only; the owner decides.
 - REL-27 codsworth_voice.py: *recommend* keep as a private PC test, gated out of release packaging until REL-26 is decided.
 - REL-30 contact Bethesda: *recommend* a written, informational letter with specific questions before the Nexus release; ~~the CK EULA names an approval route.~~ [Correction 2026-10-19: clause (ii) is the paid-Creations channel, not an approval route. No licence text covers what we do, so a written question is the only way to move from tolerance toward permission (launcher.md D6).]
 - REL-31 and REL-32 Nexus: *recommend* ask in writing, citing FNV to FO4, and plan an offline Nexus build with no auto-update (Nexus says auto-update is not crucial).
-- REL-14 credentials: *recommend* never ask for store credentials; detect, instruct, refuse (Fallout London's Downgrader).
+- REL-14 credentials: *recommend* never ask for store credentials; detect, instruct, refuse (a well-known Fallout 4 total conversion's Downgrader).
 - REL-33 precedent authors: *recommend* yes, owner-only outreach.
 - REL-36 scanner flags: *recommend* published hashes, a VirusTotal link and source builds first; signing later.
 - REL-37 donations: *recommend* none, or Nexus Donation Points only; never crowdfunding.
@@ -472,7 +472,7 @@ Nothing here runs now.
 | Mod-manager output targets; `sTestFile` handling; Starfield.ccc and ContentCatalog.txt; pinning a Starfield build; update transport; CLI-first for Linux and Deck; finding My Games robustly; non-ASCII paths; Controlled Folder Access; disk and time budget (distribution-community Q6 to Q16; release side of Q15 in REL-36) | launcher.md |
 | FO4 versions accepted (1.10.163 vs next-gen); deltas vs rebuild; base build vs fix updates; thread and thermal limits; own UI vs MO2 vs Overwolf; Linux and Proton (precedents Q7, Q9 to Q13) | launcher.md |
 | Starfield CK required on players' PCs as a launcher check (precedents Q28); CK Papyrus compiler under Proton (distribution-community Q37) | launcher.md |
-| Wave 2: which Fallout London preflight checks (entry exe, INI freshness, CC files, HD pack, first-run registry keys, resolution, admin rights) map onto Starfield plus SFSE (precedents wave 2 Q3); re-check `Plugins.txt` after the first save load and never rely on the in-game Creations menu (distribution-community W2-1) | launcher.md |
+| Wave 2: which a well-known Fallout 4 total conversion preflight checks (entry exe, INI freshness, CC files, HD pack, first-run registry keys, resolution, admin rights) map onto Starfield plus SFSE (precedents wave 2 Q3); re-check `Plugins.txt` after the first save load and never rely on the in-game Creations menu (distribution-community W2-1) | launcher.md |
 | Wave 2: adopt Skywind's `Claim Fixed` retest-before-close and `Known Shippable` labels (precedents wave 2 Q5); stable naming so converted dialogue and voice paths survive rebuilds (precedents wave 2 Q6); test-runner assert on the active plugin list, not only the file before launch (distribution-community W2-1) | tooling and testing cross-cutting file (not a phase file) |
 | Which Fallout systems to rebuild; SFSE lag after Starfield updates; whether any phase needs SFSE (precedents Q19, Q20; distribution-community Q36) | engine-mechanics.md |
 | TTW-style worldspace merge as precedent for Far Harbor and Nuka-World (precedents Q14) | world and planet cross-cutting file (not a phase file) |
@@ -525,12 +525,12 @@ Nothing here runs now.
 - https://redlib.belloworld.it/r/starfieldmods
 - https://steamcommunity.com/app/377160/discussions/0/3059616584924796846/?l=greek
 - https://next.lemm.ee/post/12632388
-- https://en.wikipedia.org/wiki/Fallout:_London
-- https://www.techspot.com/community/topics/fallout-london-was-ready-for-launch-until-bethesdas-buggy-next-gen-update-broke-it.285631/
-- https://www.pcgamesn.com/fallout-london/epic-games-store
-- https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/
-- https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html
-- https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
 - https://en.wikipedia.org/wiki/Skyblivion
 - https://skyblivion.com/?p=10677
 - https://skyblivion.com/faq
@@ -564,8 +564,8 @@ Nothing here runs now.
 - https://www.reddit.com/r/skyrimmods/comments/1odnpmo/so_what_happened_to_the_beyond_skyrim_project/
 - https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/
 - https://www.pcgamesn.com/skyrim/skyrim-enderal-forgotten-stories-release-date
-- https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1
-- https://www.pcgamesn.com/fallout-london/crashes-patch-soon
+- a third-party source
+- a third-party source
 - https://wiki.simsettlements2.com/getting-started/patch-notes
 - https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/
 - https://handbook.tesrskywind.com/ ; /qa/bug-reporting ; /misc/inactive-lead-guide ; /misc/sharing ; /dev/Principles ; /dev/lessons

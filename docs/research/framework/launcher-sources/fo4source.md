@@ -130,7 +130,7 @@ localized voice archives. gogdb.org and the GOG content API were also blocked fo
 | Store | IDs / markers | Version situation | Sources |
 |---|---|---|---|
 | Steam | app **377160**; CK app 1946160 (depots 1946161/1946162) | Public = 1.11.240 since 2026-08-18 (supported hypothesis); old builds only via depot manifests | LOOT `steam.cpp`, Wabbajack GameRegistry.cs, SteamDB (all **verified**) |
-| GOG | game **1998527297**, HD texture pack **1408237434**; root file `goggame-1998527297.ico` | F4SE: latest GOG ≠ latest Steam (**verified**); Fallout: London gives GOG users no downgrade step (**verified**, https://fallout4london.com/?page_id=6); exact GOG build numbers **unresolved** (gogdb blocked) | LOOT `gog.cpp`, `generic.cpp`; Wabbajack GOGIDs (**verified**) |
+| GOG | game **1998527297**, HD texture pack **1408237434**; root file `goggame-1998527297.ico` | F4SE: latest GOG ≠ latest Steam (**verified**); a well-known Fallout 4 total conversion gives GOG users no downgrade step (**verified**, a third-party source); exact GOG build numbers **unresolved** (gogdb blocked) | LOOT `gog.cpp`, `generic.cpp`; Wabbajack GOGIDs (**verified**) |
 | Microsoft Store / Game Pass | folder `<XboxGamingRoot>\Fallout 4 (PC)\Content`; root found from a `.GamingRoot` file at each drive root; no registry entries for new Xbox-app installs | F4SE refuses: "The Windows Store (gamepass) version of Fallout 4 is not supported" (**verified**); version parity and whether files are readable/unlocked **unresolved** | LOOT `microsoft_store.cpp`, `loot_state.cpp`; F4SE `IdentifyEXE.cpp` |
 | Epic | catalog id `61d52ce4d09d41e48800c22784d13ae8`, app name "Fallout4 EPIC"; manifests in `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item` (JSON `AppName`, `InstallLocation`) | Exists since the NG update (Shacknews, **verified**); F4SE: "The Epic Store version of Fallout 4 is not supported"; MO2/Wabbajack have no FO4 Epic id | LOOT `epic_games_store.cpp`, MO2 `gamegamebryo.cpp` |
 
@@ -170,14 +170,14 @@ localized voice archives. gogdb.org and the GOG content API were also blocked fo
     English 393895 `7677765994120765493`; HD textures 540810 `1558929737289295473`; CK 1946161 `6928748513006443409`, 1946162 `3951536123944501689`.
   - Oddity: Nuka-World French (393896) and Russian (393899) share manifest `4271967849859961419`. That's probably a copy-paste bug in that
     table (supported hypothesis). Don't trust that row without checking.
-- Fallout: London's official page says Steam owners must roll back to 1.10.163.0 via `download_depot 377160 <depot> <manifest>`
+- A well-known Fallout 4 total conversion's official page says Steam owners must roll back to 1.10.163.0 via `download_depot 377160 <depot> <manifest>`
   per part, executable, language pack and owned DLC; merge the depot folders into one; set `appmanifest_377160.acf` read-only;
-  GOG owners install as-is — **verified** (https://fallout4london.com/?page_id=6).
+  GOG owners install as-is — **verified** (a third-party source).
 - Our owner's depot set (377163, 435871, 435880) matches exactly the depots the downgrader's manual instructions list on the Nexus page
   (base + Workshop + Automatron), but **not** Far Harbor / Contraptions / Vault-Tec / Nuka-World (the downgrader's
   `AllDlc` group). This probably explains the four missing DLC (supported hypothesis).
 - Legality/acceptability: `download_depot` is Valve's own client feature and only serves depots the account owns
-  (supported hypothesis; no Valve doc read). Nexus hosts downgraders and the biggest total-conversion mod (London) officially instructs
+  (supported hypothesis; no Valve doc read). Nexus hosts downgraders and the biggest total-conversion mod (a well-known Fallout 4 total conversion) officially instructs
   depot rollback (**verified**). I found no Bethesda statement either way (**unresolved**). Shipping Bethesda files or
   plain patches would be redistribution. The hash-keyed encrypted-patch pattern avoids that (our inference).
 
@@ -282,7 +282,7 @@ localized voice archives. gogdb.org and the GOG content API were also blocked fo
 11. **Is a Game Pass install readable at all (no WindowsApps lock with the newer XboxGames folder), and which version does it ship?** If it
     is readable and its esms match a known hash, we can support it without F4SE (we only read data). Answered by: a Game Pass
     tester listing `<GamingRoot>\Fallout 4 (PC)\Content\Data` with sizes/hashes.
-12. **Which GOG build is current and does GOG still offer 1.10.163?** London says GOG users need no downgrade, so GOG may be the easiest
+12. **Which GOG build is current and does GOG still offer 1.10.163?** a well-known Fallout 4 total conversion says GOG users need no downgrade, so GOG may be the easiest
     path for new users. Answered by: gogdb.org build list (blocked from here) or a GOG owner's `goggame-1998527297.info`.
 13. **Do CC plugins matter to us?** If a user's FO4 data has `Fallout4.ccc` and cc*.esl, do we ignore them (only the 7 masters) or
     convert them too? Ignoring keeps the hash table small. Answered by: an owner decision; checking whether any of our converted records

@@ -214,7 +214,7 @@ Fallout 4 and Skyrim:
 Total conversions and rules:
 - **Tale of Two Wastelands**: users own both games, and install-time builders combine the archives. Versions that shipped
   asset payloads were reportedly removed (supported).
-- **Fallout London** (verified, GOG page): needs the user's own FO4 and makes irreversible changes to the install.
+- **A well-known Fallout 4 total conversion** (verified, GOG page): needs the user's own FO4 and makes irreversible changes to the install.
 - **Fallout: Capital Wasteland** was cancelled. Even extracting voice files from the user's own copy was judged unworkable
   (supported, PCGamesN).
 - **Skywind** is approved by Bethesda and redesigns its assets (supported). **Skyblivion** uses only its own team's assets

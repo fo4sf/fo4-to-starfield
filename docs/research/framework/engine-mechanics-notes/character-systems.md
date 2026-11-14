@@ -137,10 +137,10 @@ them; recheck later.
   a **supported hypothesis** at best). https://www.nexusmods.com/starfield/mods/9427
 
 ## Precedents and lessons
-- **Fallout London** (FO4 total conversion) kept FO4's SPECIAL/perk engine and swapped content: its own traits chosen
+- **A well-known Fallout 4 total conversion** (FO4 total conversion) kept FO4's SPECIAL/perk engine and swapped content: its own traits chosen
   at character creation (Acrobat, Hoarder, Chem Head, Puritan) and SPECIAL-gated perks. **verified** (Prima Games guide).
   Lesson: data-level perks and traits on the engine's own machinery are the cheap path; we lose that because CE2's
-  menu is skills-shaped. https://primagames.com/gaming/fallout-london-character-creation-guide-best-traits-perks-and-starting-stats
+  menu is skills-shaped. a third-party source
 - **SKK FastStart / SyntheticPlayer** (FO4): a start must set the stages that other systems listen to (already in
   saves-and-new-game.md). Applies to SPECIAL allocation at the vault exit and the Pip-Boy pickup.
 - **Starfield needs mods** (Peak Performance, Stellar Needs) both state they replace or require disabling vanilla
@@ -305,6 +305,6 @@ Candidates where FO4 data rides a Starfield system instead of a rebuild (each ne
 - https://www.shacknews.com/article/148343/starfield-story-dlc-content-update;
   https://rpgamer.com/2026/03/starfield-hitting-ps5-in-april-alongside-new-update-dlc/
 - https://www.pcgamesn.com/starfield/mech-mod
-- https://primagames.com/gaming/fallout-london-character-creation-guide-best-traits-perks-and-starting-stats
+- a third-party source
 - Not read (rate-limited): https://tesrskywind.com/faq/,
   https://forums.nexusmods.com/topic/3742365-theory-on-restoring-skills-and-the-leveling-system

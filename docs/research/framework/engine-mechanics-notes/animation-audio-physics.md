@@ -111,7 +111,7 @@ by robots.txt.
   per song, `GetVMQuestVariable` conditions for shuffle, and a timer script that restarts the scene to avoid the
   "radio silence" bug (vanilla uses 900 s). Workshop radios duplicate `RadioDiamondCityReceiver`. **Verified** (page),
   and it matches the older tutorial already cited in radio-music-sound.md.
-- Fallout London's custom-station bundle (Nexus fallout4london 552) fills 40 placeholder `.wav`/`.xwm` per station
+- A well-known Fallout 4 total conversion's custom-station bundle (a third-party mod page) fills 40 placeholder `.wav`/`.xwm` per station
   on frequencies 94.001 to 94.051 and has no shuffle "because too many tracks". **Verified** (page). Lesson: shuffle
   logic per station is the costly part, and fractional frequencies avoid clashes with other mods.
 
@@ -136,7 +136,7 @@ by robots.txt.
   clips. **Verified** (thread opinion, 2023). The 2026 community tools (Animation IO, CALUMI) fill part of that gap.
 - **CP's Menagerie** (above): reusing the nearest vanilla creature skeleton works and ships, but gait and attacks give
   it away. A fallback for FO4 creatures in the "breadth before polish" phase. **Verified** (page).
-- **Fallout London** radio bundle and FO4 radio tutorials: the engine radio needs one scene action per track and a
+- **A well-known Fallout 4 total conversion** radio bundle and FO4 radio tutorials: the engine radio needs one scene action per track and a
   restart timer; the radio-silence bug is a known FO4 failure. **Verified** (pages).
 - **Starfield radio mods** chose SFSE players over the engine radio, presumably because adding new Wwise events is
   unsolved. **Supported hypothesis** (no author says why).
@@ -324,7 +324,7 @@ Read in this pass (Nexus, wiki and GitHub pages, 2026-10-19):
   https://www.nexusmods.com/starfield/mods/10286 , https://www.nexusmods.com/starfield/mods/17900 ,
   https://www.nexusmods.com/starfield/mods/16135
 - FO4 radio tutorial 2026, Nexus FO4 101520: https://www.nexusmods.com/fallout4/mods/101520
-- Fallout London custom stations, Nexus fallout4london 552: https://www.nexusmods.com/fallout4london/mods/552
+- A well-known Fallout 4 total conversion custom stations, a third-party mod page: a third-party source
 - Skyblivion team interview (Nexus, 2017): https://www.nexusmods.com/hellishquart/news/13125
 - Project issue #40 (search hit only): https://github.com/fo4sf/fo4-to-starfield/issues/40
 

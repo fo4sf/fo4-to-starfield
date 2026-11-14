@@ -128,7 +128,7 @@ Current baseline: the frameworks below target Starfield **1.16.244** with **SFSE
   render resolution, power-armor Pip-Boy brightness, and the gamepad cursor on the Pip-Boy map locking at high
   resolutions (**verified**, article). Lesson: the FO4 Pip-Boy look is a render target plus a post shader; if we
   rebuild it we choose which of those we copy. https://www.nexusmods.com/fallout4/articles/2833
-- Fallout London, Tale of Two Wastelands and Capital Wasteland were not researched for UI specifics in this pass
+- A well-known Fallout 4 total conversion, Tale of Two Wastelands and Capital Wasteland were not researched for UI specifics in this pass
   (they stay inside one engine family); **unresolved** whether any wrote a new Pip-Boy menu.
 
 ## Possibilities and hard limits in CE2

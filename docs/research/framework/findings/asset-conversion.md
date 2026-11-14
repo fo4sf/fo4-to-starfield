@@ -220,7 +220,7 @@ All from prior knowledge; their pages could not be read this session, so all are
   had an ESM/script converter), but assets were largely **remade by hand** over more than a decade, partly for
   quality and partly because redistribution of converted assets is not allowed. *Lesson:* the hand-made route does not
   scale to "full game, breadth first", and our local-conversion model is what lets us avoid it.
-- **Fallout London** (FO4): original assets, so it is not a conversion precedent; its installer is the owner's UI
+- **A well-known Fallout 4 total conversion** (FO4): original assets, so it is not a conversion precedent; its installer is the owner's UI
   model (ROADMAP C1).
 - **Capital Wasteland / Fallout 3 in FO4 efforts**: manual remakes with long timelines (**unresolved** status).
 - The common lesson is that **cross-generation automated conversion with local build has no complete precedent**.

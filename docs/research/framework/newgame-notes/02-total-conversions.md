@@ -11,52 +11,52 @@ are marked accordingly.
 
 ---
 
-## 1. Fallout: London (FOLON), FO4 total conversion
+## 1. A well-known Fallout 4 total conversion, FO4 total conversion
 
-- Links: https://en.wikipedia.org/wiki/Fallout:_London ,
-  https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/ ,
-  https://gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork
+- Links: a third-party source,
+  a third-party source,
+  a third-party source
 - **Distribution.** Free on GOG (GOG hosted it because it was too large for typical mod sites). Released 25 July 2024
   after delays, one of them caused by FO4's next-gen update (25 Apr 2024). **verified** (Wikipedia).
   Rabbit & Pork update (30 Sep 2025) added its own launcher "powered by Overwolf" and asked for a new save.
   **verified** (GamingOnLinux; Wikipedia says "new launch method" and "requires a new save").
 - **Base game.** Needs the pre-next-gen FO4 with all DLC; not the High-Res Texture Pack (wrong textures, crashes).
-  Steam users run Team FOLON's Downgrader and set `appmanifest_377160.acf` read-only so Steam does not re-update.
+  Steam users run that team's Downgrader and set `appmanifest_377160.acf` read-only so Steam does not re-update.
   Steam Guard can block the downgrader. Epic was not supported at launch. **verified** (PC Gamer; PCGamesN headline).
   A reader comment names 1.10.163.0 as the target version: **supported hypothesis**.
 - **Install model.** The GOG installer writes into the FO4 folder and edits INI and plugins.txt. PC Gamer says base
-  FO4 cannot be played with FOLON installed; going back means uninstalling both and reinstalling FO4. **verified**
+  FO4 cannot be played with a well-known Fallout 4 total conversion installed; going back means uninstalling both and reinstalling FO4. **verified**
   (PC Gamer). A community Vortex method links the GOG folder into a staging folder so FO4 is not changed permanently,
   but then the user must re-apply the INI `[Archive]` lists (`sResourceStartUpArchiveList`, `SResourceArchiveList2`,
-  `SGeometryPackageList=Fallout4 - Geometry.csg, LondonWorldSpace - Geometry.csg`, `SCellResourceIndexFileList=Fallout4.cdx, LondonWorldSpace.cdx`,
+  `SGeometryPackageList=Fallout4 - Geometry.csg, <its worldspace> - Geometry.csg`, `SCellResourceIndexFileList=Fallout4.cdx, <its worldspace>.cdx`,
   later `sAnimationArchiveName`) and the plugins. **verified** (forums.nexusmods.com/topic/13495490).
-- **Plugins.** `LondonWorldSpace.esm`, `LondonWorldSpace-DLCBlock.esp` (ESM or ESP: posts differ) and `BakaFramework.esm`
+- **Plugins.** `<its worldspace>.esm`, `<its worldspace>-DLCBlock.esp` (ESM or ESP: posts differ) and `BakaFramework.esm`
   on top of Fallout4.esm and the DLC masters. **verified** that these names are required (Nexus forum, Steam thread).
   What DLCBlock does exactly is **unresolved**; the name says it blocks FO4 DLC content (the DLC "radio/quest start"
   hooks are the obvious targets): **supported hypothesis**.
-- **Start mechanism.** With a correct install, New Game plays London's own intro and title screen and starts the player
+- **Start mechanism.** With a correct install, New Game plays a well-known Fallout 4 total conversion's own intro and title screen and starts the player
   in a lab vat with two scientists. **verified** (Steam threads 4512128445067047059, 4512128114435153923).
   If the plugins or launcher are wrong, the player gets FO4's bathroom/pre-war scene or wakes in the Commonwealth with
-  no quests. **verified** (same threads). So FOLON keeps Fallout4.esm loaded and overrides FO4's start; it does not
+  no quests. **verified** (same threads). So a well-known Fallout 4 total conversion keeps Fallout4.esm loaded and overrides FO4's start; it does not
   remove the host master.
 - **How FO4's MQ101 is bypassed.** A Nexus CK thread on making an FO4 alternate start says "MQ101 is hard coded into
-  Fallout4.exe" and that FOLON proves a replacement is possible; options given are editing MQ101's script or patching
-  the exe. **supported hypothesis** (forums.nexusmods.com/topic/13503261, one modder's reply). FOLON's exact method is
+  Fallout4.exe" and that a well-known Fallout 4 total conversion proves a replacement is possible; options given are editing MQ101's script or patching
+  the exe. **supported hypothesis** (forums.nexusmods.com/topic/13503261, one modder's reply). A well-known Fallout 4 total conversion's exact method is
   **unresolved** (no source read). Likely it overrides MQ101 data/script inside its own master.
 - **Launch problems.** Many crash reports at launch, a 9 Aug 2024 hotfix, ~20 testers versus ~150 for FO4 (Dean
   Carter). **verified** (Wikipedia). The most common "start" bug was user error in the load order / launcher, which
   silently produced FO4's start.
-- **Legal.** No formal arrangement with Bethesda described ("zero correspondence"). **verified** (Wikipedia). FOLON
+- **Legal.** No formal arrangement with Bethesda described ("zero correspondence"). **verified** (Wikipedia). A well-known Fallout 4 total conversion
   ships original assets and requires FO4; it does not redistribute other games' assets.
 
 **Lessons for us**
-1. A wrong install must fail loud, not fall back to the host game's start. FOLON's worst support load was players
+1. A wrong install must fail loud, not fall back to the host game's start. A well-known Fallout 4 total conversion's worst support load was players
    silently getting FO4's opening. We need a start-up check (in launcher and in-game) that our plugin is active and
    Starfield's MQ101 did not run.
-2. Pin the host game version. A host update broke FOLON and forced a downgrader. Starfield updates often; our launcher
+2. Pin the host game version. A host update broke a well-known Fallout 4 total conversion and forced a downgrader. Starfield updates often; our launcher
    needs a version gate and a "known good Starfield build" list.
 3. Do not permanently change the host install. Use a separate profile / ini / plugin list so the user can still play
-   vanilla Starfield (FOLON's one-way install was a common complaint).
+   vanilla Starfield (a well-known Fallout 4 total conversion's one-way install was a common complaint).
 4. Their own launcher came a year later "to make install faster and more reliable". Ours is planned from day one; good.
 5. A new major version forced a new save. Plan save versioning from the start.
 
@@ -183,8 +183,8 @@ chargen menu in Starfield is fragile (double-open, notification lock) and needs 
 
 ## Cross-cutting lessons
 
-1. **Fail loud on a broken start** (FOLON). 2. **Version-gate the host game** (FOLON downgrader). 3. **Don't change the
-   host install permanently** (FOLON complaints; Enderal/TTW use separate profiles). 4. **User-built from own files is
+1. **Fail loud on a broken start** (a well-known Fallout 4 total conversion). 2. **Version-gate the host game** (that total conversion downgrader). 3. **Don't change the
+   host install permanently** (a well-known Fallout 4 total conversion complaints; Enderal/TTW use separate profiles). 4. **User-built from own files is
    the only workable legal model for converted assets** (TTW), and voice files are the sharpest legal edge (Capital
    Wasteland). 5. **The host's opening quest is the main source of hidden dependencies** (Starfield alternate starts,
    FO4 "MQ101 hard coded"). 6. **New major version = new save** unless save migration is designed.
@@ -203,7 +203,7 @@ chargen menu in Starfield is fragile (double-open, notification lock) and needs 
    Affects Constellation content and later re-entry. Owner decision + in-game test.
 5. **How does the player choose our game vs vanilla Starfield?** Separate profile/ini, separate plugin list, or in-game
    menu like TTW's choice? Owner decision.
-6. **How do we detect and report a broken start** (our plugin missing, MQ101 ran)? FOLON's top failure. Answer: launcher
+6. **How do we detect and report a broken start** (our plugin missing, MQ101 ran)? A well-known Fallout 4 total conversion's top failure. Answer: launcher
    pre-flight check + in-game first-frame script; offline unittest of the launcher check.
 7. **Do we keep Starfield's opening reachable** (TTW style) or remove it? Owner decision.
 8. **Which Starfield builds do we support, and what happens after a Starfield update?** Answer: launcher version gate;
@@ -213,7 +213,7 @@ chargen menu in Starfield is fragile (double-open, notification lock) and needs 
 10. **Is chargen (ShowRaceMenu-equivalent) safe to run outside MQ101** in the Vault 111 cell? LvxMagicks hit double
     opens and notification locks. Answer: in-game test.
 11. **Do we need a save/load after chargen** to reset UI state, as LvxMagicks added? In-game test.
-12. **What happens to the converted world if a later version changes forms?** Save versioning policy (FOLON forced new
+12. **What happens to the converted world if a later version changes forms?** Save versioning policy (a well-known Fallout 4 total conversion forced new
     saves). Owner decision + design note in decisions.md.
 13. **How do we handle FO4 voice files legally?** Capital Wasteland died on voice licensing; TTW converts them locally.
     Owner decision (possibly legal advice); document in decisions.md.
@@ -228,7 +228,7 @@ chargen menu in Starfield is fragile (double-open, notification lock) and needs 
     output files/hashes; offline unittest.
 19. **What are build time and CPU needs** (TTW audio re-encode takes hours)? Answer: measured launcher run on the PC;
     record in docs/ai/optimization.md.
-20. **Does our plugin need a "DLC block" equivalent** (FOLON's DLCBlock) for Shattered Space and Creations that inject
+20. **Does our plugin need a "DLC block" equivalent** (a well-known Fallout 4 total conversion's DLCBlock) for Shattered Space and Creations that inject
     quests at start? Answer: offline scan of Starfield DLC/Creation start-game-enabled quests; in-game test.
 21. **Does anything in Starfield trigger on the player's home system or Unity state** that our world lacks? In-game test.
 
@@ -237,13 +237,13 @@ chargen menu in Starfield is fragile (double-open, notification lock) and needs 
 1. **Starfield's MQ101 has many hidden dependents.** Alternate-start mods either let part of MQ101 run first
    (LvxMagicks) or list broken side effects (Roleplayers' Alternate Start: SSNN, HUD auto-hide, Frontier, NG+ quests).
    This is verified on the mod pages.
-2. **A wrong install silently fell back to FO4's start.** That was FOLON's most common start bug (bathroom scene,
+2. **A wrong install silently fell back to FO4's start.** That was a well-known Fallout 4 total conversion's most common start bug (bathroom scene,
    Commonwealth with no quests). Verified. We need a loud pre-flight check and an in-game check.
 3. **The legal model only works if users build from their own files, and voice is the risky part.** TTW survives that
    way, with its own hosting (supported hypothesis). Capital Wasteland was cancelled over FO3 voice licensing (verified).
 4. **Older engines choose the start quest from an INI key.** TTW's start choice is controlled through the Custom INI,
    reportedly `SCharGenQuest` (supported hypothesis). One modder says FO4's MQ101 is hard-coded in the exe (also a
    supported hypothesis). Whether Starfield has either is unresolved and decides our route.
-5. **Changing the host install and updating the host game caused FOLON's biggest problems.** It needed the downgrader
+5. **Changing the host install and updating the host game caused a well-known Fallout 4 total conversion's biggest problems.** It needed the downgrader
    and a later Overwolf launcher, and a new version forced a new save (verified). Pin the Starfield version, install
    reversibly and version our saves from the start.

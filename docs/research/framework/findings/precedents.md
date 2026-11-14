@@ -5,7 +5,7 @@ Written 2026-10-19 by the `precedents` research agent (Claude-cloud). Builds on
 does not repeat their table (GAMMA, Wabbajack, TTW size/time, Nexus asset rule, licences).
 Labels: **verified** (read in the linked source), **supported hypothesis**, **unresolved**.
 Research limits: this run hit the shared web-search budget and then an HTTP 429 rate limit. Not read: beyondskyrim.org,
-openmw.org/faq, the Skywind volunteer handbook, a Wccftech Fallout London interview and a Hitmarker Skyblivion piece.
+openmw.org/faq, the Skywind volunteer handbook, a Wccftech interview about a well-known Fallout 4 total conversion and a Hitmarker Skyblivion piece.
 Beyond Skyrim, Enderal's Steam edition and Starfield total conversions are therefore thin and marked unresolved.
 
 **Bottom line.** Only one precedent actually converts game A's content into game B's engine on the player's PC and has
@@ -18,7 +18,7 @@ Bethesda. They restarted only as a full re-voice. Our repo already does the same
 to `.wem` via Wwise (`scripts/actors/codsworth_voice.py`). Every large remake that lasted (Skywind, Skyblivion, F4NV,
 Capital Wasteland v2) moved to replacing assets, voices first. Skyblivion did so because Bethesda required 100%
 replacement. The schedule lessons repeat across projects: 8 to 14 years for remakes, firm dates slip (Skyblivion 2025 to
-2026, Fallout London 2023 to Apr 2024 to Jul 2024), and a platform update can block a finished release (FO4 next-gen
+2026, a well-known Fallout 4 total conversion 2023 to Apr 2024 to Jul 2024), and a platform update can block a finished release (FO4 next-gen
 update, Apr 2024). The questions that matter most for us are therefore: is voice and audio conversion in or out, how do
 we survive game updates on both sides (FO4 *and* Starfield), and how do we keep a mostly-agent team honest about dates.
 
@@ -58,30 +58,30 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
   ([FAQ](https://thebestoftimes.moddinglinked.com/faq.html); [warp2search](https://www.warp2search.net/story/amethyst-mod-manager-v243-drops-ttw-installer-fix-and-wabbajack-beta/))
 - **Legal stance.** None published on the pages read. **unresolved**
 
-### 2. Fallout: London (new content on FO4)
+### 2. A well-known Fallout 4 total conversion (new content on FO4)
 - **History.** Started in 2019 and grew to almost 100 modders and over 100 voice actors. It used about 20 testers against
   Fallout 4's 150, and some members left suddenly when the war in Ukraine started. Planned for 2023, then 23 April 2024,
   then released 25 July 2024 on GOG, with 500,000+ downloads in 24 hours. **verified**
-  ([Wikipedia](https://en.wikipedia.org/wiki/Fallout:_London))
+  (Wikipedia)
 - **Next-gen breakage.** The FO4 next-gen update (25 April 2024) landed two days after the planned launch. The team
   delayed indefinitely, said a rollback would come "only as a last resort", and noted that third-party partners still
   had to update their tools. The "Fallout 4 Downgrader" reached about 60,000 downloads in under a week. **verified**
-  ([TechSpot](https://www.techspot.com/community/topics/fallout-london-was-ready-for-launch-until-bethesdas-buggy-next-gen-update-broke-it.285631/)).
+  (TechSpot).
   Dean Carter said at "the 11th hour" that next-gen "isn't stable enough". Epic copies cannot run it because Epic cannot
-  roll back updates. **verified** ([PCGamesN](https://www.pcgamesn.com/fallout-london/epic-games-store))
-- **Install.** On GOG, install FO4 GOTY in English and turn off cloud saves. On Steam, run Team FOLON's Downgrader, which
+  roll back updates. **verified** (PCGamesN)
+- **Install.** On GOG, install FO4 GOTY in English and turn off cloud saves. On Steam, run that team's Downgrader, which
   needs a Steam login and had Steam Guard problems; skip the High-Res Texture Pack; and set `appmanifest_377160.acf` to
   read-only so Steam does not update FO4 again. **verified**
-  ([PC Gamer](https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/))
+  (PC Gamer)
 - **Launch problems.** Crashes on the train ride, with weapon debris, precombines and previs (`BGSCombinedCellGeometryDB`).
   Mod managers overwrote the required INIs. CC files and the HD pack broke installs. The wrong `Fallout4.esm` caused
   failures, and GameStar gave the sizes: 322,994 KB is right, 67,326 KB is wrong. Steam auto-updates undid the downgrade.
   Players had to launch through `f4se_loader.exe`. **verified**
-  ([GameStar, 2024-07-31](https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html)).
+  (GameStar, 2024-07-31).
   Critics called it "barely playable". A hotfix followed on 2024-08-09. **verified** (Wikipedia)
 - **Later.** A VR version on 2025-05-28. On 2025-09-30, *Rabbit & Pork* (needs a new save; "thousands of bug fixes") with
   a **custom Overwolf-based launcher**. **verified**
-  ([GamingOnLinux](https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/)).
+  (GamingOnLinux).
   It coincided with a funded Kickstarter for a collector's edition. The team plans an original IP as an indie studio, and
   Carter reported "zero correspondence" from Bethesda. **verified** (Wikipedia). Whether Rabbit & Pork accepts next-gen FO4
   is **unresolved**: one reader comment says it is still pinned to 1.10.163.
@@ -183,9 +183,9 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 2. Same note §2 marks as unresolved whether Nexus accepts a cross-game conversion tool. A precedent exists: FNV to FO4
    (Nexus FO4 75425) has converted the player's New Vegas into FO4 since 2023 and is listed "Safe to use". It converts
    no audio. This extends the note rather than settling it; ask Nexus anyway.
-3. Same note §1 says Bethesda later hired some Fallout London modders (Techdirt). Wikipedia quotes Carter: "zero
+3. Same note §1 says Bethesda later hired some modders of a well-known Fallout 4 total conversion (Techdirt). Wikipedia quotes Carter: "zero
    correspondence" from Bethesda. These can both be true; do not cite the hiring as Bethesda endorsing the mod.
-4. ROADMAP §C1 takes "the launcher Fallout London has" as the owner's model. Since 2025-09-30 that launcher is an
+4. ROADMAP §C1 takes "the launcher a well-known Fallout 4 total conversion has" as the owner's model. Since 2025-09-30 that launcher is an
    **Overwolf-based** custom launcher shipped with Rabbit & Pork (GamingOnLinux), not only the GOG installer. Codex's
    step-by-step study should cover it, and its ads/telemetry model is one we should not copy (supported hypothesis;
    Overwolf's terms not read).
@@ -198,7 +198,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 | Capital Wasteland | Cross-engine audio extraction and conversion is the one method Bethesda staff and a lawyer flagged, even from the player's own copy. Our `.fuz` to `.wem` path is the same shape. Decide this before voiced NPCs and companions. |
 | F4NV, Skywind, Skyblivion, CW v2 | Every long-lived remake ended up re-voicing, and two of them remade everything. A silent player (already settled) helps, but NPC voices are the hard core of "People and story". |
 | FNV to FO4 | Player-side cross-engine conversion is tolerated on Nexus when it is free, GPL, and needs the CK. The scope that lasted is world geometry and placements, not actors, quests or scripts: the same order as our breadth-first plan. |
-| Fallout London | A platform update can block a finished mod two days before launch. A store that cannot roll back (Epic) is a store you cannot support. Asking for a Steam login (the downgrader) was fragile because of Steam Guard. Installs broke on mod-manager INI overwrites, CC files, HD packs and wrong ESM sizes: a hash-checked preflight would have caught most. 20 testers was not enough. |
+| A well-known Fallout 4 total conversion | A platform update can block a finished mod two days before launch. A store that cannot roll back (Epic) is a store you cannot support. Asking for a Steam login (the downgrader) was fragile because of Steam Guard. Installs broke on mod-manager INI overwrites, CC files, HD packs and wrong ESM sizes: a hash-checked preflight would have caught most. 20 testers was not enough. |
 | Skyblivion | Public dates slipped (2025 to 2026) and a lead quit citing crunch. Navmesh "across all locations" was among the last blockers, which matches our own navmesh risk. |
 | The Frontier | Contributor vetting and provenance per asset let them strip one person's work within days. Lack of a shared vision and poor management sank the rework. |
 | Project Brazil, Miami, Cascadia | Self-imposed race deadlines and long silences are the norm. Regular public progress keeps communities alive. |
@@ -211,16 +211,16 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
    difference that helps us: we convert, never ship, and the player owns both games. Still, the one precedent says
    Bethesda staff saw this as a red flag.
 2. **Game updates on two moving targets** (high likelihood). Starfield and FO4 both still get patches (FO4 next-gen
-   2024). Fallout London shows one update can halt a release. Our build reads FO4 and writes for Starfield, so we face
+   2024). A well-known Fallout 4 total conversion shows one update can halt a release. Our build reads FO4 and writes for Starfield, so we face
    both, plus SFSE and Address Library lag.
 3. **Schedule optimism** (high likelihood). Every comparable volunteer project slipped by years.
 4. **Scope creep** (medium). The Frontier's scope cut and Skyblivion's shrinking minimum viable product.
-5. **Install-support load** (high at release). Fallout London's first week was mostly install problems.
-6. **Host capacity** (medium). The Frontier overwhelmed Nexus; Fallout London went to GOG for size. Our installer is
+5. **Install-support load** (high at release). A well-known Fallout 4 total conversion's first week was mostly install problems.
+6. **Host capacity** (medium). The Frontier overwhelmed Nexus; a well-known Fallout 4 total conversion went to GOG for size. Our installer is
    small, but a build guide and a support channel are needed on day one.
 7. **Provenance and contributor risk** (low to medium). One contributor's conduct forced The Frontier offline.
-8. **Bethesda tolerance is a pattern, not a right** (already noted in project notes). Paid tiers would end it. Fallout
-   London's Kickstarter collector's edition is the edge case to avoid copying.
+8. **Bethesda tolerance is a pattern, not a right** (already noted in project notes). Paid tiers would end it. a well-known Fallout 4 total
+   conversion's Kickstarter collector's edition is the edge case to avoid copying.
 
 ## Questions for the framework
 
@@ -230,31 +230,31 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
    start (settled for the player), subtitles-only NPC lines, converted voice from the player's copy (CW's banned
    pattern), or re-voice. Evidence: a written decision plus a question to Bethesda or Nexus staff. Who: owner decision,
    then a community contact.
-2. **What does the new-game start do if Starfield updates and breaks the start quest overrides?** Why: Fallout London's
-   next-gen lesson. Options: pin the Starfield version (can't on Steam except a read-only appmanifest, which Fallout
-   London used), detect and refuse, or keep overrides minimal. Evidence: a diff of Starfield.esm start quests across two
+2. **What does the new-game start do if Starfield updates and breaks the start quest overrides?** Why: A well-known Fallout 4 total conversion's
+   next-gen lesson. Options: pin the Starfield version (can't on Steam except a read-only appmanifest, which a well-known Fallout 4 total
+   conversion used), detect and refuse, or keep overrides minimal. Evidence: a diff of Starfield.esm start quests across two
    game versions. Who: offline research plus a PC probe.
 
 ### Door animations
 3. **Do we wait for Starfield's own door animations or ship FO4 clips?** (settled: Starfield first). Precedent check:
-   Skyblivion, Skywind and Fallout London all reuse the host game's animation set. Keep it. Who: no action, record in
+   Skyblivion, Skywind and a well-known Fallout 4 total conversion all reuse the host game's animation set. Keep it. Who: no action, record in
    decisions.md.
 
 ### All interiors
 4. **How do we prove interior conversion against a fixed source version, the way TTW checks BSAs before patching?** Why:
-   TTW refuses unpatchable archives, and wrong `Fallout4.esm` sizes broke Fallout London installs. Options: a per-file
+   TTW refuses unpatchable archives, and wrong `Fallout4.esm` sizes broke a well-known Fallout 4 total conversion installs. Options: a per-file
    hash table for every FO4 master and BA2 (1.10.163 first), or per-record hashes. Evidence: hash the depot. Who: PC probe.
 5. **Navmesh for every interior: generated or converted?** Why: Skyblivion's final blockers included navmesh "across all
    locations". Options: convert FO4 navmesh, generate in the CK, or hybrid. Evidence: a timed run on 10 cells. Who: PC
    probe.
-6. **What is our interior QA budget?** Fallout London had 20 testers and launched "barely playable". Options: automated
+6. **What is our interior QA budget?** a well-known Fallout 4 total conversion had 20 testers and launched "barely playable". Options: automated
    cell-load cycling (the watchdog chain), a community beta, or both. Who: owner.
 
 ### Launcher
-7. **Which FO4 versions does the launcher accept, and how do we treat next-gen?** Options: 1.10.163 only (Fallout
-   London's choice, which forced a Steam login downgrader), or next-gen too. Do not ask for store credentials (ROADMAP).
+7. **Which FO4 versions does the launcher accept, and how do we treat next-gen?** Options: 1.10.163 only (a well-known Fallout 4 total
+   conversion's choice, which forced a Steam login downgrader), or next-gen too. Do not ask for store credentials (ROADMAP).
    Evidence: hash tables for both versions and a record-level diff. Who: offline research plus a PC probe.
-8. **Which stores do we support for FO4 and Starfield?** Epic could not roll back (Fallout London). Skyblivion rejects
+8. **Which stores do we support for FO4 and Starfield?** Epic could not roll back (a well-known Fallout 4 total conversion). Skyblivion rejects
    Epic and Game Pass as "encrypted and/or different". Starfield on Game Pass/Xbox PC has a protected folder (unresolved
    for our case). Evidence: file-access tests per store. Who: community contact plus offline research.
 9. **xdelta-style patches or full rebuilds?** TTW ships binary deltas checked against known inputs. We rebuild from
@@ -265,7 +265,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
     package. Who: owner plus Implementation.
 11. **What threads and thermal limits does the build use?** TTW added `-threads:1` after CPU overheating. Options: a
     configurable worker count with a safe default. Evidence: build telemetry. Who: Implementation.
-12. **Do we build our own launcher UI or rely on MO2 or a third party like Overwolf?** Fallout London moved to an
+12. **Do we build our own launcher UI or rely on MO2 or a third party like Overwolf?** a well-known Fallout 4 total conversion moved to an
     Overwolf launcher in 2025. Options: CLI plus a minimal UI, MO2 instance, or a custom app. Evidence: Overwolf's terms
     (ads, data). Who: owner decision after research.
 13. **Linux and Proton support?** TTW's community tools filled the gap and then broke on installer changes. Options:
@@ -292,7 +292,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 19. **Which Fallout systems do precedents rebuild rather than port?** Skywind rebuilt Morrowind's class system and
     probes on Skyrim's engine. The core pattern is reimplementation on host systems with SKSE plugins (Skywind FAQ).
     Implication: SFSE is likely for the Pip-Boy and VATS. Who: Research.
-20. **What happens when SFSE lags a Starfield update?** Fallout London waited on "third-party partners" for the next-gen
+20. **What happens when SFSE lags a Starfield update?** a well-known Fallout 4 total conversion waited on "third-party partners" for the next-gen
     tools. Options: an SFSE-optional core with SFSE features as add-ons. Evidence: SFSE update-lag history. Who: offline
     research.
 
@@ -300,17 +300,17 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 21. **Do we publish dates?** Every precedent slipped, and Skyblivion's date led to crunch claims. Options: milestones
     without dates (Skywind) or windows with a slip policy. Who: owner.
 22. **How do we answer "is this legal?" on the release page?** Precedents: Skywind "will never charge"; TTW says nothing
-    on its pages; Fallout London ran a Kickstarter for physical goods. Options: a short no-assets, own-both-games, free
+    on its pages; a well-known Fallout 4 total conversion ran a Kickstarter for physical goods. Options: a short no-assets, own-both-games, free
     statement plus a takedown contact. Who: owner.
 23. **Do we contact Bethesda before release, as Capital Wasteland did?** The contact killed CW v1, Skyblivion got
-    conditions plus later praise, and Fallout London had "zero correspondence". Options: no contact, informal contact, or
+    conditions plus later praise, and a well-known Fallout 4 total conversion had "zero correspondence". Options: no contact, informal contact, or
     a written question. Risk either way. Who: owner.
 24. **Where do we host?** FNV to FO4 shows Nexus accepts a cross-game converter tool. TTW moved to ModPub plus Discord.
-    Fallout London used GOG for size. Who: owner plus a Nexus contact.
+    a well-known Fallout 4 total conversion used GOG for size. Who: owner plus a Nexus contact.
 25. **How do we take human contributors?** Precedents run 14 to 100+ people with departments. The Frontier needed to
     strip one contributor's work. Options: a CLA or DCO, a per-asset provenance manifest, a code of conduct (already in
     the repo). Who: owner.
-26. **What is the support model on day one?** Fallout London's first week was install support (INIs, CC files, wrong ESM).
+26. **What is the support model on day one?** a well-known Fallout 4 total conversion's first week was install support (INIs, CC files, wrong ESM).
     Options: a launcher that writes a diagnostic bundle (hashes, plugin list, INIs, crash log) for a single support form.
     Who: Implementation.
 27. **How do we avoid The Frontier's failure modes (competing visions, poor management) with a team of AI agents?**
@@ -330,7 +330,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 ### Cross-cutting
 31. **Is the multi-game future (FO3, NV) blocked by Capital Wasteland's precedent?** FO3 into a newer engine is literally
     the cancelled project. Each future game needs its own legal check, starting with audio. Who: owner.
-32. **What is our realistic time scale?** Precedents: Enderal 5 years with 14 people, Fallout London 5 years with about
+32. **What is our realistic time scale?** Precedents: Enderal 5 years with 14 people, a well-known Fallout 4 total conversion 5 years with about
     100, Skyblivion and Skywind 13+ years. Converting rather than remaking is our structural advantage. Measure it: hours
     per converted interior cell now, then extrapolate. Who: owner plus QA.
 
@@ -344,12 +344,12 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 - https://github.com/jzebedee/bsasharp/
 - https://bloody-disgusting.com/video-games/3536003/fallout-new-vegas-mod-tale-two-wastelands-updated-total-rebuild/
 - https://www.warp2search.net/story/amethyst-mod-manager-v243-drops-ttw-installer-fix-and-wabbajack-beta/
-- https://en.wikipedia.org/wiki/Fallout:_London
-- https://www.techspot.com/community/topics/fallout-london-was-ready-for-launch-until-bethesdas-buggy-next-gen-update-broke-it.285631/
-- https://www.pcgamesn.com/fallout-london/epic-games-store
-- https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/
-- https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html
-- https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
 - https://en.wikipedia.org/wiki/Skyblivion
 - https://skyblivion.com/?p=10677
 - https://skyblivion.com/faq
@@ -377,7 +377,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 - Repo file read: scripts/actors/codsworth_voice.py (FO4 .fuz to .wem via Wwise);
   docs/ROADMAP.md §2 (Phase C launcher model)
 - Not readable this run (HTTP 429 or search budget): beyondskyrim.org, openmw.org/faq, handbook.tesrskywind.com,
-  Wccftech Fallout London interview, Hitmarker Skyblivion/Bethesda piece; Starfield total-conversion search not run.
+  Wccftech interview about a well-known Fallout 4 total conversion, Hitmarker Skyblivion/Bethesda piece; Starfield total-conversion search not run.
 
 ## Wave 2 additions (2026-10-19)
 
@@ -430,22 +430,22 @@ timed out for direct fetch; TinyFish worked). Nexus Mods pages were not fetched.
   single-parent mod listing may not express (**unresolved**; Steam's mod-listing rules not read). It also shows the
   value of installing *outside* the game folder with separate saves, which is the GAMMA-style launcher's aim.
 
-### W2-3. Fallout: London launch problems, primary text (extends wave-1 §2)
-- Team FOLON's own quick-start post on GOG's forum (read in full) tells players to: uninstall FO4 and delete
+### W2-3. A well-known Fallout 4 total conversion launch problems, primary text (extends wave-1 §2)
+- That team's own quick-start post on GOG's forum (read in full) tells players to: uninstall FO4 and delete
   `Documents\My Games\Fallout4` and `AppData\Local\Fallout4`; "Uninstall any mod managers and remove mods"; remove all
   `cc*` Creation Club files; on Steam install only the six named DLC and skip the HD texture pack; run the "Official
-  FOLON Downgrader", which asks for the Steam "username + password ... so the downgrader can confirm your licence ...
+  a well-known Fallout 4 total conversion Downgrader", which asks for the Steam "username + password ... so the downgrader can confirm your licence ...
   and access the depot" and may need Steam Guard authorisation "2 or 3 times"; launch FO4 once so the default launcher
   writes registry keys ("This can be the cause of various installation issues"). The installer writes the INIs and
   AppData itself ("you don't need a mod manager") and launches via `f4se_loader.exe`. **verified**
-  ([GOG forum, FOLON quick start](https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1))
+  (a third-party source)
 - Its FAQ shows which failures dominated: most answers are "Make sure you are opening f4se_loader.exe NOT
   Fallout4.exe" (crash after the train, cannot choose gender, manual-install bugs); HD pack or leftover mods causing odd
   textures; stale INIs causing the vanilla menu; F4SE closing because `iSize H/W` did not match the monitor; intro video
   stalling fixed by "Run this program as an administrator"; a stuck door worked around with `tcl`; a perk bug worked
   around with `player.removeperk`; "Try running at 1080p" for 4K. **verified** (same post)
 - PCGamesN (2024-07-29): crashes and "extremely long loading times" on both Steam and GOG; patch promised via X with a
-  known-issues list. **verified** ([PCGamesN](https://www.pcgamesn.com/fallout-london/crashes-patch-soon)). A 1.02
+  known-issues list. **verified** (PCGamesN). A 1.02
   patch with "hundreds of changes/fixes" followed (Wccftech 2024-10-20, search snippet only, **supported hypothesis**).
 - **What this changes.** Sharpens wave-1's "hash-checked preflight" lesson into a concrete checklist our launcher's
   preflight should test before building: wrong entry exe, stale INIs, leftover mods/CC files in Data, optional HD
@@ -516,7 +516,7 @@ timed out for direct fetch; TinyFish worked). Nexus Mods pages were not fetched.
    "full Commonwealth" drop? Evidence: W2-1. Owner decision.
 2. **Launcher.** Will the launcher ever need the player's store credentials? Proposed rule: never; detect, instruct,
    refuse. Evidence: W2-3. Owner decision.
-3. **Launcher.** Which preflight checks from FOLON's FAQ (entry exe, INI freshness, CC files, HD pack, first-run
+3. **Launcher.** Which preflight checks from a well-known Fallout 4 total conversion's FAQ (entry exe, INI freshness, CC files, HD pack, first-run
    registry keys, resolution, admin rights) map onto Starfield + SFSE? Offline research + PC probe.
 4. **People and story.** If a voiced-player option is ever offered, is it FO4 player lines unchanged only, or are
    spliced lines allowed? Evidence: W2-4 vs Capital Wasteland. Owner decision + Bethesda question.
@@ -534,9 +534,9 @@ timed out for direct fetch; TinyFish worked). Nexus Mods pages were not fetched.
 - https://www.reddit.com/r/skyrimmods/comments/1odnpmo/so_what_happened_to_the_beyond_skyrim_project/
 - https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/
 - https://www.pcgamesn.com/skyrim/skyrim-enderal-forgotten-stories-release-date
-- https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1
-- https://www.pcgamesn.com/fallout-london/crashes-patch-soon
-- https://wccftech.com/fallout-londons-patch-1-02-is-out-now-with-hundreds-of-fixes-and-a-specific-focus-on-graphical-improvements/ (snippet only)
+- a third-party source
+- a third-party source
+- a third-party source (snippet only)
 - https://wiki.simsettlements2.com/getting-started/patch-notes
 - https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/
 - https://simsettlements.com/site/index.php?threads/changing-the-players-character-voice.26659/

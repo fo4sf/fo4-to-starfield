@@ -209,7 +209,7 @@ Read from the author's release thread (Nexus page timed out). **verified**
   several `TIF__` fragments; loose copies of those scripts "will break the quest controls". "Become High King of Skyrim
   - Edits MQ101 ... make sure it loads BEFORE ... so that it won't cause the 'new game' menu to get stuck."
 - "Nothing happened. I tried to start a new game and ended up going to Helgen. Again. Make sure the mod is actually
-  activated." (a silent fall-back to the vanilla start, the FOLON lesson again).
+  activated." (a silent fall-back to the vanilla start, that total conversion's lesson again).
 - "Upgrading a save when you're still in the prison cell is not supported"; a version number is tracked on new game
   and a warning shown (v4.0.2a fixed false warnings).
 - "the GetFormFromFile() Papyrus function cannot return a result for a non-persistent reference".

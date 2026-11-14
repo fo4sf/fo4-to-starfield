@@ -113,12 +113,12 @@ Labels used (as in docs/ai/research-log.md):
 - **verified**: STALKER G.A.M.M.A. Discord: **710,517 members, 168,223 online** (Discord discovery page, read
   2026-10-19). https://discord.com/servers/stalker-gamma-912320241713958912
 - **verified**: Skywind Discord: **41,686 members, 9,220 online**. https://discord.com/servers/skywind-145539675577122816
-- **verified**: Fallout: London passed **500,000 GOG redemptions in 24 hours**, "fastest redeemed game" on GOG (press
-  release, 2024-08-09). https://gamespress.com/Fallout-London-becomes-the-fastest-redeemed-game-of-all-time-on-GOG-an
+- **verified**: A well-known Fallout 4 total conversion passed **500,000 GOG redemptions in 24 hours**, "fastest redeemed game" on GOG (press
+  release, 2024-08-09). a third-party source
 - **verified**: Skywind (2026-05-09): still no release date; ~300 volunteer voice actors; recruiting QA testers.
   https://wccftech.com/skywind-2026-milestone-quests-written-no-release-date/amp/ . So Skywind has no public install
   support history to learn from yet (supported hypothesis).
-- **unresolved**: member counts for Wabbajack, TTW/ModdingLinked, Team FOLON, Sim Settlements 2 and Nolvus Discords
+- **unresolved**: member counts for Wabbajack, TTW/ModdingLinked, that team, Sim Settlements 2 and Nolvus Discords
   (Discord's invite API was blocked from this session; search found no discovery pages). Help-channel message
   volumes and staff counts were not published anywhere I found, for any of the seven projects.
 
@@ -145,17 +145,17 @@ Labels used (as in docs/ai/research-log.md):
   only via Discord; AGPL-3.0. The community Linux `gamma-launcher` gets GitHub reports with distro, exact command, Wine
   version, mod count and a `modlist.txt` diff (verified, https://github.com/Mord3rca/gamma-launcher/issues/178).
   **unresolved**: GAMMA's own diagnostics/log tooling.
-- **Fallout: London** (verified): support through two new Discord channels opened at launch
-  (https://www.pcgamesn.com/fallout-london/crashing), the GOG forum and X
-  (https://wccftech.com/fallout-london-team-folon-working-on-major-bug-fixes/), and per-person troubleshooting on social
+- **A well-known Fallout 4 total conversion** (verified): support through two new Discord channels opened at launch
+  (a third-party source), the GOG forum and X
+  (a third-party source), and per-person troubleshooting on social
   media and Discord (press release above).
 
 ### 2.3 Top install-failure causes they publish (all verified from the pages in 2.2 and below)
 | Cause | Who lists it |
 |---|---|
 | Install path in a protected folder (Downloads, Desktop, Documents, OneDrive, Program Files, drive root) | Wabbajack |
-| Wrong or modified base game version / hash mismatch / missing DLC or Creation Club content | Nolvus, Wabbajack, TTW, FOLON |
-| Leftover mods, CC files, old INIs in Data or Documents\My Games | TTW, FOLON |
+| Wrong or modified base game version / hash mismatch / missing DLC or Creation Club content | Nolvus, Wabbajack, TTW, a well-known Fallout 4 total conversion |
+| Leftover mods, CC files, old INIs in Data or Documents\My Games | TTW, a well-known Fallout 4 total conversion |
 | Antivirus / Controlled Folder Access / firewall blocking | Nolvus, TTW |
 | Low disk space (Wabbajack: hash mismatch "usually caused by low disk space"; add 40-60 GB headroom) | Wabbajack |
 | Missing runtimes (.NET 8 Desktop, VC++ 2019, WebView2) | Wabbajack |
@@ -163,30 +163,30 @@ Labels used (as in docs/ai/research-log.md):
 | Download host limits (Nexus non-Premium 3 MB/s, Mega 509, Google Drive 429) | Nolvus, Wabbajack |
 | Corrupt cached downloads ("file is being used by another process", "could not extract") | Nolvus |
 | Moving the install folder mid-install; editing internal state files by hand | Nolvus |
-| Game not launched once first (registry/INIs missing) | FOLON, TTW |
+| Game not launched once first (registry/INIs missing) | A well-known Fallout 4 total conversion, TTW |
 | Archive "blocked" by Windows Mark-of-the-Web ("This app can't run on your PC") | TTW |
 | Quoted paths pasted into a path box | TTW |
 | Non-English game install, non-Latin system locale | TTW, Wabbajack |
-| Running the wrong exe (`Fallout4.exe` instead of `f4se_loader.exe`) | FOLON |
+| Running the wrong exe (`Fallout4.exe` instead of `f4se_loader.exe`) | A well-known Fallout 4 total conversion |
 
-### 2.4 Fallout: London launch week (verified unless marked)
+### 2.4 a well-known Fallout 4 total conversion launch week (verified unless marked)
 - Delayed from 2024-04-23 because Bethesda's next-gen FO4 update shipped first; released **2024-07-25** on GOG,
-  pinned to the pre-next-gen FO4. https://en.wikipedia.org/wiki/Fallout:_London
+  pinned to the pre-next-gen FO4. a third-party source
 - Steam owners had to **downgrade** with the team's Downgrader (log in with Steam credentials, Steam Guard prompts
   "possibly 2 or 3 times") or a manual guide, then make `appmanifest_377160.acf` read-only to stop re-updates; GOG was the
-  easy route. https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/ ,
-  https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/post12
+  easy route. a third-party source,
+  a third-party source
 - A developer-marked GOG quick-start/common-fixes post went up **the next day (2024-07-26)**: use the Downgrader, launch FO4
   once, delete old INIs and AppData, start via `f4se_loader.exe`, remove CC files and all mods, recommend Buffout 4. Same GOG URL.
 - Reported problems: crashes after the train sequence (both Steam and GOG), FO4 menu music, green UI, no female
   character, launch crashes; the Steam-credentials downgrader was called "a major barrier to entry".
-  https://www.mmorpg.com/news/fallout-london-launch-bugs-are-being-worked-out-little-by-little-2000132346 (2024-07-30)
+  a third-party source (2024-07-30)
 - Team statement on X (~2024-07-30): "We're working hard to fix the reported technical issues and expect to release an
   update soon." First **hotfix 2024-08-09** (15 days after launch). Wikipedia; press release.
 - 2025-09-30 *Rabbit & Pork*: new save required and a **custom Overwolf-powered launcher/installer** to make installation
-  "faster and more reliable". https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
+  "faster and more reliable". a third-party source
 - **supported hypothesis**: most launch-week load was environment (wrong game version, leftover mods/INIs, wrong exe),
-  not content bugs; a launcher that checks those before launch removes the bulk of it. FOLON itself ended up shipping its
+  not content bugs; a launcher that checks those before launch removes the bulk of it. A well-known Fallout 4 total conversion itself ended up shipping its
   own launcher a year later.
 
 ---
@@ -228,7 +228,7 @@ Labels used (as in docs/ai/research-log.md):
 - **verified**: Nexus Mods ran an advance news article for the FO4 Anniversary update (posted 2025-11-06 for
   2025-11-10), told users to back up, added a "Works with Anniversary Upgrade" tag, and noted F4SE got no early access.
   https://www.nexusmods.com/hacklastrecode/news/15400
-- **verified**: Team FOLON used X + Discord + GOG forum; Sim Settlements 2 uses a public tracker with status labels;
+- **verified**: That team used X + Discord + GOG forum; Sim Settlements 2 uses a public tracker with status labels;
   Wabbajack uses CI validation (sections 2.2, 2.4).
 - **verified**: Starfield has a public Steam `beta` branch where updates appear before release (2023 article).
   https://www.bgr.com/entertainment/you-can-test-starfield-updates-before-they-roll-out-to-everyone-heres-how
@@ -283,7 +283,7 @@ https://www.nexusmods.com/starfield/mods/10457?tab=files
    never allow moving the data folder during a build.**
 
 5. **What does the pre-flight check verify before a build and before every launch?**
-   Why: wrong game version, leftover mods/INIs, missing runtimes, MOTW-blocked files and the wrong exe drove FOLON's and
+   Why: wrong game version, leftover mods/INIs, missing runtimes, MOTW-blocked files and the wrong exe drove a well-known Fallout 4 total conversion's and
    others' launch-week load. What answers it: one check per row of 2.3 with a synthetic fixture test. **Default: exe
    version + hash of Fallout4.exe/Starfield.exe against a known list, SFSE/Address Library version match, Data-folder
    contamination scan, launched-once check, MOTW check, free space, AV/Controlled Folder Access hint; each failure shows a
@@ -316,7 +316,7 @@ https://www.nexusmods.com/starfield/mods/10457?tab=files
    the detected exe version and shows a banner and blocks the build on "broken"; mirror it in a pinned GitHub issue.**
 
 10. **Do we support playing on an old runtime, and do we help players stay on one?**
-    Why: FOLON's Steam downgrade (credentials, read-only appmanifest) was its biggest barrier; SFEF keeps per-runtime
+    Why: A well-known Fallout 4 total conversion's Steam downgrade (credentials, read-only appmanifest) was its biggest barrier; SFEF keeps per-runtime
     builds; the core stack catches up in 0-2 days. What answers it: EULA and store findings plus how version-specific our
     generated data is. **Default: never downgrade the game for the player or handle Steam credentials; support the current
     release runtime only, show "wait for update" when the game is newer than supported, and document Steam's "update only on
@@ -336,13 +336,13 @@ https://www.nexusmods.com/starfield/mods/10457?tab=files
     higher version); keep `stable` and `beta` channels; keep the last 3 releases in the feed.**
 
 14. **Signing: which route and when?**
-    Why: unsigned PyInstaller apps trip SmartScreen and AV; FOLON/TTW list AV as a top cause. What answers it: cost and
+    Why: unsigned PyInstaller apps trip SmartScreen and AV; a well-known Fallout 4 total conversion/TTW list AV as a top cause. What answers it: cost and
     eligibility of SignPath (free OSS) vs Azure Artifact Signing, and whether it fits `--signTemplate`. **Default: sign from
     the first public release; submit each release to Microsoft's false-positive portal; never ask users to disable AV,
     only to add an exclusion for the data folder.**
 
 15. **What support load should we plan for?**
-    Why: FOLON saw 500k redemptions in 24 h and needed new Discord channels on day one, a fix post on day two and a hotfix
+    Why: A well-known Fallout 4 total conversion saw 500k redemptions in 24 h and needed new Discord channels on day one, a fix post on day two and a hotfix
     on day 15; GAMMA's Discord is 710k members. No project publishes staff or ticket numbers. What answers it: a soft
     launch with telemetry-free counts (GitHub release downloads, issue volume per pre-flight check ID). **Default: staged
     release (beta channel first), a launch-week FAQ prepared from the 2.3 table, and a rule that every repeated issue becomes

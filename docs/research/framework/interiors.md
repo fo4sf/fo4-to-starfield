@@ -84,7 +84,7 @@ Findings:
 - **verified**: a door link exists twice (NVNM triangle and NAVI/NVMI door links), and the teleport marker must sit
   over a navmesh triangle in front of the door on both sides.
 - Precedents: Skyblivion hand-draws navmesh ([volunteer page](https://skyblivion.com/volunteer/)); TTW finalizes per cell in
-  GECK ([TTW forum](https://taleoftwowastelands.com/viewtopic.php@t=8436)); Fallout London, Beyond Skyrim, Cascadia
+  GECK ([TTW forum](https://taleoftwowastelands.com/viewtopic.php@t=8436)); a well-known Fallout 4 total conversion, Beyond Skyrim, Cascadia
   appear to re-author in the target CK (**supported**).
 
 ## 3. Lighting, atmosphere and sound
@@ -217,7 +217,7 @@ Sources: Mutagen dev records and the NuGet index; TES5Edit whatsnew.md (dev-4.1.
 | Skywind | Hand remake | | Nexus moderated it while it exchanged assets between Bethesda games ([Nexus](https://www.nexusmods.com/uno/news/12752)) |
 | TTW (Fallout 3 in New Vegas) | Automated: rebuilt from the player's own files, same engine generation | Not published | Saves break across version bumps ([FAQ](https://thebestoftimes.moddinglinked.com/faq.html)) |
 | Capital Wasteland (FO3 in FO4) | Hand remake plus an audio extraction tool | | Stopped once over legality: Bethesda licenses, not owns, the voice acting ([PCGamesN](https://pcgamesn.com/fallout-4/fallout-4-fallout-3-capital-wasteland-mod)) |
-| Fallout London | Original, by hand | Patch 1.02 regenerated previs/precombines for crashes and culling ([Wccftech](https://wccftech.com/fallout-londons-patch-1-02-is-out-now-with-hundreds-of-fixes-and-a-specific-focus-on-graphical-improvements/amp/)) | A Bethesda update broke it before launch; buggy reception |
+| A well-known Fallout 4 total conversion | Original, by hand | Patch 1.02 regenerated previs/precombines for crashes and culling (Wccftech) | A Bethesda update broke it before launch; buggy reception |
 | Cascadia, Fallout 4: New Vegas, Beyond Skyrim | Hand-built; Beyond Skyrim shipped a separate interiors beta ([blog](https://beyondskyrim.org/blog/bruma-interiors-go-beta)) | | Long silences; side releases in the meantime |
 | fnv-to-fo4 (GitHub, GPL-3.0) | Automated converter on the player's PC; models "fully", plugins "partially" ([repo](https://github.com/terry-haire/fnv-to-fo4)) | Not documented | The closest technical precedent |
 | Fallout 4 to Starfield | Only an outfit porter beta found ([Nexus 18458](https://www.nexusmods.com/starfield/mods/18458)); **no port of whole interiors or worlds found** (**supported**) | | |
@@ -378,7 +378,7 @@ Their schema labels XCLL +28 "Gravity Scale" and +104 "Interior Type", both xEdi
 | P4 | What counts as "done" for an interior: tiers and pass criteria? | 271 cells cannot each be checked by hand | Write a rubric from Skyblivion's polish list (navmesh, enemies, clutter, local map) |
 | P5 | How do we score navmesh quality automatically (coverage, islands, door links)? | Needed to auto-tier cells | Prototype a metric on existing navmesh JSON |
 | P6 | Which interiors ship first: most visited, or simplest? | A staged release protects reception | Rank by refs and quest links from the census |
-| P7 | Which Starfield build do we pin, and how does the launcher react to an update? | Updates broke Fallout London | Decide and log in decisions.md |
+| P7 | Which Starfield build do we pin, and how does the launcher react to an update? | Updates broke a well-known Fallout 4 total conversion | Decide and log in decisions.md |
 | P8 | Do saves survive a re-converted interior? | TTW breaks saves on version bumps | Build, save, rebuild, load (ids are now kept across batches) |
 | P9 | Local maps and map markers per interior? | Skyblivion lists local maps as polish work | One cell in game |
 | P10 | Credits, testers' report channel, public wording that never implies "complete" | Etiquette, licences, reception | Credits file; reuse community_report.yml; owner-approved release notes |

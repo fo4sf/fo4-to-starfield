@@ -617,7 +617,7 @@ kind, built in Phase B).
 
 ## 2. Phase C (later): a launcher and a Fallout core on Creation Engine 2
 
-The owner's words, verbatim: "then lets move to making a launcher like fallout london has where it focuses on the core
+The owner's words, verbatim: "then lets move to making a launcher like a well-known Fallout 4 total conversion has where it focuses on the core
 of what we need removes the starfield unneeded bits and start building what we need for a base core to make a build to
 play any fallout from in creation 2 with the base same idea with fallout 4, a second one that allows a playthrough of
 all games as one player then a mode an a third build for a stalker gamma style experience the reason for this i
@@ -630,8 +630,8 @@ the owner before C3 is designed.
 
 ### C1. The launcher
 
-The owner's model is the launcher Fallout London has; what it does step by step is Codex's first Phase C research
-item (Fallout London's GOG installer copies that team's own original content into the player's Fallout 4 folder, and
+The owner's model is the launcher a well-known Fallout 4 total conversion has; what it does step by step is Codex's first Phase C research
+item (a well-known Fallout 4 total conversion's GOG installer copies that team's own original content into the player's Fallout 4 folder, and
 Steam owners run a downgrader that asks for their Steam login and rewrites the install; our builds contain Bethesda's
 content, so we cannot ship them, and we never ask for store credentials). Ours, for the user's own Starfield: it checks
 both game copies and only reads the Fallout 4 install; runs the converters on the user's machine against the user's
@@ -655,7 +655,7 @@ equivalents and which are rebuilt, and PLAN.md is updated once the owner agrees.
 | Build | What it is | Notes |
 |---|---|---|
 | **1. Any Fallout on Creation Engine 2 (the base)** | each Fallout game playable on its own in Starfield's engine, made the same way as Fallout 4; Fallout 4 comes first and is the end state of this port | the Commonwealth, its interiors, actors, quests; other games follow as their converters exist (build 2's notes) |
-| **2. All games, one playthrough** | one character through every Fallout world in sequence | each game needs its own converter and the player's own copy of that game. Fallout 3 and New Vegas are Gamebryo-era (a second reader feeding the same pipeline). Fallout 1, 2 and Tactics are 2D, so they would be hand-built recreations outside the deterministic pipeline (PLAN.md section 2), each a project of Fallout London's size. Fallout 76 is an online game under its own terms; whether it is in scope is the owner's call after research |
+| **2. All games, one playthrough** | one character through every Fallout world in sequence | each game needs its own converter and the player's own copy of that game. Fallout 3 and New Vegas are Gamebryo-era (a second reader feeding the same pipeline). Fallout 1, 2 and Tactics are 2D, so they would be hand-built recreations outside the deterministic pipeline (PLAN.md section 2), each a project of a well-known Fallout 4 total conversion's size. Fallout 76 is an online game under its own terms; whether it is in scope is the owner's call after research |
 | **3. STALKER GAMMA style** | original systems built on build 1 and inspired by the STALKER GAMMA modpack: anomalies, artifacts, A-life style spawns, weapon degradation and repair, hunger, thirst, sleep, faction wars, an economy | no assets, scripts or code from STALKER, Anomaly or GAMMA's component mods, which have their own authors and licenses |
 
 ### Constraints that hold for all of Phase C
@@ -669,7 +669,7 @@ equivalents and which are rebuilt, and PLAN.md is updated once the owner agrees.
 
 ### First steps for Phase C (research, after Phase B's exit)
 
-- **Codex:** extend #286 (the open launcher and streaming spike) with what Fallout London's installer and the FO4
+- **Codex:** extend #286 (the open launcher and streaming spike) with what a well-known Fallout 4 total conversion's installer and the FO4
   Downgrader actually do step by step and which steps we must not copy; then a design for install, profile, plugin
   order, INI, verification and rollback on top of scripts/game/exp_install.py and the recoverable deployment work.
 - **Grok:** a survey of the Fallout systems that have no Starfield equivalent (SPECIAL, VATS, Pip-Boy, radiation,

@@ -192,17 +192,17 @@ URL: https://nexusmods.com/fallout4/mods/88418
   Lesson: global state (time scale) left by the intro must be reset by a skip.
 - PC Gamer overview: https://pcgamer.com/begin-a-new-life-in-fallout-4-with-an-alternate-start-mod (not read; 429).
 
-### 2.5 Fallout: London (FOLON team), a world without the base game's main quest
-URLs: https://en.wikipedia.org/wiki/Fallout:_London ; reintegration mod https://www.nexusmods.com/fallout4london/mods/641 ;
-https://www.nexusmods.com/fallout4london/mods/17?tab=posts ;
-https://screenplaysmag.com/blog/character-creation-in-fallout-london-requires-a-new-save-file/
-- **verified** (641's page): Fallout London "disables FO4's DLCs and starting quests". The pieces named:
-  `Folon_DisablePlayerDialogueScript` (disables the DLC quests), a modified vanilla fragment `QF_MQ101_0001ED86`, and
-  London's own `QF_FOLON_MQ101_0119ABAA`. The reintegration mod edits them so MQ101 reaches stages 900 and 1000, MQ102
+### 2.5 a well-known Fallout 4 total conversion (that team), a world without the base game's main quest
+URLs: a third-party source; reintegration mod a third-party source;
+a third-party source;
+a third-party source
+- **verified** (641's page): A well-known Fallout 4 total conversion "disables FO4's DLCs and starting quests". The pieces named:
+  a player-dialogue disable script (disables the DLC quests), a modified vanilla fragment `QF_MQ101_0001ED86`, and
+  that total conversion's own main-quest start fragment. The reintegration mod edits them so MQ101 reaches stages 900 and 1000, MQ102
   is not started or stopped, and a one-shot teleport to Vault 111 starts MQ102 at stage 6.
-- **verified**: London has its own chargen (containment chamber, appearance, SPECIAL, traits) and needs a new game.
+- **verified**: A well-known Fallout 4 total conversion has its own chargen (containment chamber, appearance, SPECIAL, traits) and needs a new game.
 - **supported hypothesis** (comments on mod 17, unverified user reports): with FO4's quests revived in Boston, speech
-  checks broke, the Pip-Boy map stayed on London, companions stuck in Boston, the Kellogg terminal froze.
+  checks broke, the Pip-Boy map stayed on a well-known Fallout 4 total conversion, companions stuck in Boston, the Kellogg terminal froze.
 - Lessons: this is the closest precedent to us in reverse (a total conversion on Creation Engine that keeps the base
   master but turns off its start, DLC and main quest from script). It shows (a) a "disable list" script is the
   practical way; (b) the world map (Pip-Boy/starmap) follows the active worldspace logic and is a pain point; (c)
@@ -243,7 +243,7 @@ https://tes-mods.fandom.com/wiki/Alternate_Start_-_Live_Another_Life
 1. Two mechanisms dominate in Starfield: **(i) the MQ101Debug global** (SKK: 8 for New Atlantis, 5 for Vectera mine;
    FO4's Skip mod also uses FO4's MQ101Debug), and **(ii) overriding `StartupQuest_DO`** to launch a custom controller
    instead of MQ101 (No Ship Fast Start). Our option A (Quest.Stop from a start-game-enabled quest) has no public
-   Starfield precedent that I found; it is the closest to Fallout London's script-disable approach. **supported
+   Starfield precedent that I found; it is the closest to a well-known Fallout 4 total conversion's script-disable approach. **supported
    hypothesis**: option A races MQ00/MQ101 start-up; the StartupQuest_DO path avoids the race by never launching them.
 2. Skipping MQ101 has known systemic side effects in Starfield: Cruise Mode (SKK, Crimson, No Ship all restore it),
    sustenance (`PEO_SustenanceAllowed`), home-ship-dependent services (`SQ_PlayerShip` placeholder), the trait quest
@@ -288,7 +288,7 @@ https://tes-mods.fandom.com/wiki/Alternate_Start_-_Live_Another_Life
    the Lodge)?** Why: First We Crawl and RAS had to suppress Kreet triggers. How: PC check of story-manager nodes and
    triggers referencing MQ101; owner decision on whether Starfield space is reachable at all.
 10. **Which of Starfield's ~144 start-game quests must be held off, and which must keep running (SQ_PlayerShip,
-    SQ_ENV, followers, crime)?** Why: Fallout London shows a disable-list script is how a total conversion does it.
+    SQ_ENV, followers, crime)?** Why: A well-known Fallout 4 total conversion shows a disable-list script is how a total conversion does it.
     How: first in-game `sqv` record, then a curated list (docs/newgame section 8 already plans this).
 11. **Do we set FO4's MQ101/MQ102 equivalent stages for our own converted content and any future FO4-content plugins?**
     Why: FO4 mods hang off MQ102 10/15; our later phases (Codsworth, Preston) will need the same hooks. Owner decision
@@ -312,7 +312,7 @@ https://tes-mods.fandom.com/wiki/Alternate_Start_-_Live_Another_Life
     Speed Start fixed a time-scale bug; Skip notes an engine white flash. How: in-game check of `GetGlobalValue
     TimeScale`, controls and HUD after our start.
 19. **What is the starmap/world map behaviour when the player is in our converted Commonwealth with no system/planet
-    context?** Why: Fallout London's Pip-Boy map followed the wrong world. How: in-game test of the scanner/map on the
+    context?** Why: A well-known Fallout 4 total conversion's Pip-Boy map followed the wrong world. How: in-game test of the scanner/map on the
     surface.
 20. **Do we add an LAL-style failsafe for every path that routes around our intended trigger (no elevator prompt
     answered, player clips out, save/load mid-start)?** Why: LAL's force-start on entering Dragonsreach is why it is
@@ -346,8 +346,8 @@ https://tes-mods.fandom.com/wiki/Alternate_Start_-_Live_Another_Life
 - https://nexusmods.com/fallout4/mods/88418
 - https://www.nexusmods.com/fallout4/mods/54157
 - https://www.nexusmods.com/fallout4/mods/99690
-- https://www.nexusmods.com/fallout4london/mods/641
-- https://www.nexusmods.com/fallout4london/mods/17?tab=posts
-- https://screenplaysmag.com/blog/character-creation-in-fallout-london-requires-a-new-save-file/
+- a third-party source
+- a third-party source
+- a third-party source
 - https://www.nexusmods.com/skyrimspecialedition/mods/272
 - https://tes-mods.fandom.com/wiki/Alternate_Start_-_Live_Another_Life

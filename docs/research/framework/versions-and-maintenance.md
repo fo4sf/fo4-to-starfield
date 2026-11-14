@@ -70,11 +70,11 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 
 | Option | What it gives | Cost or risk | Precedent | Label |
 |---|---|---|---|---|
-| Accept 1.10.163 data only; player downgrades with the community downgrader | One canonical input; simplest tests | Most players must patch their game; Steam re-updates undo it | Fallout London (Team FOLON downgrader, needed a Steam login, read-only appmanifest) ([PC Gamer](https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/)); universal downgrader with xdelta3, no login ([Steam thread](https://steamcommunity.com/app/377160/discussions/0/685239894022330731/)) | **verified** precedents |
+| Accept 1.10.163 data only; player downgrades with the community downgrader | One canonical input; simplest tests | Most players must patch their game; Steam re-updates undo it | A well-known Fallout 4 total conversion (That team downgrader, needed a Steam login, read-only appmanifest) (PC Gamer); universal downgrader with xdelta3, no login ([Steam thread](https://steamcommunity.com/app/377160/discussions/0/685239894022330731/)) | **verified** precedents |
 | Support every runtime through per-version fixtures | Players keep their game | A matrix to test and maintain; four FO4 updates since Nov 2025 | none found | **supported hypothesis** |
 | Normalise inputs: detect the data version, map records to one canonical set | One output for every player; keeps the determinism gate (launcher note L4) | Needs a record-level diff per version first | TTW checks BSAs before patching ([TTW forum t=1031](https://taleoftwowastelands.com/viewtopic.php@t=1031)) | **supported hypothesis** |
-| Detect version by data: hash Fallout4.esm and DLC .esm, read BA2 header bytes, check for Anniversary CC files | Never depends on the exe | Needs hashes from real installs (and per language) | Fallout London: right Fallout4.esm is 322,994 KB, wrong is 67,326 KB ([GameStar](https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html)) | **verified** precedent; method **supported hypothesis** |
-| Treat Anniversary CC files and the High-Res Texture Pack as ignored | Smaller asset and legal surface | Players may expect that content | Fallout London: CC files and the HD pack broke installs; skip the HD pack (GameStar, PC Gamer) | **verified** precedent |
+| Detect version by data: hash Fallout4.esm and DLC .esm, read BA2 header bytes, check for Anniversary CC files | Never depends on the exe | Needs hashes from real installs (and per language) | A well-known Fallout 4 total conversion: right Fallout4.esm is 322,994 KB, wrong is 67,326 KB (GameStar) | **verified** precedent; method **supported hypothesis** |
+| Treat Anniversary CC files and the High-Res Texture Pack as ignored | Smaller asset and legal surface | Players may expect that content | A well-known Fallout 4 total conversion: CC files and the HD pack broke installs; skip the HD pack (GameStar, PC Gamer) | **verified** precedent |
 
 ### Fallout 4 stores
 
@@ -82,7 +82,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 |---|---|---|
 | Steam | Current 1.11.240; rollback guides list one exe depot (377162) or six depots | **verified** ([Nexus forum guide](https://forums.nexusmods.com/topic/13525754-how-to-downgrade-fallout-4-game-of-the-year-edition-after-the-anniversary-update-rollback-from-111137-to-110984/), [Steam guide 3604110005](https://steamcommunity.com/sharedfiles/filedetails/?id=3604110005), since removed) |
 | GOG | One commenter says GOG "never got the last update" [Added 2026-10-19: GOG Fallout 4 ships only 1.10.163.0, so GOG players need no downgrade] | ~~**unresolved** ([Nexus news 15400](https://www.nexusmods.com/news/15400))~~ [Correction 2026-10-19: **verified** (gogdb.org, via launcher.md revision 2)] |
-| Epic | Cannot roll back updates, so Fallout London could not support it | **verified** ([PCGamesN](https://www.pcgamesn.com/fallout-london/epic-games-store)) |
+| Epic | Cannot roll back updates, so a well-known Fallout 4 total conversion could not support it | **verified** (PCGamesN) |
 | Microsoft Store / Game Pass | Skyblivion rejects Epic and Game Pass copies as "encrypted and/or different"; TTW does not support the Microsoft Store | **verified** for those projects ([Skyblivion FAQ](https://skyblivion.com/faq), [TTW intro](https://thebestoftimes.moddinglinked.com/intro.html)); for Fallout 4 data **unresolved** |
 
 ### Starfield patch day
@@ -92,7 +92,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 | Refuse to launch until SFSE and our project publish support (current preflight gate) | No broken sessions | Players wait; SFSE was same-day in 2026 but our own fixes are the bottleneck | Wabbajack "Platform-locked" Starfield lists ([Wabbajack wiki](https://wiki.wabbajack.org/user_documentation/Supported%20Games%20and%20Mod%20Managers.html)) | **verified** |
 | Warn and run a data-only tier | Core keeps working through a compiler-setting patch | Only if no phase needs SFSE | 1.15.216 broke "most if not all" SFSE plugins (sfse_whatsnew) | **verified** risk; option **supported hypothesis** |
 | MO2-style "Stock Game" copy | Keeps the version "even if an update is released" | Doubles disk use (about 100+ GB, **supported hypothesis**) | [ejams1 guide](https://github.com/ejams1/starfield-modding-guide) | **verified** |
-| Read-only `appmanifest` or "update only when launched" | Stops Steam updates | Steam settings belong to the player; verifying files undoes patches | Fallout London; TTW FAQ (verify reverts patches) | **verified** |
+| Read-only `appmanifest` or "update only when launched" | Stops Steam updates | Steam settings belong to the player; verifying files undoes patches | A well-known Fallout 4 total conversion; TTW FAQ (verify reverts patches) | **verified** |
 | Steam depot download (`download_depot`, DepotDownloader) | Real rollback | Needs the player's login: ruled out (ROADMAP C1); depot IDs not read | none read | **unresolved** |
 | Watch the Steam `beta` branch and Bethesda's #steam-beta-feedback | Weeks of warning (1.15.214 was public beta on 6 May 2025) | Someone must watch | [r/Starfield mirror](https://twt.omada.cafe/r/Starfield/comments/1kg7k32/starfield_update_115214_may_6_2025_beta); [Nexus forum](https://forums.nexusmods.com/topic/13203033-helpful-links-references-and-news/page/36) | **verified** |
 
@@ -128,7 +128,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 ### A. Fallout 4 versions and stores as inputs
 
 **VM-01. Which Fallout 4 data versions does the launcher accept: 1.10.163 only, 1.10.984, 1.11.x, or all?**
-- Why it matters: most players are on 1.11.240; requiring a downgrade repeats Fallout London's support load.
+- Why it matters: most players are on 1.11.240; requiring a downgrade repeats a well-known Fallout 4 total conversion's support load.
 - Options: (a) require a downgrade (universal downgrader, no login, xdelta3) ([Steam thread](https://steamcommunity.com/app/377160/discussions/0/685239894022330731/)); (b) support each runtime with per-version fixtures; (c) normalise inputs to one canonical record set. Never ask for credentials (ROADMAP C1). (also: precedents Q7)
 - [Added 2026-10-19] GOG Fallout 4 ships only 1.10.163.0, so GOG players need no downgrade (**verified**, gogdb.org, via launcher.md revision 2).
 - Answer by: record and archive diff between 1.10.163, 1.10.984 and 1.11.240 data (VM-02), then owner decision.
@@ -151,7 +151,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Status: answered (wave 2): yes, v7/v8; layout same as v1 (supported hypothesis); one-line fix; per-archive version list still needs the PC probe [VP W2-1, TC W2-6]. [Update 2026-10-19: fix on PR #394, not merged: draft PR #394 at 1825141 reads FO4 BA2 v7 and v8 with the v1 layout, with a synthetic test; detect lists archive versions and duplicate archive names; 368da05 makes detect refuse sTestFile INIs and report loose files in My Games Data.]
 
 **VM-04. How does the launcher identify the Fallout 4 data version, store and language without the exe?**
-- Why it matters: the converter never runs Fallout 4; the launcher note's "check its version" should check data (VP Corrections). Fallout London failed on a wrong Fallout4.esm size (**verified**, GameStar).
+- Why it matters: the converter never runs Fallout 4; the launcher note's "check its version" should check data (VP Corrections). A well-known Fallout 4 total conversion failed on a wrong Fallout4.esm size (**verified**, GameStar).
 - Options: hash table of Fallout4.esm and each DLC .esm per version; BA2 header bytes; presence of Anniversary CC files; one hash table per language, or hash only language-neutral files and treat STRINGS separately (DC Q19; TTW requires English installs, **verified**). (also: versions-performance Q8, distribution-community Q19, precedents Q4)
 - Wave 2: BA2 header bytes do tell next-gen (7/8) from old-gen (1) archives (**verified**, VP W2-1). Fallout 4 ships nine Steam languages (six voiced), so a per-language hash table has up to nine rows per version (DC W2-4, **verified**); see VM-39.
 - Answer by: hashes from three installs (1.10.163, 1.10.984, 1.11.240) and one non-English install. PC probe plus community contacts.
@@ -183,7 +183,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 ### B. Creation Club and other official extras
 
 **VM-07. Are the ~150 Anniversary Creation Club files (and the High-Res Texture Pack) inputs, ignored, or refused?**
-- Why it matters: they change what "the player's Fallout 4" means; the Anniversary Edition bundles "over 150 pieces of Creation Club content" (**verified**, [Nexus news 15400](https://www.nexusmods.com/news/15400)). CC files and the HD pack broke Fallout London installs (**verified**). A commenter says CC skins use BA2 slots (**unresolved**).
+- Why it matters: they change what "the player's Fallout 4" means; the Anniversary Edition bundles "over 150 pieces of Creation Club content" (**verified**, [Nexus news 15400](https://www.nexusmods.com/news/15400)). CC files and the HD pack broke a well-known Fallout 4 total conversion installs (**verified**). A commenter says CC skins use BA2 slots (**unresolved**).
 - Options: ignore every `cc*.esl`; opt in per file; refuse to build while they are active.
 - Answer by: owner decision; offline list of CC files from a current install.
 - Blocks: Launcher, Release, World.
@@ -220,7 +220,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Status: open.
 
 **VM-12. What does the launcher do when Steam updates Starfield?**
-- Why it matters: SFSE supports only the latest Steam runtime, so a rollback must roll back both; Fallout London's release was blocked by a platform update two days before launch (**verified**, [TechSpot](https://www.techspot.com/community/topics/fallout-london-was-ready-for-launch-until-bethesdas-buggy-next-gen-update-broke-it.285631/)).
+- Why it matters: SFSE supports only the latest Steam runtime, so a rollback must roll back both; a well-known Fallout 4 total conversion's release was blocked by a platform update two days before launch (**verified**, TechSpot).
 - Options: refuse until supported (current preflight gate); warn and run a data-only tier; keep a "known good" build table updated within N days. (also: versions-performance Q12, starfield-toolchain Q1, distribution-community Q9, precedents Q2)
 - Answer by: owner decision, informed by the 2026 patch-day timeline (SFSE same day).
 - Blocks: Launcher, Release.
@@ -234,11 +234,11 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Status: open.
 
 **VM-14. Do we promise save compatibility across our own releases?**
-- Why it matters: FormIDs change if the build changes (L4); GAMMA says saves are "mostly" compatible and recommends a fresh start (**verified**, [r/stalker mirror](https://pol1.lr.ggtyler.dev/r/stalker/comments/1h3ylar/gamma_093_release/lzvuf8f/?context=3)); Fallout London's Rabbit & Pork needs a new save (**verified**).
+- Why it matters: FormIDs change if the build changes (L4); GAMMA says saves are "mostly" compatible and recommends a fresh start (**verified**, [r/stalker mirror](https://pol1.lr.ggtyler.dev/r/stalker/comments/1h3ylar/gamma_093_release/lzvuf8f/?context=3)); a well-known Fallout 4 total conversion's Rabbit & Pork needs a new save (**verified**).
 - Options: no promise before 1.0; a "save-safe" flag per release; a migration tool.
 - Answer by: determinism test plus a save loaded across two builds; then owner decision. (also: distribution-community Q1)
 - Blocks: Release.
-- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-22): "No promise before 1.0" (as recommended). Before: open. Precedent (engine-mechanics.md, precedents pass): Fallout London's 1.03 patch forced players to start a new game, so a save-compatibility plan is needed before anyone plays on our builds.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-22): "No promise before 1.0" (as recommended). Before: open. Precedent (engine-mechanics.md, precedents pass): A well-known Fallout 4 total conversion's 1.03 patch forced players to start a new game, so a save-compatibility plan is needed before anyone plays on our builds.
 
 **VM-15. Does the Creation Kit track game versions exactly; does an older CK refuse or corrupt plugins?**
 - Why it matters: SFSE and the CK MAY be required; CK changes ride inside game patch notes (**verified**, 1.15.214), but whether every patch ships a matching CK is a **supported hypothesis**.
@@ -273,7 +273,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 
 **VM-19. Which pin method does the launcher use for Starfield?**
 - Why it matters: Steam auto-updates; a mid-session update breaks a built set. Player-run login downgrades are ruled out.
-- Options: refuse on mismatch (current); MO2-style Stock Game copy (doubles disk use, **supported hypothesis**); Steam "update only when launched"; read-only `appmanifest` (Fallout London, **verified**); keep a backup exe. (also: versions-performance Q13, starfield-toolchain Q13)
+- Options: refuse on mismatch (current); MO2-style Stock Game copy (doubles disk use, **supported hypothesis**); Steam "update only when launched"; read-only `appmanifest` (a well-known Fallout 4 total conversion, **verified**); keep a backup exe. (also: versions-performance Q13, starfield-toolchain Q13)
 - Answer by: owner decision plus offline research on what Steam allows.
 - Blocks: Launcher, Release.
 - Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-16): "Refuse, advise 'update only when launched'" (as recommended). Before: open.
@@ -417,7 +417,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-13): ""Use previous build"; no time promise" (as recommended). Before: open.
 
 **VM-38. What is the real long-term cost, measured?**
-- Why it matters: precedents took 5 years (Enderal, 14 people; Fallout London, about 100) to 13+ (Skyblivion, Skywind) (**verified**); converting is our structural advantage, but maintenance across two moving games adds cost.
+- Why it matters: precedents took 5 years (Enderal, 14 people; a well-known Fallout 4 total conversion, about 100) to 13+ (Skyblivion, Skywind) (**verified**); converting is our structural advantage, but maintenance across two moving games adds cost.
 - Options: measure hours per converted interior cell and per patch day now, then extrapolate.
 - Answer by: owner plus QA, from docs/ai/optimization.md baselines. (also: precedents Q32)
 - Blocks: Release, Multi-game.
@@ -446,9 +446,9 @@ Each line is a recommendation, not a decision.
 
 - **VM-01 Fallout 4 data versions:** recommend accepting 1.10.163 and the current Steam runtime (1.11.240) through
   data-version detection, once VM-02 and VM-03 show the size of the difference. Most players own 1.11.240, and the
-  downgrade route was a large support load for Fallout London.
+  downgrade route was a large support load for a well-known Fallout 4 total conversion.
 - **VM-07 Creation Club and HD pack:** recommend ignoring them by default (detected and reported, not converted). This
-  keeps the input set small and avoids the install failures Fallout London saw.
+  keeps the input set small and avoids the install failures a well-known Fallout 4 total conversion saw.
 - **VM-12 Starfield patch response:** recommend keeping the refuse-on-mismatch gate, with a clear message and a
   "known good" table. SFSE was same-day in 2026, so our own fix time is the variable.
 - **VM-14 Save compatibility:** recommend no promise before 1.0, stated in every changelog.
@@ -504,7 +504,7 @@ Nothing here runs now; this is a list.
   the 2024 patches (**unresolved** in VP's table).
 - Fallout 4 install size with all DLC (and with the Anniversary content).
 - Whether every Starfield patch ships a matching Creation Kit build.
-- Whether Fallout London's Rabbit & Pork accepts next-gen Fallout 4 (one reader comment says 1.10.163 only).
+- Whether a well-known Fallout 4 total conversion's Rabbit & Pork accepts next-gen Fallout 4 (one reader comment says 1.10.163 only).
 - Current Starfield Steam Deck rating (also listed in DC follow-ups).
 - Real disk cost of an MO2 Stock Game copy of Starfield.
 
@@ -585,12 +585,12 @@ scripts/bridge/make_bridge.py; /mnt/project-files/research/next-phase/launcher-a
 - https://thebestoftimes.moddinglinked.com/ttw.html
 - https://taleoftwowastelands.com/viewtopic.php@t=1031
 - https://taleoftwowastelands.com/viewtopic.php@t=2111
-- https://www.techspot.com/community/topics/fallout-london-was-ready-for-launch-until-bethesdas-buggy-next-gen-update-broke-it.285631/
-- https://www.pcgamesn.com/fallout-london/epic-games-store
-- https://www.pcgamer.com/games/fallout/after-years-fallout-4s-much-anticipated-dlc-sized-mod-fallout-london-is-out-heres-how-to-install-it/
-- https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html
-- https://www.gamingonlinux.com/2025/09/fallout-london-mod-gets-a-huge-upgrade-with-rabbit-pork/page=1/
-- https://en.wikipedia.org/wiki/Fallout:_London
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
+- a third-party source
 - https://skyblivion.com/faq
 - https://tesrskywind.com/faq/
 - https://en.wikipedia.org/wiki/Enderal

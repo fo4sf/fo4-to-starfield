@@ -328,7 +328,7 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
     "recipes" applied locally (Synthesis-style patchers, GPL-3, finding 12); records with FormID references and
     original data only. Evidence: deterministic FormIDs across PCs (plan L4); a Nexus ruling. Who: Nexus staff; owner.
 24. **Do we use "Fallout" in the project, launcher or Nexus page name?** Why: trademark. Precedents with "Fallout" in
-    the name exist as mods (Fallout London is cited in the prior note) but none verified this session as having
+    the name exist as mods (a well-known Fallout 4 total conversion is cited in the prior note) but none verified this session as having
     permission. Options: "fo4-to-starfield" style nominative name; a new neutral brand; "for Fallout 4" phrasing.
     Who: owner; Bethesda contact.
 25. **What does our own permissions block on Nexus say?** Why: Nexus lets authors set re-upload/modify/convert

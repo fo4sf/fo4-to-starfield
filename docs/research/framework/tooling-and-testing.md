@@ -173,7 +173,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 | "QA Blocked vs Fail" triage split (collision mismatch is a 3D fault, gaps and z-fighting are level design) | Maps onto converter-bug vs placement-bug triage | Needs a collision check per report | [Skywind QA Fixes Guide](https://handbook.tesrskywind.com/qa/qa-fixes-guide) (QA W2-2) | verified (precedent); mapping is supported hypothesis |
 | Clean test profile (game + SFSE only) | Usable reports | Tester discipline | [Skywind onboarding](https://handbook.tesrskywind.com/qa/onboarding) | verified |
 | Closed beta with fixed cadence | Controlled feedback | Community management | SS2 Patreon beta, 7 to 10 days ([Patreon](https://www.patreon.com/posts/24469236)) | verified |
-| 1-on-1 support sessions | Rescues failing installs | Owner time | Fallout London ([PC Gamer](https://pcgamer.com/games/rpg/fallout-london-devs-are-working-on-a-huge-patch-offering-dedicated-1-on-1-troubleshooting-sessions-to-help-players-with-installs-and-crashes)) | verified |
+| 1-on-1 support sessions | Rescues failing installs | Owner time | A well-known Fallout 4 total conversion (PC Gamer) | verified |
 | Hash-based `verify` plus environment preflight | Catches environment faults TTW missed | Manifest upkeep | TTW checks folder size only ([TTW FAQ](https://thebestoftimes.moddinglinked.com/faq.html)) | verified (TTW gap) |
 
 ## Questions
@@ -410,7 +410,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 ### Crash diagnosis
 
 **TT-23. Which crash logger do we run in tests and ship to players, and what does triage do with its signature?**
-- Why it matters: Fallout London merged Buffout 4 only after a rough launch; our dumps are 18 GB; the Havok int3 leaves
+- Why it matters: A well-known Fallout 4 total conversion merged Buffout 4 only after a rough launch; our dumps are 18 GB; the Havok int3 leaves
   no WER entry. A signature lets the runner mark a repeat crash FAIL CRASH without a dump.
 - Options: sf-crash-logger; Trainwreck; Engine Fixes Detailed Crash Logger. Risk: the logger itself may crash or mask.
 - Answer by: PC probe: trigger the known Havok assert (vault cart case) with each, compare output and dump size; two
@@ -539,7 +539,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 
 **TT-37. What tester pool, clean profile and support model do we run before Nexus?**
 - Options: closed beta (SS2 Patreon, 7 to 10 day cadence); Discord role (Skywind); open GitHub; launcher checks
-  Plugins.txt against an allowed list and stamps reports; 1-on-1 help (FOLON) vs self-diagnosis tool; a dated "known
+  Plugins.txt against an allowed list and stamps reports; 1-on-1 help (a well-known Fallout 4 total conversion) vs self-diagnosis tool; a dated "known
   unfinished, do not report" list with each tester build.
 - Answer by: owner decision. (also: QA Q24, QA Q25, QA Q26)
 - Blocks: Release.
@@ -728,8 +728,8 @@ PC read-only or single-launch probes:
 - https://steamcommunity.com/sharedfiles/filedetails/?id=3604110005
 - https://steamcommunity.com/app/377160/discussions/0/685239894022330731/
 - https://handbook.tesrskywind.com/qa/bug-reporting ; https://handbook.tesrskywind.com/qa/onboarding ; https://handbook.tesrskywind.com/dev/quest-testing-guidelines ; https://github.com/TESRSkywind/QA/issues (not opened)
-- https://overclock3d.net/news/software/fallout-london-is-in-its-final-stage-of-qa-testing-at-gog/
-- https://pcgamer.com/games/rpg/fallout-london-devs-are-working-on-a-huge-patch-offering-dedicated-1-on-1-troubleshooting-sessions-to-help-players-with-installs-and-crashes
+- a third-party source
+- a third-party source
 - https://thebestoftimes.moddinglinked.com/faq.html ; https://taleoftwowastelands.com/viewtopic.php@t=2111 ; https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions
 - https://en.wikipedia.org/wiki/Skyblivion
 - https://www.patreon.com/posts/24469236
