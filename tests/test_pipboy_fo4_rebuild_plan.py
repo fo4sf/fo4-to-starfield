@@ -401,6 +401,11 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(target.split(".")[-1], ("gotoPrevPage", "gotoNextPage", "gotoPrevTab", "gotoNextTab"))
         self.assertEqual(len(set(vks)), len(vks))
         self.assertLessEqual(len(setting("ShellKeys")), 16 * 65)           # ReadText's buffer
+        # the owner wants the pause (14 Nov): bit 0x2 in Flags=, since Pause= is read at stages (d) and (e) only
+        self.assertEqual(int(setting("Flags"), 0), 0x19 | 0x2)
+        self.assertIn('pause = ReadNumber(ini, L"Pause", 0) != 0;', self.main)
+        self.assertLess(self.main.index("if (g_stage >= 4) {   // (d) and (e)"), self.main.index('pause = ReadNumber(ini, L"Pause"'))
+        self.assertIn("const auto extra = g_flags | (g_stage >= 3 ? FlagSet(n) : 0);", self.main)   # Flags= at every stage
         # the plugin: the stand-in on the path, read back, and the hand-over waits for it
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]

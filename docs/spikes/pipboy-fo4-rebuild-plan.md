@@ -821,9 +821,18 @@ What each other outcome means:
 
 **S1-b, installed (14 Nov, about 17:10 UTC, owner PC, FAL-819).** At the owner's request the PC installed S1-b in their
 game as their own Pip-Boy, on F10: the dll of `e3a754b4`, the shell and its five pages from their own archive, and the
-three ini lines above. The rollback is kept. The owner's verdict and the log are not in yet. The owner's question: can
-they go through the pages, or is the screen static? By R1, it is static: changing a page or a tab asks the engine
-object, and in S1-b there is none where the shell looks. That is S1-c.
+three ini lines above. The rollback is kept. The owner's question: can they go through the pages, or is the screen
+static? By R1, it is static: changing a page or a tab asks the engine object, and in S1-b there is none where the
+shell looks. That is S1-c.
+
+**S1-b, the owner's first words (14 Nov, about 17:40 UTC, relayed by the Claude PC; the log is not in yet).** F10 shows
+"the pipboy not the factions menu", and the game does not pause. The owner wants it to pause, as Fallout 4's Pip-Boy
+does. Whether the STAT body showed was not reported yet.
+- **Why no pause:** S1-b runs at stage (b) with `Flags=0`. Stage (b) adds no pause bit, and `Pause=` is read at stages
+  (d) and (e) only.
+- **How our menu pauses:** with bit `0x2` in the menu's flags. The PC's flag sweep of #738 (at `14176a5e`) found that
+  this bit pauses the game, and `Pause=1` adds it at stages (d) and (e). At stage (b) the same bit goes in `Flags=`,
+  so the S1-c card opens with `Flags=0x1B` (`0x19` plus `0x2`). No plugin change is needed.
 
 **S1-c, the slice: our object where the shell looks for it, and an answer to a page or tab change (plugin code,
 FAL-819).**
@@ -876,8 +885,9 @@ Install it the same way as S1-b, in the owner's game as their own Pip-Boy on F10
    - `ShellKeys=0x51:Menu_mc.gotoPrevPage,0x45:Menu_mc.gotoNextPage,0x21:Menu_mc.gotoPrevPage,0x22:Menu_mc.gotoNextPage,0x41:Menu_mc.gotoPrevTab,0x44:Menu_mc.gotoNextTab,0x25:Menu_mc.gotoPrevTab,0x27:Menu_mc.gotoNextTab`
      (Q and E or Page Up and Page Down for the page, A and D or the arrows for the tab, as on the kit's page; Page Up
      and Page Down because the kit's Q did nothing through the PC's key sender, FAL-614)
-   - `Flags=0x19`: the cursor and the input contexts the kit's page opens with (`PageFlagSets=0x19`; `Pause=0` adds
-     nothing at stage (b)). Whether the game still acts on Q, E, A and D behind the screen is the run's finding.
+   - `Flags=0x1B`: the cursor and the input contexts the kit's page opens with (`0x19`), plus `0x2`, which pauses the
+     game (the owner's wish, 14 Nov; `Pause=` is not read at stage (b)). Whether the game still acts on Q, E, A and D
+     behind the screen is the run's finding.
    - `CodeObjProbe=` as S1-b.
 4. **Run:** outdoors, F10, wait 5 s. Press E four times, a second apart (STAT, INV, DATA, MAP, RADIO), then Q four
    times back. On STAT, press D twice and A twice. Then click INV and then STAT in the tab bar. Take a screenshot of
@@ -911,10 +921,16 @@ What each other outcome means:
 - The page changes but its body is empty or half drawn: a verb the page calls is not among `CodeObjNames`. That error
   stays inside the movie, so step 0's read names it.
 - The game also acts on the keys (the player moves): send which. The next card picks other keys or flags.
+- The game pauses, but the pages stop changing or the screen stops drawing: the pause also stops our menu's updates
+  or the movie. Run the same steps once with `Flags=0x19`, which keeps the other bits and drops the pause. If the pages
+  change then, the next card answers on the menu's own frame (plugin code) instead of an update the key thread sends.
+- The game does not pause: send the `step=create` line (its `flags=` are the ones the menu opened with).
 - A crash: send the crash log privately and restore S1-b (its dll and ini), which is how the owner played it.
 
 Every page shows the movie's own defaults, not the player's values; that is S3. The device route stays separate: the
-wrist model is #780 (card A''), which still waits for the owner's release. No kit screen on the device path.
+wrist model is #780 (card A''), which still waits for the owner's release. No kit screen on the device path. The
+owner's direction on the arm (14 Nov): opening the Pip-Boy plays the raise and closing plays the lower; no held or
+frozen pose. That belongs to the device plan (`pipboy-device-plan`, FAL-680), not to this flat screen.
 
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
@@ -1026,8 +1042,8 @@ delivery.
 6. Done: S1, the shell with its pages (14 Nov, PARTIAL: the tab bar and footer draw; no page).
 7. Done: S1-R1 (14 Nov, names only, no launch): the shell loads its first page only when `Menu_mc.InvalidateData` is
    called from outside.
-8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above). Installed in the owner's game on 14 Nov; their
-   verdict and the log are not in yet.
+8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above). Installed in the owner's game on 14 Nov. Their first
+   words: it looks like the Pip-Boy, and it does not pause. The log and the STAT body are not in yet.
 9. Next: S1-c (plugin code at this commit: `CodeObjAt=`, `CodeObjPages=`, `ShellKeys=`; its card above). It needs a
    review, a CARRY, then the PC's build and run after S1-b's result and the owner's release. Then S1-d (the gamepad
    through the menu's input handler) and S3's first branch (STAT, HP by name) through the shell, each with its own
