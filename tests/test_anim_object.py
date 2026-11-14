@@ -280,6 +280,42 @@ def _pose(clip):
     return {t["name"]: (t["samples"][-1]["quaternion_wxyz"][0], t["samples"][-1]["translation_source_units"][2]) for t in clip["tracks"]}
 
 
+class FloorRestTests(unittest.TestCase):
+    def test_only_initial_idle_changes_to_the_selected_end_pose_without_mutation(self):
+        import copy
+        plan = anim_object.add_chain_idles(console_chain())
+        before = copy.deepcopy(plan)
+        out = anim_object.rest_after(plan, "StateB_Play")
+        by = {c["name"]: c for c in out["clips"]}
+        self.assertEqual(_pose(by["StateA_Idle"]), _pose(by["StateB_Play"]))
+        original_idle = next(c for c in plan["clips"] if c["name"] == "StateA_Idle")
+        self.assertNotEqual(_pose(by["StateA_Idle"]), _pose(original_idle))
+        self.assertTrue(all(len(t["samples"]) == 1 and t["samples"][0]["elapsed"] == 0.0
+                            for t in by["StateA_Idle"]["tracks"]))
+        self.assertEqual(by["StateA_Idle"]["events"], [])
+        self.assertEqual(by["StateA_Idle"]["duration"], 0.0)
+        self.assertEqual((by["StateA_Idle"]["hold_of"], by["StateA_Idle"]["hold_frame"]), ("StateB_Play", "last"))
+        self.assertNotIn("starts_from", by["StateA_Idle"])
+        self.assertEqual(plan, before)
+        for clip in before["clips"]:
+            if clip["name"] != "StateA_Idle":
+                self.assertEqual(by[clip["name"]], clip)
+
+    def test_spare_idle_missing_and_duplicate_clips_are_refused(self):
+        import copy
+        plan = anim_object.add_chain_idles(console_chain())
+        for slot in ("StateD_Play", "StateB_Idle", "missing"):
+            with self.subTest(slot=slot), self.assertRaises(ValueError):
+                anim_object.rest_after(plan, slot)
+        for clips in (plan["clips"][:-1], plan["clips"] + [plan["clips"][0]]):
+            with self.assertRaisesRegex(ValueError, "complete toggle or chain"):
+                anim_object.rest_after({**plan, "clips": clips}, "StateA_Play")
+        bad = copy.deepcopy(plan)
+        bad["clips"][0]["tracks"][0]["samples"] = []
+        with self.assertRaisesRegex(ValueError, "sample"):
+            anim_object.rest_after(bad, "StateA_Play")
+
+
 class ChainIdlesTests(unittest.TestCase):
     """FAL-489, the converted console on genericstategraph01: four Idle slots hold four successive poses and the Play clips chain."""
     def test_the_chain_is_the_mapped_play_slots_in_slot_order_and_may_leave_one_out(self):
@@ -723,6 +759,34 @@ class ConverterTests(unittest.TestCase):
             self.assertFalse(res["ok"])
             self.assertIn("at least one", res["reason"])
             self.assertEqual(os.listdir(tmp), [])
+
+    def test_floor_rest_reaches_the_exporter_and_records_its_source_sequence(self):
+        seen = {}
+        def export(plan, *args, **kw):
+            seen.update({c["name"]: c for c in plan["clips"]})
+            return fake_exporter(plan, *args, **kw)
+        import copy
+        with tempfile.TemporaryDirectory() as tmp, patch.object(native_door, "export", export):
+            base = self.converter(tmp).convert_anim_object("Meshes/x.nif", STATES, idles="toggle")
+            self.assertTrue(base["ok"], base.get("reason"))
+            original = copy.deepcopy(seen)
+            model = pathlib.Path(tmp, "meshes/fo4port/x_anim.nif").read_bytes()
+            res = self.converter(tmp).convert_anim_object("Meshes/x.nif", STATES, idles="toggle", rest_after="Stage1")
+            self.assertTrue(res["ok"], res.get("reason"))
+            self.assertEqual(res["anim"]["rest_after"], "Stage1")
+            self.assertEqual(pathlib.Path(tmp, "meshes/fo4port/x_anim.nif").read_bytes(), model)
+            for name, clip in original.items():
+                if name != "StateA_Idle":
+                    self.assertEqual(seen[name], clip)
+            for idle, end in zip(seen["StateA_Idle"]["tracks"], seen["StateA_Play"]["tracks"]):
+                self.assertTrue(anim_object._same_pose(idle["samples"][0], end["samples"][-1]))
+            self.assertEqual(res["anim"]["moving_bodies"], 2)
+        for opts in ({"idles": "hold", "rest_after": "Stage1"}, {"idles": "chain", "rest_after": "missing"}):
+            with self.subTest(opts=opts), tempfile.TemporaryDirectory() as tmp:
+                res = self.converter(tmp).convert_anim_object("Meshes/x.nif", STATES, **opts)
+                self.assertFalse(res["ok"])
+                self.assertIn("rest_after", res["reason"])
+                self.assertEqual(os.listdir(tmp), [])
 
     def test_without_the_library_or_the_donor_it_says_so_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -35,6 +35,19 @@ def norm(text):
     return text.replace("\\", "/")
 
 
+class FloorPreflightTests(unittest.TestCase):
+    def test_bad_floor_sequence_or_idle_mode_refuses_before_creating_output(self):
+        from types import SimpleNamespace
+        for sequence, mode in (("missing", "toggle"), ("StateA_Play", "toggle"), ("Stage1", "hold")):
+            with self.subTest(sequence=sequence, mode=mode), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "not-published"
+                args = SimpleNamespace(states="Stage1=StateA_Play,Stage2=StateB_Play", rest_after=sequence, idles=mode, out=str(out))
+                with self.assertRaisesRegex(SystemExit, "--rest-after"):
+                    mac.stage(args)
+                self.assertFalse(out.exists())
+                self.assertEqual(list(Path(tmp).iterdir()), [])
+
+
 class ScriptTests(unittest.TestCase):
     def test_ids_stages_log_and_layout_match_the_tool_and_the_reader(self):
         self.assertTrue(PSC.startswith("Scriptname FO4SF_AnimConsoleQuest extends Quest"))
