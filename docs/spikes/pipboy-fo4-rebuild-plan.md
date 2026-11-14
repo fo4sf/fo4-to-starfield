@@ -739,6 +739,86 @@ as for D1. Nothing is written under the game folders.
   - a loader that R1 shows is created by a method rather than placed (the probe runs at load only, so it cannot see
     it).
 
+**S1-R1, the result (Claude PC, 14 Nov, read at `0ae13422`, no launch): verified, names only.** Both movies read
+whole: no `partial`, no `not_swf`, 3,641 lines in all; the output stays private on the PC.
+- **The root:** `PipboyMenu.swf` has no document class. The root timeline places one instance, `Menu_mc`, of the
+  sealed class `PipboyMenu` (extends `Shared.IMenu`), so every path starts at `Menu_mc`.
+  - Public on it: `BGSCodeObj` (an `Object`), `DataObj` (a `Pipboy_DataObj`), `Header_mc`, `BottomBar_mc`,
+    `ButtonHintBar_mc` and the getter `CurrentPage`.
+  - Public methods include `onCodeObjCreate`, `InvalidateData`, `InvalidatePartialData`, `TryToSetPage`,
+    `TryToSetTab` and `ProcessUserEvent`.
+  - Private: `PageA` (a vector of `PipboyLoader`), `_IsLoadingPage`, `LoadCurrentPage` and `onPageLoadComplete`.
+- **The page load:** only `LoadCurrentPage` holds the five file names. It picks one by `DataObj.CurrentPage`, loads it
+  through a `PipboyLoader` and ends in `onPageLoadComplete`. That hands `BGSCodeObj` to the page's `InitCodeObj`, adds
+  the page to the display and calls `InvalidateData` again.
+- **Why S1 showed no page:** only `InvalidatePartialData` calls `LoadCurrentPage`, and only `InvalidateData` calls
+  that. Inside the shell, only `onPageLoadComplete` calls `InvalidateData`. So nothing in the shell starts the first
+  load; it waits for a call from outside. `onCodeObjCreate` loads nothing: it calls `PopulatePipboyInfoObj` on
+  `BGSCodeObj`, passing `DataObj`.
+- **The change event:** `InvalidatePartialData` builds a `PipboyChangeEvent` (an update mask, `DataObj`, `TabNames`)
+  and dispatches it itself. A page's tab (`PipboyTab.onPipboyChangeEvent`) shows itself only when that event's
+  `DataObj.CurrentTab` equals its index.
+- **The engine verbs on `BGSCodeObj`:** `PopulatePipboyInfoObj` (from `onCodeObjCreate`), `onNewPage`
+  (`TryToSetPage`), `onNewTab` (`TryToSetTab`), `PlaySound`, `ShowPerksMenu`, `onBackButtonHandled`, and, from the STAT
+  page, `onPerksTabOpen` and `onPerksTabClose`. The mobile companion app's verbs are left out.
+- **`Pipboy_DataObj.<init>`** builds the data object inside the movie (`_CurrHP`, `_MaxHP`, `_Caps`, `_InvItems` and
+  the rest), with a public getter and setter for `CurrentPage` and for `CurrentTab`. So `DataObj` exists before
+  anything fills it.
+- **Not answered by names:**
+  - whether `InvalidateData` takes an argument;
+  - what `InvalidatePartialData` compares before it loads;
+  - whether a probe by name can see a private member.
+
+**S1-b, the slice: what the shell needs from outside to draw the STAT page body (a reading of R1, FAL-803).**
+
+| The shell needs | Fallout 4's engine (a reading) | S1-b supplies |
+| --- | --- | --- |
+| `DataObj` with `CurrentPage` and `CurrentTab` | fills the movie's own object | nothing: the movie's own defaults. That STAT is page 0 and its STATUS tab is tab 0 is a **hypothesis**; the probe logs both values |
+| An answer to `PopulatePipboyInfoObj` | fills `DataObj` with the player's values | nothing. Our stand-in sits on the root, so `Menu_mc.BGSCodeObj` stays null and the shell's call goes nowhere. In proof 1 the boot sequence's calls with no object did not fail |
+| The `InvalidateData` call | once its object is in place, and again when data changes (a reading) | `Menu_mc.InvalidateData`, once, with no arguments, right after the hand-over (`CodeObjCalls=`), after `Menu_mc.onCodeObjCreate` |
+| The change event | none: the shell builds it | nothing. `InvalidatePartialData` dispatches it, and `onPageLoadComplete` calls `InvalidateData` once more after the page is added, so the page's tabs receive it |
+
+- **So the smallest step is two calls, with no plugin code.** The page shows the movie's defaults: zeros, empty text
+  or design-time placeholders, not the player's values.
+- **No further names read is needed first.** What is still open is not a name, and S1-b's own lines answer it: the
+  call's `called=` and the probe's values.
+- **Later, each a plugin card:**
+  - S1-c: the stand-in on `Menu_mc.BGSCodeObj`, a set on a path, so the shell's verbs arrive as `code_call`;
+  - S3: real values in `DataObj`.
+
+**S1-b, the card (Claude PC; one session after the owner's launch release; the dll of `e3a754b4`, ini only).** This
+is the card posted on FAL-762 on 14 Nov, unchanged.
+1. **Stage and install** exactly as the S1 session: a worktree at `92244e49` or `0ae13422` (the scripts are the same),
+   the six movies as before, and `--extra-movie FO4SF_Fo4Shell` with the five `--page-movie` options.
+2. **The ini** as in the S1 session, with three keys changed:
+   - `CodeObjNames=PopulatePipboyInfoObj,onNewPage,onNewTab,PlaySound,ShowPerksMenu,onBackButtonHandled,onPerksTabOpen,onPerksTabClose`
+   - `CodeObjCalls=Menu_mc.onCodeObjCreate,Menu_mc.InvalidateData`
+   - `CodeObjProbe=Menu_mc,BGSCodeObj,Menu_mc.BGSCodeObj,Menu_mc.DataObj,Menu_mc.DataObj.CurrentPage,Menu_mc.DataObj.CurrentTab,Menu_mc.DataObj.TabNames,Menu_mc.CurrentPage,Menu_mc.Header_mc,Menu_mc.BottomBar_mc,Menu_mc.ButtonHintBar_mc,Menu_mc.onCodeObjCreate,Menu_mc.InvalidateData,Menu_mc.InvalidatePartialData,Menu_mc.TryToSetPage,Menu_mc.PageA`
+3. **Run** as S1: outdoors, F10, a screenshot at about 5 s and one at 15 s, F10 again; then the same once more.
+4. **Send:** the `step=code_obj` line, both `step=code_obj_root_call` lines, the 16 `step=code_obj_probe` lines, any
+   `step=code_call` or `refuse` line, the screenshots (described), and whether the game stayed playable.
+
+**PASS S1-b:**
+- `code_obj_root_call n=2 name=Menu_mc.InvalidateData found=1 type=11 called=1`;
+- on screen, the STAT page's body inside the tab bar and footer: the condition figure or bars, with zeros, empty text
+  or placeholders (2a's `ALBERT` may give way to an empty name);
+- no crash.
+
+No `code_call` lines are expected: the shell and its page see a null `BGSCodeObj` (see the table).
+
+What each other outcome means:
+- `n=1` with `called=0`: `onCodeObjCreate` threw on the null object. Not a FAIL if `n=2` went through.
+- `n=2` with `found=1 called=0`: `InvalidateData` needs an argument, or it threw. The next card is plugin code: a call
+  with an argument (`InvalidatePartialData` with an update mask the plugin builds).
+- `Menu_mc found=0`: the root had no child yet at the load try, or the probe cannot reach it by name. Then both calls
+  were `found=0` and nothing ran. The next card is plugin code: the calls on a later try, or through `getChildByName`.
+- Called, but no page after 15 s:
+  - if the probe shows `Menu_mc.CurrentPage` equal to `Menu_mc.DataObj.CurrentPage`, the shell may have taken the page
+    as already current. The next card sets `DataObj.CurrentPage` (a set on a path, plugin code).
+  - Otherwise the load ran and failed, or the page was added and no tab matched `CurrentTab`. The next card logs the
+    shell's page loads (plugin code; "not chosen now" above).
+- A crash: send the crash log privately. With `CodeObjCalls=` empty, S1 is back as it passed.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -847,6 +927,8 @@ delivery.
 5. Done: proof 2a, the STAT page alone (13 Nov, second run: the page draws and takes our object through
    `InitCodeObj`). Done: proof 2b step i (no data entry on the root) and step ii (the acquire step opens nothing).
 6. Done: S1, the shell with its pages (14 Nov, PARTIAL: the tab bar and footer draw; no page).
-7. Now: S1-R1 (names only, no launch, with `scripts/ui/swf_names.py`), then S1-b (ini only, the dll of `e3a754b4`),
-   each with its own card. Then S3's first branch (STAT, HP by name) through the shell, with its own card, tests, a
-   CARRY line, a review, and the PC's run.
+7. Done: S1-R1 (14 Nov, names only, no launch): the shell loads its first page only when `Menu_mc.InvalidateData` is
+   called from outside.
+8. Now: S1-b (ini only, the dll of `e3a754b4`; its card above), the PC's run after the owner's launch release. Then
+   S1-c (our object on `Menu_mc.BGSCodeObj`) and S3's first branch (STAT, HP by name) through the shell, each with its
+   own card, tests, a CARRY line, a review, and the PC's run.
