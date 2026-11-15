@@ -103,6 +103,16 @@ static class Mission
     // cancels the timer that started his) or ran OnQuestInit before his timer existed; nothing else runs on such a save.
     public const uint KeeperQuestId = 0x814;
     public const string KeeperEdid = "FO4SF_CodsworthKeeper";
+    // Preston follows (FAL-866). A quest of its own, start game enabled, so an existing save gains it the way the
+    // keeper does. Alias 0 "Preston" is empty until FO4SF_COMPreston.FollowTest fills it. The package is the host's
+    // DefaultMaster_FollowPackage (000301C5): the package a linked player selected on 1 Nov. Not quest 0000D773,
+    // not an ActiveFollowers alias, no affinity keywords. Optional + AllowReserved: Min00 already reserves the actor.
+    public const uint ComQuestId = 0x815;
+    public const string ComQuestEdid = "FO4SF_COMPreston";
+    public const int ComAlias = 0;
+    public const string ComAliasName = "Preston";
+    public const uint FollowPackageId = 0x0301C5;
+    public const string FollowPackageEdid = "DefaultMaster_FollowPackage";
     // his voice (Codsworth thread, PR #361): a Hello DIAL in the mission quest with one INFO per FO4 line, said by him
     // only. Each response's WEMFile names its .wem: verified on the PC, all 20 starfield.esm\robotminibota\*.wem names
     // are the WEMFile (8 lowercase hex digits) of an INFO, e.g. BE_KT03's Hellos (DIAL 025C46, Misc / Hello, flags Random).
@@ -571,6 +581,20 @@ static class Mission
         }
         mod.Quests.Add(quest);
         if (keeper is not null) mod.Quests.Add(keeper);
+        // Follow, not the door hold. Priority above the mission so this alias is the one with a package. The mission
+        // alias stays the objective marker and carries none. No factions: crew and companion factions stay out.
+        var com = new SF.Quest(new FormKey(modKey, ComQuestId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = ComQuestEdid, FormVersion = 581, Version2 = 12,
+            Data = new SF.QuestData { Flags = SF.Quest.Flag.StartGameEnabled, Priority = 60 },
+        };
+        (com.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
+        {
+            ID = ComAlias, Name = ComAliasName,
+            Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowReserved,
+            PackageData = { new FormLink<SF.IPackageGetter>(new FormKey(SfEsm, FollowPackageId)) },
+        });
+        mod.Quests.Add(com);
 
         mod.ModHeader.Stats.NextFormID = Math.Max(MinutemenFactionId + 1, lines.Count > 0 ? FirstCodsworthInfoId + (uint)lines.Count
                                        : cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1);
@@ -585,6 +609,7 @@ static class Mission
                           $"{raiderRefs.Count} raider ACHR(s) of {raiderNpc.EditorID}; " +
                           (cods is null ? "no Codsworth; " : $"NPC_ {CodsworthEdid} {cods.FormKey} \"{cods.Name}\" body {codsworthBody}, ACHR {codsRef!.FormKey} at {Show(codsRef.Position)}" +
                                             (codsworthModel is null ? "; " : $", skin {CodsworthSkinEdid} model {codsworthModel}; ")) +
+                          $"QUST {ComQuestEdid} {com.FormKey} alias {ComAliasName} package {FollowPackageEdid} {FollowPackageId:X6}; " +
                           $"WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey} overridden");
         return 0;
     }
@@ -794,6 +819,28 @@ static class Mission
                      && props.ContainsKey("Raiders") && props.ContainsKey("Credits"), "the keeper lacks a Mandatory property");
             }
         }
+        var cq = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, ComQuestId));
+        if (cq is null) problems.Add($"no QUST 0x{ComQuestId:X} {ComQuestEdid} (Preston's follow command has nowhere to put him)");
+        else
+        {
+            var cal = (cq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>()
+                .FirstOrDefault(a => a.ID == ComAlias);
+            var packageKey = new FormKey(SfEsm, FollowPackageId);
+            Console.WriteLine($"  QUST {cq.EditorID} flags {cq.Data?.Flags} aliases {cq.Aliases?.Count ?? 0} " +
+                              $"package {(cal == null ? "none" : string.Join(",", cal.PackageData.Select(p => p.FormKey.ToString())))}");
+            Need(cq.EditorID == ComQuestEdid && cq.Data is not null && cq.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled)
+                 && !cq.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce) && !cq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
+                 $"{ComQuestEdid} is not a start-game-enabled quest kept out of the Missions tab");
+            var wantFlags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowReserved;
+            Need(cal is not null && cal.Name == ComAliasName && cal.Flags == wantFlags
+                 && cal.ForcedReference.IsNull
+                 && cal.PackageData.Select(p => p.FormKey).SequenceEqual(new[] { packageKey }),
+                 $"alias {ComAlias} is not an empty optional reserved {ComAliasName} with only {FollowPackageEdid}");
+            Need(m.Cache.TryResolve<SF.IPackageGetter>(packageKey, out var pack) && pack.EditorID == FollowPackageEdid,
+                 $"Starfield.esm {FollowPackageId:X6} is not the package {FollowPackageEdid}");
+            Need(cq.VirtualMachineAdapter is null || cq.VirtualMachineAdapter.Scripts.Count == 0,
+                 $"{ComQuestEdid} carries a script (the test command is the loose FO4SF_COMPreston script, not a quest property)");
+        }
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
         return problems.Count == 0 ? 0 : 1;
@@ -809,6 +856,7 @@ static class Mission
         var sf = new SF.StarfieldMod(SfEsm, rel);
         sf.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         sf.MiscItems.Add(new SF.MiscItem(new FormKey(SfEsm, CreditsId), rel) { EditorID = "Credits" });
+        sf.Packages.Add(new SF.Package(new FormKey(SfEsm, FollowPackageId), rel) { EditorID = FollowPackageEdid });
         sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, QuestTypeSideId), rel) { EditorID = QuestTypeSideEdid });
         // the Codsworth body: a robot with a race, a faction and a script, which the copy must drop (race kept)
         var race = new SF.Race(new FormKey(SfEsm, 0x900), rel) { EditorID = "MiniBotARace" };
@@ -948,6 +996,7 @@ static class Mission
         }
         // mutations of the default output, each of which check must reject (Codex review 5564480667)
         static SF.Quest Keeper(SF.StarfieldMod m) => m.Quests[new FormKey(m.ModKey, KeeperQuestId)];
+        static SF.Quest Com(SF.StarfieldMod m) => m.Quests[new FormKey(m.ModKey, ComQuestId)];
         var good = Path.Combine(outDir, "alias", Plugin);
         var mutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
         {
@@ -975,6 +1024,9 @@ static class Mission
             ("Preston without the Minutemen faction", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Factions.Clear()),
             ("Minutemen only Friend to the player", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Reaction = SF.CombatReaction.Friend),
             ("Minutemen Ally to another faction", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Target.SetTo(new FormKey(SfEsm, 0x901))),
+            ("follow quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, ComQuestId))),
+            ("follow quest shows in the Missions tab", m => Com(m).Data!.Flags |= SF.Quest.Flag.DisplaysInHud),
+            ("follow alias has no package", m => ((SF.QuestReferenceAlias)Com(m).Aliases![0]).PackageData.Clear()),
         };
         foreach (var (name, edit) in mutations)
         {

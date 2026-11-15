@@ -104,6 +104,7 @@ float prestonOff = -1.0
 string prestonState = "none"
 bool prestonHeld = False
 int prestonHolds = 0
+bool prestonFollow = False
 bool prestonFighting = False
 int codsworthMoves = 0
 float codsworthOff = -1.0
@@ -157,6 +158,7 @@ Function KeepCodsworthLoad()
     endif
     prestonFails = 0
     prestonHeld = False
+    ; prestonFollow stays as the save left it. Clearing it here would put the door hold back over a follow.
     TracePreston("keeper load")
     Debug.Notification("FO4SF keeper: Preston " + (prestonOff as int) + " m from his spot (last: " + prestonState + ", moves " + prestonMoves + ")")
     if Codsworth != None
@@ -409,6 +411,21 @@ Function KeepPreston(Actor player)
     endif
 EndFunction
 
+Function BeginFollow()
+{FO4SF_COMPreston.FollowTest (test-only until the Concord talk) arms this instance. While prestonFollow is set,
+ PlacePreston neither moves him back to the museum door nor restrains him. The flag is per instance: the mission and
+ the keeper both have to be armed, or the one that was not puts the hold back. A later load keeps the flag
+ (KeepCodsworthLoad clears prestonHeld only).}
+    prestonFollow = True
+    prestonHeld = False
+    prestonState = HeldState("follow", False)
+    string who = "mission"
+    if KeeperOnly
+        who = "keeper"
+    endif
+    Trace("follow preston armed by=" + who)
+EndFunction
+
 bool Function PlacePreston(Actor player, string who)
 {Preston's fixed spot (FAL-128): PrestonLocalX/Y/Z + the merge offset, by PlaceAt. Returns True for a failed move: one
  that leaves him off his spot. The PC's 31 Oct logs: MoveOver judged "already moved" by his distance to the PLAYER (under
@@ -416,7 +433,12 @@ bool Function PlacePreston(Actor player, string who)
  target from where he stood, so a moved actor could be offset a second time, about 2,955 m away (the raiders were,
  31 Oct 16:33). The state stays readable without a log: sqv shows prestonState, prestonOff and prestonMoves.
  FAL-170, in game 10 Nov: once placed he walked off and was put back every 29 s, so he is held (HoldPreston) after
- every move that lands and at his spot within HeldRadius, never in a fight (the caller's ReleaseInFight runs first).}
+ every move that lands and at his spot within HeldRadius, never in a fight (the caller's ReleaseInFight runs first).
+ FAL-866: once BeginFollow has armed this instance, none of that runs. Follow is not a door hold.}
+    if prestonFollow
+        prestonState = HeldState("follow", False)
+        return False
+    endif
     float tx = PrestonLocalX + MergeOffsetX
     float ty = PrestonLocalY + MergeOffsetY
     float tz = PrestonLocalZ

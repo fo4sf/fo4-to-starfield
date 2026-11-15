@@ -8,7 +8,7 @@ usage:
          spot (points.json); the script keeps Preston and Codsworth at those spots from its own PrestonLocalX/Y/Z and
          CodsworthLocalX/Y/Z, so points that differ are refused;
       2. dotnet/Mission write + check: FO4SFMission.esm against the given core and raider plugins (offline_check.txt);
-      3. the Papyrus compile of FO4SF_Min00Quest.psc against every base script of ContentResources.zip;
+      3. the Papyrus compile of FO4SF_Min00Quest.psc and FO4SF_COMPreston.psc against every base script of ContentResources.zip;
       4. plan.json (the plugin's, the script's and the masters' SHA-256) and README.txt.
       The masters are hashed BEFORE the build and again before publication: a core or raider plugin that changed
       during the build is refused. The stage is built in a new <out>.partial-<time>-<pid> folder (never reused or
@@ -17,7 +17,7 @@ usage:
   python make_mission.py fold --mission <stage dir> --core-dir <core experiment dir> --out <new experiment dir>
                               [--raider <FO4ActorRaider.esm>]
       exp_install.py holds one experiment at a time, so the mission goes in WITH the core set: a copy of the core's
-      experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex, written only after verify
+      experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex (and FO4SF_COMPreston.pex), written only after verify
       passes on the result (built in a new <out>.partial-<time>-<pid>, kept on failure; an existing <out> is refused).
   python make_mission.py verify --exp-dir <experiment dir> --plan <stage dir>\plan.json [--raider <FO4ActorRaider.esm>]
       the install preflight: FO4SFMission.esm and the .pex in <exp-dir> match the plan's hashes, FO4TerrainCore.esm
@@ -46,6 +46,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
 SCRIPT = "FO4SF_Min00Quest"
+COM_SCRIPT = "FO4SF_COMPreston"                              # test-only follow command (FAL-866); not a quest property
 # Codsworth's own model (scripts/actors/convert_codsworth.py, PR #361): the asset folders stage copies into Data and the
 # mesh the plugin's ARMA names (relative to Data\Meshes)
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
@@ -129,13 +130,13 @@ def extract_sources(zip_path, work):
     return src
 
 
-def compile_script(compiler, src_dir, out_dir):
+def compile_script(compiler, src_dir, out_dir, script):
     os.makedirs(out_dir, exist_ok=True)
-    name = SCRIPT + ".psc"
+    name = script + ".psc"
     out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"], cwd=HERE)
-    pex = os.path.join(out_dir, SCRIPT + ".pex")
+    pex = os.path.join(out_dir, script + ".pex")
     if "Compilation succeeded" not in out or not os.path.exists(pex):
-        sys.exit(f"the Papyrus compile did not produce {SCRIPT}.pex")
+        sys.exit(f"the Papyrus compile did not produce {script}.pex")
     return pex
 
 
@@ -181,14 +182,19 @@ def stage(a):
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)
-    pex = compile_script(a.compiler, src, os.path.join(out, "Data", "Scripts"))
+    scripts_dir = os.path.join(out, "Data", "Scripts")
+    pex = compile_script(a.compiler, src, scripts_dir, SCRIPT)
+    com_pex = compile_script(a.compiler, src, scripts_dir, COM_SCRIPT)
     shutil.copy(os.path.join(HERE, SCRIPT + ".psc"), os.path.join(out, SCRIPT + ".psc"))
+    shutil.copy(os.path.join(HERE, COM_SCRIPT + ".psc"), os.path.join(out, COM_SCRIPT + ".psc"))
     drift = [f"{n}: {masters[n]} at the start, {h} now" for n, h in pin_masters((a.core, a.raider)).items()
              if h != masters[n]]
     if drift:
         sys.exit("a master changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
     plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
-            "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
+            "script": SCRIPT, "script_sha256": sha256(pex),
+            "companion_script": COM_SCRIPT, "companion_script_sha256": sha256(com_pex),
+            "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
             "codsworth": pts.get("codsworth") if a.codsworth else None,
             "assets": {rel: sha256(os.path.join(out, "Data", rel)) for rel in sorted(assets)},
@@ -203,7 +209,10 @@ at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raider
 Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
 Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m, kept by QUST FO4SF_CodsworthKeeper (start game enabled, so it also starts on an existing save)" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
-Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc (beside this file).
+Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc, and Data\\Scripts\\{COM_SCRIPT}.pex from {COM_SCRIPT}.psc
+(both beside this file). The follow command is test-only until the Concord talk starts it:
+cgf "FO4SF_COMPreston.FollowTest"
+It reaches the owner's game only after this stage is folded and installed. Until that command, Preston stays at the door.
 Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
 verify it first: python scripts\\mission\\make_mission.py fold --mission "{final}" --core-dir <core experiment dir> --out <new dir>
 Logging needs the [Papyrus] keys of make_bridge.py ini (already set where the bridge runs).
@@ -212,7 +221,8 @@ status line every 5 s. Read it: python scripts\\mission\\make_mission.py log
 Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
-    print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+    print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, {os.path.relpath(com_pex, out)}, "
+          "offline_check.txt, plan.json, README.txt")
 
 
 def copy_assets(src, data):
@@ -296,6 +306,9 @@ def verify_dir(exp_dir, plan, raider=None):
 
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     same("script", os.path.join(exp_dir, "Data", "Scripts", plan["script"] + ".pex"), plan["script_sha256"])
+    if plan.get("companion_script"):
+        same("companion script", os.path.join(exp_dir, "Data", "Scripts", plan["companion_script"] + ".pex"),
+             plan["companion_script_sha256"])
     for rel, want in plan.get("assets", {}).items():
         same("asset", os.path.join(exp_dir, "Data", *rel.split("/")), want)
     for name, want in plan["masters_sha256"].items():
@@ -333,7 +346,10 @@ def fold(a):
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
-    for rel in ["Scripts/" + plan["script"] + ".pex"] + sorted(plan.get("assets", {})):
+    script_rels = ["Scripts/" + plan["script"] + ".pex"]
+    if plan.get("companion_script"):
+        script_rels.append("Scripts/" + plan["companion_script"] + ".pex")
+    for rel in script_rels + sorted(plan.get("assets", {})):
         dst = os.path.join(out, "Data", *rel.split("/"))
         if os.path.exists(dst):
             sys.exit(f"fold refused: the core set already has Data/{rel} (attempt kept in {out})")
@@ -345,7 +361,8 @@ def fold(a):
             print("FAIL  " + p)
         sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
-    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex"
+    extra = f" + Data\\Scripts\\{plan['companion_script']}.pex" if plan.get("companion_script") else ""
+    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex{extra}"
           f" + {len(plan.get('assets', {}))} Codsworth asset(s); verify ok")
     return 0
 
@@ -366,7 +383,7 @@ def next_stage(stage, dead, total, fighting, at_preston, found=False):
 
 
 def place_at(off, dp, to_spot, interior, fighting, held=False, landed=None, hold=25.0, gap=1500.0, radius=300.0,
-             held_radius=3.0):
+             held_radius=3.0, following=False):
     """The script's PlaceAt decision with its caller's hold (FO4SF_Min00Quest.psc: PlacePreston, PlaceCodsworth, HoldDue),
     Preston's (FAL-128, FAL-170) and Codsworth's (FAL-163) fixed-spot rule, the same rule in Python so it can be tested:
     off is the actor's distance from its fixed merged spot, dp its distance from the player (inf: another world),
@@ -375,7 +392,10 @@ def place_at(off, dp, to_spot, interior, fighting, held=False, landed=None, hold
     (prestonState, codsworthState), or "move" when a move is due and landed is None. An actor that fights is let go
     first, whatever held says (the caller's ReleaseInFight); at its spot it is held when calm, not yet held and within
     held_radius; a move that lands holds it unless it fights; the state ends in ", held" while this instance holds it
-    after the check."""
+    after the check. following is Preston's BeginFollow flag (FAL-866): PlacePreston returns "follow" and does not
+    place or hold him. Codsworth has no such flag."""
+    if following:
+        return "follow"
     if fighting:
         held = False                                    # ReleaseInFight, before PlaceAt
     state = lambda s, h: s + ", held" if h else s       # HeldState
@@ -413,7 +433,9 @@ def summarize(lines):
     name as the script property it matches (31 Oct: "moved Codsworth" from the literal "codsworth")."""
     s = {"stages": [], "status": None, "reward": None, "startcombat": 0, "activated": 0, "found": None,
          "preston_moves": 0, "keeper": None, "preston_off": None,
-         "codsworth_moves": 0, "codsworth_keeper": None, "codsworth_off": None}
+         "codsworth_moves": 0, "codsworth_keeper": None, "codsworth_off": None,
+         "follow": None, "follow_package": None, "holds_after_follow": 0}
+    follow_seen = False
     for line in lines:
         m = LINE.search(line)
         if not m:
@@ -436,6 +458,16 @@ def summarize(lines):
             s["preston_moves"] += 1
         elif low.startswith("moved codsworth "):
             s["codsworth_moves"] += 1
+        elif low.startswith("follow preston test-only"):
+            s["follow"] = msg
+            follow_seen = True
+        elif low.startswith("follow preston package="):
+            s["follow_package"] = msg
+            follow_seen = True
+        elif low.startswith("follow preston "):
+            follow_seen = True
+        elif low.startswith("hold preston ") and follow_seen:
+            s["holds_after_follow"] += 1
         elif low.startswith(("keeper load preston ", "keeper status preston ")):
             s["keeper"], s["preston_off"] = msg, off_of(msg)
         elif low.startswith(("keeper load codsworth ", "keeper status codsworth ")):

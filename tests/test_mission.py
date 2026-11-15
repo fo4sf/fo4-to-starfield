@@ -64,6 +64,66 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(make_mission.mandatory_properties(text), ["A", "B", "D"])
 
 
+class FollowCommandTests(unittest.TestCase):
+    """FAL-866: the first slice is Preston follows. The door hold stays until the test-only command, and that command
+    does not use the host follower quest."""
+
+    def test_place_returns_before_the_hold_once_follow_is_armed(self):
+        body = function_body(read(PSC), "PlacePreston")
+        self.assertLess(body.index("if prestonFollow"), body.index("PlaceAt("))
+        self.assertLess(body.index("if prestonFollow"), body.index("HoldDue("))
+        armed = function_body(read(PSC), "BeginFollow")
+        self.assertIn("prestonFollow = True", armed)
+        self.assertIn("prestonHeld = False", armed)
+
+    def test_the_command_is_test_only_and_not_the_host_follower_quest(self):
+        com = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc"))
+        self.assertIn('cgf "FO4SF_COMPreston.FollowTest"', com)
+        self.assertIn("follow preston test-only", com)
+        self.assertIn("SetRestrained(False)", com)
+        self.assertIn("SetLinkedRef(player)", com)
+        self.assertIn("ForceRefTo(preston)", com)
+        self.assertIn("EvaluatePackage()", com)
+        self.assertIn("Utility.Wait(2.0)", com)
+        self.assertIn("GetCurrentPackage()", com)
+        self.assertIn("follow preston package=", com)
+        self.assertIn("BeginFollow()", com)
+        code = re.sub(r"\{[^}]*\}", "", com)
+        code = "\n".join(line.split(";")[0] for line in code.splitlines())
+        cs = read(CS)
+        cs_code = re.sub(r"/\*.*?\*/", "", re.sub(r"//.*?$", "", cs, flags=re.M), flags=re.S)
+        for banned in ("0000D773", "ActiveFollowers", "Constellation", "SetPlayerTeammate", "CompanionAffinity"):
+            self.assertNotIn(banned, code)
+            self.assertNotIn(banned, cs_code)
+        self.assertIn('ComQuestEdid = "FO4SF_COMPreston"', cs)
+        self.assertIn("FollowPackageId = 0x0301C5", cs)
+        self.assertIn('FollowPackageEdid = "DefaultMaster_FollowPackage"', cs)
+        self.assertIn('Name = ComAliasName', cs)
+        self.assertIn("AQuestAlias.Flag.AllowReserved", cs)
+
+    def test_a_hold_after_the_command_is_counted(self):
+        lines = [
+            "[11/15/2026 - 01:00:00AM] FO4SF_MISSION rt=10.0 hold preston by=keeper off=0.2 ok=True",
+            "[11/15/2026 - 01:00:01AM] FO4SF_MISSION rt=11.0 follow preston armed by=mission",
+            "[11/15/2026 - 01:00:01AM] FO4SF_MISSION rt=11.0 follow preston test-only alias=Preston filled=1 linked=player released=True quest=2069",
+            "[11/15/2026 - 01:00:06AM] FO4SF_MISSION rt=16.0 hold preston by=keeper off=1.0 ok=True",
+        ]
+        s = make_mission.summarize(lines)
+        self.assertTrue(s["follow"].startswith("follow preston test-only"))
+        self.assertEqual(s["holds_after_follow"], 1)
+        self.assertIsNone(s["follow_package"])
+        self.assertIsNone(make_mission.summarize(lines[:1])["follow"])
+        self.assertEqual(make_mission.summarize(lines[:1])["holds_after_follow"], 0)
+        with_package = lines[:3] + [
+            "[11/15/2026 - 01:00:03AM] FO4SF_MISSION rt=13.0 follow preston package=197061",
+            lines[3],
+        ]
+        sp = make_mission.summarize(with_package)
+        self.assertTrue(sp["follow"].startswith("follow preston test-only"))
+        self.assertEqual(sp["follow_package"], "follow preston package=197061")
+        self.assertEqual(sp["holds_after_follow"], 1)
+
+
 class LogTests(unittest.TestCase):
     LINES = [
         "[10/18/2026 - 02:00:00PM] FO4SF_MISSION rt=10.5 init raiders=3",
@@ -294,7 +354,7 @@ class RelocateContractTests(unittest.TestCase):
                     "guard", "hidden", "if", "import", "int", "is", "length", "mandatory", "native", "new", "none",
                     "parent", "property", "return", "scriptname", "self", "state", "string", "struct", "true",
                     "tryguard", "var", "while"}
-        code = re.sub(r"\{[^}]*\}", "", read(PSC))
+        code = re.sub(r"\{[^}]*\}", "", read(PSC) + "\n" + read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc")))
         code = re.sub(r'"[^"]*"', '""', "\n".join(line.split(";")[0] for line in code.splitlines()))
         names = [n for n in re.findall(r"\b(?:bool|int|float|string|Actor|WorldSpace|MiscObject)(?:\[\])?\s+(\w+)",
                                        code, re.I) if n not in ("Property", "Function")]
@@ -510,6 +570,15 @@ class RelocateContractTests(unittest.TestCase):
         # snapped back or in another world: off, also while "fighting" (he cannot fight from there)
         self.assertEqual(make_mission.place_at(2955.0, 2955.0, to_spot, False, True), "move")
         self.assertEqual(make_mission.place_at(0.0, float("inf"), to_spot, False, False), "move")
+
+    def test_follow_skips_the_door_hold(self):
+        """FAL-866: once BeginFollow has armed the instance, PlacePreston does not move him back or hold him,
+        including when he is already at the door (the 10 Nov hold) or off it (the put-back)."""
+        self.assertEqual(make_mission.place_at(1.0, 2.0, 2.0, False, False, held=False), "at spot, held")
+        self.assertEqual(make_mission.place_at(1.0, 2.0, 2.0, False, False, held=False, following=True), "follow")
+        self.assertEqual(make_mission.place_at(40.0, 10.0, 10.0, False, False), "move")
+        self.assertEqual(make_mission.place_at(40.0, 10.0, 10.0, False, False, following=True), "follow")
+        self.assertEqual(make_mission.place_at(40.0, 10.0, 10.0, False, True, following=True), "follow")
 
     def test_preston_is_never_offset_twice(self):
         """31 Oct 16:33 (.1.log): with the player about one offset length south-west of them, raiders already moved
@@ -935,7 +1004,10 @@ class StageAndInstallTests(unittest.TestCase):
                     sys.exit("check exit 1")
                 return "all checks pass"
             elif "PapyrusCompiler" in cmd[0] or cmd[0] == "compiler":
-                _write(os.path.join(cmd[-1][3:], make_mission.SCRIPT + ".pex"), b"pex")
+                psc_name = next(a for a in cmd if str(a).endswith(".psc"))
+                out_dir = next(a for a in cmd if str(a).startswith("-o="))[3:]
+                stem = os.path.splitext(os.path.basename(psc_name))[0]
+                _write(os.path.join(out_dir, stem + ".pex"), b"pex-" + stem.encode())
                 return "Compilation succeeded"
             return ""
         core, raider = os.path.join(d, "FO4TerrainCore.esm"), os.path.join(d, "FO4ActorRaider.esm")
