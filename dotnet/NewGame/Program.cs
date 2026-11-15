@@ -144,8 +144,8 @@ static class NewGame
     public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
     public const SF.ActorValueInformation.Flag SpecialAvifFlags = SF.ActorValueInformation.Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
-    // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
-    // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test.
+    // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
+    // menu; the in-game C1 session (with MQ101 stopped) settled the looks-only mode, the owner's decision NG-C3.
     // The default is 2, seen looks-only in the C1 session (15 Nov, owner PC: only BODY and FACE; mode 1 still showed
     // TRAITS): 0 shows Starfield's Background and Traits pages, Starfield new-game content the strip-down rule takes
     // out (system model S13); --race-menu-mode 0 builds that full creator

@@ -214,8 +214,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   game's default new player; a shipped Fallout-style face preset is a later item, NG-M9). Button 0 opens the creator.
 - Character creation: `Game.ShowRaceMenu(None, RaceMenuMode)`. **verified** (PC read, 19 Oct): Starfield's Game.psc
   declares `ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...)`, the modes FO4's (0 chargen, 1
-  remake, 2 haircut, 3 surgery, 4 face paint). The owner wants a looks-only creator (NG-C3); which mode that is, and
-  what each shows with MQ101 stopped, is **unresolved** until the in-game C1 test (one mode per run). So the mode is a
+  remake, 2 haircut, 3 surgery, 4 face paint). The owner wants a looks-only creator (NG-C3); FO4's mode names do not
+  say which Starfield mode that is, so the in-game C1 session (one mode per run, MQ101 stopped) decided it. The mode is a
   writer option, `--race-menu-mode <n>`, written into the looks script's `RaceMenuMode` property; `check` and the
   selftest hold a build to its mode. Since 15 Nov the default is **2**, looks only: mode 0
   is the full creator with Starfield's Background and Traits pages, Starfield new-game content that the strip-down
