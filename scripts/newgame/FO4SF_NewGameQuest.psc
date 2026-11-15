@@ -136,6 +136,9 @@ int Property ExitAnchorId Auto Const Mandatory
 {A persistent reference in the core world (its Vault 111 map marker): MoveTo it puts the player in the core world at
  the reference's LOCAL position (persistent references are not moved by the merge), a later tick's SetPosition then
  places them (FinishSurface).}
+int Property ArrivalDiscoveryId = 0 Auto Const
+{Only the canonical Vault 111 map marker, supplied by the writer; zero disables discovery for a custom exit anchor.
+ The call is made after confirmed exterior arrival. Its return and the fast-travel reads do not prove map discovery.}
 float Property ArrivalX Auto Const Mandatory
 float Property ArrivalY Auto Const Mandatory
 float Property ArrivalZ Auto Const Mandatory
@@ -170,8 +173,7 @@ float Property SurfaceWait = 10.0 Auto Const
 {Seconds after the ride's MoveTo the player may still be inside before it counts as missed: one more MoveTo, then the
  elevator prompt again.}
 int Property SurfaceTries = 3 Auto Const
-{SetPositions on the merged arrival, one a tick, before stage 40 goes on without one taking (CheckLanding's fallback
- then decides).}
+{SetPositions on the merged arrival, one a tick. Exhaustion stops this exit with failure, without stage 40 or discovery.}
 float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
@@ -203,6 +205,10 @@ bool podChecked = false
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
 int surfaceMoves = 0
 int surfaceSets = 0
+WorldSpace arrivalWorld = None
+bool exitFailed = false
+bool fallbackPending = false
+int landingChecks = 0
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -349,6 +355,9 @@ Function AdvanceTo(int n)
 EndFunction
 
 Event OnTimer(int aiTimerID)
+    if exitFailed
+        return
+    endif
     if aiTimerID != 1
         return
     endif
@@ -406,7 +415,7 @@ Event OnTimer(int aiTimerID)
     if ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
-    if GetStage() < 200 && GetStage() != 1
+    if GetStage() < 200 && GetStage() != 1 && !exitFailed
         StartTimer(1.0, 1)
     endif
 EndEvent
@@ -575,6 +584,8 @@ Function Surface(Actor player)
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
         return
     endif
+    surfaceSets = 0
+    arrivalWorld = None
     player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
     surfaceMoves += 1
     surfaceMovedAt = Utility.GetCurrentRealTime()
@@ -586,8 +597,8 @@ Function FinishSurface(Actor player)
  is outside with their 3D loaded (the load door's MoveTo, wait, SetPosition order: FO4SF_LoadDoor's SettleSeconds,
  PASS on the Super Duper Mart round trip, 17 Oct). Run 3 of 28 Oct called it in the MoveTo's own tick: the game ignored
  it, the player stood at the anchor's local spot until the fall check's SetPosition 5.7 s later moved them. A SetPosition
- that does not take (the position read back is more than 5 m off) is tried again next tick, SurfaceTries in all, then
- stage 40 goes on and CheckLanding decides. Still inside SurfaceWait seconds after the MoveTo: one more MoveTo, then the
+ that does not take is tried again next tick, SurfaceTries in all, then the exit stops with failure. Still inside
+ SurfaceWait seconds after the MoveTo: one more MoveTo, then the
  elevator prompt again. Outside but not loaded yet: it waits.}
     if player.IsInInterior()
         if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
@@ -606,6 +617,19 @@ Function FinishSurface(Actor player)
     if !player.Is3DLoaded()
         return                                               ; outside, still loading: never a missed move
     endif
+    WorldSpace w = player.GetWorldSpace()
+    Cell currentCell = player.GetParentCell()
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if w == None || currentCell == None || anchor == None
+        FailExit("surface_world_or_cell_unavailable")
+        return
+    endif
+    ; The runtime world is learned from a loaded core-owned cell, not the anchor's original overlay world.
+    if currentCell.GetFormID() / 16777216 != anchor.GetFormID() / 16777216
+        FailExit("surface_cell_not_core")
+        return
+    endif
+    arrivalWorld = w
     float x = ArrivalX + MergeOffsetX
     float y = ArrivalY + MergeOffsetY
     player.SetPosition(x, y, ArrivalZ)
@@ -613,29 +637,92 @@ Function FinishSurface(Actor player)
     surfaceSets += 1
     float dx = player.GetPositionX() - x
     float dy = player.GetPositionY() - y
-    bool ok = dx * dx + dy * dy <= 25.0
+    float dz = player.GetPositionZ() - ArrivalZ
+    bool ok = dx * dx + dy * dy <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && player.GetWorldSpace() == w
     Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ)
-    if ok || surfaceSets >= SurfaceTries
+    if ok
         surfaceMovedAt = 0.0
         arrivedAt = Utility.GetCurrentRealTime()
         AdvanceTo(40)
+    elseif surfaceSets >= SurfaceTries
+        FailExit("surface_position_not_confirmed")
     endif
 EndFunction
 
 Function CheckLanding(Actor player)
-{Three seconds after the arrival: a player below the arrival by FallDrop fell (the surface elevator platform may not be
- solid in the core) and goes to the fallback, the map marker's spot on the ground; then the quest completes.}
+{Confirm the landing on a later loaded tick in the attached exterior world. A fallback move is checked on another
+ tick; exhaustion is failure. Discovery is requested only after the landing and marker's placement both confirm.}
     if Utility.GetCurrentRealTime() - arrivedAt < 3.0
         return
     endif
+    if !player.Is3DLoaded()
+        return
+    endif
+    if player.IsInInterior() || arrivalWorld == None || player.GetWorldSpace() != arrivalWorld
+        FailExit("landing_world_changed")
+        return
+    endif
+    landingChecks += 1
     float z = player.GetPositionZ()
-    if z < ArrivalZ - FallDrop
+    if !fallbackPending && z < ArrivalZ - FallDrop
+        fallbackPending = true
         player.SetPosition(FallbackX + MergeOffsetX, FallbackY + MergeOffsetY, FallbackZ + 1.0)
         Trace("fell z=" + z + ": fallback pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
-    else
-        Trace("landed z=" + z)
+        return
     endif
+    if !AtArrival(player)
+        FailExit("landing_position_not_confirmed")
+        return
+    endif
+    if !RequestArrivalDiscovery(player)
+        if landingChecks >= 30
+            FailExit("arrival_marker_not_attached")
+        endif
+        return
+    endif
+    Trace("landed z=" + z + " confirmed=True fallback=" + fallbackPending + " world=" + arrivalWorld)
     AdvanceTo(200)
+EndFunction
+
+bool Function RequestArrivalDiscovery(Actor player)
+    if ArrivalDiscoveryId == 0
+        Trace("arrival discovery disabled: custom exit anchor")
+        return true
+    endif
+    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    if marker == None || marker.GetWorldSpace() != arrivalWorld
+        Trace("arrival discovery waits: marker world not attached")
+        return false
+    endif
+    float dx = marker.GetPositionX() - (FallbackX + MergeOffsetX)
+    float dy = marker.GetPositionY() - (FallbackY + MergeOffsetY)
+    float dz = marker.GetPositionZ() - FallbackZ
+    if dx * dx + dy * dy > 25.0 || dz < -3.0 || dz > 3.0
+        Trace("arrival discovery waits: marker position not confirmed")
+        return false
+    endif
+    ; Native reads yield between calls: recheck the player after reading the marker, immediately before mutation.
+    bool enabledBefore = Game.IsFastTravelEnabled()
+    if !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld || !AtArrival(player) || marker.GetWorldSpace() != arrivalWorld
+        return false
+    endif
+    marker.SetMarkerDiscovered()
+    Trace("arrival discovery requested ref=" + marker + " world=" + marker.GetWorldSpace() + " fast_before=" + enabledBefore + " fast_after=" + Game.IsFastTravelEnabled())
+    ; SetMarkerDiscovered is void. Only a named discovered map icon with a Fast Travel offer proves the result.
+    return true
+EndFunction
+
+bool Function AtArrival(Actor player)
+    if fallbackPending
+        return Near(player, FallbackX + MergeOffsetX, FallbackY + MergeOffsetY, FallbackZ + 1.0, 5.0)
+    endif
+    return Near(player, ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ, 5.0)
+EndFunction
+
+Function FailExit(string reason)
+    exitFailed = true
+    surfaceMovedAt = 0.0
+    Trace("exit failed reason=" + reason + " stage=" + GetStage())
 EndFunction
 
 bool Function Near(Actor player, float x, float y, float z, float radius)

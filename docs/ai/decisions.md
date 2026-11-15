@@ -1458,3 +1458,18 @@ where a player can stand, so the quest gives the door a trigger.
 Alternatives: prove a later plugin's archive wins for the same path (unread, a session of its own, leaves a shadowed file behind); extend the ACTI probe to
 DOORs (its check asserts exactly an ACTI and a quest); replace the archived files (forbidden by the installer).
 
+
+## 2026-11-15: S3 discovery after confirmed arrival (Codex, FAL-848)
+
+PC result d6a04cf2 rejects cold indoor placement: exact XYZ with no exterior world is
+not placement. Production discovery therefore follows a loaded, core-owned exterior
+arrival, a later landing confirmation and the canonical Vault 111 marker's attachment.
+A fallback SetPosition or spent retry budget is not success. A void discovery call
+and global fast-travel/proxy reads are logged as requests/readings; only the actual
+named discovered map entry and Fast Travel offer certify the destination.
+
+The next timing hypothesis is marker movement after early exterior attachment during
+the unchanged final ascent. It must first list markers without a hop, then fit the
+measured remaining ascent at all-marker scale. Alternatives rejected by owner direction:
+reusing the old black hold, adding a wait or slowing the lift. No timing/engine behavior
+is inferred from the old 26-second hold/reload total. See newgame/exit-arrival-pc-card.md.

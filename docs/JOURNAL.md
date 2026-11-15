@@ -2943,3 +2943,27 @@ toolchains/platform checks). `python scripts/guard.py`: ok. Follow-up focused
 checks include the additional converter/preflight controls. This is source-only;
 no game version was exercised, no Papyrus/native compile or owner installation ran.
 Independent review and production ride/map/console integration remain outstanding.
+
+## 2026-11-15: FAL-848, confirmed-arrival discovery slice (Codex / Ubuntu)
+
+Consumed Claude PC's d6a04cf2 result on main 6ebb7a0d: indoor marker XYZ took but
+world/cell stayed None; outdoor repair and load persistence were separate. The map
+still showed UNKNOWN after indoor discovery. The reported 26 seconds includes a
+24.4-second dark hold and reload; no placement-only or hidden-ride budget is inferred.
+
+Production source now rejects exhausted/incorrect surface placement, learns the
+runtime world from a loaded core cell, checks fallback on a later tick and requests
+only the canonical Vault 111 marker's discovery after confirmed arrival/attachment.
+The log keeps a void discovery request distinct from evidence of discovered state.
+Synthetic execution substitutes native calls in the actual arrival branches: ignored
+placement/fallback, wrong player/marker world, wrong position/height, unloaded player,
+marker wait exhaustion, player movement during reads, primary success and custom-exit
+no-discovery cases. Focused 164 tests OK (four .NET skips), guard ok before commit.
+This is Python/source evidence, not Papyrus compilation or native placement/discovery.
+
+The new exit-arrival-pc-card first tests exterior discovery and listing without the
+old hop/hold, then requires a full exact-build final-ascent timing run after wiring.
+No wait/slowdown was added. Native ride, console/gates, full marker preparation and
+owner-build integration remain open; Windows/Papyrus/game NOT_RUN here. Reviewer:
+Courier Copy. Draft #790 remains draft. The earlier uncommitted warmed-anchor probe
+extension is preserved in the task tree, excluded from this production slice.

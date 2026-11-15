@@ -144,12 +144,12 @@ NATIVES = {
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
-                            "GetItemCount", "AddItem"],
+                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "SetMarkerDiscovered"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer"],
@@ -680,7 +680,8 @@ def summarize(lines):
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
-         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False}
+         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
+         "arrival_discovery_requested": None, "exit_failure": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -727,6 +728,10 @@ def summarize(lines):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
             s["landed"] = True
+        elif msg.startswith("arrival discovery requested "):
+            s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("exit failed reason="):
+            s["exit_failure"] = msg[len("exit failed reason="):]
         elif msg.startswith("fell "):
             s["fell"] = True
         elif msg.startswith("not a new game") or msg.startswith("no move into the vault"):
@@ -763,7 +768,7 @@ def log(a):
     with open(a.file, encoding="utf-8", errors="replace") as f:
         s = summarize(f)
     print(json.dumps(s, indent=1))
-    return 0 if 200 in s["stages"] and not s["stood_down"] else 1
+    return 0 if 200 in s["stages"] and not s["stood_down"] and not s["exit_failure"] else 1
 
 
 def main(argv=None):
