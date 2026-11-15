@@ -14,8 +14,9 @@ Scriptname FO4SF_NewGameLooks extends Quest
 Message Property StartMessage Auto Const Mandatory
 {The opening choice (FO4SFNewGame.esm 0x802): button 0 creates the character, button 1 is the quick start.}
 
-int Property RaceMenuMode = 0 Auto Const
-{The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator. The modes are FO4's
+int Property RaceMenuMode = 1 Auto Const
+{The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator, with Starfield's
+ Background and Traits pages; 1 (FO4's remake) is the default as the looks-only candidate. The modes are FO4's
  (1 remake, 2 haircut, 3 surgery, 4 face paint); which one is looks-only, the owner's choice (NG-C3), is unverified
  until the in-game C1 test decides it.}
 

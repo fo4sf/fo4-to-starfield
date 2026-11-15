@@ -216,8 +216,12 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   declares `ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...)`, the modes FO4's (0 chargen, 1
   remake, 2 haircut, 3 surgery, 4 face paint). The owner wants a looks-only creator (NG-C3); which mode that is, and
   what each shows with MQ101 stopped, is **unresolved** until the in-game C1 test (one mode per run). So the mode is a
-  writer option, `--race-menu-mode <n>` (default 0, the full creator), written into the looks script's `RaceMenuMode`
-  property; `check` and the selftest hold a build to its mode.
+  writer option, `--race-menu-mode <n>`, written into the looks script's `RaceMenuMode` property; `check` and the
+  selftest hold a build to its mode. Since 15 Nov the default is **1** (FO4's remake), the looks-only candidate: mode 0
+  is the full creator with Starfield's Background and Traits pages, Starfield new-game content that the strip-down
+  rule takes out (system model S13, the owner's NG-C3). That mode 1 shows looks only in Starfield is **unverified**
+  until the C1 session; if it does not, the default moves to the mode that does. `--race-menu-mode 0` builds the old
+  full creator, the way back.
 - Waiting for the creator: Starfield's Utility.psc has **no** `IsInMenuMode` (verified, PC precheck 19 Oct).
   **verified** (PC read, 19 Oct): ScriptObject has `RegisterForMenuOpenCloseEvent(string)` and the creator's menu is
   "ChargenMenu" (9 vanilla registrations). The looks script registers for it before the menu opens and sets stage 20 in
@@ -365,7 +369,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
-   given with it), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
+   given with it), `--no-looks`, `--race-menu-mode <n>` (default 1, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
@@ -374,7 +378,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest (`dotnet run -c
    Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The selftest builds the
    default, `--no-looks`, `--mq101debug 0`, `--mq101debug 8`, `--debug-after-hold 0`, `--mq101debug 10`, no-cog-door,
-   two-quest-hold, `--race-menu-mode 1`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
+   two-quest-hold, `--race-menu-mode 0`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
    `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the others'
    options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks, has
    twice, or that another plugin owns is refused. A port whose vault cell has no persistent reference (every reference
