@@ -39,7 +39,9 @@ owner before downloading it. The .as imports only playerglobal types: `flash.dis
 The host shuttle class is not imported: `getDefinitionByName("BSUIDataManager")` at runtime, fail closed if
 missing. The constructor creates `fo4sfOptN/E/S/W` as TextFields (N/E/S/W around a 1920x1080 stage), so this
 compiled movie has the four slots; do not stage the no-DoABC wheel. Use `-target-player=32.0` (the 11.1
-playerglobal is no longer served).
+playerglobal is no longer served). Get `playerglobal32_0.swc` from Adobe's download host
+`https://fpdownload.macromedia.com/get/flashplayer/updaters/32/playerglobal32_0.swc` and put it in the SDK as
+`frameworks/libs/player/32.0/playerglobal.swc`. Ask the owner before downloading it. Do not commit the SWC.
 
 From the repo root, with `mxmlc` on PATH (bin of that SDK):
 

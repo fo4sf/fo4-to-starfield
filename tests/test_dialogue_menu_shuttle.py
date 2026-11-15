@@ -98,6 +98,11 @@ class ShuttleBindTest(unittest.TestCase):
             card_src = f.read()
         self.assertIn("-target-player=32.0", card_src)
         self.assertNotIn("-target-player=11.1", card_src)
+        self.assertIn(
+            "https://fpdownload.macromedia.com/get/flashplayer/updaters/32/playerglobal32_0.swc",
+            card_src,
+        )
+        self.assertIn("frameworks/libs/player/32.0/playerglobal.swc", card_src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 
