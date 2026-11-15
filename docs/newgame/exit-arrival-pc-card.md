@@ -93,3 +93,33 @@ which guarded call ran. A failed arrival, marker not attached or missing map des
 is failure, not completion. The new source intentionally does not force the global
 fast-travel switch to conceal a failed destination. Owner install and complete S3 remain
 open until this full exit result is recorded.
+
+## A2. Does discovery survive one real door load? (FAL-1007; route decision FAL-1017 comment 2bcf4983)
+
+Minuteman Copy. **Pending Courier Copy review; Windows/Papyrus/game NOT_RUN by the author.** Diagnostic only.
+
+Input: section A's PC result (FAL-1007 comment 39f3f7cf, evidence `fal848-arrA-4aaaa2c0-20261115T223905Z`): with the exterior
+attached and one `V111.SetMarkerDiscovered`, the map listed none of our markers before a load (not even UNKNOWN); after
+save/menu/load only UNKNOWN entries were seen. The Scribe's `elevator-map` is not on main and is not relied on here.
+Same build and kit as A (#796 `4aaaa2c0` / kit `bb2d385b`, `--landing-undiscovered --no-reload`, stages 10, 30, 40 in
+order, no 20/60/70, hashes recorded as in A).
+
+1. `coc FO4Core_RedRocketSpawn`, let the mover finish, stage 30 once on Vault 111. Read the map: no list is expected (as A).
+2. Take **one real door load** into an interior and back out. No save, no menu, no console movement, no other
+   `SetMarkerDiscovered`. Record the door (ids, world/cell before and after) and the **length of each load**. Read the map
+   **inside** the interior and **after exiting**.
+3. After exiting, run stage 40 and check: (a) Vault 111 named and discovered; (b) a Fast Travel offer (do not travel; if the
+   game refuses because the player is already at Vault 111, take a short safe walk that discovers nothing and check again);
+   (c) the landing marker and one ordinary location (identified by target) undiscovered, or UNKNOWN; if UNKNOWN hides the
+   landing entry, that one check is unresolved; (d) the rough count of listed entries against the expected about 309.
+   Visible/canfast and global fast travel were already true at stage 10 and are not proof.
+4. Then save, return to the main menu, load, stage 50: is Vault 111 still named and discovered?
+5. Remove the session kits with their uninstallers and return the before/after receipts and throwaway-save cleanup.
+
+Result rules (Sole, FAL-1017):
+- **PASS** (listed after the door load, Vault 111 discovered, the others undiscovered): route E (no extra load; list fills at
+  the first natural load) can be built, or D (one short ordinary loading screen) if the owner says so.
+- **Listed but Vault 111 not discovered:** a re-request of Vault 111 discovery at the first load becomes required; the next
+  card tests that.
+- **Not listed after a door load:** only a save/load builds the list; E and D both fail and only the plugin-placed-marker
+  research remains. No black hold, slowdown or hop is added to make any outcome pass.
