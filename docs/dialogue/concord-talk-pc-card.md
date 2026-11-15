@@ -38,11 +38,12 @@ owner before downloading it. The .as imports only playerglobal types: `flash.dis
 `flash.text.TextField`, `flash.text.TextFormat`, and `flash.utils.getDefinitionByName`. No other library.
 The host shuttle class is not imported: `getDefinitionByName("BSUIDataManager")` at runtime, fail closed if
 missing. The constructor creates `fo4sfOptN/E/S/W` as TextFields (N/E/S/W around a 1920x1080 stage), so this
-compiled movie has the four slots; do not stage the no-DoABC wheel.
+compiled movie has the four slots; do not stage the no-DoABC wheel. Use `-target-player=32.0` (the 11.1
+playerglobal is no longer served).
 
 From the repo root, with `mxmlc` on PATH (bin of that SDK):
 
-    mxmlc -strict=true -swf-version=12 -target-player=11.1 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
+    mxmlc -strict=true -swf-version=12 -target-player=32.0 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
 
 Then, game closed:
 
@@ -57,7 +58,8 @@ Load a save that can talk. First any talk: the list is not the result; four slot
 in those four places) is the movie half.
 
 Then Concord, DialogueConcordArea `000179F3`: after leaving Vault 111 (or the usual jump), one talk shows four
-options. Selecting one fires the host `DialogueMenu` select path (KEEP plumbing). A Starfield list fail.
+options. Selecting one (mouse click on a slot; no key/controller path in this movie) fires the host `DialogueMenu`
+select path (KEEP plumbing). A Starfield list fail.
 
 ## Verdict
 

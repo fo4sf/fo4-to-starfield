@@ -92,6 +92,12 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("MouseEvent.CLICK", src)
         self.assertNotIn("BSUIDataManager.Subscribe", src)
         self.assertNotIn("BSUIDataManager.Dispatch", src)
+        self.assertIn("return null;", src)
+        card = os.path.join(ROOT, "docs", "dialogue", "concord-talk-pc-card.md")
+        with open(card, encoding="utf-8") as f:
+            card_src = f.read()
+        self.assertIn("-target-player=32.0", card_src)
+        self.assertNotIn("-target-player=11.1", card_src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 

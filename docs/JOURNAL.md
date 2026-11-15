@@ -2986,3 +2986,8 @@ playerglobal only. Native/game NOT_RUN.
 FAL-895 FINDING 9a5a75cc: compiling DialogueMenuFour.as alone had no fo4sfOpt* children, and mxmlc -strict could
 not see BSUIDataManager. The class now creates the four named TextFields and resolves the shuttle with
 getDefinitionByName. Card compile line names playerglobal only, plus -default-size 1920 1080. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL compile — shuttle return and player 32.0 (FAL-865)
+
+PC FAIL at 77ebc085: shuttle() needed a trailing return null under -strict; 11.1 playerglobal is no longer served.
+Card now uses -target-player=32.0. No install, no launch. Native/game NOT_RUN.

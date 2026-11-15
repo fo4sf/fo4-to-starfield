@@ -148,6 +148,7 @@ package
             {
                 return null;
             }
+            return null;
         }
 
         private function ensureSlots():void
