@@ -12,7 +12,7 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--debug-after-hold N] [--pod-ref HEX] [--terminal-ref HEX]
-                               [--clear-inventory [--vault-suit EDITORID]] [--allow-temporary-anchor]
+                               [--keep-inventory | --vault-suit EDITORID] [--allow-temporary-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt; its "vault anchor" line says
@@ -114,12 +114,15 @@ SPECIAL_MAX_PRESSES = 300
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
-# OFF until an in-game run shows what Starfield leaves the player with when MQ101 never runs. --clear-inventory
-# makes the quest script call RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity,
-# so whether quest items stay is unverified) once the player is in the vault and log "inventory cleared removed=<n>
-# left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and equips ("vault suit
-# equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
-DEFAULT_CLEAR_INVENTORY = False
+# ON by default since S13 row 2: the strip-down rule takes Starfield's own new-game items (outfit, gear, credits) out,
+# as FO4's MQ101 empties the inventory, and what Starfield leaves when MQ101 never runs is unresolved (run 4). The
+# quest script calls RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity, so
+# whether quest items stay is unverified) once the player is in the vault and logs "inventory cleared removed=<n>
+# left=<n>"; --vault-suit <EditorID> names the port's ARMO the script then adds and equips ("vault suit equipped
+# ..."), resolved offline by the writer with the same owner checks as the other ids. Until the port has a vault suit
+# the player starts with nothing. --keep-inventory builds the old start (Starfield's items kept); --clear-inventory
+# (the default now) is kept for old command lines.
+DEFAULT_CLEAR_INVENTORY = True
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
 # terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
@@ -138,7 +141,7 @@ LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 # the natives each script calls and the events it handles, by the base script that must declare them (precheck).
 # Events are declarations too (Event OnMenuOpenCloseEvent in ScriptObject.psc), looked up the same way.
 NATIVES = {
-    # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
+    # the inventory reset (ClearInventory, on by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
     # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads. The
     # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc declares it too,
     # read in ContentResources.zip 29 Oct; whether it works in retail is unverified until the PC run).
@@ -388,17 +391,24 @@ def tool_options(a):
         opts.append("--no-version")
     if a.build_version is not None:
         opts += ["--build-version", str(a.build_version)]
-    if a.clear_inventory:
-        opts.append("--clear-inventory")
+    if a.keep_inventory:
+        if a.clear_inventory:
+            sys.exit("--keep-inventory and --clear-inventory contradict each other")
         if a.vault_suit:
-            opts += ["--vault-suit", a.vault_suit]
+            sys.exit("--vault-suit is equipped by the inventory reset: --keep-inventory turns it off")
+        opts.append("--keep-inventory")
     elif a.vault_suit:
-        sys.exit("--vault-suit is equipped by the inventory reset: stage with --clear-inventory too")
+        opts += ["--vault-suit", a.vault_suit]
     if a.allow_temporary_anchor:
         if a.require_persistent_anchor:
             sys.exit("--allow-temporary-anchor and --require-persistent-anchor contradict each other")
         opts.append("--allow-temporary-anchor")
     return opts
+
+
+def clear_inventory_option(a):
+    """Whether the build empties the inventory at the pod: DEFAULT_CLEAR_INVENTORY (on) unless --keep-inventory."""
+    return DEFAULT_CLEAR_INVENTORY and not a.keep_inventory
 
 
 def mq101debug_option(a):
@@ -471,7 +481,7 @@ def stage(a):
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
-                        "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None,
+                        "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -485,7 +495,7 @@ MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and F
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
-Inventory reset at the pod: {('ON (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
+Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player starts with nothing')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -809,11 +819,14 @@ def main(argv=None):
                    help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
+    s.add_argument("--keep-inventory", action="store_true",
+                   help="no inventory reset: the player keeps what Starfield gives. By default the quest empties the "
+                        "player's inventory once the player is confirmed in the vault, before stage 10 (NG-K8, S13 row 2; "
+                        "whether quest items stay is unverified)")
     s.add_argument("--clear-inventory", action="store_true",
-                   help="empty the player's inventory once the player is confirmed in the vault, before stage 10 "
-                        "(NG-K8; off by default; whether quest items stay is unverified)")
+                   help="kept for old command lines: the default already empties the inventory")
     s.add_argument("--vault-suit", default=None, metavar="EDITORID",
-                   help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
+                   help="the port's ARMO the script adds and equips after the reset, by EditorID (refused with --keep-inventory)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

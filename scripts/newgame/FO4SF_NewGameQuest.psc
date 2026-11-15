@@ -176,9 +176,9 @@ float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
 
-bool Property ClearInventory = false Auto Const
-{The starting inventory reset (NG-K8, the writer's --clear-inventory; off until an in-game run shows what Starfield
- leaves the player with when MQ101 never runs). True: once the player is in the vault, RemoveAllItems (whether
+bool Property ClearInventory = true Auto Const
+{The starting inventory reset (NG-K8; on by default since S13 row 2, the strip-down of Starfield's own new-game
+ items; the writer's --keep-inventory writes false). True: once the player is in the vault, RemoveAllItems (whether
  quest items stay is unverified, ResetInventory) and the count removed logged as "inventory cleared removed=<n>
  left=<n>"; then VaultSuitId.}
 int Property VaultSuitId = 0 Auto Const

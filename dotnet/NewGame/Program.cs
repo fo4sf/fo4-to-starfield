@@ -15,7 +15,7 @@
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--debug-after-hold <n>] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>] [--clear-inventory [--vault-suit <ARMO EditorID>]] [--allow-temporary-anchor]
+//         [--exit-anchor <REFR EditorID>] [--keep-inventory | --vault-suit <ARMO EditorID>] [--allow-temporary-anchor]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (run once, NOT start game enabled; stages 1 /
 //        10 / 20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10), the
 //        override of Starfield's DFOB StartupQuest_DO naming it (the writer refuses a Starfield.esm whose
@@ -48,11 +48,13 @@
 //        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
 //        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
 //        and the exit anchor (the core's Vault 111 map marker).
-//        --clear-inventory (default off, NG-K8): the quest script empties the player's inventory (whether quest
-//        items stay is unverified) once the player is confirmed in the vault (before stage 10) and logs the count
-//        removed; --vault-suit <EditorID> (only with it) names an ARMO of FO4Port.esm the script then adds and
-//        equips, resolved here by EditorID with the same owner check as the other ids (refused when the port lacks
-//        it, has two, or it is another plugin's record).
+//        The inventory reset (default on since S13 row 2, NG-K8): the quest script empties the player's inventory
+//        (whether quest items stay is unverified) once the player is confirmed in the vault (before stage 10) and logs
+//        the count removed; --keep-inventory builds without it (the player keeps what Starfield gives), and
+//        --clear-inventory (the default now) is kept for old command lines. --vault-suit <EditorID> (refused with
+//        --keep-inventory) names an ARMO of FO4Port.esm the script then adds and equips, resolved here by EditorID
+//        with the same owner check as the other ids (refused when the port lacks it, has two, or it is another
+//        plugin's record).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -151,14 +153,15 @@ static class NewGame
     // out (system model S13); --race-menu-mode 0 builds that full creator
     public const int DefaultRaceMenuMode = 2;
     // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (verified from the SKK
-    // FastStart article, research note 06); Starfield's MQ101 stage 0 swaps the outfit (PC read 19 Oct) and whether it
-    // removes items too is unverified (NG-N3). What a game started with MQ101 held off leaves
-    // in the player's inventory is unverified until the first in-game proof, so the reset is OFF by default: the quest
-    // script's ClearInventory property (false) and VaultSuitId (0, none). With --clear-inventory the script calls
-    // ObjectReference.RemoveAllItems(None, false, false) (written with FO4's arguments; Starfield's third parameter is
-    // abRespectTargetCapacity, so whether quest items stay is unverified) after the move into the pod, and with
-    // --vault-suit it adds and equips the port's ARMO.
-    public const bool DefaultClearInventory = false;
+    // FastStart article, research note 06); Starfield's MQ101 stage 0 runs RemoveAllItems and equips the miner suit (PC
+    // read 19 Oct), and since newgame_v11 MQ101 never runs. What Starfield then leaves in the player's inventory is
+    // unresolved (run 4), and the strip-down rule takes Starfield's own new-game content out (system model S13 row 2),
+    // so the reset is ON by default: the quest script's ClearInventory property (true) and VaultSuitId (0, none until the
+    // port has a vault suit). The script calls ObjectReference.RemoveAllItems(None, false, false) (written with FO4's
+    // arguments; Starfield's third parameter is abRespectTargetCapacity, so whether quest items stay is unverified)
+    // after the move into the pod, and with --vault-suit it adds and equips the port's ARMO. --keep-inventory builds
+    // the old start, where the player keeps Starfield's items.
+    public const bool DefaultClearInventory = true;
     // The vault anchor's mode (PC result 21 Oct, the port installed then: FO4Port_Vault111Cryo had 0 persistent
     // references of 1,166, its COC marker 001338 and every terminal temporary, so the persistent-only resolver refused
     // the build). Verified 16 Oct: a temporary reference of an unloaded cell resolves to None via Game.GetFormFromFile,
@@ -225,8 +228,10 @@ static class NewGame
         {
             var suit = ArgOrNull(a, "--vault-suit");
             if (a.Contains("--vault-suit") && (suit is null || suit.StartsWith("--"))) throw new Refusal("--vault-suit needs an ARMO EditorID");
-            bool clear = a.Contains("--clear-inventory");
-            if (suit is not null && !clear) throw new Refusal("--vault-suit is equipped by the inventory reset: it needs --clear-inventory");
+            bool keep = a.Contains("--keep-inventory");
+            if (keep && a.Contains("--clear-inventory")) throw new Refusal("--keep-inventory and --clear-inventory contradict each other");
+            if (suit is not null && keep) throw new Refusal("--vault-suit is equipped by the inventory reset: --keep-inventory turns it off");
+            bool clear = !keep && DefaultClearInventory;
             if (a.Contains("--allow-temporary-anchor") && a.Contains("--require-persistent-anchor"))
                 throw new Refusal("--allow-temporary-anchor and --require-persistent-anchor contradict each other");
             return new(
@@ -1065,11 +1070,15 @@ static class NewGame
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
         if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
             Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
-        // the inventory reset is off by default; the suit needs the reset and an EditorID
-        if (plain.ClearInventory || plain.VaultSuit is not null || !Options.From(new[] { "--clear-inventory" }).ClearInventory ||
+        // the inventory reset is on by default (S13 row 2), --keep-inventory turns it off and --clear-inventory (old
+        // command lines) changes nothing; the suit needs the reset and an EditorID
+        if (!DefaultClearInventory || !plain.ClearInventory || plain.VaultSuit is not null || Options.From(new[] { "--keep-inventory" }).ClearInventory ||
+            !Options.From(new[] { "--clear-inventory" }).ClearInventory ||
+            Options.From(new[] { "--vault-suit", SuitEdid }) is not { ClearInventory: true, VaultSuit: SuitEdid } ||
             Options.From(new[] { "--clear-inventory", "--vault-suit", SuitEdid }) is not { ClearInventory: true, VaultSuit: SuitEdid }) { Console.WriteLine("FAIL  the inventory options"); return 1; }
-        foreach (var (why, bad) in new[] { ("--vault-suit without --clear-inventory", new[] { "--vault-suit", SuitEdid }), ("--vault-suit without an EditorID", new[] { "--clear-inventory", "--vault-suit" }),
-                                           ("--vault-suit followed by another option", new[] { "--clear-inventory", "--vault-suit", "--no-looks" }) })
+        foreach (var (why, bad) in new[] { ("--vault-suit with --keep-inventory", new[] { "--keep-inventory", "--vault-suit", SuitEdid }), ("--vault-suit without an EditorID", new[] { "--vault-suit" }),
+                                           ("--keep-inventory with --clear-inventory", new[] { "--keep-inventory", "--clear-inventory" }),
+                                           ("--vault-suit followed by another option", new[] { "--vault-suit", "--no-looks" }) })
         {
             try { Options.From(bad); Console.WriteLine($"FAIL  options accepted {why}"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
@@ -1081,11 +1090,11 @@ static class NewGame
             !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
         try { Options.From(new[] { "--allow-temporary-anchor", "--require-persistent-anchor" }); Console.WriteLine("FAIL  options accepted both anchor options"); return 1; }
         catch (Refusal e) { Console.WriteLine($"refused as expected (both anchor options): {e.Message}"); }
-        var clear = plain with { ClearInventory = true };
-        var suit = clear with { VaultSuit = SuitEdid };
+        var keep = plain with { ClearInventory = false };
+        var suit = plain with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
         {
-            ("clear", idsPath, clear), ("suit", idsPath, suit),
+            ("keep", idsPath, keep), ("suit", idsPath, suit),
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("debug0", idsPath, plain with { MQ101Debug = 0 }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
@@ -1129,11 +1138,11 @@ static class NewGame
             ("noversion", plain, idsPath, "a --no-version build as a version-check one"),
             ("default", plain with { BuildVersion = 2 }, idsPath, "the default (build version 1) build as a version 2 one"),
             ("version2", plain, idsPath, "a build version 2 build as the default one"),
-            ("default", clear, idsPath, "the default (inventory kept) build as a --clear-inventory one"),
-            ("clear", plain, idsPath, "a --clear-inventory build as the default one"),
-            ("clear", suit, idsPath, "a --clear-inventory build without a suit as a --vault-suit one"),
-            ("suit", clear, idsPath, "a --vault-suit build as a --clear-inventory one without a suit"),
-            ("suit", plain, idsPath, "a --vault-suit build as the default one"),
+            ("default", keep, idsPath, "the default (inventory cleared) build as a --keep-inventory one"),
+            ("keep", plain, idsPath, "a --keep-inventory build as the default one"),
+            ("default", suit, idsPath, "the default build without a suit as a --vault-suit one"),
+            ("suit", plain, idsPath, "a --vault-suit build as the default one without a suit"),
+            ("suit", keep, idsPath, "a --vault-suit build as a --keep-inventory one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1192,7 +1201,7 @@ static class NewGame
             ("the SPECIAL list order swapped", m => { var l = (SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special"); (l.Objects[0], l.Objects[6]) = (l.Objects[6], l.Objects[0]); }),
             ("the terminal id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalId")).Data = 0x807),
             ("the terminal spot changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalX")).Data += 1),
-            ("the inventory reset switched on", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ClearInventory")).Data = true),
+            ("the inventory reset switched off", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ClearInventory")).Data = false),
             ("a vault suit id without the option", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultSuitId")).Data = 0x820),
             ("ClearInventory removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "ClearInventory")),
             ("the anchor marked temporary on a persistent one", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "AnchorTemporary")).Data = true),
@@ -1315,7 +1324,7 @@ static class NewGame
             }
         }
         // refusals: a --vault-suit build whose suit the port lacks (write resolves it as it does the anchors)
-        try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), clear with { VaultSuit = "FO4Port_NoSuchSuit" }); Console.WriteLine("FAIL  write accepted a vault suit the port lacks"); return 1; }
+        try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain with { VaultSuit = "FO4Port_NoSuchSuit" }); Console.WriteLine("FAIL  write accepted a vault suit the port lacks"); return 1; }
         catch (Refusal e) { Console.WriteLine($"refused as expected (a vault suit the port lacks): {e.Message}"); }
         // refusals: a SPECIAL build from a points.json without a terminal (a --no-special one builds)
         {

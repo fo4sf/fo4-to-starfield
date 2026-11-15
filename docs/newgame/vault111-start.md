@@ -61,8 +61,9 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    != 0`), whose normal route (MQ101 stage 310) is never reached. A hand back never follows the write or the hold-off:
    both come after the move, and both stand-downs return before them.
    Without MQ101's stage 0 nothing empties the inventory or puts on Starfield's miner spacesuit (newgame_v9 and v10
-   left the player in it at the pod): what the player wears and carries now is **unresolved** until run 4 (section 13; run 4 is section 13b;
-   the inventory reset, section 4c, stays off until then).
+   left the player in it at the pod): what Starfield leaves the player wearing and carrying now is **unresolved** (run 4,
+   section 13b, did not look). Since S13 row 2 the inventory reset (section 4c) is on by default, so whatever it is,
+   our start empties it at the pod.
 4. **The cryo pod:** during the first load the player is moved into the converted Vault 111 (`FO4Port_Vault111Cryo`)
    and stands up one metre in front of their own pod, facing out of it (a port whose COC marker is temporary is refused
    by default since newgame_v11; under `--allow-temporary-anchor` the script first loads the cell by centering on it:
@@ -92,11 +93,12 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
     it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
     changes (optional script).
-11. **Starting inventory (off by default):** the player keeps whatever Starfield gives them. A `--clear-inventory` build
-    empties the inventory (whether quest items stay is **unverified**, section 4c) once the player is confirmed in the
-    vault and logs the count; with `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8;
-    section 4c). Off until the first in-game run of our own start shows what a game whose MQ101 never ran leaves in the
-    inventory.
+11. **Starting inventory (emptied by default since S13 row 2):** none of Starfield's own starting items (outfit, gear,
+    credits) stay, as Fallout 4's MQ101 empties the inventory. Once the player is confirmed in the vault, before the
+    creator, the quest empties the inventory (whether quest items stay is **unverified**, section 4c) and logs the count;
+    with `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8; section 4c). The port has no
+    vault suit named yet, so **the player starts with nothing** until the vault gives Fallout 4 items. A
+    `--keep-inventory` build is the old start: the player keeps whatever Starfield gives.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -315,11 +317,12 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   In newgame_v9 and v10 that fragment ran before our quest, so a default build left the player in the miner suit at the
   pod (**unverified** in game: run 3's screenshots are first person and a default build logs no inventory line, section
   12). Since newgame_v11 MQ101 never runs, so neither does that fragment: what a New Game leaves the player with then is
-  **unresolved** until run 4 (section 13; run 4 is section 13b). `--clear-inventory --vault-suit <the port's Vault 111 suit EditorID>` stays
-  the answer for a start that does not depend on it: the reset runs once the player is confirmed in the vault. The reset stays a writer option, **off by default** until the owner picks it:
-  `--clear-inventory`, and the quest script's `ClearInventory` property (false) and `VaultSuitId` (0) record the choice in
-  the plugin; `check` holds a build to it, and the selftest's cross-option runs reject a build read under the other
-  setting.
+  **unresolved** (run 4, section 13b, did not look). The reset makes the start independent of it: it runs once the
+  player is confirmed in the vault. **On by default since S13 row 2** (15 Nov, the owner's strip-down rule: Starfield's
+  own new-game items go, system model S13): the quest script's `ClearInventory` property (true) and `VaultSuitId` (0
+  until the port has a suit) record the choice in the plugin; `--keep-inventory` builds the old start (false), and
+  `--clear-inventory` (the default now) is kept for old command lines. `check` holds a build to its setting, and the
+  selftest's cross-option runs reject a build read under the other one.
 - When on: once the player is confirmed in the vault (the timer's first tick after the 3D has loaded) and before stage
   10, `ResetInventory` calls `player.RemoveAllItems(None, false, false)`, reads `GetItemCount(None)` before and after
   and logs `inventory cleared removed=<n> left=<n>`. Both natives are written with FO4's signatures; Starfield's
@@ -328,7 +331,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   `abRespectTargetCapacity` (`ObjectReference.psc`, ContentResources.zip, read 29 Oct), so whether quest items stay is
   **unverified**: `left=` says how many items stayed, not which. Whether Starfield's `GetItemCount(None)` counts every
   item, as FO4's does, is **unverified**: both numbers are logged so the proof can say.
-- The suit: `--vault-suit <EditorID>` (only with `--clear-inventory`; refused alone) names an ARMO of FO4Port.esm. The
+- The suit: `--vault-suit <EditorID>` (refused with `--keep-inventory`) names an ARMO of FO4Port.esm. The
   writer resolves it offline exactly as it does the anchors and the terminal: exactly one ARMO of that EditorID (any
   case) in the port, the port's own record, else refused (none, two, or another plugin's record). The script resolves it
   with `Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor`, `AddItem(suit, 1, true)` and
@@ -374,7 +377,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
    given with it), `--no-looks`, `--race-menu-mode <n>` (default 2, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
-   `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
+   `--terminal-ref <hex>`, `--keep-inventory` (no inventory reset; the reset is on by default) and `--vault-suit
+   <EditorID>` (none by default, section 4c), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
    3a; refused by default since newgame_v11, and `--require-persistent-anchor` is kept for old command lines). plan.json
    records them, the anchor's id and mode (`anchor`), and the stage contract.
@@ -382,8 +386,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The selftest builds the
    default, `--no-looks`, `--mq101debug 0`, `--mq101debug 8`, `--debug-after-hold 0`, `--mq101debug 10`, no-cog-door,
    two-quest-hold, `--race-menu-mode 0`, `--no-special`, temporary-terminal-only, `--no-version`, `--build-version 2`,
-   `--clear-inventory` and `--clear-inventory --vault-suit` variants, and each build must fail `check` under the others'
-   options; `--vault-suit` without `--clear-inventory`, without an EditorID, or naming an ARMO the port lacks, has
+   `--keep-inventory` and `--vault-suit` variants, and each build must fail `check` under the others'
+   options; `--vault-suit` with `--keep-inventory` or without an EditorID, `--keep-inventory` with `--clear-inventory`,
+   or `--vault-suit` naming an ARMO the port lacks, has
    twice, or that another plugin owns is refused. A port whose vault cell has no persistent reference (every reference
    temporary, the shape of the port installed on 21 Oct) is refused by default; under `--allow-temporary-anchor` it
    builds a temporary-anchor plugin whose `write` and `check` lines say `temporary` and that fails `check` against the
