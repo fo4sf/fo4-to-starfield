@@ -17,6 +17,9 @@ Lines, one fact each:
   uses method=<owner> calls=<names called> names=<names read or written> strings=<identifier strings pushed>
        other_strings=<count of strings that are not identifiers>
   partial method=<owner> at=<opcode>              a body with an opcode this reader does not know: its names stop there
+  import tag=<57|71> url=<file> ids=<count> names=<names imported>
+                                                  ImportAssets(2), FAL-852: a movie or library this one loads assets
+                                                  from at its own load (a url that is not a plain file path: url=-)
 A method's owner is <class>.<trait name> (get:<name> and set:<name> for accessors), <class>.<init> (constructor), <class>.<cinit>, script<n>.<init>, or the
 owner of the body that creates it with /fn appended; #<index> when nothing names it. Identifiers are letters, digits,
 _, $, . and :, at most 64 characters, as in read D2; anything else is counted, not printed. Output goes to stdout;
@@ -30,7 +33,9 @@ import sys
 import zlib
 
 NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$.:]{0,63}")
+PATH = re.compile(r"[A-Za-z0-9_$.:/\\-]{1,128}")                                  # FAL-852: an import's file
 DO_ABC1, DO_ABC, SYMBOL_CLASS, DEFINE_SPRITE, PLACE_OBJECT2, PLACE_OBJECT3, END = 72, 82, 76, 39, 26, 70, 0
+IMPORT_ASSETS, IMPORT_ASSETS2 = 57, 71
 ACCESS = {0x05: "private", 0x08: "namespace", 0x16: "public", 0x17: "internal", 0x18: "protected", 0x19: "explicit",
           0x1A: "static_protected"}
 TRAIT_KINDS = ("slot", "method", "getter", "setter", "class", "function", "const")
@@ -366,6 +371,16 @@ def _tags(body, pos, sprite, found):
             depth, character, name = _place(code, data)
             if name is not None:
                 found["places"].append((sprite, depth, character, name))
+        elif code in (IMPORT_ASSETS, IMPORT_ASSETS2):                           # FAL-852
+            r = Reader(data)
+            url = _cstring(r)
+            if code == IMPORT_ASSETS2:
+                r.skip(2)                                                       # two reserved bytes
+            ids = []
+            for _ in range(r.u16()):
+                r.u16()
+                ids.append(_cstring(r))
+            found["imports"].append((code, url, ids))
         elif code == DO_ABC:
             found["abc"].append(data[data.index(b"\0", 4) + 1:])
         elif code == DO_ABC1:
@@ -385,7 +400,7 @@ def describe(name, data):
         v = bits.ub(n)
         box.append(v - (1 << n) if n and v >> (n - 1) else v)
     bits.align()
-    found = {"symbols": {}, "places": [], "abc": []}
+    found = {"symbols": {}, "places": [], "abc": [], "imports": []}
     _tags(body, bits.pos + 4, 0, found)
     out = [f"file={name} signature={sig.decode()} version={version} "
            f"stage={(box[1] - box[0]) / 20:g}x{(box[3] - box[2]) / 20:g} abc={len(found['abc'])}"]
@@ -394,6 +409,8 @@ def describe(name, data):
         cls = found["symbols"].get(character, "-") if character is not None else "-"
         out.append(f"place in={sprite} depth={depth} id={character if character is not None else '-'} "
                    f"class={cls} name={inst}")
+    for code, url, ids in found["imports"]:
+        out.append(f"import tag={code} url={url if PATH.fullmatch(url) else '-'} ids={len(ids)} names={_list(ids)}")
     for data_abc in found["abc"]:
         abc = Abc(data_abc)
         for c in abc.classes:

@@ -198,13 +198,28 @@ class SwfNamesTests(unittest.TestCase):
         text = "\n".join(self.lines)
         self.assertNotIn("sentence", text)          # a string that is not an identifier is counted, never printed
         for line in self.lines:
-            self.assertRegex(line, r"^(file=|symbol |place |class |trait |uses |partial )")
+            self.assertRegex(line, r"^(file=|symbol |place |class |trait |uses |partial |import )")
 
     def test_unknown_opcode_is_partial(self):
         lines = swf_names.describe("TestShell.swf", build_movie(unknown_op=True))
         self.assertIn("partial method=TestShell.onCodeObjCreate at=0x22", lines)
         uses = next(line for line in lines if line.startswith("uses method=TestShell.onCodeObjCreate "))
         self.assertIn("strings=RequestTab,Test_Page.swf,TestChangeEvent", uses)
+
+    def test_imports(self):
+        # FAL-852: ImportAssets (57) and ImportAssets2 (71), the files a movie takes assets from at its own load
+        imp = b"Shared_Lib.swf\x00" + struct.pack("<H", 2) + struct.pack("<H", 3) + b"$EverywhereFont\x00" + \
+            struct.pack("<H", 4) + b"a sentence\x00"
+        imp2 = b"../Interface/fonts_en.swf\x00\x01\x00" + struct.pack("<H", 1) + struct.pack("<H", 7) + b"HUDFont\x00"
+        odd = b"http://x?y\x00" + struct.pack("<H", 0)
+        body = (make_probe_swf.rect(0, 100 * 20, 0, 100 * 20) + struct.pack("<HH", 30 << 8, 1)
+                + tag(57, imp) + tag(71, imp2) + tag(57, odd) + b"\x40\x00" + b"\x00\x00")
+        movie = b"FWS" + bytes([10]) + struct.pack("<I", 8 + len(body)) + body
+        lines = swf_names.describe("Page.swf", movie)
+        self.assertIn("import tag=57 url=Shared_Lib.swf ids=2 names=$EverywhereFont", lines)   # the sentence: not printed
+        self.assertIn("import tag=71 url=../Interface/fonts_en.swf ids=1 names=HUDFont", lines)
+        self.assertIn("import tag=57 url=- ids=0 names=-", lines)
+        self.assertNotIn("sentence", "\n".join(lines))
 
     def test_not_a_swf(self):
         self.assertEqual(swf_names.describe("x.swf", b"PK\x03\x04rest"), ["file=x.swf not_swf=1"])
