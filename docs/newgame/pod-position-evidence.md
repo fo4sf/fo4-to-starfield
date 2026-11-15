@@ -60,8 +60,8 @@ substitutes. They check arithmetic consistency, one read per coordinate, interva
 event placement, no setters, and latest-run/older-log behavior. The existing newgame and Papyrus string checks and
 guard also apply. These are source/logic checks, not Papyrus compilation or physics simulation.
 
-Courier Copy reviews this exact source delta before integration. The #791 creator default on main is independent
-and must survive any later integration; #790's older default is not an instruction to revert it. No PC build,
+Courier Copy reviews this exact source delta before integration. The merged #791 creator default2 has now been carried into this author branch with its writer/Python/Looks
+parity checks; explicit mode0 remains available. This source integration is not a new creator or native acceptance. No PC build,
 install, or game release follows from this document. A later bounded session recipe must pin the actual integrated
 source and installed inputs, preserve the owner's configuration, and obtain its own PC release.
 

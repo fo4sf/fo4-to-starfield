@@ -90,9 +90,13 @@ DEBUG_AFTER_HOLD = 2
 DEBUG_INTRO = 0               # Starfield's own intro, entry 2
 DEBUG_START_PIRATES = 10      # the first build's value: Fragment_Stage_0000_Item_10, SetStage 210 and 250 (28 Oct run 1)
 DEBUG_UNMATCHED = 2           # the second build's value: no entry, no move, an endless loading screen (28 Oct run 2)
-# Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
-# which mode is looks-only is unverified until the in-game C1 test
-DEFAULT_RACE_MENU_MODE = 0
+# Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode). FULL_CREATOR_MODE (0)
+# is the full creator, with Starfield's Background and Traits pages. The owner chose a looks-only creator (NG-C3) and
+# the strip-down rule takes Starfield's own new-game content out (system model S13), so the default is 2, the mode the
+# C1 session saw as looks-only (15 Nov, owner PC: mode 2 opened the "Enhance!" creator with only BODY and FACE, closed
+# by the ChargenMenu event, stage 20; mode 1 still showed TRAITS). --race-menu-mode 0 builds the old full creator.
+FULL_CREATOR_MODE = 0
+DEFAULT_RACE_MENU_MODE = 2
 # SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
 # SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
 # 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
@@ -849,7 +853,8 @@ def main(argv=None):
     s.add_argument("--content-resources", default=cr)
     s.add_argument("--no-looks", dest="looks", action="store_false")
     s.add_argument("--race-menu-mode", type=int, default=None,
-                   help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, the full creator)")
+                   help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, looks only: "
+                        f"body and face; {FULL_CREATOR_MODE} is the full creator with Starfield's backgrounds and traits)")
     s.add_argument("--no-special", dest="special", action="store_false",
                    help="no SPECIAL terminal: no FO4SF_NewGameSpecial script, AVIF or its two MESG")
     s.add_argument("--terminal-ref", default=None, help="the SPECIAL terminal in Vault111Cryo, FO4 hex id (default: the cell's terminals, nearest the pod first)")

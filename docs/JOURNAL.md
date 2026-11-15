@@ -1,5 +1,9 @@
 # Evidence journal
 
+## 2026-11-15 — Codex: preserve merged #791 creator default in #790 (FAL-848)
+
+After FAL-924 CLEAR at815ec1a2, carry the five-file net creator change from main snapshot44cf359e versus6ebb7a0d into the S3 branch: looks-only default2 in writer/Python/Looks, explicit full-creator0 override, matching parity tests and documented C1 decision. The patch applies cleanly; the new TracePosition/prechecks/parser and guarded exit components remain. This integrates already-merged #791 behavior into the author branch, not main. No placement patch, PC card, install or game release. Independent Courier Copy delta review and native/ContentResources/PEX/owner acceptance remain gates.
+
 ## 2026-11-15 — Codex: coherent pod/creator position evidence (FAL-848, draft #790)
 
 Owner C1 transcription01a11d0b at0391417b shows pre-creator rise and stage20 at +2.378704/+2.378235m above the printed target. Old CheckPod reread XYZ after its delta calculations; its printed coordinates do not reproduce the logged drop. Creator causality and placement remain unresolved. Cache each coordinate once per settle sample, log its sequential-read interval/context, and add boundary samples before creator and in guarded Done(how). Parser keeps all current-run looks_positions, no invented samples for old/no-looks logs. No movement/control/height/default/record/lift/map change; #791 integration is preserved as a separate gate. See [pod position evidence](newgame/pod-position-evidence.md). Synthetic source-function/parser checks and guard are source evidence only; native/Windows/Papyrus/game/install NOT_RUN. Courier Copy exact-head review precedes any later integration or PC recipe.
