@@ -23,7 +23,7 @@ import make_probe_swf as swf  # noqa: E402
 HOST_PATH = host.host_names()["host_movie"]
 HOST_ARCHIVE_HINT = "Starfield - Interface.ba2"
 DEFINE_IDS = (
-    2, 6, 7, 11, 14, 20, 21, 22, 32, 33, 34, 35, 36, 37, 39, 46, 48, 73, 75, 83, 84, 87, 90, 91,
+    2, 6, 7, 10, 11, 14, 20, 21, 22, 32, 33, 34, 35, 36, 37, 39, 46, 48, 60, 73, 75, 83, 84, 87, 90, 91,
 )
 
 

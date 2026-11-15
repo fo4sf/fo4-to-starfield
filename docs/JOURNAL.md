@@ -3042,3 +3042,8 @@ says stage --movie or four slots not a list. Native/game NOT_RUN.
 
 next_character_id walks every Define* tag, nested sprites included (Font2, Text, two sprites
 deep). A short Interface.ba2 does not abort extract. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-980 FINDING — DefineFont and DefineVideoStream
+
+Character-id scan includes tag 10 (DefineFont) and tag 60 (DefineVideoStream), including nested
+in Menu_mc. Tag 13 is FontInfo and is not an allocator. Native/game NOT_RUN.
