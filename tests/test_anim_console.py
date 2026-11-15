@@ -325,6 +325,22 @@ class StageTests(unittest.TestCase):
         backslash = self.run_tool("check", out_dir / PLUGIN, port, sf, "--model", "other\\sub.nif", "--rig", "fo4port\\r\\skeleton.rig", "--anims", "fo4port\\r\\animations")
         self.assertIn("the model is not Meshes/other/sub.nif", norm(backslash.stdout))        # a backslash model compares in the same form
 
+    def test_production_lift_has_no_probe_quest(self):
+        port, sf = self.paths()
+        out = self.root / "production-lift"
+        opts = [*self.margs, "--edid", mac.LIFT_EDID, "--production-lift"]
+        made = self.run_tool("build", port, sf, out, *opts)
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        plugin = out / mac.LIFT_PLUGIN
+        self.assertTrue(plugin.exists())
+        self.assertFalse((out / PLUGIN).exists())
+        self.assertNotIn(b"QUST", plugin.read_bytes())
+        checked = self.run_tool("check", plugin, port, sf, *opts)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        refused = self.run_tool("build", port, sf, self.root / "not-production", *self.margs, "--production-lift")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertFalse((self.root / "not-production").exists())
+
     def test_the_plugin_is_one_override_and_one_quest_raw(self):
         """Raw bytes: ACTI carries the FO4Port load index (1), the quest ours (2); the master list is Starfield.esm, FO4Port.esm."""
         port, sf = self.paths()

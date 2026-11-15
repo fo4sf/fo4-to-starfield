@@ -67,6 +67,10 @@ PLUGIN = "FO4SFAnimConsole.esm"
 SCRIPT = "FO4SF_AnimConsoleQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 KIND = "anim-console"
+LIFT_KIND = "exit-lift"
+LIFT_PLUGIN = "FO4SFExitLift.esm"
+LIFT_EDID = "FO4Port_acti_0244ef_fallout4"
+LIFT_STATES = {"stage3": "StateA_Play", "stage2": "StateB_Play"}
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User", "FO4SFAnimD.0.log")
 EDID = "FO4Port_acti_091a48_fallout4"
@@ -285,6 +289,11 @@ def load_plan(stage_dir):
 def stage(a, converter=None):
     """converter: (a, staging) -> (src, conv) for tests; default build_converter."""
     states = anim_object.parse_states(a.states)
+    production = getattr(a, "production_lift", False)
+    if production and (states != LIFT_STATES or a.edid != LIFT_EDID or getattr(a, "idles", "toggle") != "toggle"
+                       or getattr(a, "rest_after", None) != "stage2" or getattr(a, "swap_siblings", False)
+                       or getattr(a, "placed_ref", None) or any(getattr(a, k + "_m", None) is not None for k in ("ahead", "up", "side"))):
+        sys.exit("--production-lift requires the original lift, stage3=StateA_Play,stage2=StateB_Play, toggle, --rest-after stage2; no probe placement or experimental options")
     rest_after = getattr(a, "rest_after", None)
     if rest_after is not None and (getattr(a, "idles", "toggle") != "toggle" or rest_after not in states):
         sys.exit("--rest-after needs toggle idles and a mapped source sequence")
@@ -317,6 +326,8 @@ def stage(a, converter=None):
     lacking = missing_textures(textures, port_archive_names(port_data))
     if lacking:
         sys.exit(f"the conversion wrote {len(lacking)} texture(s) the port's archives do not hold (the kit ships none): {lacking[:8]} (attempt kept in {out})")
+    if production:
+        return finish_production_lift(a, out, final, work, tool, port_esm, sf_esm, before, original, info, res, copied, textures)
     wrote = run(tool + ["build", port_esm, sf_esm, out, "--model", model_path, "--rig", anim["skeleton"], "--anims", anim["animations"],
                         "--edid", a.edid]).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), port_esm, sf_esm, "--model", model_path, "--rig", anim["skeleton"],
@@ -389,6 +400,58 @@ Session card: docs/research/anim-console-probe.md. THROWAWAY STATE ONLY, NO SAVE
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, {SCRIPT}.pex, {len(copied)} files, anim_manifest.json, plan.json, README.txt; optional lines: {fate}")
+    return 0
+
+
+def validate_lift_animation(anim):
+    """Refuse a different recipe before it can be paired with the controller's measured rise/length contract."""
+    if anim.get("idles") != "toggle" or anim.get("rest_after") != "stage2" or anim.get("moving_bodies") != 12:
+        sys.exit("production lift lacks the floor idle or moving collision")
+    clips = {c["name"]: c for c in anim["clips"]}
+    if len(clips) != len(anim["clips"]) or set(clips) != {"StateA_Play", "StateB_Play", "StateA_Idle", "StateB_Idle"}:
+        sys.exit("production lift needs exactly the four two-state clips")
+    if clips["StateA_Idle"].get("hold_of") != "StateB_Play" or clips["StateA_Idle"].get("hold_frame") != "last":
+        sys.exit("production lift does not start at the downward clip's floor pose")
+    for slot, seconds, rise in (("StateA_Play", 9.8667, 21.6), ("StateB_Play", 23.8333, -21.6)):
+        c = clips.get(slot, {})
+        motion = [m for m in c.get("motion", []) if m["bone"] == "b_Platform"]
+        if len(motion) != 1 or not math.isfinite(c.get("seconds", 0)) or abs(c.get("seconds", 0) - seconds) > 0.05 or c.get("slowed"):
+            sys.exit("production lift clip or platform track differs from animL12")
+        m = motion[0]
+        if len(m["travel_m"]) != 3 or any(not math.isfinite(v) for v in m["travel_m"]) or any(abs(a - b) > 0.1 for a, b in zip(m["travel_m"], [0, 0, rise])) or not math.isfinite(m["rotation_deg"]) or abs(m["rotation_deg"]) > 0.1:
+            sys.exit("production lift does not have the measured vertical platform travel")
+    if clips.get("StateB_Idle", {}).get("hold_of") != "StateA_Play" or clips["StateB_Idle"].get("hold_frame") != "last":
+        sys.exit("production lift does not hold the upward clip's top pose")
+
+
+def finish_production_lift(a, out, final, work, tool, port, sf, before, original, info, res, copied, textures):
+    """One ACTI override and asset files; no probe quest, script, spawn or installer promotion."""
+    anim = res["anim"]
+    validate_lift_animation(anim)
+    model = res["out_name"].replace("/", "\\") + ".nif"
+    opts = ["--model", model, "--rig", anim["skeleton"], "--anims", anim["animations"], "--edid", a.edid, "--production-lift"]
+    wrote = run(tool + ["build", port, sf, out] + opts).stdout
+    check = run(tool + ["check", os.path.join(out, LIFT_PLUGIN), port, sf] + opts).stdout
+    with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
+        f.write(wrote + check)
+    with open(os.path.join(out, "anim_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump({"original": original, "base_edid": a.edid, "base_id": info["base_id"], "model": model,
+                   "states": LIFT_STATES, "anim": anim, "kit_files": copied, "textures_not_shipped": textures}, f, indent=1)
+    shutil.rmtree(work)
+    if {"Starfield.esm": sha256(sf), "FO4Port.esm": sha256(port)} != before:
+        sys.exit(f"lift inputs changed during conversion; attempt kept in {out}")
+    plan = {"kind": LIFT_KIND, "version": 1, "plugins": [LIFT_PLUGIN], "outputs": probe_a.stage_files(out),
+            "inputs": {k: {"sha256": v} for k, v in before.items()}, "states": LIFT_STATES,
+            "rise_m": 21.6, "seconds": 9.8667, "event": "Play01"}
+    with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
+        json.dump(plan, f, indent=1)
+    with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
+        f.write("S3 production lift asset component: one ACTI override; no test quest or PEX.\n"
+                "Floor-start/top-hold recipe; native transitions and carrying remain NOT_RUN for this build.\n"
+                "Pair through make_newgame.py stage --exit-lift <this folder>; never use anim_console_install.py.\n"
+                "Full owner packaging, console/gates, map timing and PC acceptance remain required. No install authorization.\n")
+    os.replace(out, final)
+    print(f"staged {final}: {LIFT_PLUGIN}, {len(copied)} assets, no probe quest/scripts")
     return 0
 
 
@@ -614,6 +677,7 @@ def main(argv=None):
     c.add_argument("--edid", default=EDID)
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
+    s.add_argument("--production-lift", action="store_true", help="build the floor-start Vault 111 asset component without the test quest or PEX")
     s.add_argument("--starfield-data", default=os.path.join(STARFIELD, "Data"))
     s.add_argument("--port-data", default="", help="the folder with FO4Port.esm and its archives (default: --starfield-data)")
     s.add_argument("--fo4-data", required=True)

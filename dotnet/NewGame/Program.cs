@@ -215,7 +215,7 @@ static class NewGame
 
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
-                          int DebugAfterHold = DefaultDebugAfterHold)
+                          int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false)
     {
         public static Options From(string[] a)
         {
@@ -236,7 +236,8 @@ static class NewGame
                 ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
                 clear, suit, !a.Contains("--allow-temporary-anchor"),
-                ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold);
+                ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold,
+                a.Contains("--animated-exit-lift"));
         }
     }
 
@@ -314,7 +315,8 @@ static class NewGame
     // ---------------------------------------------------------------- the places the script resolves at run time
 
     public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos,
-                         uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0, bool AnchorTemporary = false)
+                         uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0, bool AnchorTemporary = false,
+                         uint Lift = 0, uint LiftBase = 0)
     {
         /// "persistent" or "temporary": the anchor's mode, as write and check print it after the anchor's id.
         public string AnchorMode => AnchorTemporary ? "temporary" : "persistent";
@@ -349,7 +351,7 @@ static class NewGame
     /// the exit anchor (the core world's REFR with that EditorID, persistent) and, when `vaultSuit` names one, the port's
     /// ARMO of that EditorID (exactly one, the port's own record; refused otherwise) the inventory reset equips.
     public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null, string? vaultSuit = null,
-                                 bool requirePersistentAnchor = DefaultRequirePersistentAnchor)
+                                 bool requirePersistentAnchor = DefaultRequirePersistentAnchor, bool animatedExitLift = false)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         Owner(port.ModKey, PortPlugin, "the port");
@@ -385,15 +387,35 @@ static class NewGame
         var anchor = persistent ?? cocs[0];
         bool anchorTemporary = persistent is null;
         uint cog = 0;
+        var liftIds = new List<uint>();
         string cogBase = "none";
         var termRefs = new Dictionary<uint, uint>();            // FO4 terminal id -> the port's reference id
         using (var doc = JsonDocument.Parse(File.ReadAllText(portIds)))
             foreach (var e in doc.RootElement.EnumerateObject())
             {
                 if (IsCogDoorKey(e.Name)) cog = e.Value.GetUInt32();
+                if (IsRefKey(e.Name, Fo4Platform)) liftIds.Add(e.Value.GetUInt32());
                 foreach (var (src, _) in terminals ?? Array.Empty<(uint, P3Float)>())
                     if (IsRefKey(e.Name, src)) termRefs[src] = e.Value.GetUInt32();
             }
+        uint lift = 0, liftBase = 0;
+        if (animatedExitLift)
+        {
+            if (liftIds.Count != 1) throw new Refusal("animated exit needs exactly one original V111ElevatorREF mapping");
+            var refs = inCell.Where(x => x.FormKey.ID == liftIds[0]).ToList();
+            if (refs.Count != 1) throw new Refusal("lift mapping is not exactly one reference in the vault");
+            Owned(refs[0], port.ModKey, "the exit lift");
+            float scale = refs[0].Scale ?? 1f;
+            var rotation = refs[0].Rotation;
+            if (!float.IsFinite(scale) || !float.IsFinite(rotation.X) || !float.IsFinite(rotation.Y) || !float.IsFinite(rotation.Z) ||
+                Math.Abs(scale - 1f) > 0.0001f || Math.Abs(rotation.X) > 0.0001f || Math.Abs(rotation.Y) > 0.0001f)
+                throw new Refusal("exit lift must retain unit scale and vertical orientation for the measured rise");
+            var bases = port.Activators.Where(x => x.FormKey == refs[0].Base.FormKey && x.EditorID == "FO4Port_acti_0244ef_fallout4").ToList();
+            if (bases.Count != 1) throw new Refusal("exit lift is not the original Vault 111 lift ACTI");
+            Owned(bases[0], port.ModKey, "the exit lift base");
+            lift = refs[0].FormKey.ID;
+            liftBase = bases[0].FormKey.ID;
+        }
         if (cog != 0)
         {
             var r = inCell.FirstOrDefault(x => x.FormKey.ID == cog) ?? throw new Refusal($"formids.json names {cog:X6} as the cog door, not a reference of {VaultCell}");
@@ -432,7 +454,7 @@ static class NewGame
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
         if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
-        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit, anchorTemporary);
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit, anchorTemporary, lift, liftBase);
     }
 
     static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
@@ -484,6 +506,7 @@ static class NewGame
             ("PodX", pod[0]), ("PodY", pod[1]), ("PodZ", pod[2]), ("PodHeading", pts.GetProperty("pod").GetProperty("heading").GetSingle()),
             ("CogDoorId", (int)p.CogDoor), ("ConsoleX", con[0]), ("ConsoleY", con[1]), ("ConsoleZ", con[2]),
             ("PlatformX", plat[0]), ("PlatformY", plat[1]), ("PlatformZ", plat[2]),
+            ("LiftId", (int)p.Lift), ("LiftBaseId", (int)p.LiftBase), ("LiftRise", 21.6f), ("LiftSeconds", 9.8667f),
             ("ExitAnchorId", (int)p.ExitAnchor), ("ArrivalX", arr[0]), ("ArrivalY", arr[1]), ("ArrivalZ", arr[2]),
             ("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0),
             ("ArrivalHeading", pts.GetProperty("arrival").GetProperty("heading").GetSingle()),
@@ -531,7 +554,7 @@ static class NewGame
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
@@ -739,7 +762,7 @@ static class NewGame
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         var key = plug.ModKey;
@@ -990,6 +1013,8 @@ static class NewGame
         port.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         var pdoor = new SF.Door(new FormKey(portKey, 0x810), rel) { EditorID = "FO4Port_VltGearDoor01" };
         port.Doors.Add(pdoor);
+        var plift = new SF.Activator(new FormKey(portKey, 0x811), rel) { EditorID = "FO4Port_acti_0244ef_fallout4" };
+        port.Activators.Add(plift);
         // the vault suit the inventory reset may equip (--vault-suit): the port's own ARMO, named by EditorID
         const string SuitEdid = "FO4Port_VaultSuit111";
         port.Armors.Add(new SF.Armor(new FormKey(portKey, 0x820), rel) { EditorID = SuitEdid });
@@ -1004,6 +1029,7 @@ static class NewGame
         // the terminals: the nearer one temporary, the farther persistent (preferred)
         pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x807), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(11, 20, 1) });
         pcell.Persistent.Add(Pers(0x808, 42.857f, 10, 0));
+        pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x809), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(plift.FormKey), Position = new P3Float(60, 15, -2) });
         var pb = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var ps = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         ps.Cells.Add(pcell);
@@ -1014,7 +1040,7 @@ static class NewGame
         port.BeginWrite.ToPath(portPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         var idsPath = Path.Combine(dir, "formids.json");
         File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}, " +
-                                   $"\"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}, \"REFR:{VaultCell}:001003:Fallout4.esm\": {0x808}}}");
+                                   $"\"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}, \"REFR:{VaultCell}:001003:Fallout4.esm\": {0x808}, \"REFR:{VaultCell}:0244EB:Fallout4.esm\": {0x809}}}");
         var noCogIds = Path.Combine(dir, "formids_nocog.json");          // neither the cog door nor a terminal
         File.WriteAllText(noCogIds, $"{{\"CELL:{VaultCell}\": {0x800}}}");
         var nearTermIds = Path.Combine(dir, "formids_nearterm.json");    // only the nearer, temporary terminal
@@ -1083,6 +1109,7 @@ static class NewGame
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("clear", idsPath, clear), ("suit", idsPath, suit),
+            ("lift", idsPath, plain with { AnimatedExitLift = true }),
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("debug0", idsPath, plain with { MQ101Debug = 0 }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
@@ -1102,6 +1129,8 @@ static class NewGame
         // the options are part of the build: checked against other options, a build fails
         var crosses = new (string Build, Options O, string Ids, string Why)[]
         {
+            ("default", plain with { AnimatedExitLift = true }, idsPath, "a teleport build as a carrying-lift one"),
+            ("lift", plain, idsPath, "a carrying-lift build as a teleport one"),
             ("default", plain with { Looks = false }, idsPath, "a looks build as a no-looks one"),
             ("nolooks", plain, idsPath, "a no-looks build as a looks one"),
             ("default", plain with { MQ101Debug = 0 }, idsPath, "the default (no override) build as an explicit MQ101Debug 0 one"),
@@ -1224,6 +1253,22 @@ static class NewGame
             }
             SF.Cell VCell(SF.StarfieldMod m) => m.Cells.Records[0].SubBlocks[0].Cells[0];
             SF.PlacedObject Rekey(SF.PlacedObject r, FormKey k) => (SF.PlacedObject)r.Duplicate(k);
+            var liftPlaces = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms, animatedExitLift: true);
+            if (liftPlaces.Lift != 0x809 || liftPlaces.LiftBase != 0x811) { Console.WriteLine("FAIL lift identity"); return 1; }
+            var missingLift = Port(m => VCell(m).Temporary.Remove(VCell(m).Temporary.First(x => x.FormKey.ID == 0x809)));
+            var wrongLift = Port(m => ((SF.PlacedObject)VCell(m).Temporary.First(x => x.FormKey.ID == 0x809)).Base.SetTo(pdoor.FormKey));
+            var scaledLift = Port(m => ((SF.PlacedObject)VCell(m).Temporary.First(x => x.FormKey.ID == 0x809)).Scale = 2f);
+            var tiltedLift = Port(m => ((SF.PlacedObject)VCell(m).Temporary.First(x => x.FormKey.ID == 0x809)).Rotation = new P3Float(0.1f, 0, 0));
+            foreach (var badLift in new[] { missingLift, wrongLift, scaledLift, tiltedLift })
+            {
+                try { Resolve(badLift, idsPath, corePath, ExitAnchorEdid, terms, animatedExitLift: true); Console.WriteLine("FAIL accepted bad lift"); return 1; }
+                catch (Refusal) { }
+            }
+            foreach (var badIds in new[] { noCogIds, nearTermIds })
+            {
+                try { Resolve(portPath, badIds, corePath, ExitAnchorEdid, terms, animatedExitLift: true); Console.WriteLine("FAIL accepted absent lift mapping"); return 1; }
+                catch (Refusal) { }
+            }
             var foreignCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); c.Temporary.Add(Rekey(r, new FormKey(SfEsm, 0x801))); });
             var foreignCog = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x802); c.Temporary.Remove(r); c.Temporary.Add(Rekey(r, new FormKey(SfEsm, 0x802))); });
             var renamed = Port(m => { }, "FO4PortB.esm");

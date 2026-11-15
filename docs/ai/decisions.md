@@ -1473,3 +1473,18 @@ the unchanged final ascent. It must first list markers without a hop, then fit t
 measured remaining ascent at all-marker scale. Alternatives rejected by owner direction:
 reusing the old black hold, adding a wait or slowing the lift. No timing/engine behavior
 is inferred from the old 26-second hold/reload total. See newgame/exit-arrival-pc-card.md.
+
+## 2026-11-15: opt-in carrying component before S3 arrival (Codex, FAL-848)
+
+Reuse the original lift ACTI/placed reference and existing two-state converter. Map
+upward stage3 to A and downward stage2 to B, start with the downward final floor pose,
+then play A once and hold its top pose. This avoids a preparatory down play and keeps
+the measured source clip length. Package one asset override without the probe quest;
+validate the recipe and input hashes before the new-game controller can enable it.
+A Done event alone is insufficient: also require a later physical rider rise. This
+source logic does not prove native carrying, exterior motion or hidden map timing.
+
+The new PC pod obstruction belongs to a separate small S3 placement slice: it occurs
+on main/#791 before the console/lift and needs its own creator/collision oracle.
+Do not mix a guessed Z offset into the ascent or treat negative drop/ok=true as a
+walkability pass. Full S3 acceptance includes walking from the pod to the console.

@@ -130,6 +130,14 @@ float Property PlatformX Auto Const Mandatory
 float Property PlatformY Auto Const Mandatory
 float Property PlatformZ Auto Const Mandatory
 {The elevator platform V111ElevatorREF (FO4 000244EB) at the bottom of its shaft: standing on it offers the ride up.}
+int Property LiftId = 0 Auto Const
+int Property LiftBaseId = 0 Auto Const
+{Opt-in animated exit: the writer resolves the port's original V111ElevatorREF and its ACTI base. Zero keeps the
+ earlier exit. Requires the separately staged production floor-start model, never the animation probe quest.}
+float Property LiftRise = 21.6 Auto Const
+float Property LiftSeconds = 9.8667 Auto Const
+{animL12, FAL-489 rev 40 section 26: player -1.72 to 19.88 m; stage3 length from section 10. These describe that
+ pinned lift recipe. The production recipe reverses the slots: stage3 in A, stage2 in B, floor A idle, top B idle.}
 
 string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
 int Property ExitAnchorId Auto Const Mandatory
@@ -209,6 +217,15 @@ WorldSpace arrivalWorld = None
 bool exitFailed = false
 bool fallbackPending = false
 int landingChecks = 0
+ObjectReference ridingLift = None
+Cell ridingCell = None
+float rideStartedAt = 0.0
+float riderX = 0.0
+float riderY = 0.0
+float riderZ = 0.0
+bool rideActive = false
+bool rideDone = false
+bool rideTransferred = false
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -404,7 +421,9 @@ Event OnTimer(int aiTimerID)
             AdvanceTo(20)
         endif
     elseif stage == 20 || stage == 30
-        if surfaceMovedAt > 0.0
+        if rideActive
+            CheckAscent(player)
+        elseif surfaceMovedAt > 0.0
             FinishSurface(player)                            ; the ride's MoveTo is done: the arrival waits for this tick
         else
             InVault(player, stage)
@@ -572,8 +591,108 @@ Function InVault(Actor player, int stage)
     int button = ExitMessage.Show()
     Trace("elevator prompt button=" + button)
     if button == 0
-        Surface(player)
+        if LiftId > 0
+            StartAscent(player)
+        else
+            Surface(player)
+        endif
     endif
+EndFunction
+
+Function StartAscent(Actor player)
+{One play on the real placed lift. Position remains under the platform's moving collision until completion.}
+    if rideActive || rideTransferred || exitFailed
+        return
+    endif
+    ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
+    Form base = Game.GetFormFromFile(LiftBaseId, VaultPlugin)
+    Cell vault = player.GetParentCell()
+    if lift == None || base == None || vault == None
+        FailExit("lift_unavailable")
+        return
+    endif
+    if !player.Is3DLoaded() || !player.IsInInterior() || !StandsInVault(player) || !lift.Is3DLoaded() || lift.GetParentCell() != vault || lift.GetBaseObject() != base
+        FailExit("lift_identity_or_cell")
+        return
+    endif
+    if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
+        return
+    endif
+    ridingLift = lift
+    ridingCell = vault
+    riderX = player.GetPositionX()
+    riderY = player.GetPositionY()
+    riderZ = player.GetPositionZ()
+    rideDone = false
+    ; Register before playback; the callback checks the exact source and age; a later tick checks the upper position.
+    RegisterForAnimationEvent(lift, "Done")
+    if !player.Is3DLoaded() || player.GetParentCell() != ridingCell || !Near(player, riderX, riderY, riderZ, PlatformRadius)
+        FailExit("lift_rider_left_before_play")
+        return
+    endif
+    rideStartedAt = Utility.GetCurrentRealTime()
+    rideActive = true
+    bool accepted = lift.PlayAnimation("Play01")
+    Trace("ascent play accepted=" + accepted + " ref=" + lift + " from=" + riderZ + " rise=" + LiftRise + " seconds=" + LiftSeconds)
+    if !accepted
+        FailExit("lift_play_refused")
+    endif
+EndFunction
+
+Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+    if !rideActive || exitFailed || akSource != ridingLift || asEventName != "Done"
+        return
+    endif
+    float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
+    ; animL12 heard Done at 0.068 s from the previous down clip as well as 9.794 s for up. A bare Done is not an end.
+    ; One second allows the reported 9.794 s event against a 9.8667 s asset; physical ascent remains mandatory.
+    if elapsed >= LiftSeconds - 1.0
+        rideDone = true
+        Trace("ascent done elapsed=" + elapsed + " ref=" + akSource)
+    else
+        Trace("ascent ignored early_or_unconfirmed_done elapsed=" + elapsed)
+    endif
+EndEvent
+
+bool Function AtLiftTop(Actor player)
+    if !player.Is3DLoaded() || !player.IsInInterior() || player.GetParentCell() != ridingCell
+        return false
+    endif
+    float dx = player.GetPositionX() - riderX
+    float dy = player.GetPositionY() - riderY
+    float dz = player.GetPositionZ() - (riderZ + LiftRise)
+    return dx * dx + dy * dy <= PlatformRadius * PlatformRadius && dz > -0.75 && dz < 0.75
+EndFunction
+
+Function CheckAscent(Actor player)
+    if !rideActive || rideTransferred || exitFailed
+        return
+    endif
+    float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
+    if elapsed > LiftSeconds + 30.0
+        FailExit("lift_timeout")
+        return
+    endif
+    if !player.Is3DLoaded() || ridingLift == None || !ridingLift.Is3DLoaded()
+        return
+    endif
+    if !player.IsInInterior() || player.GetParentCell() != ridingCell || ridingLift.GetParentCell() != ridingCell
+        FailExit("lift_cell_changed")
+        return
+    endif
+    if !rideDone || !AtLiftTop(player)
+        return
+    endif
+    ; Set the latch before any yielding native. No second play or transition can race this one.
+    rideTransferred = true
+    rideActive = false
+    UnregisterForAnimationEvent(ridingLift, "Done")
+    Trace("ascent carried confirmed elapsed=" + elapsed + " z=" + player.GetPositionZ())
+    if !AtLiftTop(player)
+        FailExit("lift_rider_left_before_arrival")
+        return
+    endif
+    Surface(player)
 EndFunction
 
 Function Surface(Actor player)
@@ -582,6 +701,9 @@ Function Surface(Actor player)
     ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
     if anchor == None
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
+        if LiftId > 0
+            FailExit("lift_exit_anchor_unavailable")
+        endif
         return
     endif
     surfaceSets = 0
@@ -606,6 +728,10 @@ Function FinishSurface(Actor player)
                 Trace("surface still inside " + SurfaceWait + " s after the moveto: moving again")
                 Surface(player)
             else
+                if LiftId > 0
+                    FailExit("lift_surface_missed")
+                    return
+                endif
                 Trace("surface missed: still inside after " + surfaceMoves + " moves; the elevator asks again")
                 surfaceMovedAt = 0.0
                 surfaceMoves = 0
@@ -721,6 +847,10 @@ EndFunction
 
 Function FailExit(string reason)
     exitFailed = true
+    rideActive = false
+    if ridingLift != None
+        UnregisterForAnimationEvent(ridingLift, "Done")
+    endif
     surfaceMovedAt = 0.0
     Trace("exit failed reason=" + reason + " stage=" + GetStage())
 EndFunction

@@ -828,7 +828,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None):
+             objectreference=None, quest=None, animation=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -859,6 +859,10 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
+    if animation:
+        base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Function UnregisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Event OnAnimationEvent(ObjectReference source, string name)\nEndEvent\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)

@@ -149,10 +149,10 @@ NATIVES = {
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
-                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "SetMarkerDiscovered"],
+                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
-        "ScriptObject": ["StartTimer"],
+        "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent"],
         "Utility": ["GetCurrentRealTime"],
     },
     LOOKS: {
@@ -366,6 +366,8 @@ def new_partial(final, create=True):
 
 def tool_options(a):
     opts = []
+    if getattr(a, "exit_lift", None):
+        opts.append("--animated-exit-lift")
     if a.hold:
         opts += ["--hold", a.hold]
     if a.no_mq101debug:
@@ -430,11 +432,33 @@ def pins(a):
     return {"FO4Port.esm": sha256(a.port), "formids.json": sha256(a.port_ids), "FO4TerrainCore.esm": sha256(a.core)}
 
 
+def exit_lift_component(folder, port, starfield):
+    """Validate the separate production asset stage, refusing all probe kits and any file drift."""
+    import make_anim_console as mac
+    with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    if (plan.get("kind") != mac.LIFT_KIND or plan.get("plugins") != [mac.LIFT_PLUGIN]
+            or plan.get("states") != mac.LIFT_STATES or plan.get("rise_m") != 21.6
+            or plan.get("seconds") != 9.8667 or plan.get("event") != "Play01"):
+        sys.exit("--exit-lift needs the production floor-start lift component, never an animation probe")
+    files = mac.probe_a.stage_files(folder)
+    if files != plan.get("outputs") or any(p != mac.LIFT_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
+        sys.exit("exit lift assets changed, are missing, or include a probe script")
+    if mac.LIFT_PLUGIN not in files or len(files) < 2:
+        sys.exit("exit lift component has no plugin/assets")
+    for name, path in (("FO4Port.esm", port), ("Starfield.esm", starfield)):
+        if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
+            sys.exit(f"exit lift was built against different {name} bytes")
+    return plan
+
+
 def stage(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     before = pins(a)
+    lift_folder = getattr(a, "exit_lift", None)
+    lift = exit_lift_component(lift_folder, a.port, a.starfield) if lift_folder else None
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work)
@@ -459,6 +483,17 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
+    if lift:
+        if exit_lift_component(lift_folder, a.port, a.starfield) != lift:
+            sys.exit("lift component changed during the build")
+        for rel in lift["outputs"]:
+            dest = os.path.join(out, *rel.split("/"))
+            if os.path.exists(dest):
+                sys.exit(f"lift asset collides with new-game output: {rel}")
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copyfile(os.path.join(lift_folder, *rel.split("/")), dest)
+            if sha256(dest) != lift["outputs"][rel]:
+                sys.exit(f"lift asset changed while copying: {rel}")
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
@@ -472,6 +507,8 @@ def stage(a):
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
+    if lift:
+        plan["exit_lift"] = lift
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -515,6 +552,8 @@ def verify_dir(exp_dir, plan, port=None, core=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
+        same("exit lift", os.path.join(exp_dir, *rel.split("/")), want)
     pinned = plan["checked_against_sha256"]
     for name, given in (("FO4Port.esm", port), ("FO4TerrainCore.esm", core)):
         path = os.path.join(exp_dir, name)
@@ -579,12 +618,22 @@ def fold(a):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
-    plugins = core_plugins(a.core_dir, core_readme) + [plan["plugin"]]
+    lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
+    lift_plugins = plan.get("exit_lift", {}).get("plugins", [])
+    plugins = core_plugins(a.core_dir, core_readme) + lift_plugins + [plan["plugin"]]
+    if len(set(plugins)) != len(plugins):
+        sys.exit("fold refused: duplicate lift/new-game plugins in core set")
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
+    for rel in lift_outputs:
+        dst = os.path.join(out, *rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"fold refused: core set already has lift asset {rel} (attempt kept in {out})")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
     for s in plan["scripts"]:
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
         if os.path.exists(dst):
@@ -681,7 +730,7 @@ def summarize(lines):
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
          "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
-         "arrival_discovery_requested": None, "exit_failure": None}
+         "arrival_discovery_requested": None, "exit_failure": None, "ascent": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -730,6 +779,8 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("arrival discovery requested "):
             s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("ascent "):
+            s["ascent"].append(msg[len("ascent "):])
         elif msg.startswith("exit failed reason="):
             s["exit_failure"] = msg[len("exit failed reason="):]
         elif msg.startswith("fell "):
@@ -780,6 +831,7 @@ def main(argv=None):
     pc.add_argument("--out", default=None)
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
+    s.add_argument("--exit-lift", default=None, help="validated make_anim_console.py --production-lift stage; enables the carrying ascent and includes its assets")
     s.add_argument("--fo4", required=True)
     s.add_argument("--port", required=True)
     s.add_argument("--port-ids", required=True)

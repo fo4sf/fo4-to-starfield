@@ -18,13 +18,13 @@ from tests.test_newgame import CS, PSC, read, ng
 FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "AtArrival", "Near")
 
 
-def translated_functions(text):
+def translated_functions(text, names=FUNCTIONS, variables="arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, landingChecks"):
     out = []
-    for name in FUNCTIONS:
+    for name in names:
         match = re.search(rf"(?m)^(?:bool )?Function {name}\(([^)]*)\)\n(.*?)^EndFunction", text, re.S)
         args, body = match.groups()
         out += [f"def {name}({', '.join(a.split()[-1] for a in args.split(',') if a.strip())}):",
-                "    global arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, landingChecks"]
+                "    global " + variables]
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
@@ -38,7 +38,7 @@ def translated_functions(text):
                 continue
             if line.startswith(("elseif ", "else")):
                 depth -= 1
-            line = re.sub(r"\b(?:bool|float|int|WorldSpace|Cell|ObjectReference) (\w+) =", r"\1 =", line)
+            line = re.sub(r"\b(?:bool|float|int|WorldSpace|Cell|Form|ObjectReference) (\w+) =", r"\1 =", line)
             line = re.sub(r" as ObjectReference\b", "", line)
             line = re.sub(r"\btrue\b", "True", line, flags=re.I)
             line = re.sub(r"\bfalse\b", "False", line, flags=re.I)

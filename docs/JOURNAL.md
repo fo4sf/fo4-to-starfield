@@ -2967,3 +2967,23 @@ No wait/slowdown was added. Native ride, console/gates, full marker preparation 
 owner-build integration remain open; Windows/Papyrus/game NOT_RUN here. Reviewer:
 Courier Copy. Draft #790 remains draft. The earlier uncommitted warmed-anchor probe
 extension is preserved in the task tree, excluded from this production slice.
+
+## 2026-11-15: S3 carrying-ascent component and pod gate (Codex, FAL-848)
+
+Resumed the interrupted ascent edits at reviewed arrival head 3db19d72 in an isolated
+worktree. The opt-in production asset stage writes only the original lift ACTI override
+plus assets, no probe quest/PEX. New-game stage/fold/verify hash-pin and include it.
+The controller plays once on the original loaded lift, ignores early Done, requires the
+rider's measured rise on a later tick, then enters the reviewed arrival path. Failure
+and timeout do not request discovery. This is indoor carrying before arrival; the
+exterior-motion/all-marker timing window is still unbuilt. No hold/slowdown was added.
+
+Claude PC's FAL-858 comment 2979c931, relayed as FAL-848 bce87625, reports a wedged
+post-creator start on main and #791 (drop -1.41/-1.38). Added it to the exit plan as a
+separate small S3 pod-placement slice and a full-exit acceptance gate. CheckPod's
+one-sided fall check cannot prove walkability. No speculative pod height change.
+
+Synthetic branch/packaging controls and guard are recorded on FAL-848 with the exact
+head after commit. .NET writer fixtures, real Papyrus compilation, Windows, native
+carrying, game/install and save acceptance remain NOT_RUN here. Reviewer: Courier Copy.
+Draft #790 remains incomplete; see newgame/exit-ascent-pc-card.md and exit-lift.md.
