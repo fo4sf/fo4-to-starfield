@@ -88,7 +88,13 @@ HOLD_COMPANIONS = ("COM_Companion_SarahMorgan", "COM_Companion_SarahMorgan_Speec
                    "COM_Companion_Shared_Andreja", "COM_Companion_SamCoe", "COM_Companion_SamCoe_SpeechChallenges",
                    "COM_Companion_SamCoe_Cora", "COM_Companion_Shared_SamCoe", "COM_System_PlayerSharedLines",
                    "SQ_Companions", "SQ_Crew", "CREW_EliteCrew_Heller", "CREW_GenericCrew")
-DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS
+# S13 row 5, the second group (owner 15 Nov, "keep going ... until stuff starts to break", least risky first; Program.cs
+# HoldAudioTutorials): the running audio-log quests and the two tutorials.
+HOLD_AUDIO_TUTORIALS = ("AudioLogsQuest", "AudioLogsQuest_KT", "AudioLogsQuest_RQ", "AudioLogsQuest_LVC",
+                        "AudioLogsQuest_PS", "AudioLogsQuest_JM", "AudioLogsQuest_OB", "AudioLogsQuest_BB",
+                        "AudioLogsQuest_FAB", "AudioLogsQuest_AN", "AudioLogsQuest_WJS", "AudioLogsQuest_CT",
+                        "SQ_ENV_Tutorial", "OutpostTutorial")
+DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,

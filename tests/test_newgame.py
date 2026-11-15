@@ -280,7 +280,7 @@ class ContractTests(unittest.TestCase):
         system) nor SQ_COM_CREW_AngerCombatOverride. The selftest builds the list without them as a variant, cross-checks
         both ways and rejects a list that lost SQ_Companions; the PC run says whether they stay stopped."""
         cs = read(CS)
-        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS)
+        self.assertEqual(ng.DEFAULT_HOLD[:len(ng.HOLD_CORE) + len(ng.HOLD_COMPANIONS)], ng.HOLD_CORE + ng.HOLD_COMPANIONS)
         self.assertEqual(len(ng.HOLD_COMPANIONS), 18)
         self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
         for q in ng.HOLD_COMPANIONS:
@@ -291,6 +291,24 @@ class ContractTests(unittest.TestCase):
         self.assertIn('("nocompanions", idsPath, plain with { Hold = HoldCore })', cs)
         self.assertIn('"a hold list without the companion group as the default one"', cs)
         self.assertIn('("the hold list lost SQ_Companions"', cs)
+
+    def test_audio_logs_and_tutorials_held_off(self):
+        """S13 row 5, the second group (owner, 15 Nov: "Keep going with shutting off quests until stuff starts to break",
+        least risky first): the running AudioLogsQuest* quests and the two tutorials join the default hold list after
+        the companions. Nothing of the follower, crew or group plumbing the owner keeps for Warfare squads. The selftest
+        builds the list without them as a variant, cross-checks both ways and rejects a list that lost OutpostTutorial."""
+        cs = read(CS)
+        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS)
+        self.assertEqual(len(ng.HOLD_AUDIO_TUTORIALS), 14)
+        self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
+        for q in ng.HOLD_AUDIO_TUTORIALS:
+            self.assertTrue(q.startswith("AudioLogsQuest") or q in ("SQ_ENV_Tutorial", "OutpostTutorial"), q)
+            self.assertIn(f'EditorID = "{q}"', cs)
+        for q in ("SQ_Followers", "SQ_Crew", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride"):
+            self.assertNotIn(q, ng.HOLD_AUDIO_TUTORIALS)
+        self.assertIn('("noaudio", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() })', cs)
+        self.assertIn('"a hold list without the audio-log and tutorial group as the default one"', cs)
+        self.assertIn('("the hold list lost OutpostTutorial"', cs)
 
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
@@ -628,9 +646,10 @@ class ContractTests(unittest.TestCase):
         default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
         self.assertIn("HoldCore = { " + ", ".join(f'"{q}"' for q in ng.HOLD_CORE) + " }", cs)
-        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).ToArray();", cs)
-        block = cs[cs.index("HoldCompanions = {"):]
-        self.assertEqual(re.findall(r'"([^"]+)"', block[:block.index("};")]), list(ng.HOLD_COMPANIONS))
+        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray();", cs)
+        for name, group in (("HoldCompanions", ng.HOLD_COMPANIONS), ("HoldAudioTutorials", ng.HOLD_AUDIO_TUTORIALS)):
+            block = cs[cs.index(name + " = {"):]
+            self.assertEqual(re.findall(r'"([^"]+)"', block[:block.index("};")]), list(group))
         self.assertNotIn("DefaultMQ101Debug", cs)
         self.assertIn(f"DefaultDebugAfterHold = {ng.DEBUG_AFTER_HOLD};", cs)
         self.assertIn('ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : null', cs)
