@@ -217,11 +217,14 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   remake, 2 haircut, 3 surgery, 4 face paint). The owner wants a looks-only creator (NG-C3); which mode that is, and
   what each shows with MQ101 stopped, is **unresolved** until the in-game C1 test (one mode per run). So the mode is a
   writer option, `--race-menu-mode <n>`, written into the looks script's `RaceMenuMode` property; `check` and the
-  selftest hold a build to its mode. Since 15 Nov the default is **1** (FO4's remake), the looks-only candidate: mode 0
+  selftest hold a build to its mode. Since 15 Nov the default is **2**, looks only: mode 0
   is the full creator with Starfield's Background and Traits pages, Starfield new-game content that the strip-down
-  rule takes out (system model S13, the owner's NG-C3). That mode 1 shows looks only in Starfield is **unverified**
-  until the C1 session; if it does not, the default moves to the mode that does. `--race-menu-mode 0` builds the old
-  full creator, the way back.
+  rule takes out (system model S13, the owner's NG-C3). **Seen** in the C1 session (15 Nov, owner PC, two new games): mode 1
+  opened a creator with BODY, FACE and TRAITS (no Background page), so it is not looks only; mode 2 opened the
+  "Enhance!" creator with only BODY and FACE, closed by the `ChargenMenu` event (`looks done: creator closed`, stage
+  20), and the controls answered afterwards. Its Finish still shows a name dialog listing Background and Traits as empty
+  lines, then a "Save changes?" prompt. Modes 3 and 4 were not tried. `--race-menu-mode 0` builds the old full creator,
+  the way back.
 - Waiting for the creator: Starfield's Utility.psc has **no** `IsInMenuMode` (verified, PC precheck 19 Oct).
   **verified** (PC read, 19 Oct): ScriptObject has `RegisterForMenuOpenCloseEvent(string)` and the creator's menu is
   "ChargenMenu" (9 vanilla registrations). The looks script registers for it before the menu opens and sets stage 20 in
@@ -369,7 +372,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
-   given with it), `--no-looks`, `--race-menu-mode <n>` (default 1, 0 the full creator, section 4),
+   given with it), `--no-looks`, `--race-menu-mode <n>` (default 2, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--clear-inventory` and `--vault-suit <EditorID>` (off by default, section 4c), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section

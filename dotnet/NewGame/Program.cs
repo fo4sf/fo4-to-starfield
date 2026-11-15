@@ -34,8 +34,8 @@
 //        default 1) and a player alias on the quest carrying FO4SF_NewGameVersion, which compares that GLOB to the
 //        version the save was started with on every load (NG-15 / NG-L2).
 //        --race-menu-mode <n> is the uiMode the looks script passes to Game.ShowRaceMenu (its RaceMenuMode property;
-//        default 1, FO4's remake, the looks-only candidate; 0 is the full creator with Starfield's Background and
-//        Traits pages: which mode is looks-only is unverified until the in-game C1 test). Unless
+//        default 2, looks only: body and face, seen in the C1 session on 15 Nov; 1 still shows Traits; 0 is the
+//        full creator with Starfield's Background and Traits pages). Unless
 //        --no-special: seven AVIF FO4SF_Special_<stat> (Strength to Luck, the SPECIAL stats as our own actor values),
 //        MESG FO4SF_NewGameTerminal (the prompt at the vault terminal, two buttons) and MESG FO4SF_NewGameSpecial (the
 //        allocation: one button per stat, Reset, Confirm, Leave), which the SPECIAL script drives (NG-5 / NG-C4). The
@@ -146,9 +146,10 @@ static class NewGame
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
     // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test.
-    // The default is 1, the looks-only candidate: 0 shows Starfield's Background and Traits pages, Starfield new-game
-    // content the strip-down rule takes out (system model S13); --race-menu-mode 0 builds that full creator
-    public const int DefaultRaceMenuMode = 1;
+    // The default is 2, seen looks-only in the C1 session (15 Nov, owner PC: only BODY and FACE; mode 1 still showed
+    // TRAITS): 0 shows Starfield's Background and Traits pages, Starfield new-game content the strip-down rule takes
+    // out (system model S13); --race-menu-mode 0 builds that full creator
+    public const int DefaultRaceMenuMode = 2;
     // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (verified from the SKK
     // FastStart article, research note 06); Starfield's MQ101 stage 0 swaps the outfit (PC read 19 Oct) and whether it
     // removes items too is unverified (NG-N3). What a game started with MQ101 held off leaves
@@ -1118,7 +1119,7 @@ static class NewGame
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
             ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
-            ("default", plain with { RaceMenuMode = 0 }, idsPath, "the default (race menu mode 1) build as a full-creator mode 0 one"),
+            ("default", plain with { RaceMenuMode = 0 }, idsPath, "the default (race menu mode 2) build as a full-creator mode 0 one"),
             ("mode0", plain, idsPath, "a full-creator race menu mode 0 build as the default one"),
             ("default", plain with { Special = false }, idsPath, "a SPECIAL build as a --no-special one"),
             ("nospecial", plain, idsPath, "a --no-special build as a SPECIAL one"),

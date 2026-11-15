@@ -473,7 +473,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.special_press(base, pts, -1), (base, pts, "left"))
 
     def test_the_race_menu_mode_and_the_opening_choice(self):
-        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 1) is the looks script's RaceMenuMode, passed
+        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 2) is the looks script's RaceMenuMode, passed
         to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
         calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
         the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
