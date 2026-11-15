@@ -19,7 +19,8 @@ the very name Fallout 4's shell PipboyMenu.swf loads it by: <page> is one of PAG
 read back as a SWF, the player's own as above. With a page, each --component-movie <path> (FAL-852, R3) packs one of
 Fallout 4's component movies a page loads at run time, Interface/<path>.swf: <path> is Components/ then one to three
 folder or file names of A-Z a-z 0-9 _ joined by /, named once, the file the player's own and reading back as a SWF; a
-component may shadow a Starfield file of the same name inside its archive, so the player checks that first. It then
+component that Starfield's own Interface archive (Data\\*Interface*.ba2, read by name only) already holds is refused,
+because ours would shadow it, and so is a missing or unreadable Interface archive. It then
 activates the plugin and packs Data into "FO4SFPipboyProbe - Main.ba2" (loose files are not read on this install),
 the "*FO4SFPipboyProbe.esm" line appended to the end of Plugins.txt. Everything else is exp_install.py's behaviour:
 no existing game file is overwritten, every added file is recorded before it is published, uninstall removes exactly
@@ -31,12 +32,14 @@ Game closed for install and uninstall (Starfield rewrites Plugins.txt on launch)
 """
 import argparse
 import os
+import struct
 import sys
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "game"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "src"))
 import exp_install  # noqa: E402
 import make_pipboy_probe  # noqa: E402
 import make_probe_swf  # noqa: E402
@@ -94,6 +97,36 @@ def component_movies_problem(components, pages):
     if len({c.lower() for c in components}) != len(components):
         return "--component-movie: each component once"
     return None
+
+
+def shadow_problems(starfield, components):
+    """FAL-852 (Gemini's review of #764): each component Starfield's own Interface archives already hold, as a list.
+    exp_install refuses to overwrite loose files only, so an entry inside a vanilla archive is checked here, by name
+    only (nothing is read or extracted). Our own archive is skipped; no Interface archive, or one that does not read,
+    is refused too: the check cannot be made."""
+    if not components:
+        return []
+    from fo4sf.ba2 import Ba2, Ba2Error
+    data = os.path.join(starfield, "Data")
+    ours = (make_pipboy_probe.ARCHIVE.lower(),)
+    try:
+        archives = sorted(n for n in os.listdir(data) if n.lower().endswith(".ba2") and "interface" in n.lower()
+                          and n.lower() not in ours)
+    except OSError as e:
+        return [f"Starfield's Data folder does not read: {e}"]
+    if not archives:
+        return ["no Starfield Interface archive (Data\\*Interface*.ba2) to check the component movies against"]
+    problems = []
+    for name in archives:
+        try:
+            archive = Ba2(os.path.join(data, name))
+        except (Ba2Error, OSError, struct.error) as e:
+            problems.append(f"the Interface archive {name} does not read, so no component can be checked: {e}")
+            continue
+        for c in components:
+            if archive.find(f"Interface/{c}.swf") is not None:
+                problems.append(f"--component-movie {c!r}: {name} already holds Interface/{c}.swf; ours would shadow it")
+    return problems
 
 
 def swf_problem(path):
@@ -201,6 +234,8 @@ def twin_problems(data, twins):
 def install(a):
     d = os.path.abspath(a.dir)
     problems = stage_problems(d, a.extra_movie, a.page_movie, a.component_movie)
+    if not problems:
+        problems = shadow_problems(a.starfield, a.component_movie)
     if problems:
         sys.exit("pipboy probe not installed (re-stage with make_pipboy_probe.py stage): " + "; ".join(problems))
     return installer(["install", "--exp-dir", d, "--starfield", a.starfield, "--pack",

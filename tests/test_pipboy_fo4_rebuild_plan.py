@@ -518,7 +518,14 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn('ap.add_argument("--component-movie"', installer)
         # FAL-964: S1-c3's other outcomes are leads; a failed path must be shown before staging or dropping the lead
         outcomes = self.plan[self.plan.index("**PASS S1-c3:**"):self.plan.index("13. Done since (15 Nov 17:05Z)")]
-        self.assertIn("What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):", outcomes)
+        self.assertIn("What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964, and "
+                      "Gemini's of #764):", outcomes)
+        # Gemini's review of #764: the same error recurring is its own outcome; the resolved root is a reading
+        self.assertIn("**The same crash with the same `Error reading Components/Conditi…` on the stack again:**", outcomes)
+        self.assertIn("is the PC's reading of the stack memory, not a shown fact", self.plan)
+        self.assertNotIn("Condition_Head.swf`; the opener resolved it under", self.plan)
+        self.assertIn("refuses a component that Starfield's own\nInterface archive", self.plan)
+        self.assertIn("def shadow_problems(starfield, components):", installer)
         self.assertIn("must show the failed path itself", outcomes)
         self.assertIn("not yet proof that the ConditionClips were not the cause", outcomes)
         self.assertNotIn("the ConditionClips were not the cause. Next", outcomes)
