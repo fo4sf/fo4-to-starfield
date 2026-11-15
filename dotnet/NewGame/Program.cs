@@ -221,7 +221,14 @@ static class NewGame
         "COM_Companion_Andreja_SpeechChallenges", "COM_Companion_Shared_Andreja", "COM_Companion_SamCoe",
         "COM_Companion_SamCoe_SpeechChallenges", "COM_Companion_SamCoe_Cora", "COM_Companion_Shared_SamCoe",
         "COM_System_PlayerSharedLines", "SQ_Companions", "SQ_Crew", "CREW_EliteCrew_Heller", "CREW_GenericCrew" };
-    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).ToArray();
+    // S13 row 5, the second group (owner, 15 Nov: "Keep going with shutting off quests until stuff starts to break",
+    // least risky first): the running audio-log quests and the two tutorials (SQ_ENV_Tutorial, OutpostTutorial) from
+    // result-pc-read-s13-5-partb. Story/content quests only, nothing a Warfare squad needs (the owner's boundary, doc §4e).
+    public static readonly string[] HoldAudioTutorials = { "AudioLogsQuest", "AudioLogsQuest_KT", "AudioLogsQuest_RQ",
+        "AudioLogsQuest_LVC", "AudioLogsQuest_PS", "AudioLogsQuest_JM", "AudioLogsQuest_OB", "AudioLogsQuest_BB",
+        "AudioLogsQuest_FAB", "AudioLogsQuest_AN", "AudioLogsQuest_WJS", "AudioLogsQuest_CT", "SQ_ENV_Tutorial",
+        "OutpostTutorial" };
+    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray();
     // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no
     // record) is 0, Oxygen reads 0 and the dial is red; 0002E2 +100 by ModValue or console modav clears it (PC, 15 Nov,
     // verified at 8c655d22 and f96cd32f; the script resolves the id as an ActorValue). So with the reset the quest adds
@@ -1025,6 +1032,21 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A567D), rel) { EditorID = "SQ_Crew" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1AD42E), rel) { EditorID = "CREW_EliteCrew_Heller" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26C4EA), rel) { EditorID = "CREW_GenericCrew" });
+        // S13 row 5's second group (audio logs and tutorials), at their real ids
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x012996), rel) { EditorID = "AudioLogsQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0251D2), rel) { EditorID = "AudioLogsQuest_KT" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x043279), rel) { EditorID = "AudioLogsQuest_RQ" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x08612C), rel) { EditorID = "AudioLogsQuest_LVC" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0C13D5), rel) { EditorID = "AudioLogsQuest_PS" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x195398), rel) { EditorID = "AudioLogsQuest_JM" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20C63F), rel) { EditorID = "AudioLogsQuest_OB" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x21A1CA), rel) { EditorID = "AudioLogsQuest_BB" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2491D9), rel) { EditorID = "AudioLogsQuest_FAB" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x24CC1B), rel) { EditorID = "AudioLogsQuest_AN" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x28DFA6), rel) { EditorID = "AudioLogsQuest_WJS" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x296006), rel) { EditorID = "AudioLogsQuest_CT" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x131E6F), rel) { EditorID = "SQ_ENV_Tutorial" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1ED71C), rel) { EditorID = "OutpostTutorial" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -1121,7 +1143,7 @@ static class NewGame
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         // S13 row 2b: Starfield's environment quest is held off by default, and the reset brings the O2 capacity
-        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
+        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
         if (!DefaultHold.Contains("SQ_ENV") || !DefaultO2Fill || !plain.O2 || Options.From(new[] { "--no-o2-fill" }).O2 ||
             Options.From(new[] { "--keep-inventory" }).O2) { Console.WriteLine("FAIL  the environment options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
@@ -1165,6 +1187,7 @@ static class NewGame
             ("noversion", idsPath, plain with { Version = false }), ("version2", idsPath, plain with { BuildVersion = 2 }),
             ("noo2", idsPath, plain with { O2Fill = false }),
             ("nocompanions", idsPath, plain with { Hold = HoldCore }),
+            ("noaudio", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -1210,6 +1233,8 @@ static class NewGame
             ("hold2", plain, idsPath, "a hold list without SQ_ENV as the default one"),
             ("nocompanions", plain, idsPath, "a hold list without the companion group as the default one"),
             ("default", plain with { Hold = HoldCore }, idsPath, "the default hold list as one without the companion group"),
+            ("noaudio", plain, idsPath, "a hold list without the audio-log and tutorial group as the default one"),
+            ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }, idsPath, "the default hold list as one without the audio-log and tutorial group"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1241,6 +1266,7 @@ static class NewGame
             ("the DebugAfterHold property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugAfterHold")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the hold list lost OutpostTutorial", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + Array.IndexOf(HoldAudioTutorials, "OutpostTutorial"))),
             ("the hold list lost SQ_Companions", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + Array.IndexOf(HoldCompanions, "SQ_Companions"))),
             ("the hold list lost SQ_ENV", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(4)),
             ("the O2 capacity amount changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "O2CapacityAmount")).Data = 50f),

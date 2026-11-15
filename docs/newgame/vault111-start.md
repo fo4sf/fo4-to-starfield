@@ -439,8 +439,31 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   `held off [Quest <...>] running_after=<b> pass=<n>`. No record override. The writer refuses a Starfield.esm without one
   of them, as for any hold quest.
 - **The way back:** `--hold` with the core five only.
-- **Unverified until the PC run:** that all 18 stop and stay stopped (nothing restarts them), and that nothing else
-  breaks without them (the new game to stage 200, Papyrus errors naming them after the hold-off).
+- **Verified in game at `2e444bbf` (PC run, 15 Nov, FAL-883 comment 9123aa49; merged as #795):** pass 1 found all 18
+  not running, pass 2 held off all 18 (`running_after=false`); all 18 read 0 at stage 200 and again about 3 minutes
+  later; `SQ_Followers` still ran (1) and SQ_ENV stayed stopped (0); stage 200 was reached; no Papyrus line named them
+  after the hold-off, no new error kind, nothing odd in the HUD or dialogue.
+- **The boundary for later row 5 groups (owner, 15 Nov, FAL-883 comment d0777cc0):** do not remove Starfield's
+  companion, follower, crew or group mechanics where parts of them can be rebuilt for Warfare mode. In Warfare, combat
+  is meant to be very hard and the player will want to take a squad with them. So hold off Starfield's *story* quests
+  (as here: the Constellation companions and their crew quests), and keep the reusable runtime plumbing running:
+  `SQ_Followers`, the follower and crew systems, group and command handling, and any quest a squad would need. Survival
+  / Warfare will be a mode the player can toggle; a player who wants a more vanilla, single-player experience of the
+  games turns it off. Every further row 5 group is checked against this boundary before it is scoped, and a quest that
+  could carry squad behaviour stays running.
+
+## 4f. Starfield's audio logs and tutorials held off (S13 row 5, the second group)
+
+- **Why:** the owner's direction of 15 Nov (FAL-883 comment 0637137d): "Keep going with shutting off quests until stuff
+  starts to break", one group at a time, least risky first: audio logs and tutorials, then city and faction dialogue,
+  then ships, then the rest of the 207 running quests in `result-pc-read-s13-5-partb`. A group "breaks" when stage 200
+  is not reached, the game crashes, the HUD, dialogue or travel stop working, Papyrus.log shows new error kinds, or the
+  owner sees anything wrong; then the quest that caused it stays running.
+- **What:** `HoldAudioTutorials` (Program.cs; `HOLD_AUDIO_TUTORIALS` in make_newgame.py) joins the default hold list
+  after the companions: the 14 running quests of the group, at the ids the PC read: `AudioLogsQuest` 012996, `AudioLogsQuest_KT` 0251D2, `AudioLogsQuest_RQ` 043279, `AudioLogsQuest_LVC` 08612C, `AudioLogsQuest_PS` 0C13D5, `AudioLogsQuest_JM` 195398, `AudioLogsQuest_OB` 20C63F, `AudioLogsQuest_BB` 21A1CA, `AudioLogsQuest_FAB` 2491D9, `AudioLogsQuest_AN` 24CC1B, `AudioLogsQuest_WJS` 28DFA6, `AudioLogsQuest_CT` 296006, `SQ_ENV_Tutorial` 131E6F, `OutpostTutorial` 1ED71C.
+- **The boundary (section 4e):** none of them is follower, crew or group plumbing.
+- **How, the way back:** the same hold-off; `--hold` without them.
+- **Unverified until the PC run:** that all 14 stop and stay stopped, and that nothing above "breaks".
 
 ## 5. What Vault 111 needs from the port today
 
@@ -472,7 +495,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV` and the companion group, section 4e), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
