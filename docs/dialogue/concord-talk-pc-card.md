@@ -32,13 +32,17 @@ PC PASS §1b (file read): `DialogueListData.aChoices[].sChoiceText` / `uEntryID`
 Do not install the no-DoABC wheel. Do not copy the host or Fallout 4 movie. Do not stage the wheel and then
 replace the twin: stage rewrites it. Ask the owner before downloading a compiler.
 
-Compiler: Apache Flex SDK 4.16.1, command `mxmlc`. The .as imports only `flash.display.DisplayObject`,
-`flash.display.DisplayObjectContainer`, `flash.display.MovieClip`, and `flash.text.TextField` from that SDK's
-playerglobal. No other library.
+Compiler: Apache Flex SDK 4.16.1, command `mxmlc` (https://flex.apache.org/download-binaries.html). Ask the
+owner before downloading it. The .as imports only playerglobal types: `flash.display.DisplayObject`,
+`flash.display.DisplayObjectContainer`, `flash.display.MovieClip`, `flash.events.MouseEvent`,
+`flash.text.TextField`, `flash.text.TextFormat`, and `flash.utils.getDefinitionByName`. No other library.
+The host shuttle class is not imported: `getDefinitionByName("BSUIDataManager")` at runtime, fail closed if
+missing. The constructor creates `fo4sfOptN/E/S/W` as TextFields (N/E/S/W around a 1920x1080 stage), so this
+compiled movie has the four slots; do not stage the no-DoABC wheel.
 
 From the repo root, with `mxmlc` on PATH (bin of that SDK):
 
-    mxmlc -strict=true -swf-version=12 -target-player=11.1 -static-link-runtime-shared-libraries=true -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
+    mxmlc -strict=true -swf-version=12 -target-player=11.1 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
 
 Then, game closed:
 

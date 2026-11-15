@@ -86,7 +86,12 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("i >= MAP_ROWS", src)
         self.assertIn("getChildByName", src)
         self.assertIn(".text = value", src)
-        self.assertIn("BSUIDataManager.Dispatch", src)
+        self.assertIn("getDefinitionByName", src)
+        self.assertIn("new TextField", src)
+        self.assertIn("addChild", src)
+        self.assertIn("MouseEvent.CLICK", src)
+        self.assertNotIn("BSUIDataManager.Subscribe", src)
+        self.assertNotIn("BSUIDataManager.Dispatch", src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 

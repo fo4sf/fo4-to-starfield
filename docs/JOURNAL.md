@@ -2980,3 +2980,9 @@ wins when both keys exist. Native/game NOT_RUN.
 fillSlot sets fo4sfOpt* TextField text (blank if unused). sendSelect calls BSUIDataManager.Dispatch with
 DialogueMenu_OnDialogueSelect and selectedIndex. Compile command on the PC card: Apache Flex SDK 4.16.1 mxmlc,
 playerglobal only. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-895 FINDING — create slots, look up shuttle (FAL-894)
+
+FAL-895 FINDING 9a5a75cc: compiling DialogueMenuFour.as alone had no fo4sfOpt* children, and mxmlc -strict could
+not see BSUIDataManager. The class now creates the four named TextFields and resolves the shuttle with
+getDefinitionByName. Card compile line names playerglobal only, plus -default-size 1920 1080. Native/game NOT_RUN.

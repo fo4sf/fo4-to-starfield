@@ -1,14 +1,19 @@
-// FAL-865. Our ActionScript. Not decompiled from either game. Not a compiled movie.
+// FAL-865 / FAL-894. Our ActionScript. Not decompiled from either game. Not a compiled movie.
 // PC PASS §1b: Subscribe(DialogueListData, onChoiceListUpdate).
 // Bind four slots to aChoices[0..3].sChoiceText.
 // On select send DialogueMenu_OnDialogueSelect { selectedIndex: uEntryID }.
+// Compile with playerglobal only: look up the host shuttle at runtime; create fo4sfOpt* here.
 package
 {
     import flash.display.DisplayObject;
     import flash.display.DisplayObjectContainer;
     import flash.display.MovieClip;
+    import flash.events.MouseEvent;
     import flash.text.TextField;
+    import flash.text.TextFormat;
+    import flash.utils.getDefinitionByName;
 
+    [SWF(width="1920", height="1080", frameRate="30")]
     public class DialogueMenuFour extends MovieClip
     {
         public static const KEEP_MENU:String = "DialogueMenu";
@@ -31,13 +36,23 @@ package
         public static const LIST_VIS_KEY:String = "isVisible";
         public static const SLOTS:Array = ["fo4sfOptN", "fo4sfOptE", "fo4sfOptS", "fo4sfOptW"];
         public static const MAP_ROWS:int = 4;
+        public static const SLOT_W:int = 420;
+        public static const SLOT_H:int = 90;
+        public static const SLOT_X:Array = [750, 1240, 750, 260];
+        public static const SLOT_Y:Array = [170, 495, 820, 495];
+        public static const SLOT_COLOR:uint = 0x1AFF80;
 
         public var lastChoices:Array;
 
         public function DialogueMenuFour()
         {
             lastChoices = [];
-            BSUIDataManager.Subscribe(LIST_PROVIDER, onChoiceListUpdate);
+            ensureSlots();
+            var mgr:Object = shuttle();
+            if (mgr != null)
+            {
+                mgr.Subscribe(LIST_PROVIDER, onChoiceListUpdate);
+            }
         }
 
         public function onChoiceListUpdate(data:Object):void
@@ -80,7 +95,12 @@ package
             var clip:DisplayObject = this.getChildByName(name);
             if (clip == null)
             {
-                return;
+                var idx:int = slotIndex(name);
+                if (idx < 0)
+                {
+                    return;
+                }
+                clip = makeSlot(idx);
             }
             if (clip is TextField)
             {
@@ -110,7 +130,85 @@ package
             {
                 return;
             }
-            BSUIDataManager.Dispatch(eventName, payload);
+            var mgr:Object = shuttle();
+            if (mgr == null)
+            {
+                return;
+            }
+            mgr.Dispatch(eventName, payload);
+        }
+
+        private function shuttle():Object
+        {
+            try
+            {
+                return getDefinitionByName(SHUTTLE_MANAGER);
+            }
+            catch (err:Error)
+            {
+                return null;
+            }
+        }
+
+        private function ensureSlots():void
+        {
+            var i:int = 0;
+            while (i < MAP_ROWS)
+            {
+                if (this.getChildByName(SLOTS[i]) == null)
+                {
+                    makeSlot(i);
+                }
+                i++;
+            }
+        }
+
+        private function makeSlot(i:int):TextField
+        {
+            var tf:TextField = new TextField();
+            var fmt:TextFormat = new TextFormat();
+            fmt.font = "_sans";
+            fmt.size = 28;
+            fmt.color = SLOT_COLOR;
+            tf.name = SLOTS[i];
+            tf.x = SLOT_X[i];
+            tf.y = SLOT_Y[i];
+            tf.width = SLOT_W;
+            tf.height = SLOT_H;
+            tf.background = true;
+            tf.backgroundColor = 0x101010;
+            tf.selectable = false;
+            tf.multiline = true;
+            tf.wordWrap = true;
+            tf.embedFonts = false;
+            tf.defaultTextFormat = fmt;
+            tf.text = "";
+            tf.addEventListener(MouseEvent.CLICK, onSlotClick);
+            addChild(tf);
+            return tf;
+        }
+
+        private function slotIndex(name:String):int
+        {
+            var i:int = 0;
+            while (i < MAP_ROWS)
+            {
+                if (SLOTS[i] == name)
+                {
+                    return i;
+                }
+                i++;
+            }
+            return -1;
+        }
+
+        private function onSlotClick(e:MouseEvent):void
+        {
+            if (e == null || e.currentTarget == null)
+            {
+                return;
+            }
+            selectSlot(slotIndex(e.currentTarget.name));
         }
     }
 }
