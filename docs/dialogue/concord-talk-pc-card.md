@@ -8,17 +8,13 @@ No F10. Until the Vault 111 exit card lands, jump to Concord with the usual cons
 - Do not copy Fallout 4 interface files into Git.
 - Do not post RVAs, decompiled text, or movie bytes.
 - Do not treat a Starfield list as a pass.
-- Do not install the 48a3eb3d movie (no host roots).
+- Do not install 48a3eb3d or 69ee810a (REPLACE host movie). Do not pack `Interface/DialogueMenu.swf`.
 
 ## Shape
 
-(b) Give our movie the host root instance names and members the native side reads (`Menu_mc` and
-its children as empty clips plus `Menu_mc` / `DialogueList_mc` members). Not converted art.
-
-Reason: this slice already KEEP the class and REPLACE the movie. Overlaying our four slots on the
-host movie (a) would keep `DialogueList_mc` drawing a Starfield list (a fail) and would need the
-player's host movie at stage time. Empty named members are not a Git copy of that movie. They may
-still be too little; the control-plus-kit pair is the proof.
+Keep the game's `DialogueMenu` movie. Draw four slots over it. Do not REPLACE `Interface/DialogueMenu.swf`.
+Host-root stubs on a replacement still crashed (PC FAIL 69ee810a, control list OK, kit same null UI read).
+Overlay load (SFSE after host LoadMovie) is the next native slice; this commit only stops packing the host movie.
 
 ## Concord
 
@@ -73,7 +69,8 @@ Then, game closed:
     python scripts/dialogue/make_concord_talk.py stage <dir> --movie DialogueMenuFour.swf
     python scripts/dialogue/concord_talk_install.py install --dir <dir> --starfield <game dir>
 
-If a loose `Interface/DialogueMenu.swf` already exists, the install must refuse. Uninstall after the session.
+If a staged folder contains `Interface/DialogueMenu.swf`, the install must refuse. Uninstall after the session.
+Do not run a kit session of a DialogueMenu twin. Overlay load is not in this commit.
 
 ## 3. In game (one session, control then kit)
 

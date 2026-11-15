@@ -1,14 +1,13 @@
-"""Stage the Concord four-option talk probe (FAL-865): empty plugin + four-slot movie + DialogueMenu twin.
+"""Stage the Concord four-option talk probe (FAL-865): empty plugin + overlay movie.
 
 usage: python scripts/dialogue/make_concord_talk.py stage <dir> [--movie compiled.swf]
        python scripts/dialogue/make_concord_talk.py check <FO4SFConcordTalk.esm>
        python scripts/dialogue/make_concord_talk.py info-set
 
 The plugin has no records. It exists so the session archive (FO4SFConcordTalk - Main.ba2) loads. Default stage
-writes the no-DoABC wheel and twins it; install refuses that twin. Pass --movie <compiled.swf> with DoABC to stage
-a bind movie as both Interface/FO4SF_DialogueWheel.swf and Interface/DialogueMenu.swf. Do not replace a twin and
-then stage: stage rewrites the twin. Starfield's own Interface archive is not touched. Nothing is written into the
-repo. No Fallout 4 lines, no converted INFO records this slice.
+writes the overlay at Interface/FO4SF_DialogueWheel.swf. Do not write Interface/DialogueMenu.swf: replacing the
+host movie crashed (PC FAIL 48a3eb3d and 69ee810a). Starfield's own Interface archive is not touched. Nothing is
+written into the repo. No Fallout 4 lines, no converted INFO records this slice.
 """
 import argparse
 import json
@@ -30,10 +29,10 @@ import make_probe_swf as swf  # noqa: E402
 PLUGIN = "FO4SFConcordTalk.esm"
 ARCHIVE = "FO4SFConcordTalk - Main.ba2"
 MASTERS = ["Starfield.esm"]
-MOVIE = "Interface/FO4SF_DialogueWheel.swf"
-TWIN = info.REPLACE_MOVIE
+MOVIE = info.OVERLAY_MOVIE
+HOST_MOVIE = info.HOST_MOVIE
 AUTHOR = "FO4SF"
-DESCRIPTION = "FAL-865 Concord four-option talk: empty; loads the DialogueMenu twin"
+DESCRIPTION = "FAL-865 Concord four-option talk: empty; overlay movie, host DialogueMenu kept"
 
 
 def plugin_bytes():
@@ -41,7 +40,7 @@ def plugin_bytes():
 
 
 def stage(out, movie_path=None):
-    """Writes the plugin, a movie, and the DialogueMenu twin. --movie must already have DoABC."""
+    """Writes the plugin and the overlay movie. Never writes the host DialogueMenu path."""
     os.makedirs(out, exist_ok=True)
     esm = os.path.join(out, PLUGIN)
     with open(esm, "wb") as f:
@@ -55,14 +54,15 @@ def stage(out, movie_path=None):
     else:
         data = wheel.movie_bytes()
     movie = os.path.join(out, "Data", *MOVIE.split("/"))
+    if os.path.normpath(movie).replace("\\", "/").endswith("/" + HOST_MOVIE.split("/")[-1]) and MOVIE == HOST_MOVIE:
+        raise swf.SwfError("do not stage Interface/DialogueMenu.swf; replacing the host movie is killed")
     os.makedirs(os.path.dirname(movie), exist_ok=True)
     with open(movie, "wb") as f:
         f.write(data)
-    twin = os.path.join(out, "Data", *TWIN.split("/"))
-    os.makedirs(os.path.dirname(twin), exist_ok=True)
-    with open(twin, "wb") as f:
-        f.write(data)
-    return esm, movie, twin
+    host = os.path.join(out, "Data", *HOST_MOVIE.split("/"))
+    if os.path.isfile(host):
+        os.remove(host)
+    return esm, movie
 
 
 def check(path):
@@ -81,16 +81,16 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("stage")
     s.add_argument("out")
-    s.add_argument("--movie", default="", help="compiled DoABC movie; do not stage the wheel then replace the twin")
+    s.add_argument("--movie", default="", help="compiled DoABC overlay movie; never a DialogueMenu twin")
     c = sub.add_parser("check")
     c.add_argument("plugin")
     sub.add_parser("info-set")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "stage":
-            esm, movie, twin = stage(a.out, movie_path=a.movie or None)
+            esm, movie = stage(a.out, movie_path=a.movie or None)
             check(esm)
-            print(f"staged {esm}, {movie} and twin {twin}; pack into {ARCHIVE}")
+            print(f"staged {esm} and overlay {movie}; host movie is not packed; pack into {ARCHIVE}")
         elif a.cmd == "check":
             print(f"ok: {check(a.plugin)}")
         else:

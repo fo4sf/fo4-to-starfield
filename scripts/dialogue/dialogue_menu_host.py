@@ -49,6 +49,9 @@ def host_names():
         "host_fills_by_name": False,
         "kill_no_as3_named_clips": True,
         "kill_replace_without_host_roots": True,
+        "kill_replace_host_movie": True,
+        "host_movie": "Interface/DialogueMenu.swf",
+        "overlay_movie": "Interface/FO4SF_DialogueWheel.swf",
     }
 
 
@@ -67,4 +70,6 @@ def check(payload):
         raise HostMenuError("the no-AS3 named-clip stand-in is killed")
     if not payload.get("kill_replace_without_host_roots"):
         raise HostMenuError("a replacement without Menu_mc / DialogueList_mc crashed on first talk")
+    if not payload.get("kill_replace_host_movie"):
+        raise HostMenuError("replacing Interface/DialogueMenu.swf crashed with and without host-root stubs")
     return payload

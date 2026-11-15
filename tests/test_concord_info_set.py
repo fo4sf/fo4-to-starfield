@@ -30,7 +30,9 @@ class InfoSetTest(unittest.TestCase):
         self.assertEqual(payload["info_count"], 5)
         self.assertEqual(payload["dial_count"], 1)
         self.assertEqual(payload["keep_menu"], "DialogueMenu")
-        self.assertEqual(payload["replace_movie"], "Interface/DialogueMenu.swf")
+        self.assertEqual(payload["overlay_movie"], "Interface/FO4SF_DialogueWheel.swf")
+        self.assertTrue(payload["kill_replace_host_movie"])
+        self.assertNotIn("replace_movie", payload)
         self.assertEqual([r["prompt"] for r in payload["infos"] if r["role"] == "player"],
                          ["ONE", "TWO", "THREE", "FOUR"])
 
@@ -63,17 +65,15 @@ class StageTest(unittest.TestCase):
         self.assertIn(b"Starfield.esm\x00", data)
         self.assertNotIn(b"GRUP", data)
 
-    def test_stage_twins_dialogue_menu(self):
+    def test_stage_does_not_write_host_dialogue_menu(self):
         with tempfile.TemporaryDirectory() as tmp:
-            esm, movie, twin = mct.stage(tmp)
+            esm, movie = mct.stage(tmp)
             self.assertEqual(os.path.basename(esm), "FO4SFConcordTalk.esm")
             self.assertEqual(os.path.relpath(movie, tmp).replace(os.sep, "/"), "Data/" + mct.MOVIE)
-            self.assertEqual(os.path.relpath(twin, tmp).replace(os.sep, "/"), "Data/Interface/DialogueMenu.swf")
+            host = os.path.join(tmp, "Data", "Interface", "DialogueMenu.swf")
+            self.assertFalse(os.path.isfile(host))
             with open(movie, "rb") as f:
                 a = f.read()
-            with open(twin, "rb") as f:
-                b = f.read()
-            self.assertEqual(a, b)
             self.assertEqual(a, wheel.movie_bytes())
             self.assertEqual(mct.check(esm)["masters"], ["Starfield.esm"])
             self.assertEqual(wheel.named_places(swf.read_movie(a)), list(wheel.SLOT_NAMES))
@@ -96,13 +96,11 @@ class StageTest(unittest.TestCase):
                 f.write(out)
             self.assertTrue(shuttle.has_doabc(out))
             dest = os.path.join(tmp, "ok")
-            esm, movie, twin = mct.stage(dest, movie_path=compiled)
+            esm, movie = mct.stage(dest, movie_path=compiled)
             with open(movie, "rb") as f:
                 a = f.read()
-            with open(twin, "rb") as f:
-                b = f.read()
             self.assertEqual(a, out)
-            self.assertEqual(a, b)
+            self.assertFalse(os.path.isfile(os.path.join(dest, "Data", "Interface", "DialogueMenu.swf")))
             self.assertNotEqual(a, wheel.movie_bytes())
 
     def test_check_refuses_records(self):
@@ -120,7 +118,8 @@ class StageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             r = subprocess.run([sys.executable, SCRIPT, "stage", tmp], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("DialogueMenu.swf", r.stdout)
+            self.assertIn("FO4SF_DialogueWheel.swf", r.stdout)
+            self.assertNotIn("DialogueMenu.swf", r.stdout)
             r = subprocess.run([sys.executable, SCRIPT, "info-set"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             payload = json.loads(r.stdout)

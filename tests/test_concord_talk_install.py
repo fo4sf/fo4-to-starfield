@@ -73,15 +73,16 @@ class ConcordTalkInstallTests(unittest.TestCase):
     def test_stage_problems_empty_when_staged(self):
         self.assertEqual(cti.stage_problems(self.staged), [])
 
-    def test_stage_problems_if_twin_missing(self):
-        os.remove(os.path.join(self.staged, "Data", "Interface", "DialogueMenu.swf"))
+    def test_stage_problems_if_host_movie_present(self):
+        write(os.path.join(self.staged, "Data", "Interface", "DialogueMenu.swf"), b"CWS")
         problems = cti.stage_problems(self.staged)
         self.assertTrue(problems)
-        self.assertTrue(any("DialogueMenu" in p or "expected" in p for p in problems))
+        self.assertTrue(any("killed" in p or "DialogueMenu" in p for p in problems))
 
     def test_names_match(self):
         self.assertEqual(mct.PLUGIN, PLUGIN)
-        self.assertEqual(mct.TWIN, "Interface/DialogueMenu.swf")
+        self.assertEqual(mct.HOST_MOVIE, "Interface/DialogueMenu.swf")
+        self.assertEqual(mct.MOVIE, "Interface/FO4SF_DialogueWheel.swf")
         self.assertNotEqual(cti.RECORD, exp_install.RECORD)
 
     def test_install_refuses_no_doabc_movie(self):
@@ -90,13 +91,13 @@ class ConcordTalkInstallTests(unittest.TestCase):
         self.assertIn("DoABC", out)
         self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
 
-    def test_refuses_existing_loose_dialogue_menu(self):
-        write(os.path.join(self.data, "Interface", "DialogueMenu.swf"), b"not-ours")
+    def test_refuses_staged_host_dialogue_menu(self):
+        write(os.path.join(self.staged, "Data", "Interface", "DialogueMenu.swf"), b"not-ours")
         with open(self.plugins, "rb") as f:
             before = f.read()
         code, out = self.run_main("install", "--dir", self.staged)
         self.assertNotEqual(code, 0, out)
-        self.assertIn("loose", out)
+        self.assertTrue("killed" in out or "DialogueMenu" in out, out)
         self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
         with open(self.plugins, "rb") as f:
             self.assertEqual(f.read(), before)

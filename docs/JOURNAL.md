@@ -3018,3 +3018,10 @@ other host children sit on that root. Class is dynamic. Empty clips, not convert
 
 ensureHostRoots writes this.name inside try/catch so Error #2078 cannot abort the constructor before
 slots and shuttle subscribe. this.Menu_mc = this still. Do not install 48a3eb3d. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL 69ee810a — REPLACE host movie is killed (FAL-865)
+
+Control (no kit): Chunks vendor talk opened Starfield's list, no crash. Kit at 69ee810a (host-root stubs,
+compiled sha256 f6e58827…f4f2): same talk crashed at the same UI render null read as 48a3eb3d. No four
+slots. Owner set restored. Stage/install no longer write or pack Interface/DialogueMenu.swf. Overlay on
+the host movie is next. Native/game NOT_RUN.

@@ -4,10 +4,9 @@ usage: python scripts/dialogue/concord_talk_install.py install --dir <stage> --s
        python scripts/dialogue/concord_talk_install.py uninstall|status|order|active --starfield <game dir>
 
 Own record Data/FO4SFConcordTalk.install.json, so an installed experiment is never read or changed.
-install checks: one plugin FO4SFConcordTalk.esm, empty; Data holds Interface/FO4SF_DialogueWheel.swf and the twin
-Interface/DialogueMenu.swf, same bytes. Then packs Data into FO4SFConcordTalk - Main.ba2. Existing game files are
-not overwritten (a loose DialogueMenu.swf already in the game is a refuse). Game closed for install and uninstall.
-Nothing of the game enters the repo.
+install checks: one plugin FO4SFConcordTalk.esm, empty; Data holds Interface/FO4SF_DialogueWheel.swf only.
+A staged Interface/DialogueMenu.swf is a refuse (PC FAIL 69ee810a: replacing the host movie crashes).
+Game closed for install and uninstall. Nothing of the game enters the repo.
 """
 import argparse
 import os
@@ -48,7 +47,9 @@ def stage_problems(d):
     data = os.path.join(d, "Data")
     found = sorted(os.path.relpath(os.path.join(r, f), data).replace(os.sep, "/")
                    for r, _, fs in os.walk(data) for f in fs)
-    expected = sorted([mct.MOVIE, mct.TWIN])
+    if mct.HOST_MOVIE in found:
+        problems.append(f"replace host movie is killed: Data holds {mct.HOST_MOVIE}")
+    expected = [mct.MOVIE]
     if found != expected:
         problems.append(f"Data holds {found}, expected {expected}")
     else:
@@ -56,32 +57,18 @@ def stage_problems(d):
             swf.read_movie(os.path.join(data, *mct.MOVIE.split("/")))
         except (swf.SwfError, OSError) as e:
             problems.append(f"the movie does not read back: {e}")
-        else:
-            with open(os.path.join(data, *mct.MOVIE.split("/")), "rb") as f:
-                movie = f.read()
-            with open(os.path.join(data, *mct.TWIN.split("/")), "rb") as f:
-                if f.read() != movie:
-                    problems.append(f"the twin {mct.TWIN} is not the movie byte for byte")
     return problems
-
-
-def loose_dialogue_menu(starfield):
-    """A loose host movie in the game folder would hide the packed twin."""
-    return os.path.join(starfield, "Data", *mct.TWIN.split("/"))
 
 
 def install(a):
     d = os.path.abspath(a.dir)
     problems = stage_problems(d)
     if problems:
-        sys.exit("concord talk not installed (re-stage with make_concord_talk.py stage): " + "; ".join(problems))
-    clash = loose_dialogue_menu(a.starfield)
-    if os.path.isfile(clash):
-        print(f"concord talk not installed: loose {mct.TWIN} already exists; remove it or uninstall the other movie",
+        print("concord talk not installed (re-stage with make_concord_talk.py stage): " + "; ".join(problems),
               file=sys.stderr)
         sys.exit(1)
-    twin = os.path.join(d, "Data", *mct.TWIN.split("/"))
-    killed = shuttle.refuse_install_reason(twin)
+    overlay = os.path.join(d, "Data", *mct.MOVIE.split("/"))
+    killed = shuttle.refuse_install_reason(overlay)
     if killed:
         print(f"concord talk not installed: {killed}", file=sys.stderr)
         sys.exit(1)

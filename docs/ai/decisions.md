@@ -1508,3 +1508,10 @@ Why: PC FAIL 48a3eb3d crashed on first talk with only `fo4sfOpt*`. Overlay (a) w
 Alternatives: (a) overlay on the host movie (list remains); wait on Vault 111 exit for Concord
 (geography, not topics).
 
+## 2026-11-15: KEEP host DialogueMenu movie; overlay four slots (Scribe, FAL-865)
+
+Decision: do not REPLACE `Interface/DialogueMenu.swf`. Keep the host movie. Four slots overlay it.
+Why: PC FAIL 48a3eb3d (no host roots) and 69ee810a (host-root stubs): control list OK, kit crash on
+the same vanilla talk. Host names on a replacement are not enough.
+Alternatives: keep replacing the movie (verified crash); copy the host movie into Git (forbidden).
+

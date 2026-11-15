@@ -18,6 +18,9 @@ class HostNamesTest(unittest.TestCase):
         self.assertFalse(payload["standin_matches_fo4"])
         self.assertTrue(payload["kill_no_as3_named_clips"])
         self.assertTrue(payload["kill_replace_without_host_roots"])
+        self.assertTrue(payload["kill_replace_host_movie"])
+        self.assertEqual(payload["overlay_movie"], "Interface/FO4SF_DialogueWheel.swf")
+        self.assertEqual(payload["host_movie"], "Interface/DialogueMenu.swf")
         self.assertEqual(payload["quest_scenes"], 8)
         self.assertEqual(payload["host_list"], "DialogueList_mc")
         self.assertEqual(payload["fo4_slots"], ["Question", "Neutral", "Negative", "Positive"])
@@ -39,6 +42,12 @@ class HostNamesTest(unittest.TestCase):
         payload = host.host_names()
         payload["host_fills_by_name"] = True
         with self.assertRaisesRegex(host.HostMenuError, "shuttle"):
+            host.check(payload)
+
+    def test_refuses_dropping_replace_host_movie_kill(self):
+        payload = host.host_names()
+        payload["kill_replace_host_movie"] = False
+        with self.assertRaisesRegex(host.HostMenuError, "DialogueMenu.swf"):
             host.check(payload)
 
     def test_refuses_dropping_host_root_kill(self):

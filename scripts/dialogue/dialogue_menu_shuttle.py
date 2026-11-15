@@ -178,7 +178,7 @@ def select_payload(row):
 
 
 def refuse_install_reason(movie):
-    """None if the movie may be packed as the DialogueMenu twin; else a short refuse string."""
+    """None if the overlay movie may be packed; else a short refuse string. Never pack the host DialogueMenu."""
     parsed = swf.read_movie(movie) if not isinstance(movie, dict) else movie
     if not has_doabc(parsed):
         return "no DoABC: the no-AS3 named-clip movie is killed (host fills via the data shuttle)"
