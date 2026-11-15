@@ -22,8 +22,8 @@ and overlays `fo4sfOpt*` inside `Menu_mc` next to `DialogueList_mc`. Host ABC st
 This slice's plugin stays empty. DialogueConcordArea topics are not on the owner's current set.
 The Vault 111 exit card is geography, not those topics, so waiting on it does not make Concord
 talkable. Concord becomes reachable when a later commit on this branch adds a synthetic topic in
-this plugin (ONE TWO THREE FOUR), not converted lines. Until that topic exists, the stated in-game
-target is four slots on any vanilla talk, recorded as PARTIAL.
+this plugin (ONE TWO THREE FOUR), not converted lines. Until that topic exists, PARTIAL on this
+overlay slice is: kit did not crash; the host list still draws.
 
 ## 1. Names only (no launch if a file read is enough)
 

@@ -111,7 +111,7 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("public var DialogueList_mc", src)
         self.assertIn("Menu_mc", src)
         self.assertIn("DialogueList_mc", src)
-        self.assertIn("any vanilla talk", card_src)
+        self.assertIn("PARTIAL: kit did not crash", card_src)
         self.assertIn("control then kit", card_src)
         self.assertIn("kit not installed", card_src)
         self.assertIn("Do not install 48a3eb3d or 69ee810a", card_src)

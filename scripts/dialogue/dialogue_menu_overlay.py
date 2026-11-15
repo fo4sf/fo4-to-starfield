@@ -22,7 +22,9 @@ import make_probe_swf as swf  # noqa: E402
 
 HOST_PATH = host.host_names()["host_movie"]
 HOST_ARCHIVE_HINT = "Starfield - Interface.ba2"
-DEFINE_IDS = (2, 6, 20, 21, 22, 32, 34, 37, 39, 46, 75, 83)
+DEFINE_IDS = (
+    2, 6, 7, 11, 14, 20, 21, 22, 32, 33, 34, 35, 36, 37, 39, 46, 48, 73, 75, 83, 84, 87, 90, 91,
+)
 
 
 class OverlayError(ValueError):
@@ -121,16 +123,17 @@ def _place_instance(data):
 
 
 def next_character_id(tags):
-    """One past the highest Define* character id already in the movie."""
+    """One past the highest Define* character id, any sprite depth."""
     used = [0]
-    for code, data in tags:
-        if code in DEFINE_IDS and len(data) >= 2:
-            used.append(struct.unpack_from("<H", data, 0)[0])
-        if code == swf.DEFINE_SPRITE:
-            nested = _raw_tags(data, 4)
-            for nc, nd in nested:
-                if nc in DEFINE_IDS and len(nd) >= 2:
-                    used.append(struct.unpack_from("<H", nd, 0)[0])
+
+    def walk(items):
+        for code, data in items:
+            if code in DEFINE_IDS and len(data) >= 2:
+                used.append(struct.unpack_from("<H", data, 0)[0])
+            if code == swf.DEFINE_SPRITE and len(data) >= 4:
+                walk(_raw_tags(data, 4))
+
+    walk(tags)
     return max(used) + 1
 
 
@@ -211,7 +214,7 @@ def extract_host_movie(starfield):
         path = os.path.join(data, name)
         try:
             archive = Ba2(path)
-        except (Ba2Error, OSError) as e:
+        except (Ba2Error, OSError, struct.error, ValueError) as e:
             last_err = e
             continue
         if archive.find(HOST_PATH) is None:

@@ -3037,3 +3037,8 @@ Do not install 48a3eb3d or 69ee810a. Native/game NOT_RUN.
 extract prefers Starfield - Interface.ba2. Slot character ids are max(host)+1. Install packs a
 patched copy from a temp tree so the stage is not left holding DialogueMenu.swf. Card §3 no longer
 says stage --movie or four slots not a list. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-972 FINDING — character ids any depth
+
+next_character_id walks every Define* tag, nested sprites included (Font2, Text, two sprites
+deep). A short Interface.ba2 does not abort extract. Native/game NOT_RUN.
