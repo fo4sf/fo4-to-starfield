@@ -173,28 +173,39 @@ def _place_depth(code, data):
     return None
 
 
-def _import_ids(code, data):
-    ids = []
-    if code == IMPORT_ASSETS:
-        pos = 0
-    elif code == IMPORT_ASSETS2:
-        pos = 2
-    else:
-        return ids
+def _assets_at(data, pos):
     if pos + 2 > len(data):
-        return ids
+        return None
     n = struct.unpack_from("<H", data, pos)[0]
     pos += 2
+    ids = []
     for _ in range(n):
         if pos + 2 > len(data):
-            break
+            return None
         ids.append(struct.unpack_from("<H", data, pos)[0])
         pos += 2
         z = data.find(b"\x00", pos)
         if z < 0:
-            break
+            return None
         pos = z + 1
     return ids
+
+
+def _import_ids(code, data):
+    if code == IMPORT_ASSETS2:
+        z = data.find(b"\x00")
+        if z < 0:
+            return []
+        return _assets_at(data, z + 1 + 2) or []
+    if code == IMPORT_ASSETS:
+        ids = _assets_at(data, 0)
+        if ids is not None:
+            return ids
+        z = data.find(b"\x00")
+        if z < 0:
+            return []
+        return _assets_at(data, z + 1) or []
+    return []
 
 
 def next_character_id(tags):
@@ -302,7 +313,11 @@ def extract_host_movie(starfield):
             continue
         if archive.find(HOST_PATH) is None:
             continue
-        return archive.read(HOST_PATH)
+        try:
+            return archive.read(HOST_PATH)
+        except Ba2Error as e:
+            last_err = e
+            continue
     raise OverlayError(f"{HOST_PATH} not in the player's archives" + (f" ({last_err})" if last_err else ""))
 
 

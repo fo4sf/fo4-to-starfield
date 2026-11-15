@@ -3057,3 +3057,8 @@ Installer maps SwfError to "not installed". Native/game NOT_RUN. Do not install 
 
 Named fo4sfOpt* live in an unnamed MovieClip on Menu_mc (sealed DialogueMenu). Depths include
 PlaceObject/PlaceObject3. Character ids include ImportAssets and tags >= 1000. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-999 FINDING — ImportAssets URL and LZ4 BA2 read
+
+ImportAssets2 skips the URL then reserved bytes. ImportAssets retries after a leading URL.
+extract_host_movie maps Ba2Error on read (v3 LZ4) to OverlayError. Native/game NOT_RUN.

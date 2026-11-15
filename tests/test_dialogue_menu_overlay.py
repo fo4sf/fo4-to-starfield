@@ -102,6 +102,28 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertTrue(all(i != 9000 for i in shape_ids if i))
         self.assertTrue(any(i and i > 9000 for i in shape_ids))
 
+    def test_inject_skips_importassets2_url_id_3(self):
+        extra = swf.tag(
+            overlay.IMPORT_ASSETS2,
+            b"a\x00" + bytes([1, 0]) + struct.pack("<HH", 1, 3) + b"Font\x00",
+        )
+        patched = self._patched_ids(extra)
+        movie = swf.read_movie(patched)
+        shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertTrue(all(i != 3 for i in shape_ids if i))
+        self.assertTrue(any(i and i > 3 for i in shape_ids))
+
+    def test_inject_skips_importassets_url_id_29807(self):
+        extra = swf.tag(
+            overlay.IMPORT_ASSETS,
+            b"fonts.swf\x00" + struct.pack("<HH", 1, 29807) + b"Font\x00",
+        )
+        patched = self._patched_ids(extra)
+        movie = swf.read_movie(patched)
+        shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertTrue(all(i != 29807 for i in shape_ids if i))
+        self.assertTrue(any(i and i > 29807 for i in shape_ids))
+
     def test_inspect_skips_edittext_flags_we_do_not_write(self):
         extra = swf.tag(
             swf.DEFINE_EDIT_TEXT,
@@ -230,6 +252,29 @@ class OverlayPlanTest(unittest.TestCase):
                 f.write(b"short")
             with self.assertRaisesRegex(overlay.OverlayError, "not in the player's archives"):
                 overlay.extract_host_movie(tmp)
+
+    def test_lz4_ba2_read_does_not_abort(self):
+        import tempfile
+        from fo4sf.ba2 import Ba2Error
+        class Boom:
+            def __init__(self, path):
+                pass
+            def find(self, name):
+                return 0
+            def read(self, name):
+                raise Ba2Error("LZ4-compressed (v3) textures are not supported")
+        saved = overlay.Ba2
+        overlay.Ba2 = Boom
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                data = os.path.join(tmp, "Data")
+                os.makedirs(data)
+                with open(os.path.join(data, overlay.HOST_ARCHIVE_HINT), "wb") as f:
+                    f.write(b"x")
+                with self.assertRaisesRegex(overlay.OverlayError, "not in the player's archives"):
+                    overlay.extract_host_movie(tmp)
+        finally:
+            overlay.Ba2 = saved
 
 
 class HostNamesOverlayTest(unittest.TestCase):
