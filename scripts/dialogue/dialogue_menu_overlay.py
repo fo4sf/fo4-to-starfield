@@ -194,9 +194,17 @@ def _assets_at(data, pos):
 def _import_ids(code, data):
     if code == IMPORT_ASSETS2:
         z = data.find(b"\x00")
-        if z < 0:
+        if z < 0 or z + 3 > len(data):
             return []
-        return _assets_at(data, z + 1 + 2) or []
+        pos = z + 1
+        pos += 1
+        has_digest = data[pos]
+        pos += 1
+        if has_digest:
+            if pos + 20 > len(data):
+                return []
+            pos += 20
+        return _assets_at(data, pos) or []
     if code == IMPORT_ASSETS:
         ids = _assets_at(data, 0)
         if ids is not None:

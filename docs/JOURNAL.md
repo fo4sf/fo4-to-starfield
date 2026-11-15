@@ -3062,3 +3062,7 @@ PlaceObject/PlaceObject3. Character ids include ImportAssets and tags >= 1000. N
 
 ImportAssets2 skips the URL then reserved bytes. ImportAssets retries after a leading URL.
 extract_host_movie maps Ba2Error on read (v3 LZ4) to OverlayError. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-1011 FINDING — ImportAssets2 hasDigest
+
+ImportAssets2 skips 20 SHA1 bytes when hasDigest is 1. Native/game NOT_RUN.

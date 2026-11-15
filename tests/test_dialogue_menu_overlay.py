@@ -113,6 +113,28 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertTrue(all(i != 3 for i in shape_ids if i))
         self.assertTrue(any(i and i > 3 for i in shape_ids))
 
+    def test_inject_skips_importassets2_digest_id_3(self):
+        extra = swf.tag(
+            overlay.IMPORT_ASSETS2,
+            b"fonts.swf\x00" + bytes([1, 1]) + bytes(20 * [0x11]) + struct.pack("<HH", 1, 3) + b"Font\x00",
+        )
+        patched = self._patched_ids(extra)
+        movie = swf.read_movie(patched)
+        shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertTrue(all(i != 3 for i in shape_ids if i))
+        self.assertTrue(any(i and i > 3 for i in shape_ids))
+
+    def test_inject_skips_importassets2_zero_digest_id_3(self):
+        extra = swf.tag(
+            overlay.IMPORT_ASSETS2,
+            b"fonts.swf\x00" + bytes([1, 1]) + bytes(20) + struct.pack("<HH", 1, 3) + b"Font\x00",
+        )
+        patched = self._patched_ids(extra)
+        movie = swf.read_movie(patched)
+        shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertTrue(all(i != 3 for i in shape_ids if i))
+        self.assertTrue(any(i and i > 3 for i in shape_ids))
+
     def test_inject_skips_importassets_url_id_29807(self):
         extra = swf.tag(
             overlay.IMPORT_ASSETS,
