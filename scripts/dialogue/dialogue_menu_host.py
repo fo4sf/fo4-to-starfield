@@ -48,6 +48,7 @@ def host_names():
         "standin_matches_fo4": False,
         "host_fills_by_name": False,
         "kill_no_as3_named_clips": True,
+        "kill_replace_without_host_roots": True,
     }
 
 
@@ -64,4 +65,6 @@ def check(payload):
         raise HostMenuError("KEEP the DialogueMenu class")
     if not payload.get("kill_no_as3_named_clips"):
         raise HostMenuError("the no-AS3 named-clip stand-in is killed")
+    if not payload.get("kill_replace_without_host_roots"):
+        raise HostMenuError("a replacement without Menu_mc / DialogueList_mc crashed on first talk")
     return payload

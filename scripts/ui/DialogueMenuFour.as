@@ -35,6 +35,14 @@ package
         public static const ON_LIST_VIS:String = "DialogueMenu_OnListVisibilityChange";
         public static const LIST_VIS_KEY:String = "isVisible";
         public static const SLOTS:Array = ["fo4sfOptN", "fo4sfOptE", "fo4sfOptS", "fo4sfOptW"];
+        public static const HOST_CHILD_NAMES:Array = [
+            "DialogueList_mc",
+            "PersuasionList_mc",
+            "PersuasionData_mc",
+            "ButtonBar_mc",
+            "CrewSkillsWidget_mc",
+            "PrecognitionData_mc"
+        ];
         public static const MAP_ROWS:int = 4;
         public static const SLOT_W:int = 420;
         public static const SLOT_H:int = 90;
@@ -47,6 +55,7 @@ package
         public function DialogueMenuFour()
         {
             lastChoices = [];
+            ensureHostRoots();
             ensureSlots();
             var mgr:Object = shuttle();
             if (mgr != null)
@@ -149,6 +158,31 @@ package
                 return null;
             }
             return null;
+        }
+
+        private function ensureHostRoots():void
+        {
+            // PC FAIL 48a3eb3d: a movie with only fo4sfOpt* crashed on first talk.
+            // Host root Menu_mc and its children were missing. Empty clips, not converted art.
+            var root:MovieClip = this.getChildByName(HOST_ROOT) as MovieClip;
+            if (root == null)
+            {
+                root = new MovieClip();
+                root.name = HOST_ROOT;
+                addChild(root);
+            }
+            var i:int = 0;
+            while (i < HOST_CHILD_NAMES.length)
+            {
+                var n:String = HOST_CHILD_NAMES[i];
+                if (root.getChildByName(n) == null)
+                {
+                    var mc:MovieClip = new MovieClip();
+                    mc.name = n;
+                    root.addChild(mc);
+                }
+                i++;
+            }
         }
 
         private function ensureSlots():void

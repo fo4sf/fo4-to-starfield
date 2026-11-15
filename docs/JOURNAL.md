@@ -2993,3 +2993,9 @@ PC FAIL at 77ebc085: shuttle() needed a trailing return null under -strict; 11.1
 Card now uses -target-player=32.0. playerglobal32_0.swc from Adobe's download host goes in the SDK as
 frameworks/libs/player/32.0/playerglobal.swc. FAL-905 FINDING: set PLAYERGLOBAL_HOME to frameworks/libs/player
 (the directory that contains 32.0/). Select is mouse-click only. No install, no launch. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL 48a3eb3d — replacement without host roots (FAL-865)
+
+Compiled movie opened a vanilla talk and crashed (null read in the UI render path). No four slots drawn.
+Concord talk is not on the owner's current set. Next: empty Menu_mc + host children on the replacement
+(not converted art), or overlay on the host movie. Owner set restored. Native/game NOT_RUN.

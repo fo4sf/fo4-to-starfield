@@ -17,6 +17,7 @@ class HostNamesTest(unittest.TestCase):
         self.assertFalse(payload["standin_matches_host"])
         self.assertFalse(payload["standin_matches_fo4"])
         self.assertTrue(payload["kill_no_as3_named_clips"])
+        self.assertTrue(payload["kill_replace_without_host_roots"])
         self.assertEqual(payload["quest_scenes"], 8)
         self.assertEqual(payload["host_list"], "DialogueList_mc")
         self.assertEqual(payload["fo4_slots"], ["Question", "Neutral", "Negative", "Positive"])
@@ -30,6 +31,12 @@ class HostNamesTest(unittest.TestCase):
         payload = host.host_names()
         payload["host_fills_by_name"] = True
         with self.assertRaisesRegex(host.HostMenuError, "shuttle"):
+            host.check(payload)
+
+    def test_refuses_dropping_host_root_kill(self):
+        payload = host.host_names()
+        payload["kill_replace_without_host_roots"] = False
+        with self.assertRaisesRegex(host.HostMenuError, "Menu_mc"):
             host.check(payload)
 
     def test_refuses_mixing_fo4_slot_names_into_standin(self):
