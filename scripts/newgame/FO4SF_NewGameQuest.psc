@@ -185,15 +185,12 @@ int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
 
-Armor Property StandInSuit Auto Const
-{The environment stand-in (S13 row 2b; the writer's default with the reset, --no-env-standin leaves these None): our
- model-less ARMO with Starfield's ArmorTypeSpacesuitBody keyword. The surface's environmental damage checks worn
- spacesuit keywords (PC runs, 15 Nov), and the reset takes Starfield's suit away. The stand-in until the FO4 vault suit.}
-Armor Property StandInHelmet Auto Const
-{The stand-in helmet: our model-less ARMO with the ArmorTypeSpacesuitHelmet keyword.}
-Armor Property StandInBackpack Auto Const
-{The stand-in pack: our model-less ARMO with the ArmorTypeSpacesuitBackpack keyword (the damage stopped only once a
- pack was worn too, PC run at ec205655).}
+Armor Property StandInPack Auto Const
+{The environment stand-in (S13 row 2b; the writer's default with the reset, --no-env-standin leaves it None): our ARMO
+ in the pack's slot with Starfield's ArmorTypeSpacesuitBody, Helmet and Backpack keywords, and an armature of ours with
+ no model. The surface's environmental damage checks worn spacesuit keywords, all three (PC runs, 15 Nov), and the reset
+ takes Starfield's suit away. One piece, so nothing hides the body (a body-slot piece did at f96cd32f); the armature
+ lets the equip pass (Papyrus refuses an ARMO with none, FAL-361). The stand-in until the FO4 vault suit.}
 ActorValue[] Property StandInValues Auto Const
 {The Constellation suit set's values, added once with ModValue right after the reset (a constant ability applied none
  of them at ec205655; console modav did): ENV_Resist_Airborne, Corrosive, Radiation, Thermal, then 0002E2, the value
@@ -562,23 +559,16 @@ Function ResetInventory(Actor player)
 EndFunction
 
 Function EnvStandIn(Actor player)
-{The environment stand-in (S13 row 2b), once, right after the reset: the pieces into the inventory and the suit's values
+{The environment stand-in (S13 row 2b), once, right after the reset: the piece into the inventory and the suit's values
  added with ModValue, read back and logged as "env stand-in values <value>=<read> ..."; KeepStandInWorn equips the
- pieces on the ticks that follow. A build without it (None properties) logs nothing.}
-    if StandInSuit == None && StandInHelmet == None && StandInBackpack == None && StandInValues == None
+ piece on the ticks that follow. A build without it (None properties) logs nothing.}
+    if StandInPack == None && StandInValues == None
         return
     endif
-    Armor[] pieces = new Armor[3]
-    pieces[0] = StandInSuit
-    pieces[1] = StandInHelmet
-    pieces[2] = StandInBackpack
+    if StandInPack != None && player.GetItemCount(StandInPack) < 1
+        player.AddItem(StandInPack, 1, true)
+    endif
     int i = 0
-    while i < pieces.Length
-        if pieces[i] != None && player.GetItemCount(pieces[i]) < 1
-            player.AddItem(pieces[i], 1, true)
-        endif
-        i += 1
-    endwhile
     string line = "env stand-in values"
     if StandInValues != None
         float[] amounts = new float[5]
@@ -603,41 +593,31 @@ Function EnvStandIn(Actor player)
 EndFunction
 
 Function KeepStandInWorn(Actor player)
-{Equips each stand-in piece that is not worn (at ec205655 a silent EquipItem right after AddItem at the pod did not
- take; by hand later it did). Logged when the state changes ("env stand-in worn ..." / "env stand-in not worn ...")
- and every tenth try while not all are worn.}
-    if StandInSuit == None && StandInHelmet == None && StandInBackpack == None
+{Equips the stand-in piece when it is not worn (the creator or a menu may take it off; one missing from the inventory
+ is added again first). At f96cd32f the equip never took: the pieces had no armature, which Papyrus refuses (FAL-361);
+ the piece now has one. Logged when the state changes ("env stand-in worn ..." / "env stand-in not worn ...") and
+ every tenth try while it is not worn.}
+    if StandInPack == None
         return
     endif
-    bool suit = WearStandIn(player, StandInSuit)
-    bool helmet = WearStandIn(player, StandInHelmet)
-    bool pack = WearStandIn(player, StandInBackpack)
-    bool all = suit && helmet && pack
-    if !all
+    if !player.IsEquipped(StandInPack)
+        if player.GetItemCount(StandInPack) < 1
+            player.AddItem(StandInPack, 1, true)
+        endif
+        player.EquipItem(StandInPack, false, true)
+    endif
+    bool worn = player.IsEquipped(StandInPack)
+    if !worn
         standInTries += 1
     endif
-    if all != standInWorn || (!all && standInTries % 10 == 1)
+    if worn != standInWorn || (!worn && standInTries % 10 == 1)
         string wornText = "not worn"
-        if all
+        if worn
             wornText = "worn"
         endif
-        Trace("env stand-in " + wornText + " suit=" + suit + " helmet=" + helmet + " backpack=" + pack + " tries=" + standInTries)
+        Trace("env stand-in " + wornText + " pack=" + worn + " count=" + player.GetItemCount(StandInPack) + " tries=" + standInTries)
     endif
-    standInWorn = all
-EndFunction
-
-bool Function WearStandIn(Actor player, Armor piece)
-{One stand-in piece: none in this build counts as worn; one missing from the inventory is added again first.}
-    if piece == None
-        return true
-    endif
-    if !player.IsEquipped(piece)
-        if player.GetItemCount(piece) < 1
-            player.AddItem(piece, 1, true)
-        endif
-        player.EquipItem(piece, false, true)
-    endif
-    return player.IsEquipped(piece)
+    standInWorn = worn
 EndFunction
 
 Function InVault(Actor player, int stage)

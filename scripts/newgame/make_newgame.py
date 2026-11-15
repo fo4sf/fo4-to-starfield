@@ -124,12 +124,13 @@ DEFAULT_BUILD_VERSION = 1
 # (the default now) is kept for old command lines.
 DEFAULT_CLEAR_INVENTORY = True
 # The environment stand-in (S13 row 2b; Program.cs DefaultEnvStandIn, held equal by tests/test_newgame.py): with the
-# reset, the build also carries three model-less ARMO with Starfield's spacesuit keywords (body, helmet, pack), which
-# the quest adds right after the reset and keeps equipped ("env stand-in worn ..."), and the Constellation suit set's
-# ENV_Resist values and 0002E2 +100, added with ModValue ("env stand-in values ..."). Without a spacesuit the O2/CO2
-# dial reads red and Mars hurts the player (PC run at 8c655d22, 15 Nov); the first stand-in (an ability, two pieces
-# equipped at once) failed at ec205655. The stand-in until the FO4 vault suit lands; --no-env-standin builds without it,
-# and a --keep-inventory build has none.
+# reset, the build also carries one ARMO in the pack's slot with Starfield's three spacesuit keywords (body, helmet,
+# pack) and an armature of ours with no model, which the quest adds right after the reset and keeps equipped ("env
+# stand-in worn ..."), and the Constellation suit set's ENV_Resist values and 0002E2 +100, added with ModValue ("env
+# stand-in values ..."). Without a spacesuit the O2/CO2 dial reads red and Mars hurts the player (PC run at 8c655d22,
+# 15 Nov); the first stand-in (an ability, two pieces equipped at once) failed at ec205655, and the second (three
+# pieces with no armature) at f96cd32f: Papyrus never equipped them, and the body piece hid the body. The stand-in
+# until the FO4 vault suit lands; --no-env-standin builds without it, and a --keep-inventory build has none.
 DEFAULT_ENV_STANDIN = True
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
@@ -512,7 +513,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Environment stand-in: {'ON (three model-less pieces with the spacesuit keywords, kept equipped, and the suit values by ModValue; the stand-in until the FO4 vault suit; whether it stops the damage is unverified until the PC run)' if env_standin_option(a) else 'off'}.
+Environment stand-in: {'ON (one piece in the pack slot with the three spacesuit keywords and a model-less armature, kept equipped, and the suit values by ModValue; the stand-in until the FO4 vault suit; whether it stops the damage is unverified until the PC run)' if env_standin_option(a) else 'off'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -690,7 +691,7 @@ def summarize(lines):
     "inventory_cleared" is the reset's line ("removed=<n> left=<n>"; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
     "env_standin" the environment stand-in's values line ("<i>=<value read back> ..."; None without it) and
-    "env_standin_worn" its last worn line ("worn suit=<b> helmet=<b> backpack=<b> tries=<n>", or "not worn ...").
+    "env_standin_worn" its last worn line ("worn pack=<b> count=<n> tries=<n>", or "not worn ...").
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
     persistent mode, which never centers, or when the anchor resolved at once). "entered_vault" is the last move's
     verdict, or true once the timer confirms after the load that the start's move took ("enter vault confirmed").

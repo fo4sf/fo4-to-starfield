@@ -293,11 +293,13 @@ class ContractTests(unittest.TestCase):
         self.assertIn('("the inventory reset switched off"', cs)
 
     def test_the_environment_stand_in(self):
-        """S13 row 2b (FAL-883): with the reset, the build carries the environment stand-in. It has three model-less ARMO
-        with Starfield's spacesuit keywords (body, helmet, pack), their slot and race copied from the Constellation
-        pieces. The quest adds them right after the reset with the suit set's values by ModValue (no SPEL or MGEF: the
-        ability of ec205655 applied nothing in game), then keeps them equipped from stage 10 on (the silent equip at the
-        pod did not take). --no-env-standin and --keep-inventory build without it; the selftest covers it."""
+        """S13 row 2b (FAL-883): with the reset, the build carries the environment stand-in. It is one ARMO in the
+        Constellation pack's slot and race with Starfield's three spacesuit keywords (body, helmet, pack), and an ARMA of
+        ours with no model and the race of the vanilla pack's armature. The quest adds it right after the reset with the
+        suit set's values by ModValue (no SPEL or MGEF: the ability of ec205655 applied nothing in game), then keeps it
+        equipped from stage 10 on. At f96cd32f three armature-less pieces were never equipped by the script (Papyrus
+        refuses an ARMO with no armature, FAL-361) and the body piece hid the body. --no-env-standin and
+        --keep-inventory build without it; the selftest covers it."""
         cs, psc = read(CS), read(PSC)
         self.assertTrue(ng.DEFAULT_ENV_STANDIN)
         self.assertIn(f"DefaultEnvStandIn = {str(ng.DEFAULT_ENV_STANDIN).lower()};", cs)
@@ -308,25 +310,36 @@ class ContractTests(unittest.TestCase):
                                ("ENV_Resist_Radiation", "0x248D2F", "30f"), ("ENV_Resist_Thermal", "0x248D32", "50f")):
             self.assertIn(f'"{edid}", {fid}, {mag}', cs)
         self.assertIn('("Capacity", null, 0x0002E2, 100f)', cs)
-        self.assertIn('"Spacesuit_Constellation_01", 0x1E2B18, "ArmorTypeSpacesuitBody", 0x23C7C0', cs)
-        self.assertIn('"Spacesuit_Constellation_Helmet_01", 0x1E2B17, "ArmorTypeSpacesuitHelmet", 0x23C7C1', cs)
-        self.assertIn('"Spacesuit_Constellation_Backpack_01", 0x1E2B19, "ArmorTypeSpacesuitBackpack", 0x23C7BF', cs)
-        self.assertIn("FirstPersonFlags = tpl.FirstPersonFlags", cs)
-        self.assertIn("armor.Race.SetTo(tpl.Race.FormKey)", cs)
+        self.assertIn('StandInTemplate = "Spacesuit_Constellation_Backpack_01"', cs)
+        self.assertIn("StandInTemplateId = 0x1E2B19", cs)
+        self.assertIn('("ArmorTypeSpacesuitBody", 0x23C7C0), ("ArmorTypeSpacesuitHelmet", 0x23C7C1), ("ArmorTypeSpacesuitBackpack", 0x23C7BF)', cs)
+        self.assertIn("StandInPackId = 0x82B, StandInArmaId = 0x82C", cs)
+        self.assertNotIn("StandInSuit", cs)                                  # the body-slot piece is retired (it hid the body)
+        self.assertNotIn("StandInHelmet", cs)
         body = cs[cs.index("public static StandInRecords StandIn"):cs.index("static string StandInText")]
-        self.assertNotIn("Armatures", body)                                  # no model
+        self.assertIn("FirstPersonFlags = tpl.FirstPersonFlags", body)
+        self.assertIn("pack.Race.SetTo(tpl.Race.FormKey)", body)
+        self.assertIn("Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey)", body)   # the armature's race
+        self.assertIn("pack.Armatures = ", body)                             # Papyrus refuses an ARMO with no armature
+        self.assertNotIn("WorldModel", body)                                 # the armature draws nothing
         self.assertNotIn("SF.Spell", body)                                   # no ability: the script's ModValue
         self.assertNotIn("SF.MagicEffect", body)
         self.assertIn("the plugin carries SPEL or MGEF records", cs)
         self.assertIn('$"StandInAmount{i}"', cs)
         self.assertIn('Name = "StandInValues"', cs)
         self.assertIn('("nostandin", idsPath, plain with { EnvStandIn = false })', cs)
-        self.assertIn('("the stand-in pack lost its spacesuit keyword"', cs)
+        for mutation in ("the stand-in lost its helmet keyword", "the stand-in in the body slot (it hides the body)",
+                         "the stand-in without its armature (Papyrus refuses the equip)",
+                         "the stand-in armature of another race", "the stand-in armature with a model", "StandInPack removed"):
+            self.assertIn(f'("{mutation}"', cs)
         self.assertIn('Write(sfNoSuit,', cs)
+        self.assertIn('Write(sfNoArma,', cs)
+        self.assertIn("int objects = 5 + (o.StandIn ? 2 : 0);", cs)
         # the script: the pieces, the values and amounts; added after the reset, kept worn from stage 10 on
-        for prop in ("Armor Property StandInSuit Auto Const", "Armor Property StandInHelmet Auto Const",
-                     "Armor Property StandInBackpack Auto Const", "ActorValue[] Property StandInValues Auto Const"):
+        for prop in ("Armor Property StandInPack Auto Const", "ActorValue[] Property StandInValues Auto Const"):
             self.assertIn(prop, psc)
+        for gone in ("StandInSuit", "StandInHelmet", "StandInBackpack"):
+            self.assertNotIn(gone, psc)
         for i in range(5):
             self.assertIn(f"float Property StandInAmount{i} = 0.0 Auto Const", psc)
         timer = psc[psc.index("Event OnTimer"):]
@@ -337,8 +350,9 @@ class ContractTests(unittest.TestCase):
         self.assertIn("player.ModValue(av, amounts[i])", fn)
         self.assertNotIn("EquipItem", fn)                                    # equipping is KeepStandInWorn's
         self.assertIn('string line = "env stand-in values"', fn)
-        wear = psc[psc.index("bool Function WearStandIn"):psc.index("Function InVault")]
-        self.assertLess(wear.index("player.AddItem(piece, 1, true)"), wear.index("player.EquipItem(piece, false, true)"))
+        wear = psc[psc.index("Function KeepStandInWorn"):psc.index("Function InVault")]
+        self.assertLess(wear.index("player.AddItem(StandInPack, 1, true)"), wear.index("player.EquipItem(StandInPack, false, true)"))
+        self.assertIn('" pack=" + worn', wear)
         for native in ("ModValue", "GetValue"):
             self.assertIn(native, ng.NATIVES[ng.SCRIPT]["Actor"])
         self.assertNotIn("AddSpell", ng.NATIVES[ng.SCRIPT]["Actor"])
@@ -1278,10 +1292,10 @@ class LogTests(unittest.TestCase):
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0", None))
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=4 left=0\n"
                                 "[x] FO4SF_NEWGAME rt=7.0 env stand-in values 0=5.0 1=35.0 2=30.0 3=50.0 4=100.0\n"
-                                "[x] FO4SF_NEWGAME rt=8.0 env stand-in not worn suit=False helmet=False backpack=False tries=1\n"
-                                "[x] FO4SF_NEWGAME rt=9.0 env stand-in worn suit=True helmet=True backpack=True tries=1\n")[1]
+                                "[x] FO4SF_NEWGAME rt=8.0 env stand-in not worn pack=False count=1 tries=1\n"
+                                "[x] FO4SF_NEWGAME rt=9.0 env stand-in worn pack=True count=1 tries=1\n")[1]
         self.assertEqual(s["env_standin"], "0=5.0 1=35.0 2=30.0 3=50.0 4=100.0")
-        self.assertEqual(s["env_standin_worn"], "worn suit=True helmet=True backpack=True tries=1")
+        self.assertEqual(s["env_standin_worn"], "worn pack=True count=1 tries=1")
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1\n"
                                 "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
         self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")

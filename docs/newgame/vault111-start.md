@@ -100,9 +100,9 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
     to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
     items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
     default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
-    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): three
-    invisible pieces with Starfield's spacesuit keywords and the suit's values, so the vault and Mars should not hurt an
-    unsuited player (unverified until the next PC run); `--no-env-standin` leaves it out.
+    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): one
+    invisible piece with Starfield's three spacesuit keywords, and the suit's values, so the vault and Mars should not
+    hurt an unsuited player (unverified until the next PC run); `--no-env-standin` leaves it out.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -365,25 +365,38 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
     (`WornHasKeyword` 1), and nothing was drawn.
   - With body and helmet worn and the values added by console, the damage continued. It stopped once the vanilla pack
     was worn too. That pack also brings its own ENV values, so the keyword and the values are not yet separated.
+- **The second stand-in failed too (PC run at `f96cd32f`, 15 Nov, verified):**
+  - The values worked: `env stand-in values 0=5 1=35 2=30 3=50 4=100`, the dial white, 0002E2 and Oxygen 100.
+  - The script's `EquipItem` never took (`not worn` at tries 1 to 41). By console `equipitem` all three pieces went on
+    at once, and the damage stopped (154.32 → 154.32); with our pack unequipped it came back. So body, helmet and pack
+    keywords are all needed, and the values with them are enough.
+  - Worn, the body piece hid the body: only the head was drawn.
+  - Both causes were already on record (FAL-361, `docs/research/power-armor-probe.md`). Papyrus refuses to equip an ARMO
+    with no armature ("armor cannot be equipped by the passed in actor's race"), while console `equipitem` does not
+    check. And a piece in the spacesuit body slot with nothing to draw hides the skin under it.
 - **The stand-in now (default with the reset):**
-  - **Three pieces:** ARMO `FO4SF_NewGameStandInSuit`, `FO4SF_NewGameStandInHelmet` and `FO4SF_NewGameStandInBackpack`.
-    - They have no armature, so nothing is drawn.
-    - They copy the slot and race of the Constellation pieces 1E2B18, 1E2B17 and 1E2B19.
-    - They carry `ArmorTypeSpacesuitBody` 23C7C0, `ArmorTypeSpacesuitHelmet` 23C7C1 and `ArmorTypeSpacesuitBackpack`
-      23C7BF.
-  - **The values:** right after the reset the quest adds the pieces, then adds the suit set's values once with
+  - **One piece:** ARMO `FO4SF_NewGameStandInPack` (82B).
+    - It copies the slot and race of the Constellation pack 1E2B19. That slot hides nothing; the model-less helmet in the
+      Hat slot hid nothing either at `f96cd32f`.
+    - It carries all three keywords: `ArmorTypeSpacesuitBody` 23C7C0, `ArmorTypeSpacesuitHelmet` 23C7C1 and
+      `ArmorTypeSpacesuitBackpack` 23C7BF.
+    - Its armature is ARMA `FO4SF_NewGameStandInArma` (82C): no model, so nothing is drawn, and the race of the vanilla
+      pack's own armature, so the equip's race check passes.
+    - The suit and helmet pieces of `f96cd32f` (829, 82A) are retired.
+  - **The values:** right after the reset the quest adds the piece, then adds the suit set's values once with
     `Actor.ModValue` (what console `modav` does). It logs `env stand-in values <i>=<value read back> ...`. The script
     gets the values as `StandInValues` (the four AVIFs, then 0002E2 by id) and `StandInAmount0` to `4`.
-  - **Keeping the pieces worn:** on every tick from stage 10, the quest equips any piece that is not worn. It logs
-    `env stand-in worn ...` or `env stand-in not worn ...` when that changes. `make_newgame.py log` prints
-    `env_standin` and `env_standin_worn`.
+  - **Keeping the piece worn:** on every tick from stage 10, the quest equips it when it is not worn. It logs
+    `env stand-in worn pack=<b> count=<n> tries=<n>` or `env stand-in not worn ...` when that changes.
+    `make_newgame.py log` prints `env_standin` and `env_standin_worn`.
 - **The way back:** `--no-env-standin` builds without it. A `--keep-inventory` build has none, because the player keeps
-  Starfield's suit. The writer refuses the stand-in on a Starfield.esm without those pieces, keywords or values.
+  Starfield's suit. The writer refuses the stand-in on a Starfield.esm without the pack, its armature, the keywords or the values.
 - **Not copied:** the boostpack, whose enchantment 092D50 is Starfield movement.
+- **Verified at `f96cd32f`:** the script resolves 0002E2 as an ActorValue, and the values clear the dial.
 - **Unverified until the next PC run:**
-  - whether the script resolves 0002E2 (which has no record) as an ActorValue;
-  - whether the tick-by-tick equip holds;
-  - whether the three keywords with these values stop the damage.
+  - whether the script's equip takes now that the piece has an armature;
+  - whether a model-less armature draws nothing, as no armature did;
+  - whether one piece with the three keywords stops the damage, as three pieces did.
 - **Note on ModValue:** it changes the player's values for good, in the save. A later build that takes the stand-in away
   must take them back off.
 - **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment
