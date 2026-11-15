@@ -1497,3 +1497,14 @@ DoABC on this host; do not install until a movie with DoABC exists.
 Why: PC PASS §1b (FAL-879) listed those names from a file read. The no-AS3 twin remains killed.
 Alternatives: keep the Starfield list (fails the four-option result); invent ABC (unverified).
 
+## 2026-11-15: DialogueMenuFour uses empty host members, not a host overlay (Scribe, FAL-916)
+
+Decision: shape (b) — our movie declares `Menu_mc` and the host child instance names as empty clips
+and members. Do not overlay our slots on the player's host movie. Do not copy the host movie into
+Git. First in-game target is four slots on any vanilla talk (PARTIAL). Concord stays a later
+synthetic topic in this empty plugin; the Vault 111 exit card is not that topic.
+Why: PC FAIL 48a3eb3d crashed on first talk with only `fo4sfOpt*`. Overlay (a) would keep
+`DialogueList_mc` as a list (a fail) and needs the host movie at stage time.
+Alternatives: (a) overlay on the host movie (list remains); wait on Vault 111 exit for Concord
+(geography, not topics).
+

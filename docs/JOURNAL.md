@@ -2999,3 +2999,11 @@ frameworks/libs/player/32.0/playerglobal.swc. FAL-905 FINDING: set PLAYERGLOBAL_
 Compiled movie opened a vanilla talk and crashed (null read in the UI render path). No four slots drawn.
 Concord talk is not on the owner's current set. Next: empty Menu_mc + host children on the replacement
 (not converted art), or overlay on the host movie. Owner set restored. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenuFour shape (b) members + vanilla-talk PARTIAL (FAL-916)
+
+Chose (b) over overlay: KEEP class / REPLACE movie; overlay would keep the host list. Public var
+Menu_mc plus dynamic child members (empty clips, not converted art). PC card is control then kit on
+the same vanilla talk; stop on first crash. Concord reachability is a later synthetic topic in this
+plugin, not the Vault 111 exit card. Stated target until then: four slots on any vanilla talk
+(PARTIAL). Do not install 48a3eb3d. Native/game NOT_RUN.

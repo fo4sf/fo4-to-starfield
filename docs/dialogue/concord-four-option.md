@@ -4,8 +4,10 @@ Scribe. First slice of the dialogue core: KEEP the host `DialogueMenu` class, RE
 stand-in generated here. Nothing converted from the game is in Git. The four prompts are ONE, TWO, THREE, FOUR.
 
 This change reaches the owner's normal game only after independent review of this branch, required checks, and a PC
-session that shows four options on one Concord talk (or on any talk, for the movie half). Until then it is draft
-source. Vault 111 exit is a separate card; until that lands, the PC uses the usual console jump to Concord.
+session. After PC FAIL 48a3eb3d, the movie uses shape (b): empty host instance names and members (`Menu_mc` and
+children), not an overlay on the host movie. Until this plugin carries a synthetic topic, the stated in-game target
+is four slots on any vanilla talk (PARTIAL). Concord DialogueConcordArea `000179F3` is not on the current set; the
+Vault 111 exit card is geography, not those topics.
 
 ## What this slice is
 

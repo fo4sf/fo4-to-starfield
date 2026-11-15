@@ -8,6 +8,25 @@ No F10. Until the Vault 111 exit card lands, jump to Concord with the usual cons
 - Do not copy Fallout 4 interface files into Git.
 - Do not post RVAs, decompiled text, or movie bytes.
 - Do not treat a Starfield list as a pass.
+- Do not install the 48a3eb3d movie (no host roots).
+
+## Shape
+
+(b) Give our movie the host root instance names and members the native side reads (`Menu_mc` and
+its children as empty clips plus `Menu_mc` / `DialogueList_mc` members). Not converted art.
+
+Reason: this slice already KEEP the class and REPLACE the movie. Overlaying our four slots on the
+host movie (a) would keep `DialogueList_mc` drawing a Starfield list (a fail) and would need the
+player's host movie at stage time. Empty named members are not a Git copy of that movie. They may
+still be too little; the control-plus-kit pair is the proof.
+
+## Concord
+
+This slice's plugin stays empty. DialogueConcordArea topics are not on the owner's current set.
+The Vault 111 exit card is geography, not those topics, so waiting on it does not make Concord
+talkable. Concord becomes reachable when a later commit on this branch adds a synthetic topic in
+this plugin (ONE TWO THREE FOUR), not converted lines. Until that topic exists, the stated in-game
+target is four slots on any vanilla talk, recorded as PARTIAL.
 
 ## 1. Names only (no launch if a file read is enough)
 
@@ -56,17 +75,23 @@ Then, game closed:
 
 If a loose `Interface/DialogueMenu.swf` already exists, the install must refuse. Uninstall after the session.
 
-## 3. In game
+## 3. In game (one session, control then kit)
 
-Load a save that can talk. First any talk: the list is not the result; four slots (ONE TWO THREE FOUR, or host text
-in those four places) is the movie half.
+Same vanilla talk both times. Stop on the first crash. Script logging on. No F10.
 
-Then Concord, DialogueConcordArea `000179F3`: after leaving Vault 111 (or the usual jump), one talk shows four
-options. Selecting one (mouse click on a slot; no key/controller path in this movie) fires the host `DialogueMenu`
-select path (KEEP plumbing). A Starfield list fail.
+1. Control, kit not installed: press E on a vanilla NPC. The host list may appear. If this crashes,
+   FAIL (not our movie) and stop.
+2. Game closed: stage `--movie` and install as in §2. Same NPC, press E. Four slots, not a list, no
+   crash. Selecting one (mouse click on a slot; no key/controller path in this movie) fires the host
+   `DialogueMenu` select path (KEEP plumbing). If this crashes, FAIL and stop.
+
+Concord DialogueConcordArea `000179F3` is not on this set. Do not treat reaching Concord as this
+session's gate.
 
 ## Verdict
 
-- PASS: four options visible on that Concord talk, logging on, hashes of files read unchanged.
-- PARTIAL: four slots on some other talk, Concord talk not reached, or host names differ and the boxes stayed empty.
-- FAIL: still a list, or install overwrote a game file.
+- PASS: four options visible on that Concord talk, logging on, hashes of files read unchanged. Not
+  this session (plugin has no topic).
+- PARTIAL: four slots on any vanilla talk after the control did not crash; Concord not reached.
+- FAIL: crash with the kit, still a list with the kit, control not run, or install overwrote a game
+  file.

@@ -22,7 +22,13 @@ class HostNamesTest(unittest.TestCase):
         self.assertEqual(payload["host_list"], "DialogueList_mc")
         self.assertEqual(payload["fo4_slots"], ["Question", "Neutral", "Negative", "Positive"])
 
-    def test_standin_slots_are_not_host_or_fo4(self):
+    def test_as3_host_child_names_match_host_module(self):
+        path = os.path.join(ROOT, "scripts", "ui", "DialogueMenuFour.as")
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        for name in host.HOST_CHILDREN:
+            self.assertIn('"%s"' % name, src)
+        self.assertIn("public var Menu_mc", src)
         self.assertEqual(list(wheel.SLOT_NAMES), list(host.STANDIN_SLOTS))
         self.assertFalse(set(host.STANDIN_SLOTS) & set(host.HOST_CHILDREN))
         self.assertFalse(set(host.STANDIN_SLOTS) & set(host.FO4_SLOTS))

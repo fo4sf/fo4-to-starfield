@@ -51,6 +51,7 @@ package
         public static const SLOT_COLOR:uint = 0x1AFF80;
 
         public var lastChoices:Array;
+        public var Menu_mc:MovieClip;
 
         public function DialogueMenuFour()
         {
@@ -163,7 +164,7 @@ package
         private function ensureHostRoots():void
         {
             // PC FAIL 48a3eb3d: a movie with only fo4sfOpt* crashed on first talk.
-            // Host root Menu_mc and its children were missing. Empty clips, not converted art.
+            // Shape (b): empty host instance names and members. Not converted art.
             var root:MovieClip = this.getChildByName(HOST_ROOT) as MovieClip;
             if (root == null)
             {
@@ -171,16 +172,22 @@ package
                 root.name = HOST_ROOT;
                 addChild(root);
             }
+            this.Menu_mc = root;
+            this[HOST_ROOT] = root;
             var i:int = 0;
             while (i < HOST_CHILD_NAMES.length)
             {
                 var n:String = HOST_CHILD_NAMES[i];
-                if (root.getChildByName(n) == null)
+                var mc:MovieClip = root.getChildByName(n) as MovieClip;
+                if (mc == null)
                 {
-                    var mc:MovieClip = new MovieClip();
+                    mc = new MovieClip();
                     mc.name = n;
+                    mc.mouseEnabled = false;
+                    mc.mouseChildren = false;
                     root.addChild(mc);
                 }
+                root[n] = mc;
                 i++;
             }
         }
