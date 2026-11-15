@@ -23,6 +23,7 @@ using Noggog;
 try
 {
     var rest = args.ToList();
+    bool productionLift = rest.Remove("--production-lift");
     string? Opt(string name)
     {
         int i = rest.IndexOf(name);
@@ -38,9 +39,9 @@ try
     var anims = Opt("--anims");
     if (rest.Count == 3 && rest[0] == "info") return AnimConsoleProbe.Info(rest[1], rest[2], edid);
     if (rest.Count == 4 && rest[0] == "build" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims);
+        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift);
     if (rest.Count == 4 && rest[0] == "check" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims);
+        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift);
     if (rest.Count == 2 && rest[0] == "fixture") return AnimConsoleProbe.Fixture(rest[1]);
 }
 catch (AnimConsoleProbe.Refusal r)
@@ -122,11 +123,14 @@ static class AnimConsoleProbe
         return quest;
     }
 
-    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims)
+    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims, bool productionLift = false)
     {
+        if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
-        var mod = new StarfieldMod(Plugin, Release);
+        if (baseRec.FormKey.ModKey != PortEsm) throw new Refusal("ACTI must be owned by FO4Port.esm");
+        var key = productionLift ? ModKey.FromFileName("FO4SFExitLift.esm") : Plugin;
+        var mod = new StarfieldMod(key, Release);
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;               // as every plugin of ours that loads
         mod.ModHeader.Author = "fo4-to-starfield";
         var ov = baseRec.DeepCopy();                                               // an override: the same form key, FO4Port.esm
@@ -135,10 +139,10 @@ static class AnimConsoleProbe
         foreach (var old in ov.Components.OfType<AnimationGraphComponent>().ToList()) ov.Components.Remove(old);
         ov.Components.Add(new AnimationGraphComponent { ANAM = GraphAnam, BNAM = rig, CNAM = anims });
         mod.Activators.Add(ov);
-        mod.Quests.Add(MakeQuest());
+        if (!productionLift) mod.Quests.Add(MakeQuest());
         mod.ModHeader.Stats.NextFormID = 0x801;
         Write(mod, outDir, SfEsm, PortEsm);
-        var path = Path.Combine(outDir, Plugin.FileName);
+        var path = Path.Combine(outDir, key.FileName);
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): override of {Show(baseRec)}");
         Console.WriteLine($"now model {model}, graph component ANAM {GraphAnam} BNAM {rig} CNAM {anims}");
         Console.WriteLine($"BASE_ID 0x{baseRec.FormKey.ID:X6}");
@@ -170,8 +174,9 @@ static class AnimConsoleProbe
 
     // ---------------------------------------------------------------- check (Mutagen read-back)
 
-    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims)
+    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims, bool productionLift = false)
     {
+        if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
         using var mod = Open(pluginPath);
@@ -180,13 +185,16 @@ static class AnimConsoleProbe
 
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
-        Need(mod.ModKey == Plugin, $"the file is {mod.ModKey}, not {Plugin}");
+        var key = productionLift ? ModKey.FromFileName("FO4SFExitLift.esm") : Plugin;
+        Need(mod.ModKey == key, $"the file is {mod.ModKey}, not {key}");
+        Need(baseRec.FormKey.ModKey == PortEsm, "ACTI is not owned by FO4Port.esm");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { SfEsm, PortEsm }), "masters are not exactly [Starfield.esm, FO4Port.esm]");
         var all = mod.EnumerateMajorRecords().ToList();
-        Need(all.Count == 2, "not exactly two records (the ACTI override and the quest)");
-        var own = all.Where(r => r.FormKey.ModKey == Plugin).Select(r => r.FormKey).ToList();
-        Need(own.Count == 1 && own[0] == Own(QuestId), "records of ours are not exactly the quest 0x800");
+        Need(all.Count == (productionLift ? 1 : 2), "unexpected record count (production lift has only the ACTI override)");
+        var own = all.Where(r => r.FormKey.ModKey == key).Select(r => r.FormKey).ToList();
+        Need(productionLift ? own.Count == 0 : own.Count == 1 && own[0] == Own(QuestId), "unexpected records owned by this plugin");
+        if (productionLift) Need(mod.Quests.Count == 0, "production lift carries a probe quest");
         var ovr = mod.Activators.FirstOrDefault();
         Need(mod.Activators.Count() == 1 && ovr != null && ovr.FormKey == baseRec.FormKey, $"the ACTI is not an override of {baseRec.FormKey}");
         if (ovr != null)
@@ -202,8 +210,8 @@ static class AnimConsoleProbe
                  "the override dropped or added another component");
         }
         var q = mod.Quests.FirstOrDefault(x => x.FormKey == Own(QuestId));
-        Need(q?.EditorID == QuestEdid, $"no QUST {QuestEdid}");
-        if (q != null)
+        if (!productionLift) Need(q?.EditorID == QuestEdid, $"no QUST {QuestEdid}");
+        if (!productionLift && q != null)
         {
             var scripts = q.VirtualMachineAdapter?.Scripts.ToList() ?? new();
             Console.WriteLine($"  QUST {q.EditorID} flags {q.Data?.Flags} stages [{string.Join(",", q.Stages.Select(s => s.Index))}] scripts [{string.Join(", ", scripts.Select(s => $"{s.Name} ({s.Properties.Count} properties)"))}]");
@@ -231,6 +239,10 @@ static class AnimConsoleProbe
             EditorID = DefaultEdid, Name = "Vault Door Controls", Model = new Model { File = "fo4port\\interiors\\vault\\props\\console01.nif" },
         };
         port.Activators.Add(acti);
+        port.Activators.Add(new Mutagen.Bethesda.Starfield.Activator(new FormKey(PortEsm, 0x1235), Release)
+        {
+            EditorID = "FO4Port_acti_0244ef_fallout4", Model = new Model { File = "fo4port/lift.nif" },
+        });
         port.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
         port.BeginWrite.ToPath(Path.Combine(outDir, "FO4Port.esm")).WithLoadOrder(SfEsm)
             .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).WithMastersListContent(MastersListContentOption.NoCheck).Write();
