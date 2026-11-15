@@ -1104,13 +1104,17 @@ also prints a movie's import tags: `import tag=<57|71> url=<file> ids=<n> names=
    render.
 4. Keep the full output private.
 
-What each answer means:
-- **A page imports a file the kit does not install:** the next card installs it alongside the pages (an installer
-  change, `--page-movie` for a library; the player's own file), then S1-c2's ini once more.
-- **No imports, and the stack is in a movie load:** the page file is not found or not read at the path the loader asks
-  for. The next card stages the pages under that path.
-- **No imports, and the stack is in the render:** the loaded page draws something that is not there. The next card
-  answers the page's first data calls (S3), with the dump's call list.
+What each answer points to (leads, not causes; the Lone Wanderer's review, FAL-953):
+- **A page imports a file the kit does not install:** the strongest lead. The next card installs that file alongside
+  the pages (an installer change, `--page-movie` for a library; the player's own file), then S1-c2's ini once more. The
+  run then says whether it was the cause.
+- **No imports, and the stack is in a movie load:** a lead only. Before a staging card, the path the loader asks for
+  must be shown: the `strings=` of the load path and the dump's arguments to the load (privately), or a read that logs
+  the requested path. Only a path that is shown to differ from where the kit puts the pages leads to staging.
+- **No imports, and the stack is in the render:** a lead only. Before S3, the dump must show which call or member
+  the page reads at the fault (its call list). Without that, the next step is a read that logs the page's calls on
+  our object (plugin code), not S3.
+- **Anything else:** posted as found; no card is chosen until the evidence names one.
 
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with

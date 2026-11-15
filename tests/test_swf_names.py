@@ -212,14 +212,20 @@ class SwfNamesTests(unittest.TestCase):
             struct.pack("<H", 4) + b"a sentence\x00"
         imp2 = b"../Interface/fonts_en.swf\x00\x01\x00" + struct.pack("<H", 1) + struct.pack("<H", 7) + b"HUDFont\x00"
         odd = b"http://x?y\x00" + struct.pack("<H", 0)
+        # FAL-953: scheme URLs without a query, an absolute drive path and a rooted path are not printed either
+        hidden = [b"https://example.invalid/library.swf", b"file:///private/library.swf", b"C:\\Users\\x\\lib.swf",
+                  b"/abs/lib.swf", b"\\\\server\\lib.swf"]
         body = (make_probe_swf.rect(0, 100 * 20, 0, 100 * 20) + struct.pack("<HH", 30 << 8, 1)
-                + tag(57, imp) + tag(71, imp2) + tag(57, odd) + b"\x40\x00" + b"\x00\x00")
+                + tag(57, imp) + tag(71, imp2) + tag(57, odd)
+                + b"".join(tag(57, url + b"\x00" + struct.pack("<H", 0)) for url in hidden) + b"\x40\x00" + b"\x00\x00")
         movie = b"FWS" + bytes([10]) + struct.pack("<I", 8 + len(body)) + body
         lines = swf_names.describe("Page.swf", movie)
         self.assertIn("import tag=57 url=Shared_Lib.swf ids=2 names=$EverywhereFont", lines)   # the sentence: not printed
         self.assertIn("import tag=71 url=../Interface/fonts_en.swf ids=1 names=HUDFont", lines)
-        self.assertIn("import tag=57 url=- ids=0 names=-", lines)
-        self.assertNotIn("sentence", "\n".join(lines))
+        self.assertEqual(sum(line == "import tag=57 url=- ids=0 names=-" for line in lines), 1 + len(hidden))
+        text = "\n".join(lines)
+        for word in ("sentence", "example.invalid", "private", "Users", "abs", "server"):
+            self.assertNotIn(word, text, word)
 
     def test_not_a_swf(self):
         self.assertEqual(swf_names.describe("x.swf", b"PK\x03\x04rest"), ["file=x.swf not_swf=1"])
