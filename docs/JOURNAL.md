@@ -3000,3 +3000,21 @@ It refuses short IDs, wrong/changed hashes, missing/duplicate targets and malfor
 behavior remains covered. Synthetic fixtures cover sibling-world isolation and compressed headers without
 payload decoding. The game-closed recipe is [marker-ancestry.md](research/marker-ancestry.md).
 No record fix, setter, game/install action or native acceptance; listing/discovery and full S3 remain open.
+
+## 2026-11-15 — Codex: S3 vanilla control identity reader (offline)
+
+FAL-848 consumed FAL-898's concrete runtime-control design. Existing kits cannot
+observe a positively listed vanilla marker and pre-mover V111 state. Choose its
+Slice 0: the missing same-world CELL EditorID/COC identity pairing for the
+previously documented LandingOverlay01 marker, before building a runtime probe.
+
+Added read_overlay_control.py composing the existing census world/cell/COC
+reader, with pinned mapping hashes, stored vanilla IDs, raw flags and record
+offsets. Missing candidate is unresolved/stop; malformed, disabled/wrong-marker,
+duplicate or changed-input cases refuse without partial stdout. Synthetic
+controls exercise selected-world isolation and read-only CLI behavior. Recipe:
+[vanilla-overlay-control.md](research/vanilla-overlay-control.md).
+
+PC0945's matching ancestry closes topology, not runtime listing/discovery. No
+record patch, setter, game/installation action, native carrying or full S3 pass.
+Courier Copy reviews this exact source/card before any offline PC handoff.
