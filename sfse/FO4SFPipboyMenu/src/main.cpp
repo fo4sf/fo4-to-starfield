@@ -3878,8 +3878,8 @@ namespace
 		// FAL-852 (CodeObjLateCalls=<path>,...): once per movie, at the first kUpdate after the hand-over, each path is called
 		// with no arguments. HANG-SPLIT L1 and L1-SPLIT M1 (FAL-852): Menu_mc.InvalidateData called inside the engine's
 		// LoadMovie, with our object on Menu_mc.BGSCodeObj, crashed the shell's first render; without it the shell drew and
-		// loaded no page. Here the menu is shown and has drawn (the key thread sends kUpdate only once the state check after
-		// the show found it open)
+		// loaded no page. Here the menu is shown and has drawn: CheckState sends this kUpdate when it finds the menu open
+		// about 750 ms after the show (stage b sends no periodic one)
 		if (g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie) {
 			for (std::size_t i = 0; i < g_lateCallCount; ++i) {
 				bool       found = false;
@@ -4703,6 +4703,14 @@ namespace
 		REX::INFO("step=state n={} open={} expected={} match={}", a_n, open, expected, open == expected ? "yes" : "no");
 		if (g_stage >= 3) {
 			Snapshot(open ? "main_after_open" : "main_after_close", true);
+		}
+		// FAL-852 (Scribe, FAL-906): stage b sends no periodic kUpdate, so with CodeObjLateCalls= the check that finds the
+		// menu open after a show sends one (as SendUpdate does; stage b collects nothing first), which runs the late
+		// calls; ShellUpdate calls them only once per movie
+		if (g_stage == 2 && g_lateCallCount && open == 1 && expected == 1) {
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+			}
 		}
 	}
 

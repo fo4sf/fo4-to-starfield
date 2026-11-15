@@ -1040,9 +1040,9 @@ So **`InvalidateData` with our object on `Menu_mc.BGSCodeObj`, called inside the
 first render.** S1-b made the same call with no object there, so the shell started no page load.
 
 **S1-c2, the slice: the first page load moved after the first frame (plugin code, FAL-852).** `CodeObjLateCalls=` takes
-the paths `CodeObjCalls=` takes and calls each once per movie at the first `kUpdate` after the hand-over. That update comes
-once the state check after the show has found the menu open, so the menu has drawn by then. The card moves
-`Menu_mc.InvalidateData` there. Nothing else changes.
+the paths `CodeObjCalls=` takes and calls each once per movie at the first `kUpdate` after the hand-over. Stage (b) sends
+no periodic update, so the state check about 750 ms after a show sends that one when it finds the menu open (the Scribe's
+finding, FAL-906); the menu has drawn by then. The card moves `Menu_mc.InvalidateData` there. Nothing else changes.
 
 **S1-c2, the card (Claude PC; one launch, under the owner's release; the dll built at this commit).** The same setup as
 L1-SPLIT: the owner's F10 kit out with hashes, the S1 shell kit in, the test save, outdoors, no save.
@@ -1066,7 +1066,10 @@ What each other outcome means:
   inside the load. The page load reads something from the engine object that our stand-in does not give. The next card
   answers the shell's first data calls (S3: `PopulatePipboyInfoObj` filling `DataObj`), with the crash dump's call
   list.
-- **No crash and no page body:** the call ran but the shell loaded nothing. Send the `code_call` lines after it. Next: the
+- **No `code_obj_late_call` line** (after `step=state ... open=1`): the update did not reach the menu, or the hand-over had
+  not finished (`step=code_obj ... at_read_back=0`). Send the lines from the show on; the next build sends the late calls
+  another way.
+- **No crash and no page body:** the call ran (`called=1`) but the shell loaded nothing. Send the `code_call` lines after it. Next: the
   same call with `DataObj.CurrentPage` set first (one more late path, ini only).
 - **A page body, but E does not turn it:** the load works, and the key route is next (`TryToSetPage` with an index, as
   S1-c's outcomes say).

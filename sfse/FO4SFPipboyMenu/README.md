@@ -650,8 +650,9 @@ S1-c (FAL-819; with `CodeObj=1` only, each refused otherwise; at load `step=code
 
 `CodeObjLateCalls=<path>,...` (FAL-852; with `CodeObj=1` only, the paths as `CodeObjCalls=`, else
 `refuse step=ini code_obj_late_calls=`) calls each path once per movie with no arguments at the first `kUpdate` after the
-hand-over, on the menu's thread: `step=code_obj_late_call n= name= found= called=`. The key thread sends that update only
-once the state check after the show has found the menu open, so the menu has drawn by then. The S1-arm sessions found why
+hand-over, on the menu's thread: `step=code_obj_late_call n= name= found= called=`. Stage (b) sends no periodic update, so
+the state check about 750 ms after a show sends one when it finds the menu open (`step=state ... open=1 expected=1`); the
+menu has drawn by then. The S1-arm sessions found why
 (PC, 15 Nov, HANG-SPLIT L1 and L1-SPLIT M1): `Menu_mc.InvalidateData` among `CodeObjCalls=`, which run inside the engine's
 `LoadMovie`, crashed the shell's first render with our object on `Menu_mc.BGSCodeObj` (an access violation in the game's
 own Scaleform work on a job thread, about 20 ms after the show). Without it the shell drew its tab bar and footer and
