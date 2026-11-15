@@ -1,5 +1,17 @@
 # Evidence journal
 
+## 2026-11-15 — Codex: align S3 candidate with installed #794 defaults (FAL-848)
+
+Owner PC a22204c7 stopped build-only card2 at the baseline hash gate after installing merged #794/main
+13d85e9b: STALE_BASELINE, no build/compile/native checks or writes. Carry the net five-file #794 NewGame
+delta onto #790's 5a24a65f in an isolated candidate: inventory reset, SQ_ENV hold and O2 fill, preserving the
+coherent pod/Looks samples and guarded arrival/carrying functions. Resolve the two source/test conflicts
+by retaining both lift and O2 options and both precheck fixtures. Add combined lift/inventory/O2 CLI and
+synthetic writer/checker controls. This is source alignment, not a placement fix or main integration.
+Focused Python checks/guard and exact-head preservation checks apply; .NET writer execution, Windows,
+Papyrus/build/game/install stay NOT_RUN here. Sole Survivor independently reviews before remote #790
+integration or a replacement baseline-pinned PC recipe. See [pod position evidence](newgame/pod-position-evidence.md).
+
 ## 2026-11-15 — Codex: preserve merged #791 creator default in #790 (FAL-848)
 
 After FAL-924 CLEAR at815ec1a2, carry the five-file net creator change from main snapshot44cf359e versus6ebb7a0d into the S3 branch: looks-only default2 in writer/Python/Looks, explicit full-creator0 override, matching parity tests and documented C1 decision. The patch applies cleanly; the new TracePosition/prechecks/parser and guarded exit components remain. This integrates already-merged #791 behavior into the author branch, not main. No placement patch, PC card, install or game release. Independent Courier Copy delta review and native/ContentResources/PEX/owner acceptance remain gates.

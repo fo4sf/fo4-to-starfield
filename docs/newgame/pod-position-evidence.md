@@ -1,6 +1,6 @@
 # Pod position evidence after C1
 
-Codex / Lone Wanderer, Ubuntu 26.04.1 LTS. FAL-848; reviewer: Courier Copy.
+Codex / Lone Wanderer, Ubuntu 26.04.1 LTS. FAL-848; current new-work reviewer: Sole Survivor.
 This is an evidence-only source slice of draft #790, not a placement correction or a PC session card.
 
 Owner comment `01a11d0b-41a3-48aa-86c2-fc9862614dc8` transcribes the completed C1 logs at
@@ -69,3 +69,22 @@ Future observations must compare coherent settle, before-creator and Done sample
 pod-to-hall walking for both creator and quick start. A changed position, ok=true, and tcl movement alone cannot
 certify a placement fix. Native/Windows/Papyrus/game/install remain NOT_RUN here. Full S3, map listing/discovery,
 Fast Travel, unchanged-exit marker timing, native carrying and normal packaging remain open. No hold or slowdown.
+
+## Installed S13 baseline after #794
+
+Owner PC receipt `a22204c7-9cdf-460f-940e-3a655e44c81c` stopped the reviewed build-only card rev2 at its
+first baseline gate: STALE_BASELINE after the 16:17Z installation of main
+`13d85e9b0cfc8e1f8b3fb0ed407240b02eff6391` (merged #794). No SDK/cache check, precheck, restore, build,
+compile, verify or game session ran. The old four-hold-quest/inventory-kept baseline is retained history.
+
+The next source candidate carries #794's net NewGame changes into #790: SQ_ENV joins the hold list,
+inventory clearing defaults on, and the O2 capacity fill defaults on with it. Explicit keep-inventory and
+no-o2-fill remain available. The existing coherent samples, Looks script and exit guards are preserved;
+no pod height, timing, movement or collision fix is inferred. C# Options keeps AnimatedExitLift and O2Fill
+as separate fields; combined synthetic writer variants and CLI controls cover their independence.
+
+Sole Survivor must review this local candidate before #790 integration or a new build-only PC recipe.
+The replacement recipe must bind the currently installed record and retained stage, full artifact/input
+hashes and SQ_ENV/reset/O2 options. The stopped result's PEX prefixes and un-rehashed build inputs are
+not current artifact/input proof. No old recipe rerun, normal-set modification, install or session follows
+from this source change. All native and full S3 acceptance gates above remain open.
