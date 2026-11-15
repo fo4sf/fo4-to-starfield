@@ -167,3 +167,15 @@ Each slice has its own PC card. The owner checks motion and visuals on the recor
   Card: exit-return-pc-card.
 - S6 door open at rest, closed during the ride; cog door from the vault console; gates with collision (#797 after the
   FAL-976 read); floor-label flicker.
+
+### Correction (owner, via Claude PC, 15 November ~22:35Z): reuse the working ride
+
+The owner: "you have mostly working stuff on it. It's just the script logic isn't working." The ride itself was proven in
+game on 13 November (FAL-489 route 2, lift session 1: 3D true, 22/22 registered, end event at T23.85 for the full down
+clip; the owner has ridden it). Its converter/binding changes (#771, merge 847f63ec) are in main and in this branch.
+FAL-681 holds the object read (shaft, platform, gates, hatches, sequences). Therefore the plan **reuses** that ride and the
+#790/#796 floor start and arrival guards; it does not rebuild the ride. "The lift has never been built" applies only to
+#790's `--production-lift` / `--exit-lift` new-game build path, and that path is now a packaging step, not new motion work.
+The remaining work is script logic only: platform trigger, first-exit edit prompt, door open at rest/closed in the ride,
+control-room call button, ride-down/stay prompt on later step-ons, map reveal and Vault 111-only discovery during the ride,
+and the fast-travel unlock. The pod obstruction (FAL-858/911) still blocks a new-game test.
