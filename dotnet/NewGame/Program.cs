@@ -801,7 +801,7 @@ static class NewGame
         var arma = new SF.ArmorAddon(new FormKey(modKey, StandInArmaId), rel) { EditorID = StandInArmaEdid, Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey) };
         var pack = new SF.Armor(new FormKey(modKey, StandInPackId), rel) { EditorID = StandInPackEdid, Name = StandInPackName, FirstPersonFlags = tpl.FirstPersonFlags, Value = 0, Weight = 0 };
         pack.Race.SetTo(tpl.Race.FormKey);
-        pack.Armatures = new ExtendedList<SF.ArmorAddonModel> { new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey) } };
+        pack.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey) });   // init-only list: Add (FAL-919)
         // the keywords in the record and in its keyword component, as PowerArmorProbe writes a spacesuit part's (worn by
         // hand at ec205655 and f96cd32f, WornHasKeyword read 1)
         ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> Kws()
