@@ -473,7 +473,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.special_press(base, pts, -1), (base, pts, "left"))
 
     def test_the_race_menu_mode_and_the_opening_choice(self):
-        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 0) is the looks script's RaceMenuMode, passed
+        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 2) is the looks script's RaceMenuMode, passed
         to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
         calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
         the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
@@ -499,6 +499,20 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("looks done: " + how)', looks)
         self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
         self.assertEqual(ng.tool_options(namespace(race_menu_mode=1)), ["--race-menu-mode", "1"])
+
+    def test_the_default_creator_has_no_starfield_backgrounds(self):
+        """System model S13 (strip down Starfield) and the owner's NG-C3 (looks only): the default build does not open
+        the full creator (mode 0, Starfield's Background and Traits pages) in any of the three places that hold the
+        mode; --race-menu-mode 0 still builds it, the way back. The selftest's second build is that mode 0 one."""
+        cs, looks = read(CS), read(LOOKS)
+        self.assertEqual(ng.FULL_CREATOR_MODE, 0)
+        self.assertNotEqual(ng.DEFAULT_RACE_MENU_MODE, ng.FULL_CREATOR_MODE)
+        self.assertNotIn("DefaultRaceMenuMode = 0;", cs)
+        self.assertNotIn("int Property RaceMenuMode = 0 Auto Const", looks)
+        self.assertEqual(ng.tool_options(namespace(race_menu_mode=0)), ["--race-menu-mode", "0"])
+        self.assertNotIn("--race-menu-mode", ng.tool_options(namespace()))   # no option: Program.cs's default applies
+        self.assertIn('("mode0", idsPath, plain with { RaceMenuMode = 0 })', cs)
+        self.assertIn("DefaultRaceMenuMode == 0", cs)                # the selftest refuses a full-creator default
 
     def test_stages_match(self):
         cs, psc = read(CS), read(PSC)
