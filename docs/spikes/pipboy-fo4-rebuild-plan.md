@@ -1127,7 +1127,9 @@ the late `InvalidateData` and the crash**. That weakens S3 as the next step.
 **R3, the read (Claude PC, 15 Nov ~17:05Z, the two S1-c2 dumps; card `pc-card-r3` on FAL-852): the load-path lead.**
 - The crashing job thread's stack holds one file name, `Condition_Head.swf`, the STAT page's ConditionBoy clip. Beside
   it is a loader message, cut off in memory: `Error reading Components/Conditi…`. The request was the relative
-  `Components/ConditionClips/Condition_Head.swf`; the opener resolved it under `Interface\Components\ConditionClips\`.
+  `Components/ConditionClips/Condition_Head.swf`. That the opener resolved it under `Interface\Components\ConditionClips\`
+  is the PC's reading of the stack memory, not a shown fact: the error line is cut off at `Conditi…`, so the root the
+  opener used is not shown (Gemini's review of #764).
 - `fonts_en` is not on that stack. No thread was in a file read or open. Frames 00–0f are 16 different functions, not a
   recursion.
 - The fault is the same in both dumps, and the same as L1's by its kept text. L1's own dumps were deleted before R3, so
@@ -1139,14 +1141,19 @@ the late `InvalidateData` and the crash**. That weakens S3 as the next step.
 **S1-c3, the slice: the STAT page's components staged (an installer change, FAL-852).** `pipboy_probe_install.py
 install` takes `--component-movie <path>` with a page: it packs `Interface/<path>.swf` from the stage, where `<path>` is
 `Components/` then one to three names of letters, digits and `_` joined by `/`. Each is named once, must read back as a
-SWF, and is the player's own file, never in Git. The plugin is unchanged since `7b1d29aa`, so the PC's S1-c2 dll is
-the one to run.
+SWF, and is the player's own file, never in Git. The installer also refuses a component that Starfield's own
+Interface archive (`Data\*Interface*.ba2`, read by name only) already holds, since ours would shadow it, and it refuses
+when no such archive reads (Gemini's review of #764). A component under a folder with a space or a hyphen would need
+the path rule widened first. The plugin is unchanged since `7b1d29aa`, so the PC's S1-c2 dll is the one to run.
 
 **S1-c3, the card (Claude PC; one launch, under a fresh owner release; the dll of `7b1d29aa`, the installer at this
 commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the test save, outdoors, no save.
 0. **Read first (no launch):** list the entries under `interface/components/` in Fallout 4's Interface archive (names
-   only). Post the ConditionClips names, their count, and the other folders there. Check Starfield's Interface archive
-   for each of those paths. **A path Starfield also has is a STOP**: our archive would shadow Starfield's file.
+   only), from the repo root:
+   `python -c "import sys; sys.path.insert(0, 'src'); from fo4sf.ba2 import Ba2; print('\n'.join(n for n in Ba2(sys.argv[1]).names if n.lower().replace(chr(92), '/').startswith('interface/components/')))" <Fallout 4 Interface archive>`.
+   Post the ConditionClips names, their count, and the other folders there. Run the same line on Starfield's
+   Interface archive. **A path Starfield also has is a STOP**: our archive would shadow Starfield's file. Step 2's
+   installer refuses such a path too.
 1. **Stage:** S1-c2's stage, plus every `interface/components/conditionclips/*.swf` from the player's own Fallout 4
    archive, copied to `Data/Interface/Components/ConditionClips/` in the stage.
 2. **Install:** S1-c2's install line plus one `--component-movie Components/ConditionClips/<name>` for each (no `.swf`).
@@ -1156,10 +1163,14 @@ commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the tes
 
 **PASS S1-c3:** S1-c2's PASS lines: no crash after `code_obj_late_call`, STAT's body drawn, and E turning to INV.
 
-What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):
+What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964, and Gemini's of #764):
 - **A crash with another file name or another `Error reading` path on the stack:** a lead that this file is missing
   too. Before it is staged, a read like R3 must show the failed path itself (the full `Error reading` line or the
   path the opener was asked for) and that the kit does not install it.
+- **The same crash with the same `Error reading Components/Conditi…` on the stack again:** the clips were staged, so
+  either the opener looks under another root or does not read our archive. Next: a read that shows the full requested
+  and resolved path (the whole `Error reading` line, or the path the opener was asked for) before any further staging.
+  Not a launch.
 - **The same crash with no `Error reading` on the stack:** not yet proof that the ConditionClips were not the cause
   (the message may simply not be in captured memory). Next: a read that confirms whether the component loads failed or
   succeeded (the dump's call list and the path in flight), before the lead is dropped or another staging is chosen.

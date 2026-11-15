@@ -18,7 +18,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "scripts" / "ui"))
 sys.path.insert(0, str(ROOT / "scripts" / "game"))
 sys.path.insert(0, str(ROOT / "src"))
-from ba2_fixture import archive_from_tree  # noqa: E402
+from ba2_fixture import archive_from_tree, general_archive  # noqa: E402
 from fo4sf.planet import esm  # noqa: E402
 import exp_install  # noqa: E402
 import make_pipboy_probe  # noqa: E402
@@ -399,7 +399,16 @@ class PipboyProbeInstallTests(unittest.TestCase):
         write(out, raw if raw is not None else other_swf(movie))
         return out
 
-    def install_shell(self, *components, pages=("Pipboy_StatsPage",)):
+    def vanilla_interface(self, *names, raw=None):
+        # Starfield's own Interface archive, by name only (Gemini's review of #764): our components must not shadow it
+        path = os.path.join(self.data, "Starfield - Interface.ba2")
+        write(path, raw if raw is not None else
+              general_archive({n: b"x" for n in (names or ("interface/fonts_en.swf",))}, version=2))
+        return path
+
+    def install_shell(self, *components, pages=("Pipboy_StatsPage",), vanilla=True):
+        if vanilla and not os.path.exists(os.path.join(self.data, "Starfield - Interface.ba2")):
+            self.vanilla_interface()
         args = [arg for c in components for arg in ("--component-movie", c)]
         return self.run_main("install", "--dir", self.staged, "--extra-movie", "FO4SF_Fo4Shell",
                              *self.page_args(list(pages)), *args)
@@ -417,8 +426,40 @@ class PipboyProbeInstallTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         for name in (PLUGIN, ARCHIVE, pbi.RECORD):
             self.assertFalse(os.path.exists(os.path.join(self.data, name)), name)
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "Starfield - Interface.ba2")))   # never touched
         self.assertEqual(self.lines(), BEFORE)
         self.assertEqual(self.exp_record(), EXP_RECORD)
+
+    def test_a_component_starfield_already_holds_is_refused(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        self.stage_component()
+        # stored with backslashes and another case, as Starfield's archives do; the lookup ignores both
+        self.vanilla_interface("Interface\\components\\conditionclips\\condition_head.swf")
+        code, _ = self.install_shell(self.HEAD)
+        self.assertIn(f"--component-movie {self.HEAD!r}: Starfield - Interface.ba2 already holds", str(code))
+        self.assertIn("ours would shadow it", str(code))
+        self.assert_untouched()
+
+    def test_components_need_a_readable_starfield_interface_archive(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        self.stage_component()
+        code, _ = self.install_shell(self.HEAD, vanilla=False)
+        self.assertIn("no Starfield Interface archive", str(code))
+        self.assert_untouched()
+        self.vanilla_interface(raw=b"not an archive")
+        code, _ = self.install_shell(self.HEAD)
+        self.assertIn("the Interface archive Starfield - Interface.ba2 does not read", str(code))
+        self.assert_untouched()
+
+    def test_our_own_archive_and_other_archives_are_not_checked(self):
+        # only Data\\*Interface*.ba2 is read, and never our own archive; installs without components read none
+        self.assertEqual(pbi.shadow_problems(self.game, []), [])
+        write(os.path.join(self.data, "Starfield - Textures01.ba2"), b"not read")
+        self.vanilla_interface()
+        self.assertEqual(pbi.shadow_problems(self.game, [self.HEAD]), [])
+        self.stage_shell()
+        code, out = self.run_main("install", "--dir", self.staged, "--extra-movie", "FO4SF_Fo4Shell", *self.page_args())
+        self.assertEqual(code, 0, out)
 
     def test_a_component_is_refused_unless_named(self):
         self.stage_shell(["Pipboy_StatsPage"])
