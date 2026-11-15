@@ -326,6 +326,28 @@ help):** one put-back, at the load; `hold preston by=mission off=0.035291 ok=tru
 65 s apart at the same position, `state=at spot, held`. With the player 3.2 m from him the stage stayed 30; at 2.8 m,
 `stage 40`, `reward credits=100`, `stage 200` and `complete stage=200` within 2 s.
 
+### Follow, test-only, until the Concord talk (FAL-866)
+
+The door hold above is the placement before he is a companion. It is not the companion result. Fallout 4 starts
+that on COMPreston `0007925B`, from the Concord talk. This slice does not convert that quest and does not wait on
+the talk. A test-only command stands in for it:
+
+`cgf "FO4SF_COMPreston.FollowTest"`
+
+The command arms the mission and the keeper so neither puts him back or restrains him, clears the restraint, sets
+his linked ref to the player, fills alias `Preston` on quest `FO4SF_COMPreston` (plugin-local `0x815`) and
+re-evaluates packages. That alias carries only the host package `DefaultMaster_FollowPackage` (`000301C5`). It is
+not the host follower quest `0000D773` and not an `ActiveFollowers` alias. Affinity stays out. Wait, trade and
+dismiss are not this command: wait and dismiss will clear the link and the alias without restraining him, and
+trade will open his inventory. None of those three is built yet.
+
+The log line is `follow preston test-only`. Two seconds later the log names `follow preston package=` and the
+package's form id. On 1 Nov, linking an actor to the player selected `DefaultMaster_FollowPackage` (`000301C5`);
+whether this alias's copy is the package the game reports is what that line is for. A `hold preston` line after
+the test-only line means the door hold came back. The command reaches the owner's game only after a mission
+stage that contains `FO4SF_COMPreston.pex` is installed. Until then he stays at the door. In-game follow is not
+claimed from the offline checks. The session is `docs/mission/preston-follow-pc-card.md`.
+
 ### Codsworth at Sanctuary (FAL-163): Preston's fixed-spot rule
 
 "Codsworth is not at Sanctuary" is the owner's most reported defect (playtest rows 27, 32 and 42).
