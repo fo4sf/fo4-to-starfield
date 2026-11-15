@@ -91,6 +91,10 @@ class StageTests(unittest.TestCase):
         self.assertIn("BODIES 2", out)
         self.assertIn("LAYERS [55]", out)
         self.assertIn("FLAGS STAT 0x", out)
+        self.assertIn("node name", out)
+        self.assertIn("world translation (", out)
+        self.assertIn("bounds lo (", out)
+        self.assertIn("size (1.0000, 1.0000, 1.0000)", out)                     # the synthetic bodies are unit cubes
         self.assertEqual(sorted(os.listdir(self.data)), before)
 
     def test_a_reference_that_is_not_there_is_refused(self):

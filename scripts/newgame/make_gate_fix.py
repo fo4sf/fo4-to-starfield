@@ -154,6 +154,31 @@ def stage_files(out):
     return files
 
 
+def node_name(f, i):
+    """The node block's name string, or '' (block 0 of a NiNode starts with its name index)."""
+    import struct
+    try:
+        idx, = struct.unpack_from("<i", f.blocks[i], 0)
+        return f.strings[idx].decode("latin-1") if 0 <= idx < len(f.strings) else ""
+    except struct.error:
+        return ""
+
+
+def describe_body(f, world, body):
+    """Lines for one body: the owning node's name and world transform, and the body's bounds in model (root) space, metres.
+    Names, numbers and counts only; the triangles themselves are not printed."""
+    t, rot, sc = world(body["node"])
+    pts = [v for tri in body["triangles"] for v in tri]
+    lines = [f"node name {node_name(f, body['node'])!r}, world translation ({t[0]:.4f}, {t[1]:.4f}, {t[2]:.4f}), scale {sc:.4f}, "
+             f"rotation rows {[round(x, 4) for x in rot]}"]
+    if pts:
+        lo = [min(p[a] for p in pts) for a in range(3)]
+        hi = [max(p[a] for p in pts) for a in range(3)]
+        lines.append("bounds lo (%.4f, %.4f, %.4f) hi (%.4f, %.4f, %.4f) size (%.4f, %.4f, %.4f) centre (%.4f, %.4f, %.4f)" % (
+            *lo, *hi, *(h - l for h, l in zip(hi, lo)), *((h + l) / 2 for h, l in zip(hi, lo))))
+    return lines
+
+
 def read_model(a):
     """READ ONLY: names, ids, layers and counts of the installed gate model's collision; writes nothing, installs nothing."""
     from fo4sf import nif as nifmod, sfbodies
@@ -179,8 +204,11 @@ def read_model(a):
         print(f"BODIES UNREADABLE: {type(e).__name__}: {e}")
         return 1
     print(f"BODIES {len(bodies)}")
+    world = nifmod.world_transforms(f)
     for k, b in enumerate(bodies):
         print(f"  body {k}: node {b['node']} shape {b['shape']} layer {b['layer']} triangles {len(b['triangles'])}")
+        for line in describe_body(f, world, b):
+            print("    " + line)
     print(f"LAYERS {sorted({b['layer'] for b in bodies})}")
     return 0
 
