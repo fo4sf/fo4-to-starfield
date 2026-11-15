@@ -80,6 +80,19 @@ class StageTests(unittest.TestCase):
         self.assertEqual(info.returncode, 0, info.stderr)
         self.assertEqual(mgf.parse_info(info.stdout), {"base_id": "00DEF8", "model": MODEL})
 
+    def test_read_prints_layers_and_flags_and_writes_nothing(self):
+        import contextlib, io
+        before = sorted(os.listdir(self.data))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = mgf.read_model(self.args(None))
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("BODIES 2", out)
+        self.assertIn("LAYERS [55]", out)
+        self.assertIn("FLAGS STAT 0x", out)
+        self.assertEqual(sorted(os.listdir(self.data)), before)
+
     def test_a_reference_that_is_not_there_is_refused(self):
         proc = self.run_tool("info", self.data / "FO4Port.esm", self.data / "Starfield.esm", "--ref", "0099")
         self.assertEqual(proc.returncode, 1)

@@ -96,6 +96,8 @@ static class GateFix
         Console.WriteLine($"STAT {s.FormKey} {s.EditorID} model {s.Model?.File}");
         Console.WriteLine($"BASE_ID 0x{s.FormKey.ID:X6}");
         Console.WriteLine($"MODEL {s.Model?.File}");
+        var r = port.EnumerateMajorRecords<IPlacedObjectGetter>().Single(x => x.FormKey.ModKey == port.ModKey && x.FormKey.ID == refId);
+        Console.WriteLine($"FLAGS STAT 0x{s.MajorRecordFlagsRaw:X8} REFR 0x{r.MajorRecordFlagsRaw:X8}");   // raw words: bit names are read from the xEdit/CK flag tables by the reader, not guessed here
         return 0;
     }
 

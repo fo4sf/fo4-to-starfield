@@ -12,6 +12,8 @@ replaced) and builds FO4SFGateFix.esm: an OVERRIDE of the STAT base of the refer
 that base follows (the gate leaves of both Vault 111 gear-room doors, Vault 114).
 
 usage:
+  python make_gate_fix.py read --starfield-data <Starfield Data> [--port-data <dir>] [--ref <hex id>]
+      READ ONLY: the reference's record flags, the installed model's collision objects, bodies, shape kinds and layers (names and counts).
   python make_gate_fix.py stage --out <new dir> --starfield-data <Starfield Data> [--port-data <dir with FO4Port.esm and its archives>]
          [--ref <hex local id, default 001317>]
       1. the plugin tool's `info`: the reference's STAT base and model (refused when the reference is missing or the base is not a STAT);
@@ -152,6 +154,37 @@ def stage_files(out):
     return files
 
 
+def read_model(a):
+    """READ ONLY: names, ids, layers and counts of the installed gate model's collision; writes nothing, installs nothing."""
+    from fo4sf import nif as nifmod, sfbodies
+    ref = a.ref or DEFAULT_REF
+    port_data = a.port_data or a.starfield_data
+    sf_esm, port_esm = os.path.join(a.starfield_data, "Starfield.esm"), os.path.join(port_data, "FO4Port.esm")
+    tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
+    text = run(tool + ["info", port_esm, sf_esm, "--ref", ref]).stdout
+    info = parse_info(text)
+    got = find_in_archives(port_data, info["model"])
+    if got is None:
+        print(f"MODEL NOT IN ANY FO4Port*.ba2: {info['model']} (loose file, or another archive?)")
+        return 1
+    raw, archive = got
+    f = nifmod.parse(raw)
+    print(f"MODEL {info['model']} in {archive}, {len(raw)} bytes, {len(f.blocks)} blocks")
+    objs = [i for i in range(len(f.blocks)) if f.type_of(i) == "bhkNPCollisionObject"]
+    other = sorted({f.type_of(i) for i in range(len(f.blocks)) if "bhk" in f.type_of(i) or "Collision" in f.type_of(i)})
+    print(f"COLLISION_OBJECTS {len(objs)}; block types with bhk/Collision in the name: {other}")
+    try:
+        bodies = sfbodies.nif_bodies(raw)
+    except Exception as e:  # noqa: BLE001 (a read tool says what it could not read, whatever it was)
+        print(f"BODIES UNREADABLE: {type(e).__name__}: {e}")
+        return 1
+    print(f"BODIES {len(bodies)}")
+    for k, b in enumerate(bodies):
+        print(f"  body {k}: node {b['node']} shape {b['shape']} layer {b['layer']} triangles {len(b['triangles'])}")
+    print(f"LAYERS {sorted({b['layer'] for b in bodies})}")
+    return 0
+
+
 def stage(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
@@ -233,6 +266,10 @@ def run_installer(argv):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("read")
+    r.add_argument("--starfield-data", required=True)
+    r.add_argument("--port-data", default="")
+    r.add_argument("--ref", default="")
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
     s.add_argument("--starfield-data", required=True)
@@ -244,6 +281,8 @@ def main(argv=None):
         if name == "install":
             p.add_argument("--dir", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "read":
+        return read_model(a)
     if a.cmd == "stage":
         return stage(a)
     if a.cmd == "install":
