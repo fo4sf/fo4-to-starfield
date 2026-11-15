@@ -36,10 +36,21 @@ class LauncherCliTests(unittest.TestCase):
         open(self.procdump, "wb").close()
         self.env = {**os.environ, "LOCALAPPDATA": self.local, "PYTHONPATH": ""}
 
-    def run_cli(self, *args, timeout=30):
+    def run_cli(self, *args, timeout=30, stream_encoding=None):
+        command = [sys.executable, "-I", "-B"]
+        if stream_encoding:
+            # Force the actual child streams: -I ignores PYTHONIOENCODING.
+            bootstrap = (
+                "import runpy, sys; "
+                f"sys.stdout.reconfigure(encoding={stream_encoding!r}, errors='strict'); "
+                f"sys.stderr.reconfigure(encoding={stream_encoding!r}, errors='strict'); "
+                "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+            )
+            command += ["-c", bootstrap]
         return subprocess.run(
-            [sys.executable, "-I", "-B", LAUNCHER, *args],
-            capture_output=True, text=True, env=self.env, cwd=self.dir, timeout=timeout,
+            [*command, LAUNCHER, *args],
+            capture_output=True, text=True, encoding=stream_encoding,
+            env=self.env, cwd=self.dir, timeout=timeout,
         )
 
     def run_settings(self, *extra):
@@ -48,6 +59,29 @@ class LauncherCliTests(unittest.TestCase):
     def assert_no_traceback(self, result):
         blob = (result.stdout or "") + (result.stderr or "")
         self.assertNotIn("Traceback", blob, blob)
+
+    def test_non_ascii_results_and_errors_with_legacy_and_utf8_output(self):
+        folder = os.path.join(self.dir, "旅")
+        os.makedirs(folder)
+        for encoding, name in (("cp1252", r"\u65c5"), ("utf-8", "旅")):
+            with self.subTest(encoding=encoding, path="stdout"):
+                result = self.run_cli("measure", folder, stream_encoding=encoding)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(name + ": 0 files", result.stdout)
+                self.assert_no_traceback(result)
+            with self.subTest(encoding=encoding, path="refusal"):
+                result = self.run_cli("settings", "--settings", self.settings, "--set", "旅=value",
+                                      stream_encoding=encoding)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(name, result.stdout)
+                self.assertIn("settings:", result.stdout)
+                self.assert_no_traceback(result)
+            with self.subTest(encoding=encoding, path="argparse stderr"):
+                result = self.run_cli("旅", stream_encoding=encoding)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(name, result.stderr)
+                self.assertIn("invalid choice", result.stderr)
+                self.assert_no_traceback(result)
 
     def test_settings_prints_every_key_with_its_plain_label(self):
         r = self.run_settings()

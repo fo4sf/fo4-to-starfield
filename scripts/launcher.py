@@ -494,6 +494,14 @@ def cmd_gui(a):
 
 
 def main(argv=None):
+    # Redirected Windows streams can be cp1252 even under -I. Keep the
+    # consumer's encoding, but escape unsupported path/name characters so
+    # printing a result cannot abort a command after it has changed files.
+    # StringIO and GUI/test capture streams may have no reconfigure method.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("manifest")

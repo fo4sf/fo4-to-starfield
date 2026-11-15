@@ -371,6 +371,30 @@ class ReleaseInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(ri.installed(self.game), sr.declaration(self.release))
 
+    def test_cli_cp1252_output_keeps_preview_and_apply_safe(self):
+        # -I ignores encoding environment variables. Force the Windows redirected
+        # stream encoding in the child before the real CLI entry runs.
+        bootstrap = (
+            "import runpy, sys; "
+            "sys.stdout.reconfigure(encoding='cp1252', errors='strict'); "
+            "sys.stderr.reconfigure(encoding='cp1252', errors='strict'); "
+            "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+        )
+        argv = [sys.executable, "-I", "-c", bootstrap, str(ROOT / "scripts/launcher.py"),
+                "install-release", "--settings", str(self.settings_path),
+                "--declaration", str(self.candidate)]
+        env = dict(os.environ, LOCALAPPDATA=str(self.root / "local"))
+        before = self.snapshot()
+        result = subprocess.run(argv, env=env, capture_output=True, encoding="cp1252", timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(r"release-\u65c5", result.stdout)
+        self.assertEqual(before, self.snapshot())
+        result = subprocess.run(argv + ["--apply"], env=env, capture_output=True,
+                                encoding="cp1252", timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(r"release-\u65c5", result.stdout)
+        self.assertEqual(ri.installed(self.game), sr.declaration(self.release))
+
     def test_changed_ccc_during_publication_keeps_pending_receipt(self):
         calls = []
         def running():

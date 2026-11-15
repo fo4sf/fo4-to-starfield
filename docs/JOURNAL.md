@@ -3012,3 +3012,23 @@ refusals. Boundary controls cover device, inode, size, write time, link count an
 same-API ctime changes. Focused offline results and exact-head review go on
 FAL-937. Windows/native/game NOT_RUN here; #716 stays draft and all item-7 gates
 remain. No production identities or test assumptions were weakened.
+
+## 15 November 2026 — Codex: launcher CLI output encoding (FAL-949)
+
+The FAL-247 Windows card at 00963e49 reached release publication but printing
+`release-旅` raised a charmap encoding error. A synthetic isolated child with
+strict cp1252 stdout/stderr reproduces that exit 2 on Ubuntu before this fix.
+The CLI now sets both streams' error handling to `backslashreplace` before
+argument parsing. It preserves their encodings so existing cp1252 consumers
+can decode redirected output; UTF-8 still displays the original characters.
+Streams such as StringIO without `reconfigure` remain usable.
+
+Audited all 25 subcommands through the common entry, direct prints, imported
+`say=print` callbacks, handled refusals and argparse stderr. Child executables
+retain their own output policy. New regressions cover cp1252 release preview
+and apply (unchanged Unicode metadata, preview makes no writes), plus normal
+output/refusals/parser errors under cp1252 and UTF-8. The eight focused suites
+select 176 tests; exact-head receipts and the revised Windows synthetic card
+are on FAL-949. Sole Survivor reviews source and card before the FAL-247 PC
+handoff. Windows/native/Tk/game NOT_RUN here; #716 remains draft and item 7
+remains incomplete.
