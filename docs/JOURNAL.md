@@ -1,5 +1,9 @@
 # Evidence journal
 
+## 2026-11-15 — Codex: coherent pod/creator position evidence (FAL-848, draft #790)
+
+Owner C1 transcription01a11d0b at0391417b shows pre-creator rise and stage20 at +2.378704/+2.378235m above the printed target. Old CheckPod reread XYZ after its delta calculations; its printed coordinates do not reproduce the logged drop. Creator causality and placement remain unresolved. Cache each coordinate once per settle sample, log its sequential-read interval/context, and add boundary samples before creator and in guarded Done(how). Parser keeps all current-run looks_positions, no invented samples for old/no-looks logs. No movement/control/height/default/record/lift/map change; #791 integration is preserved as a separate gate. See [pod position evidence](newgame/pod-position-evidence.md). Synthetic source-function/parser checks and guard are source evidence only; native/Windows/Papyrus/game/install NOT_RUN. Courier Copy exact-head review precedes any later integration or PC recipe.
+
 Newest last. Each entry: date, versions, what was done, the result, and where the evidence is.
 
 ## 2026-10-06: WP-00 recon (Fallout 4 1.10.163, Starfield 1.16.244)

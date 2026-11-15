@@ -506,11 +506,23 @@ Function CheckPod(Actor player)
 {Where the player stands the first tick they are loaded after the move into the pod: the "pod settle" line (PodRadius,
  PodDrop). In run 3 of 28 Oct that tick came after the game had already put the sunk player on the COC marker.}
     podChecked = true
-    float dx = player.GetPositionX() - PodX
-    float dy = player.GetPositionY() - PodY
-    float drop = PodZ + PodLift - player.GetPositionZ()
+    ; One set of sequential readings, not an atomic engine snapshot. C1's old line read XYZ again after computing
+    ; dx/dy/drop, so a moving actor could print coordinates that did not reproduce those deltas (FAL-848, 15 Nov).
+    float sampleStart = Utility.GetCurrentRealTime()
+    float sampleX = player.GetPositionX()
+    float sampleY = player.GetPositionY()
+    float sampleZ = player.GetPositionZ()
+    float targetZ = PodZ + PodLift
+    float dx = sampleX - PodX
+    float dy = sampleY - PodY
+    float drop = targetZ - sampleZ
     bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
-    Trace("pod settle ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " dx=" + dx + " dy=" + dy + " drop=" + drop)
+    float sampledHeading = player.GetAngleZ()
+    bool sampledLoaded = player.Is3DLoaded()
+    Cell sampledCell = player.GetParentCell()
+    WorldSpace sampledWorld = player.GetWorldSpace()
+    float sampleEnd = Utility.GetCurrentRealTime()
+    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + PodX + " " + PodY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
 EndFunction
 
 bool Function StandsInVault(Actor player)

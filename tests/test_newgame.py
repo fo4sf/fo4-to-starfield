@@ -366,7 +366,8 @@ class ContractTests(unittest.TestCase):
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
-        self.assertIn("float drop = PodZ + PodLift - player.GetPositionZ()", check)
+        self.assertIn("float targetZ = PodZ + PodLift", check)
+        self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
         self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
         for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):

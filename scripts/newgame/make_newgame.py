@@ -149,7 +149,7 @@ NATIVES = {
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
-                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation"],
+                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ", "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent"],
@@ -157,8 +157,9 @@ NATIVES = {
     },
     LOOKS: {
         "Debug": ["TraceUser"],
-        "Game": ["ShowRaceMenu"],
+        "Game": ["ShowRaceMenu", "GetPlayer"],
         "Message": ["Show"],
+        "ObjectReference": ["GetPositionX", "GetPositionY", "GetPositionZ", "GetAngleZ", "Is3DLoaded", "GetParentCell", "GetWorldSpace"],
         "Quest": ["SetStage", "GetStage", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
@@ -685,7 +686,7 @@ def summarize(lines):
     "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
     "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
     "handed_back", "start", "start_events", "start_wait", "waiting_3d", "fade", "guard", "last_status", "runs",
-    "earlier_completed"}.
+    "earlier_completed", "looks_positions"}.
     Our own start (newgame_v11, the startup quest): "start" is the start's first line ("<route> player_loaded=<bool>
     cell=<cell> loading=<bool>", the start event that ran it, its two readings and whether either said the game was
     still loading, which decides a hand back), "start_events" every start event that came, the one that ran the start
@@ -711,7 +712,12 @@ def summarize(lines):
     verdict, or true once the timer confirms after the load that the start's move took ("enter vault confirmed").
     "pod_settle" is where the player stood the first loaded tick after the move into the pod ("ok=<bool> pos=<x y z>
     dx=<n> dy=<n> drop=<n>"; None in a build before newgame_v10, which had no such line: run 3 of 28 Oct sank under the
-    pod's z and the game put the player on the COC marker). "surfaced" is the last "surface setposition" line: since
+    pod's z and the game put the player on the COC marker). Newer settle lines use one set of sequential coordinate
+    reads and include target, heading, loaded/cell/world and sample_start/sample_end. Older lines reread XYZ for
+    display: their printed position need not reproduce dx/dy/drop. "looks_positions" preserves every looks-boundary
+    sample in this run, in order, including its phase and sampling interval; [] in older/no-looks logs. Samples and
+    ok=true do not establish walkability, a placement fix or a creator-specific cause.
+    "surfaced" is the last "surface setposition" line: since
     newgame_v10 it says whether the merged arrival took ("ok=<bool> set=<n> pos=... target=...").
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (since newgame_v11 pass 1 in the start right after the move, pass 2 once the vault has loaded;
@@ -730,7 +736,7 @@ def summarize(lines):
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
          "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
-         "arrival_discovery_requested": None, "exit_failure": None, "ascent": []}
+         "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -773,6 +779,8 @@ def summarize(lines):
         elif msg.startswith("pod settle "):
             if s["pod_settle"] is None:                      # the script checks once
                 s["pod_settle"] = msg[len("pod settle "):]
+        elif msg.startswith("looks position "):
+            s["looks_positions"].append(msg[len("looks position "):])
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
