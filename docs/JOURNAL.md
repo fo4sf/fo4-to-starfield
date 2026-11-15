@@ -2962,3 +2962,9 @@ PC PASS §1b at 55eeb2f0 (file read, no install): DialogueListData.aChoices rows
 bCanBeChosen, bWasAlreadySaid, uEntryID. No index field. Select event DialogueMenu_OnDialogueSelect,
 key selectedIndex carries uEntryID. Encoded in scripts/dialogue/dialogue_menu_shuttle.py. Still no
 compiled DoABC. §2–§3 wait that movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenu four-slot bind functions (FAL-865)
+
+FAL-882 CLEAR 1681ff84. bind_slots maps aChoices[0..3].sChoiceText to N/E/S/W; select_payload uses uEntryID.
+DialogueMenuFour.as now has onChoiceListUpdate and selectSlot. This host has no ActionScript compiler; no DoABC
+movie. Native/game NOT_RUN.

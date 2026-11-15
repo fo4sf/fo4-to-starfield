@@ -139,6 +139,39 @@ def check(payload):
     return payload
 
 
+def choices_from(data):
+    """DialogueListData payload → aChoices. Accepts {aChoices: ...} or {data: {aChoices: ...}}."""
+    if not isinstance(data, dict):
+        return []
+    blob = data.get("data")
+    inner = blob if isinstance(blob, dict) else data
+    rows = inner.get(CHOICES) if isinstance(inner, dict) else None
+    return list(rows) if isinstance(rows, list) else []
+
+
+def bind_slots(data):
+    """Four slots N/E/S/W from aChoices[0..3].sChoiceText. Extra rows dropped; missing rows empty."""
+    rows = choices_from(data)
+    slots = []
+    for i, name in enumerate(SLOT_ORDER):
+        row = rows[i] if i < len(rows) and isinstance(rows[i], dict) else {}
+        slots.append({
+            "slot": name,
+            "text": row.get(CHOICE_TEXT) or "",
+            "uEntryID": row.get(ENTRY_ID),
+            "bCanBeChosen": row.get("bCanBeChosen"),
+            "bWasAlreadySaid": row.get("bWasAlreadySaid"),
+        })
+    return slots
+
+
+def select_payload(row):
+    """Host select event payload: selectedIndex carries uEntryID, not list position."""
+    if not isinstance(row, dict) or ENTRY_ID not in row:
+        raise ShuttleError("select needs uEntryID")
+    return {SELECT_EVENT: {SELECT_KEY: row[ENTRY_ID]}}
+
+
 def refuse_install_reason(movie):
     """None if the movie may be packed as the DialogueMenu twin; else a short refuse string."""
     parsed = swf.read_movie(movie) if not isinstance(movie, dict) else movie

@@ -1,5 +1,6 @@
 // FAL-865. Our ActionScript. Not decompiled from either game. Not a compiled movie.
-// PC PASS §1b (file read): bind four slots to DialogueListData.aChoices[0..3].sChoiceText.
+// PC PASS §1b: Subscribe(DialogueListData, onChoiceListUpdate).
+// Bind four slots to aChoices[0..3].sChoiceText.
 // On select send DialogueMenu_OnDialogueSelect { selectedIndex: uEntryID }.
 package
 {
@@ -24,5 +25,47 @@ package
         public static const LIST_VIS_KEY:String = "isVisible";
         public static const SLOTS:Array = ["fo4sfOptN", "fo4sfOptE", "fo4sfOptS", "fo4sfOptW"];
         public static const MAP_ROWS:int = 4;
+
+        public var lastChoices:Array;
+
+        public function DialogueMenuFour()
+        {
+            lastChoices = [];
+            BSUIDataManager.Subscribe(LIST_PROVIDER, onChoiceListUpdate);
+        }
+
+        public function onChoiceListUpdate(data:Object):void
+        {
+            var src:Object = data;
+            if (data != null && data.data != null && data.aChoices == null)
+            {
+                src = data.data;
+            }
+            lastChoices = (src != null && src.aChoices is Array) ? (src.aChoices as Array) : [];
+            var i:int = 0;
+            while (i < MAP_ROWS)
+            {
+                var row:Object = (i < lastChoices.length) ? lastChoices[i] : null;
+                var text:String = (row != null && row.sChoiceText != null) ? String(row.sChoiceText) : "";
+                fillSlot(SLOTS[i], text);
+                i++;
+            }
+        }
+
+        public function selectSlot(i:int):void
+        {
+            if (lastChoices == null || i < 0 || i >= lastChoices.length)
+            {
+                return;
+            }
+            var row:Object = lastChoices[i];
+            var payload:Object = {};
+            payload[SELECT_KEY] = row[ENTRY_ID];
+            sendSelect(payload);
+        }
+
+        // fillSlot / sendSelect are movie wiring. Compile on the PC; this host has no ABC compiler.
+        public function fillSlot(name:String, text:String):void {}
+        public function sendSelect(payload:Object):void {}
     }
 }

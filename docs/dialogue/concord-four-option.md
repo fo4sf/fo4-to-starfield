@@ -28,4 +28,5 @@ The host fills `DialogueList_mc` through the movie's data shuttle, not by clip n
 cannot take host text or the select path; the installer refuses a movie with no DoABC. PC PASS §1b named
 the payload: bind `DialogueListData.aChoices[0..3].sChoiceText`; select is `DialogueMenu_OnDialogueSelect`
 with `selectedIndex` = `uEntryID`. Our AS3 names (`scripts/ui/DialogueMenuFour.as`) are that contract, not a
-compiled movie. DialogueConcordArea `000179F3` has 8 scenes.
+compiled movie. DialogueConcordArea `000179F3` has 8 scenes. Offline bind: `bind_slots` maps
+`aChoices[0..3].sChoiceText` to N/E/S/W; `select_payload` uses `uEntryID`. Compile the AS3 on the PC.

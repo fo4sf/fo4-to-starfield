@@ -79,6 +79,36 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertNotIn("UNREAD", src)
         self.assertNotIn("Question", src)
         self.assertNotIn("BGSCodeObj", src)
+        self.assertIn("onChoiceListUpdate", src)
+        self.assertIn("selectSlot", src)
+        self.assertIn("Subscribe", src)
+
+    def test_bind_slots_maps_four_choice_texts(self):
+        data = {
+            "aChoices": [
+                {"sChoiceText": "ONE", "uEntryID": 10},
+                {"sChoiceText": "TWO", "uEntryID": 20},
+                {"sChoiceText": "THREE", "uEntryID": 30},
+                {"sChoiceText": "FOUR", "uEntryID": 40},
+                {"sChoiceText": "FIVE", "uEntryID": 50},
+            ]
+        }
+        slots = shuttle.bind_slots(data)
+        self.assertEqual([s["slot"] for s in slots], ["N", "E", "S", "W"])
+        self.assertEqual([s["text"] for s in slots], ["ONE", "TWO", "THREE", "FOUR"])
+        self.assertEqual([s["uEntryID"] for s in slots], [10, 20, 30, 40])
+
+    def test_bind_slots_nested_data_and_short_list(self):
+        slots = shuttle.bind_slots({"data": {"aChoices": [{"sChoiceText": "ONE", "uEntryID": 1}]}})
+        self.assertEqual(slots[0]["text"], "ONE")
+        self.assertEqual(slots[1]["text"], "")
+        self.assertIsNone(slots[1]["uEntryID"])
+
+    def test_select_payload_uses_uentryid_not_index(self):
+        payload = shuttle.select_payload({"sChoiceText": "TWO", "uEntryID": 99})
+        self.assertEqual(payload, {"DialogueMenu_OnDialogueSelect": {"selectedIndex": 99}})
+        with self.assertRaisesRegex(shuttle.ShuttleError, "uEntryID"):
+            shuttle.select_payload({"sChoiceText": "TWO"})
 
 
 class WheelBytesNoAbc(unittest.TestCase):
