@@ -1022,6 +1022,57 @@ What each other outcome means:
 
 No kit screen on this route and nothing from either game in Git; the device route (#780) stays separate.
 
+**S1-arm, the runs (owner PC, 15 Nov, the dll of `0304e815`; FAL-852).** Three launches, each under the owner's release.
+- **S1-arm's card** (00:02Z): FAIL.
+  - The raise: `arm_idle ... event=DynamicIdle` (the clip's path in the next slot), refused 17 times in 2 s, `gave_up`.
+    The event alone does not play this idle: B1, as the card said.
+  - About 1 s after the first show the game froze, and it ended about 96 s later. The full dump was lost and the exit
+    dump held no game thread (D-HANG-1, inconclusive).
+- **HANG-SPLIT L1** (05:29Z): S1-c alone (`Flags=0`, `Pause=0`, `Arm=0`) crashed about 20 ms after the first show. It
+  was an access violation in the game's own Scaleform work on a job thread, with no frame of ours on the stack. The flags,
+  the pause and the arm are cleared as causes.
+- **L1-SPLIT M1** (06:34Z): the same without `Menu_mc.InvalidateData` among `CodeObjCalls=`. No crash, two opens and
+  closes. The shell drew its tab bar (STAT selected), its sub-tabs and its footer over the world, and no page body. E and
+  Q reached `gotoNextPage` and `gotoPrevPage` (`shell_key ... called=1`), but the shell asked us for no `onNewPage`
+  and nothing moved.
+
+So **`InvalidateData` with our object on `Menu_mc.BGSCodeObj`, called inside the engine's `LoadMovie`, is what crashes the
+first render.** S1-b made the same call with no object there, so the shell started no page load.
+
+**S1-c2, the slice: the first page load moved after the first frame (plugin code, FAL-852).** `CodeObjLateCalls=` takes
+the paths `CodeObjCalls=` takes and calls each once per movie at the first `kUpdate` after the hand-over. That update comes
+once the state check after the show has found the menu open, so the menu has drawn by then. The card moves
+`Menu_mc.InvalidateData` there. Nothing else changes.
+
+**S1-c2, the card (Claude PC; one launch, under the owner's release; the dll built at this commit).** The same setup as
+L1-SPLIT: the owner's F10 kit out with hashes, the S1 shell kit in, the test save, outdoors, no save.
+1. **Build** at this commit. A build error is a **STOP**.
+2. **The ini:** L1-SPLIT M1's (`Flags=0`, `Pause=0`, `Arm=0`, `Key=0x76`, `CodeObjAt=Menu_mc`, `CodeObjPages=1`, S1-c's
+   `ShellKeys`, `CodeObjCalls=Menu_mc.onCodeObjCreate`), plus `CodeObjLateCalls=Menu_mc.InvalidateData`.
+3. **Run:** F7, with shots at about 1, 3 and 6 s. E twice and Q twice, a second apart, with a shot of each page. F7 to
+   close, and F7 to open once more. Quit to desktop through the menu.
+4. **Send:** every line from `step=toggle` on, especially `step=code_obj_shell ... late_calls=`, `code_obj_late_call`,
+   `code_call`, `shell_key`, `code_answer` and `state`; the shots described (a page body or not, which page); crash or
+   not, with the exception's module if it crashed.
+
+**PASS S1-c2:**
+- `code_obj_late_call n=1 name=Menu_mc.InvalidateData found=1 called=1`, and no crash after it;
+- STAT's page body inside the tab bar and footer (the movie's own placeholders or zeros);
+- on E: `shell_key ... called=1`, `code_call ... name=onNewPage args=1 arg0=#1`, `code_answer ... page=1 ... invalidated=1`,
+  and INV's body in place of STAT's.
+
+What each other outcome means:
+- **A crash just after `code_obj_late_call`:** `InvalidateData` with our object crashes whenever it is called, not only
+  inside the load. The page load reads something from the engine object that our stand-in does not give. The next card
+  answers the shell's first data calls (S3: `PopulatePipboyInfoObj` filling `DataObj`), with the crash dump's call
+  list.
+- **No crash and no page body:** the call ran but the shell loaded nothing. Send the `code_call` lines after it. Next: the
+  same call with `DataObj.CurrentPage` set first (one more late path, ini only).
+- **A page body, but E does not turn it:** the load works, and the key route is next (`TryToSetPage` with an index, as
+  S1-c's outcomes say).
+
+After S1-c2 passes, the pause (`Pause=1`, L3's flags) and then the arm with B1 go back on, one launch each.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -1143,3 +1194,6 @@ delivery.
    S1-d (the gamepad
    through the menu's input handler) and S3's first branch (STAT, HP by name) through the shell, each with its own
    card.
+11. Done since (15 Nov, owner PC): S1-arm's card FAILED, and HANG-SPLIT L1 and L1-SPLIT M1 found the cause:
+   `InvalidateData` inside the load, with our object on `Menu_mc.BGSCodeObj` (S1-arm, the runs, above). Now: S1-c2
+   (FAL-852, `CodeObjLateCalls=` at this commit; its card above), then the pause, then the arm with B1.

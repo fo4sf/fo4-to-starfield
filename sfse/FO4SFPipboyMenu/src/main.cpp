@@ -478,6 +478,9 @@ namespace
 	std::size_t                              g_probeCount = 0;
 	std::array<std::string, kMaxCodeNames>   g_rootCallNames;           // FAL-614 proof 2b-ii: CodeObjCalls=, called once after the hand-over
 	std::size_t                              g_rootCallCount = 0;
+	std::array<std::string, kMaxCodeNames>   g_lateCallNames;           // FAL-852: CodeObjLateCalls=, called once at the first kUpdate
+	std::size_t                              g_lateCallCount = 0;
+	std::atomic<const void*>                 g_lateCallsMovie{ nullptr };   // the movie they were called on
 	std::string                              g_codeObjAt;               // FAL-614 S1-c: CodeObjAt=<path>, the stand-in also as <path>.BGSCodeObj
 	bool                                     g_codeObjPages = false;    // FAL-614 S1-c: CodeObjPages=1, onNewPage and onNewTab answered
 	struct ShellKey   // FAL-614 S1-c: ShellKeys=<key>:<path>,...
@@ -3367,6 +3370,7 @@ namespace
 			}
 			if (g_codeObjMovie == movie) {   // FAL-614 proof 1b: a later movie at the same address gets its own stand-in
 				g_codeObjMovie = nullptr;
+				g_lateCallsMovie = nullptr;  // FAL-852: the next movie gets its own late calls
 				g_shellKeyPending = 0;       // S1-c: nothing pressed or asked for carries over to the next movie
 				g_answerPage = -1;
 				g_answerTab = -1;
@@ -3870,6 +3874,19 @@ namespace
 		RE::Scaleform::GFx::Value top;
 		if (!root || !root->GetVariable(&top, "root") || !top.IsObject()) {
 			return;
+		}
+		// FAL-852 (CodeObjLateCalls=<path>,...): once per movie, at the first kUpdate after the hand-over, each path is called
+		// with no arguments. HANG-SPLIT L1 and L1-SPLIT M1 (FAL-852): Menu_mc.InvalidateData called inside the engine's
+		// LoadMovie, with our object on Menu_mc.BGSCodeObj, crashed the shell's first render; without it the shell drew and
+		// loaded no page. Here the menu is shown and has drawn (the key thread sends kUpdate only once the state check after
+		// the show found it open)
+		if (g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie) {
+			for (std::size_t i = 0; i < g_lateCallCount; ++i) {
+				bool       found = false;
+				const bool called = CallPath(top, g_lateCallNames[i], nullptr, 0, found);
+				REX::INFO("step=code_obj_late_call n={} name={} found={} called={}", i + 1, g_lateCallNames[i], found ? 1 : 0,
+					called ? 1 : 0);
+			}
 		}
 		const auto keys = g_shellKeyPending.exchange(0);
 		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
@@ -5211,6 +5228,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_codeObjAt = ReadText(ini, L"CodeObjAt");   // FAL-614 S1-c: with CodeObj=1 only
 	g_codeObjPages = ReadNumber(ini, L"CodeObjPages", 0) != 0;   // S1-c: with CodeObjAt= only
 	const auto shellKeys = ReadText(ini, L"ShellKeys");   // S1-c: with CodeObj=1 only
+	const auto lateCalls = ReadText(ini, L"CodeObjLateCalls");   // FAL-852: with CodeObj=1 only
 	// FAL-414: up to four keyboard ids that close the menu while it is open (0 = unused)
 	g_cancelCodes = { ReadNumber(ini, L"CancelCode1", 0x1B), ReadNumber(ini, L"CancelCode2", 0x09), ReadNumber(ini, L"CancelCode3", 0),
 		ReadNumber(ini, L"CancelCode4", 0) };
@@ -5272,8 +5290,14 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 			kMaxCodeNames));
 		return true;
 	}
+	if (!lateCalls.empty() && !g_codeObj) {
+		Refuse("ini", std::format("code_obj_late_calls={} (with CodeObj=1 only; 1 to {} paths of letters, digits, _ and .)",
+			lateCalls, kMaxCodeNames));
+		return true;
+	}
 	if (!ParsePaths(probe, g_probeNames, g_probeCount, "code_obj_probe") ||
-		!ParsePaths(calls, g_rootCallNames, g_rootCallCount, "code_obj_calls")) {
+		!ParsePaths(calls, g_rootCallNames, g_rootCallCount, "code_obj_calls") ||
+		!ParsePaths(lateCalls, g_lateCallNames, g_lateCallCount, "code_obj_late_calls")) {
 		return true;
 	}
 	// FAL-614 S1-c: CodeObjAt=<path> (one path, as CodeObjCalls=), CodeObjPages=1 (with CodeObjAt= and onNewPage and onNewTab
@@ -5304,8 +5328,12 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
 			keys += std::format("{}{}:{}", i ? "," : "", Hex(g_shellKeys[i].vk), g_shellKeys[i].path);
 		}
-		REX::INFO("step=code_obj_shell at={} pages={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
-			g_codeObjPages ? 1 : 0, keys.empty() ? "none" : keys);
+		std::string late;
+		for (std::size_t i = 0; i < g_lateCallCount; ++i) {
+			late += std::format("{}{}", i ? "," : "", g_lateCallNames[i]);
+		}
+		REX::INFO("step=code_obj_shell at={} pages={} shell_keys={} late_calls={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
+			g_codeObjPages ? 1 : 0, keys.empty() ? "none" : keys, late.empty() ? "none" : late);
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;
