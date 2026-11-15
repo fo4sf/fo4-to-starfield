@@ -490,7 +490,8 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("**No `code_obj_late_call` line**", self.plan)
         # the S1-c2 run and the R2 read (names only, no launch)
         for text in ("**S1-c2, the run (owner PC, 15 Nov 15:06Z", "the same fault site as\nHANG-SPLIT L1",
-                     "**R2, the read (Claude PC; names only, no launch", "12. Done since (15 Nov 15:06Z)"):
+                     "**R2, the read (Claude PC; names only, no launch", "12. Done since (15 Nov 15:06Z)",
+                     "What each answer points to (leads, not causes; the Lone Wanderer's review, FAL-953):"):
             self.assertIn(text, self.plan, text)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]

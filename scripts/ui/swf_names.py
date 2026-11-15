@@ -19,7 +19,8 @@ Lines, one fact each:
   partial method=<owner> at=<opcode>              a body with an opcode this reader does not know: its names stop there
   import tag=<57|71> url=<file> ids=<count> names=<names imported>
                                                   ImportAssets(2), FAL-852: a movie or library this one loads assets
-                                                  from at its own load (a url that is not a plain file path: url=-)
+                                                  from at its own load (url=- unless a relative file path: no
+                                                  scheme, drive or leading / or \\)
 A method's owner is <class>.<trait name> (get:<name> and set:<name> for accessors), <class>.<init> (constructor), <class>.<cinit>, script<n>.<init>, or the
 owner of the body that creates it with /fn appended; #<index> when nothing names it. Identifiers are letters, digits,
 _, $, . and :, at most 64 characters, as in read D2; anything else is counted, not printed. Output goes to stdout;
@@ -33,7 +34,9 @@ import sys
 import zlib
 
 NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$.:]{0,63}")
-PATH = re.compile(r"[A-Za-z0-9_$.:/\\-]{1,128}")                                  # FAL-852: an import's file
+# FAL-852: an import's file, printed only as a relative path (FAL-953: no scheme, no drive, no leading separator, so no
+# URL and no private absolute path is ever printed)
+PATH = re.compile(r"(?![/\\])[A-Za-z0-9_$./\\-]{1,128}")
 DO_ABC1, DO_ABC, SYMBOL_CLASS, DEFINE_SPRITE, PLACE_OBJECT2, PLACE_OBJECT3, END = 72, 82, 76, 39, 26, 70, 0
 IMPORT_ASSETS, IMPORT_ASSETS2 = 57, 71
 ACCESS = {0x05: "private", 0x08: "namespace", 0x16: "public", 0x17: "internal", 0x18: "protected", 0x19: "explicit",
