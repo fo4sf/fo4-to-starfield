@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -234,6 +235,55 @@ class NativeRuntimeTests(unittest.TestCase):
         Change.dll = self.dll
         with mock.patch.object(rt.hashlib, 'sha256', Change):
             self.assertIn('changed', ' '.join(self.problems()))
+
+    def test_path_and_handle_ctime_may_differ_for_unchanged_bytes(self):
+        path = self.put('FOCCPing.dll', self.dll)
+        real_fstat = os.fstat
+        def handle_stat(fd):
+            value = real_fstat(fd)
+            # CPython 3.14 Windows: path stat has creation time here, while
+            # fstat has metadata-change time. Other identity fields agree.
+            return SimpleNamespace(**{name: getattr(value, name) for name in (
+                'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_nlink')},
+                st_ctime_ns=value.st_ctime_ns + 1000000000)
+        with mock.patch.object(rt.os, 'fstat', side_effect=handle_stat):
+            self.assertTrue(rt._native_identity(path, pin(self.dll)))
+            self.assertFalse(rt._native_identity(path, pin(b'x' * len(self.dll))))
+
+    def test_native_identity_changes_at_read_boundaries_refuse(self):
+        path = self.put('FOCCPing.dll', self.dll)
+        real_stat, real_fstat = Path.stat, os.fstat
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_nlink', 'st_ctime_ns')
+        def changed(value, field):
+            return SimpleNamespace(**{name: getattr(value, name) + (name == field) for name in fields})
+        for field in fields:
+            # Path/handle identity mismatch before the read; ctime deliberately
+            # is compared only between two observations from the same API.
+            if field != 'st_ctime_ns':
+                with self.subTest(boundary='open', field=field), mock.patch.object(
+                        rt.os, 'fstat', side_effect=lambda fd: changed(real_fstat(fd), field)):
+                    with self.assertRaisesRegex(ValueError, 'changed before reading'):
+                        rt._native_identity(path, pin(self.dll))
+            for boundary in ('handle', 'path'):
+                calls = 0
+                def handle_stat(fd):
+                    nonlocal calls
+                    calls += 1
+                    value = real_fstat(fd)
+                    return changed(value, field) if calls == 2 else value
+                def path_stat(candidate, *args, **kwargs):
+                    nonlocal calls
+                    value = real_stat(candidate, *args, **kwargs)
+                    if candidate == path and kwargs.get('follow_symlinks', True):
+                        calls += 1
+                        if calls == 2:
+                            return changed(value, field)
+                    return value
+                with self.subTest(boundary=boundary, field=field), mock.patch.object(
+                        rt.os, 'fstat', side_effect=handle_stat if boundary == 'handle' else real_fstat
+                        ), mock.patch.object(Path, 'stat', path_stat if boundary == 'path' else real_stat):
+                    with self.assertRaisesRegex(ValueError, 'changed while reading'):
+                        rt._native_identity(path, pin(self.dll))
 
     def test_malformed_native_shapes_refuse_without_exception(self):
         for native in (None, [], 'bad', {'schema': True, 'plugins': {}}, {'schema': 1, 'plugins': []}):

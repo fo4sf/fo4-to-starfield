@@ -226,10 +226,14 @@ def _native_identity(path, expected):
         raise ValueError("native file has hard links")
     if before.st_size != expected["size"]:
         return False
-    stamp = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
+    # CPython 3.14 on Windows exposes creation time in path stat's ctime,
+    # but metadata-change time in fstat's ctime. Compare ctime only within
+    # each API, keeping the common identity fields across path and handle.
+    stamp = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_nlink)
     digest = hashlib.sha256()
     with path.open("rb") as stream:
-        if stamp(before) != stamp(os.fstat(stream.fileno())):
+        opened = os.fstat(stream.fileno())
+        if stamp(before) != stamp(opened):
             raise ValueError("native file changed before reading")
         count = 0
         for block in iter(lambda: stream.read(1 << 20), b""):
@@ -239,7 +243,10 @@ def _native_identity(path, expected):
             digest.update(block)
         after = os.fstat(stream.fileno())
     _native_plain(path)
-    if stamp(before) != stamp(after) or stamp(after) != stamp(path.stat()):
+    current = path.stat()
+    if (stamp(opened) != stamp(after) or stamp(before) != stamp(current)
+            or opened.st_ctime_ns != after.st_ctime_ns
+            or before.st_ctime_ns != current.st_ctime_ns):
         raise ValueError("native file changed while reading")
     return digest.hexdigest() == expected["sha256"]
 

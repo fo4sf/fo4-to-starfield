@@ -2996,3 +2996,19 @@ ownership for same-input retry. Beginning an installer can still replace old
 native files. Synthetic CLI, publisher and cached recipe controls cover the gap.
 Exact-head evidence and independent review are on FAL-247. Keep #716 draft;
 native artifacts/order, package policy and proven new-save publication remain.
+
+## 15 November 2026 — Codex: Windows native identity comparison (FAL-937)
+
+The Windows synthetic card at 1246df25 stopped on an unchanged-file identity
+comparison. CPython 3.14.6's [path stat implementation](https://github.com/python/cpython/blob/v3.14.6/Modules/posixmodule.c#L2145-L2155)
+copies creation time to ctime, while its [descriptor implementation](https://github.com/python/cpython/blob/v3.14.6/Python/fileutils.c#L1037-L1041)
+retains metadata-change time. This API difference is source-verified; attribution
+of the PC failure remains a supported diagnosis until its rerun. A synthetic
+unchanged-file regression reproduces the exact refusal before this fix.
+
+Compare common file identity fields across path and descriptor, and ctime within
+each API before/after the read. Retain hashing, size, hardlink and redirected-path
+refusals. Boundary controls cover device, inode, size, write time, link count and
+same-API ctime changes. Focused offline results and exact-head review go on
+FAL-937. Windows/native/game NOT_RUN here; #716 stays draft and all item-7 gates
+remain. No production identities or test assumptions were weakened.
