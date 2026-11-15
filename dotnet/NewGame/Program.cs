@@ -34,7 +34,8 @@
 //        default 1) and a player alias on the quest carrying FO4SF_NewGameVersion, which compares that GLOB to the
 //        version the save was started with on every load (NG-15 / NG-L2).
 //        --race-menu-mode <n> is the uiMode the looks script passes to Game.ShowRaceMenu (its RaceMenuMode property;
-//        default 0, the full creator: which mode is looks-only is unverified until the in-game C1 test). Unless
+//        default 2, looks only: body and face, seen in the C1 session on 15 Nov; 1 still shows Traits; 0 is the
+//        full creator with Starfield's Background and Traits pages). Unless
 //        --no-special: seven AVIF FO4SF_Special_<stat> (Strength to Luck, the SPECIAL stats as our own actor values),
 //        MESG FO4SF_NewGameTerminal (the prompt at the vault terminal, two buttons) and MESG FO4SF_NewGameSpecial (the
 //        allocation: one button per stat, Reset, Confirm, Leave), which the SPECIAL script drives (NG-5 / NG-C4). The
@@ -143,9 +144,12 @@ static class NewGame
     public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
     public const SF.ActorValueInformation.Flag SpecialAvifFlags = SF.ActorValueInformation.Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
-    // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
-    // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
-    public const int DefaultRaceMenuMode = 0;
+    // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
+    // menu; the in-game C1 session (with MQ101 stopped) settled the looks-only mode, the owner's decision NG-C3.
+    // The default is 2, seen looks-only in the C1 session (15 Nov, owner PC: only BODY and FACE; mode 1 still showed
+    // TRAITS): 0 shows Starfield's Background and Traits pages, Starfield new-game content the strip-down rule takes
+    // out (system model S13); --race-menu-mode 0 builds that full creator
+    public const int DefaultRaceMenuMode = 2;
     // The starting inventory (NG-K8 / NG-N3): FO4's MQ101 runs RemoveAllItems at stages 0 and 900 (verified from the SKK
     // FastStart article, research note 06); Starfield's MQ101 stage 0 swaps the outfit (PC read 19 Oct) and whether it
     // removes items too is unverified (NG-N3). What a game started with MQ101 held off leaves
@@ -1057,7 +1061,7 @@ static class NewGame
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
             Options.From(new[] { "--debug-after-hold", "0" }).DebugAfterHold != 0) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
-        if (plain.RaceMenuMode != DefaultRaceMenuMode || Options.From(new[] { "--race-menu-mode", "1" }).RaceMenuMode != 1) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
+        if (plain.RaceMenuMode != DefaultRaceMenuMode || DefaultRaceMenuMode == 0 || Options.From(new[] { "--race-menu-mode", "0" }).RaceMenuMode != 0) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
         if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
             Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
@@ -1087,7 +1091,7 @@ static class NewGame
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
             ("debug10", idsPath, plain with { MQ101Debug = 10 }),   // the first build's value, still buildable on purpose
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
-            ("mode1", idsPath, plain with { RaceMenuMode = 1 }), ("nospecial", idsPath, plain with { Special = false }),
+            ("mode0", idsPath, plain with { RaceMenuMode = 0 }), ("nospecial", idsPath, plain with { Special = false }),
             ("nearterm", nearTermIds, plain),
             ("noversion", idsPath, plain with { Version = false }), ("version2", idsPath, plain with { BuildVersion = 2 }),
         };
@@ -1115,8 +1119,8 @@ static class NewGame
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
             ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
-            ("default", plain with { RaceMenuMode = 1 }, idsPath, "the default (race menu mode 0) build as a mode 1 one"),
-            ("mode1", plain, idsPath, "a race menu mode 1 build as the default one"),
+            ("default", plain with { RaceMenuMode = 0 }, idsPath, "the default (race menu mode 2) build as a full-creator mode 0 one"),
+            ("mode0", plain, idsPath, "a full-creator race menu mode 0 build as the default one"),
             ("default", plain with { Special = false }, idsPath, "a SPECIAL build as a --no-special one"),
             ("nospecial", plain, idsPath, "a --no-special build as a SPECIAL one"),
             ("default", plain, nearTermIds, "a build on the persistent terminal against a port with only the temporary one"),
