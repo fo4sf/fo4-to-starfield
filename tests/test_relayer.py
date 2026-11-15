@@ -86,6 +86,17 @@ class RelayerNifTests(unittest.TestCase):
         self.assertEqual(len(notes), 2)
         self.assertEqual(len(new), len(raw))                                   # sizes and block layout stay
 
+    def test_a_truncated_physics_block_is_refused_not_sliced(self):
+        raw = self.nif_with([0x8037])
+        f = nif.parse(raw)
+        i = next(k for k in range(len(f.blocks)) if f.type_of(k) == "bhkPhysicsSystem")
+        f.blocks[i] = f.blocks[i][:-8]                                          # the size word now over-claims
+        with self.assertRaises(relayer.RelayerError):
+            relayer.relayer_nif(nif.serialize(f))
+        f.blocks[i] = f.blocks[i][:2]
+        with self.assertRaises(relayer.RelayerError):
+            relayer.relayer_nif(nif.serialize(f))
+
     def test_a_model_without_layer_55_is_returned_byte_for_byte(self):
         raw = self.nif_with([0x1])
         new, notes = relayer.relayer_nif(raw)

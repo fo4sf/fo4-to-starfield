@@ -125,6 +125,27 @@ class StageTests(unittest.TestCase):
             mgf.stage(self.args(self.root / "none", starfield_data=str(empty)))
         self.assertIn("holds", str(c.exception))
 
+    def test_two_archives_holding_the_model_are_refused(self):
+        twin = self.root / "Data3"
+        shutil.copytree(self.data, twin)
+        (twin / "FO4Port - Extra.ba2").write_bytes(general_archive({MODEL: self.raw}))
+        with self.assertRaises(SystemExit) as c:
+            mgf.stage(self.args(self.root / "twin", starfield_data=str(twin)))
+        self.assertIn("2 archives", str(c.exception))
+
+    def test_install_refuses_when_the_live_fo4port_esm_is_not_the_one_staged_on(self):
+        out = self.root / "staged-port"
+        mgf.stage(self.args(out))
+        plan = json.loads((out / "plan.json").read_text())
+        live = self.root / "live"
+        shutil.copytree(self.data, live)
+        self.assertEqual(mgf.verify_stage(str(out), plan, str(live)), [])
+        with open(live / "FO4Port.esm", "ab") as f:
+            f.write(b"x")
+        problems = mgf.verify_stage(str(out), plan, str(live))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("FO4Port.esm changed since the stage", problems[0])
+
     def test_check_fails_when_the_override_would_shadow_the_ports_own_path(self):
         out = self.root / "build-own"
         built = self.run_tool("build", self.data / "FO4Port.esm", self.data / "Starfield.esm", out, "--model", MODEL[len("Meshes/"):].replace("/", "\\"))

@@ -84,17 +84,22 @@ def new_model_path(port_model):
 
 
 def find_in_archives(port_data, name):
-    """Bytes of `name` from the first FO4Port*.ba2 beside the plugin that holds it, or None."""
+    """(bytes, archive file name) of `name` from the one FO4Port*.ba2 beside the plugin that holds it, or None.
+    Exits when two archives hold it: the game would read one of them and a stage made from the other is not the model under test."""
     from fo4sf import ba2
+    held = []
     for fn in sorted(os.listdir(port_data)):
         if fn.lower().startswith("fo4port") and fn.lower().endswith(".ba2"):
             try:
                 a = ba2.Ba2(os.path.join(port_data, fn))
                 if a.find(name) is not None:
-                    return a.read(name), fn
+                    held.append((fn, a))
             except (ba2.Ba2Error, OSError):
                 continue
-    return None
+    if len(held) > 1:
+        sys.exit(f"{name} is in {len(held)} archives ({', '.join(fn for fn, _ in held)}): name the one the game reads, "
+                 "remove the other from the folder, and stage again; nothing staged")
+    return (held[0][1].read(name), held[0][0]) if held else None
 
 
 def relayer_model(raw):
@@ -125,6 +130,11 @@ def verify_stage(stage_dir, plan, data=None):
             problems.append(f"no Starfield.esm in {data}: name the game's Data folder (the install: the game folder)")
         elif sha256(p) != plan["inputs"]["Starfield.esm"]["sha256"]:
             problems.append("Starfield.esm changed since the stage: re-stage")
+        q = os.path.join(data, "FO4Port.esm")
+        if not os.path.isfile(q):
+            problems.append(f"no FO4Port.esm in {data}: the override is built on that plugin's record")
+        elif sha256(q) != plan["inputs"]["FO4Port.esm"]["sha256"]:
+            problems.append("FO4Port.esm changed since the stage (the override was built on another one): re-stage")
     return problems
 
 

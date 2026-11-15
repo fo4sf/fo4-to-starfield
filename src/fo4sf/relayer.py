@@ -57,7 +57,11 @@ def relayer_nif(raw: bytes) -> Tuple[bytes, List[str]]:
         _target, _flags, data = struct.unpack_from("<iHi", f.blocks[i], 0)
         if not (0 <= data < len(f.blocks)) or f.type_of(data) != "bhkPhysicsSystem":
             raise RelayerError(f"collision object {i}: data block {data} is not a bhkPhysicsSystem")
+        if len(f.blocks[data]) < 4:
+            raise RelayerError(f"collision object {i}: physics system block is {len(f.blocks[data])} bytes")
         n, = struct.unpack_from("<I", f.blocks[data], 0)
+        if 4 + n > len(f.blocks[data]):
+            raise RelayerError(f"collision object {i}: physics system says {n} bytes, block holds {len(f.blocks[data]) - 4}")
         blob = f.blocks[data][4:4 + n]
         new, got = relayer_blob(blob)
         if got:
