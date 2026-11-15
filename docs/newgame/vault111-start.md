@@ -104,7 +104,9 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 12. **No Starfield environment (S13 row 2b, section 4d):** SQ_ENV, Starfield's environment system for the player, is on
     the default hold list, so its hazard, suit and O2 abilities should leave the player; right after the reset the quest
     tops the O2 capacity 0002E2 up to 100, which clears the O2/CO2 dial. Nothing is worn, so the body is drawn.
-    Unverified until the PC run.
+    Verified in game at `5e7ce74b` (15 Nov, section 4d).
+13. **No Starfield companions or crew (S13 row 5, the first group):** the default hold list also stops Starfield's
+    companion and crew quests (section 4e). Unverified until the PC run.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -399,7 +401,13 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
     value=<n>`; a second call adds nothing). The value stays in the save. `--no-o2-fill` leaves it out; a
     `--keep-inventory` build has none (the player keeps Starfield's suit).
   - **The way back:** `--hold` without SQ_ENV keeps Starfield's environment; `--no-o2-fill` drops the fill.
-- **Unverified until the PC run:**
+- **Verified in game at `5e7ce74b` (PC run, 15 Nov, FAL-883 comment 3815ed86):** SQ_ENV is stopped in hold-off
+  pass 2 and stays stopped (still 0 five minutes after stage 200); its spells are gone (`hasspell` 0 for 23BE19, 23DDFC,
+  08CB4D); the dial is white with 0002E2 and Oxygen at 100; health holds at 200 on Mars with nothing worn, no hazard
+  icons; the body is drawn; no HUD readout missing and no Papyrus error naming SQ_ENV after the hold-off. Sprinting
+  still drains O2, without CO2 damage. HumanRace's two hit-spell abilities (3E5BE8, 3E5BE9) stay on the player and did
+  no damage; no placed hazard was on the route.
+- **What the list below asked of that run** (kept as the record):
   - that `Stop()` on SQ_ENV takes its 17 spells off the player (`player.hasspell 23BE19` should read 0) and that it
     stays stopped;
   - that health holds on Mars with nothing worn, the dial stays white and the body is drawn;
@@ -408,6 +416,31 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   - placed local hazards in our cells, if any, still hurt: they are not SQ_ENV's;
   - HumanRace's two `ENV_AFFL_AddHitSpellPerk` abilities: whether any hit or hazard on Mars applies an affliction
     through them (`player.hasspell` for each, and the active effects list after damage).
+
+## 4e. Starfield's companions and crew held off (S13 row 5, the first group)
+
+- **Why:** the row 5 read (FAL-883, `result-pc-read-s13-5` and `-partb`, 15 Nov) found 207 of Starfield's 223
+  start-game-enabled quests running in our new game, at stage 10 and at stage 200. The owner chose the companion and
+  crew group first ("Companions first", 15 Nov); ships and the other groups wait until this one passes in game.
+- **What:** `HoldCompanions` (Program.cs; `HOLD_COMPANIONS` in make_newgame.py) joins the default hold list after the
+  core five (`HoldCore`: MQ00, MQ101, MQ101PostQuest, MQ_TutorialQuest_Misc04, SQ_ENV). Its 18 quests are the running
+  ones of the owner's group, with the ids the PC read:
+  - `COM_Companion_SarahMorgan` 009E99, `..._SarahMorgan_SpeechChallenges` 2C5A4A, `COM_Companion_Shared_Sarah` 2EFD8C;
+  - `Com_Companion_Barrett` 1C7187 (Starfield's own casing), `COM_Companion_Barrett_SpeechChallenges` 14327D,
+    `COM_Companion_Shared_Barrett` 2EFD8B;
+  - `COM_Companion_Andreja` 23DF2A, `..._Andreja_SpeechChallenges` 1EA09A, `COM_Companion_Shared_Andreja` 2EFD89;
+  - `COM_Companion_SamCoe` 26C5ED, `..._SamCoe_SpeechChallenges` 23EF00, `COM_Companion_SamCoe_Cora` 231A20,
+    `COM_Companion_Shared_SamCoe` 2EFD8A;
+  - `COM_System_PlayerSharedLines` 010A7B, `SQ_Companions` 2A567C, `SQ_Crew` 2A567D, `CREW_EliteCrew_Heller` 1AD42E,
+    `CREW_GenericCrew` 26C4EA.
+- **Not held:** `SQ_Followers` 00D773 (the follower system, not a companion; our Preston mission does not use it either)
+  and `SQ_COM_CREW_AngerCombatOverride` 0709A7 (outside the owner's COM_ / CREW_ / SQ_Companions / SQ_Crew group).
+- **How:** the same hold-off as the rest of the list: both passes `Stop()` each listed quest that runs and log
+  `held off [Quest <...>] running_after=<b> pass=<n>`. No record override. The writer refuses a Starfield.esm without one
+  of them, as for any hold quest.
+- **The way back:** `--hold` with the core five only.
+- **Unverified until the PC run:** that all 18 stop and stay stopped (nothing restarts them), and that nothing else
+  breaks without them (the new game to stage 200, Papyrus errors naming them after the hold-off).
 
 ## 5. What Vault 111 needs from the port today
 
@@ -439,7 +472,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV` and the companion group, section 4e), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
