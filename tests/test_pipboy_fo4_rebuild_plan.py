@@ -488,6 +488,10 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("if (g_stage == 2 && g_lateCallCount && open == 1 && expected == 1) {", check)
         self.assertIn("queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);", check)
         self.assertIn("**No `code_obj_late_call` line**", self.plan)
+        # the S1-c2 run and the R2 read (names only, no launch)
+        for text in ("**S1-c2, the run (owner PC, 15 Nov 15:06Z", "the same fault site as\nHANG-SPLIT L1",
+                     "**R2, the read (Claude PC; names only, no launch", "12. Done since (15 Nov 15:06Z)"):
+            self.assertIn(text, self.plan, text)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
         self.assertNotIn("g_lateCall", install)                            # never inside the load

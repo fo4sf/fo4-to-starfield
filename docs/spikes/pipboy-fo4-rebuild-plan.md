@@ -1076,6 +1076,42 @@ What each other outcome means:
 
 After S1-c2 passes, the pause (`Pause=1`, L3's flags) and then the arm with B1 go back on, one launch each.
 
+**S1-c2, the run (owner PC, 15 Nov 15:06Z, the dll of `7b1d29aa`; FAL-852): FAIL, the card's first other outcome.**
+`code_obj_late_call n=1 name=Menu_mc.InvalidateData found=1 called=1` came 736 ms after the show, with the shell (tab
+bar, sub-tabs, footer) drawn and no page body. The game crashed within the same second, at **the same fault site as
+HANG-SPLIT L1**: a null read in the game's own Scaleform work on a job thread, with no frame of ours on the stack. So
+`InvalidateData` with our object present crashes whenever it is called, not only inside the load.
+
+**What this points at (a reading, to be read next).** By S1-R1's names, `InvalidateData` with an engine object reaches
+the private `LoadCurrentPage`, which loads the page file through a `PipboyLoader`; `onPageLoadComplete` then hands the
+object to the page (`InitCodeObj`) and adds it to the display. Proof 2a loaded the STAT page alone, as the menu's own
+movie, with our object through `InitCodeObj`, and it drew. What differs here is the **nested load**, which Scaleform
+runs on job threads, where both crashes were. A page that takes assets from another movie at its own load (fonts, a
+shared library) that the S1 kit does not install would fail there.
+
+**R2, the read (Claude PC; names only, no launch, no owner release needed).** `scripts/ui/swf_names.py` at this commit
+also prints a movie's import tags: `import tag=<57|71> url=<file> ids=<n> names=<...>`.
+1. Run it on the shell and the five pages, as in R1: `PipboyMenu.swf Pipboy_StatsPage.swf Pipboy_InvPage.swf
+   Pipboy_DataPage.swf Pipboy_MapPage.swf Pipboy_RadioPage.swf`.
+2. **Post publicly:**
+   - every `import` line (file name and count; names stay private if you prefer);
+   - for each imported file, whether the S1 kit installs it, and whether Starfield's own `Interface` archives hold a
+     file of that name;
+   - the `strings=` of the `uses` lines of `LoadCurrentPage`, `onPageLoadComplete` and every `PipboyLoader` method (the
+     page files' names and any path they are loaded under).
+3. **From the two kept S1-c2 exception dumps** (cdb, the `7b1d29aa` PDB): the crashing stack's nearest-export labels,
+   in order (labels only), and whether any of them is a movie load or an import step rather than the display list's
+   render.
+4. Keep the full output private.
+
+What each answer means:
+- **A page imports a file the kit does not install:** the next card installs it alongside the pages (an installer
+  change, `--page-movie` for a library; the player's own file), then S1-c2's ini once more.
+- **No imports, and the stack is in a movie load:** the page file is not found or not read at the path the loader asks
+  for. The next card stages the pages under that path.
+- **No imports, and the stack is in the render:** the loaded page draws something that is not there. The next card
+  answers the page's first data calls (S3), with the dump's call list.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -1200,3 +1236,6 @@ delivery.
 11. Done since (15 Nov, owner PC): S1-arm's card FAILED, and HANG-SPLIT L1 and L1-SPLIT M1 found the cause:
    `InvalidateData` inside the load, with our object on `Menu_mc.BGSCodeObj` (S1-arm, the runs, above). Now: S1-c2
    (FAL-852, `CodeObjLateCalls=` at this commit; its card above), then the pause, then the arm with B1.
+12. Done since (15 Nov 15:06Z): S1-c2 FAILED at L1's fault site, so `InvalidateData` with our object crashes after
+   the first frame too. Now: R2 (names only, no launch: the import tags and the page-load path, plus the dumps' stack
+   labels; above), then the card that follows from its answer.
