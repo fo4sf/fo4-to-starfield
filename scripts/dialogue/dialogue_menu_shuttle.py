@@ -140,13 +140,18 @@ def check(payload):
 
 
 def choices_from(data):
-    """DialogueListData payload → aChoices. Accepts {aChoices: ...} or {data: {aChoices: ...}}."""
+    """DialogueListData payload → aChoices. Outer aChoices wins if both outer and data.aChoices exist."""
     if not isinstance(data, dict):
         return []
+    outer = data.get(CHOICES)
+    if isinstance(outer, list):
+        return list(outer)
     blob = data.get("data")
-    inner = blob if isinstance(blob, dict) else data
-    rows = inner.get(CHOICES) if isinstance(inner, dict) else None
-    return list(rows) if isinstance(rows, list) else []
+    if isinstance(blob, dict):
+        inner = blob.get(CHOICES)
+        if isinstance(inner, list):
+            return list(inner)
+    return []
 
 
 def bind_slots(data):
@@ -167,7 +172,7 @@ def bind_slots(data):
 
 def select_payload(row):
     """Host select event payload: selectedIndex carries uEntryID, not list position."""
-    if not isinstance(row, dict) or ENTRY_ID not in row:
+    if not isinstance(row, dict) or row.get(ENTRY_ID) is None:
         raise ShuttleError("select needs uEntryID")
     return {SELECT_EVENT: {SELECT_KEY: row[ENTRY_ID]}}
 

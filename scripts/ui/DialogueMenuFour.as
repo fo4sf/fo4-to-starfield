@@ -54,18 +54,22 @@ package
 
         public function selectSlot(i:int):void
         {
-            if (lastChoices == null || i < 0 || i >= lastChoices.length)
+            if (lastChoices == null || i < 0 || i >= MAP_ROWS || i >= lastChoices.length)
             {
                 return;
             }
             var row:Object = lastChoices[i];
+            if (row == null || row[ENTRY_ID] == null)
+            {
+                return;
+            }
             var payload:Object = {};
             payload[SELECT_KEY] = row[ENTRY_ID];
-            sendSelect(payload);
+            sendSelect(ON_SELECT, payload);
         }
 
         // fillSlot / sendSelect are movie wiring. Compile on the PC; this host has no ABC compiler.
         public function fillSlot(name:String, text:String):void {}
-        public function sendSelect(payload:Object):void {}
+        public function sendSelect(eventName:String, payload:Object):void {}
     }
 }

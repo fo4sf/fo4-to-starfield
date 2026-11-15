@@ -30,9 +30,9 @@ PC PASS §1b (file read): `DialogueListData.aChoices[].sChoiceText` / `uEntryID`
 ## 2. Install
 
 Do not install the no-DoABC wheel. Compile `scripts/ui/DialogueMenuFour.as` on this PC to a movie with DoABC.
-Do not copy the host or Fallout 4 movie. Replace the staged twin with that compiled file, then:
+Do not copy the host or Fallout 4 movie. Do not stage the wheel and then replace the twin: stage rewrites it.
 
-    python scripts/dialogue/make_concord_talk.py stage <dir>
+    python scripts/dialogue/make_concord_talk.py stage <dir> --movie <compiled.swf>
     python scripts/dialogue/concord_talk_install.py install --dir <dir> --starfield <game dir>
 
 Game closed. If a loose `Interface/DialogueMenu.swf` already exists, the install must refuse. Uninstall after the

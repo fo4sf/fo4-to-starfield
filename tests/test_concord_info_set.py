@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "ui"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "dialogue"))
 import concord_info_set as info  # noqa: E402
+import dialogue_menu_shuttle as shuttle  # noqa: E402
 import make_concord_talk as mct  # noqa: E402
 import make_dialogue_wheel_swf as wheel  # noqa: E402
 import make_probe_swf as swf  # noqa: E402
@@ -76,6 +77,33 @@ class StageTest(unittest.TestCase):
             self.assertEqual(a, wheel.movie_bytes())
             self.assertEqual(mct.check(esm)["masters"], ["Starfield.esm"])
             self.assertEqual(wheel.named_places(swf.read_movie(a)), list(wheel.SLOT_NAMES))
+
+    def test_stage_movie_refuses_no_doabc_and_keeps_compiled_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel_path = os.path.join(tmp, "wheel.swf")
+            with open(wheel_path, "wb") as f:
+                f.write(wheel.movie_bytes())
+            with self.assertRaisesRegex(swf.SwfError, "DoABC"):
+                mct.stage(os.path.join(tmp, "bad"), movie_path=wheel_path)
+            compiled = os.path.join(tmp, "compiled.swf")
+            raw = wheel.movie_bytes()
+            import zlib, struct
+            body = zlib.decompress(raw[8:])
+            doabc = struct.pack("<H", 72 << 6)
+            new_body = body[:-4] + doabc + body[-4:]
+            out = b"CWS" + bytes([raw[3]]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 9)
+            with open(compiled, "wb") as f:
+                f.write(out)
+            self.assertTrue(shuttle.has_doabc(out))
+            dest = os.path.join(tmp, "ok")
+            esm, movie, twin = mct.stage(dest, movie_path=compiled)
+            with open(movie, "rb") as f:
+                a = f.read()
+            with open(twin, "rb") as f:
+                b = f.read()
+            self.assertEqual(a, out)
+            self.assertEqual(a, b)
+            self.assertNotEqual(a, wheel.movie_bytes())
 
     def test_check_refuses_records(self):
         from fo4sf.planet.esm import Record

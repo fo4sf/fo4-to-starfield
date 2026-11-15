@@ -82,6 +82,8 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("onChoiceListUpdate", src)
         self.assertIn("selectSlot", src)
         self.assertIn("Subscribe", src)
+        self.assertIn("sendSelect(ON_SELECT", src)
+        self.assertIn("i >= MAP_ROWS", src)
 
     def test_bind_slots_maps_four_choice_texts(self):
         data = {
@@ -104,11 +106,21 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertEqual(slots[1]["text"], "")
         self.assertIsNone(slots[1]["uEntryID"])
 
+    def test_bind_slots_outer_aChoices_wins_when_both_present(self):
+        data = {
+            "aChoices": [{"sChoiceText": "OUTER", "uEntryID": 1}],
+            "data": {"aChoices": [{"sChoiceText": "INNER", "uEntryID": 2}]},
+        }
+        self.assertEqual(shuttle.bind_slots(data)[0]["text"], "OUTER")
+
     def test_select_payload_uses_uentryid_not_index(self):
         payload = shuttle.select_payload({"sChoiceText": "TWO", "uEntryID": 99})
         self.assertEqual(payload, {"DialogueMenu_OnDialogueSelect": {"selectedIndex": 99}})
+        self.assertEqual(shuttle.select_payload({"uEntryID": 0})["DialogueMenu_OnDialogueSelect"]["selectedIndex"], 0)
         with self.assertRaisesRegex(shuttle.ShuttleError, "uEntryID"):
             shuttle.select_payload({"sChoiceText": "TWO"})
+        with self.assertRaisesRegex(shuttle.ShuttleError, "uEntryID"):
+            shuttle.select_payload({"sChoiceText": "TWO", "uEntryID": None})
 
 
 class WheelBytesNoAbc(unittest.TestCase):

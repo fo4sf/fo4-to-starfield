@@ -2968,3 +2968,9 @@ compiled DoABC. §2–§3 wait that movie. Native/game NOT_RUN.
 FAL-882 CLEAR 1681ff84. bind_slots maps aChoices[0..3].sChoiceText to N/E/S/W; select_payload uses uEntryID.
 DialogueMenuFour.as now has onChoiceListUpdate and selectSlot. This host has no ActionScript compiler; no DoABC
 movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-886 FINDING — stage --movie, selectSlot bounds (FAL-865)
+
+PC card no longer says replace-then-stage. stage --movie copies a DoABC movie as the twin. select_payload
+refuses a null uEntryID; selectSlot caps at MAP_ROWS and names DialogueMenu_OnDialogueSelect. Outer aChoices
+wins when both keys exist. Native/game NOT_RUN.

@@ -1,13 +1,14 @@
 """Stage the Concord four-option talk probe (FAL-865): empty plugin + four-slot movie + DialogueMenu twin.
 
-usage: python scripts/dialogue/make_concord_talk.py stage <dir>
+usage: python scripts/dialogue/make_concord_talk.py stage <dir> [--movie compiled.swf]
        python scripts/dialogue/make_concord_talk.py check <FO4SFConcordTalk.esm>
        python scripts/dialogue/make_concord_talk.py info-set
 
-The plugin has no records. It exists so the session archive (FO4SFConcordTalk - Main.ba2) loads. The movie is
-scripts/ui/make_dialogue_wheel_swf.py. stage always twins it at Interface/DialogueMenu.swf (REPLACE the host movie,
-KEEP the DialogueMenu class). Starfield's own Interface archive is not touched. Nothing is written into the repo.
-No Fallout 4 lines, no converted INFO records this slice.
+The plugin has no records. It exists so the session archive (FO4SFConcordTalk - Main.ba2) loads. Default stage
+writes the no-DoABC wheel and twins it; install refuses that twin. Pass --movie <compiled.swf> with DoABC to stage
+a bind movie as both Interface/FO4SF_DialogueWheel.swf and Interface/DialogueMenu.swf. Do not replace a twin and
+then stage: stage rewrites the twin. Starfield's own Interface archive is not touched. Nothing is written into the
+repo. No Fallout 4 lines, no converted INFO records this slice.
 """
 import argparse
 import json
@@ -22,6 +23,7 @@ sys.path.insert(0, UI)
 sys.path.insert(0, HERE)
 from fo4sf.planet.esm import ESM, EsmError, Plugin, PluginWriter  # noqa: E402
 import concord_info_set as info  # noqa: E402
+import dialogue_menu_shuttle as shuttle  # noqa: E402
 import make_dialogue_wheel_swf as wheel  # noqa: E402
 import make_probe_swf as swf  # noqa: E402
 
@@ -38,14 +40,24 @@ def plugin_bytes():
     return PluginWriter(MASTERS, flags=ESM, author=AUTHOR, description=DESCRIPTION).to_bytes()
 
 
-def stage(out):
-    """Writes the plugin, the wheel movie, and the DialogueMenu twin. Returns plugin, movie, twin paths."""
+def stage(out, movie_path=None):
+    """Writes the plugin, a movie, and the DialogueMenu twin. --movie must already have DoABC."""
     os.makedirs(out, exist_ok=True)
     esm = os.path.join(out, PLUGIN)
     with open(esm, "wb") as f:
         f.write(plugin_bytes())
+    if movie_path:
+        with open(movie_path, "rb") as f:
+            data = f.read()
+        reason = shuttle.refuse_install_reason(data)
+        if reason:
+            raise swf.SwfError(reason)
+    else:
+        data = wheel.movie_bytes()
     movie = os.path.join(out, "Data", *MOVIE.split("/"))
-    data = wheel.write_movie(movie)
+    os.makedirs(os.path.dirname(movie), exist_ok=True)
+    with open(movie, "wb") as f:
+        f.write(data)
     twin = os.path.join(out, "Data", *TWIN.split("/"))
     os.makedirs(os.path.dirname(twin), exist_ok=True)
     with open(twin, "wb") as f:
@@ -69,20 +81,21 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("stage")
     s.add_argument("out")
+    s.add_argument("--movie", default="", help="compiled DoABC movie; do not stage the wheel then replace the twin")
     c = sub.add_parser("check")
     c.add_argument("plugin")
     sub.add_parser("info-set")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "stage":
-            esm, movie, twin = stage(a.out)
+            esm, movie, twin = stage(a.out, movie_path=a.movie or None)
             check(esm)
             print(f"staged {esm}, {movie} and twin {twin}; pack into {ARCHIVE}")
         elif a.cmd == "check":
             print(f"ok: {check(a.plugin)}")
         else:
             print(json.dumps(info.check(info.info_set()), indent=2, sort_keys=True))
-    except (EsmError, swf.SwfError, info.InfoSetError, OSError) as e:
+    except (EsmError, swf.SwfError, info.InfoSetError, shuttle.ShuttleError, OSError) as e:
         print(f"make_concord_talk: {e}", file=sys.stderr)
         return 1
     return 0
