@@ -2941,3 +2941,11 @@ greeting plus four player INFOs; no Fallout lines in Git. Installer refuses a lo
 already in the game folder. 21 focused tests OK; guard/diff clean. Native Windows/game NOT_RUN.
 Independent review: Courier Copy. This does not reach the owner's game until that review, checks,
 and the PC session card.
+
+## 2026-11-15 — Scribe: PC PARTIAL kills the no-AS3 DialogueMenu twin (FAL-865)
+
+Claude PC dump at 44ba71ac (no launch, no install): host DialogueMenu root Menu_mc, list
+DialogueList_mc filled by the movie's data shuttle, not by instance name. Fallout 4 four clips
+are Question/Neutral/Negative/Positive via a different native path. Stand-in fo4sfOpt* matches
+neither. SCEN on 000179F3 is 8. Next source is an AS3 shuttle bind or a native bind; §2–§3 wait
+on that new head. Host names encoded in scripts/dialogue/dialogue_menu_host.py.

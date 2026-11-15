@@ -21,8 +21,9 @@ source. Vault 111 exit is a separate card; until that lands, the PC uses the usu
 - Not a second menu class, not F10, not the faction-device kit.
 - Not in-game proof. Offline tests do not open the game.
 
-## Native work the PC still does
+## What the first PC dump showed
 
-Host clip names on `DialogueMenu` versus Fallout 4's movie (names only). If they differ, this stand-in's names will
-not fill; do not drop Fallout 4's movie on the host class. A later card binds four slots or rebuilds the movie to the
-host names. Conflicting loose `DialogueMenu.swf` must refuse (the installer already refuses an existing game file).
+The host fills `DialogueList_mc` through the movie's data shuttle, not by clip name. Fallout 4's four clips
+(`Question`, `Neutral`, `Negative`, `Positive`) are a different native path. The no-code `fo4sfOpt*` stand-in
+cannot take host text or the select path; do not install it. Next movie must bind the shuttle (or a native bind).
+DialogueConcordArea `000179F3` has 8 scenes.

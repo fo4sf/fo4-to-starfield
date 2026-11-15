@@ -1471,3 +1471,12 @@ Alternatives: keep the list and show full player lines (older UI note; fails the
 class (heavier, and the host class already exists); copy Fallout 4's movie from the player's install this slice
 (unverified against host clip names).
 
+## 2026-11-15: DialogueMenu REPLACE needs the data shuttle, not named clips (Scribe, FAL-865)
+
+Decision: keep the `DialogueMenu` class and its data shuttle. Do not install the no-AS3 `fo4sfOpt*` twin. Do not
+drop Fallout 4's `Question`/`Neutral`/`Negative`/`Positive` movie on the host class. Next movie is AS3 that binds
+the shuttle into four slots, or a native bind.
+Why: PC PARTIAL at 44ba71ac — host fills `DialogueList_mc` from the movie's own code; native does not fill by name.
+Fallout 4's four clips are a different native path.
+Alternatives: keep the Starfield list (fails the four-option result); copy Fallout 4's movie (wrong native path).
+
