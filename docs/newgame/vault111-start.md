@@ -439,8 +439,18 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   `held off [Quest <...>] running_after=<b> pass=<n>`. No record override. The writer refuses a Starfield.esm without one
   of them, as for any hold quest.
 - **The way back:** `--hold` with the core five only.
-- **Unverified until the PC run:** that all 18 stop and stay stopped (nothing restarts them), and that nothing else
-  breaks without them (the new game to stage 200, Papyrus errors naming them after the hold-off).
+- **Verified in game at `2e444bbf` (PC run, 15 Nov, FAL-883 comment 9123aa49; merged as #795):** pass 1 found all 18
+  not running, pass 2 held off all 18 (`running_after=false`); all 18 read 0 at stage 200 and again about 3 minutes
+  later; `SQ_Followers` still ran (1) and SQ_ENV stayed stopped (0); stage 200 was reached; no Papyrus line named them
+  after the hold-off, no new error kind, nothing odd in the HUD or dialogue.
+- **The boundary for later row 5 groups (owner, 15 Nov, FAL-883 comment d0777cc0):** do not remove Starfield's
+  companion, follower, crew or group mechanics where parts of them can be rebuilt for Warfare mode. In Warfare, combat
+  is meant to be very hard and the player will want to take a squad with them. So hold off Starfield's *story* quests
+  (as here: the Constellation companions and their crew quests), and keep the reusable runtime plumbing running:
+  `SQ_Followers`, the follower and crew systems, group and command handling, and any quest a squad would need. Survival
+  / Warfare will be a mode the player can toggle; a player who wants a more vanilla, single-player experience of the
+  games turns it off. Every further row 5 group is checked against this boundary before it is scoped, and a quest that
+  could carry squad behaviour stays running.
 
 ## 5. What Vault 111 needs from the port today
 
