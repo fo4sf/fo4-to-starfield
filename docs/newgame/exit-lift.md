@@ -127,3 +127,43 @@ While the lift waits at the floor, its front door/gate stands open so the player
 the ride animation plays. This is part of the in-game result for the lift slice, and the in-game PC card must check:
 door **open** when the lift is at rest at the floor, **closed** during the ride. Not yet implemented or observed; whether
 the original lift model has a separate door piece, and how it would be driven, is unread (NOT_RUN, unresolved).
+
+## Whole lift flow (owner, 15 November ~22:30Z) and what FO4 already does
+
+Owner's description, verbatim: "Basically, what happens is you step on the platform after the initial beginning of the game
+and it asked if you wanna change any of your special stats or anything before you continue, then once you continue, you
+ride up, after that point you can click the button in the little room outside once you've exited and then stand on the
+platform again which prompts you if you want to ride down or stay, and same for when you walk back onto the platform for
+leaving." Requirements:
+
+1. First exit: stepping on the platform offers a last S.P.E.C.I.A.L./character edit. Continue closes the door, rides up,
+   and the map reveal and discovery run during the ride.
+2. After the first exit: the lift is called from the button in the small control room outside; standing on the platform
+   prompts "ride down or stay".
+3. The same prompt returns whenever the player walks onto the platform to leave, at the top or the bottom.
+4. Door open while the lift waits, closed only during the ride.
+
+FO4 sources already read (verified in the repo's earlier notes, B4 and 06-fo4-vault111-chain.md; nothing new read here):
+`RespecTriggerREF` 0008C94A (`vaultExitElevatorSCRIPT`) disables controls, shows the SPECIAL and looks menus, rides up
+21.6 m; `vaultExitElevatorDown` 00020C3A plays `stage2` on `V111ElevatorREF` 000244EB to bring it down; the way back uses
+`Vault111DescendAgainTrigger` (clips `stage6`/`stage8`), `Vault111AscendAgainTriggerREF` 0009A149
+(`VaultElevatorAscendAgainScript`, initially disabled) and a companion failsafe pair 00248AAD/00248AAE; outside,
+`Vault111OneShotExteriorElevatorTrigger` 00051877 sets MQ102 stage 10. **Not yet read** (Base.zip is PC-only): the script
+bodies, the message records for the edit/ride prompts, and the control-room button activator. These need a names-only PC
+read (NEEDS-PC) before the prompt and call-button slices are designed; nothing here guesses the scripting.
+
+### Slice order (updated)
+
+Each slice has its own PC card. The owner checks motion and visuals on the recorder (NEEDS-OWNER play).
+
+- S0 review of exit-arrival §A card (FAL-1008) -> S1 §A on the PC (map lists Vault 111 from outside; decides the route).
+- S2 pod walk (pod-walk-pc-card), parallel.
+- S2b FO4 source read (PC, names-only): elevator/platform scripts, prompt messages, button activator. Gates S4-S6.
+- S3 outside attach + marker timing during the ride (after S1 passes), lift build/core pack, (d) only Vault 111
+  discovered, (e) fast travel. Card: exit-lift-ingame-pc-card.
+- S4 **S.P.E.C.I.A.L./character edit prompt** on the platform. Result: the prompt shows on stepping on; Continue starts
+  the ride, Cancel/stay does not. Card: exit-prompt-pc-card.
+- S5 control-room call button and ride-down/stay prompt at the top, and the same prompt on re-stepping on at either end.
+  Card: exit-return-pc-card.
+- S6 door open at rest, closed during the ride; cog door from the vault console; gates with collision (#797 after the
+  FAL-976 read); floor-label flicker.
