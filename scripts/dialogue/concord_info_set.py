@@ -84,7 +84,7 @@ def check(payload):
         raise InfoSetError("KEEP the DialogueMenu class; do not add a second menu class")
     if payload.get("overlay_movie") != OVERLAY_MOVIE:
         raise InfoSetError("overlay is Interface/FO4SF_DialogueWheel.swf")
-    if payload.get("host_movie") == HOST_MOVIE and payload.get("replace_movie"):
+    if payload.get("replace_movie"):
         raise InfoSetError("do not REPLACE Interface/DialogueMenu.swf")
     if not payload.get("kill_replace_host_movie"):
         raise InfoSetError("replacing the host DialogueMenu movie is killed")

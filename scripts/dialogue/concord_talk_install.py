@@ -3,10 +3,10 @@
 usage: python scripts/dialogue/concord_talk_install.py install --dir <stage> --starfield <game dir>
        python scripts/dialogue/concord_talk_install.py uninstall|status|order|active --starfield <game dir>
 
-Own record Data/FO4SFConcordTalk.install.json, so an installed experiment is never read or changed.
-install checks: one plugin FO4SFConcordTalk.esm, empty; Data holds Interface/FO4SF_DialogueWheel.swf only.
-A staged Interface/DialogueMenu.swf is a refuse (PC FAIL 69ee810a: replacing the host movie crashes).
-Game closed for install and uninstall. Nothing of the game enters the repo.
+Own record Data/FO4SFConcordTalk.install.json. install checks: one empty plugin FO4SFConcordTalk.esm.
+A staged Interface/DialogueMenu.swf is a refuse. At install the player's host movie is copied from their
+archives and four slots are overlaid on Menu_mc (PC). --host-swf is tests only. Game closed. Nothing of
+the game enters the repo.
 """
 import argparse
 import os
@@ -18,9 +18,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(REPO, "scripts", "ui"))
 sys.path.insert(0, os.path.join(REPO, "scripts", "game"))
 import exp_install  # noqa: E402
-import dialogue_menu_shuttle as shuttle  # noqa: E402
+import dialogue_menu_overlay as overlay  # noqa: E402
 import make_concord_talk as mct  # noqa: E402
-import make_probe_swf as swf  # noqa: E402
 
 RECORD = "FO4SFConcordTalk.install.json"
 
@@ -46,17 +45,13 @@ def stage_problems(d):
             problems.append(str(e))
     data = os.path.join(d, "Data")
     found = sorted(os.path.relpath(os.path.join(r, f), data).replace(os.sep, "/")
-                   for r, _, fs in os.walk(data) for f in fs)
+                   for r, _, fs in os.walk(data) for f in fs) if os.path.isdir(data) else []
     if mct.HOST_MOVIE in found:
         problems.append(f"replace host movie is killed: Data holds {mct.HOST_MOVIE}")
-    expected = [mct.MOVIE]
-    if found != expected:
-        problems.append(f"Data holds {found}, expected {expected}")
-    else:
-        try:
-            swf.read_movie(os.path.join(data, *mct.MOVIE.split("/")))
-        except (swf.SwfError, OSError) as e:
-            problems.append(f"the movie does not read back: {e}")
+    allowed = {mct.MOVIE, }
+    extra = [p for p in found if p not in allowed]
+    if extra:
+        problems.append(f"Data holds extra {extra}")
     return problems
 
 
@@ -67,11 +62,28 @@ def install(a):
         print("concord talk not installed (re-stage with make_concord_talk.py stage): " + "; ".join(problems),
               file=sys.stderr)
         sys.exit(1)
-    overlay = os.path.join(d, "Data", *mct.MOVIE.split("/"))
-    killed = shuttle.refuse_install_reason(overlay)
-    if killed:
-        print(f"concord talk not installed: {killed}", file=sys.stderr)
+    host_swf = getattr(a, "host_swf", "") or ""
+    try:
+        if host_swf:
+            with open(host_swf, "rb") as f:
+                host_bytes = f.read()
+        else:
+            host_bytes = overlay.extract_host_movie(a.starfield)
+        killed = overlay.refuse_own_replacement(host_bytes)
+        if killed:
+            print(f"concord talk not installed: {killed}", file=sys.stderr)
+            sys.exit(1)
+        patched = overlay.overlay_inject(host_bytes)
+    except overlay.OverlayError as e:
+        print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
+    dest = os.path.join(d, "Data", *mct.HOST_MOVIE.split("/"))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "wb") as f:
+        f.write(patched)
+    wheel = os.path.join(d, "Data", *mct.MOVIE.split("/"))
+    if os.path.isfile(wheel):
+        os.remove(wheel)
     return installer(["install", "--exp-dir", d, "--starfield", a.starfield, "--pack",
                       "--plugins", mct.PLUGIN] +
                      (["--prepacked", a.prepacked] if getattr(a, "prepacked", "") else []))
@@ -83,6 +95,7 @@ def main(argv=None):
     ap.add_argument("--dir", default="", help="the staged folder (install)")
     ap.add_argument("--prepacked", default="", help="verify and install this existing archive; never build")
     ap.add_argument("--starfield", required=True, help="the game folder (Starfield.exe)")
+    ap.add_argument("--host-swf", default="", help="tests only: a host-shaped movie instead of the player's archive")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.dir:

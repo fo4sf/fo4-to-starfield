@@ -12,9 +12,9 @@ No F10. Until the Vault 111 exit card lands, jump to Concord with the usual cons
 
 ## Shape
 
-Keep the game's `DialogueMenu` movie. Draw four slots over it. Do not REPLACE `Interface/DialogueMenu.swf`.
-Host-root stubs on a replacement still crashed (PC FAIL 69ee810a, control list OK, kit same null UI read).
-Overlay load (SFSE after host LoadMovie) is the next native slice; this commit only stops packing the host movie.
+Keep the game's `DialogueMenu` movie. Draw four slots over it. Do not REPLACE `Interface/DialogueMenu.swf`
+with a movie of our own. The installer takes the player's own movie from their archive at install time
+and overlays `fo4sfOpt*` inside `Menu_mc` next to `DialogueList_mc`. Host ABC stays.
 
 ## Concord
 
@@ -64,13 +64,8 @@ From the repo root, with `mxmlc` on PATH (bin of that SDK) and `PLAYERGLOBAL_HOM
 
     mxmlc -strict=true -swf-version=12 -target-player=32.0 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
 
-Then, game closed:
-
-    python scripts/dialogue/make_concord_talk.py stage <dir> --movie DialogueMenuFour.swf
-    python scripts/dialogue/concord_talk_install.py install --dir <dir> --starfield <game dir>
-
-If a staged folder contains `Interface/DialogueMenu.swf`, the install must refuse. Uninstall after the session.
-Do not run a kit session of a DialogueMenu twin. Overlay load is not in this commit.
+Then, game closed, the installer copies the player's DialogueMenu from their archive and overlays four slots
+on Menu_mc. Do not stage a DialogueMenu.swf of our own. Do not run a kit session of 48a3eb3d or 69ee810a.
 
 ## 3. In game (one session, control then kit)
 

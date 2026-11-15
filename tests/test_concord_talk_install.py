@@ -19,6 +19,8 @@ from ba2_fixture import archive_from_tree  # noqa: E402
 import concord_talk_install as cti  # noqa: E402
 import exp_install  # noqa: E402
 import make_concord_talk as mct  # noqa: E402
+import make_dialogue_wheel_swf as wheel  # noqa: E402
+from test_dialogue_menu_overlay import host_shaped_movie  # noqa: E402
 
 PLUGIN = "FO4SFConcordTalk.esm"
 EXP_RECORD = b'{"exp_dir": "C:/stage/core", "files": {}, "complete": true}'
@@ -85,10 +87,12 @@ class ConcordTalkInstallTests(unittest.TestCase):
         self.assertEqual(mct.MOVIE, "Interface/FO4SF_DialogueWheel.swf")
         self.assertNotEqual(cti.RECORD, exp_install.RECORD)
 
-    def test_install_refuses_no_doabc_movie(self):
-        code, out = self.run_main("install", "--dir", self.staged)
+    def test_install_refuses_wheel_as_host(self):
+        wheel_path = os.path.join(self.tmp.name, "wheel.swf")
+        write(wheel_path, wheel.movie_bytes())
+        code, out = self.run_main("install", "--dir", self.staged, "--host-swf", wheel_path)
         self.assertNotEqual(code, 0, out)
-        self.assertIn("DoABC", out)
+        self.assertIn("Menu_mc", out)
         self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
 
     def test_refuses_staged_host_dialogue_menu(self):
@@ -101,6 +105,13 @@ class ConcordTalkInstallTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
         with open(self.plugins, "rb") as f:
             self.assertEqual(f.read(), before)
+
+    def test_install_overlays_host_shaped_movie(self):
+        host_path = os.path.join(self.tmp.name, "host.swf")
+        write(host_path, host_shaped_movie())
+        code, out = self.run_main("install", "--dir", self.staged, "--host-swf", host_path)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(os.path.exists(os.path.join(self.data, cti.RECORD)))
 
 
 if __name__ == "__main__":

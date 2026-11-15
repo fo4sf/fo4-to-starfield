@@ -3025,3 +3025,9 @@ Control (no kit): Chunks vendor talk opened Starfield's list, no crash. Kit at 6
 compiled sha256 f6e58827…f4f2): same talk crashed at the same UI render null read as 48a3eb3d. No four
 slots. Owner set restored. Stage/install no longer write or pack Interface/DialogueMenu.swf. Overlay on
 the host movie is next. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: overlay inject on player's DialogueMenu (FAL-934 PASS)
+
+PC PASS names only: document class none; Menu_mc is a child, class DialogueMenu; DialogueList_mc on that
+sprite frame 1; shuttle classes live in the movie. overlay_inject adds fo4sfOpt* there and keeps host ABC.
+Do not install 48a3eb3d or 69ee810a. Native/game NOT_RUN.

@@ -50,6 +50,10 @@ def host_names():
         "kill_no_as3_named_clips": True,
         "kill_replace_without_host_roots": True,
         "kill_replace_host_movie": True,
+        "kill_root_named_menu_mc": True,
+        "menu_mc_role": "child",
+        "document_class": None,
+        "shuttle_in_movie": True,
         "host_movie": "Interface/DialogueMenu.swf",
         "overlay_movie": "Interface/FO4SF_DialogueWheel.swf",
     }
@@ -72,4 +76,12 @@ def check(payload):
         raise HostMenuError("a replacement without Menu_mc / DialogueList_mc crashed on first talk")
     if not payload.get("kill_replace_host_movie"):
         raise HostMenuError("replacing Interface/DialogueMenu.swf crashed with and without host-root stubs")
+    if payload.get("menu_mc_role") != "child":
+        raise HostMenuError("Menu_mc is a child of the root, not the document")
+    if payload.get("document_class") is not None:
+        raise HostMenuError("host document class is none")
+    if not payload.get("kill_root_named_menu_mc"):
+        raise HostMenuError("naming the document Menu_mc is not the host layout")
+    if not payload.get("shuttle_in_movie"):
+        raise HostMenuError("shuttle classes are compiled into the host movie")
     return payload

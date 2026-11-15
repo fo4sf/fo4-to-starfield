@@ -122,7 +122,7 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("Do not install 48a3eb3d or 69ee810a", card_src)
         self.assertIn("Keep the game's `DialogueMenu` movie", card_src)
         self.assertIn("Do not REPLACE `Interface/DialogueMenu.swf`", card_src)
-        self.assertIn("Overlay load", card_src)
+        self.assertIn("player's own", card_src)
         self.assertIn("PARTIAL: four slots on any vanilla talk", card_src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
