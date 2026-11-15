@@ -76,7 +76,7 @@ def install(a):
             print(f"concord talk not installed: {killed}", file=sys.stderr)
             sys.exit(1)
         patched = overlay.overlay_inject(host_bytes)
-    except overlay.OverlayError as e:
+    except (overlay.OverlayError, overlay.swf.SwfError) as e:
         print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
     with tempfile.TemporaryDirectory() as tmp:

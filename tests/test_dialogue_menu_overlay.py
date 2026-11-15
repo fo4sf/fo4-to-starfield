@@ -63,6 +63,30 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("Menu_mc", reason)
 
+    def test_inspect_skips_edittext_flags_we_do_not_write(self):
+        extra = swf.tag(
+            swf.DEFINE_EDIT_TEXT,
+            struct.pack("<H", 13) + swf.rect(0, 20, 0, 20) + bytes([0x02, 0xA0]) + b"v\x00",
+        )
+        extra += swf.tag(swf.DEFINE_SHAPE3, struct.pack("<H", 66) + swf.rect(0, 10, 0, 10) + bytes([0, 0, 0x11, 0x00]))
+        W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
+        box = (0, 0, 40 * swf.TWIPS, 20 * swf.TWIPS)
+        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+        body += extra
+        places = [swf.place_named(1, i + 1, name) for i, name in enumerate(host.HOST_CHILDREN)]
+        body += swf.define_sprite(2, places)
+        body += swf.place_named(2, 1, host.HOST_ROOT)
+        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+        raw = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        with self.assertRaises(swf.SwfError):
+            swf.read_movie(raw)
+        self.assertIsNone(overlay.refuse_own_replacement(raw))
+        patched = overlay.overlay_inject(raw)
+        self.assertTrue(patched.startswith(b"CWS"))
+        self.assertIsNone(overlay.refuse_own_replacement(patched))
+
     def test_archive_hint_beats_aaa_mod(self):
         order = overlay.archive_search_order(
             ["AAA-mod.ba2", "Starfield - Interface.ba2", "zzz.ba2", "readme.txt"])

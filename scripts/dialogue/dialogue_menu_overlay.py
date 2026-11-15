@@ -80,15 +80,50 @@ def sprite_instances(movie):
     return out
 
 
+def _swf_body(raw):
+    raw = bytes(raw)
+    if raw[:3] not in (b"CWS", b"FWS"):
+        raise OverlayError("host is not a SWF")
+    body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    r = swf.BitReader(body)
+    swf.read_rect(r)
+    pos = r.align()
+    _rate, count = struct.unpack_from("<HH", body, pos)
+    return body, pos + 4, count
+
+
 def inspect_host(movie):
-    if isinstance(movie, (bytes, bytearray, str)):
-        movie = swf.read_movie(movie)
-    root = root_instances(movie)
-    sprites = sprite_instances(movie)
+    """Names only. Walk raw tags. Do not parse EditText/shape bodies we did not write."""
+    if isinstance(movie, dict):
+        root = root_instances(movie)
+        sprites = sprite_instances(movie)
+        count = movie.get("frame_count")
+    else:
+        if isinstance(movie, str):
+            with open(movie, "rb") as f:
+                movie = f.read()
+        body, pos, count = _swf_body(movie)
+        tags = _raw_tags(body, pos)
+        root = []
+        sprites = []
+        for code, data in tags:
+            if code == swf.PLACE_OBJECT2:
+                name = _place_instance(data)[0]
+                if name:
+                    root.append(name)
+            elif code == swf.DEFINE_SPRITE and len(data) >= 4:
+                sid, frames = struct.unpack_from("<HH", data, 0)
+                names = []
+                for nc, nd in _raw_tags(data, 4):
+                    if nc == swf.PLACE_OBJECT2:
+                        name = _place_instance(nd)[0]
+                        if name:
+                            names.append(name)
+                sprites.append({"id": sid, "frame_count": frames, "instances": names})
     list_sprite = next((s for s in sprites if host.HOST_LIST in s["instances"]), None)
     return {
         "document_class": None,
-        "root_frame_count": movie.get("frame_count"),
+        "root_frame_count": count,
         "menu_mc_role": "child" if host.HOST_ROOT in root else "missing",
         "root_instances": root,
         "menu_mc_children": (list_sprite or {}).get("instances") or [],

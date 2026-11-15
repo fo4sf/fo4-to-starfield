@@ -3047,3 +3047,8 @@ deep). A short Interface.ba2 does not abort extract. Native/game NOT_RUN.
 
 Character-id scan includes tag 10 (DefineFont) and tag 60 (DefineVideoStream), including nested
 in Menu_mc. Tag 13 is FontInfo and is not an allocator. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-984 PC FAIL — inspect without writer-only parse
+
+inspect_host walks raw tags. It does not parse EditText or shape bodies the writer never emits.
+Installer maps SwfError to "not installed". Native/game NOT_RUN. Do not install 48a3eb3d or 69ee810a.
