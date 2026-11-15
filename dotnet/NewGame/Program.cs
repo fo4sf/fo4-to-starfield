@@ -201,11 +201,12 @@ static class NewGame
     // when MQ101 is stopped (MQ101PostQuest always, MQ_TutorialQuest_Misc04 unless the player entered the Unity; PC
     // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass once the vault has loaded; and SQ_ENV
     // (248D20), Starfield's environment system for the player (S13 row 2b, owner decision of 15 Nov): its player alias
-    // gives the 17 ENV abilities (suit integrity damage, the O2 adjustment, the extreme-environment soak, water damage,
-    // afflictions; PC read of 15 Nov, result-pc-read-s13-2b-env), none comes from the race or the player NPC_, and no
-    // game setting switches them off. Stopping the quest clears the alias and so its spells (Bethesda alias rule; that
-    // Starfield removes them, and that nothing else breaks without SQ_ENV, is unverified until the PC run). Fallout
-    // radiation comes later from our own systems (S9). A --hold list without SQ_ENV keeps Starfield's environment.
+    // gives 17 ENV abilities (suit integrity damage, the O2 adjustment, the extreme-environment soak, water damage,
+    // afflictions; PC read of 15 Nov, result-pc-read-s13-2b-env), and no game setting switches them off. Not SQ_ENV's:
+    // HumanRace's two ENV_AFFL_AddHitSpellPerk abilities and placed local hazards (vents, pools, clouds), which the PC
+    // run checks. Stopping the quest clears the alias and so its spells (Bethesda alias rule; that Starfield removes
+    // them, and that nothing else breaks without SQ_ENV, is unverified until the PC run). Fallout radiation comes later
+    // from our own systems (S9). A --hold list without SQ_ENV keeps Starfield's environment.
     const string OpeningEdid = "MQ101";
     public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV" };
     // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no

@@ -76,8 +76,9 @@ STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage 
 # override of 10 was the developer start at the pirate fight (28 Oct run 1: opening_stage=250, our quest stood down);
 # the second build's 2 matched no start and hung the first load (28 Oct run 2). MQ00's stage 10 writes 10 but is not a
 # start-up stage, so vanilla never does. SQ_ENV (248D20) is Starfield's environment system for the player: its alias
-# gives the 17 ENV abilities (hazard and suit-integrity damage, the O2 adjustment, afflictions; PC read 15 Nov), so
-# holding it off is S13 row 2b's "no Starfield environment damage" (owner decision 15 Nov; unverified in game).
+# gives 17 ENV abilities (hazard and suit-integrity damage, the O2 adjustment, afflictions; PC read 15 Nov), so
+# holding it off is S13 row 2b's first step to "no Starfield environment damage" (owner decision 15 Nov; unverified
+# in game). Not SQ_ENV's: HumanRace's two ENV_AFFL hit-spell abilities and placed local hazards.
 DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV")
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
@@ -510,7 +511,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Starfield environment: {'SQ_ENV held off (no Starfield hazard or suit damage; unverified until the PC run)' if 'SQ_ENV' in (a.hold or ','.join(DEFAULT_HOLD)).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
+Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in (a.hold or ','.join(DEFAULT_HOLD)).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py

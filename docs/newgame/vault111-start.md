@@ -376,15 +376,20 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
     records test the pack keyword directly (`ENV_DMG_SuitIntegrityFailure_Ability` 23BE19,
     `ENV_CND_BaseO2_NoBackpack_NormalO2` 231112). Drawing the body is a separate set of conditions
     (`ActorShouldShow*`), which is why the body keyword hid the body.
-  - **Every ENV ability the player has comes from one quest,** SQ_ENV 248D20, through its player alias's spells: 17 of
-    them (the five extreme-environment soaks, suit integrity, the O2 adjustment, the six water damages, restore damage
-    and soak, afflictions, the sealed-environment audio). None comes from HumanRace or the player NPC_.
+  - **SQ_ENV 248D20 gives the player 17 ENV abilities** through its player alias's spells: the five
+    extreme-environment soaks, suit integrity, the O2 adjustment, the six water damages, restore damage and soak,
+    afflictions, the sealed-environment audio.
+  - **Not SQ_ENV's:** `HumanRace` 00347D carries two `ENV_AFFL_AddHitSpellPerk_Ability_Humans_*` abilities (affliction
+    hit spells); the player NPC_ has the perks `Env_HideWaterActivation` and `ENV_OxygenUseMult` (the latter at zero
+    gravity only). Placed local hazards are separate (below).
   - **Mars** (`MarsPlanetData` 03F59A) carries a CO2, thin, cold, no-magnetosphere set of planet keywords. Placed local
     hazards (vents, pools, clouds) are separate `ENV_*Hazard*` records.
 - **The route taken: hold off SQ_ENV, and top the O2 capacity up.**
   - **Why SQ_ENV:** one entry on the existing hold list (`DefaultHold`; the script stops it in both hold-off passes,
     logged `held off [Quest <SQ_ENV ...>]`). Stopping a quest clears its aliases and so the alias spells: that switches
-    every ENV ability off for the player at once, with no record override. The other candidates were bigger or
+    SQ_ENV's 17 abilities off for the player at once, with no record override. It is the first step toward the owner's
+    goal (no Starfield hazard at all), not proof of it: the race's hit-spell abilities and placed local hazards stay
+    until the PC run shows whether they apply in our cells. The other candidates were bigger or
     partial: overriding 23C7BD (with an OR on a global of ours, rewritten as three OR pairs) leaves the two direct
     pack-keyword tests and the water abilities; Mars' planet record is a whole override of a vanilla planet with
     Starfield quests on it; a perk or ability of ours would have to undo 17 effects one by one.
@@ -400,7 +405,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   - that health holds on Mars with nothing worn, the dial stays white and the body is drawn;
   - what else SQ_ENV does: the HUD's environment readouts, Starfield's own scripts that read it (Papyrus log errors
     naming SQ_ENV), sprint O2 (an engine stamina cost, fSprintOxygen*, not SQ_ENV's);
-  - placed local hazards in our cells, if any, still hurt: they are not SQ_ENV's.
+  - placed local hazards in our cells, if any, still hurt: they are not SQ_ENV's;
+  - HumanRace's two `ENV_AFFL_AddHitSpellPerk` abilities: whether any hit or hazard on Mars applies an affliction
+    through them (`player.hasspell` for each, and the active effects list after damage).
 
 ## 5. What Vault 111 needs from the port today
 

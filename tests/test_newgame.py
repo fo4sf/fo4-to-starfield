@@ -275,8 +275,9 @@ class ContractTests(unittest.TestCase):
 
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
-        damage and the body stays drawn. No game setting switches it off; SQ_ENV's player alias gives every ENV ability
-        (PC read 15 Nov), so SQ_ENV is on the default hold list, and the quest tops 0002E2 up to 100 right after the
+        damage and the body stays drawn. No game setting switches it off; SQ_ENV's player alias gives 17 ENV abilities
+        (PC read 15 Nov; HumanRace's two hit-spell abilities and placed local hazards are not SQ_ENV's and are the PC
+        run's to check), so SQ_ENV is on the default hold list, and the quest tops 0002E2 up to 100 right after the
         reset for the O2/CO2 dial. No stand-in piece and no record override: the plugin's only Starfield links are
         script properties. --no-o2-fill and a --hold without SQ_ENV are the ways back; the selftest covers both."""
         cs, psc = read(CS), read(PSC)
