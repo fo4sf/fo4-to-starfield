@@ -187,13 +187,22 @@ int Property VaultSuitId = 0 Auto Const
 
 Armor Property StandInSuit Auto Const
 {The environment stand-in (S13 row 2b; the writer's default with the reset, --no-env-standin leaves these None): our
- model-less ARMO with Starfield's ArmorTypeSpacesuitBody keyword. The surface's environmental damage checks a worn
- spacesuit keyword (PC run, 15 Nov), and the reset takes Starfield's suit away. The stand-in until the FO4 vault suit.}
+ model-less ARMO with Starfield's ArmorTypeSpacesuitBody keyword. The surface's environmental damage checks worn
+ spacesuit keywords (PC runs, 15 Nov), and the reset takes Starfield's suit away. The stand-in until the FO4 vault suit.}
 Armor Property StandInHelmet Auto Const
 {The stand-in helmet: our model-less ARMO with the ArmorTypeSpacesuitHelmet keyword.}
-Spell Property StandInAbility Auto Const
-{The stand-in's constant ability: the Constellation suit set's ENV_Resist values and 0002E2 +100, the value that
- clears the O2/CO2 dial (PC run, 15 Nov).}
+Armor Property StandInBackpack Auto Const
+{The stand-in pack: our model-less ARMO with the ArmorTypeSpacesuitBackpack keyword (the damage stopped only once a
+ pack was worn too, PC run at ec205655).}
+ActorValue[] Property StandInValues Auto Const
+{The Constellation suit set's values, added once with ModValue right after the reset (a constant ability applied none
+ of them at ec205655; console modav did): ENV_Resist_Airborne, Corrosive, Radiation, Thermal, then 0002E2, the value
+ that clears the O2/CO2 dial. StandInAmount0 to 4 are their amounts, in the same order.}
+float Property StandInAmount0 = 0.0 Auto Const
+float Property StandInAmount1 = 0.0 Auto Const
+float Property StandInAmount2 = 0.0 Auto Const
+float Property StandInAmount3 = 0.0 Auto Const
+float Property StandInAmount4 = 0.0 Auto Const
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -210,6 +219,8 @@ int vaultMoves = 0                                           ; MoveTo calls onto
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
 bool podChecked = false
+bool standInWorn = false
+int standInTries = 0
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
 int surfaceMoves = 0
 int surfaceSets = 0
@@ -414,6 +425,9 @@ Event OnTimer(int aiTimerID)
     elseif stage == 40
         CheckLanding(player)
     endif
+    if stage >= 10
+        KeepStandInWorn(player)                          ; every tick: the creator or a menu may take a piece off
+    endif
     if ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
@@ -548,24 +562,82 @@ Function ResetInventory(Actor player)
 EndFunction
 
 Function EnvStandIn(Actor player)
-{The environment stand-in (S13 row 2b), right after the reset: the ability with the suit's values, then the two
- model-less pieces with the spacesuit keywords, added and equipped silently. Logged as "env stand-in ability=<bool>
- suit=<bool> helmet=<bool>"; a build without it (None properties) logs nothing.}
-    if StandInAbility == None && StandInSuit == None && StandInHelmet == None
+{The environment stand-in (S13 row 2b), once, right after the reset: the pieces into the inventory and the suit's values
+ added with ModValue, read back and logged as "env stand-in values <value>=<read> ..."; KeepStandInWorn equips the
+ pieces on the ticks that follow. A build without it (None properties) logs nothing.}
+    if StandInSuit == None && StandInHelmet == None && StandInBackpack == None && StandInValues == None
         return
     endif
-    if StandInAbility != None
-        player.AddSpell(StandInAbility, false)
+    Armor[] pieces = new Armor[3]
+    pieces[0] = StandInSuit
+    pieces[1] = StandInHelmet
+    pieces[2] = StandInBackpack
+    int i = 0
+    while i < pieces.Length
+        if pieces[i] != None && player.GetItemCount(pieces[i]) < 1
+            player.AddItem(pieces[i], 1, true)
+        endif
+        i += 1
+    endwhile
+    string line = "env stand-in values"
+    if StandInValues != None
+        float[] amounts = new float[5]
+        amounts[0] = StandInAmount0
+        amounts[1] = StandInAmount1
+        amounts[2] = StandInAmount2
+        amounts[3] = StandInAmount3
+        amounts[4] = StandInAmount4
+        i = 0
+        while i < StandInValues.Length && i < amounts.Length
+            ActorValue av = StandInValues[i]
+            if av != None
+                player.ModValue(av, amounts[i])
+                line += " " + i + "=" + player.GetValue(av)
+            else
+                line += " " + i + "=none"
+            endif
+            i += 1
+        endwhile
     endif
-    if StandInSuit != None
-        player.AddItem(StandInSuit, 1, true)
-        player.EquipItem(StandInSuit, false, true)
+    Trace(line)
+EndFunction
+
+Function KeepStandInWorn(Actor player)
+{Equips each stand-in piece that is not worn (at ec205655 a silent EquipItem right after AddItem at the pod did not
+ take; by hand later it did). Logged when the state changes ("env stand-in worn ..." / "env stand-in not worn ...")
+ and every tenth try while not all are worn.}
+    if StandInSuit == None && StandInHelmet == None && StandInBackpack == None
+        return
     endif
-    if StandInHelmet != None
-        player.AddItem(StandInHelmet, 1, true)
-        player.EquipItem(StandInHelmet, false, true)
+    bool suit = WearStandIn(player, StandInSuit)
+    bool helmet = WearStandIn(player, StandInHelmet)
+    bool pack = WearStandIn(player, StandInBackpack)
+    bool all = suit && helmet && pack
+    if !all
+        standInTries += 1
     endif
-    Trace("env stand-in ability=" + (StandInAbility != None && player.HasSpell(StandInAbility)) + " suit=" + (StandInSuit != None && player.IsEquipped(StandInSuit)) + " helmet=" + (StandInHelmet != None && player.IsEquipped(StandInHelmet)))
+    if all != standInWorn || (!all && standInTries % 10 == 1)
+        string wornText = "not worn"
+        if all
+            wornText = "worn"
+        endif
+        Trace("env stand-in " + wornText + " suit=" + suit + " helmet=" + helmet + " backpack=" + pack + " tries=" + standInTries)
+    endif
+    standInWorn = all
+EndFunction
+
+bool Function WearStandIn(Actor player, Armor piece)
+{One stand-in piece: none in this build counts as worn; one missing from the inventory is added again first.}
+    if piece == None
+        return true
+    endif
+    if !player.IsEquipped(piece)
+        if player.GetItemCount(piece) < 1
+            player.AddItem(piece, 1, true)
+        endif
+        player.EquipItem(piece, false, true)
+    endif
+    return player.IsEquipped(piece)
 EndFunction
 
 Function InVault(Actor player, int stage)

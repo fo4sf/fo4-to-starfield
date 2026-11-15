@@ -55,11 +55,11 @@
 //        --keep-inventory) names an ARMO of FO4Port.esm the script then adds and equips, resolved here by EditorID
 //        with the same owner check as the other ids (refused when the port lacks it, has two, or it is another
 //        plugin's record).
-//        The environment stand-in (default on with the reset, S13 row 2b): ARMO FO4SF_NewGameStandInSuit and
-//        FO4SF_NewGameStandInHelmet (no model; the slots and race of Starfield's Constellation suit pieces; the keywords
-//        ArmorTypeSpacesuitBody / Helmet) and SPEL FO4SF_NewGameStandInAbility (a constant ability: the suit set's
-//        ENV_Resist values and 0002E2 +100, five MGEF FO4SF_NewGameStandIn_<value>), which the script adds and equips
-//        right after the reset; --no-env-standin builds without them, and a --keep-inventory build has none.
+//        The environment stand-in (default on with the reset, S13 row 2b): ARMO FO4SF_NewGameStandInSuit, Helmet and
+//        Backpack (no model; the slots and race of Starfield's Constellation suit pieces; the keywords
+//        ArmorTypeSpacesuitBody / Helmet / Backpack) and the suit set's values (ENV_Resist_* and 0002E2), which the script
+//        adds with ModValue right after the reset, and keeps the pieces equipped from then on; --no-env-standin builds
+//        without them, and a --keep-inventory build has none.
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -172,23 +172,30 @@ static class NewGame
     // suit protects through four OMOD actor-value adds (ENV_Resist_*, set totals 5 / 35 / 30 / 50) and the pack's 0002E2
     // +100 (no record in Starfield.esm; alone it clears the dial, Oxygen then reads 100); the surface damage stopped only
     // while the real suit was worn, the same values alone did not stop it, and the console traced WornHasKeyword
-    // ArmorTypeSpacesuitBody / Helmet conditions. So the stand-in is ours: two ARMO carrying those keywords, with no model
-    // (nothing Starfield on screen), the slots and race copied from the vanilla pieces, and one constant ability with the
-    // suit's values. It is the stand-in until the FO4 vault suit lands; --no-env-standin builds without it, and a
-    // --keep-inventory build has none (the player keeps Starfield's suit). Whether these records stop the damage as the
-    // real suit does is unverified until the PC run.
+    // ArmorTypeSpacesuitBody / Helmet conditions. So the stand-in is ours: ARMO carrying those keywords, with no model
+    // (nothing Starfield on screen) and the slots and race copied from the vanilla pieces, and the suit's values. It is
+    // the stand-in until the FO4 vault suit lands; --no-env-standin builds without it, and a --keep-inventory build has
+    // none (the player keeps Starfield's suit).
+    // The PC run at ec205655 (15 Nov) failed and shaped this: a constant ability (SPEL + five value-modifier MGEF)
+    // was added but applied none of its values (0002E2 and ENV_Resist read 0), so the script now adds them with
+    // Actor.ModValue, which is what console modav does and what cleared the dial; the pieces, equipped silently right
+    // after AddItem at the pod, were not worn (by hand later they were), so the script re-equips them on every tick
+    // from stage 10; and body + helmet with the values did not stop the surface damage, which stopped once the pack
+    // was worn too, so a third piece carries ArmorTypeSpacesuitBackpack (keyword or the pack's own values: not yet
+    // separated). Whether this stops the damage is unverified until the next PC run.
     public const bool DefaultEnvStandIn = true;
-    public const uint StandInEffectBase = 0x820, StandInAbilityId = 0x828, StandInSuitId = 0x829, StandInHelmetId = 0x82A;
+    public const uint StandInSuitId = 0x829, StandInHelmetId = 0x82A, StandInBackpackId = 0x82B;
     public const string StandInSuitEdid = "FO4SF_NewGameStandInSuit", StandInHelmetEdid = "FO4SF_NewGameStandInHelmet",
-                        StandInAbilityEdid = "FO4SF_NewGameStandInAbility", StandInEffectPrefix = "FO4SF_NewGameStandIn_";
+                        StandInBackpackEdid = "FO4SF_NewGameStandInBackpack";
     // the vanilla piece each stand-in copies its slot and race from, and the keyword it carries (Starfield.esm, PC read 15 Nov)
     public static readonly (uint Id, string Edid, string Name, string Template, uint TemplateId, string Keyword, uint KeywordId)[] StandInPieces =
     {
         (StandInSuitId, StandInSuitEdid, "Vault stand-in suit (temporary)", "Spacesuit_Constellation_01", 0x1E2B18, "ArmorTypeSpacesuitBody", 0x23C7C0),
         (StandInHelmetId, StandInHelmetEdid, "Vault stand-in helmet (temporary)", "Spacesuit_Constellation_Helmet_01", 0x1E2B17, "ArmorTypeSpacesuitHelmet", 0x23C7C1),
+        (StandInBackpackId, StandInBackpackEdid, "Vault stand-in pack (temporary)", "Spacesuit_Constellation_Backpack_01", 0x1E2B19, "ArmorTypeSpacesuitBackpack", 0x23C7BF),
     };
-    // the suit set's actor values: the MGEF name, the AVIF EditorID (null: the engine value with no record, linked by id
-    // alone), its Starfield.esm id and the magnitude
+    // the suit set's actor values (the script's ModValue amounts): a name, the AVIF EditorID (null: the engine value with
+    // no record, linked by id alone), its Starfield.esm id and the amount
     public static readonly (string Name, string? Edid, uint Id, float Magnitude)[] StandInValues =
     {
         ("Airborne", "ENV_Resist_Airborne", 0x248D31, 5f), ("Corrosive", "ENV_Resist_Corrosive", 0x248D30, 35f),
@@ -524,7 +531,7 @@ static class NewGame
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
         var plat = Floats(pts.GetProperty("platform").GetProperty("pos"));
         var arr = Floats(pts.GetProperty("arrival").GetProperty("pos"));
-        return new()
+        var list = new List<(string Name, object Value)>
         {
             ("VaultAnchorId", (int)p.VaultAnchor), ("AnchorX", p.AnchorPos.X), ("AnchorY", p.AnchorPos.Y), ("AnchorZ", p.AnchorPos.Z),
             ("PodX", pod[0]), ("PodY", pod[1]), ("PodZ", pod[2]), ("PodHeading", pts.GetProperty("pod").GetProperty("heading").GetSingle()),
@@ -538,6 +545,9 @@ static class NewGame
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
         };
+        // the stand-in's ModValue amounts, in StandInValues' order (StandInAmount0 to 4; the script's defaults are 0)
+        if (o.StandIn) list.AddRange(StandInValues.Select((v, i) => ($"StandInAmount{i}", (object)v.Magnitude)));
+        return list;
     }
 
     /// The looks script's value properties (its StartMessage is an object property, written beside them).
@@ -638,14 +648,10 @@ static class NewGame
             for (int i = 0; i < SpecialNames.Length; i++) { var av = SpecialAvif(modKey, i); avifs.Add(av); mod.ActorValueInformation.Add(av); }
         }
 
-        // the environment stand-in (S13 row 2b): the script adds and equips these right after the inventory reset
+        // the environment stand-in (S13 row 2b): the script adds these right after the inventory reset and keeps them worn
         var standIn = o.StandIn ? StandIn(sf, modKey) : null;
         if (standIn is not null)
-        {
-            foreach (var e in standIn.Effects) mod.MagicEffects.Add(e);
-            mod.Spells.Add(standIn.Ability);
             foreach (var a in standIn.Armors) mod.Armors.Add(a);
-        }
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
@@ -677,7 +683,10 @@ static class NewGame
         {
             script.Properties.Add(Obj("StandInSuit", standIn.Armors[0].FormKey));
             script.Properties.Add(Obj("StandInHelmet", standIn.Armors[1].FormKey));
-            script.Properties.Add(Obj("StandInAbility", standIn.Ability.FormKey));
+            script.Properties.Add(Obj("StandInBackpack", standIn.Armors[2].FormKey));
+            var values = new SF.ScriptObjectListProperty { Name = "StandInValues", Flags = SF.ScriptProperty.Flag.Edited };
+            foreach (var v in StandInValues) values.Objects.Add(Obj("", new FormKey(SfEsm, v.Id)));
+            script.Properties.Add(values);
         }
         foreach (var (name, value) in Properties(pts, places, o))
             script.Properties.Add(ValueProperty(name, value));
@@ -737,7 +746,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = standIn is not null ? StandInHelmetId + 1 : SpecialAvifBase + (uint)SpecialNames.Length;
+        mod.ModHeader.Stats.NextFormID = standIn is not null ? StandInBackpackId + 1 : SpecialAvifBase + (uint)SpecialNames.Length;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
@@ -754,41 +763,17 @@ static class NewGame
         return 0;
     }
 
-    public record StandInRecords(List<SF.MagicEffect> Effects, SF.Spell Ability, List<SF.Armor> Armors);
+    public record StandInRecords(List<SF.Armor> Armors);
 
-    /// The environment stand-in's records (see DefaultEnvStandIn): refused unless Starfield.esm carries the vanilla suit
-    /// pieces, their keywords and the four ENV_Resist values at the ids the PC read; 0002E2 has no record and is linked
-    /// by id alone. The check builds them again and compares.
+    /// The environment stand-in's records (see DefaultEnvStandIn): three model-less ARMO. Refused unless Starfield.esm
+    /// carries the vanilla suit pieces, their keywords and the four ENV_Resist values at the ids the PC read (the script
+    /// links them); 0002E2 has no record and is linked by id alone. The check builds them again and compares.
     public static StandInRecords StandIn(SF.IStarfieldModGetter sf, ModKey modKey)
     {
         var rel = SF.StarfieldRelease.Starfield;
-        var effects = new List<SF.MagicEffect>();
-        var ability = new SF.Spell(new FormKey(modKey, StandInAbilityId), rel)
-        {
-            EditorID = StandInAbilityEdid, Name = "Vault stand-in protection (temporary)", Type = SF.Spell.SpellType.Ability,
-            CastType = SF.CastType.ConstantEffect, TargetType = SF.TargetType.Self, Flags = SF.Spell.Flag.ManualCostCalc,
-        };
-        for (int i = 0; i < StandInValues.Length; i++)
-        {
-            var (name, edid, id, magnitude) = StandInValues[i];
-            var av = new FormKey(SfEsm, id);
-            if (edid is not null && !sf.ActorValueInformation.Any(x => x.FormKey == av && x.EditorID == edid))
+        foreach (var (_, edid, id, _) in StandInValues)
+            if (edid is not null && !sf.ActorValueInformation.Any(x => x.FormKey == new FormKey(SfEsm, id) && x.EditorID == edid))
                 throw new Refusal($"Starfield.esm {id:X6} is not the AVIF {edid} (the suit's value): build with --no-env-standin");
-            var e = new SF.MagicEffect(new FormKey(modKey, StandInEffectBase + (uint)i), rel)
-            {
-                EditorID = StandInEffectPrefix + name, Name = $"Vault stand-in {name}",
-                Archetype = new SF.MagicEffectArchetype(SF.MagicEffectArchetype.TypeEnum.ValueModifier),
-                CastType = SF.CastType.ConstantEffect, TargetType = SF.TargetType.Self,
-                Flags = SF.MagicEffect.Flag.NoDuration | SF.MagicEffect.Flag.NoArea | SF.MagicEffect.Flag.HideInUI,
-            };
-            e.SecondActorValue.SetTo(av);   // a value modifier's actor value is the second one (RadsProbe, FAL-213)
-            effects.Add(e);
-            ability.Effects.Add(new SF.Effect
-            {
-                BaseEffect = new FormLinkNullable<SF.IMagicEffectGetter>(e.FormKey),
-                Data = new SF.EffectData { Magnitude = magnitude, Area = 0, Duration = 0 },
-            });
-        }
         var armors = new List<SF.Armor>();
         foreach (var (id, edid, name, template, templateId, keyword, keywordId) in StandInPieces)
         {
@@ -796,19 +781,20 @@ static class NewGame
                       ?? throw new Refusal($"Starfield.esm {templateId:X6} is not the ARMO {template}: build with --no-env-standin");
             var kw = sf.Keywords.FirstOrDefault(x => x.FormKey == new FormKey(SfEsm, keywordId) && x.EditorID == keyword)
                      ?? throw new Refusal($"Starfield.esm {keywordId:X6} is not the KYWD {keyword}: build with --no-env-standin");
-            // no armature: nothing is drawn (a PowerArmorProbe ARMO without art was worn but not drawn, PC run of #733)
+            // no armature: nothing is drawn (PC run at ec205655: worn by hand, nothing was drawn)
             var armor = new SF.Armor(new FormKey(modKey, id), rel) { EditorID = edid, Name = name, FirstPersonFlags = tpl.FirstPersonFlags, Value = 0, Weight = 0 };
             armor.Race.SetTo(tpl.Race.FormKey);
-            // the keyword in the record and in its keyword component, as PowerArmorProbe writes a spacesuit part's
+            // the keyword in the record and in its keyword component, as PowerArmorProbe writes a spacesuit part's (worn by
+            // hand at ec205655, WornHasKeyword read 1 for body and helmet)
             armor.Keywords = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(kw.FormKey) };
             armor.Components.Add(new SF.KeywordFormComponent { Keywords = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(kw.FormKey) } });
             armors.Add(armor);
         }
-        return new(effects, ability, armors);
+        return new(armors);
     }
 
     static string StandInText(Options o) => o.StandIn
-        ? $"environment stand-in on ({StandInSuitEdid}, {StandInHelmetEdid}, {StandInAbilityEdid}: {string.Join(" ", StandInValues.Select(v => $"{v.Name}+{F(v.Magnitude)}"))})"
+        ? $"environment stand-in on ({StandInSuitEdid}, {StandInHelmetEdid}, {StandInBackpackEdid}; ModValue {string.Join(" ", StandInValues.Select(v => $"{v.Name}+{F(v.Magnitude)}"))})"
         : "environment stand-in off";
 
     /// The stand-in in a plugin read back: absent unless the options ask for it; otherwise exactly the records StandIn
@@ -816,29 +802,17 @@ static class NewGame
     static void CheckStandIn(SF.IStarfieldModGetter sf, SF.IStarfieldModGetter plug, ModKey key, Options o, List<string> problems)
     {
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
+        Need(plug.Spells.Count == 0 && plug.MagicEffects.Count == 0, "the plugin carries SPEL or MGEF records (the stand-in's values are the script's ModValue)");
         if (!o.StandIn)
         {
-            Need(plug.Armors.Count == 0 && plug.Spells.Count == 0 && plug.MagicEffects.Count == 0, "a build without the environment stand-in carries ARMO, SPEL or MGEF records");
+            Need(plug.Armors.Count == 0, "a build without the environment stand-in carries ARMO records");
             Console.WriteLine("  environment stand-in off");
             return;
         }
         StandInRecords want;
         try { want = StandIn(sf, key); }
         catch (Refusal e) { problems.Add(e.Message); return; }
-        Need(plug.Armors.Count == want.Armors.Count && plug.Spells.Count == 1 && plug.MagicEffects.Count == want.Effects.Count,
-             $"{plug.Armors.Count} ARMO, {plug.Spells.Count} SPEL, {plug.MagicEffects.Count} MGEF; expected {want.Armors.Count}, 1 and {want.Effects.Count} (the environment stand-in)");
-        foreach (var w in want.Effects)
-        {
-            var e = plug.MagicEffects.FirstOrDefault(x => x.FormKey == w.FormKey);
-            Need(e is not null && e.EditorID == w.EditorID && e.Archetype.Type == SF.MagicEffectArchetype.TypeEnum.ValueModifier &&
-                 e.CastType == SF.CastType.ConstantEffect && e.TargetType == SF.TargetType.Self &&
-                 e.SecondActorValue.FormKey == w.SecondActorValue.FormKey && !e.Flags.HasFlag(SF.MagicEffect.Flag.Detrimental),
-                 $"MGEF {w.EditorID} is not a constant, beneficial value modifier of {w.SecondActorValue.FormKey}");
-        }
-        var s = plug.Spells.FirstOrDefault(x => x.FormKey == want.Ability.FormKey);
-        Need(s is not null && s.EditorID == StandInAbilityEdid && s.Type == SF.Spell.SpellType.Ability && s.CastType == SF.CastType.ConstantEffect &&
-             s.Effects.Select(x => (x.BaseEffect.FormKey, x.Data?.Magnitude)).SequenceEqual(want.Ability.Effects.Select(x => (x.BaseEffect.FormKey, x.Data?.Magnitude))),
-             $"SPEL {StandInAbilityEdid} is not the constant ability with the suit's values ({string.Join(", ", StandInValues.Select(v => $"{v.Name} +{F(v.Magnitude)}"))})");
+        Need(plug.Armors.Count == want.Armors.Count, $"{plug.Armors.Count} ARMO, expected {want.Armors.Count} (the environment stand-in)");
         foreach (var w in want.Armors)
         {
             var a = plug.Armors.FirstOrDefault(x => x.FormKey == w.FormKey);
@@ -1031,9 +1005,14 @@ static class NewGame
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
                 if (o.StandIn)
-                    foreach (var (pname, id) in new[] { ("StandInSuit", StandInSuitId), ("StandInHelmet", StandInHelmetId), ("StandInAbility", StandInAbilityId) })
+                {
+                    foreach (var (pname, id) in new[] { ("StandInSuit", StandInSuitId), ("StandInHelmet", StandInHelmetId), ("StandInBackpack", StandInBackpackId) })
                         Need(props.TryGetValue(pname, out var sp) && sp is SF.IScriptObjectPropertyGetter so2 && so2.Object.FormKey == new FormKey(key, id), $"property {pname} is not {key}:{id:X6}");
-                int objects = 5 + (o.StandIn ? 3 : 0);
+                    Need(props.TryGetValue("StandInValues", out var vp) && vp is SF.IScriptObjectListPropertyGetter vl &&
+                         vl.Objects.Select(x => x.Object.FormKey).SequenceEqual(StandInValues.Select(v => new FormKey(SfEsm, v.Id))),
+                         $"property StandInValues is not [{string.Join(", ", StandInValues.Select(v => $"{v.Id:X6}"))}] in order");
+                }
+                int objects = 5 + (o.StandIn ? 4 : 0);
                 Need(props.Count == expected.Count + objects, $"{props.Count} properties, expected {expected.Count + objects}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
@@ -1125,7 +1104,7 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x904), rel) { EditorID = "MQ_TutorialQuest_Misc04" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         // what the environment stand-in copies: the suit pieces (slot and race), their keywords and the ENV_Resist values
-        var standInSlots = new[] { SF.FirstPersonFlag.BODY, SF.FirstPersonFlag.Hat };
+        var standInSlots = new[] { SF.FirstPersonFlag.BODY, SF.FirstPersonFlag.Hat, SF.FirstPersonFlag.Backpack };
         for (int i = 0; i < StandInPieces.Length; i++)
         {
             var pc = StandInPieces[i];
@@ -1375,12 +1354,12 @@ static class NewGame
             ("the inventory reset switched off", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ClearInventory")).Data = false),
             ("a vault suit id without the option", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultSuitId")).Data = 0x820),
             ("ClearInventory removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "ClearInventory")),
-            ("the stand-in's capacity magnitude changed", m => m.Spells.First().Effects[StandInValues.Length - 1].Data!.Magnitude = 50f),
-            ("the stand-in's Thermal effect on another value", m => m.MagicEffects.First(e => e.EditorID == StandInEffectPrefix + "Thermal").SecondActorValue.SetTo(new FormKey(SfEsm, 0x248D31))),
+            ("the stand-in's capacity amount changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == $"StandInAmount{StandInValues.Length - 1}")).Data = 50f),
+            ("the stand-in's values out of order", m => { var l = (SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "StandInValues"); (l.Objects[0], l.Objects[3]) = (l.Objects[3], l.Objects[0]); }),
             ("the stand-in helmet lost its spacesuit keyword", m => m.Armors.First(a => a.EditorID == StandInHelmetEdid).Keywords!.Clear()),
+            ("the stand-in pack lost its spacesuit keyword", m => m.Armors.First(a => a.EditorID == StandInBackpackEdid).Keywords!.Clear()),
             ("the stand-in suit in another slot", m => m.Armors.First(a => a.EditorID == StandInSuitEdid).FirstPersonFlags = SF.FirstPersonFlag.Hat),
-            ("the stand-in ability not an ability", m => m.Spells.First().Type = SF.Spell.SpellType.Spell),
-            ("StandInAbility removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "StandInAbility")),
+            ("StandInBackpack removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "StandInBackpack")),
             ("the anchor marked temporary on a persistent one", m => ((SF.ScriptBoolProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "AnchorTemporary")).Data = true),
             ("AnchorTemporary removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "AnchorTemporary")),
             ("the vault cell renamed", m => ((SF.ScriptStringProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultCell")).Data = "FO4Port_Vault111Ent"),

@@ -100,9 +100,9 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
     to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
     items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
     default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
-    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): two
-    invisible pieces with Starfield's spacesuit keywords and the suit's values, so the vault and Mars do not hurt an
-    unsuited player; `--no-env-standin` leaves it out.
+    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): three
+    invisible pieces with Starfield's spacesuit keywords and the suit's values, so the vault and Mars should not hurt an
+    unsuited player (unverified until the next PC run); `--no-env-standin` leaves it out.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -356,23 +356,36 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
     totals). The pack adds 0002E2 +100, a value with no record in Starfield.esm.
   - **verified (console):** 0002E2 +100 alone clears the dial, and Oxygen then reads 100. The four ENV_Resist values
     alone do not clear it.
-  - **verified (console):** on the surface the damage stopped only while the real suit was worn. The same values without
-    it did not stop the damage. The console traced `WornHasKeyword ArmorTypeSpacesuitBody / Helmet` conditions.
-- **The stand-in (default with the reset):**
-  - ARMO `FO4SF_NewGameStandInSuit` and `FO4SF_NewGameStandInHelmet`. They have no armature, so nothing is drawn. They
-    copy the slot and race of `Spacesuit_Constellation_01` 1E2B18 and `Spacesuit_Constellation_Helmet_01` 1E2B17, and
-    carry the keywords `ArmorTypeSpacesuitBody` 23C7C0 and `ArmorTypeSpacesuitHelmet` 23C7C1.
-  - SPEL `FO4SF_NewGameStandInAbility`: a constant ability with five value-modifier MGEFs
-    `FO4SF_NewGameStandIn_<value>` carrying the four totals and 0002E2 +100.
-  - Right after the reset the quest adds the ability, then adds and equips both pieces silently, and logs
-    `env stand-in ability=<bool> suit=<bool> helmet=<bool>`. `make_newgame.py log` prints it as `env_standin`.
+  - **verified (console):** the surface damage stopped only while the real suit was worn. The console traced
+    `WornHasKeyword ArmorTypeSpacesuitBody / Helmet` conditions.
+- **The first stand-in failed (PC run at `ec205655`, 15 Nov, verified):**
+  - A constant ability (SPEL plus five value-modifier MGEFs) was added (`HasSpell` true), but it applied none of its
+    values: 0002E2 and the ENV_Resist values read 0.
+  - Its two pieces, equipped silently right after AddItem at the pod, were not worn. Equipped by hand later, they were
+    (`WornHasKeyword` 1), and nothing was drawn.
+  - With body and helmet worn and the values added by console, the damage continued. It stopped once the vanilla pack
+    was worn too. That pack also brings its own ENV values, so the keyword and the values are not yet separated.
+- **The stand-in now (default with the reset):**
+  - **Three pieces:** ARMO `FO4SF_NewGameStandInSuit`, `FO4SF_NewGameStandInHelmet` and `FO4SF_NewGameStandInBackpack`.
+    - They have no armature, so nothing is drawn.
+    - They copy the slot and race of the Constellation pieces 1E2B18, 1E2B17 and 1E2B19.
+    - They carry `ArmorTypeSpacesuitBody` 23C7C0, `ArmorTypeSpacesuitHelmet` 23C7C1 and `ArmorTypeSpacesuitBackpack`
+      23C7BF.
+  - **The values:** right after the reset the quest adds the pieces, then adds the suit set's values once with
+    `Actor.ModValue` (what console `modav` does). It logs `env stand-in values <i>=<value read back> ...`. The script
+    gets the values as `StandInValues` (the four AVIFs, then 0002E2 by id) and `StandInAmount0` to `4`.
+  - **Keeping the pieces worn:** on every tick from stage 10, the quest equips any piece that is not worn. It logs
+    `env stand-in worn ...` or `env stand-in not worn ...` when that changes. `make_newgame.py log` prints
+    `env_standin` and `env_standin_worn`.
 - **The way back:** `--no-env-standin` builds without it. A `--keep-inventory` build has none, because the player keeps
   Starfield's suit. The writer refuses the stand-in on a Starfield.esm without those pieces, keywords or values.
-- **Not copied:** the boostpack (its enchantment 092D50 is Starfield movement) and the pack keyword.
-- **Unverified until the PC run:**
-  - whether these records clear the dial and stop the damage as the worn suit does;
-  - whether the engine needs the backpack keyword too;
-  - whether the HUD shows anything for a worn piece without a model.
+- **Not copied:** the boostpack, whose enchantment 092D50 is Starfield movement.
+- **Unverified until the next PC run:**
+  - whether the script resolves 0002E2 (which has no record) as an ActorValue;
+  - whether the tick-by-tick equip holds;
+  - whether the three keywords with these values stop the damage.
+- **Note on ModValue:** it changes the player's values for good, in the save. A later build that takes the stand-in away
+  must take them back off.
 - **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment
   layer for our worlds is S13 row 13 and the planet work.
 

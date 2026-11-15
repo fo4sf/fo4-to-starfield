@@ -124,10 +124,11 @@ DEFAULT_BUILD_VERSION = 1
 # (the default now) is kept for old command lines.
 DEFAULT_CLEAR_INVENTORY = True
 # The environment stand-in (S13 row 2b; Program.cs DefaultEnvStandIn, held equal by tests/test_newgame.py): with the
-# reset, the build also carries two model-less ARMO with Starfield's spacesuit keywords and one constant ability with
-# the Constellation suit set's ENV_Resist values and 0002E2 +100, which the quest adds and equips right after the reset
-# ("env stand-in ability=<b> suit=<b> helmet=<b>"). Without a spacesuit the O2/CO2 dial reads red and Mars hurts the
-# player (PC run at 8c655d22, 15 Nov). The stand-in until the FO4 vault suit lands; --no-env-standin builds without it,
+# reset, the build also carries three model-less ARMO with Starfield's spacesuit keywords (body, helmet, pack), which
+# the quest adds right after the reset and keeps equipped ("env stand-in worn ..."), and the Constellation suit set's
+# ENV_Resist values and 0002E2 +100, added with ModValue ("env stand-in values ..."). Without a spacesuit the O2/CO2
+# dial reads red and Mars hurts the player (PC run at 8c655d22, 15 Nov); the first stand-in (an ability, two pieces
+# equipped at once) failed at ec205655. The stand-in until the FO4 vault suit lands; --no-env-standin builds without it,
 # and a --keep-inventory build has none.
 DEFAULT_ENV_STANDIN = True
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
@@ -156,7 +157,7 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "AddSpell", "HasSpell"],   # AddSpell / HasSpell: the stand-in
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue"],   # ModValue / GetValue: the stand-in
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
@@ -511,7 +512,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Environment stand-in: {'ON (two model-less pieces with the spacesuit keywords and the suit values, the stand-in until the FO4 vault suit; whether it stops the damage is unverified until the PC run)' if env_standin_option(a) else 'off'}.
+Environment stand-in: {'ON (three model-less pieces with the spacesuit keywords, kept equipped, and the suit values by ModValue; the stand-in until the FO4 vault suit; whether it stops the damage is unverified until the PC run)' if env_standin_option(a) else 'off'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -663,7 +664,8 @@ def split_runs(lines, line_re, start="init ", carry=()):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "env_standin", "centered",
+    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "env_standin",
+    "env_standin_worn", "centered",
     "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
     "handed_back", "start", "start_events", "start_wait", "waiting_3d", "fade", "guard", "last_status", "runs",
     "earlier_completed"}.
@@ -687,7 +689,8 @@ def summarize(lines):
     or when the hold-off never ran: run 2 of 28 Oct has only the version line, the game never finished its first load).
     "inventory_cleared" is the reset's line ("removed=<n> left=<n>"; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
-    "env_standin" the environment stand-in's line ("ability=<bool> suit=<bool> helmet=<bool>"; None without it).
+    "env_standin" the environment stand-in's values line ("<i>=<value read back> ..."; None without it) and
+    "env_standin_worn" its last worn line ("worn suit=<b> helmet=<b> backpack=<b> tries=<n>", or "not worn ...").
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
     persistent mode, which never centers, or when the anchor resolved at once). "entered_vault" is the last move's
     verdict, or true once the timer confirms after the load that the start's move took ("enter vault confirmed").
@@ -707,7 +710,7 @@ def summarize(lines):
     stage 200 (kept as history, never as the current result). Lines of other logs are ignored."""
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
-         "inventory_cleared": None, "vault_suit": None, "env_standin": None, "centered": None,
+         "inventory_cleared": None, "vault_suit": None, "env_standin": None, "env_standin_worn": None, "centered": None,
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
@@ -742,8 +745,10 @@ def summarize(lines):
             s["inventory_cleared"] = msg[len("inventory cleared "):]
         elif msg.startswith("vault suit "):
             s["vault_suit"] = msg[len("vault suit "):]
+        elif msg.startswith("env stand-in values"):
+            s["env_standin"] = msg[len("env stand-in values"):].strip()
         elif msg.startswith("env stand-in "):
-            s["env_standin"] = msg[len("env stand-in "):]
+            s["env_standin_worn"] = msg[len("env stand-in "):]
         elif msg.startswith("centered on "):
             if s["centered"] is None:                        # the first centering; a second one is the bound's retry
                 s["centered"] = msg[len("centered on "):]
