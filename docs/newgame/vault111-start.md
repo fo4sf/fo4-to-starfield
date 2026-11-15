@@ -93,12 +93,14 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
 10. **Save version:** the save records the build's version number when the new game starts. Every later load compares
     it with the installed build's and shows a notification when they differ (NG-15, NG-L2; section 4b). Nothing else
     changes (optional script).
-11. **Starting inventory (emptied by default since S13 row 2):** none of Starfield's own starting items (outfit, gear,
-    credits) stay, as Fallout 4's MQ101 empties the inventory. Once the player is confirmed in the vault, before the
-    creator, the quest empties the inventory (whether quest items stay is **unverified**, section 4c) and logs the count;
-    with `--vault-suit <EditorID>` it then adds and equips that armor of the port (NG-K8; section 4c). The port has no
-    vault suit named yet, so **the player starts with nothing** until the vault gives Fallout 4 items. A
-    `--keep-inventory` build is the old start: the player keeps whatever Starfield gives.
+11. **Starting inventory (emptied by default since S13 row 2):** the aim is that none of Starfield's own starting items
+    (outfit, gear, credits) stay, as Fallout 4's MQ101 empties the inventory. Once the player is confirmed in the vault,
+    before the creator, the quest empties the inventory and logs the count; with `--vault-suit <EditorID>` it then adds
+    and equips that armor of the port (NG-K8; section 4c). The port has no vault suit named yet, so the player is meant
+    to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
+    items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
+    default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
+    keeps whatever Starfield gives.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -326,8 +328,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - When on: once the player is confirmed in the vault (the timer's first tick after the 3D has loaded) and before stage
   10, `ResetInventory` calls `player.RemoveAllItems(None, false, false)`, reads `GetItemCount(None)` before and after
   and logs `inventory cleared removed=<n> left=<n>`. Both natives are written with FO4's signatures; Starfield's
-  `ObjectReference.psc` is what the precheck reads, and a miss fails the core script (there is no `--no-...` for it: the
-  property is off, but the script must compile). Starfield's third parameter of `RemoveAllItems` is
+  `ObjectReference.psc` is what the precheck reads, and a miss fails the core script (there is no `--no-...` for it: a
+  `--keep-inventory` build turns the property off, but the script must still compile). Starfield's third parameter of `RemoveAllItems` is
   `abRespectTargetCapacity` (`ObjectReference.psc`, ContentResources.zip, read 29 Oct), so whether quest items stay is
   **unverified**: `left=` says how many items stayed, not which. Whether Starfield's `GetItemCount(None)` counts every
   item, as FO4's does, is **unverified**: both numbers are logged so the proof can say.
