@@ -2987,3 +2987,16 @@ Synthetic branch/packaging controls and guard are recorded on FAL-848 with the e
 head after commit. .NET writer fixtures, real Papyrus compilation, Windows, native
 carrying, game/install and save acceptance remain NOT_RUN here. Reviewer: Courier Copy.
 Draft #790 remains incomplete; see newgame/exit-ascent-pc-card.md and exit-lift.md.
+
+## 2026-11-15 — Codex: S3 marker ancestry reader (offline)
+
+FAL-848 / draft #790: consumed the PC's game-closed record comparison cd413e55 and Scribe FAL-887's pinned
+Mutagen audit. UNAM translated-string normalization, omitted initially-disabled LCID and the constructed core
+CELL do not establish a listing defect. The next missing read is the ordered enclosing GRUP chain.
+
+Added `ref_inspect.py --record-path <full stored ID>` using the existing read-only mmap walker: hashes, actual
+masters, record/group offsets and raw ordered labels, with master qualification for known form-labelled groups.
+It refuses short IDs, wrong/changed hashes, missing/duplicate targets and malformed boundaries; old `--ref`
+behavior remains covered. Synthetic fixtures cover sibling-world isolation and compressed headers without
+payload decoding. The game-closed recipe is [marker-ancestry.md](research/marker-ancestry.md).
+No record fix, setter, game/install action or native acceptance; listing/discovery and full S3 remain open.
