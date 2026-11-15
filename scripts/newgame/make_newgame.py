@@ -12,7 +12,7 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--debug-after-hold N] [--pod-ref HEX] [--terminal-ref HEX]
-                               [--clear-inventory [--vault-suit EDITORID]] [--allow-temporary-anchor]
+                               [--keep-inventory | --vault-suit EDITORID] [--no-o2-fill] [--allow-temporary-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt; its "vault anchor" line says
@@ -75,8 +75,20 @@ STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage 
 # and the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1). MQ101Debug: see below. The first build's
 # override of 10 was the developer start at the pirate fight (28 Oct run 1: opening_stage=250, our quest stood down);
 # the second build's 2 matched no start and hung the first load (28 Oct run 2). MQ00's stage 10 writes 10 but is not a
-# start-up stage, so vanilla never does.
-DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
+# start-up stage, so vanilla never does. SQ_ENV (248D20) is Starfield's environment system for the player: its alias
+# gives 17 ENV abilities (hazard and suit-integrity damage, the O2 adjustment, afflictions; PC read 15 Nov), so
+# holding it off is S13 row 2b's first step to "no Starfield environment damage" (owner decision 15 Nov; unverified
+# in game). Not SQ_ENV's: HumanRace's two ENV_AFFL hit-spell abilities and placed local hazards.
+HOLD_CORE = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV")
+# S13 row 5, the first group (owner 15 Nov, "Companions first"; Program.cs HoldCompanions, held equal by
+# tests/test_newgame.py): Starfield's companion and crew quests found running in our new game (result-pc-read-s13-5-partb).
+HOLD_COMPANIONS = ("COM_Companion_SarahMorgan", "COM_Companion_SarahMorgan_SpeechChallenges",
+                   "COM_Companion_Shared_Sarah", "Com_Companion_Barrett", "COM_Companion_Barrett_SpeechChallenges",
+                   "COM_Companion_Shared_Barrett", "COM_Companion_Andreja", "COM_Companion_Andreja_SpeechChallenges",
+                   "COM_Companion_Shared_Andreja", "COM_Companion_SamCoe", "COM_Companion_SamCoe_SpeechChallenges",
+                   "COM_Companion_SamCoe_Cora", "COM_Companion_Shared_SamCoe", "COM_System_PlayerSharedLines",
+                   "SQ_Companions", "SQ_Crew", "CREW_EliteCrew_Heller", "CREW_GenericCrew")
+DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
@@ -90,9 +102,13 @@ DEBUG_AFTER_HOLD = 2
 DEBUG_INTRO = 0               # Starfield's own intro, entry 2
 DEBUG_START_PIRATES = 10      # the first build's value: Fragment_Stage_0000_Item_10, SetStage 210 and 250 (28 Oct run 1)
 DEBUG_UNMATCHED = 2           # the second build's value: no entry, no move, an endless loading screen (28 Oct run 2)
-# Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
-# which mode is looks-only is unverified until the in-game C1 test
-DEFAULT_RACE_MENU_MODE = 0
+# Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode). FULL_CREATOR_MODE (0)
+# is the full creator, with Starfield's Background and Traits pages. The owner chose a looks-only creator (NG-C3) and
+# the strip-down rule takes Starfield's own new-game content out (system model S13), so the default is 2, the mode the
+# C1 session saw as looks-only (15 Nov, owner PC: mode 2 opened the "Enhance!" creator with only BODY and FACE, closed
+# by the ChargenMenu event, stage 20; mode 1 still showed TRAITS). --race-menu-mode 0 builds the old full creator.
+FULL_CREATOR_MODE = 0
+DEFAULT_RACE_MENU_MODE = 2
 # SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
 # SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
 # 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
@@ -110,12 +126,19 @@ SPECIAL_MAX_PRESSES = 300
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
-# OFF until an in-game run shows what Starfield leaves the player with when MQ101 never runs. --clear-inventory
-# makes the quest script call RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity,
-# so whether quest items stay is unverified) once the player is in the vault and log "inventory cleared removed=<n>
-# left=<n>"; --vault-suit <EditorID> (only with it) names the port's ARMO the script then adds and equips ("vault suit
-# equipped ..."), resolved offline by the writer with the same owner checks as the other ids.
-DEFAULT_CLEAR_INVENTORY = False
+# ON by default since S13 row 2: the strip-down rule takes Starfield's own new-game items (outfit, gear, credits) out,
+# as FO4's MQ101 empties the inventory, and what Starfield leaves when MQ101 never runs is unresolved (run 4). The
+# quest script calls RemoveAllItems (FO4's arguments; Starfield's third parameter is abRespectTargetCapacity, so
+# whether quest items stay is unverified) once the player is in the vault and logs "inventory cleared removed=<n>
+# left=<n>"; --vault-suit <EditorID> names the port's ARMO the script then adds and equips ("vault suit equipped
+# ..."), resolved offline by the writer with the same owner checks as the other ids. Until the port has a vault suit
+# the player starts with nothing. --keep-inventory builds the old start (Starfield's items kept); --clear-inventory
+# (the default now) is kept for old command lines.
+DEFAULT_CLEAR_INVENTORY = True
+# The O2/CO2 dial with no suit (S13 row 2b; Program.cs DefaultO2Fill, held equal by tests/test_newgame.py): with the
+# reset the quest tops 0002E2 (a pack's O2 capacity) up to 100 with ModValue right after it, which clears the dial
+# (PC, 15 Nov), and logs "o2 capacity added=<n> value=<n>". --no-o2-fill leaves it out; --keep-inventory has none.
+DEFAULT_O2_FILL = True
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
 # terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
@@ -134,7 +157,7 @@ LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 # the natives each script calls and the events it handles, by the base script that must declare them (precheck).
 # Events are declarations too (Event OnMenuOpenCloseEvent in ScriptObject.psc), looked up the same way.
 NATIVES = {
-    # the inventory reset (ClearInventory, off by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
+    # the inventory reset (ClearInventory, on by default) calls RemoveAllItems, GetItemCount, AddItem, EquipItem and
     # IsEquipped with FO4's signatures; whether Starfield's declare them the same way is what this precheck reads. The
     # temporary-anchor mode calls Debug.CenterOnCell(string) (FO4's signature; Starfield's Debug.psc declares it too,
     # read in ContentResources.zip 29 Oct; whether it works in retail is unverified until the PC run).
@@ -142,7 +165,7 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped"],
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue"],   # ModValue / GetValue: the O2 fill
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
@@ -384,17 +407,31 @@ def tool_options(a):
         opts.append("--no-version")
     if a.build_version is not None:
         opts += ["--build-version", str(a.build_version)]
-    if a.clear_inventory:
-        opts.append("--clear-inventory")
+    if a.keep_inventory:
+        if a.clear_inventory:
+            sys.exit("--keep-inventory and --clear-inventory contradict each other")
         if a.vault_suit:
-            opts += ["--vault-suit", a.vault_suit]
+            sys.exit("--vault-suit is equipped by the inventory reset: --keep-inventory turns it off")
+        opts.append("--keep-inventory")
     elif a.vault_suit:
-        sys.exit("--vault-suit is equipped by the inventory reset: stage with --clear-inventory too")
+        opts += ["--vault-suit", a.vault_suit]
     if a.allow_temporary_anchor:
         if a.require_persistent_anchor:
             sys.exit("--allow-temporary-anchor and --require-persistent-anchor contradict each other")
         opts.append("--allow-temporary-anchor")
+    if a.no_o2_fill:
+        opts.append("--no-o2-fill")
     return opts
+
+
+def clear_inventory_option(a):
+    """Whether the build empties the inventory at the pod: DEFAULT_CLEAR_INVENTORY (on) unless --keep-inventory."""
+    return DEFAULT_CLEAR_INVENTORY and not a.keep_inventory
+
+
+def o2_fill_option(a):
+    """Whether the quest tops the O2 capacity up after the reset: DEFAULT_O2_FILL with the reset, unless --no-o2-fill."""
+    return DEFAULT_O2_FILL and clear_inventory_option(a) and not a.no_o2_fill
 
 
 def mq101debug_option(a):
@@ -467,7 +504,8 @@ def stage(a):
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
-                        "clear_inventory": bool(a.clear_inventory), "vault_suit": a.vault_suit if a.clear_inventory else None,
+                        "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
+                        "o2_fill": o2_fill_option(a),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -481,7 +519,8 @@ MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and F
 master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
-Inventory reset at the pod: {('ON (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none')) if a.clear_inventory else 'off (the default until the first in-game proof)'}.
+Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
+Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in (a.hold or ','.join(DEFAULT_HOLD)).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -633,8 +672,8 @@ def split_runs(lines, line_re, start="init ", carry=()):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "centered",
-    "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
+    "special", "version_saved", "version_load", "version_mismatch", "inventory_cleared", "vault_suit", "o2_capacity",
+    "centered", "entered_vault", "pod_settle", "surfaced", "landed", "fell", "stood_down", "stand_down", "handing_back",
     "handed_back", "start", "start_events", "start_wait", "waiting_3d", "fade", "guard", "last_status", "runs",
     "earlier_completed"}.
     Our own start (newgame_v11, the startup quest): "start" is the start's first line ("<route> player_loaded=<bool>
@@ -657,6 +696,7 @@ def summarize(lines):
     or when the hold-off never ran: run 2 of 28 Oct has only the version line, the game never finished its first load).
     "inventory_cleared" is the reset's line ("removed=<n> left=<n>"; None when the build kept the inventory) and
     "vault_suit" the suit's ("equipped <armor> worn=<bool>", or that it did not resolve; None when none was named).
+    "o2_capacity" is the O2 fill's line ("added=<n> value=<n>"; None when the build has none).
     "centered" is the temporary-anchor mode's first centering line ("<cell> attempt=1 tick=<n>: ..."; None in the
     persistent mode, which never centers, or when the anchor resolved at once). "entered_vault" is the last move's
     verdict, or true once the timer confirms after the load that the start's move took ("enter vault confirmed").
@@ -676,7 +716,7 @@ def summarize(lines):
     stage 200 (kept as history, never as the current result). Lines of other logs are ignored."""
     s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
          "version_saved": None, "version_load": None, "version_mismatch": False,
-         "inventory_cleared": None, "vault_suit": None, "centered": None,
+         "inventory_cleared": None, "vault_suit": None, "o2_capacity": None, "centered": None,
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
@@ -711,6 +751,8 @@ def summarize(lines):
             s["inventory_cleared"] = msg[len("inventory cleared "):]
         elif msg.startswith("vault suit "):
             s["vault_suit"] = msg[len("vault suit "):]
+        elif msg.startswith("o2 capacity "):
+            s["o2_capacity"] = msg[len("o2 capacity "):]
         elif msg.startswith("centered on "):
             if s["centered"] is None:                        # the first centering; a second one is the bound's retry
                 s["centered"] = msg[len("centered on "):]
@@ -784,7 +826,8 @@ def main(argv=None):
     s.add_argument("--content-resources", default=cr)
     s.add_argument("--no-looks", dest="looks", action="store_false")
     s.add_argument("--race-menu-mode", type=int, default=None,
-                   help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, the full creator)")
+                   help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, looks only: "
+                        f"body and face; {FULL_CREATOR_MODE} is the full creator with Starfield's backgrounds and traits)")
     s.add_argument("--no-special", dest="special", action="store_false",
                    help="no SPECIAL terminal: no FO4SF_NewGameSpecial script, AVIF or its two MESG")
     s.add_argument("--terminal-ref", default=None, help="the SPECIAL terminal in Vault111Cryo, FO4 hex id (default: the cell's terminals, nearest the pod first)")
@@ -804,11 +847,17 @@ def main(argv=None):
                    help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
+    s.add_argument("--keep-inventory", action="store_true",
+                   help="no inventory reset: the player keeps what Starfield gives. By default the quest empties the "
+                        "player's inventory once the player is confirmed in the vault, before stage 10 (NG-K8, S13 row 2; "
+                        "whether quest items stay is unverified)")
     s.add_argument("--clear-inventory", action="store_true",
-                   help="empty the player's inventory once the player is confirmed in the vault, before stage 10 "
-                        "(NG-K8; off by default; whether quest items stay is unverified)")
+                   help="kept for old command lines: the default already empties the inventory")
     s.add_argument("--vault-suit", default=None, metavar="EDITORID",
-                   help="with --clear-inventory: the port's ARMO the script adds and equips after the reset, by EditorID")
+                   help="the port's ARMO the script adds and equips after the reset, by EditorID (refused with --keep-inventory)")
+    s.add_argument("--no-o2-fill", action="store_true",
+                   help="no O2 capacity after the reset: with no suit the O2/CO2 dial then reads red (S13 row 2b; "
+                        "on by default with the reset)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

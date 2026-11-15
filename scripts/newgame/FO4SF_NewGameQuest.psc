@@ -80,7 +80,12 @@ int Property DebugAfterHold = 2 Auto Const
 
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
- MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts). Walked twice: in the start,
+ MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts; SQ_ENV, S13 row 2b; and S13
+ row 5's companion group: COM_Companion_SarahMorgan, COM_Companion_SarahMorgan_SpeechChallenges, COM_Companion_Shared_Sarah,
+ Com_Companion_Barrett, COM_Companion_Barrett_SpeechChallenges, COM_Companion_Shared_Barrett, COM_Companion_Andreja,
+ COM_Companion_Andreja_SpeechChallenges, COM_Companion_Shared_Andreja, COM_Companion_SamCoe,
+ COM_Companion_SamCoe_SpeechChallenges, COM_Companion_SamCoe_Cora, COM_Companion_Shared_SamCoe,
+ COM_System_PlayerSharedLines, SQ_Companions, SQ_Crew, CREW_EliteCrew_Heller, CREW_GenericCrew). Walked twice: in the start,
  right after the move, and again once the vault has loaded, for a quest that started meanwhile (MQ00 is start-game
  enabled, and whether it starts before our start is unverified) and for what MQ101's stage 9000 starts if something had
  started MQ101. Each is stopped only if it runs; each stop is logged with its pass.}
@@ -176,14 +181,20 @@ float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
 
-bool Property ClearInventory = false Auto Const
-{The starting inventory reset (NG-K8, the writer's --clear-inventory; off until an in-game run shows what Starfield
- leaves the player with when MQ101 never runs). True: once the player is in the vault, RemoveAllItems (whether
+bool Property ClearInventory = true Auto Const
+{The starting inventory reset (NG-K8; on by default since S13 row 2, the strip-down of Starfield's own new-game
+ items; the writer's --keep-inventory writes false). True: once the player is in the vault, RemoveAllItems (whether
  quest items stay is unverified, ResetInventory) and the count removed logged as "inventory cleared removed=<n>
  left=<n>"; then VaultSuitId.}
 int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
+ActorValue Property O2Capacity Auto Const
+{Starfield.esm 0002E2, the O2 capacity a spacesuit's pack adds (an engine value with no record; the writer links it by
+ id). With no suit it is 0, Oxygen reads 0 and the O2/CO2 dial is red; +100 clears the dial (PC, 15 Nov). S13 row 2b.}
+float Property O2CapacityAmount = 0.0 Auto Const
+{With ClearInventory, what FillO2 tops O2Capacity up to, once, right after the reset (the writer's default 100;
+ --no-o2-fill and --keep-inventory write 0: nothing). Logged as "o2 capacity added=<n> value=<read back>".}
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -383,6 +394,7 @@ Event OnTimer(int aiTimerID)
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         if ClearInventory
             ResetInventory(player)
+            FillO2(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
@@ -534,6 +546,22 @@ Function ResetInventory(Actor player)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
     endif
+EndFunction
+
+Function FillO2(Actor player)
+{The O2/CO2 dial without a suit (S13 row 2b), once, right after the reset: ModValue (what console modav does) tops
+ O2Capacity up to O2CapacityAmount, so a second call adds nothing. The value stays in the save. Starfield's hazards
+ themselves are switched off by holding off SQ_ENV (the HoldOff list), not here.}
+    if O2Capacity == None || O2CapacityAmount <= 0.0
+        return
+    endif
+    float added = O2CapacityAmount - player.GetValue(O2Capacity)
+    if added > 0.0
+        player.ModValue(O2Capacity, added)
+    else
+        added = 0.0
+    endif
+    Trace("o2 capacity added=" + added + " value=" + player.GetValue(O2Capacity))
 EndFunction
 
 Function InVault(Actor player, int stage)
