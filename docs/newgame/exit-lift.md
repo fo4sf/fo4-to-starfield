@@ -179,3 +179,31 @@ FAL-681 holds the object read (shaft, platform, gates, hatches, sequences). Ther
 The remaining work is script logic only: platform trigger, first-exit edit prompt, door open at rest/closed in the ride,
 control-room call button, ride-down/stay prompt on later step-ons, map reveal and Vault 111-only discovery during the ride,
 and the fast-travel unlock. The pod obstruction (FAL-858/911) still blocks a new-game test.
+
+## FO4 lift sources read on the PC (Gemini (PC), 15 November ~23:46Z; relayed, not re-verified here)
+
+Source: Gemini (PC) report `D:\FO4SF-Owner-Tests\gemini-fo4-lift-sources\REPORT.md`, relayed on FAL-1007 (comment ffcb58a8).
+The report marks each item VERIFIED against Fallout4.esm, Base.zip and the .pex files; I have not checked them myself.
+It closes the "names-only read" gap (S2b) for the elevator scripts. What it means for this design:
+
+- **Door open/closed is already in the lift's own clips.** `stage2` (down, 23.833 s) opens the front gates `b_Gate01/02` from
+  11.0 s and ends in `Stage2Idle`, which holds them open at the floor. `stage3` (up, 9.867 s) closes them within about 1.2 s
+  of its start while the platform rises. So "open while waiting, closed only during the ride" is what FO4's animation does;
+  the open question is whether our converted lift's floor idle (`--rest-after stage2`) really holds the gates open. That is
+  an observation for the lift card, not new script logic.
+- **First-exit prompt = FO4 `vaultExitElevatorSCRIPT` on `RespecTriggerREF` 0008C94A.** On entering the platform trigger it
+  disables controls, then shows `MESG 0019EDEF` (`CharGenFinalChangesMenu`, 3 buttons): 0 SPECIAL menu, 1 looks menu,
+  2 done. Done runs `MenusDone()`: `PlayAnimation("stage3")`, then the fade at the top. Controls come back at MQ102
+  stage 10. This maps directly onto slice S3 (prompt shows, Continue starts the ride).
+- **Return flow: FO4 has no "ride down or stay" message.** The booth button `REFR 0006D13C` (base `ACTI 001A90CA`)
+  forwards through `XAPR` to `000998E2` (`Vault111DescendAgainTriggerScript`): it plays `stage6` (loops `stage7`), waits 5 s,
+  and arms the platform trigger; boarding then plays `stage8` into exterior autoload door 000998E3, and the interior platform
+  trigger `000998E4` plays `reset` then `stage2`. Descending vs staying is just whether the player walks onto the platform.
+  The owner asked for a prompt ("ride down or stay"), so it is **new design in our version, not a port**; slice S6 needs
+  the owner's confirmation of the prompt wording and button behaviour before it is built.
+- **Autoload doors:** interior `0001F180` <-> exterior `000998E3` (Commonwealth cell 0000DD41 / persistent 00018AA2). Consistent
+  with Sole's reading (FAL-1017 comment 2bcf4983): that load is the interior-to-exterior attach, before the marker mover.
+- **Map listing (Gemini (PC), second report):** no supported Starfield Papyrus function lists newly moved markers on the
+  surface map without a load. Vanilla reveals without a load use `AddToMapScanned(true)` on markers already registered in the
+  attached world. Its suggestion, an **inference to test after A2**, is to pair `SetMarkerDiscovered()` with
+  `SetScanned(true)` + `SetRequiresScanning(false)` (or `AddToMapScanned(true)`) after the load. Not part of A2 as cleared.
