@@ -107,6 +107,7 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("ensureHostRoots", src)
         self.assertIn("public dynamic class DialogueMenuFour", src)
         self.assertIn("this.name = HOST_ROOT", src)
+        self.assertIn("Timeline-placed document root may refuse a name write", src)
         self.assertIn("this.Menu_mc = this", src)
         self.assertIn("this[n] = mc", src)
         self.assertNotIn("this.Menu_mc = root", src)

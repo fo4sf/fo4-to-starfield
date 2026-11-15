@@ -3013,3 +3013,8 @@ plugin, not the Vault 111 exit card. Stated target until then: four slots on any
 ensureHostRoots no longer nests a Menu_mc child. The document is named Menu_mc; DialogueList_mc and the
 other host children sit on that root. Class is dynamic. Empty clips, not converted art. Do not install
 48a3eb3d. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: wrap this.name write (FAL-921 note)
+
+ensureHostRoots writes this.name inside try/catch so Error #2078 cannot abort the constructor before
+slots and shuttle subscribe. this.Menu_mc = this still. Do not install 48a3eb3d. Native/game NOT_RUN.

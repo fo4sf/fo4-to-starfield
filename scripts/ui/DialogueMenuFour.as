@@ -171,7 +171,14 @@ package
         {
             // PC FAIL 48a3eb3d: fo4sfOpt* only. FAL-917: Menu_mc is the movie root;
             // DialogueList_mc must be a child of that root, not of a nested clip.
-            this.name = HOST_ROOT;
+            try
+            {
+                this.name = HOST_ROOT;
+            }
+            catch (err:Error)
+            {
+                // Timeline-placed document root may refuse a name write (Error #2078).
+            }
             this.Menu_mc = this;
             var i:int = 0;
             while (i < HOST_CHILD_NAMES.length)
