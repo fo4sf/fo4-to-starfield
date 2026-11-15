@@ -504,6 +504,19 @@ class RebuildPlanTests(unittest.TestCase):
                      "`step=code_obj_shell` ends `late_calls=`"):
             self.assertIn(text, readme, text)
 
+    def test_s1c3_stages_the_stat_page_components(self):
+        # FAL-852 R3: `Error reading Components/ConditionClips/…` sat on the crashing job thread's stack; S1-c3 stages them
+        for text in ("**R2, the read (Claude PC, 15 Nov ~16:45Z", "**R3, the read (Claude PC, 15 Nov ~17:05Z",
+                     "**S1-c3, the slice: the STAT page's components staged", "**S1-c3, the card (Claude PC;",
+                     "**PASS S1-c3:**", "13. Done since (15 Nov 17:05Z)", "**A path Starfield also has is a STOP**"):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-c3, the card"):self.plan.index("**PASS S1-c3:**")]
+        for text in ("--component-movie Components/ConditionClips/<name>", "one launch, under a fresh owner release",
+                     "the dll of `7b1d29aa`", "S1-c2's, unchanged"):
+            self.assertIn(text, card, text)
+        installer = (ROOT / "scripts" / "ui" / "pipboy_probe_install.py").read_text(encoding="utf-8")
+        self.assertIn('ap.add_argument("--component-movie"', installer)
+
     def test_s1_arm_own_key_raise_pause_lower(self):
         # FAL-852 (the owner's S6 card FAL-843): Fallout 4's screen on its own key, the raise, the pause and the lower
         for text in ("**S1-arm, the slice: Fallout 4's screen on its own key", "**S1-arm, the card (Claude PC;",
