@@ -443,14 +443,13 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   not running, pass 2 held off all 18 (`running_after=false`); all 18 read 0 at stage 200 and again about 3 minutes
   later; `SQ_Followers` still ran (1) and SQ_ENV stayed stopped (0); stage 200 was reached; no Papyrus line named them
   after the hold-off, no new error kind, nothing odd in the HUD or dialogue.
-- **The boundary for later row 5 groups (owner, 15 Nov, FAL-883 comment d0777cc0):** do not remove Starfield's
-  companion, follower, crew or group mechanics where parts of them can be rebuilt for Warfare mode. In Warfare, combat
-  is meant to be very hard and the player will want to take a squad with them. So hold off Starfield's *story* quests
-  (as here: the Constellation companions and their crew quests), and keep the reusable runtime plumbing running:
-  `SQ_Followers`, the follower and crew systems, group and command handling, and any quest a squad would need. Survival
-  / Warfare will be a mode the player can toggle; a player who wants a more vanilla, single-player experience of the
-  games turns it off. Every further row 5 group is checked against this boundary before it is scoped, and a quest that
-  could carry squad behaviour stays running.
+- **The boundary for later row 5 groups (owner, 15 Nov, FAL-883 comment d0777cc0):** do not completely eliminate
+  Starfield's companion, follower and crew mechanics where parts of them can be rebuilt for Warfare mode. In Warfare,
+  combat is meant to be very hard and the player will want to take a group (squad, followers) with them. Keeping
+  `SQ_Followers` running while holding off only the 18 Constellation companion and crew story quests (as here) fits
+  that; later row 5 groups preserve the reusable follower, crew and group runtime plumbing. Survival / Warfare will be
+  a mode the player can toggle, so a player who wants a more vanilla, single-player experience of the games can choose
+  that. Every further row 5 group is checked against this boundary before it is scoped.
 
 ## 4f. Starfield's audio logs and tutorials held off (S13 row 5, the second group)
 
