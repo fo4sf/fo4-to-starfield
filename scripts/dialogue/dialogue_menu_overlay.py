@@ -1,7 +1,8 @@
 """Overlay four slots on the player's DialogueMenu movie (FAL-865).
 
 The installer copies Interface/DialogueMenu.swf from the player's Starfield archives at install time and
-adds fo4sfOptN/E/S/W on the DialogueMenu sprite, next to DialogueList_mc. Host ABC stays. Nothing of the
+adds fo4sfOptN/E/S/W inside an unnamed MovieClip on that sprite, next to DialogueList_mc, so a sealed
+DialogueMenu class is not assigned those names. Host ABC stays. Nothing of the
 game is written into Git. Replacing the host movie with a movie of our own is killed (PC FAIL 48a3eb3d,
 69ee810a).
 """
@@ -25,6 +26,8 @@ HOST_ARCHIVE_HINT = "Starfield - Interface.ba2"
 DEFINE_IDS = (
     2, 6, 7, 10, 11, 14, 20, 21, 22, 32, 33, 34, 35, 36, 37, 39, 46, 48, 60, 73, 75, 83, 84, 87, 90, 91,
 )
+PLACE_OBJECT, PLACE_OBJECT3 = 4, 70
+IMPORT_ASSETS, IMPORT_ASSETS2 = 57, 71
 
 
 class OverlayError(ValueError):
@@ -84,7 +87,10 @@ def _swf_body(raw):
     raw = bytes(raw)
     if raw[:3] not in (b"CWS", b"FWS"):
         raise OverlayError("host is not a SWF")
-    body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    try:
+        body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    except zlib.error as e:
+        raise OverlayError("host movie is not a valid compressed SWF") from e
     r = swf.BitReader(body)
     swf.read_rect(r)
     pos = r.align()
@@ -157,13 +163,50 @@ def _place_instance(data):
     return parsed.get("instance"), parsed.get("depth")
 
 
+def _place_depth(code, data):
+    if code == PLACE_OBJECT and len(data) >= 4:
+        return struct.unpack_from("<H", data, 2)[0]
+    if code == swf.PLACE_OBJECT2 and len(data) >= 3:
+        return struct.unpack_from("<H", data, 1)[0]
+    if code == PLACE_OBJECT3 and len(data) >= 4:
+        return struct.unpack_from("<H", data, 2)[0]
+    return None
+
+
+def _import_ids(code, data):
+    ids = []
+    if code == IMPORT_ASSETS:
+        pos = 0
+    elif code == IMPORT_ASSETS2:
+        pos = 2
+    else:
+        return ids
+    if pos + 2 > len(data):
+        return ids
+    n = struct.unpack_from("<H", data, pos)[0]
+    pos += 2
+    for _ in range(n):
+        if pos + 2 > len(data):
+            break
+        ids.append(struct.unpack_from("<H", data, pos)[0])
+        pos += 2
+        z = data.find(b"\x00", pos)
+        if z < 0:
+            break
+        pos = z + 1
+    return ids
+
+
 def next_character_id(tags):
-    """One past the highest Define* character id, any sprite depth."""
+    """One past the highest Define*, import, or extension character id."""
     used = [0]
 
     def walk(items):
         for code, data in items:
             if code in DEFINE_IDS and len(data) >= 2:
+                used.append(struct.unpack_from("<H", data, 0)[0])
+            used.extend(_import_ids(code, data))
+            if code >= 1000 and len(data) >= 2:
                 used.append(struct.unpack_from("<H", data, 0)[0])
             if code == swf.DEFINE_SPRITE and len(data) >= 4:
                 walk(_raw_tags(data, 4))
@@ -173,13 +216,16 @@ def next_character_id(tags):
 
 
 def overlay_inject(host_bytes, width=1920, height=1080):
-    """Keep host ABC; add fo4sfOpt* on the sprite that already has DialogueList_mc."""
+    """Keep host ABC; unnamed MovieClip on Menu_mc holds named fo4sfOpt* (sealed DialogueMenu)."""
     raw = bytes(host_bytes)
     if raw[:3] not in (b"CWS", b"FWS"):
         raise OverlayError("host is not a SWF")
-    body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    try:
+        body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    except zlib.error as e:
+        raise OverlayError("host movie is not a valid compressed SWF") from e
     r = swf.BitReader(body)
-    frame = swf.read_rect(r)
+    swf.read_rect(r)
     pos = r.align()
     rate, count = struct.unpack_from("<HH", body, pos)
     pos += 4
@@ -197,23 +243,25 @@ def overlay_inject(host_bytes, width=1920, height=1080):
         raise OverlayError("host has no sprite that places DialogueList_mc")
     sprite_id, frame_count = struct.unpack_from("<HH", tags[target][1], 0)
     nested = _raw_tags(tags[target][1], 4)
-    depths = [d for nc, nd in nested if nc == swf.PLACE_OBJECT2 for d in [_place_instance(nd)[1]] if d]
+    depths = [d for nc, nd in nested for d in [_place_depth(nc, nd)] if d]
     depth = (max(depths) if depths else 0) + 1
     W, H = width * swf.TWIPS, height * swf.TWIPS
     boxes = wheel.slot_boxes(W, H)
     extras = []
-    places = []
+    inner = []
     cid = next_character_id(tags)
     for i, name in enumerate(wheel.SLOT_NAMES):
         box = boxes[wheel.SLOTS[i]]
         extras.append(swf.define_shape3(cid, [box], swf.PIPBOY_GREEN))
-        places.append(swf.place_named(cid, depth + i, name))
+        inner.append(swf.place_named(cid, i + 1, name))
         cid += 1
+    extras.append(swf.define_sprite(cid, inner))
+    host_place = swf.place_object2(cid, depth)
     new_nested = []
     inserted = False
     for nc, nd in nested:
         if nc == swf.SHOW_FRAME and not inserted:
-            new_nested.extend(places)
+            new_nested.append(host_place)
             inserted = True
         new_nested.append(swf.tag(nc, nd))
     if not inserted:

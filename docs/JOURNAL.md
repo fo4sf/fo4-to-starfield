@@ -3052,3 +3052,8 @@ in Menu_mc. Tag 13 is FontInfo and is not an allocator. Native/game NOT_RUN.
 
 inspect_host walks raw tags. It does not parse EditText or shape bodies the writer never emits.
 Installer maps SwfError to "not installed". Native/game NOT_RUN. Do not install 48a3eb3d or 69ee810a.
+
+## 2026-11-15 — Scribe: Gemini P1–P3 — unnamed slot clip, depths, import ids
+
+Named fo4sfOpt* live in an unnamed MovieClip on Menu_mc (sealed DialogueMenu). Depths include
+PlaceObject/PlaceObject3. Character ids include ImportAssets and tags >= 1000. Native/game NOT_RUN.

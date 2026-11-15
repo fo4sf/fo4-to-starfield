@@ -11,8 +11,10 @@ the game enters the repo.
 import argparse
 import os
 import shutil
+import struct
 import sys
 import tempfile
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -76,7 +78,7 @@ def install(a):
             print(f"concord talk not installed: {killed}", file=sys.stderr)
             sys.exit(1)
         patched = overlay.overlay_inject(host_bytes)
-    except (overlay.OverlayError, overlay.swf.SwfError) as e:
+    except (overlay.OverlayError, overlay.swf.SwfError, zlib.error, struct.error) as e:
         print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
     with tempfile.TemporaryDirectory() as tmp:

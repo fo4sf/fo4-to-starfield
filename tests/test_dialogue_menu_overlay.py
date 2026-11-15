@@ -55,13 +55,52 @@ class OverlayPlanTest(unittest.TestCase):
         sprites = overlay.sprite_instances(movie)
         list_sprite = next(s for s in sprites if host.HOST_LIST in s["instances"])
         for name in wheel.SLOT_NAMES:
-            self.assertIn(name, list_sprite["instances"])
+            self.assertNotIn(name, list_sprite["instances"])
+        nested_names = [n for s in sprites if host.HOST_LIST not in s["instances"] for n in s["instances"]]
+        for name in wheel.SLOT_NAMES:
+            self.assertIn(name, nested_names)
         self.assertIn(host.HOST_ROOT, overlay.root_instances(movie))
 
     def test_refuses_our_wheel_as_host(self):
         reason = overlay.refuse_own_replacement(wheel.movie_bytes())
         self.assertIsNotNone(reason)
         self.assertIn("Menu_mc", reason)
+
+    def test_inject_skips_placeobject3_depth(self):
+        po3 = swf.tag(overlay.PLACE_OBJECT3, bytes([0x06, 0x00]) + struct.pack("<HH", 10, 1) + bytes([0x00]))
+        W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
+        box = (0, 0, 40 * swf.TWIPS, 20 * swf.TWIPS)
+        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+        places = [swf.place_named(1, i + 1, name) for i, name in enumerate(host.HOST_CHILDREN)]
+        body += swf.define_sprite(2, places + [po3])
+        body += swf.place_named(2, 1, host.HOST_ROOT)
+        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+        raw = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        patched = overlay.overlay_inject(raw)
+        blob = zlib.decompress(patched[8:])
+        r = swf.BitReader(blob)
+        swf.read_rect(r)
+        pos = r.align() + 4
+        depths = []
+        for code, data in overlay._raw_tags(blob, pos):
+            if code != swf.DEFINE_SPRITE:
+                continue
+            sid = struct.unpack_from("<H", data, 0)[0]
+            if sid != 2:
+                continue
+            depths = [overlay._place_depth(nc, nd) for nc, nd in overlay._raw_tags(data, 4)]
+        self.assertIn(10, depths)
+        self.assertIn(11, depths)
+
+    def test_inject_skips_importassets_id_9000(self):
+        extra = swf.tag(overlay.IMPORT_ASSETS, struct.pack("<HH", 1, 9000) + b"x\x00")
+        patched = self._patched_ids(extra)
+        movie = swf.read_movie(patched)
+        shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertTrue(all(i != 9000 for i in shape_ids if i))
+        self.assertTrue(any(i and i > 9000 for i in shape_ids))
 
     def test_inspect_skips_edittext_flags_we_do_not_write(self):
         extra = swf.tag(
