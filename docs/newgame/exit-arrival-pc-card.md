@@ -43,12 +43,14 @@ separate kit source head. Do not patch the kit on the PC.
    refusal and budget lines. All required map markers must be in the same runtime
    world at their staged merged targets; the known immovable pad is a separate
    limitation, not a missing map marker that may be silently ignored.
-5. Run stage 40: V111 and player must share a real exterior world and V111 must be
-   at its merged target. Open the surface map **before discovery**, capture all
+5. Open the surface map **before discovery**, capture all
    visible UNKNOWN entries and any automatic named/discovered entry. If Vault 111
    is already discovered, this state cannot measure the call's discovery effect.
-6. Back in the loaded exterior, stage 30 now calls **only V111.SetMarkerDiscovered**.
-   Record before/after/+2 s lines and global fast travel. Open the map immediately,
+6. Back in the loaded exterior, stage 30 calls **only V111.SetMarkerDiscovered**.
+   Its before lines must show V111/player in the same real exterior world and V111
+   at its merged target; otherwise this result is invalid. Record before/after/+2 s
+   lines and global fast travel. Stage 40 then reads all four references. Use stages
+   10/30/40/50 in that order, without 20/60/70. Open the map immediately,
    with no re-entry/reload or player movement that could auto-discover a location.
    Identify V111 by a named `Vault 111` entry at its pinned target. Capture its
    discovered icon/state and an available **Fast Travel** offer; do not travel.
@@ -84,7 +86,9 @@ no subtraction of the old 24.4-second hold predicts this value.
 At arrival capture `surface setposition ok=True`, later `landed ... confirmed=True`,
 `arrival discovery requested` for the canonical V111 reference, and absence of
 `exit failed`. Then repeat A's named discovered icon/Fast Travel/other-location and
-save/menu/load checks. Those map reads prove discovery; the script logs only confirm
+save/menu/load checks. If the game refuses travel because the player is already at
+Vault 111, record that separately and check the offer again after a short safe walk
+without discovering another location. Those map reads prove discovery; the script logs only confirm
 which guarded call ran. A failed arrival, marker not attached or missing map destination
 is failure, not completion. The new source intentionally does not force the global
 fast-travel switch to conceal a failed destination. Owner install and complete S3 remain

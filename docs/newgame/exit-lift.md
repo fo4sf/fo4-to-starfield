@@ -18,8 +18,8 @@ activation, map preparation and arrival discovery are implemented and independen
 reviewed, and the complete exit passes in game. The existing animation and marker probes
 remain temporary session tools. This source slice is not an owner-installable exit.
 
-Map preparation from inside the vault is still unverified. Its result determines the
-preparation route; a visible wait or black hold does not meet the exit requirement.
+Cold map preparation from inside the vault failed the PC card's world-attachment
+criterion. The next route is described below; a visible wait or black hold does not meet the exit requirement.
 The F10 interface and the pre-war start design remain separate work.
 
 ## Arrival discovery slice (FAL-848, 15 November)

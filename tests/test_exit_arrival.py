@@ -4,8 +4,11 @@ This small translator executes only the straight-line/if Papyrus functions below
 not a Papyrus compiler or native-engine model; native placement/discovery remain PC gates.
 It tests the actual branch bodies, so removing a production guard changes these results.
 """
+import contextlib
+import io
 from pathlib import Path
 import re
+import tempfile
 from types import SimpleNamespace
 import unittest
 
@@ -219,6 +222,12 @@ class ArrivalReceiptTests(unittest.TestCase):
         self.assertTrue(result["earlier_completed"])
         self.assertIn("surface_position_not_confirmed", result["exit_failure"])
         self.assertIsNone(result["arrival_discovery_requested"])
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "failure.log"
+            log.write_text("FO4SF_NEWGAME rt=4 exit failed reason=surface_position_not_confirmed stage=30\n"
+                           "FO4SF_NEWGAME rt=5 stage 200\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ng.main(["log", "--file", str(log)]), 1)
 
 
 if __name__ == "__main__":
