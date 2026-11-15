@@ -208,7 +208,20 @@ static class NewGame
     // them, and that nothing else breaks without SQ_ENV, is unverified until the PC run). Fallout radiation comes later
     // from our own systems (S9). A --hold list without SQ_ENV keeps Starfield's environment.
     const string OpeningEdid = "MQ101";
-    public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV" };
+    public static readonly string[] HoldCore = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV" };
+    // S13 row 5, the first group (owner, 15 Nov: "Companions first"): Starfield's companion and crew quests, the
+    // start-game-enabled ones the PC found running in our new game at stage 10 and 200 (result-pc-read-s13-5-partb):
+    // the COM_* companion quests (Sarah Morgan, Barrett, Andreja, Sam Coe and the shared player lines), SQ_Companions,
+    // SQ_Crew and the CREW_* quests. Not held: SQ_Followers (the follower system, not a companion) and
+    // SQ_COM_CREW_AngerCombatOverride (outside the owner's COM_ / CREW_ / SQ_Companions / SQ_Crew group). Whether
+    // they stay stopped, and that nothing else needs them, is unverified until the PC run
+    public static readonly string[] HoldCompanions = { "COM_Companion_SarahMorgan",
+        "COM_Companion_SarahMorgan_SpeechChallenges", "COM_Companion_Shared_Sarah", "Com_Companion_Barrett",
+        "COM_Companion_Barrett_SpeechChallenges", "COM_Companion_Shared_Barrett", "COM_Companion_Andreja",
+        "COM_Companion_Andreja_SpeechChallenges", "COM_Companion_Shared_Andreja", "COM_Companion_SamCoe",
+        "COM_Companion_SamCoe_SpeechChallenges", "COM_Companion_SamCoe_Cora", "COM_Companion_Shared_SamCoe",
+        "COM_System_PlayerSharedLines", "SQ_Companions", "SQ_Crew", "CREW_EliteCrew_Heller", "CREW_GenericCrew" };
+    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).ToArray();
     // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no
     // record) is 0, Oxygen reads 0 and the dial is red; 0002E2 +100 by ModValue or console modav clears it (PC, 15 Nov,
     // verified at 8c655d22 and f96cd32f; the script resolves the id as an ActorValue). So with the reset the quest adds
@@ -993,6 +1006,25 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x903), rel) { EditorID = "MQ101PostQuest" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x904), rel) { EditorID = "MQ_TutorialQuest_Misc04" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x248D20), rel) { EditorID = "SQ_ENV" });   // the real id (PC read 15 Nov)
+        // S13 row 5's companion group, at their real ids (result-pc-read-s13-5-partb)
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x009E99), rel) { EditorID = "COM_Companion_SarahMorgan" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2C5A4A), rel) { EditorID = "COM_Companion_SarahMorgan_SpeechChallenges" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2EFD8C), rel) { EditorID = "COM_Companion_Shared_Sarah" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1C7187), rel) { EditorID = "Com_Companion_Barrett" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x14327D), rel) { EditorID = "COM_Companion_Barrett_SpeechChallenges" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2EFD8B), rel) { EditorID = "COM_Companion_Shared_Barrett" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x23DF2A), rel) { EditorID = "COM_Companion_Andreja" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1EA09A), rel) { EditorID = "COM_Companion_Andreja_SpeechChallenges" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2EFD89), rel) { EditorID = "COM_Companion_Shared_Andreja" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26C5ED), rel) { EditorID = "COM_Companion_SamCoe" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x23EF00), rel) { EditorID = "COM_Companion_SamCoe_SpeechChallenges" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x231A20), rel) { EditorID = "COM_Companion_SamCoe_Cora" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2EFD8A), rel) { EditorID = "COM_Companion_Shared_SamCoe" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x010A7B), rel) { EditorID = "COM_System_PlayerSharedLines" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A567C), rel) { EditorID = "SQ_Companions" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A567D), rel) { EditorID = "SQ_Crew" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1AD42E), rel) { EditorID = "CREW_EliteCrew_Heller" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26C4EA), rel) { EditorID = "CREW_GenericCrew" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -1089,6 +1121,7 @@ static class NewGame
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         // S13 row 2b: Starfield's environment quest is held off by default, and the reset brings the O2 capacity
+        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
         if (!DefaultHold.Contains("SQ_ENV") || !DefaultO2Fill || !plain.O2 || Options.From(new[] { "--no-o2-fill" }).O2 ||
             Options.From(new[] { "--keep-inventory" }).O2) { Console.WriteLine("FAIL  the environment options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
@@ -1131,6 +1164,7 @@ static class NewGame
             ("nearterm", nearTermIds, plain),
             ("noversion", idsPath, plain with { Version = false }), ("version2", idsPath, plain with { BuildVersion = 2 }),
             ("noo2", idsPath, plain with { O2Fill = false }),
+            ("nocompanions", idsPath, plain with { Hold = HoldCore }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -1174,6 +1208,8 @@ static class NewGame
             ("default", plain with { O2Fill = false }, idsPath, "the default (O2 capacity) build as a --no-o2-fill one"),
             ("noo2", plain, idsPath, "a --no-o2-fill build as the default one"),
             ("hold2", plain, idsPath, "a hold list without SQ_ENV as the default one"),
+            ("nocompanions", plain, idsPath, "a hold list without the companion group as the default one"),
+            ("default", plain with { Hold = HoldCore }, idsPath, "the default hold list as one without the companion group"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1205,6 +1241,7 @@ static class NewGame
             ("the DebugAfterHold property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugAfterHold")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the hold list lost SQ_Companions", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + Array.IndexOf(HoldCompanions, "SQ_Companions"))),
             ("the hold list lost SQ_ENV", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(4)),
             ("the O2 capacity amount changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "O2CapacityAmount")).Data = 50f),
             ("the O2 capacity linked to Oxygen", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "O2Capacity")).Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(SfEsm, 0x0002D5))),

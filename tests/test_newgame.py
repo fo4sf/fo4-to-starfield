@@ -273,6 +273,25 @@ class ContractTests(unittest.TestCase):
         self.assertIn("--vault-suit", read(DOC))
         self.assertIn("## 4c. The starting inventory reset", read(DOC))
 
+    def test_companions_held_off(self):
+        """S13 row 5, the first group (owner, 15 Nov: "Companions first"): Starfield's companion and crew quests that the
+        PC found running in our new game (result-pc-read-s13-5-partb) join the default hold list after the core five.
+        Exactly the owner's group: the COM_* quests, SQ_Companions, SQ_Crew and CREW_*; not SQ_Followers (the follower
+        system) nor SQ_COM_CREW_AngerCombatOverride. The selftest builds the list without them as a variant, cross-checks
+        both ways and rejects a list that lost SQ_Companions; the PC run says whether they stay stopped."""
+        cs = read(CS)
+        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS)
+        self.assertEqual(len(ng.HOLD_COMPANIONS), 18)
+        self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
+        for q in ng.HOLD_COMPANIONS:
+            self.assertTrue(q.upper().startswith(("COM_", "CREW_")) or q in ("SQ_Companions", "SQ_Crew"), q)
+            self.assertIn(f'EditorID = "{q}"', cs)                         # the selftest's master has it
+        for q in ("SQ_Followers", "SQ_COM_CREW_AngerCombatOverride"):
+            self.assertNotIn(q, ng.DEFAULT_HOLD)
+        self.assertIn('("nocompanions", idsPath, plain with { Hold = HoldCore })', cs)
+        self.assertIn('"a hold list without the companion group as the default one"', cs)
+        self.assertIn('("the hold list lost SQ_Companions"', cs)
+
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
         damage and the body stays drawn. No game setting switches it off; SQ_ENV's player alias gives 17 ENV abilities
@@ -281,7 +300,7 @@ class ContractTests(unittest.TestCase):
         reset for the O2/CO2 dial. No stand-in piece and no record override: the plugin's only Starfield links are
         script properties. --no-o2-fill and a --hold without SQ_ENV are the ways back; the selftest covers both."""
         cs, psc = read(CS), read(PSC)
-        self.assertEqual(ng.DEFAULT_HOLD[-1], "SQ_ENV")
+        self.assertEqual(ng.HOLD_CORE[-1], "SQ_ENV")
         self.assertTrue(ng.DEFAULT_O2_FILL)
         self.assertIn(f"DefaultO2Fill = {str(ng.DEFAULT_O2_FILL).lower()};", cs)
         self.assertIn("O2CapacityId = 0x0002E2;", cs)
@@ -608,7 +627,10 @@ class ContractTests(unittest.TestCase):
         hold-off (--debug-after-hold); --mq101debug <n> overrides the record for an experiment. NG-19 / NG-N1: the
         default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
-        self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
+        self.assertIn("HoldCore = { " + ", ".join(f'"{q}"' for q in ng.HOLD_CORE) + " }", cs)
+        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).ToArray();", cs)
+        block = cs[cs.index("HoldCompanions = {"):]
+        self.assertEqual(re.findall(r'"([^"]+)"', block[:block.index("};")]), list(ng.HOLD_COMPANIONS))
         self.assertNotIn("DefaultMQ101Debug", cs)
         self.assertIn(f"DefaultDebugAfterHold = {ng.DEBUG_AFTER_HOLD};", cs)
         self.assertIn('ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : null', cs)

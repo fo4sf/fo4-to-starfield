@@ -79,7 +79,16 @@ STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage 
 # gives 17 ENV abilities (hazard and suit-integrity damage, the O2 adjustment, afflictions; PC read 15 Nov), so
 # holding it off is S13 row 2b's first step to "no Starfield environment damage" (owner decision 15 Nov; unverified
 # in game). Not SQ_ENV's: HumanRace's two ENV_AFFL hit-spell abilities and placed local hazards.
-DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV")
+HOLD_CORE = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV")
+# S13 row 5, the first group (owner 15 Nov, "Companions first"; Program.cs HoldCompanions, held equal by
+# tests/test_newgame.py): Starfield's companion and crew quests found running in our new game (result-pc-read-s13-5-partb).
+HOLD_COMPANIONS = ("COM_Companion_SarahMorgan", "COM_Companion_SarahMorgan_SpeechChallenges",
+                   "COM_Companion_Shared_Sarah", "Com_Companion_Barrett", "COM_Companion_Barrett_SpeechChallenges",
+                   "COM_Companion_Shared_Barrett", "COM_Companion_Andreja", "COM_Companion_Andreja_SpeechChallenges",
+                   "COM_Companion_Shared_Andreja", "COM_Companion_SamCoe", "COM_Companion_SamCoe_SpeechChallenges",
+                   "COM_Companion_SamCoe_Cora", "COM_Companion_Shared_SamCoe", "COM_System_PlayerSharedLines",
+                   "SQ_Companions", "SQ_Crew", "CREW_EliteCrew_Heller", "CREW_GenericCrew")
+DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
