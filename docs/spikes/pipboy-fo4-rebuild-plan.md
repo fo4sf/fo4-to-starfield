@@ -1156,11 +1156,14 @@ commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the tes
 
 **PASS S1-c3:** S1-c2's PASS lines: no crash after `code_obj_late_call`, STAT's body drawn, and E turning to INV.
 
-What each other outcome means:
-- **A crash with another file on the stack, or another `Error reading` path:** the next missing file. Next: stage it
-  too (installer only), after a read like R3.
-- **The same crash with no `Error reading` on the stack:** the ConditionClips were not the cause. Next: a read of the
-  object the job reads null (the dump's call list), not a launch.
+What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):
+- **A crash with another file name or another `Error reading` path on the stack:** a lead that this file is missing
+  too. Before it is staged, a read like R3 must show the failed path itself (the full `Error reading` line or the
+  path the opener was asked for) and that the kit does not install it.
+- **The same crash with no `Error reading` on the stack:** not yet proof that the ConditionClips were not the cause
+  (the message may simply not be in captured memory). Next: a read that confirms whether the component loads failed or
+  succeeded (the dump's call list and the path in flight), before the lead is dropped or another staging is chosen.
+  Not a launch.
 - **No crash and no page body:** as S1-c2's outcome of that name.
 - **A body, but E does not turn it:** as S1-c2's outcome of that name.
 

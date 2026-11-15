@@ -516,6 +516,13 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(text, card, text)
         installer = (ROOT / "scripts" / "ui" / "pipboy_probe_install.py").read_text(encoding="utf-8")
         self.assertIn('ap.add_argument("--component-movie"', installer)
+        # FAL-964: S1-c3's other outcomes are leads; a failed path must be shown before staging or dropping the lead
+        outcomes = self.plan[self.plan.index("**PASS S1-c3:**"):self.plan.index("13. Done since (15 Nov 17:05Z)")]
+        self.assertIn("What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):", outcomes)
+        self.assertIn("must show the failed path itself", outcomes)
+        self.assertIn("not yet proof that the ConditionClips were not the cause", outcomes)
+        self.assertNotIn("the ConditionClips were not the cause. Next", outcomes)
+        self.assertNotIn("the next missing file. Next", outcomes)
 
     def test_s1_arm_own_key_raise_pause_lower(self):
         # FAL-852 (the owner's S6 card FAL-843): Fallout 4's screen on its own key, the raise, the pause and the lower
