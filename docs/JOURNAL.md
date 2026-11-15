@@ -2955,3 +2955,10 @@ on that new head. Host names encoded in scripts/dialogue/dialogue_menu_host.py.
 Payload field names UNREAD. Contract in scripts/dialogue/dialogue_menu_shuttle.py: KEEP shuttle, map four
 list rows N/E/S/W, DoABC required, Fallout 4 clips are not the bind. Installer refuses the no-DoABC twin.
 scripts/ui/DialogueMenuFour.as is our names-only AS3, not a compiled movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenu shuttle payload names (FAL-865 / FAL-879)
+
+PC PASS §1b at 55eeb2f0 (file read, no install): DialogueListData.aChoices rows expose sChoiceText,
+bCanBeChosen, bWasAlreadySaid, uEntryID. No index field. Select event DialogueMenu_OnDialogueSelect,
+key selectedIndex carries uEntryID. Encoded in scripts/dialogue/dialogue_menu_shuttle.py. Still no
+compiled DoABC. §2–§3 wait that movie. Native/game NOT_RUN.

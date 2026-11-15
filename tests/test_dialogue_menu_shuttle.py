@@ -13,21 +13,44 @@ import make_dialogue_wheel_swf as wheel  # noqa: E402
 
 
 class ShuttleBindTest(unittest.TestCase):
-    def test_payload_marks_fields_unread(self):
+    def test_payload_uses_pc_pass_names(self):
         payload = shuttle.check(shuttle.shuttle_bind())
-        self.assertTrue(payload["payload_unread"])
-        self.assertEqual(payload["payload_fields"], [])
+        self.assertFalse(payload["payload_unread"])
+        self.assertEqual(
+            payload["payload_fields"],
+            ["DialogueListData", "aChoices", "sChoiceText", "uEntryID", "selectedIndex"],
+        )
+        self.assertEqual(payload["list_provider"], "DialogueListData")
+        self.assertEqual(payload["choices"], "aChoices")
+        self.assertEqual(payload["choice_text"], "sChoiceText")
+        self.assertEqual(payload["entry_id"], "uEntryID")
+        self.assertEqual(payload["select_event"], "DialogueMenu_OnDialogueSelect")
+        self.assertEqual(payload["select_key"], "selectedIndex")
+        self.assertTrue(payload["no_row_index_field"])
+        self.assertFalse(payload["compiled_movie"])
         self.assertTrue(payload["abc_required"])
         self.assertEqual(payload["map_rows"], 4)
         self.assertEqual(payload["keep_shuttle"], list(host.KEEP_SHUTTLE))
         self.assertEqual(payload["host_list"], "DialogueList_mc")
+        self.assertEqual(payload["providers"][0], "DialogueListData")
         self.assertTrue(payload["fo4_slots_are_not_the_bind"])
 
     def test_refuses_invented_payload_fields(self):
         payload = shuttle.shuttle_bind()
         payload["payload_fields"] = ["entryList"]
-        payload["payload_unread"] = False
-        with self.assertRaisesRegex(shuttle.ShuttleError, "UNREAD"):
+        with self.assertRaisesRegex(shuttle.ShuttleError, "payload fields"):
+            shuttle.check(payload)
+
+    def test_refuses_marking_unread_after_pass(self):
+        payload = shuttle.shuttle_bind()
+        payload["payload_unread"] = True
+        with self.assertRaisesRegex(shuttle.ShuttleError, "FAL-879"):
+            shuttle.check(payload)
+
+    def test_refuses_claiming_compiled_movie(self):
+        payload = shuttle.shuttle_bind()
+        payload["compiled_movie"] = True
+        with self.assertRaisesRegex(shuttle.ShuttleError, "compiled"):
             shuttle.check(payload)
 
     def test_refuses_dropping_abc_required(self):
@@ -41,15 +64,19 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertFalse(shuttle.has_doabc(data))
         self.assertIn("DoABC", shuttle.refuse_install_reason(data))
 
-    def test_as3_source_names_shuttle_not_fo4_clips(self):
+    def test_as3_source_names_pc_fields_not_fo4_clips(self):
         path = os.path.join(ROOT, "scripts", "ui", "DialogueMenuFour.as")
         with open(path, encoding="utf-8") as f:
             src = f.read()
         self.assertIn("BSUIDataManager", src)
         self.assertIn("UIDataShuttleConnector", src)
-        self.assertIn("DialogueList_mc", src)
+        self.assertIn("DialogueListData", src)
+        self.assertIn("aChoices", src)
+        self.assertIn("sChoiceText", src)
+        self.assertIn("uEntryID", src)
         self.assertIn("DialogueMenu_OnDialogueSelect", src)
-        self.assertIn("UNREAD", src)
+        self.assertIn("selectedIndex", src)
+        self.assertNotIn("UNREAD", src)
         self.assertNotIn("Question", src)
         self.assertNotIn("BGSCodeObj", src)
 

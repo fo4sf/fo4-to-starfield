@@ -25,6 +25,8 @@ On this Starfield build, list the data-shuttle payload field names the host `Dia
 Do not post decompiled methods, RVAs, or movie bytes. If the names cannot be read without launching, stop and
 say UNREAD. Do not install until those names are on the Scribe card: a guessed bind is not this session.
 
+PC PASS §1b (file read): `DialogueListData.aChoices[].sChoiceText` / `uEntryID`; select key `selectedIndex`.
+
 ## 2. Install
 
 From a staged folder (`python scripts/dialogue/make_concord_talk.py stage <dir>`):

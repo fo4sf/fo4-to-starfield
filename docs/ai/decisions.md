@@ -1489,3 +1489,11 @@ session to learn the names a file read can give.
 Alternatives: guess `entryList`/`text` from other Bethesda menus (unverified on this movie); native bind
 (listed, not this slice).
 
+## 2026-11-15: DialogueMenu four slots bind aChoices sChoiceText (Scribe, FAL-865)
+
+Decision: map slots N/E/S/W to `DialogueListData.aChoices[0..3].sChoiceText`. On select send
+`DialogueMenu_OnDialogueSelect` with `selectedIndex` set to that row's `uEntryID`. Still no compiled
+DoABC on this host; do not install until a movie with DoABC exists.
+Why: PC PASS §1b (FAL-879) listed those names from a file read. The no-AS3 twin remains killed.
+Alternatives: keep the Starfield list (fails the four-option result); invent ABC (unverified).
+
