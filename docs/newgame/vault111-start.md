@@ -100,9 +100,8 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
     to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
     items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
     default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
-    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): one
-    invisible piece with Starfield's three spacesuit keywords, and the suit's values, so the vault and Mars should not
-    hurt an unsuited player (unverified until the next PC run); `--no-env-standin` leaves it out.
+    keeps whatever Starfield gives. With nothing worn, Starfield's environment damage is the open part (S13 row 2b,
+    section 4d).
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -345,79 +344,37 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - `make_newgame.py log` prints `inventory_cleared` and `vault_suit` (None when the build kept the inventory, or named no
   suit); plan.json records `clear_inventory` and `vault_suit`.
 
-## 4d. The environment stand-in
+## 4d. No Starfield environment damage (S13 row 2b)
 
-- **Why (PC run at `8c655d22`, 15 Nov):** with the reset on, the player wears nothing. The O2/CO2 dial reads red in the
-  vault and on the surface, and on Mars the player takes environmental damage (**verified**). The owner held #794 until
-  this is paired with a fix.
-- **What the suit gives (PC reads of 15 Nov, `result-pc-read-s13-2b`):**
-  - **verified:** the Constellation suit's protection is four OMOD actor-value adds: `ENV_Resist_Airborne` 248D31 +5,
-    `ENV_Resist_Corrosive` 248D30 +35, `ENV_Resist_Radiation` 248D2F +30 and `ENV_Resist_Thermal` 248D32 +50 (set
-    totals). The pack adds 0002E2 +100, a value with no record in Starfield.esm.
-  - **verified (console):** 0002E2 +100 alone clears the dial, and Oxygen then reads 100. The four ENV_Resist values
-    alone do not clear it.
-  - **verified (console):** the surface damage stopped only while the real suit was worn. The console traced
-    `WornHasKeyword ArmorTypeSpacesuitBody / Helmet` conditions.
-- **The first stand-in failed (PC run at `ec205655`, 15 Nov, verified):**
-  - A constant ability (SPEL plus five value-modifier MGEFs) was added (`HasSpell` true), but it applied none of its
-    values: 0002E2 and the ENV_Resist values read 0.
-  - Its two pieces, equipped silently right after AddItem at the pod, were not worn. Equipped by hand later, they were
-    (`WornHasKeyword` 1), and nothing was drawn.
-  - With body and helmet worn and the values added by console, the damage continued. It stopped once the vanilla pack
-    was worn too. That pack also brings its own ENV values, so the keyword and the values are not yet separated.
-- **The second stand-in failed too (PC run at `f96cd32f`, 15 Nov, verified):**
-  - The values worked: `env stand-in values 0=5 1=35 2=30 3=50 4=100`, the dial white, 0002E2 and Oxygen 100.
-  - The script's `EquipItem` never took (`not worn` at tries 1 to 41). By console `equipitem` all three pieces went on
-    at once, and the damage stopped (154.32 → 154.32); with our pack unequipped it came back. So body, helmet and pack
-    keywords are all needed, and the values with them are enough.
-  - Worn, the body piece hid the body: only the head was drawn.
-  - Both causes were already on record (FAL-361, `docs/research/power-armor-probe.md`). Papyrus refuses to equip an ARMO
-    with no armature ("armor cannot be equipped by the passed in actor's race"), while console `equipitem` does not
-    check. And a piece in the spacesuit body slot with nothing to draw hides the skin under it.
-- **The stand-in now (default with the reset):**
-  - **One piece:** ARMO `FO4SF_NewGameStandInPack` (82B).
-    - It copies the slot and race of the Constellation pack 1E2B19. That slot hides nothing; the model-less helmet in the
-      Hat slot hid nothing either at `f96cd32f`.
-    - It carries all three keywords: `ArmorTypeSpacesuitBody` 23C7C0, `ArmorTypeSpacesuitHelmet` 23C7C1 and
-      `ArmorTypeSpacesuitBackpack` 23C7BF.
-    - Its armature is ARMA `FO4SF_NewGameStandInArma` (82C): no model, so nothing is drawn, and the race of the vanilla
-      pack's own armature, so the equip's race check passes.
-    - The suit and helmet pieces of `f96cd32f` (829, 82A) are retired.
-    - Since `b692e5bf`'s run, the armature also copies the vanilla pack armature's body-part flags (Starfield's ARMA `BO64`, not FO4's BOD2) and
-      priorities.
-  - **The values:** right after the reset the quest adds the piece, then adds the suit set's values once with
-    `Actor.ModValue` (what console `modav` does). It logs `env stand-in values <i>=<value read back> ...`. The script
-    gets the values as `StandInValues` (the four AVIFs, then 0002E2 by id) and `StandInAmount0` to `4`.
-  - **Keeping the piece worn:** on every tick from stage 10, the quest equips it when it is not worn. It logs
-    `env stand-in worn pack=<b> count=<n> tries=<n>` or `env stand-in not worn ...` when that changes.
-    `make_newgame.py log` prints `env_standin` and `env_standin_worn`.
-- **The way back:** `--no-env-standin` builds without it. A `--keep-inventory` build has none, because the player keeps
-  Starfield's suit. The writer refuses the stand-in on a Starfield.esm without the pack, its armature, the keywords or the values.
-- **Not copied:** the boostpack, whose enchantment 092D50 is Starfield movement.
-- **Verified at `f96cd32f`:** the script resolves 0002E2 as an ActorValue, and the values clear the dial.
-- **Verified at `b692e5bf` (PC run, 15 Nov):**
-  - the script's equip takes at the first tick after stage 10 (`env stand-in worn pack=true`);
-  - the dial is white;
-  - one piece with the three keywords stops the damage (health 200 → 200 over about 90 s on Mars; the hazard
-    triangles are gone).
-  - **But** while the piece was worn, the body was hidden and only the head was drawn. Unequipping the piece brought
-    the body back. That armature had no body-part flags, where the vanilla pack's armature has them.
-- **Verified at `51366e2a` (PC run, 15 Nov):** copying the flags did not draw the body. The staged armature's BO64 read
-  `0x0000002000000000` (SSBackpack), as the real 1E2B19 armature has it, and the protection still held. Unequipping our
-  piece and equipping the vanilla pack alone drew the body; ours again hid it, and the console traced
-  `WornHasKeyword ArmorTypeSpacesuitBody` at the equip. Same slot, same mask: the difference left is our extra
-  keywords, most likely `ArmorTypeSpacesuitBody` (the engine hides the skin for a worn suit body).
-- **Open:** which keywords the protection needs. Three worn pieces with all three stopped the damage; body + helmet
-  without the pack did not; the pack keyword alone, or helmet + pack, were never tried.
-- **The probe build (`--standin-probe`, diagnostic only, never the default):** four more pack-slot pieces on the same
-  armature, each with one keyword set: `FO4SF_NewGameStandInProbeBody` (82D), `...ProbeHelmet` (82E),
-  `...ProbeBackpack` (82F) and `...ProbeHelmetBackpack` (830). The PC unequips our piece and equips each by console,
-  and reads for each whether the body is drawn and whether health holds on Mars. The result picks the stand-in's
-  keyword set; the stand-in piece itself is unchanged in this build.
-- **Note on ModValue:** it changes the player's values for good, in the save. A later build that takes the stand-in away
-  must take them back off.
-- **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment
-  layer for our worlds is S13 row 13 and the planet work.
+- **Goal (owner, 15 Nov):** with the empty start the player takes no Starfield environment damage on Mars: no O2/CO2
+  drain and no surface, temperature, radiation or airborne hazard, with no suit worn and the body drawn normally.
+  Fallout-style radiation comes later from our own systems (S9), not from Starfield's hazards.
+- **Why (PC run at `8c655d22`, 15 Nov, verified):** with the reset on, the player wears nothing. The O2/CO2 dial reads
+  red in the vault and on the surface, and on Mars the player takes environmental damage. #794 is held until it lands
+  with a fix.
+- **What the PC runs established (15 Nov, verified):**
+  - 0002E2 +100 (`Actor.ModValue` or console `modav`) clears the dial; Oxygen then reads 100. The four
+    `ENV_Resist_*` values (248D31, 248D30, 248D2F, 248D32: the Constellation suit's OMOD adds) do not.
+  - The surface damage is gated by worn keywords, not by the values: it stops only while all three of
+    `ArmorTypeSpacesuitBody` 23C7C0, `...Helmet` 23C7C1 and `...Backpack` 23C7BF are worn, and the console traced
+    `WornHasKeyword ArmorTypeSpacesuitBody`, `GetIsRace HumanRace` and `ActorShouldForceHideSpacesuit_AV`.
+  - A worn piece with `ArmorTypeSpacesuitBody` hides the player's body, whatever its slot, armature and BO64 flags.
+  - Papyrus refuses to equip an ARMO with no armature; console `equipitem` does not check (FAL-361).
+- **The stand-in route ended (owner, 15 Nov):** an invisible piece with the three keywords and the values protected
+  (`b692e5bf`, `51366e2a`), but hid the body, and no keyword subset protects without the body keyword. Its records
+  (82B to 832), script, options and tests were taken out at the head after `b21cccbe`; FAL-942 and its skin probes are
+  superseded. The stand-in builds' `ModValue` adds stay in any save made with them, so those test saves are not
+  for play.
+- **The route:** switch the hazard system off for the player or for our planet, not per item. Candidates, in the order
+  this design prefers them (a NEEDS-PC read of Starfield.esm on FAL-883 decides; nothing here is verified yet):
+  1. a game setting that turns environmental damage off (one GMST override, if one exists);
+  2. the shared condition or ability that applies the hazards to the player (the records that test the three suit
+     keywords): one override that also passes when a global of ours is set, so the player counts as protected with
+     nothing worn and the body stays drawn;
+  3. a player ability or perk from the new-game quest that zeroes the hazard effects;
+  4. Mars' planet data (atmosphere, temperature and magnetosphere keywords): a whole-record override of a vanilla
+     planet with Starfield quests on it, so last.
+  The route must cover both the dial (0002E2 and Oxygen) and the surface damage.
 
 ## 5. What Vault 111 needs from the port today
 
@@ -456,7 +413,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    given with it), `--no-looks`, `--race-menu-mode <n>` (default 2, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--keep-inventory` (no inventory reset; the reset is on by default) and `--vault-suit
-   <EditorID>` (none by default, section 4c), `--no-env-standin` (section 4d), and
+   <EditorID>` (none by default, section 4c), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
    3a; refused by default since newgame_v11, and `--require-persistent-anchor` is kept for old command lines). plan.json
    records them, the anchor's id and mode (`anchor`), and the stage contract.

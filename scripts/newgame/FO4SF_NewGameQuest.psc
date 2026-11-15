@@ -185,22 +185,6 @@ int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
 
-Armor Property StandInPack Auto Const
-{The environment stand-in (S13 row 2b; the writer's default with the reset, --no-env-standin leaves it None): our ARMO
- in the pack's slot with Starfield's ArmorTypeSpacesuitBody, Helmet and Backpack keywords, and an armature of ours with
- no model. The surface's environmental damage checks worn spacesuit keywords, all three (PC runs, 15 Nov), and the reset
- takes Starfield's suit away. One piece, so nothing hides the body (a body-slot piece did at f96cd32f); the armature
- lets the equip pass (Papyrus refuses an ARMO with none, FAL-361). The stand-in until the FO4 vault suit.}
-ActorValue[] Property StandInValues Auto Const
-{The Constellation suit set's values, added once with ModValue right after the reset (a constant ability applied none
- of them at ec205655; console modav did): ENV_Resist_Airborne, Corrosive, Radiation, Thermal, then 0002E2, the value
- that clears the O2/CO2 dial. StandInAmount0 to 4 are their amounts, in the same order.}
-float Property StandInAmount0 = 0.0 Auto Const
-float Property StandInAmount1 = 0.0 Auto Const
-float Property StandInAmount2 = 0.0 Auto Const
-float Property StandInAmount3 = 0.0 Auto Const
-float Property StandInAmount4 = 0.0 Auto Const
-
 string LogName = "fo4sf_newgame"
 int ticks = 0
 float startedAt = 0.0
@@ -216,8 +200,6 @@ int vaultMoves = 0                                           ; MoveTo calls onto
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
 bool podChecked = false
-bool standInWorn = false
-int standInTries = 0
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
 int surfaceMoves = 0
 int surfaceSets = 0
@@ -401,7 +383,6 @@ Event OnTimer(int aiTimerID)
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         if ClearInventory
             ResetInventory(player)
-            EnvStandIn(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
@@ -421,9 +402,6 @@ Event OnTimer(int aiTimerID)
         endif
     elseif stage == 40
         CheckLanding(player)
-    endif
-    if stage >= 10
-        KeepStandInWorn(player)                          ; every tick: the creator or a menu may take a piece off
     endif
     if ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
@@ -556,68 +534,6 @@ Function ResetInventory(Actor player)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
     endif
-EndFunction
-
-Function EnvStandIn(Actor player)
-{The environment stand-in (S13 row 2b), once, right after the reset: the piece into the inventory and the suit's values
- added with ModValue, read back and logged as "env stand-in values <value>=<read> ..."; KeepStandInWorn equips the
- piece on the ticks that follow. A build without it (None properties) logs nothing.}
-    if StandInPack == None && StandInValues == None
-        return
-    endif
-    if StandInPack != None && player.GetItemCount(StandInPack) < 1
-        player.AddItem(StandInPack, 1, true)
-    endif
-    int i = 0
-    string line = "env stand-in values"
-    if StandInValues != None
-        float[] amounts = new float[5]
-        amounts[0] = StandInAmount0
-        amounts[1] = StandInAmount1
-        amounts[2] = StandInAmount2
-        amounts[3] = StandInAmount3
-        amounts[4] = StandInAmount4
-        i = 0
-        while i < StandInValues.Length && i < amounts.Length
-            ActorValue av = StandInValues[i]
-            if av != None
-                player.ModValue(av, amounts[i])
-                line += " " + i + "=" + player.GetValue(av)
-            else
-                line += " " + i + "=none"
-            endif
-            i += 1
-        endwhile
-    endif
-    Trace(line)
-EndFunction
-
-Function KeepStandInWorn(Actor player)
-{Equips the stand-in piece when it is not worn (the creator or a menu may take it off; one missing from the inventory
- is added again first). At f96cd32f the equip never took: the pieces had no armature, which Papyrus refuses (FAL-361);
- the piece now has one. Logged when the state changes ("env stand-in worn ..." / "env stand-in not worn ...") and
- every tenth try while it is not worn.}
-    if StandInPack == None
-        return
-    endif
-    if !player.IsEquipped(StandInPack)
-        if player.GetItemCount(StandInPack) < 1
-            player.AddItem(StandInPack, 1, true)
-        endif
-        player.EquipItem(StandInPack, false, true)
-    endif
-    bool worn = player.IsEquipped(StandInPack)
-    if !worn
-        standInTries += 1
-    endif
-    if worn != standInWorn || (!worn && standInTries % 10 == 1)
-        string wornText = "not worn"
-        if worn
-            wornText = "worn"
-        endif
-        Trace("env stand-in " + wornText + " pack=" + worn + " count=" + player.GetItemCount(StandInPack) + " tries=" + standInTries)
-    endif
-    standInWorn = worn
 EndFunction
 
 Function InVault(Actor player, int stage)

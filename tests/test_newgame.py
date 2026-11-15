@@ -27,8 +27,7 @@ RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
-                version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, no_env_standin=False, standin_probe=False,
-                require_persistent_anchor=False,
+                version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
                 allow_temporary_anchor=False)
 
 
@@ -291,95 +290,6 @@ class ContractTests(unittest.TestCase):
         self.assertIn('("keep", idsPath, keep)', cs)
         self.assertIn("!DefaultClearInventory || !plain.ClearInventory", cs)   # the selftest refuses an off default
         self.assertIn('("the inventory reset switched off"', cs)
-
-    def test_the_environment_stand_in(self):
-        """S13 row 2b (FAL-883): with the reset, the build carries the environment stand-in. It is one ARMO in the
-        Constellation pack's slot and race with Starfield's three spacesuit keywords (body, helmet, pack), and an ARMA of
-        ours with no model and the race of the vanilla pack's armature. The quest adds it right after the reset with the
-        suit set's values by ModValue (no SPEL or MGEF: the ability of ec205655 applied nothing in game), then keeps it
-        equipped from stage 10 on. At f96cd32f three armature-less pieces were never equipped by the script (Papyrus
-        refuses an ARMO with no armature, FAL-361) and the body piece hid the body. --no-env-standin and
-        --keep-inventory build without it; the selftest covers it."""
-        cs, psc = read(CS), read(PSC)
-        self.assertTrue(ng.DEFAULT_ENV_STANDIN)
-        self.assertIn(f"DefaultEnvStandIn = {str(ng.DEFAULT_ENV_STANDIN).lower()};", cs)
-        self.assertIn("public bool StandIn => ClearInventory && EnvStandIn;", cs)
-        self.assertIn('!a.Contains("--no-env-standin")', cs)
-        # the PC read of 15 Nov: the ids and amounts the stand-in copies
-        for edid, fid, mag in (("ENV_Resist_Airborne", "0x248D31", "5f"), ("ENV_Resist_Corrosive", "0x248D30", "35f"),
-                               ("ENV_Resist_Radiation", "0x248D2F", "30f"), ("ENV_Resist_Thermal", "0x248D32", "50f")):
-            self.assertIn(f'"{edid}", {fid}, {mag}', cs)
-        self.assertIn('("Capacity", null, 0x0002E2, 100f)', cs)
-        self.assertIn('StandInTemplate = "Spacesuit_Constellation_Backpack_01"', cs)
-        self.assertIn("StandInTemplateId = 0x1E2B19", cs)
-        self.assertIn('("ArmorTypeSpacesuitBody", 0x23C7C0), ("ArmorTypeSpacesuitHelmet", 0x23C7C1), ("ArmorTypeSpacesuitBackpack", 0x23C7BF)', cs)
-        self.assertIn("StandInPackId = 0x82B, StandInArmaId = 0x82C", cs)
-        self.assertNotIn("StandInSuit", cs)                                  # the body-slot piece is retired (it hid the body)
-        self.assertNotIn("StandInHelmet", cs)
-        body = cs[cs.index("public static StandInRecords StandIn"):cs.index("static string StandInText")]
-        self.assertIn("FirstPersonFlags = tpl.FirstPersonFlags", body)
-        self.assertIn("pack.Race.SetTo(tpl.Race.FormKey)", body)
-        self.assertIn("Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey)", body)   # the armature's race
-        self.assertIn("pack.Armatures.Add(", body)
-        # the armature's body-part flags are the vanilla pack armature's (PC run at b692e5bf: unset, the body was hidden)
-        self.assertIn("FirstPersonFlags = tplArma.FirstPersonFlags, MalePriority = tplArma.MalePriority, FemalePriority = tplArma.FemalePriority", body)
-        self.assertIn('("the stand-in armature without body-part flags (BO64)"', cs)
-        self.assertIn('("the stand-in armature on the body"', cs)
-        self.assertIn('Write(sfNoFlags,', cs)                             # the writer refuses a vanilla armature with no BO64
-        # the diagnostic probe build (PC run at 51366e2a: the keywords, not the mask, hide the body): off by default,
-        # one pack-slot piece per keyword set on the same armature, refused without the stand-in
-        self.assertIn("bool StandInProbe = false", cs)
-        self.assertIn('a.Contains("--standin-probe")', cs)
-        for edid, fid in (("FO4SF_NewGameStandInProbeBody", "0x82D"), ("FO4SF_NewGameStandInProbeHelmet", "0x82E"),
-                          ("FO4SF_NewGameStandInProbeBackpack", "0x82F"), ("FO4SF_NewGameStandInProbeHelmetBackpack", "0x830")):
-            self.assertIn(f'({fid}, "{edid}"', cs)
-        self.assertIn('("probe", idsPath, plain with { StandInProbe = true })', cs)
-        self.assertIn("refused as expected (--standin-probe with --keep-inventory)", cs)
-        self.assertFalse(ng.tool_options(namespace()).count("--standin-probe"))
-        self.assertEqual(ng.tool_options(namespace(standin_probe=True)), ["--standin-probe"])
-        self.assertNotIn("WorldModel", body)                                 # the armature draws nothing
-        self.assertNotIn("SF.Spell", body)                                   # no ability: the script's ModValue
-        self.assertNotIn("SF.MagicEffect", body)
-        self.assertIn("the plugin carries SPEL or MGEF records", cs)
-        self.assertIn('$"StandInAmount{i}"', cs)
-        self.assertIn('Name = "StandInValues"', cs)
-        self.assertIn('("nostandin", idsPath, plain with { EnvStandIn = false })', cs)
-        for mutation in ("the stand-in lost its helmet keyword", "the stand-in in the body slot (it hides the body)",
-                         "the stand-in without its armature (Papyrus refuses the equip)",
-                         "the stand-in armature of another race", "the stand-in armature with a model", "StandInPack removed"):
-            self.assertIn(f'("{mutation}"', cs)
-        self.assertIn('Write(sfNoSuit,', cs)
-        self.assertIn('Write(sfNoArma,', cs)
-        self.assertIn("int objects = 5 + (o.StandIn ? 2 : 0);", cs)
-        # the script: the pieces, the values and amounts; added after the reset, kept worn from stage 10 on
-        for prop in ("Armor Property StandInPack Auto Const", "ActorValue[] Property StandInValues Auto Const"):
-            self.assertIn(prop, psc)
-        for gone in ("StandInSuit", "StandInHelmet", "StandInBackpack"):
-            self.assertNotIn(gone, psc)
-        for i in range(5):
-            self.assertIn(f"float Property StandInAmount{i} = 0.0 Auto Const", psc)
-        timer = psc[psc.index("Event OnTimer"):]
-        self.assertLess(timer.index("ResetInventory(player)"), timer.index("EnvStandIn(player)"))
-        self.assertLess(timer.index("EnvStandIn(player)"), timer.index("AdvanceTo(10)"))
-        self.assertIn("    if stage >= 10\n        KeepStandInWorn(player)", timer)
-        fn = psc[psc.index("Function EnvStandIn"):psc.index("Function KeepStandInWorn")]
-        self.assertIn("player.ModValue(av, amounts[i])", fn)
-        self.assertNotIn("EquipItem", fn)                                    # equipping is KeepStandInWorn's
-        self.assertIn('string line = "env stand-in values"', fn)
-        wear = psc[psc.index("Function KeepStandInWorn"):psc.index("Function InVault")]
-        self.assertLess(wear.index("player.AddItem(StandInPack, 1, true)"), wear.index("player.EquipItem(StandInPack, false, true)"))
-        self.assertIn('" pack=" + worn', wear)
-        for native in ("ModValue", "GetValue"):
-            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["Actor"])
-        self.assertNotIn("AddSpell", ng.NATIVES[ng.SCRIPT]["Actor"])
-        # the wrapper: on with the reset, off under either option, passed on only when asked
-        self.assertTrue(ng.env_standin_option(namespace()))
-        self.assertFalse(ng.env_standin_option(namespace(no_env_standin=True)))
-        self.assertFalse(ng.env_standin_option(namespace(keep_inventory=True)))
-        self.assertNotIn("--no-env-standin", ng.tool_options(namespace()))
-        self.assertEqual(ng.tool_options(namespace(no_env_standin=True)), ["--no-env-standin"])
-        self.assertIn("--no-env-standin", read(DOC))
-        self.assertIn("## 4d. The environment stand-in", read(DOC))
 
     def test_the_vault_anchor_modes(self):
         """PC result 21 Oct: the installed port's FO4Port_Vault111Cryo has no persistent reference (0 of 1,166; the COC
@@ -942,14 +852,11 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel and the inventory reset's EquipItem /
-# IsEquipped, and the environment stand-in's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck
-# reads: its Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem
-# are generated from NATIVES below
-ACTOR_SPELL = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
-               "float Function GetValue(ActorValue akAV) native\n")
+# IsEquipped (FO4's signatures; Starfield's are what the precheck reads). ObjectReference's RemoveAllItems, GetItemCount
+# and AddItem are generated from NATIVES below
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
-              "bool Function IsEquipped(Form akItem) native\n" + ACTOR_SPELL)
+              "bool Function IsEquipped(Form akItem) native\n")
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
@@ -1028,10 +935,6 @@ class PrecheckTests(unittest.TestCase):
         self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
         self.assertEqual(r["drop"], ["--no-special"])
         self.assertEqual(r["missing_core"], [])              # the quest script's Actor natives are in Actor.psc itself
-        # the stand-in's GetValue / ModValue found on the parent count for the core script too
-        bare = "Scriptname Actor extends ObjectReference\n" + ACTOR_CORE.replace(ACTOR_SPELL, "")
-        fake_zip(z, actor=bare, objectreference=objref + ACTOR_SPELL)
-        self.assertEqual(ng.precheck_zip(z)["missing_core"], [])
         loop = {"actor": "Scriptname Actor extends ObjectReference\n", "objectreference": "Scriptname ObjectReference extends Actor\n"}
         self.assertFalse(ng.declares(loop, "Actor", "SetValue"))
         self.assertEqual(ng.parent_of("Scriptname Actor extends ObjectReference\n"), "ObjectReference")
@@ -1053,15 +956,14 @@ class PrecheckTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(out))
 
     def test_missing_set_value_only_drops_the_special(self):
-        """Actor.SetValue is what the SPECIAL script needs beyond the quest's natives (GetValue is the quest's own since
-        the environment stand-in reads its values back): a source set without it fails only that script, and the
-        precheck says --no-special."""
+        """Actor.SetValue / GetValue are what the SPECIAL script needs beyond the quest's natives: a source set
+        without them fails only that script, and the precheck says --no-special."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
-        self.assertTrue(r["natives"][ng.SPECIAL]["Actor.GetValue"])
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.GetValue"])
         self.assertTrue(all(r["natives"][ng.LOOKS].values()))
         self.assertEqual(r["drop"], ["--no-special"])
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
@@ -1099,7 +1001,7 @@ class PrecheckTests(unittest.TestCase):
         """The inventory reset lives in the quest script (its ClearInventory property is on by default, and
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n" + ACTOR_SPELL +
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -1306,12 +1208,6 @@ class LogTests(unittest.TestCase):
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0\n")[1]
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0", None))
-        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=4 left=0\n"
-                                "[x] FO4SF_NEWGAME rt=7.0 env stand-in values 0=5.0 1=35.0 2=30.0 3=50.0 4=100.0\n"
-                                "[x] FO4SF_NEWGAME rt=8.0 env stand-in not worn pack=False count=1 tries=1\n"
-                                "[x] FO4SF_NEWGAME rt=9.0 env stand-in worn pack=True count=1 tries=1\n")[1]
-        self.assertEqual(s["env_standin"], "0=5.0 1=35.0 2=30.0 3=50.0 4=100.0")
-        self.assertEqual(s["env_standin_worn"], "worn pack=True count=1 tries=1")
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1\n"
                                 "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
         self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")
