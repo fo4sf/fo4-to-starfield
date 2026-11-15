@@ -185,6 +185,16 @@ int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
 
+Armor Property StandInSuit Auto Const
+{The environment stand-in (S13 row 2b; the writer's default with the reset, --no-env-standin leaves these None): our
+ model-less ARMO with Starfield's ArmorTypeSpacesuitBody keyword. The surface's environmental damage checks a worn
+ spacesuit keyword (PC run, 15 Nov), and the reset takes Starfield's suit away. The stand-in until the FO4 vault suit.}
+Armor Property StandInHelmet Auto Const
+{The stand-in helmet: our model-less ARMO with the ArmorTypeSpacesuitHelmet keyword.}
+Spell Property StandInAbility Auto Const
+{The stand-in's constant ability: the Constellation suit set's ENV_Resist values and 0002E2 +100, the value that
+ clears the O2/CO2 dial (PC run, 15 Nov).}
+
 string LogName = "fo4sf_newgame"
 int ticks = 0
 float startedAt = 0.0
@@ -383,6 +393,7 @@ Event OnTimer(int aiTimerID)
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         if ClearInventory
             ResetInventory(player)
+            EnvStandIn(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
@@ -534,6 +545,27 @@ Function ResetInventory(Actor player)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
     endif
+EndFunction
+
+Function EnvStandIn(Actor player)
+{The environment stand-in (S13 row 2b), right after the reset: the ability with the suit's values, then the two
+ model-less pieces with the spacesuit keywords, added and equipped silently. Logged as "env stand-in ability=<bool>
+ suit=<bool> helmet=<bool>"; a build without it (None properties) logs nothing.}
+    if StandInAbility == None && StandInSuit == None && StandInHelmet == None
+        return
+    endif
+    if StandInAbility != None
+        player.AddSpell(StandInAbility, false)
+    endif
+    if StandInSuit != None
+        player.AddItem(StandInSuit, 1, true)
+        player.EquipItem(StandInSuit, false, true)
+    endif
+    if StandInHelmet != None
+        player.AddItem(StandInHelmet, 1, true)
+        player.EquipItem(StandInHelmet, false, true)
+    endif
+    Trace("env stand-in ability=" + (StandInAbility != None && player.HasSpell(StandInAbility)) + " suit=" + (StandInSuit != None && player.IsEquipped(StandInSuit)) + " helmet=" + (StandInHelmet != None && player.IsEquipped(StandInHelmet)))
 EndFunction
 
 Function InVault(Actor player, int stage)

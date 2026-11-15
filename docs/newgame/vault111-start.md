@@ -100,7 +100,9 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
     to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
     items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
     default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
-    keeps whatever Starfield gives.
+    keeps whatever Starfield gives. With the reset the build also gives the **environment stand-in** (section 4d): two
+    invisible pieces with Starfield's spacesuit keywords and the suit's values, so the vault and Mars do not hurt an
+    unsuited player; `--no-env-standin` leaves it out.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -343,6 +345,37 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - `make_newgame.py log` prints `inventory_cleared` and `vault_suit` (None when the build kept the inventory, or named no
   suit); plan.json records `clear_inventory` and `vault_suit`.
 
+## 4d. The environment stand-in
+
+- **Why (PC run at `8c655d22`, 15 Nov):** with the reset on, the player wears nothing. The O2/CO2 dial reads red in the
+  vault and on the surface, and on Mars the player takes environmental damage (**verified**). The owner held #794 until
+  this is paired with a fix.
+- **What the suit gives (PC reads of 15 Nov, `result-pc-read-s13-2b`):**
+  - **verified:** the Constellation suit's protection is four OMOD actor-value adds: `ENV_Resist_Airborne` 248D31 +5,
+    `ENV_Resist_Corrosive` 248D30 +35, `ENV_Resist_Radiation` 248D2F +30 and `ENV_Resist_Thermal` 248D32 +50 (set
+    totals). The pack adds 0002E2 +100, a value with no record in Starfield.esm.
+  - **verified (console):** 0002E2 +100 alone clears the dial, and Oxygen then reads 100. The four ENV_Resist values
+    alone do not clear it.
+  - **verified (console):** on the surface the damage stopped only while the real suit was worn. The same values without
+    it did not stop the damage. The console traced `WornHasKeyword ArmorTypeSpacesuitBody / Helmet` conditions.
+- **The stand-in (default with the reset):**
+  - ARMO `FO4SF_NewGameStandInSuit` and `FO4SF_NewGameStandInHelmet`. They have no armature, so nothing is drawn. They
+    copy the slot and race of `Spacesuit_Constellation_01` 1E2B18 and `Spacesuit_Constellation_Helmet_01` 1E2B17, and
+    carry the keywords `ArmorTypeSpacesuitBody` 23C7C0 and `ArmorTypeSpacesuitHelmet` 23C7C1.
+  - SPEL `FO4SF_NewGameStandInAbility`: a constant ability with five value-modifier MGEFs
+    `FO4SF_NewGameStandIn_<value>` carrying the four totals and 0002E2 +100.
+  - Right after the reset the quest adds the ability, then adds and equips both pieces silently, and logs
+    `env stand-in ability=<bool> suit=<bool> helmet=<bool>`. `make_newgame.py log` prints it as `env_standin`.
+- **The way back:** `--no-env-standin` builds without it. A `--keep-inventory` build has none, because the player keeps
+  Starfield's suit. The writer refuses the stand-in on a Starfield.esm without those pieces, keywords or values.
+- **Not copied:** the boostpack (its enchantment 092D50 is Starfield movement) and the pack keyword.
+- **Unverified until the PC run:**
+  - whether these records clear the dial and stop the damage as the worn suit does;
+  - whether the engine needs the backpack keyword too;
+  - whether the HUD shows anything for a worn piece without a model.
+- **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment
+  layer for our worlds is S13 row 13 and the planet work.
+
 ## 5. What Vault 111 needs from the port today
 
 | Piece | State | Source |
@@ -380,7 +413,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    given with it), `--no-looks`, `--race-menu-mode <n>` (default 2, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--keep-inventory` (no inventory reset; the reset is on by default) and `--vault-suit
-   <EditorID>` (none by default, section 4c), and
+   <EditorID>` (none by default, section 4c), `--no-env-standin` (section 4d), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
    3a; refused by default since newgame_v11, and `--require-persistent-anchor` is kept for old command lines). plan.json
    records them, the anchor's id and mode (`anchor`), and the stage contract.
