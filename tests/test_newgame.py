@@ -28,7 +28,7 @@ DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
-                allow_temporary_anchor=False)
+                allow_temporary_anchor=False, no_o2_fill=False)
 
 
 def namespace(**kw):
@@ -272,6 +272,50 @@ class ContractTests(unittest.TestCase):
         self.assertIn("--keep-inventory", read(DOC))
         self.assertIn("--vault-suit", read(DOC))
         self.assertIn("## 4c. The starting inventory reset", read(DOC))
+
+    def test_no_starfield_environment(self):
+        """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
+        damage and the body stays drawn. No game setting switches it off; SQ_ENV's player alias gives every ENV ability
+        (PC read 15 Nov), so SQ_ENV is on the default hold list, and the quest tops 0002E2 up to 100 right after the
+        reset for the O2/CO2 dial. No stand-in piece and no record override: the plugin's only Starfield links are
+        script properties. --no-o2-fill and a --hold without SQ_ENV are the ways back; the selftest covers both."""
+        cs, psc = read(CS), read(PSC)
+        self.assertEqual(ng.DEFAULT_HOLD[-1], "SQ_ENV")
+        self.assertTrue(ng.DEFAULT_O2_FILL)
+        self.assertIn(f"DefaultO2Fill = {str(ng.DEFAULT_O2_FILL).lower()};", cs)
+        self.assertIn("O2CapacityId = 0x0002E2;", cs)
+        self.assertIn("O2CapacityAmount = 100f;", cs)
+        self.assertIn("public bool O2 => ClearInventory && O2Fill;", cs)
+        self.assertIn('!a.Contains("--no-o2-fill")', cs)
+        self.assertIn('("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f)', cs)
+        self.assertIn('Obj("O2Capacity", new FormKey(SfEsm, O2CapacityId))', cs)
+        self.assertIn('EditorID = "SQ_ENV"', cs)                             # the selftest's master has it
+        for mutation in ("the hold list lost SQ_ENV", "the O2 capacity amount changed", "the O2 capacity linked to Oxygen", "O2Capacity removed"):
+            self.assertIn(f'("{mutation}"', cs)
+        self.assertIn('"a hold list without SQ_ENV as the default one"', cs)
+        for gone in ("StandIn", "ArmorTypeSpacesuit", "Skin_Naked"):          # the stand-in route ended (owner, 15 Nov)
+            self.assertNotIn(gone, cs)
+            self.assertNotIn(gone, psc)
+        self.assertIn("ActorValue Property O2Capacity Auto Const", psc)
+        self.assertIn("float Property O2CapacityAmount = 0.0 Auto Const", psc)
+        timer = psc[psc.index("Event OnTimer"):]
+        self.assertLess(timer.index("ResetInventory(player)"), timer.index("FillO2(player)"))
+        self.assertLess(timer.index("FillO2(player)"), timer.index("AdvanceTo(10)"))
+        fn = psc[psc.index("Function FillO2"):]
+        fn = fn[:fn.index("EndFunction")]
+        self.assertIn("float added = O2CapacityAmount - player.GetValue(O2Capacity)", fn)   # tops up, never adds twice
+        self.assertIn("player.ModValue(O2Capacity, added)", fn)
+        self.assertIn('Trace("o2 capacity added="', fn)
+        for native in ("ModValue", "GetValue"):
+            self.assertIn(native, ng.NATIVES[ng.SCRIPT]["Actor"])
+        self.assertTrue(ng.o2_fill_option(namespace()))
+        self.assertFalse(ng.o2_fill_option(namespace(no_o2_fill=True)))
+        self.assertFalse(ng.o2_fill_option(namespace(keep_inventory=True)))
+        self.assertNotIn("--no-o2-fill", ng.tool_options(namespace()))
+        self.assertEqual(ng.tool_options(namespace(no_o2_fill=True)), ["--no-o2-fill"])
+        doc = read(DOC)
+        self.assertIn("## 4d. No Starfield environment damage (S13 row 2b)", doc)
+        self.assertIn("--no-o2-fill", doc)
 
     def test_the_default_start_has_no_starfield_items(self):
         """System model S13 row 2 (strip down Starfield): the default build empties Starfield's starting inventory
@@ -567,7 +611,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("DefaultMQ101Debug", cs)
         self.assertIn(f"DefaultDebugAfterHold = {ng.DEBUG_AFTER_HOLD};", cs)
         self.assertIn('ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : null', cs)
-        self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
+        self.assertEqual(ng.DEFAULT_HOLD[2:4], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))   # [4]: SQ_ENV, row 2b
         p = namespace()
         self.assertEqual(ng.tool_options(p), [])
         self.assertIsNone(ng.mq101debug_option(p))
@@ -851,12 +895,15 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
-# Actor.psc's declarations the quest script itself needs: the guard's GetLevel and the inventory reset's EquipItem /
-# IsEquipped (FO4's signatures; Starfield's are what the precheck reads). ObjectReference's RemoveAllItems, GetItemCount
-# and AddItem are generated from NATIVES below
+# Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
+# IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
+# Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem are
+# generated from NATIVES below
+ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
+            "float Function GetValue(ActorValue akAV) native\n")
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
-              "bool Function IsEquipped(Form akItem) native\n")
+              "bool Function IsEquipped(Form akItem) native\n" + ACTOR_O2)
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
@@ -935,6 +982,10 @@ class PrecheckTests(unittest.TestCase):
         self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
         self.assertEqual(r["drop"], ["--no-special"])
         self.assertEqual(r["missing_core"], [])              # the quest script's Actor natives are in Actor.psc itself
+        # the O2 fill's GetValue / ModValue found on the parent count for the core script too
+        bare = "Scriptname Actor extends ObjectReference\n" + ACTOR_CORE.replace(ACTOR_O2, "")
+        fake_zip(z, actor=bare, objectreference=objref + ACTOR_O2)
+        self.assertEqual(ng.precheck_zip(z)["missing_core"], [])
         loop = {"actor": "Scriptname Actor extends ObjectReference\n", "objectreference": "Scriptname ObjectReference extends Actor\n"}
         self.assertFalse(ng.declares(loop, "Actor", "SetValue"))
         self.assertEqual(ng.parent_of("Scriptname Actor extends ObjectReference\n"), "ObjectReference")
@@ -956,14 +1007,15 @@ class PrecheckTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(out))
 
     def test_missing_set_value_only_drops_the_special(self):
-        """Actor.SetValue / GetValue are what the SPECIAL script needs beyond the quest's natives: a source set
-        without them fails only that script, and the precheck says --no-special."""
+        """Actor.SetValue is what the SPECIAL script needs beyond the quest's natives (GetValue is the quest's own since
+        the O2 fill reads its value): a source set without it fails only that script, and the precheck says
+        --no-special."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\n" + ACTOR_CORE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
-        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.GetValue"])
+        self.assertTrue(r["natives"][ng.SPECIAL]["Actor.GetValue"])
         self.assertTrue(all(r["natives"][ng.LOOKS].values()))
         self.assertEqual(r["drop"], ["--no-special"])
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
@@ -1001,7 +1053,7 @@ class PrecheckTests(unittest.TestCase):
         """The inventory reset lives in the quest script (its ClearInventory property is on by default, and
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -1207,7 +1259,10 @@ class LogTests(unittest.TestCase):
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=x\n")[1]
         self.assertEqual((s["inventory_cleared"], s["vault_suit"]), (None, None))
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=0 left=0\n")[1]
-        self.assertEqual((s["inventory_cleared"], s["vault_suit"]), ("removed=0 left=0", None))
+        self.assertEqual((s["inventory_cleared"], s["vault_suit"], s["o2_capacity"]), ("removed=0 left=0", None, None))
+        s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=4 left=0\n"
+                                "[x] FO4SF_NEWGAME rt=7.0 o2 capacity added=100.000000 value=100.000000\n")[1]
+        self.assertEqual(s["o2_capacity"], "added=100.000000 value=100.000000")
         s = self.run_log(head + "[x] FO4SF_NEWGAME rt=7.0 inventory cleared removed=3 left=1\n"
                                 "[x] FO4SF_NEWGAME rt=7.0 vault suit FO4Port.esm:2080 does not resolve\n")[1]
         self.assertEqual(s["vault_suit"], "FO4Port.esm:2080 does not resolve")

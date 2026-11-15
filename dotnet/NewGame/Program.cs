@@ -13,9 +13,9 @@
 //        MQ102's name. Interior positions in metres in the port's frame and exterior ones in the core's (both FO4
 //        position / 70); headings in degrees.
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
-//         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
+//         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV] [--mq101debug <n>]
 //         [--no-mq101debug] [--debug-after-hold <n>] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>] [--keep-inventory | --vault-suit <ARMO EditorID>] [--allow-temporary-anchor]
+//         [--exit-anchor <REFR EditorID>] [--keep-inventory | --vault-suit <ARMO EditorID>] [--no-o2-fill] [--allow-temporary-anchor]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (run once, NOT start game enabled; stages 1 /
 //        10 / 20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10), the
 //        override of Starfield's DFOB StartupQuest_DO naming it (the writer refuses a Starfield.esm whose
@@ -54,7 +54,9 @@
 //        --clear-inventory (the default now) is kept for old command lines. --vault-suit <EditorID> (refused with
 //        --keep-inventory) names an ARMO of FO4Port.esm the script then adds and equips, resolved here by EditorID
 //        with the same owner check as the other ids (refused when the port lacks it, has two, or it is another
-//        plugin's record).
+//        plugin's record). With the reset the quest also adds 0002E2 +100 (the O2 capacity a suit's pack gives,
+//        which clears the O2/CO2 dial) once; --no-o2-fill leaves it out. SQ_ENV, Starfield's environment system for
+//        the player, is on the default hold list (S13 row 2b).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -197,9 +199,22 @@ static class NewGame
                       Fo4ExitDoor = 0x01F180, Fo4MQ102 = 0x01CC2A;
     // the quests held off on a new game: the main-quest start and the opening, and the two MQ101's stage 9000 starts
     // when MQ101 is stopped (MQ101PostQuest always, MQ_TutorialQuest_Misc04 unless the player entered the Unity; PC
-    // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass once the vault has loaded
+    // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass once the vault has loaded; and SQ_ENV
+    // (248D20), Starfield's environment system for the player (S13 row 2b, owner decision of 15 Nov): its player alias
+    // gives the 17 ENV abilities (suit integrity damage, the O2 adjustment, the extreme-environment soak, water damage,
+    // afflictions; PC read of 15 Nov, result-pc-read-s13-2b-env), none comes from the race or the player NPC_, and no
+    // game setting switches them off. Stopping the quest clears the alias and so its spells (Bethesda alias rule; that
+    // Starfield removes them, and that nothing else breaks without SQ_ENV, is unverified until the PC run). Fallout
+    // radiation comes later from our own systems (S9). A --hold list without SQ_ENV keeps Starfield's environment.
     const string OpeningEdid = "MQ101";
-    public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04" };
+    public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04", "SQ_ENV" };
+    // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no
+    // record) is 0, Oxygen reads 0 and the dial is red; 0002E2 +100 by ModValue or console modav clears it (PC, 15 Nov,
+    // verified at 8c655d22 and f96cd32f; the script resolves the id as an ActorValue). So with the reset the quest adds
+    // O2CapacityAmount once right after it, up to 100 (a value ModValue adds stays in the save). --no-o2-fill leaves it out
+    public const bool DefaultO2Fill = true;
+    public const uint O2CapacityId = 0x0002E2;
+    public const float O2CapacityAmount = 100f;
     // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the start and the wait for the vault, is no record)
     public static readonly ushort[] Stages = { 1, 10, 20, 30, 40, 200 };
     public const ushort Objective = 10;
@@ -222,8 +237,9 @@ static class NewGame
 
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
-                          int DebugAfterHold = DefaultDebugAfterHold)
+                          int DebugAfterHold = DefaultDebugAfterHold, bool O2Fill = DefaultO2Fill)
     {
+        public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
         {
             var suit = ArgOrNull(a, "--vault-suit");
@@ -245,7 +261,8 @@ static class NewGame
                 ArgOrNull(a, "--build-version") is { } v ? float.Parse(v, CultureInfo.InvariantCulture) : DefaultBuildVersion,
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
                 clear, suit, !a.Contains("--allow-temporary-anchor"),
-                ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold);
+                ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold,
+                !a.Contains("--no-o2-fill"));
         }
     }
 
@@ -500,6 +517,7 @@ static class NewGame
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
+            ("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f),   // added to O2Capacity right after the reset (0: never)
         };
     }
 
@@ -627,6 +645,7 @@ static class NewGame
         foreach (var q in hold) list.Objects.Add(Obj("", q.FormKey));
         script.Properties.Add(list);
         script.Properties.Add(Obj("ExitMessage", msg.FormKey));
+        script.Properties.Add(Obj("O2Capacity", new FormKey(SfEsm, O2CapacityId)));   // linked by id: no AVIF record
         foreach (var (name, value) in Properties(pts, places, o))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
@@ -698,7 +717,7 @@ static class NewGame
                           (o.DebugAfterHold != 0 ? $"; the quest writes MQ101Debug = {o.DebugAfterHold} after the hold-off" : "; the quest never writes MQ101Debug") +
                           (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off") +
                           (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off") +
-                          $"; inventory reset {InventoryText(o, places)}");
+                          $"; inventory reset {InventoryText(o, places)}; {O2Text(o)}");
         return 0;
     }
 
@@ -715,6 +734,7 @@ static class NewGame
         return dobj;
     }
 
+    static string O2Text(Options o) => o.O2 ? $"O2 capacity {O2CapacityId:X6} +{F(O2CapacityAmount)} after the reset" : "O2 capacity untouched";
     static string InventoryText(Options o, Places p) => !o.ClearInventory ? "off" :
         $"on (quest items unverified), vault suit {(o.VaultSuit is null ? "none" : $"{o.VaultSuit} FO4Port.esm:{p.VaultSuit:X6}")}";
 
@@ -874,16 +894,18 @@ static class NewGame
                 Need(props.TryGetValue("DebugGlobal", out var dg) && dg is SF.IScriptObjectPropertyGetter dgo &&
                      dgo.Object.FormKey == sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid)?.FormKey, $"property DebugGlobal is not {DebugGlobEdid}");
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
+                Need(props.TryGetValue("O2Capacity", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, O2CapacityId),
+                     $"property O2Capacity is not Starfield.esm:{O2CapacityId:X6}");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
                 var expected = Properties(pts, places, o);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 5, $"{props.Count} properties, expected {expected.Count + 5}");
+                Need(props.Count == expected.Count + 6, $"{props.Count} properties, expected {expected.Count + 6}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
-                Console.WriteLine($"  inventory reset {InventoryText(o, places)}");
+                Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");
             }
             else problems.Add($"script {ScriptName} not attached");
             var ls = q.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == LooksScript);
@@ -969,6 +991,7 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x902), rel) { EditorID = "MQ101" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x903), rel) { EditorID = "MQ101PostQuest" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x904), rel) { EditorID = "MQ_TutorialQuest_Misc04" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x248D20), rel) { EditorID = "SQ_ENV" });   // the real id (PC read 15 Nov)
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -1064,6 +1087,9 @@ static class NewGame
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
+        // S13 row 2b: Starfield's environment quest is held off by default, and the reset brings the O2 capacity
+        if (!DefaultHold.Contains("SQ_ENV") || !DefaultO2Fill || !plain.O2 || Options.From(new[] { "--no-o2-fill" }).O2 ||
+            Options.From(new[] { "--keep-inventory" }).O2) { Console.WriteLine("FAIL  the environment options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
             Options.From(new[] { "--debug-after-hold", "0" }).DebugAfterHold != 0) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         if (plain.RaceMenuMode != DefaultRaceMenuMode || DefaultRaceMenuMode == 0 || Options.From(new[] { "--race-menu-mode", "0" }).RaceMenuMode != 0) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
@@ -1103,6 +1129,7 @@ static class NewGame
             ("mode0", idsPath, plain with { RaceMenuMode = 0 }), ("nospecial", idsPath, plain with { Special = false }),
             ("nearterm", nearTermIds, plain),
             ("noversion", idsPath, plain with { Version = false }), ("version2", idsPath, plain with { BuildVersion = 2 }),
+            ("noo2", idsPath, plain with { O2Fill = false }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -1143,6 +1170,9 @@ static class NewGame
             ("default", suit, idsPath, "the default build without a suit as a --vault-suit one"),
             ("suit", plain, idsPath, "a --vault-suit build as the default one without a suit"),
             ("suit", keep, idsPath, "a --vault-suit build as a --keep-inventory one"),
+            ("default", plain with { O2Fill = false }, idsPath, "the default (O2 capacity) build as a --no-o2-fill one"),
+            ("noo2", plain, idsPath, "a --no-o2-fill build as the default one"),
+            ("hold2", plain, idsPath, "a hold list without SQ_ENV as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1174,6 +1204,10 @@ static class NewGame
             ("the DebugAfterHold property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugAfterHold")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the hold list lost SQ_ENV", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(4)),
+            ("the O2 capacity amount changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "O2CapacityAmount")).Data = 50f),
+            ("the O2 capacity linked to Oxygen", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "O2Capacity")).Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(SfEsm, 0x0002D5))),
+            ("O2Capacity removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "O2Capacity")),
             ("a MQ101Debug override added at the first build's 10", m => m.Globals.Add(new SF.Global(new FormKey(SfEsm, 0x900), rel) { EditorID = DebugGlobEdid, Data = 10 })),
             ("a MQ101Debug override added at the second build's 2", m => m.Globals.Add(new SF.Global(new FormKey(SfEsm, 0x900), rel) { EditorID = DebugGlobEdid, Data = 2 })),
             ("the version GLOB reads another value", m => m.Globals.First(g => g.EditorID == VersionGlobEdid).Data = 7),

@@ -184,6 +184,12 @@ bool Property ClearInventory = true Auto Const
 int Property VaultSuitId = 0 Auto Const
 {With ClearInventory, the vault suit ARMO of the port (FO4Port.esm, resolved by the writer's --vault-suit <EditorID>),
  added and equipped after the reset; 0 is none. Logged as "vault suit equipped <armor> worn=<bool>".}
+ActorValue Property O2Capacity Auto Const
+{Starfield.esm 0002E2, the O2 capacity a spacesuit's pack adds (an engine value with no record; the writer links it by
+ id). With no suit it is 0, Oxygen reads 0 and the O2/CO2 dial is red; +100 clears the dial (PC, 15 Nov). S13 row 2b.}
+float Property O2CapacityAmount = 0.0 Auto Const
+{With ClearInventory, what FillO2 tops O2Capacity up to, once, right after the reset (the writer's default 100;
+ --no-o2-fill and --keep-inventory write 0: nothing). Logged as "o2 capacity added=<n> value=<read back>".}
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -383,6 +389,7 @@ Event OnTimer(int aiTimerID)
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         if ClearInventory
             ResetInventory(player)
+            FillO2(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
@@ -534,6 +541,22 @@ Function ResetInventory(Actor player)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
     endif
+EndFunction
+
+Function FillO2(Actor player)
+{The O2/CO2 dial without a suit (S13 row 2b), once, right after the reset: ModValue (what console modav does) tops
+ O2Capacity up to O2CapacityAmount, so a second call adds nothing. The value stays in the save. Starfield's hazards
+ themselves are switched off by holding off SQ_ENV (the HoldOff list), not here.}
+    if O2Capacity == None || O2CapacityAmount <= 0.0
+        return
+    endif
+    float added = O2CapacityAmount - player.GetValue(O2Capacity)
+    if added > 0.0
+        player.ModValue(O2Capacity, added)
+    else
+        added = 0.0
+    endif
+    Trace("o2 capacity added=" + added + " value=" + player.GetValue(O2Capacity))
 EndFunction
 
 Function InVault(Actor player, int stage)

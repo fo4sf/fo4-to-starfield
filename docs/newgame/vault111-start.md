@@ -100,8 +100,11 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
     to start with nothing until the vault gives Fallout 4 items. Whether credits go with `RemoveAllItems`, whether quest
     items stay, and so whether the inventory is really empty, are **unverified** until the first in-game run of this
     default (section 4c; the log's `left=` gives the count). A `--keep-inventory` build is the old start: the player
-    keeps whatever Starfield gives. With nothing worn, Starfield's environment damage is the open part (S13 row 2b,
-    section 4d).
+    keeps whatever Starfield gives.
+12. **No Starfield environment (S13 row 2b, section 4d):** SQ_ENV, Starfield's environment system for the player, is on
+    the default hold list, so its hazard, suit and O2 abilities should leave the player; right after the reset the quest
+    tops the O2 capacity 0002E2 up to 100, which clears the O2/CO2 dial. Nothing is worn, so the body is drawn.
+    Unverified until the PC run.
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
 
@@ -126,7 +129,8 @@ first build's pirate-fight start, kept only to reproduce run 1; C only on the ow
 Which of Starfield's other 142
 start-game quests to hold off (the ship, the radiant parents, city and companion quests, generic dialogue) is the
 `npcs-ai-factions-dialogue-quests.md` section 8 list; the first proof records what runs (`sqv`) before more are added,
-because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
+because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV is held off since S13 row 2b (section
+4d), the owner's decision to take Starfield's environment out; what else it breaks is what the PC run checks.
 
 ## 3. Where the player goes, and why the plugin has no masters but Starfield.esm
 
@@ -365,16 +369,38 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   (82B to 832), script, options and tests were taken out at the head after `b21cccbe`; FAL-942 and its skin probes are
   superseded. The stand-in builds' `ModValue` adds stay in any save made with them, so those test saves are not
   for play.
-- **The route:** switch the hazard system off for the player or for our planet, not per item. Candidates, in the order
-  this design prefers them (a NEEDS-PC read of Starfield.esm on FAL-883 decides; nothing here is verified yet):
-  1. a game setting that turns environmental damage off (one GMST override, if one exists);
-  2. the shared condition or ability that applies the hazards to the player (the records that test the three suit
-     keywords): one override that also passes when a global of ours is set, so the player counts as protected with
-     nothing worn and the body stays drawn;
-  3. a player ability or perk from the new-game quest that zeroes the hazard effects;
-  4. Mars' planet data (atmosphere, temperature and magnetosphere keywords): a whole-record override of a vanilla
-     planet with Starfield quests on it, so last.
-  The route must cover both the dial (0002E2 and Oxygen) and the surface damage.
+- **The PC read of Starfield.esm (15 Nov, `pc-read-s13-2b-env`, comment cf2ad5cd; read-only, names and ids):**
+  - **No game setting** switches environment damage off: the 44 matching GMSTs are oxygen costs, O2 levels and hazard
+    spacing.
+  - **The shared condition** is CNDF `ENV_CND_WearingSpacesuitComplete` 23C7BD (all three suit keywords). Two more
+    records test the pack keyword directly (`ENV_DMG_SuitIntegrityFailure_Ability` 23BE19,
+    `ENV_CND_BaseO2_NoBackpack_NormalO2` 231112). Drawing the body is a separate set of conditions
+    (`ActorShouldShow*`), which is why the body keyword hid the body.
+  - **Every ENV ability the player has comes from one quest,** SQ_ENV 248D20, through its player alias's spells: 17 of
+    them (the five extreme-environment soaks, suit integrity, the O2 adjustment, the six water damages, restore damage
+    and soak, afflictions, the sealed-environment audio). None comes from HumanRace or the player NPC_.
+  - **Mars** (`MarsPlanetData` 03F59A) carries a CO2, thin, cold, no-magnetosphere set of planet keywords. Placed local
+    hazards (vents, pools, clouds) are separate `ENV_*Hazard*` records.
+- **The route taken: hold off SQ_ENV, and top the O2 capacity up.**
+  - **Why SQ_ENV:** one entry on the existing hold list (`DefaultHold`; the script stops it in both hold-off passes,
+    logged `held off [Quest <SQ_ENV ...>]`). Stopping a quest clears its aliases and so the alias spells: that switches
+    every ENV ability off for the player at once, with no record override. The other candidates were bigger or
+    partial: overriding 23C7BD (with an OR on a global of ours, rewritten as three OR pairs) leaves the two direct
+    pack-keyword tests and the water abilities; Mars' planet record is a whole override of a vanilla planet with
+    Starfield quests on it; a perk or ability of ours would have to undo 17 effects one by one.
+  - **Why the O2 fill as well:** the dial is the pack's O2 capacity 0002E2, which the reset takes away with the suit;
+    +100 is verified to clear it, and whether SQ_ENV's O2 adjustment alone drives it is not. The quest tops 0002E2 up to
+    `O2CapacityAmount` (100) once with `Actor.ModValue` right after the reset (`FillO2`, logged `o2 capacity added=<n>
+    value=<n>`; a second call adds nothing). The value stays in the save. `--no-o2-fill` leaves it out; a
+    `--keep-inventory` build has none (the player keeps Starfield's suit).
+  - **The way back:** `--hold` without SQ_ENV keeps Starfield's environment; `--no-o2-fill` drops the fill.
+- **Unverified until the PC run:**
+  - that `Stop()` on SQ_ENV takes its 17 spells off the player (`player.hasspell 23BE19` should read 0) and that it
+    stays stopped;
+  - that health holds on Mars with nothing worn, the dial stays white and the body is drawn;
+  - what else SQ_ENV does: the HUD's environment readouts, Starfield's own scripts that read it (Papyrus log errors
+    naming SQ_ENV), sprint O2 (an engine stamina cost, fSprintOxygen*, not SQ_ENV's);
+  - placed local hazards in our cells, if any, still hurt: they are not SQ_ENV's.
 
 ## 5. What Vault 111 needs from the port today
 
@@ -398,7 +424,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    `OnMenuOpenCloseEvent` means stage with `--no-looks`; a missing `Actor.SetValue` or `Actor.GetValue` means
    `--no-special` (a function counts as present when any script in the base's `extends` chain declares it, as the
    compiler resolves it); a missing `OnPlayerLoadGame` or `OnInit` means `--no-version`. The inventory reset's natives
-   (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) belong to the quest script, so a miss there
+   (`RemoveAllItems`, `GetItemCount`, `AddItem`, `EquipItem`, `IsEquipped`) and the O2 fill's (`ModValue`, `GetValue`) belong to the quest script, so a miss there
    is a core miss (section 4c). So do our own start's (section 13): `Game.FadeOutGame`, `ObjectReference.WaitFor3DLoad`,
    `Quest.StartNoWait` and `Quest.IsStarting` (the hand back) and the start events `OnQuestStarted` and `OnQuestInit`,
    which the looks and SPECIAL scripts start on too.
@@ -406,14 +432,14 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
    given with it), `--no-looks`, `--race-menu-mode <n>` (default 2, 0 the full creator, section 4),
    `--no-special` (section 4a), `--no-version`, `--build-version <n>` (default 1, section 4b), `--pod-ref <hex>`,
    `--terminal-ref <hex>`, `--keep-inventory` (no inventory reset; the reset is on by default) and `--vault-suit
-   <EditorID>` (none by default, section 4c), and
+   <EditorID>` (none by default, section 4c), `--no-o2-fill` (section 4d), and
    `--allow-temporary-anchor` (build on a vault cell without a persistent reference, the temporary-anchor mode, section
    3a; refused by default since newgame_v11, and `--require-persistent-anchor` is kept for old command lines). plan.json
    records them, the anchor's id and mode (`anchor`), and the stage contract.
