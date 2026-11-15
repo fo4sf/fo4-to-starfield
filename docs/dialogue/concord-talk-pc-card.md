@@ -27,16 +27,25 @@ say UNREAD. Do not install until those names are on the Scribe card: a guessed b
 
 PC PASS §1b (file read): `DialogueListData.aChoices[].sChoiceText` / `uEntryID`; select key `selectedIndex`.
 
-## 2. Install
+## 2. Compile then install
 
-Do not install the no-DoABC wheel. Compile `scripts/ui/DialogueMenuFour.as` on this PC to a movie with DoABC.
-Do not copy the host or Fallout 4 movie. Do not stage the wheel and then replace the twin: stage rewrites it.
+Do not install the no-DoABC wheel. Do not copy the host or Fallout 4 movie. Do not stage the wheel and then
+replace the twin: stage rewrites it. Ask the owner before downloading a compiler.
 
-    python scripts/dialogue/make_concord_talk.py stage <dir> --movie <compiled.swf>
+Compiler: Apache Flex SDK 4.16.1, command `mxmlc`. The .as imports only `flash.display.DisplayObject`,
+`flash.display.DisplayObjectContainer`, `flash.display.MovieClip`, and `flash.text.TextField` from that SDK's
+playerglobal. No other library.
+
+From the repo root, with `mxmlc` on PATH (bin of that SDK):
+
+    mxmlc -strict=true -swf-version=12 -target-player=11.1 -static-link-runtime-shared-libraries=true -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
+
+Then, game closed:
+
+    python scripts/dialogue/make_concord_talk.py stage <dir> --movie DialogueMenuFour.swf
     python scripts/dialogue/concord_talk_install.py install --dir <dir> --starfield <game dir>
 
-Game closed. If a loose `Interface/DialogueMenu.swf` already exists, the install must refuse. Uninstall after the
-session.
+If a loose `Interface/DialogueMenu.swf` already exists, the install must refuse. Uninstall after the session.
 
 ## 3. In game
 

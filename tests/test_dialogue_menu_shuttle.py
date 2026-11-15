@@ -84,6 +84,11 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("Subscribe", src)
         self.assertIn("sendSelect(ON_SELECT", src)
         self.assertIn("i >= MAP_ROWS", src)
+        self.assertIn("getChildByName", src)
+        self.assertIn(".text = value", src)
+        self.assertIn("BSUIDataManager.Dispatch", src)
+        self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
+        self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 
     def test_bind_slots_maps_four_choice_texts(self):
         data = {

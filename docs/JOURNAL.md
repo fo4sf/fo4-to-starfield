@@ -2974,3 +2974,9 @@ movie. Native/game NOT_RUN.
 PC card no longer says replace-then-stage. stage --movie copies a DoABC movie as the twin. select_payload
 refuses a null uEntryID; selectSlot caps at MAP_ROWS and names DialogueMenu_OnDialogueSelect. Outer aChoices
 wins when both keys exist. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: fillSlot / sendSelect bodies (FAL-865 / FAL-893)
+
+fillSlot sets fo4sfOpt* TextField text (blank if unused). sendSelect calls BSUIDataManager.Dispatch with
+DialogueMenu_OnDialogueSelect and selectedIndex. Compile command on the PC card: Apache Flex SDK 4.16.1 mxmlc,
+playerglobal only. Native/game NOT_RUN.

@@ -4,7 +4,12 @@
 // On select send DialogueMenu_OnDialogueSelect { selectedIndex: uEntryID }.
 package
 {
-    public class DialogueMenuFour
+    import flash.display.DisplayObject;
+    import flash.display.DisplayObjectContainer;
+    import flash.display.MovieClip;
+    import flash.text.TextField;
+
+    public class DialogueMenuFour extends MovieClip
     {
         public static const KEEP_MENU:String = "DialogueMenu";
         public static const HOST_ROOT:String = "Menu_mc";
@@ -13,6 +18,7 @@ package
         public static const SHUTTLE_MANAGER:String = "BSUIDataManager";
         public static const SHUTTLE_CONNECTOR:String = "UIDataShuttleConnector";
         public static const SUBSCRIBE:String = "Subscribe";
+        public static const DISPATCH:String = "Dispatch";
         public static const LIST_PROVIDER:String = "DialogueListData";
         public static const CHOICES:String = "aChoices";
         public static const CHOICE_TEXT:String = "sChoiceText";
@@ -68,8 +74,43 @@ package
             sendSelect(ON_SELECT, payload);
         }
 
-        // fillSlot / sendSelect are movie wiring. Compile on the PC; this host has no ABC compiler.
-        public function fillSlot(name:String, text:String):void {}
-        public function sendSelect(eventName:String, payload:Object):void {}
+        public function fillSlot(name:String, text:String):void
+        {
+            var value:String = (text == null) ? "" : text;
+            var clip:DisplayObject = this.getChildByName(name);
+            if (clip == null)
+            {
+                return;
+            }
+            if (clip is TextField)
+            {
+                (clip as TextField).text = value;
+                return;
+            }
+            if (clip is DisplayObjectContainer)
+            {
+                var box:DisplayObjectContainer = clip as DisplayObjectContainer;
+                var i:int = 0;
+                while (i < box.numChildren)
+                {
+                    var child:DisplayObject = box.getChildAt(i);
+                    if (child is TextField)
+                    {
+                        (child as TextField).text = value;
+                        return;
+                    }
+                    i++;
+                }
+            }
+        }
+
+        public function sendSelect(eventName:String, payload:Object):void
+        {
+            if (eventName != ON_SELECT || payload == null || payload[SELECT_KEY] == null)
+            {
+                return;
+            }
+            BSUIDataManager.Dispatch(eventName, payload);
+        }
     }
 }
