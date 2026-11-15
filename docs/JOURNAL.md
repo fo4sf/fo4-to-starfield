@@ -2930,3 +2930,14 @@ receipts are tracked in FAL-743 document reconciliation. Independent delta revie
 Minuteman FAL-741 landing gates remain. Earlier PC PASS dde84927 covers only the core
 receipt/Play-eligibility regression; actual kit/archive/Remove/instance/bridge gates
 remain separate. No native Windows, game, deploy or real-kit action in this run.
+
+## 2026-11-15 — Scribe: Concord four-option DialogueMenu movie (FAL-865)
+
+First slice of the dialogue core on scribe/fal865-concord-dialogue, base origin/main 6ebb7a0d.
+KEEP the host DialogueMenu class and its select events; REPLACE the movie with a generated four-slot
+stand-in (N/E/S/W, prompts ONE TWO THREE FOUR). Empty plugin FO4SFConcordTalk.esm loads the packed
+twin at Interface/DialogueMenu.swf. Smallest INFO set for DialogueConcordArea 000179F3 is one
+greeting plus four player INFOs; no Fallout lines in Git. Installer refuses a loose DialogueMenu.swf
+already in the game folder. 21 focused tests OK; guard/diff clean. Native Windows/game NOT_RUN.
+Independent review: Courier Copy. This does not reach the owner's game until that review, checks,
+and the PC session card.

@@ -1458,3 +1458,16 @@ where a player can stand, so the quest gives the door a trigger.
 Alternatives: prove a later plugin's archive wins for the same path (unread, a session of its own, leaves a shadowed file behind); extend the ACTI probe to
 DOORs (its check asserts exactly an ACTI and a quest); replace the archived files (forbidden by the installer).
 
+## 2026-11-15: Dialogue KEEP class, REPLACE movie (Scribe, FAL-865)
+
+Decision: keep Starfield's `DialogueMenu` class and its select/list events; replace `Interface/DialogueMenu.swf` with a
+four-slot movie. Do not add a second menu class. Do not copy Fallout 4's movie into Git. The first slice generates a
+stand-in (ONE/TWO/THREE/FOUR). Native work is naming the host movie's children; if they are not our four names, bind
+later rather than dropping Fallout 4's movie on a class that will not fill it.
+Why: engine PASS (FAL-862) — `DialogueMenu` is present as a list; no four-option wheel class. Fallout 4 uses the same
+class name with a different interface file. Owner 19 Oct "no own menu file" is KEEP the class, not KEEP the list layout.
+A Starfield list is not the Concord result.
+Alternatives: keep the list and show full player lines (older UI note; fails the four-option result); a new SFSE menu
+class (heavier, and the host class already exists); copy Fallout 4's movie from the player's install this slice
+(unverified against host clip names).
+
