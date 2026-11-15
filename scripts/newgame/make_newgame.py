@@ -12,7 +12,7 @@ usage:
                                [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
                                [--no-version] [--build-version N] [--hold MQ00,MQ101,...] [--mq101debug N]
                                [--no-mq101debug] [--debug-after-hold N] [--pod-ref HEX] [--terminal-ref HEX]
-                               [--keep-inventory | --vault-suit EDITORID] [--no-env-standin] [--allow-temporary-anchor]
+                               [--keep-inventory | --vault-suit EDITORID] [--no-env-standin] [--standin-probe] [--allow-temporary-anchor]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
          the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt; its "vault anchor" line says
@@ -410,6 +410,10 @@ def tool_options(a):
         opts += ["--vault-suit", a.vault_suit]
     if a.no_env_standin:
         opts.append("--no-env-standin")
+    if a.standin_probe:
+        if a.no_env_standin or a.keep_inventory:
+            sys.exit("--standin-probe adds pieces to the environment stand-in: --keep-inventory and --no-env-standin turn it off")
+        opts.append("--standin-probe")
     if a.allow_temporary_anchor:
         if a.require_persistent_anchor:
             sys.exit("--allow-temporary-anchor and --require-persistent-anchor contradict each other")
@@ -498,7 +502,7 @@ def stage(a):
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
                         "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
-                        "env_standin": env_standin_option(a),
+                        "env_standin": env_standin_option(a), "standin_probe": bool(a.standin_probe),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -513,7 +517,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Environment stand-in: {'ON (one piece in the pack slot with the three spacesuit keywords and a model-less armature, kept equipped, and the suit values by ModValue; the stand-in until the FO4 vault suit; whether it stops the damage is unverified until the PC run)' if env_standin_option(a) else 'off'}.
+Environment stand-in: {'ON (one piece in the pack slot with the three spacesuit keywords and a model-less armature, kept equipped, and the suit values by ModValue; the stand-in until the FO4 vault suit; protection verified at b692e5bf, but it hides the body)' if env_standin_option(a) else 'off'}{' Probe pieces (DIAGNOSTIC build, not for play): 82D Body, 82E Helmet, 82F Backpack, 830 Helmet+Backpack keywords.' if a.standin_probe else ''}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -855,6 +859,9 @@ def main(argv=None):
     s.add_argument("--no-env-standin", action="store_true",
                    help="no environment stand-in: the reset leaves the player without Starfield's spacesuit, so the "
                         "O2/CO2 dial reads red and Mars hurts (S13 row 2b; on by default with the reset)")
+    s.add_argument("--standin-probe", action="store_true",
+                   help="diagnostic only: add four pack-slot probe pieces, one spacesuit keyword set each, to find which "
+                        "keywords protect and which hide the body (S13 row 2b, PC run at 51366e2a)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

@@ -15,7 +15,7 @@
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
 //         [--no-mq101debug] [--debug-after-hold <n>] [--no-looks] [--race-menu-mode <n>] [--no-special] [--no-version] [--build-version <n>]
-//         [--exit-anchor <REFR EditorID>] [--keep-inventory | --vault-suit <ARMO EditorID>] [--no-env-standin] [--allow-temporary-anchor]
+//         [--exit-anchor <REFR EditorID>] [--keep-inventory | --vault-suit <ARMO EditorID>] [--no-env-standin] [--standin-probe] [--allow-temporary-anchor]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (run once, NOT start game enabled; stages 1 /
 //        10 / 20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10), the
 //        override of Starfield's DFOB StartupQuest_DO naming it (the writer refuses a Starfield.esm whose
@@ -193,7 +193,7 @@ static class NewGame
     // helmet are retired.
     // The PC run at b692e5bf (15 Nov): the script equipped the piece at once, the dial was white and health held at 200
     // on the surface, so one piece with three keywords protects. But worn, it hid the body (only the head was drawn;
-    // unequipping it brought the body back). Our armature had no body-part flags (ARMA BOD2) where the vanilla pack's
+    // unequipping it brought the body back). Our armature had no body-part flags (Starfield's ARMA BO64) where the vanilla pack's
     // has them, so the armature now copies the vanilla pack armature's flags and priorities. Whether that draws the
     // body is unverified until the next PC run; if not, the cause is the keywords (the PC's other reading).
     public const bool DefaultEnvStandIn = true;
@@ -207,6 +207,17 @@ static class NewGame
     public static readonly (string Edid, uint Id)[] StandInKeywords =
     {
         ("ArmorTypeSpacesuitBody", 0x23C7C0), ("ArmorTypeSpacesuitHelmet", 0x23C7C1), ("ArmorTypeSpacesuitBackpack", 0x23C7BF),
+    };
+    // The PC run at 51366e2a (15 Nov): with the vanilla pack armature's BO64 mask copied, the worn piece still hid the
+    // body, while the vanilla pack alone in the same slot and mask drew it; the difference left is our extra keywords
+    // (ArmorTypeSpacesuitBody most likely). Which keywords the protection needs is not separated: three worn pieces
+    // with all three stopped the damage, body + helmet without the pack did not. --standin-probe (a diagnostic build,
+    // never the default) adds one pack-slot piece per keyword set, on the same armature, for the PC to equip one at a
+    // time by console and read both the body and the health; the stand-in piece itself is unchanged.
+    public static readonly (uint Id, string Edid, int[] Keywords)[] StandInProbes =
+    {
+        (0x82D, "FO4SF_NewGameStandInProbeBody", new[] { 0 }), (0x82E, "FO4SF_NewGameStandInProbeHelmet", new[] { 1 }),
+        (0x82F, "FO4SF_NewGameStandInProbeBackpack", new[] { 2 }), (0x830, "FO4SF_NewGameStandInProbeHelmetBackpack", new[] { 1, 2 }),
     };
     // the suit set's actor values (the script's ModValue amounts): a name, the AVIF EditorID (null: the engine value with
     // no record, linked by id alone), its Starfield.esm id and the amount
@@ -276,10 +287,12 @@ static class NewGame
 
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
-                          int DebugAfterHold = DefaultDebugAfterHold, bool EnvStandIn = DefaultEnvStandIn)
+                          int DebugAfterHold = DefaultDebugAfterHold, bool EnvStandIn = DefaultEnvStandIn, bool StandInProbe = false)
     {
         /// the environment stand-in is written only with the inventory reset: without it the player keeps Starfield's suit
         public bool StandIn => ClearInventory && EnvStandIn;
+        /// the diagnostic probe pieces (--standin-probe) go only with the stand-in
+        public bool Probe => StandIn && StandInProbe;
 
         public static Options From(string[] a)
         {
@@ -289,6 +302,8 @@ static class NewGame
             if (keep && a.Contains("--clear-inventory")) throw new Refusal("--keep-inventory and --clear-inventory contradict each other");
             if (suit is not null && keep) throw new Refusal("--vault-suit is equipped by the inventory reset: --keep-inventory turns it off");
             bool clear = !keep && DefaultClearInventory;
+            if (a.Contains("--standin-probe") && (keep || a.Contains("--no-env-standin")))
+                throw new Refusal("--standin-probe adds pieces to the environment stand-in: --keep-inventory and --no-env-standin turn it off");
             if (a.Contains("--allow-temporary-anchor") && a.Contains("--require-persistent-anchor"))
                 throw new Refusal("--allow-temporary-anchor and --require-persistent-anchor contradict each other");
             return new(
@@ -303,7 +318,7 @@ static class NewGame
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
                 clear, suit, !a.Contains("--allow-temporary-anchor"),
                 ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold,
-                !a.Contains("--no-env-standin"));
+                !a.Contains("--no-env-standin"), a.Contains("--standin-probe"));
         }
     }
 
@@ -663,11 +678,12 @@ static class NewGame
         }
 
         // the environment stand-in (S13 row 2b): the script adds these right after the inventory reset and keeps them worn
-        var standIn = o.StandIn ? StandIn(sf, modKey) : null;
+        var standIn = o.StandIn ? StandIn(sf, modKey, o.Probe) : null;
         if (standIn is not null)
         {
             mod.ArmorAddons.Add(standIn.Arma);
             mod.Armors.Add(standIn.Pack);
+            foreach (var p in standIn.Probes) mod.Armors.Add(p);
         }
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
@@ -761,7 +777,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = standIn is not null ? StandInArmaId + 1 : SpecialAvifBase + (uint)SpecialNames.Length;
+        mod.ModHeader.Stats.NextFormID = standIn is not null ? (o.Probe ? StandInProbes[^1].Id : StandInArmaId) + 1 : SpecialAvifBase + (uint)SpecialNames.Length;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
@@ -778,13 +794,13 @@ static class NewGame
         return 0;
     }
 
-    public record StandInRecords(SF.Armor Pack, SF.ArmorAddon Arma);
+    public record StandInRecords(SF.Armor Pack, SF.ArmorAddon Arma, List<SF.Armor> Probes);
 
     /// The environment stand-in's records (see DefaultEnvStandIn): one ARMO in the vanilla pack's slot with the three
     /// spacesuit keywords, and its armature, an ARMA with no model. Refused unless Starfield.esm carries the vanilla pack
     /// with an armature, the keywords and the four ENV_Resist values at the ids the PC read (the script links them);
     /// 0002E2 has no record and is linked by id alone. The check builds them again and compares.
-    public static StandInRecords StandIn(SF.IStarfieldModGetter sf, ModKey modKey)
+    public static StandInRecords StandIn(SF.IStarfieldModGetter sf, ModKey modKey, bool probe = false)
     {
         var rel = SF.StarfieldRelease.Starfield;
         foreach (var (_, edid, id, _) in StandInValues)
@@ -816,19 +832,32 @@ static class NewGame
         pack.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey) });   // init-only list: Add (FAL-919)
         // the keywords in the record and in its keyword component, as PowerArmorProbe writes a spacesuit part's (worn by
         // hand at ec205655 and f96cd32f, WornHasKeyword read 1)
-        ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> Kws()
+        ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> Kws(IEnumerable<FormKey> keys)
         {
             var l = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>>();
-            foreach (var k in kws) l.Add(new FormLink<SF.IKeywordGetter>(k));
+            foreach (var k in keys) l.Add(new FormLink<SF.IKeywordGetter>(k));
             return l;
         }
-        pack.Keywords = Kws();
-        pack.Components.Add(new SF.KeywordFormComponent { Keywords = Kws() });
-        return new(pack, arma);
+        pack.Keywords = Kws(kws);
+        pack.Components.Add(new SF.KeywordFormComponent { Keywords = Kws(kws) });
+        // the diagnostic probe pieces: the pack's slot, race and armature, one keyword set each
+        var probes = new List<SF.Armor>();
+        if (probe)
+            foreach (var (pid, pedid, pk) in StandInProbes)
+            {
+                var piece = new SF.Armor(new FormKey(modKey, pid), rel) { EditorID = pedid, Name = "Vault stand-in probe (diagnostic)", FirstPersonFlags = tpl.FirstPersonFlags, Value = 0, Weight = 0 };
+                piece.Race.SetTo(tpl.Race.FormKey);
+                piece.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey) });
+                piece.Keywords = Kws(pk.Select(i => kws[i]));
+                piece.Components.Add(new SF.KeywordFormComponent { Keywords = Kws(pk.Select(i => kws[i])) });
+                probes.Add(piece);
+            }
+        return new(pack, arma, probes);
     }
 
     static string StandInText(Options o) => o.StandIn
-        ? $"environment stand-in on ({StandInPackEdid} with {string.Join(" / ", StandInKeywords.Select(k => k.Edid))}, armature {StandInArmaEdid}; ModValue {string.Join(" ", StandInValues.Select(v => $"{v.Name}+{F(v.Magnitude)}"))})"
+        ? $"environment stand-in on ({StandInPackEdid} with {string.Join(" / ", StandInKeywords.Select(k => k.Edid))}, armature {StandInArmaEdid}; ModValue {string.Join(" ", StandInValues.Select(v => $"{v.Name}+{F(v.Magnitude)}"))})" +
+          (o.Probe ? $"; probe pieces (diagnostic) {string.Join(", ", StandInProbes.Select(p => $"{p.Edid} {p.Id:X3}"))}" : "")
         : "environment stand-in off";
 
     /// The stand-in in a plugin read back: absent unless the options ask for it; otherwise exactly the records StandIn
@@ -844,9 +873,18 @@ static class NewGame
             return;
         }
         StandInRecords want;
-        try { want = StandIn(sf, key); }
+        try { want = StandIn(sf, key, o.Probe); }
         catch (Refusal e) { problems.Add(e.Message); return; }
-        Need(plug.Armors.Count == 1 && plug.ArmorAddons.Count == 1, $"{plug.Armors.Count} ARMO and {plug.ArmorAddons.Count} ARMA, expected 1 and 1 (the environment stand-in)");
+        Need(plug.Armors.Count == 1 + want.Probes.Count && plug.ArmorAddons.Count == 1,
+             $"{plug.Armors.Count} ARMO and {plug.ArmorAddons.Count} ARMA, expected {1 + want.Probes.Count} and 1 (the environment stand-in{(o.Probe ? " and its probe pieces" : "")})");
+        foreach (var wp in want.Probes)
+        {
+            var pa = plug.Armors.FirstOrDefault(x => x.FormKey == wp.FormKey);
+            Need(pa is not null && pa.EditorID == wp.EditorID && pa.FirstPersonFlags == wp.FirstPersonFlags && pa.Race.FormKey == wp.Race.FormKey &&
+                 (pa.Keywords?.Select(k => k.FormKey) ?? Enumerable.Empty<FormKey>()).SequenceEqual(wp.Keywords!.Select(k => k.FormKey)) &&
+                 (pa.Armatures?.Select(x => x.ArmorAddon.FormKey) ?? Enumerable.Empty<FormKey>()).SequenceEqual(new[] { want.Arma.FormKey }),
+                 $"probe ARMO {wp.EditorID} is not the pack-slot piece with the keywords [{string.Join(", ", wp.Keywords!.Select(k => k.FormKey))}] on {StandInArmaEdid}");
+        }
         var w = want.Pack;
         var a = plug.Armors.FirstOrDefault(x => x.FormKey == w.FormKey);
         var kws = a?.Keywords?.Select(k => k.FormKey).ToList() ?? new List<FormKey>();
@@ -1275,11 +1313,15 @@ static class NewGame
             !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
         try { Options.From(new[] { "--allow-temporary-anchor", "--require-persistent-anchor" }); Console.WriteLine("FAIL  options accepted both anchor options"); return 1; }
         catch (Refusal e) { Console.WriteLine($"refused as expected (both anchor options): {e.Message}"); }
+        try { Options.From(new[] { "--standin-probe", "--keep-inventory" }); Console.WriteLine("FAIL  options accepted --standin-probe with --keep-inventory"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (--standin-probe with --keep-inventory): {e.Message}"); }
+        if (plain.Probe || !Options.From(new[] { "--standin-probe" }).Probe) { Console.WriteLine("FAIL  the --standin-probe option"); return 1; }
         var keep = plain with { ClearInventory = false };
         var suit = plain with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("keep", idsPath, keep), ("suit", idsPath, suit), ("nostandin", idsPath, plain with { EnvStandIn = false }),
+            ("probe", idsPath, plain with { StandInProbe = true }),
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("debug0", idsPath, plain with { MQ101Debug = 0 }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
@@ -1330,6 +1372,8 @@ static class NewGame
             ("suit", keep, idsPath, "a --vault-suit build as a --keep-inventory one"),
             ("default", plain with { EnvStandIn = false }, idsPath, "the default (environment stand-in) build as a --no-env-standin one"),
             ("nostandin", plain, idsPath, "a --no-env-standin build as the default one"),
+            ("default", plain with { StandInProbe = true }, idsPath, "the default build as a --standin-probe one"),
+            ("probe", plain, idsPath, "a --standin-probe build as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1397,7 +1441,7 @@ static class NewGame
             ("the stand-in in the body slot (it hides the body)", m => m.Armors.First(a => a.EditorID == StandInPackEdid).FirstPersonFlags = SF.FirstPersonFlag.BODY),
             ("the stand-in without its armature (Papyrus refuses the equip)", m => m.Armors.First(a => a.EditorID == StandInPackEdid).Armatures.Clear()),
             ("the stand-in armature of another race", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).Race.SetTo(new FormKey(SfEsm, 0x00347E))),
-            ("the stand-in armature without body-part flags (it hides the body)", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).FirstPersonFlags = null),
+            ("the stand-in armature without body-part flags (BO64)", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).FirstPersonFlags = null),
             ("the stand-in armature on the body", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).FirstPersonFlags = SF.FirstPersonFlag.BODY),
             ("the stand-in armature with a model", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).WorldModel =
                 new GenderedItem<SF.Model?>(new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("Meshes\\StandIn.nif") }, null)),

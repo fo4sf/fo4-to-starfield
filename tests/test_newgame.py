@@ -27,7 +27,7 @@ RECORDS = os.path.join(ROOT, "dotnet", "NewGame", "Records.cs")
 DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
-                version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, no_env_standin=False,
+                version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, no_env_standin=False, standin_probe=False,
                 require_persistent_anchor=False,
                 allow_temporary_anchor=False)
 
@@ -323,8 +323,20 @@ class ContractTests(unittest.TestCase):
         self.assertIn("pack.Armatures.Add(", body)
         # the armature's body-part flags are the vanilla pack armature's (PC run at b692e5bf: unset, the body was hidden)
         self.assertIn("FirstPersonFlags = tplArma.FirstPersonFlags, MalePriority = tplArma.MalePriority, FemalePriority = tplArma.FemalePriority", body)
-        self.assertIn('("the stand-in armature without body-part flags (it hides the body)"', cs)
-        self.assertIn('Write(sfNoFlags,', cs)                             # Papyrus refuses an ARMO with no armature
+        self.assertIn('("the stand-in armature without body-part flags (BO64)"', cs)
+        self.assertIn('("the stand-in armature on the body"', cs)
+        self.assertIn('Write(sfNoFlags,', cs)                             # the writer refuses a vanilla armature with no BO64
+        # the diagnostic probe build (PC run at 51366e2a: the keywords, not the mask, hide the body): off by default,
+        # one pack-slot piece per keyword set on the same armature, refused without the stand-in
+        self.assertIn("bool StandInProbe = false", cs)
+        self.assertIn('a.Contains("--standin-probe")', cs)
+        for edid, fid in (("FO4SF_NewGameStandInProbeBody", "0x82D"), ("FO4SF_NewGameStandInProbeHelmet", "0x82E"),
+                          ("FO4SF_NewGameStandInProbeBackpack", "0x82F"), ("FO4SF_NewGameStandInProbeHelmetBackpack", "0x830")):
+            self.assertIn(f'({fid}, "{edid}"', cs)
+        self.assertIn('("probe", idsPath, plain with { StandInProbe = true })', cs)
+        self.assertIn("refused as expected (--standin-probe with --keep-inventory)", cs)
+        self.assertFalse(ng.tool_options(namespace()).count("--standin-probe"))
+        self.assertEqual(ng.tool_options(namespace(standin_probe=True)), ["--standin-probe"])
         self.assertNotIn("WorldModel", body)                                 # the armature draws nothing
         self.assertNotIn("SF.Spell", body)                                   # no ability: the script's ModValue
         self.assertNotIn("SF.MagicEffect", body)

@@ -383,7 +383,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
     - Its armature is ARMA `FO4SF_NewGameStandInArma` (82C): no model, so nothing is drawn, and the race of the vanilla
       pack's own armature, so the equip's race check passes.
     - The suit and helmet pieces of `f96cd32f` (829, 82A) are retired.
-    - Since `b692e5bf`'s run, the armature also copies the vanilla pack armature's body-part flags (ARMA BOD2) and
+    - Since `b692e5bf`'s run, the armature also copies the vanilla pack armature's body-part flags (Starfield's ARMA `BO64`, not FO4's BOD2) and
       priorities.
   - **The values:** right after the reset the quest adds the piece, then adds the suit set's values once with
     `Actor.ModValue` (what console `modav` does). It logs `env stand-in values <i>=<value read back> ...`. The script
@@ -402,9 +402,18 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
     triangles are gone).
   - **But** while the piece was worn, the body was hidden and only the head was drawn. Unequipping the piece brought
     the body back. That armature had no body-part flags, where the vanilla pack's armature has them.
-- **Unverified until the next PC run:** whether copying the vanilla armature's flags draws the body. If it does not,
-  the likely cause is the `ArmorTypeSpacesuitBody` keyword itself (the engine may hide the skin for a worn suit body),
-  and the next step separates that.
+- **Verified at `51366e2a` (PC run, 15 Nov):** copying the flags did not draw the body. The staged armature's BO64 read
+  `0x0000002000000000` (SSBackpack), as the real 1E2B19 armature has it, and the protection still held. Unequipping our
+  piece and equipping the vanilla pack alone drew the body; ours again hid it, and the console traced
+  `WornHasKeyword ArmorTypeSpacesuitBody` at the equip. Same slot, same mask: the difference left is our extra
+  keywords, most likely `ArmorTypeSpacesuitBody` (the engine hides the skin for a worn suit body).
+- **Open:** which keywords the protection needs. Three worn pieces with all three stopped the damage; body + helmet
+  without the pack did not; the pack keyword alone, or helmet + pack, were never tried.
+- **The probe build (`--standin-probe`, diagnostic only, never the default):** four more pack-slot pieces on the same
+  armature, each with one keyword set: `FO4SF_NewGameStandInProbeBody` (82D), `...ProbeHelmet` (82E),
+  `...ProbeBackpack` (82F) and `...ProbeHelmetBackpack` (830). The PC unequips our piece and equips each by console,
+  and reads for each whether the body is drawn and whether health holds on Mars. The result picks the stand-in's
+  keyword set; the stand-in piece itself is unchanged in this build.
 - **Note on ModValue:** it changes the player's values for good, in the save. A later build that takes the stand-in away
   must take them back off.
 - **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment
