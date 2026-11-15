@@ -84,24 +84,11 @@ class ConcordTalkInstallTests(unittest.TestCase):
         self.assertEqual(mct.TWIN, "Interface/DialogueMenu.swf")
         self.assertNotEqual(cti.RECORD, exp_install.RECORD)
 
-    def test_install_rides_along_and_uninstall_restores(self):
+    def test_install_refuses_no_doabc_movie(self):
         code, out = self.run_main("install", "--dir", self.staged)
-        self.assertEqual(code, 0, out)
-        self.assertEqual(exp_install.RECORD, "FO4SFExp.install.json")
-        self.assertTrue(os.path.exists(os.path.join(self.data, cti.RECORD)))
-        self.assertTrue(os.path.exists(os.path.join(self.data, PLUGIN)))
-        self.assertTrue(os.path.exists(os.path.join(self.data, mct.ARCHIVE)))
-        with open(self.plugins, encoding="utf-8-sig") as f:
-            lines = f.read().splitlines()
-        self.assertIn("*" + PLUGIN, lines)
-        with open(os.path.join(self.data, exp_install.RECORD), "rb") as f:
-            self.assertEqual(f.read(), EXP_RECORD)
-        code, out = self.run_main("uninstall")
-        self.assertEqual(code, 0, out)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("DoABC", out)
         self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
-        self.assertFalse(os.path.exists(os.path.join(self.data, PLUGIN)))
-        with open(self.plugins, encoding="utf-8-sig") as f:
-            self.assertEqual(f.read().splitlines(), BEFORE)
 
     def test_refuses_existing_loose_dialogue_menu(self):
         write(os.path.join(self.data, "Interface", "DialogueMenu.swf"), b"not-ours")

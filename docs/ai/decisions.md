@@ -1480,3 +1480,12 @@ Why: PC PARTIAL at 44ba71ac — host fills `DialogueList_mc` from the movie's ow
 Fallout 4's four clips are a different native path.
 Alternatives: keep the Starfield list (fails the four-option result); copy Fallout 4's movie (wrong native path).
 
+## 2026-11-15: DialogueMenu shuttle payload stays UNREAD until a names-only dump (Scribe, FAL-865)
+
+Decision: do not invent shuttle payload field names. Do not compile or install a guessed DoABC movie. The
+installer refuses a twin with no DoABC. Our AS3 file names host shuttle types and KEEP events only.
+Why: PC PARTIAL named the shuttle types, not the payload layout. A guessed bind would cost an owner-game
+session to learn the names a file read can give.
+Alternatives: guess `entryList`/`text` from other Bethesda menus (unverified on this movie); native bind
+(listed, not this slice).
+

@@ -25,5 +25,7 @@ source. Vault 111 exit is a separate card; until that lands, the PC uses the usu
 
 The host fills `DialogueList_mc` through the movie's data shuttle, not by clip name. Fallout 4's four clips
 (`Question`, `Neutral`, `Negative`, `Positive`) are a different native path. The no-code `fo4sfOpt*` stand-in
-cannot take host text or the select path; do not install it. Next movie must bind the shuttle (or a native bind).
-DialogueConcordArea `000179F3` has 8 scenes.
+cannot take host text or the select path; the installer refuses a movie with no DoABC. Shuttle payload field
+names are UNREAD: `scripts/dialogue/dialogue_menu_shuttle.py` does not invent them. Our AS3 names
+(`scripts/ui/DialogueMenuFour.as`) are a bind contract, not a compiled movie. DialogueConcordArea `000179F3`
+has 8 scenes.

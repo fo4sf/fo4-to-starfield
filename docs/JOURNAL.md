@@ -2949,3 +2949,9 @@ DialogueList_mc filled by the movie's data shuttle, not by instance name. Fallou
 are Question/Neutral/Negative/Positive via a different native path. Stand-in fo4sfOpt* matches
 neither. SCEN on 000179F3 is 8. Next source is an AS3 shuttle bind or a native bind; §2–§3 wait
 on that new head. Host names encoded in scripts/dialogue/dialogue_menu_host.py.
+
+## 2026-11-15 — Scribe: DialogueMenu shuttle bind contract (FAL-865)
+
+Payload field names UNREAD. Contract in scripts/dialogue/dialogue_menu_shuttle.py: KEEP shuttle, map four
+list rows N/E/S/W, DoABC required, Fallout 4 clips are not the bind. Installer refuses the no-DoABC twin.
+scripts/ui/DialogueMenuFour.as is our names-only AS3, not a compiled movie. Native/game NOT_RUN.

@@ -19,6 +19,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(REPO, "scripts", "ui"))
 sys.path.insert(0, os.path.join(REPO, "scripts", "game"))
 import exp_install  # noqa: E402
+import dialogue_menu_shuttle as shuttle  # noqa: E402
 import make_concord_talk as mct  # noqa: E402
 import make_probe_swf as swf  # noqa: E402
 
@@ -78,6 +79,11 @@ def install(a):
     if os.path.isfile(clash):
         print(f"concord talk not installed: loose {mct.TWIN} already exists; remove it or uninstall the other movie",
               file=sys.stderr)
+        sys.exit(1)
+    twin = os.path.join(d, "Data", *mct.TWIN.split("/"))
+    killed = shuttle.refuse_install_reason(twin)
+    if killed:
+        print(f"concord talk not installed: {killed}", file=sys.stderr)
         sys.exit(1)
     return installer(["install", "--exp-dir", d, "--starfield", a.starfield, "--pack",
                       "--plugins", mct.PLUGIN] +

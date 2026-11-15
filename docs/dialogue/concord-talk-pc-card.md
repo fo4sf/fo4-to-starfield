@@ -18,6 +18,13 @@ installing if the host class cannot fill unnamed slots.
 
 Count scenes on DialogueConcordArea `000179F3`: inventory said 8, an earlier spike said 15. Number only.
 
+### 1b. Shuttle payload names (no launch if a file read is enough)
+
+On this Starfield build, list the data-shuttle payload field names the host `DialogueMenu` movie consumes
+(BSUIDataManager / UIDataShuttleConnector). Names only: the fields that carry list rows into `DialogueList_mc`.
+Do not post decompiled methods, RVAs, or movie bytes. If the names cannot be read without launching, stop and
+say UNREAD. Do not install until those names are on the Scribe card: a guessed bind is not this session.
+
 ## 2. Install
 
 From a staged folder (`python scripts/dialogue/make_concord_talk.py stage <dir>`):
