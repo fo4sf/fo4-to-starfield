@@ -22,7 +22,7 @@ import make_probe_swf as swf  # noqa: E402
 
 HOST_PATH = host.host_names()["host_movie"]
 HOST_ARCHIVE_HINT = "Starfield - Interface.ba2"
-SLOT_ID0 = 9000  # character ids we add; host movies use much lower ids
+DEFINE_IDS = (2, 6, 20, 21, 22, 32, 34, 37, 39, 46, 75, 83)
 
 
 class OverlayError(ValueError):
@@ -120,6 +120,20 @@ def _place_instance(data):
     return parsed.get("instance"), parsed.get("depth")
 
 
+def next_character_id(tags):
+    """One past the highest Define* character id already in the movie."""
+    used = [0]
+    for code, data in tags:
+        if code in DEFINE_IDS and len(data) >= 2:
+            used.append(struct.unpack_from("<H", data, 0)[0])
+        if code == swf.DEFINE_SPRITE:
+            nested = _raw_tags(data, 4)
+            for nc, nd in nested:
+                if nc in DEFINE_IDS and len(nd) >= 2:
+                    used.append(struct.unpack_from("<H", nd, 0)[0])
+    return max(used) + 1
+
+
 def overlay_inject(host_bytes, width=1920, height=1080):
     """Keep host ABC; add fo4sfOpt* on the sprite that already has DialogueList_mc."""
     raw = bytes(host_bytes)
@@ -151,7 +165,7 @@ def overlay_inject(host_bytes, width=1920, height=1080):
     boxes = wheel.slot_boxes(W, H)
     extras = []
     places = []
-    cid = SLOT_ID0
+    cid = next_character_id(tags)
     for i, name in enumerate(wheel.SLOT_NAMES):
         box = boxes[wheel.SLOTS[i]]
         extras.append(swf.define_shape3(cid, [box], swf.PIPBOY_GREEN))
@@ -179,15 +193,21 @@ def overlay_inject(host_bytes, width=1920, height=1080):
     return b"CWS" + bytes([raw[3]]) + struct.pack("<I", length) + zlib.compress(new_body, 9)
 
 
+def archive_search_order(names):
+    """Starfield - Interface.ba2 first when present; never first-sorted AAA-mod.ba2."""
+    ba2 = [n for n in names if n.lower().endswith(".ba2")]
+    hint = [n for n in ba2 if n.lower() == HOST_ARCHIVE_HINT.lower()]
+    rest = sorted(n for n in ba2 if n.lower() != HOST_ARCHIVE_HINT.lower())
+    return hint + rest
+
+
 def extract_host_movie(starfield):
     """Player's Interface/DialogueMenu.swf from their archives. Never written to Git."""
     data = os.path.join(starfield, "Data") if os.path.basename(starfield) != "Data" else starfield
     if not os.path.isdir(data):
         raise OverlayError(f"no Data folder at {starfield}")
     last_err = None
-    for name in sorted(os.listdir(data)):
-        if not name.lower().endswith(".ba2"):
-            continue
+    for name in archive_search_order(os.listdir(data)):
         path = os.path.join(data, name)
         try:
             archive = Ba2(path)

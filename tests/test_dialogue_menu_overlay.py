@@ -63,6 +63,31 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("Menu_mc", reason)
 
+    def test_archive_hint_beats_aaa_mod(self):
+        order = overlay.archive_search_order(
+            ["AAA-mod.ba2", "Starfield - Interface.ba2", "zzz.ba2", "readme.txt"])
+        self.assertEqual(order[0], "Starfield - Interface.ba2")
+        self.assertEqual(order[1], "AAA-mod.ba2")
+
+    def test_inject_skips_existing_id_9000(self):
+        W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
+        box = (0, 0, 40 * swf.TWIPS, 20 * swf.TWIPS)
+        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+        body += swf.define_shape3(9000, [box], swf.PIPBOY_GREEN)
+        places = [swf.place_named(1, i + 1, name) for i, name in enumerate(host.HOST_CHILDREN)]
+        body += swf.define_sprite(2, places)
+        body += swf.place_named(2, 1, host.HOST_ROOT)
+        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+        raw = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        patched = overlay.overlay_inject(raw)
+        movie = swf.read_movie(patched)
+        ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
+        self.assertIn(9000, ids)
+        self.assertEqual(ids.count(9000), 1)
+        self.assertTrue(any(i and i > 9000 for i in ids))
+
 
 class HostNamesOverlayTest(unittest.TestCase):
     def test_host_payload_matches_pc_pass(self):

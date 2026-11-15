@@ -3031,3 +3031,9 @@ the host movie is next. Native/game NOT_RUN.
 PC PASS names only: document class none; Menu_mc is a child, class DialogueMenu; DialogueList_mc on that
 sprite frame 1; shuttle classes live in the movie. overlay_inject adds fo4sfOpt* there and keeps host ABC.
 Do not install 48a3eb3d or 69ee810a. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-938 FINDING — archive, ids, stage, card
+
+extract prefers Starfield - Interface.ba2. Slot character ids are max(host)+1. Install packs a
+patched copy from a temp tree so the stage is not left holding DialogueMenu.swf. Card §3 no longer
+says stage --movie or four slots not a list. Native/game NOT_RUN.

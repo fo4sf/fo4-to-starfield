@@ -112,6 +112,10 @@ class ConcordTalkInstallTests(unittest.TestCase):
         code, out = self.run_main("install", "--dir", self.staged, "--host-swf", host_path)
         self.assertEqual(code, 0, out)
         self.assertTrue(os.path.exists(os.path.join(self.data, cti.RECORD)))
+        self.assertFalse(os.path.isfile(os.path.join(self.staged, "Data", "Interface", "DialogueMenu.swf")))
+        self.run_main("uninstall")
+        code2, out2 = self.run_main("install", "--dir", self.staged, "--host-swf", host_path)
+        self.assertEqual(code2, 0, out2)
 
 
 if __name__ == "__main__":

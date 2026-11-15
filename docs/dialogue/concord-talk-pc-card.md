@@ -8,7 +8,8 @@ No F10. Until the Vault 111 exit card lands, jump to Concord with the usual cons
 - Do not copy Fallout 4 interface files into Git.
 - Do not post RVAs, decompiled text, or movie bytes.
 - Do not treat a Starfield list as a pass.
-- Do not install 48a3eb3d or 69ee810a (REPLACE host movie). Do not pack `Interface/DialogueMenu.swf`.
+- Do not install 48a3eb3d or 69ee810a (REPLACE with a movie of our own).
+- Do not pack a DialogueMenu.swf we authored. Install packs a patched copy of the player's movie.
 
 ## Shape
 
@@ -42,30 +43,13 @@ say UNREAD. Do not install until those names are on the Scribe card: a guessed b
 
 PC PASS §1b (file read): `DialogueListData.aChoices[].sChoiceText` / `uEntryID`; select key `selectedIndex`.
 
-## 2. Compile then install
+## 2. Overlay install (no compile this slice)
 
-Do not install the no-DoABC wheel. Do not copy the host or Fallout 4 movie. Do not stage the wheel and then
-replace the twin: stage rewrites it. Ask the owner before downloading a compiler.
-
-Compiler: Apache Flex SDK 4.16.1, command `mxmlc` (https://flex.apache.org/download-binaries.html). Ask the
-owner before downloading it. The .as imports only playerglobal types: `flash.display.DisplayObject`,
-`flash.display.DisplayObjectContainer`, `flash.display.MovieClip`, `flash.events.MouseEvent`,
-`flash.text.TextField`, `flash.text.TextFormat`, and `flash.utils.getDefinitionByName`. No other library.
-The host shuttle class is not imported: `getDefinitionByName("BSUIDataManager")` at runtime, fail closed if
-missing. The constructor creates `fo4sfOptN/E/S/W` as TextFields (N/E/S/W around a 1920x1080 stage), so this
-compiled movie has the four slots; do not stage the no-DoABC wheel. Use `-target-player=32.0` (the 11.1
-playerglobal is no longer served). Get `playerglobal32_0.swc` from Adobe's download host
-`https://fpdownload.macromedia.com/get/flashplayer/updaters/32/playerglobal32_0.swc` and put it in the SDK as
-`frameworks/libs/player/32.0/playerglobal.swc`. mxmlc reads `{playerglobalHome}/32.0/playerglobal.swc`, so set
-`PLAYERGLOBAL_HOME` to that SDK's `frameworks/libs/player` (the directory that contains `32.0/`, not the version
-subdirectory). Ask the owner before downloading it. Do not commit the SWC.
-
-From the repo root, with `mxmlc` on PATH (bin of that SDK) and `PLAYERGLOBAL_HOME` set:
-
-    mxmlc -strict=true -swf-version=12 -target-player=32.0 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
-
-Then, game closed, the installer copies the player's DialogueMenu from their archive and overlays four slots
-on Menu_mc. Do not stage a DialogueMenu.swf of our own. Do not run a kit session of 48a3eb3d or 69ee810a.
+Do not compile DialogueMenuFour.as as the host movie. Do not stage a DialogueMenu.swf of our own.
+Game closed: stage the empty plugin, then install. The installer copies the player's DialogueMenu from
+`Starfield - Interface.ba2` when that archive has it, overlays `fo4sfOpt*` inside `Menu_mc`, and packs
+that patched copy. Host ABC stays. The four clips have no text and no extra ABC; the host list still
+draws. Uninstall after. Do not run a kit session of 48a3eb3d or 69ee810a.
 
 ## 3. In game (one session, control then kit)
 
@@ -73,9 +57,8 @@ Same vanilla talk both times. Stop on the first crash. Script logging on. No F10
 
 1. Control, kit not installed: press E on a vanilla NPC. The host list may appear. If this crashes,
    FAIL (not our movie) and stop.
-2. Game closed: stage `--movie` and install as in §2. Same NPC, press E. Four slots, not a list, no
-   crash. Selecting one (mouse click on a slot; no key/controller path in this movie) fires the host
-   `DialogueMenu` select path (KEEP plumbing). If this crashes, FAIL and stop.
+2. Game closed: overlay install as in §2 (not stage `--movie`). Same NPC, press E. This slice still
+   shows the host list; the four clips are empty. No crash. If this crashes, FAIL and stop.
 
 Concord DialogueConcordArea `000179F3` is not on this set. Do not treat reaching Concord as this
 session's gate.
@@ -83,7 +66,7 @@ session's gate.
 ## Verdict
 
 - PASS: four options visible on that Concord talk, logging on, hashes of files read unchanged. Not
-  this session (plugin has no topic).
-- PARTIAL: four slots on any vanilla talk after the control did not crash; Concord not reached.
-- FAIL: crash with the kit, still a list with the kit, control not run, or install overwrote a game
-  file.
+  this session (plugin has no topic; slots have no bind yet).
+- PARTIAL: kit did not crash; host list still draws; Concord not reached.
+- FAIL: crash with the kit, control not run, or install overwrote a game file. A Starfield list on
+  this overlay slice is not FAIL.

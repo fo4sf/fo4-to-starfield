@@ -10,7 +10,9 @@ the game enters the repo.
 """
 import argparse
 import os
+import shutil
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -77,16 +79,15 @@ def install(a):
     except overlay.OverlayError as e:
         print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
-    dest = os.path.join(d, "Data", *mct.HOST_MOVIE.split("/"))
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "wb") as f:
-        f.write(patched)
-    wheel = os.path.join(d, "Data", *mct.MOVIE.split("/"))
-    if os.path.isfile(wheel):
-        os.remove(wheel)
-    return installer(["install", "--exp-dir", d, "--starfield", a.starfield, "--pack",
-                      "--plugins", mct.PLUGIN] +
-                     (["--prepacked", a.prepacked] if getattr(a, "prepacked", "") else []))
+    with tempfile.TemporaryDirectory() as tmp:
+        shutil.copy2(os.path.join(d, mct.PLUGIN), os.path.join(tmp, mct.PLUGIN))
+        dest = os.path.join(tmp, "Data", *mct.HOST_MOVIE.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(patched)
+        return installer(["install", "--exp-dir", tmp, "--starfield", a.starfield, "--pack",
+                          "--plugins", mct.PLUGIN] +
+                         (["--prepacked", a.prepacked] if getattr(a, "prepacked", "") else []))
 
 
 def main(argv=None):

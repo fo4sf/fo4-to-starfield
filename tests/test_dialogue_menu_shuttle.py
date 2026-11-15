@@ -96,14 +96,9 @@ class ShuttleBindTest(unittest.TestCase):
         card = os.path.join(ROOT, "docs", "dialogue", "concord-talk-pc-card.md")
         with open(card, encoding="utf-8") as f:
             card_src = f.read()
-        self.assertIn("-target-player=32.0", card_src)
+        self.assertIn("Overlay install", card_src)
+        self.assertIn("Starfield - Interface.ba2", card_src)
         self.assertNotIn("-target-player=11.1", card_src)
-        self.assertIn(
-            "https://fpdownload.macromedia.com/get/flashplayer/updaters/32/playerglobal32_0.swc",
-            card_src,
-        )
-        self.assertIn("frameworks/libs/player/32.0/playerglobal.swc", card_src)
-        self.assertIn("PLAYERGLOBAL_HOME", card_src)
         self.assertIn("ensureHostRoots", src)
         self.assertIn("public dynamic class DialogueMenuFour", src)
         self.assertIn("this.name = HOST_ROOT", src)
@@ -123,7 +118,8 @@ class ShuttleBindTest(unittest.TestCase):
         self.assertIn("Keep the game's `DialogueMenu` movie", card_src)
         self.assertIn("Do not REPLACE `Interface/DialogueMenu.swf`", card_src)
         self.assertIn("player's own", card_src)
-        self.assertIn("PARTIAL: four slots on any vanilla talk", card_src)
+        self.assertIn("PARTIAL: kit did not crash", card_src)
+        self.assertIn("not stage `--movie`", card_src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 
