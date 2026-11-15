@@ -14,22 +14,30 @@ the head under test and adds the walking observation the logs cannot give.
 
 ## Procedure (PC, separate release required)
 
+Install head: **draft #796 `4aaaa2c0cf5bb523dcac388e9f6d449dfb87690b`** (or #790 `34e62421`), not main. `looks_positions` and the
+`looks position` lines exist only on #790/#796 (they enter at `815ec1a2`); main `091de52e` does not emit them, and main is the
+build where the obstruction was first reported. The latest Courier CLEAR of the NewGame source is `5a24a65f`; `34e62421`
+and `4aaaa2c0` change NewGame after it (the Scribe's note on #796 is merge-only), so say so in the receipt.
+
 Use the guarded session installer, game-closed before and cleanup receipts, and the owner's settings and saves untouched.
 Record the full head, the installed core hashes and the plugin/PEX hashes. Use fresh throwaway new games.
 
-Run twice: **(1) normal creator**, **(2) quick start**. For each:
+Run twice. The opening message from `dotnet/NewGame` has button 0 `Create character` and button 1 `Quick start`:
+**(1) normal creator** = button 0, **(2) quick start** = button 1. Use the staged default race-menu mode. For each:
 
 1. From the first controllable frame, with collision on and no tcl, no noclip and no teleport, walk from the pod through the
    hall toward the console, then toward the lift. Record a screen capture and the time of each of: first input, first
    blocked attempt, reaching the console, reaching the lift.
 2. If blocked, stop and, without moving, record where: from the log (`make_newgame.py log`) the `pod_settle` and
-   `looks_positions` lines, and in the game the player XYZ (the existing log is fine; do not use `tcl` to move). Name what
+   `looks_positions` lines. The blocked spot is a later position than `pod_settle` (the first loaded tick): read the player XYZ
+   in place, without tcl. `make_newgame.py log` prints the JSON and then exits 1 unless stage 200 was reached without standing
+   down; a blocked walk never reaches stage 200, so keep the JSON and treat that exit as the expected FAIL-path result. Name what
    the player is pushing against, if visible.
 3. Do not lower Z, edit the pod, or change placement on the PC. Do not count a result reached with tcl.
 
 ## Report
 
 For each of the two runs: PASS (reached console and lift by walking), or FAIL with the blocking position, the log lines
-quoted verbatim, and the capture. Compare settle, before-creator and Done samples: a drop that changes between them is
+quoted verbatim, and the capture. Compare the settle sample, the `before creator` phase and `done: creator closed` / `done: quick start`: a drop that changes between them is
 the first lead. Keep unresolved items unresolved. A PASS here shows walkability only: not the lift, map listing,
 discovery, Fast Travel or S3.
