@@ -2991,4 +2991,5 @@ getDefinitionByName. Card compile line names playerglobal only, plus -default-si
 
 PC FAIL at 77ebc085: shuttle() needed a trailing return null under -strict; 11.1 playerglobal is no longer served.
 Card now uses -target-player=32.0. playerglobal32_0.swc from Adobe's download host goes in the SDK as
-frameworks/libs/player/32.0/playerglobal.swc. Select is mouse-click only. No install, no launch. Native/game NOT_RUN.
+frameworks/libs/player/32.0/playerglobal.swc. FAL-905 FINDING: set PLAYERGLOBAL_HOME to frameworks/libs/player
+(the directory that contains 32.0/). Select is mouse-click only. No install, no launch. Native/game NOT_RUN.

@@ -103,6 +103,7 @@ class ShuttleBindTest(unittest.TestCase):
             card_src,
         )
         self.assertIn("frameworks/libs/player/32.0/playerglobal.swc", card_src)
+        self.assertIn("PLAYERGLOBAL_HOME", card_src)
         self.assertNotIn("public function fillSlot(name:String, text:String):void {}", src)
         self.assertNotIn("public function sendSelect(eventName:String, payload:Object):void {}", src)
 

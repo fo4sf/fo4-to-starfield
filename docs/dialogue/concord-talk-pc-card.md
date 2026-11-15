@@ -41,9 +41,11 @@ missing. The constructor creates `fo4sfOptN/E/S/W` as TextFields (N/E/S/W around
 compiled movie has the four slots; do not stage the no-DoABC wheel. Use `-target-player=32.0` (the 11.1
 playerglobal is no longer served). Get `playerglobal32_0.swc` from Adobe's download host
 `https://fpdownload.macromedia.com/get/flashplayer/updaters/32/playerglobal32_0.swc` and put it in the SDK as
-`frameworks/libs/player/32.0/playerglobal.swc`. Ask the owner before downloading it. Do not commit the SWC.
+`frameworks/libs/player/32.0/playerglobal.swc`. mxmlc reads `{playerglobalHome}/32.0/playerglobal.swc`, so set
+`PLAYERGLOBAL_HOME` to that SDK's `frameworks/libs/player` (the directory that contains `32.0/`, not the version
+subdirectory). Ask the owner before downloading it. Do not commit the SWC.
 
-From the repo root, with `mxmlc` on PATH (bin of that SDK):
+From the repo root, with `mxmlc` on PATH (bin of that SDK) and `PLAYERGLOBAL_HOME` set:
 
     mxmlc -strict=true -swf-version=12 -target-player=32.0 -static-link-runtime-shared-libraries=true -default-size 1920 1080 -output DialogueMenuFour.swf scripts/ui/DialogueMenuFour.as
 
