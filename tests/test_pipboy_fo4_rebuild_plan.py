@@ -482,6 +482,12 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie", update)   # once per movie
         self.assertLess(update.index("g_lateCallsMovie.exchange(movie)"), update.index("g_shellKeyPending.exchange(0)"))
         self.assertIn("step=code_obj_late_call n={} name={} found={} called={}", update)
+        # FAL-906: stage b sends no periodic kUpdate; the state check that finds the menu open after a show sends one
+        check = self.main[self.main.index("\n\tvoid CheckState(std::uint32_t a_n)\n"):]
+        check = check[:check.index("\n\t}\n")]
+        self.assertIn("if (g_stage == 2 && g_lateCallCount && open == 1 && expected == 1) {", check)
+        self.assertIn("queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);", check)
+        self.assertIn("**No `code_obj_late_call` line**", self.plan)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
         self.assertNotIn("g_lateCall", install)                            # never inside the load
