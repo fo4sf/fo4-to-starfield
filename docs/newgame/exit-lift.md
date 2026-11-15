@@ -119,3 +119,11 @@ Normal creator and quick-start controls must both allow collision-enabled walkin
 from pod through the hall to the console. Preserve #791's creator work. The earlier
 "not a defect" classification in vault111-start.md described a session without
 reported obstruction; this new report supersedes that classification.
+
+## Lift door requirement (owner, 15 November ~22:25Z)
+
+Verbatim: "the front door of the elevator should be open and only closes during the animation".
+While the lift waits at the floor, its front door/gate stands open so the player can walk in. It closes only while
+the ride animation plays. This is part of the in-game result for the lift slice, and the in-game PC card must check:
+door **open** when the lift is at rest at the floor, **closed** during the ride. Not yet implemented or observed; whether
+the original lift model has a separate door piece, and how it would be driven, is unread (NOT_RUN, unresolved).
