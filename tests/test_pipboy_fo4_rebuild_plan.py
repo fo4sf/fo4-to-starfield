@@ -431,7 +431,7 @@ class RebuildPlanTests(unittest.TestCase):
         order = [update.index(s) for s in ("g_shellKeyPending.exchange(0)", 'data.SetMember("CurrentPage"',
                                            'data.SetMember("CurrentTab"', 'g_codeObjAt + ".InvalidateData"')]
         self.assertEqual(order, sorted(order))
-        self.assertEqual(update.count("CallPath("), 2)                     # each key's path, and InvalidateData once
+        self.assertEqual(update.count("CallPath("), 3)                     # FAL-852 late calls, each key's path, InvalidateData once
         self.assertIn("if (n > kMaxAnswers) {", update)
         message = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
         message = message[:message.index("\n\t}\n")]
@@ -459,6 +459,38 @@ class RebuildPlanTests(unittest.TestCase):
                      "refuse step=ini code_obj_pages=1", "refuse step=ini shell_keys=", "step=code_answer n= page= tab=",
                      "step=shell_key n= vk= path= found= called=", "step=code_obj_shell at= pages= shell_keys=",
                      "up to 256 calls"):
+            self.assertIn(text, readme, text)
+
+    def test_s1c2_late_calls_after_the_first_frame(self):
+        # FAL-852: InvalidateData inside the load, with our object on Menu_mc.BGSCodeObj, crashed the first render (HANG-SPLIT
+        # L1; L1-SPLIT M1 without it did not crash). CodeObjLateCalls= calls paths once per movie at the first kUpdate
+        for text in ("**S1-arm, the runs (owner PC, 15 Nov", "**S1-c2, the slice: the first page load moved after the first",
+                     "**S1-c2, the card (Claude PC;", "**PASS S1-c2:**", "11. Done since (15 Nov, owner PC)"):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-c2, the card"):self.plan.index("**PASS S1-c2:**")]
+        for setting in ("`CodeObjLateCalls=Menu_mc.InvalidateData`", "`CodeObjCalls=Menu_mc.onCodeObjCreate`", "`Flags=0`",
+                        "`Pause=0`", "`Arm=0`", "`Key=0x76`", "`CodeObjAt=Menu_mc`"):
+            self.assertIn(setting, card, setting)
+        ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+        self.assertRegex(ini, r"\nCodeObjLateCalls=\r?\n")
+        self.assertIn('const auto lateCalls = ReadText(ini, L"CodeObjLateCalls");', self.main)
+        self.assertIn('Refuse("ini", std::format("code_obj_late_calls={} (with CodeObj=1 only;', self.main)
+        self.assertIn('ParsePaths(lateCalls, g_lateCallNames, g_lateCallCount, "code_obj_late_calls")', self.main)
+        update = self.main[self.main.index("void ShellUpdate("):]
+        update = update[:update.index("\n\t}\n")]
+        self.assertIn("g_codeObjMovie.load() != movie", update)            # only after the hand-over
+        self.assertIn("g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie", update)   # once per movie
+        self.assertLess(update.index("g_lateCallsMovie.exchange(movie)"), update.index("g_shellKeyPending.exchange(0)"))
+        self.assertIn("step=code_obj_late_call n={} name={} found={} called={}", update)
+        install = self.main[self.main.index("bool CodeObjInstall("):]
+        install = install[:install.index("\n\t}\n")]
+        self.assertNotIn("g_lateCall", install)                            # never inside the load
+        destroy = self.main[self.main.index("void* MenuDestroy("):]
+        self.assertIn("g_lateCallsMovie = nullptr;", destroy[:destroy.index("g_engineDtor(")])
+        self.assertIn("late_calls={}", self.main)
+        readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
+        for text in ("refuse step=ini code_obj_late_calls=", "step=code_obj_late_call n= name= found= called=",
+                     "`step=code_obj_shell` ends `late_calls=`"):
             self.assertIn(text, readme, text)
 
     def test_s1_arm_own_key_raise_pause_lower(self):
