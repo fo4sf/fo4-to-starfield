@@ -14,7 +14,7 @@ package
     import flash.utils.getDefinitionByName;
 
     [SWF(width="1920", height="1080", frameRate="30")]
-    public class DialogueMenuFour extends MovieClip
+    public dynamic class DialogueMenuFour extends MovieClip
     {
         public static const KEEP_MENU:String = "DialogueMenu";
         public static const HOST_ROOT:String = "Menu_mc";
@@ -52,6 +52,12 @@ package
 
         public var lastChoices:Array;
         public var Menu_mc:MovieClip;
+        public var DialogueList_mc:MovieClip;
+        public var PersuasionList_mc:MovieClip;
+        public var PersuasionData_mc:MovieClip;
+        public var ButtonBar_mc:MovieClip;
+        public var CrewSkillsWidget_mc:MovieClip;
+        public var PrecognitionData_mc:MovieClip;
 
         public function DialogueMenuFour()
         {
@@ -163,31 +169,24 @@ package
 
         private function ensureHostRoots():void
         {
-            // PC FAIL 48a3eb3d: a movie with only fo4sfOpt* crashed on first talk.
-            // Shape (b): empty host instance names and members. Not converted art.
-            var root:MovieClip = this.getChildByName(HOST_ROOT) as MovieClip;
-            if (root == null)
-            {
-                root = new MovieClip();
-                root.name = HOST_ROOT;
-                addChild(root);
-            }
-            this.Menu_mc = root;
-            this[HOST_ROOT] = root;
+            // PC FAIL 48a3eb3d: fo4sfOpt* only. FAL-917: Menu_mc is the movie root;
+            // DialogueList_mc must be a child of that root, not of a nested clip.
+            this.name = HOST_ROOT;
+            this.Menu_mc = this;
             var i:int = 0;
             while (i < HOST_CHILD_NAMES.length)
             {
                 var n:String = HOST_CHILD_NAMES[i];
-                var mc:MovieClip = root.getChildByName(n) as MovieClip;
+                var mc:MovieClip = this.getChildByName(n) as MovieClip;
                 if (mc == null)
                 {
                     mc = new MovieClip();
                     mc.name = n;
                     mc.mouseEnabled = false;
                     mc.mouseChildren = false;
-                    root.addChild(mc);
+                    addChild(mc);
                 }
-                root[n] = mc;
+                this[n] = mc;
                 i++;
             }
         }

@@ -29,6 +29,8 @@ class HostNamesTest(unittest.TestCase):
         for name in host.HOST_CHILDREN:
             self.assertIn('"%s"' % name, src)
         self.assertIn("public var Menu_mc", src)
+        self.assertIn("public var DialogueList_mc", src)
+        self.assertIn("this.name = HOST_ROOT", src)
         self.assertEqual(list(wheel.SLOT_NAMES), list(host.STANDIN_SLOTS))
         self.assertFalse(set(host.STANDIN_SLOTS) & set(host.HOST_CHILDREN))
         self.assertFalse(set(host.STANDIN_SLOTS) & set(host.FO4_SLOTS))
