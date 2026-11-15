@@ -278,10 +278,10 @@ class PipboyProbeInstallTests(unittest.TestCase):
         self.assert_untouched()
 
     def test_extra_movie_belongs_to_install(self):
-        code, _ = self.run_main("status", "--extra-movie", "FO4SF_Fo4Boot")
-        self.assertIn("--extra-movie and --page-movie belong to install", str(code))
-        code, _ = self.run_main("uninstall", "--page-movie", "Pipboy_StatsPage")
-        self.assertIn("--extra-movie and --page-movie belong to install", str(code))
+        for argv in (("status", "--extra-movie", "FO4SF_Fo4Boot"), ("uninstall", "--page-movie", "Pipboy_StatsPage"),
+                     ("order", "--component-movie", "Components/ConditionClips/Condition_Head")):
+            code, _ = self.run_main(*argv)
+            self.assertIn("--extra-movie, --page-movie and --component-movie belong to install", str(code), argv)
 
     def stage_shell(self, pages=pbi.PAGE_MOVIES):
         # FAL-614 S1: the shell as the extra movie and its pages under Fallout 4's own names; ours stand in for them
@@ -366,6 +366,79 @@ class PipboyProbeInstallTests(unittest.TestCase):
         code, _ = self.run_main("install", "--dir", self.staged, "--extra-movie", "FO4SF_Fo4Shell",
                                 *self.page_args(["Pipboy_StatsPage"]))
         self.assertIn("the page movie Interface/Pipboy_StatsPage.swf is not in the stage's Data", str(code))
+        self.assert_untouched()
+
+    # FAL-852 R3: the STAT page loads Components/ConditionClips/*.swf itself; those ride with the pages when named
+    HEAD = "Components/ConditionClips/Condition_Head"
+
+    def stage_component(self, path=HEAD, raw=None):
+        movie = os.path.join(self.staged, "Data", *make_pipboy_probe.MOVIE.split("/"))
+        out = os.path.join(self.staged, "Data", "Interface", *(path + ".swf").split("/"))
+        write(out, raw if raw is not None else other_swf(movie))
+        return out
+
+    def install_shell(self, *components, pages=("Pipboy_StatsPage",)):
+        args = [arg for c in components for arg in ("--component-movie", c)]
+        return self.run_main("install", "--dir", self.staged, "--extra-movie", "FO4SF_Fo4Shell",
+                             *self.page_args(list(pages)), *args)
+
+    def test_components_are_packed_with_the_pages_and_uninstalled(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        body = "Components/ConditionClips/Condition_Body"
+        self.stage_component()
+        self.stage_component(body)
+        code, out = self.install_shell(self.HEAD, body)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(os.path.isfile(os.path.join(self.data, ARCHIVE)))
+        self.assertFalse(os.path.exists(os.path.join(self.data, "Interface")))  # packed, not loose
+        code, out = self.run_main("uninstall")
+        self.assertEqual(code, 0, out)
+        for name in (PLUGIN, ARCHIVE, pbi.RECORD):
+            self.assertFalse(os.path.exists(os.path.join(self.data, name)), name)
+        self.assertEqual(self.lines(), BEFORE)
+        self.assertEqual(self.exp_record(), EXP_RECORD)
+
+    def test_a_component_is_refused_unless_named(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        self.stage_component()
+        code, _ = self.install_shell()
+        self.assertIn(f"the twin Interface/{self.HEAD}.swf is not the movie byte for byte", str(code))
+        self.assert_untouched()
+
+    def test_a_component_needs_a_page(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        self.stage_component()
+        code, _ = self.install_shell(self.HEAD, pages=())
+        self.assertIn("--component-movie needs --page-movie", str(code))
+        self.assert_untouched()
+
+    def test_component_paths(self):
+        for bad in ("Condition_Head", "ConditionClips/Condition_Head", "Components", "Components/",
+                    "Components//Condition_Head", "Components/ConditionClips/Condition_Head.swf",
+                    "Components/../Pipboy_StatsPage", "Components\\ConditionClips\\Condition_Head",
+                    "/Components/ConditionClips/Condition_Head", "components/ConditionClips/Condition_Head",
+                    "Components/a/b/c/d", "Components/é", "Components/" + "x" * 65):
+            self.assertIsNotNone(pbi.component_movies_problem([bad], ["Pipboy_StatsPage"]), bad)
+        for good in (self.HEAD, "Components/Condition_Head", "Components/a/b/c", "Components/" + "x" * 64):
+            self.assertIsNone(pbi.component_movies_problem([good], ["Pipboy_StatsPage"]), good)
+        self.assertIn("each component once", pbi.component_movies_problem(
+            [self.HEAD, self.HEAD.lower().replace("components", "Components")], ["Pipboy_StatsPage"]))
+        self.stage_shell(["Pipboy_StatsPage"])
+        code, _ = self.install_shell("Components/../x")
+        self.assertIn("--component-movie 'Components/../x':", str(code))
+        self.assert_untouched()
+
+    def test_a_missing_component_is_refused(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        code, _ = self.install_shell(self.HEAD)
+        self.assertIn(f"the component movie Interface/{self.HEAD}.swf is not in the stage's Data", str(code))
+        self.assert_untouched()
+
+    def test_a_component_that_is_not_a_swf_is_refused(self):
+        self.stage_shell(["Pipboy_StatsPage"])
+        self.stage_component(raw=b"not a movie")
+        code, _ = self.install_shell(self.HEAD)
+        self.assertIn(f"the component movie Interface/{self.HEAD}.swf does not read back as a SWF", str(code))
         self.assert_untouched()
 
 

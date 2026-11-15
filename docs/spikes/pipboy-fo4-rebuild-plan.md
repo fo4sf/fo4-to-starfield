@@ -1116,6 +1116,54 @@ What each answer points to (leads, not causes; the Lone Wanderer's review, FAL-9
   our object (plugin code), not S3.
 - **Anything else:** posted as found; no card is chosen until the evidence names one.
 
+**R2, the read (Claude PC, 15 Nov ~16:45Z, at `aab8256d`; FAL-852): "anything else".** All six movies import one file,
+`fonts_en.swf`. The kit does not install it, but Starfield's own Interface archive holds a file of that name, and the
+shell, with the same import, drew. `LoadCurrentPage` loads the five pages by bare name (`URLRequest`, the current
+application domain). The STAT page starts nested `PipboyLoader` loads of its own (ConditionBoy, SPECIAL, Perks). No
+stack label named a load or an import step. One thing the code settles: libxse 9d090c4 flushes the log on every info
+line, and our stand-in logs every call (cap 256, one used), so **neither the shell nor a page called our object between
+the late `InvalidateData` and the crash**. That weakens S3 as the next step.
+
+**R3, the read (Claude PC, 15 Nov ~17:05Z, the two S1-c2 dumps; card `pc-card-r3` on FAL-852): the load-path lead.**
+- The crashing job thread's stack holds one file name, `Condition_Head.swf`, the STAT page's ConditionBoy clip. Beside
+  it is a loader message, cut off in memory: `Error reading Components/Conditi…`. The request was the relative
+  `Components/ConditionClips/Condition_Head.swf`; the opener resolved it under `Interface\Components\ConditionClips\`.
+- `fonts_en` is not on that stack. No thread was in a file read or open. Frames 00–0f are 16 different functions, not a
+  recursion.
+- The fault is the same in both dumps, and the same as L1's by its kept text. L1's own dumps were deleted before R3, so
+  those items were not run.
+- The reading, not yet a proof: the STAT page asks for a ConditionBoy clip the kit does not install, the read fails, and
+  the job thread then reads a null object. S1-b and M1 never started a page load, so they could not meet it. Why proof
+  2a's page, loaded alone, drew is not known yet.
+
+**S1-c3, the slice: the STAT page's components staged (an installer change, FAL-852).** `pipboy_probe_install.py
+install` takes `--component-movie <path>` with a page: it packs `Interface/<path>.swf` from the stage, where `<path>` is
+`Components/` then one to three names of letters, digits and `_` joined by `/`. Each is named once, must read back as a
+SWF, and is the player's own file, never in Git. The plugin is unchanged since `7b1d29aa`, so the PC's S1-c2 dll is
+the one to run.
+
+**S1-c3, the card (Claude PC; one launch, under a fresh owner release; the dll of `7b1d29aa`, the installer at this
+commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the test save, outdoors, no save.
+0. **Read first (no launch):** list the entries under `interface/components/` in Fallout 4's Interface archive (names
+   only). Post the ConditionClips names, their count, and the other folders there. Check Starfield's Interface archive
+   for each of those paths. **A path Starfield also has is a STOP**: our archive would shadow Starfield's file.
+1. **Stage:** S1-c2's stage, plus every `interface/components/conditionclips/*.swf` from the player's own Fallout 4
+   archive, copied to `Data/Interface/Components/ConditionClips/` in the stage.
+2. **Install:** S1-c2's install line plus one `--component-movie Components/ConditionClips/<name>` for each (no `.swf`).
+3. **The ini:** S1-c2's, unchanged (`CodeObjLateCalls=Menu_mc.InvalidateData`).
+4. **Run and send:** as S1-c2's card. If it crashes, also send the file names on the crashing thread's stack, as R3's
+   step 1.
+
+**PASS S1-c3:** S1-c2's PASS lines: no crash after `code_obj_late_call`, STAT's body drawn, and E turning to INV.
+
+What each other outcome means:
+- **A crash with another file on the stack, or another `Error reading` path:** the next missing file. Next: stage it
+  too (installer only), after a read like R3.
+- **The same crash with no `Error reading` on the stack:** the ConditionClips were not the cause. Next: a read of the
+  object the job reads null (the dump's call list), not a launch.
+- **No crash and no page body:** as S1-c2's outcome of that name.
+- **A body, but E does not turn it:** as S1-c2's outcome of that name.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -1243,3 +1291,6 @@ delivery.
 12. Done since (15 Nov 15:06Z): S1-c2 FAILED at L1's fault site, so `InvalidateData` with our object crashes after
    the first frame too. Now: R2 (names only, no launch: the import tags and the page-load path, plus the dumps' stack
    labels; above), then the card that follows from its answer.
+13. Done since (15 Nov 17:05Z): R2 ("anything else") and R3 (the load-path lead: `Error reading
+   Components/ConditionClips/…` on the crashing stack). Now: S1-c3 (the installer's `--component-movie` at this commit;
+   its card above, one launch under a fresh owner release), then the pause, then the arm with B1.
