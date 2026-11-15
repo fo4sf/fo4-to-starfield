@@ -320,7 +320,11 @@ class ContractTests(unittest.TestCase):
         self.assertIn("FirstPersonFlags = tpl.FirstPersonFlags", body)
         self.assertIn("pack.Race.SetTo(tpl.Race.FormKey)", body)
         self.assertIn("Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey)", body)   # the armature's race
-        self.assertIn("pack.Armatures.Add(", body)                             # Papyrus refuses an ARMO with no armature
+        self.assertIn("pack.Armatures.Add(", body)
+        # the armature's body-part flags are the vanilla pack armature's (PC run at b692e5bf: unset, the body was hidden)
+        self.assertIn("FirstPersonFlags = tplArma.FirstPersonFlags, MalePriority = tplArma.MalePriority, FemalePriority = tplArma.FemalePriority", body)
+        self.assertIn('("the stand-in armature without body-part flags (it hides the body)"', cs)
+        self.assertIn('Write(sfNoFlags,', cs)                             # Papyrus refuses an ARMO with no armature
         self.assertNotIn("WorldModel", body)                                 # the armature draws nothing
         self.assertNotIn("SF.Spell", body)                                   # no ability: the script's ModValue
         self.assertNotIn("SF.MagicEffect", body)

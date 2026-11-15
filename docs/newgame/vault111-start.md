@@ -383,6 +383,8 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
     - Its armature is ARMA `FO4SF_NewGameStandInArma` (82C): no model, so nothing is drawn, and the race of the vanilla
       pack's own armature, so the equip's race check passes.
     - The suit and helmet pieces of `f96cd32f` (829, 82A) are retired.
+    - Since `b692e5bf`'s run, the armature also copies the vanilla pack armature's body-part flags (ARMA BOD2) and
+      priorities.
   - **The values:** right after the reset the quest adds the piece, then adds the suit set's values once with
     `Actor.ModValue` (what console `modav` does). It logs `env stand-in values <i>=<value read back> ...`. The script
     gets the values as `StandInValues` (the four AVIFs, then 0002E2 by id) and `StandInAmount0` to `4`.
@@ -393,10 +395,16 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   Starfield's suit. The writer refuses the stand-in on a Starfield.esm without the pack, its armature, the keywords or the values.
 - **Not copied:** the boostpack, whose enchantment 092D50 is Starfield movement.
 - **Verified at `f96cd32f`:** the script resolves 0002E2 as an ActorValue, and the values clear the dial.
-- **Unverified until the next PC run:**
-  - whether the script's equip takes now that the piece has an armature;
-  - whether a model-less armature draws nothing, as no armature did;
-  - whether one piece with the three keywords stops the damage, as three pieces did.
+- **Verified at `b692e5bf` (PC run, 15 Nov):**
+  - the script's equip takes at the first tick after stage 10 (`env stand-in worn pack=true`);
+  - the dial is white;
+  - one piece with the three keywords stops the damage (health 200 → 200 over about 90 s on Mars; the hazard
+    triangles are gone).
+  - **But** while the piece was worn, the body was hidden and only the head was drawn. Unequipping the piece brought
+    the body back. That armature had no body-part flags, where the vanilla pack's armature has them.
+- **Unverified until the next PC run:** whether copying the vanilla armature's flags draws the body. If it does not,
+  the likely cause is the `ArmorTypeSpacesuitBody` keyword itself (the engine may hide the skin for a worn suit body),
+  and the next step separates that.
 - **Note on ModValue:** it changes the player's values for good, in the save. A later build that takes the stand-in away
   must take them back off.
 - **Temporary:** this is a stand-in until the FO4 vault suit lands (`--vault-suit`). Removing Starfield's environment

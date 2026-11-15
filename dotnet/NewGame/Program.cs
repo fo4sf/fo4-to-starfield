@@ -190,8 +190,12 @@ static class NewGame
     // passed in actor's race"; console equipitem does not check), and a body-slot piece with nothing to draw hides the
     // skin. So the stand-in is now one piece in the pack's slot, which hides nothing, carrying all three spacesuit
     // keywords, with an ARMA of ours (no model, the race of the vanilla pack's own armature). The 0x829 / 0x82A suit and
-    // helmet are retired. Whether one piece with three keywords stops the damage as three pieces did is unverified
-    // until the next PC run.
+    // helmet are retired.
+    // The PC run at b692e5bf (15 Nov): the script equipped the piece at once, the dial was white and health held at 200
+    // on the surface, so one piece with three keywords protects. But worn, it hid the body (only the head was drawn;
+    // unequipping it brought the body back). Our armature had no body-part flags (ARMA BOD2) where the vanilla pack's
+    // has them, so the armature now copies the vanilla pack armature's flags and priorities. Whether that draws the
+    // body is unverified until the next PC run; if not, the cause is the keywords (the PC's other reading).
     public const bool DefaultEnvStandIn = true;
     public const uint StandInPackId = 0x82B, StandInArmaId = 0x82C;
     public const string StandInPackEdid = "FO4SF_NewGameStandInPack", StandInArmaEdid = "FO4SF_NewGameStandInArma";
@@ -797,8 +801,16 @@ static class NewGame
         foreach (var (edid, id) in StandInKeywords)
             kws.Add((sf.Keywords.FirstOrDefault(x => x.FormKey == new FormKey(SfEsm, id) && x.EditorID == edid)
                      ?? throw new Refusal($"Starfield.esm {id:X6} is not the KYWD {edid}: build with --no-env-standin")).FormKey);
-        // no model: nothing is drawn, and the equip's race check passes (an ARMO with no armature is refused by Papyrus)
-        var arma = new SF.ArmorAddon(new FormKey(modKey, StandInArmaId), rel) { EditorID = StandInArmaEdid, Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey) };
+        // no model: nothing is drawn, and the equip's race check passes (an ARMO with no armature is refused by Papyrus);
+        // the body-part flags and priorities are the vanilla pack armature's (PC run at b692e5bf: with none set, the worn
+        // piece hid the player's body)
+        if (tplArma.FirstPersonFlags is null)
+            throw new Refusal($"Starfield.esm {StandInTemplate}'s armature has no body-part flags (the stand-in's armature copies them): build with --no-env-standin");
+        var arma = new SF.ArmorAddon(new FormKey(modKey, StandInArmaId), rel)
+        {
+            EditorID = StandInArmaEdid, Race = new FormLinkNullable<SF.IRaceGetter>(tplArma.Race.FormKey),
+            FirstPersonFlags = tplArma.FirstPersonFlags, MalePriority = tplArma.MalePriority, FemalePriority = tplArma.FemalePriority,
+        };
         var pack = new SF.Armor(new FormKey(modKey, StandInPackId), rel) { EditorID = StandInPackEdid, Name = StandInPackName, FirstPersonFlags = tpl.FirstPersonFlags, Value = 0, Weight = 0 };
         pack.Race.SetTo(tpl.Race.FormKey);
         pack.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey) });   // init-only list: Add (FAL-919)
@@ -844,8 +856,9 @@ static class NewGame
              $"ARMO {w.EditorID} is not a {w.FirstPersonFlags} piece of race {w.Race.FormKey} with the keywords [{string.Join(", ", w.Keywords!.Select(k => k.FormKey))}] and the armature {want.Arma.FormKey}");
         var aa = plug.ArmorAddons.FirstOrDefault(x => x.FormKey == want.Arma.FormKey);
         Need(aa is not null && aa.EditorID == StandInArmaEdid && aa.Race.FormKey == want.Arma.Race.FormKey &&
+             aa.FirstPersonFlags == want.Arma.FirstPersonFlags && aa.MalePriority == want.Arma.MalePriority && aa.FemalePriority == want.Arma.FemalePriority &&
              new[] { aa.WorldModel?.Male, aa.WorldModel?.Female }.All(m => string.IsNullOrEmpty(m?.File?.GivenPath)),
-             $"ARMA {StandInArmaEdid} is not a model-less armature of race {want.Arma.Race.FormKey}");
+             $"ARMA {StandInArmaEdid} is not a model-less armature of race {want.Arma.Race.FormKey} with the body-part flags {want.Arma.FirstPersonFlags} and priorities {want.Arma.MalePriority}/{want.Arma.FemalePriority}");
         Console.WriteLine($"  {StandInText(o)}");
     }
 
@@ -1131,7 +1144,7 @@ static class NewGame
         // keywords and the ENV_Resist values
         foreach (var (kedid, kid) in StandInKeywords)
             sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, kid), rel) { EditorID = kedid });
-        var packArma = new SF.ArmorAddon(new FormKey(SfEsm, 0x1E2B1A), rel) { EditorID = "Spacesuit_Constellation_Backpack_01_AA", Race = new FormLinkNullable<SF.IRaceGetter>(new FormKey(SfEsm, 0x00347D)) };
+        var packArma = new SF.ArmorAddon(new FormKey(SfEsm, 0x1E2B1A), rel) { EditorID = "Spacesuit_Constellation_Backpack_01_AA", Race = new FormLinkNullable<SF.IRaceGetter>(new FormKey(SfEsm, 0x00347D)), FirstPersonFlags = SF.FirstPersonFlag.Backpack, MalePriority = 2, FemalePriority = 2 };
         sf.ArmorAddons.Add(packArma);
         var vanillaPack = new SF.Armor(new FormKey(SfEsm, StandInTemplateId), rel) { EditorID = StandInTemplate, FirstPersonFlags = SF.FirstPersonFlag.Backpack };
         vanillaPack.Race.SetTo(new FormKey(SfEsm, 0x00347D));
@@ -1384,6 +1397,8 @@ static class NewGame
             ("the stand-in in the body slot (it hides the body)", m => m.Armors.First(a => a.EditorID == StandInPackEdid).FirstPersonFlags = SF.FirstPersonFlag.BODY),
             ("the stand-in without its armature (Papyrus refuses the equip)", m => m.Armors.First(a => a.EditorID == StandInPackEdid).Armatures.Clear()),
             ("the stand-in armature of another race", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).Race.SetTo(new FormKey(SfEsm, 0x00347E))),
+            ("the stand-in armature without body-part flags (it hides the body)", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).FirstPersonFlags = null),
+            ("the stand-in armature on the body", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).FirstPersonFlags = SF.FirstPersonFlag.BODY),
             ("the stand-in armature with a model", m => m.ArmorAddons.First(a => a.EditorID == StandInArmaEdid).WorldModel =
                 new GenderedItem<SF.Model?>(new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("Meshes\\StandIn.nif") }, null)),
             ("StandInPack removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "StandInPack")),
@@ -1518,6 +1533,9 @@ static class NewGame
             var sfNoArma = SfVariant("sf_noarma", m => m.ArmorAddons.Clear());
             try { Write(sfNoArma, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine("FAIL  write accepted a vanilla pack without its armature"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (the stand-in without the vanilla pack's armature race): {e.Message}"); }
+            var sfNoFlags = SfVariant("sf_noarmaflags", m => m.ArmorAddons.First().FirstPersonFlags = null);
+            try { Write(sfNoFlags, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine("FAIL  write accepted a vanilla pack armature without body-part flags"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (the stand-in without the vanilla pack armature's body-part flags): {e.Message}"); }
         }
         // refusals: a SPECIAL build from a points.json without a terminal (a --no-special one builds)
         {
