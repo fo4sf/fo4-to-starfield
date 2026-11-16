@@ -3086,3 +3086,8 @@ no compiled ABC in Git; overlay_inject does not replace DialogueMenu. Native/gam
 
 Installer --slots-swf copies Fo4sfDialogueSlots DoABC onto the overlaid host and SymbolClass
 the unnamed container. Compiled SWF is not in Git. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1037 FINDING — DoABC before ShowFrame
+
+bind_slots_abc writes DoABC and SymbolClass before the root ShowFrame. No End is an error.
+Missing --slots-swf is "not installed". Native/game NOT_RUN.

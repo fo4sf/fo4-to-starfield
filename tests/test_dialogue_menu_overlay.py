@@ -99,7 +99,30 @@ class OverlayPlanTest(unittest.TestCase):
             if c == overlay.SYMBOL_CLASS:
                 names.extend(n for _, n in overlay._symbol_entries(d))
         self.assertIn(overlay.BIND_CLASS, names)
+        codes = [c for c, _ in tags]
+        self.assertLess(codes.index(overlay.DOABC), codes.index(swf.SHOW_FRAME))
+        container = overlay._unnamed_container_id(tags)
+        bound = [cid for c, d in tags if c == overlay.SYMBOL_CLASS for cid, n in overlay._symbol_entries(d) if n == overlay.BIND_CLASS]
+        self.assertEqual(bound, [container])
         self.assertIsNone(overlay.refuse_own_replacement(patched))
+
+    def test_bind_slots_abc_refuses_no_end(self):
+        W, H = 100 * swf.TWIPS, 100 * swf.TWIPS
+        box = (0, 0, 10 * swf.TWIPS, 10 * swf.TWIPS)
+        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+        body += swf.tag(overlay.DOABC, b"\x01\x00\x00\x00fake")
+        body += overlay._write_symbol_class([(1, overlay.BIND_CLASS)])
+        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+        slots = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        injected = overlay.overlay_inject(host_shaped_movie())
+        hbody, hpos, _ = overlay._swf_body(injected)
+        tags = [(c, d) for c, d in overlay._raw_tags(hbody, hpos) if c != swf.END]
+        raw_body = hbody[:hpos] + b"".join(swf.tag(c, d) for c, d in tags)
+        no_end = b"CWS" + bytes([injected[3]]) + struct.pack("<I", 8 + len(raw_body)) + zlib.compress(raw_body, 9)
+        with self.assertRaisesRegex(overlay.OverlayError, "End"):
+            overlay.bind_slots_abc(no_end, slots)
 
     def test_bind_slots_abc_refuses_host_movie(self):
         with self.assertRaisesRegex(overlay.OverlayError, "must not be a host"):

@@ -377,25 +377,28 @@ def bind_slots_abc(host_bytes, slots_bytes):
     container = _unnamed_container_id(htags)
     if container is None:
         raise OverlayError("overlay has no unnamed slot container")
-    out = []
-    saw_sc = False
-    abc_put = False
+    existing_sc = []
     for c, d in htags:
         if c == SYMBOL_CLASS:
-            entries = [(cid, n) for cid, n in _symbol_entries(d) if n != BIND_CLASS]
-            entries.append((container, BIND_CLASS))
-            out.append(_write_symbol_class(entries))
-            saw_sc = True
+            existing_sc.extend((cid, n) for cid, n in _symbol_entries(d) if n != BIND_CLASS)
+    existing_sc.append((container, BIND_CLASS))
+    out = []
+    abc_put = False
+    saw_end = False
+    for c, d in htags:
+        if c == SYMBOL_CLASS:
             continue
+        if c in (swf.SHOW_FRAME, swf.END) and not abc_put:
+            out.extend(abc)
+            out.append(_write_symbol_class(existing_sc))
+            abc_put = True
         if c == swf.END:
-            if not abc_put:
-                out.extend(abc)
-                abc_put = True
-            if not saw_sc:
-                out.append(_write_symbol_class([(container, BIND_CLASS)]))
-            out.append(swf.tag(c, d))
-            continue
+            saw_end = True
         out.append(swf.tag(c, d))
+    if not saw_end:
+        raise OverlayError("host movie has no End tag")
+    if not abc_put:
+        raise OverlayError("host movie has no ShowFrame")
     new_body = header + b"".join(out)
     raw = bytes(host_bytes)
     return b"CWS" + bytes([raw[3]]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 9)

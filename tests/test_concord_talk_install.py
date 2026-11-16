@@ -117,6 +117,14 @@ class ConcordTalkInstallTests(unittest.TestCase):
         code2, out2 = self.run_main("install", "--dir", self.staged, "--host-swf", host_path)
         self.assertEqual(code2, 0, out2)
 
+    def test_install_missing_slots_swf_is_not_installed(self):
+        host_path = os.path.join(self.tmp.name, "host.swf")
+        write(host_path, host_shaped_movie())
+        missing = os.path.join(self.tmp.name, "nope.swf")
+        code, out = self.run_main("install", "--dir", self.staged, "--host-swf", host_path, "--slots-swf", missing)
+        self.assertNotEqual(code, 0)
+        self.assertIn("not installed", out)
+
 
 if __name__ == "__main__":
     unittest.main()

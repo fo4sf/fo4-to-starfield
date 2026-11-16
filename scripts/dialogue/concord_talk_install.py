@@ -82,7 +82,7 @@ def install(a):
         if slots_swf:
             with open(slots_swf, "rb") as f:
                 patched = overlay.bind_slots_abc(patched, f.read())
-    except (overlay.OverlayError, overlay.swf.SwfError, overlay.Ba2Error, zlib.error, struct.error) as e:
+    except (overlay.OverlayError, overlay.swf.SwfError, overlay.Ba2Error, zlib.error, struct.error, OSError) as e:
         print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
     with tempfile.TemporaryDirectory() as tmp:
