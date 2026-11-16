@@ -1178,6 +1178,61 @@ What each other outcome points to (leads, not causes; the Lone Wanderer's review
 - **No crash and no page body:** as S1-c2's outcome of that name.
 - **A body, but E does not turn it:** as S1-c2's outcome of that name.
 
+**S1-c4, the slice: the shell's SPECIAL list made safe before `InvalidateData` (plugin code, FAL-1025).** Gemini (PC) read
+Fallout 4's Pip-Boy movies (the PC's private report `gemini-pipboy-data-contract`, §4 to §6), and the Claude PC checked
+the main claim in the decompiled AS3: the shell's `DataObj` constructor pushes 7 empty objects into its SPECIAL list,
+`onPageLoadComplete` calls `InvalidateData`, the change event reaches all three STAT tabs (the hidden SPECIAL tab too),
+that tab takes `DataObj.SPECIALList`, and `SPECIALListEntry.SetEntryText` calls `value.toString()` on each entry: AS3
+TypeError #1010 on `{}`, with no try/catch in the dispatch. Fallout 4's engine fills the list first; our stand-in only
+logs `PopulatePipboyInfoObj`. `CodeObjSpecial=fill` (README, after `CodeObjLateCalls=`) empties
+`Menu_mc.DataObj.SPECIALList` right before each `InvalidateData` the plugin calls and pushes 7 placeholder entries
+`{text, value, modifier, description}`; `clear` leaves it empty. The same report says the MAP page calls
+`codeObj.RefreshMapMarkers` and `codeObj.CheckHardcoreModeFastTravel` directly (#1006 when missing): the card lists both
+in `CodeObjNames=`. No new Address Library id. **A caution, a reading:** in Scaleform an uncaught AS3 error normally
+stops the script, not the process, while S1-c2 and L1 crashed natively on a job thread. So this is a lead for the crash,
+and certainly a fix for the STAT page's script; the run says which. Not in this slice (REPORT §4.3, each for its own
+page): DATA's `SetPlatform`, INV's `SlotResists[0..8]`, RADIO's non-empty list, and the ConditionBoy loads' missing
+`IO_ERROR` handler (S1-c3 stages those files).
+
+**S1-c4, the card (Claude PC; one launch, under a fresh owner release; the dll built at this commit).** One change from
+the last run: the setup of S1-c3's run if it has run (its components installed), else S1-c2's; say which. The owner's F10
+kit out with hashes, the test save, outdoors, no save.
+1. **Build** the plugin at this commit with `build.ps1`. A build error is a **STOP**: send it. Keep the last dll and ini
+   aside as the rollback.
+2. **Install:** the last run's install line, unchanged. Then the new dll.
+3. **The ini:** the last run's (S1-c2's: `Flags=0`, `Pause=0`, `Arm=0`, `Key=0x76`, `CodeObjAt=Menu_mc`, `CodeObjPages=1`,
+   S1-c's `ShellKeys`, `CodeObjCalls=Menu_mc.onCodeObjCreate`, `CodeObjLateCalls=Menu_mc.InvalidateData`), with:
+   - `CodeObjSpecial=fill`
+   - `CodeObjNames=PopulatePipboyInfoObj,onNewPage,onNewTab,PlaySound,ShowPerksMenu,onBackButtonHandled,onPerksTabOpen,onPerksTabClose,RefreshMapMarkers,CheckHardcoreModeFastTravel`
+4. **Run:** F7 to open STAT, with shots at about 1, 3 and 6 s. Wait 10 s. Then E four times, a second apart (INV, DATA,
+   MAP, RADIO), with a shot of each, and Q four times back to STAT. F7 to close, F7 to open once more, F7 to close. Quit
+   to desktop through the menu.
+5. **Send:** every line from `step=toggle` on, especially `code_obj_special_ini`, `code_obj_special`,
+   `code_obj_late_call`, `code_call`, `shell_key`, `code_answer` and `state`; any `refuse` line; the shots described
+   (a page body or not, which page); crash or not, with the exception's module and the crashing thread's file names (as
+   R3) if it crashed. The owner's visual test with the recorder is their own lane, after this card.
+
+**PASS S1-c4:**
+- at load, `step=code_obj_special_ini mode=fill list=Menu_mc.DataObj.SPECIALList`;
+- `code_obj_special n=1 when=late mode=fill found=1 ... cleared_by=splice pushed=7 length=#7` (or `cleared_by=length`),
+  then `code_obj_late_call n=1 name=Menu_mc.InvalidateData found=1 called=1`, and no crash in the 10 s after it;
+- STAT's page body inside the tab bar and footer (the movie's own placeholders or zeros);
+- on each E and Q, a `code_obj_special ... when=answer` line before its `code_answer ... invalidated=1`, and that page's
+  body; MAP opens with no crash.
+
+What each other outcome points to (leads, not causes):
+- **`found=0`, or `cleared_by=none`:** the list was not reached, so the run says nothing about it. Next: ini only,
+  `CodeObjProbe=Menu_mc.DataObj,Menu_mc.DataObj.SPECIALList,Menu_mc.DataObj._SPECIALList` to show where it is.
+- **`pushed=` below 7 with `length=#0`:** the fill failed and the list was left empty, which is `clear`'s case; the
+  outcome is read as that.
+- **The same crash at L1's fault site after a good `code_obj_special` line:** the SPECIAL list is not the native crash's
+  cause (its script fix stays). The ConditionClips lead (S1-c3) and the dump's call list come next, as S1-c3's
+  outcomes say.
+- **No crash on STAT, a crash on another page:** send the `code_call` lines before it and the page; REPORT §4.3 names
+  that page's trap, which is that page's own slice.
+- **No crash and no page body:** as S1-c2's outcome of that name.
+- **A body, but E does not turn it:** as S1-c2's outcome of that name.
+
 **Proof 2, the outline (route A): the STAT page.** Each step has its own card once the one before it has run.
 - **2a, the page alone:** `Movie=FO4SF_Fo4Stats`, the player's `Pipboy_StatsPage.swf` installed with
   `--extra-movie FO4SF_Fo4Stats`, and `CodeObj=1` with the page's own names in `CodeObjNames`. Shows: the page's frame
@@ -1308,3 +1363,7 @@ delivery.
 13. Done since (15 Nov 17:05Z): R2 ("anything else") and R3 (the load-path lead: `Error reading
    Components/ConditionClips/…` on the crashing stack). Now: S1-c3 (the installer's `--component-movie` at this commit;
    its card above, one launch under a fresh owner release), then the pause, then the arm with B1.
+14. Next with it (16 Nov, FAL-1025): S1-c4 (`CodeObjSpecial=` at this commit, and the MAP page's two names; its card
+   above). It needs a review (the Scribe or the Courier Copy), a carry, then the PC's build and one launch under the
+   owner's release. Each of S1-c3 and S1-c4 changes one thing from the run before it. Then the owner's visual test with
+   the recorder (their lane), and Gemini's item 20 names the first page to fill with real data (REPORT §5).
