@@ -27,7 +27,7 @@ and logs every step. The stage is picked by `Stage` in `FO4SFPipboyMenu.ini`:
 | --- | --- |
 | `src/main.cpp` | the plugin: version guard, checks before use, the menu object, the key thread |
 | `src/pch.h` | precompiled header (libxse's game headers and SFSE layer) |
-| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
+| `FO4SFPipboyMenu.ini` | `Stage`, `Key` (default `0x79`, F10), `Flags` (0), `KeepAlive` (1); stage (b): `Movie` (empty: ours, FAL-614), `CodeObj` (0), `CodeObjNames` (empty: `PlaySound,HideMenu`), `CodeObjHide` (0), `CodeObjSound` (0), `CodeObjInit` (empty), `CodeObjProbe` (empty), `CodeObjCalls` (empty), `CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty); with `Movie=` also `Pause` (0) and the arm, `Arm` (0) to `ArmRetryMs` (FAL-852); stage (c): `FlagSets` (`0x0,0x8,0x9`), `SnapshotKey` (`0x7A`, F11), `ClickCall` (empty: off); stages (d) and (e): `PageFlagSets` (`0x19`); stages (d), (e): `CancelCode1` to `CancelCode4` (`0x1B`, `0x09`: Esc and Tab as Windows virtual-key codes, as the PC's game run logged them); stage (e): `KitUp` to `KitNextTab`, and the pages (`[Kit]`, `[Page <TAB>/<SUB>]`) |
 | `xmake.lua`, `build.ps1` | the PC build: FOCCPing's build path (`docs/spikes/combined-core-probes.md`, B0-2) |
 | `scripts/ui/make_probe_swf.py` | writes the stage (b) movie, with `--channel` the stage (c) one and with `--page` the stage (d) one (pure Python; tests `tests/test_make_probe_swf.py`, `tests/test_pipboy_stat_page.py`) |
 | `scripts/ui/make_pipboy_kit.py` | the page kit (stage (e)): reads and checks the pages of the ini (`--check`) and writes the kit's movie for them (pure Python, on `make_probe_swf.py`; tests `tests/test_pipboy_kit.py`) |
@@ -419,6 +419,13 @@ Install:
    `FO4SFPipboyProbe - Main.ba2`, under its own record `Data\FO4SFPipboyProbe.install.json`; the installed
    experiment's `FO4SFExp.install.json` is not read or changed. A `plugin_toggle.py` hold makes it refuse, so run it
    between `plugin_toggle.py on` and `off`. `status`, `order` and `active` take `--starfield <game>` alone.
+   With `Movie=<name>` (stage (b)), add `--extra-movie <name>` to install: the stage's `Data\Interface\<name>.swf`,
+   the player's private movie, is packed too (`<name>` is `FO4SF_` and letters, digits, `_`; the file must be a
+   whole SWF: signature, FileLength and every tag's length, no tag's contents read). Anything else in `Data` that is not a byte-for-byte twin is still refused.
+   With the extra movie only, `--page-movie <page>` (once per page) packs `Data\Interface\<page>.swf` too, the
+   player's own tab movie under Fallout 4's name, for the shell to load (FAL-614 S1). `<page>` is one of
+   `Pipboy_StatsPage`, `Pipboy_InvPage`, `Pipboy_DataPage`, `Pipboy_MapPage`, `Pipboy_RadioPage`; each is checked as a
+   whole SWF like the extra movie.
 
 Uninstall:
 
@@ -567,6 +574,174 @@ Take a screenshot while the menu is open after the fifth press, and one after th
 2. `step=load_movie ... stage=b result=1 movie=<non-zero>`, and `step=sfse_movie_created` for our menu.
 3. The open screenshot shows the green rectangle, centred, about 60 % by 50 % of the screen. It carries the dark label
    `FO4SF PIP-BOY PROBE`. The closed screenshot shows the game without it.
+
+### (b) with `Movie=`: another movie in our menu (FAL-614)
+
+`Movie=<name>` (1 to 64 letters, digits and `_`; empty = ours) makes the menu load `Interface/<name>.swf` instead of
+ours. It works with `Stage=2` only, so no channel, page or kit tries to drive a movie that is not ours. Any other stage
+with `Movie=` set, or a bad name, gives `refuse step=ini movie=...` and the plugin stays idle. At load:
+`step=movie name=<name> file=Interface/<name>.swf`.
+
+How it works (**hypothesis**, the PC's run decides): the engine's `LoadMovie` names the file after the menu's
+`GetName`, as it loads `Interface/FO4SF_PipboyMenu.swf` for ours. While our `LoadMovie` runs the engine's, `GetName`
+answers with `Movie=`; at every other time it answers `FO4SF_PipboyMenu`. The load logs
+`step=load_movie ... result=<0 or 1> movie=<address> movie_name=<name> name_asks=<n>`. `name_asks=0` means the
+engine did not ask for the name in that call, so the hypothesis is wrong whatever loaded.
+
+It exists for proof 1 of `docs/spikes/pipboy-fo4-rebuild-plan.md`: the player's own Fallout 4 boot sequence, staged
+on their PC only, never in Git.
+
+`CodeObj=1` (with `Movie=` only; without it: `refuse step=ini code_obj=1`) is proof 1b's stand-in for the movie's
+engine object. With it, stage (b) reads and checks stage (c)'s ids too (`step=channel_ids ...` at load), as the root
+check needs them. The plugin sets `root.BGSCodeObj` to a function object carrying one function per name in
+`CodeObjNames` (empty: `PlaySound,HideMenu`; 1 to 16 names of letters, digits and `_`, none twice, else
+`refuse step=ini code_obj_names=`). It tries right after the engine's `LoadMovie` returns (`when=load`; proof 1b's
+first run found no root there), after the engine's own `kShow` (`when=show`) and after each `kUpdate` (`when=update`),
+which the key thread sends about every half second while the stand-in is not set, up to 40 tries per movie. The
+first five tries and the one that sets it log
+`step=code_obj when= try= root_of= get_variable= root= root_type= holder_type= set= of= read_back= names=`. Each
+call logs `step=code_call n= name= args= arg0=` and, since S1-c, `arg1=` to `arg3=` for each further argument (a
+string's first 64 characters; a boolean or a number after `#`, `#true`, `#2`; else its type, `type<n>`; `arg0=none`
+with no argument), up to 256 calls, and does nothing else: no sound, and
+`HideMenu` leaves the menu open. With `CodeObjHide=1` (with `CodeObj=1` only, else `refuse step=ini code_obj_hide=1`)
+`HideMenu` also closes our menu on the main thread, as the CLOSE button and F10 do: `step=close n= by=hide_menu`.
+With `CodeObjSound=1` (with `CodeObj=1` and `PlaySound` among the names only, else
+`refuse step=ini code_obj_sound=1`; at load `step=code_obj_sound folder=FO4SFPipboyMenuSounds max_playing=4`)
+`PlaySound` also plays the player's own converted file `FO4SFPipboyMenuSounds\<arg0>.wav` beside the dll (proof 1d,
+route S2): PCM 16 bit `RIFF`/`WAVE`, 1 or 2 channels, 8000 to 192000 Hz, 32 MB at most, the name 1 to 64 letters,
+digits and `_`. Each sound plays on a Windows audio (waveOut) stream and a thread of its own, so overlapping sounds mix
+and closing the menu does not cut one; at most 4 at once. It logs `step=sound n= name= result=start rate= channels=
+ms= playing=` and `result=end took_ms=`, or one of `missing`, `bad_size`, `unreadable`, `not_riff_wave`, `no_fmt`,
+`not_pcm16`, `bad_format`, `no_data`, `open_failed`, `write_failed`, `bad_name`, `busy`, `no_thread` (up to 64 lines).
+With `CodeObjInit=<name>` (with `CodeObj=1` only, 1 to 64 letters, digits and `_`, else
+`refuse step=ini code_obj_init=`; proof 2a) the plugin, once the stand-in is built with all its functions and whether
+or not `root.BGSCodeObj` took it (a page's root is a sealed class that takes no new member), calls the movie's own
+`root.<name>` with the stand-in as its one argument, as a page's shell would, reads `root.codeObj` back, and logs
+`step=code_obj_init when= try= name= got= found= type= called= result_type= code_obj= code_obj_type=`. A call that went
+through ends the tries for that movie. With `CodeObjProbe=<path>,...` (with `CodeObj=1` only, 1 to 16 paths of
+letters, digits, `_` and `.`, else `refuse step=ini code_obj_probe=`; proof 2b step i) the plugin, once per movie on the
+try that finished the hand-over, reads each path from the movie's root with `GetMember` and logs
+`step=code_obj_probe n= name= found= type= value=` (the value only for a boolean or a number; `type=-1` when the path
+was not found). It sets and calls nothing. With `CodeObjCalls=<path>,...` (same rules, else
+`refuse step=ini code_obj_calls=`; proof 2b step ii) each path that is a function is called once with no arguments,
+on the same try and before the probe, and logged as `step=code_obj_root_call n= name= found= type= called=
+result_type=`.
+It does not follow the game's volume sliders. The folder is the player's, made by hand on the PC; no installer here
+writes or removes it, and nothing of it enters Git.
+
+S1-c (FAL-819; with `CodeObj=1` only, each refused otherwise; at load `step=code_obj_shell at= pages= shell_keys=`):
+- `CodeObjAt=<path>` (one path, as `CodeObjCalls=`, else `refuse step=ini code_obj_at=`) also sets the stand-in as
+  `<path>.BGSCodeObj` and reads it back; the hand-over (and with it the calls and the probe) is done only once that
+  read-back holds, so the show and update tries go on while the path is not there yet. The `step=code_obj` line ends
+  `at= at_set= at_read_back=`. For the Fallout 4 shell: `CodeObjAt=Menu_mc`.
+- `CodeObjPages=1` (with `CodeObjAt=` and `onNewPage` and `onNewTab` among the names, else
+  `refuse step=ini code_obj_pages=1`) answers the movie's `onNewPage(<index>)` and `onNewTab(<index>)` as its engine
+  would (**a reading**): noted inside the call and, at the menu's next `kUpdate` (which the key thread sends at once),
+  `<CodeObjAt>.DataObj.CurrentPage` or `.CurrentTab` set to the index (0 to 63), read back, then
+  `<CodeObjAt>.InvalidateData()` called once: `step=code_answer n= page= tab= data= page_set= tab_set= page_now=
+  tab_now= invalidate_found= invalidated=` (`-1`: not asked; up to 512 per movie). A first argument that is not an
+  index logs `step=code_answer name= result=bad_index args=`.
+- `ShellKeys=<key>:<path>,...` (1 to 8; the key a Windows virtual-key code `0x01` to `0xFE`, not `Key`, none twice;
+  the path as `CodeObjCalls=`; else `refuse step=ini shell_keys=`) reads those keys every 30 ms while the menu is open
+  and the game in front. A press (not a hold) calls the path with no arguments on the menu's thread at the next
+  `kUpdate`, after the hand-over: `step=shell_key n= vk= path= found= called=`. The keys are read beside the game, not
+  taken from it: whether the game also acts on them depends on `Flags=` (stages (d) and (e) open with `0x19`), the
+  PC's finding. It reads the keyboard only: a gamepad's LB and RB do not reach the movie at stage (b).
+
+`CodeObjLateCalls=<path>,...` (FAL-852; with `CodeObj=1` only, the paths as `CodeObjCalls=`, else
+`refuse step=ini code_obj_late_calls=`) calls each path once per movie with no arguments at the first `kUpdate` after the
+hand-over, on the menu's thread: `step=code_obj_late_call n= name= found= called=`. Stage (b) sends no periodic update, so
+the state check about 750 ms after a show sends one when it finds the menu open (`step=state ... open=1 expected=1`); the
+menu has drawn by then. The S1-arm sessions found why
+(PC, 15 Nov, HANG-SPLIT L1 and L1-SPLIT M1): `Menu_mc.InvalidateData` among `CodeObjCalls=`, which run inside the engine's
+`LoadMovie`, crashed the shell's first render with our object on `Menu_mc.BGSCodeObj` (an access violation in the game's
+own Scaleform work on a job thread, about 20 ms after the show). Without it the shell drew its tab bar and footer and
+loaded no page. `step=code_obj_shell` ends `late_calls=`.
+
+`CodeObjSpecial=fill` or `clear` (FAL-1025; with `CodeObjAt=` only, else `refuse step=ini code_obj_special=`; at load
+`step=code_obj_special_ini mode= list=`) makes `<CodeObjAt>.DataObj.SPECIALList` safe right before each
+`InvalidateData` the plugin calls: a `CodeObjCalls=` or `CodeObjLateCalls=` path ending in `.InvalidateData`, and
+`CodeObjPages=1`'s answer. Gemini's PC read of Fallout 4's movies (checked in the decompiled AS3): the shell's `DataObj`
+starts that list as 7 empty objects, the STAT page's hidden SPECIAL tab takes it on every change event, and each entry's
+`SetEntryText` calls `value.toString()`, an AS3 TypeError (#1010) with no try/catch around the dispatch. Fallout 4's
+engine fills the list first; our stand-in does not. The list is emptied (`splice(0)`, else `length = 0`); `fill` then
+pushes 7 new objects `{text, value, modifier, description}`: the attribute's name in capitals, 1, 0 and `""`
+(placeholders, not the player's values). Each time: `step=code_obj_special n= when=<calls|late|answer> mode= found=
+type= cleared_by=<splice|length|none> pushed= length=` (the first 16). Only the root's `CreateObject` and the Value
+calls already checked at stage (c) are used, so no Address Library id is added. Fallout 4's MAP page calls
+`codeObj.RefreshMapMarkers` and `codeObj.CheckHardcoreModeFastTravel` directly (a missing function is TypeError #1006):
+list both in `CodeObjNames=` (they only log, and the second returns nothing, read as false).
+
+### The arm (FAL-852, S1-arm): Fallout 4's screen on its own key, raised, paused, lowered
+
+The owner's rules for the Pip-Boy (14 Nov, FAL-843): the raise (`idleexaminewatch`) plays when it opens and the lower
+when it closes, with no frozen pose; it pauses the game, as Fallout 4 does; and F10 stays the owner's faction device,
+so Fallout 4's screen has its own key. Both settings below are off as shipped.
+
+**`Pause=1` at stage (b)** (with `Movie=` only; `Pause=` was read at stages (d) and (e) only) adds the pause bit `0x2`
+to `Flags`, as it adds it to every `PageFlagSets` entry there (the PC's sweep of #738 at `14176a5e`): at load,
+`step=load_b pause=1 flags=<f>`. `Flags=0x19` with `Pause=1` opens with S1-c's card's `0x1B`.
+
+**`Arm=1`** (with `Stage=2` and `Movie=` only, else `refuse step=ini reason=arm_stage`). `Key` is then the screen's own
+key: never `0x79` (F10, the faction device), `0x74` or `0x78` (F5 and F9, the game's Quick Save and Quick Load: the
+key thread only polls, so a press with the screen closed reaches the game too; at `6040290d` F9 loaded a save) or
+`WorldKey`: `refuse step=ini reason=arm_key`. With it, stage (b) checks stage (c)'s ids too (`step=channel_ids`), for
+the player. At load `step=load_arm key= raise_idle= lower= raise_ms= lower_ms= retry_ms= flags=`, then, after
+`step=ready`, the editor-id lookup's id:
+
+| Name | Id | Source | Checked by |
+| --- | --- | --- | --- |
+| TESForm.LookupByEditorID | 47403 | libxse | the Address Library file (below the count, non-zero, inside the image) and libxse's own lookup the same offset: `step=arm_id ...` or `refuse step=arm_id`. Not one of the shared ids, so `Arm=0` reads and logs exactly the ids it did before |
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Arm` | `0` | `1` = the raise before the screen and the lower after it |
+| `ArmRaiseIdle` | `idleexaminewatch` | the raise idle's editor id (the owner's choice, FAL-783) |
+| `ArmRaiseMs` | `2000` | the raise's lead before the screen shows, 0 to 6000: the wrist is face-on from about 1.9 s to 4.3 s of the clip (PB-DATA-3, about 5.5 s in all) |
+| `ArmLowerIdle` | empty | the lower idle's editor id |
+| `ArmLowerEvent` | empty | the lower as a graph event by name, as the console's `sae` sends one (`ActionInterrupt`); at most one of the two |
+| `ArmLowerMs` | `3500` | `Key` is ignored this long after the close (no lower sent) or the accepted lower, 0 to 6000: 5.5 s less `ArmRaiseMs` |
+| `ArmRetryMs` | `2000` | a raise or lower the player's graph refuses (`result=0`) is sent again every 100 ms for up to this long, 0 to 6000 (`0` = one send) |
+
+**The sequence.** #776's (FAL-714, FAL-725, written there for its kit), taken over for this screen. Every line carries
+`t_ms`, the milliseconds since the press that started the raise (steady clock).
+
+1. `Key` with the screen closed: `step=arm_key n= open=0 t_ms=0`.
+2. Main thread, once, at the first raise with a player: the player's `IAnimationGraphManagerHolder` (libxse:
+   `TESObjectREFR`'s base at `+0x60`) from `PlayerCharacter`'s RTTI hierarchy, its vtable naming `PlayerCharacter`
+   there, slot 0x00 the adjustor thunk to the player's destructor, slot 0x01 (`NotifyAnimationGraphImpl`) inside the
+   image: `step=arm_holder ...`. Then the raise idle (and a lower idle) by editor id: a `TESIdleForm` by RTTI, form type
+   IDLE (`0x5C` at `+0x2E`); one read-only line of every pool string from `+0x58` to `+0x80`
+   (`step=arm_idle_slots which= form= s58= ... s80=`), then its graph (`+0x68`) and event (`+0x70`), 1.16.244's as
+   #776's 3b session found them: `step=arm_idle which=raise editor_id= form= type= graph= event=`. An event that looks
+   like a file path is refused (`reason=event_is_path`). `ArmLowerEvent` logs `step=arm_idle which=lower event=`.
+3. The raise: the idle's own animation event to the player, `step=arm_raise n= result=1|0 try=1`, retried as above,
+   then `step=arm_raise_done n= result=1|gave_up tries= waited_ms= show_in_ms=`. `holder_changed`, `no_player` or
+   `refused` end it at once.
+4. `ArmRaiseMs` after the accepted (or given-up) raise: `step=arm_show n= sent=show raise=` (and the usual
+   `step=toggle`), then, from our kShow handling, `step=arm_shown n=`; 750 ms later `step=state`. A refused arm does
+   not open the screen (`step=arm_show ... result=skipped reason=not_ready`).
+5. A close of that screen by any route (`Key` again: `step=arm_key n= open=1`, then `step=close n= by=key`; or the
+   movie's `HideMenu` with `CodeObjHide=1`), from our kHide handling:
+   - no lower set: `step=arm_lower n= send=none (the raise's clip carries on) lock_ms=`. With the pause, the clip was
+     held on its frame while the screen was up and carries on once the pause ends (PB-HOLD-1: it resumes from its
+     frozen frame), lowering the arm by itself;
+   - a lower set: `step=arm_lower n= send=idle|event result= try=1`, retried as the raise, then
+     `step=arm_lower_done n= result=1|gave_up tries= waited_ms= lock_ms=`.
+6. `Key` while a raise, its show, a state check or a lower is due, or inside the lock: `step=arm_key
+   ignored=opening|lowering ...`.
+
+**Hypotheses the PC's session decides** (the card: `docs/spikes/pipboy-fo4-rebuild-plan.md`, S1-arm):
+- that the graph plays `idleexaminewatch` from its event alone. PB-DATA-3 read its event as `DynamicIdle` plus a clip
+  file; #776's raise and lower were DataSlate idles, each with an event of its own, and the console's `playidle`
+  (the route the owner saw) sets the idle up before the event. If the graph takes the event and nothing moves, the
+  fallback is B1: a global Papyrus function of ours that plays the idle, called with no arguments through
+  `DispatchStaticCall` (stage (c)'s route), a PEX built on the PC;
+- that the pause holds the clip and our screen still takes its pages and keys (S1-c's card's `Flags=0x1B` question);
+- the gun rule: the idle is refused with a gun out (PB-DATA-3); the screen still opens after `ArmRetryMs`.
+
+Not in this slice: holstering a weapon, the camera or the FOV, the Pip-Boy model on the arm (the device route, #780),
+a gamepad key, the Tab binding.
 
 ### PASS at (c), `Stage=3` (steps: `docs/spikes/pipboy-channel-bridge-session.md`)
 
