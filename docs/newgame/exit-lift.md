@@ -207,3 +207,25 @@ It closes the "names-only read" gap (S2b) for the elevator scripts. What it mean
   surface map without a load. Vanilla reveals without a load use `AddToMapScanned(true)` on markers already registered in the
   attached world. Its suggestion, an **inference to test after A2**, is to pair `SetMarkerDiscovered()` with
   `SetScanned(true)` + `SetRequiresScanning(false)` (or `AddToMapScanned(true)`) after the load. Not part of A2 as cleared.
+
+## Vault 111 object audit (Gemini (PC), 16 November ~01:02Z; relayed, not re-verified here)
+
+Source: `D:\FO4SF-Owner-Tests\gemini-vault111-objects\REPORT.md` and `vault111_objects.tsv`, relayed on FAL-1007 (comment 35bfaf1a).
+Relevant to the cog door from the console (slice S7a), where this branch's code today is
+`scripts/newgame/FO4SF_NewGameQuest.psc:606` (stage 20, `Near(player, ConsoleX/Y/Z, ConsoleRadius)` -> `cogDoor.SetOpen(True)`,
+`CogDoorId` property at line 124). The report's reading of the current port and the needed change:
+
+- Console `MQ102GearDoorConsoleREF` 00091A49 is placed as `REFR 01001319` (`ACTI 0100E0D9`), with no animation graph and no
+  script. The cog door `000330C3` is promoted to `DOOR 0100DEF9` (`REFR 0100126D`, `SimpleOpenClose01.agx`, 43.333 s open clip).
+  Direct E on the door is unreachable from the catwalk (6 m); proximity polling is the temporary opener.
+- Needed: (1) override the console ACTI with a state-graph rig and clips (1.633 s flip, 0.633 s push; the report says proven in
+  `AnimConsoleProbe`); (2) keep the door's rig without `Inaccessible` so close-range E remains a testing path; (3) replace
+  the `Near(Console...)` poll with `ConsoleId = 0x1319` and `RegisterForRemoteEvent(consoleRef, "OnActivate")`, the pattern
+  `FO4SF_NewGameSpecial` already uses on terminal 0x1318, then play `Play01`, seal airlock doors `01001608`/`01001607`, enable
+  klaxons/exit lighting, and `SetOpen(True)` on the console's `Done` event with a 2.5 s timer fallback.
+- Unverified by me: whether a plain ACTI without an animation graph fires `OnActivate` for a remote-event registration in
+  Starfield. That is the first thing a PC card for S7a must observe, before the rig is built.
+- Other findings from the audit that matter here but are **not** this card's scope: the pod (`0004A011` -> closed `STAT 01001617`)
+  "needs spawn coordinates outside its collision hull" (a hypothesis for the pod obstruction, FAL-858/911; it is not a measured
+  cause); 7 alarm-off and 7 normal-on light `STAT`s overlap from the start because `XESP` was stripped; the Pip-Boy ground
+  pickup and many terminals are placeholders.
