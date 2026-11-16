@@ -747,19 +747,26 @@ def fold(a):
     for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
         for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
-            if os.path.exists(os.path.join(a.core_dir, *rel.split("/"))):
-                sys.exit(f"fold refused: core set already has {label} asset {rel} (attempt kept in {out})")
+            core_src = os.path.join(a.core_dir, *rel.split("/"))
+            if os.path.exists(core_src):
+                if (rel.startswith("Data/") and os.path.isfile(core_src) and sha256(core_src) == want
+                        and os.path.isfile(dst) and sha256(dst) == want):
+                    folded_assets[rel] = want
+                    continue
+                sys.exit(f"fold refused: core set already has {label} asset {rel} with differing sha256 (attempt kept in {out})")
             if os.path.exists(dst):
-                if rel.startswith("Data/") and folded_assets.get(rel) == want and sha256(dst) == want:
+                if rel.startswith("Data/") and os.path.isfile(dst) and folded_assets.get(rel) == want and sha256(dst) == want:
                     continue
                 sys.exit(f"fold refused: {label} asset {rel} collides with differing staged asset (attempt kept in {out})")
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
             folded_assets[rel] = want
-    for s in plan["scripts"]:
+    for s, want in plan["scripts"].items():
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
         if os.path.exists(dst):
-            sys.exit(f"fold refused: the core set already has Data/Scripts/{s}.pex (attempt kept in {out})")
+            if os.path.isfile(dst) and sha256(dst) == want:
+                continue
+            sys.exit(f"fold refused: the core set already has Data/Scripts/{s}.pex with differing sha256 (attempt kept in {out})")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join(a.stage, "Data", "Scripts", s + ".pex"), dst)
     problems = verify_dir(out, plan, a.port, a.core)

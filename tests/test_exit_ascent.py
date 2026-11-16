@@ -396,9 +396,35 @@ class ProductionRecipeTests(unittest.TestCase):
         plan_path.write_text(json.dumps(plan))
         (out / 'Data/meshes/lift.nif').write_bytes(b'changed')
         self.assertTrue(any('exit lift' in x for x in ng.verify_dir(str(out), plan, fixture.port)))
+        # Identical Data/ asset already in core_dir (e.g. Data/materials/fo4port/_neutral.mat) is accepted without copying
+        stage_neutral = stage / 'Data/materials/fo4port/_neutral.mat'
+        core_neutral = Path(fixture.core_dir) / 'Data/materials/fo4port/_neutral.mat'
+        stage_neutral.write_bytes(b'neutralmat')
+        core_neutral.parent.mkdir(parents=True, exist_ok=True)
+        core_neutral.write_bytes(b'neutralmat')
+        neutral_sha = ng.sha256(stage_neutral)
+        plan['cog_door']['outputs']['Data/materials/fo4port/_neutral.mat'] = neutral_sha
+        plan['exit_lift']['outputs']['Data/materials/fo4port/_neutral.mat'] = neutral_sha
+        plan_path.write_text(json.dumps(plan))
+        stage_copies = []
+        real_copy2 = ng.shutil.copy2
+        def spy_copy2(src, dst, *a, **kw):
+            p = Path(src).resolve()
+            if p.is_relative_to(stage.resolve()):
+                stage_copies.append(p)
+            return real_copy2(src, dst, *a, **kw)
+        out_same = Path(fixture.tmp) / 'folded_same_core_asset'
+        with patch.object(ng.shutil, 'copy2', side_effect=spy_copy2):
+            self.assertEqual(fixture.fold(str(out_same), port=fixture.port), 0)
+        self.assertNotIn(stage_neutral.resolve(), stage_copies)
+        self.assertEqual((out_same / 'Data/materials/fo4port/_neutral.mat').read_bytes(), b'neutralmat')
+        self.assertEqual(ng.verify_dir(str(out_same), plan, fixture.port), [])
+        # Differing Data/ asset in core_dir is still refused
         collision = Path(fixture.core_dir) / 'Data/meshes/lift.nif'
-        collision.parent.mkdir(parents=True); collision.write_bytes(b'preserve')
-        with self.assertRaises(SystemExit): fixture.fold(str(Path(fixture.tmp) / 'refused'), port=fixture.port)
+        collision.parent.mkdir(parents=True, exist_ok=True)
+        collision.write_bytes(b'preserve')
+        with self.assertRaisesRegex(SystemExit, r'core set already has lift asset Data/meshes/lift\.nif'):
+            fixture.fold(str(Path(fixture.tmp) / 'refused'), port=fixture.port)
         self.assertEqual(collision.read_bytes(), b'preserve')
 
     def test_writer_switch_is_opt_in_and_precheck_covers_animation(self):

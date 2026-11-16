@@ -1841,6 +1841,61 @@ class VerifyFoldTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.fold(out, port=self.port)
 
+    def test_fold_accepts_same_sha256_core_assets_and_pex_and_refuses_differing_ones(self):
+        plan_path = os.path.join(self.stage, "plan.json")
+        stage_pex = os.path.join(self.stage, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        core_pex = os.path.join(self.core_dir, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        os.makedirs(os.path.dirname(core_pex), exist_ok=True)
+        with open(core_pex, "wb") as f:
+            f.write(b"pex1")
+        stage_copies = []
+        real_copy2 = shutil.copy2
+        def spy_copy2(src, dst, *a, **kw):
+            if os.path.abspath(src).startswith(os.path.abspath(self.stage) + os.sep):
+                stage_copies.append(os.path.abspath(src))
+            return real_copy2(src, dst, *a, **kw)
+        out_same_pex = os.path.join(self.tmp, "folded_same_pex")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_pex, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_pex), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_pex, ng.load_plan(plan_path), self.port), [])
+        with open(core_pex, "wb") as f:
+            f.write(b"differing_pex")
+        out_diff_pex = os.path.join(self.tmp, "folded_diff_pex")
+        with self.assertRaisesRegex(SystemExit, r"Data/Scripts/FO4SF_NewGameQuest\.pex"):
+            self.fold(out_diff_pex, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_pex))
+        with open(core_pex, "rb") as f:
+            self.assertEqual(f.read(), b"differing_pex")
+        os.remove(core_pex)
+        rel = "Data/materials/fo4port/_neutral.mat"
+        stage_mat = os.path.join(self.stage, *rel.split("/"))
+        core_mat = os.path.join(self.core_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(stage_mat), exist_ok=True)
+        os.makedirs(os.path.dirname(core_mat), exist_ok=True)
+        with open(stage_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        with open(core_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        plan = ng.load_plan(plan_path)
+        plan["cog_door"] = {"plugins": [], "outputs": {rel: ng.sha256(stage_mat)}}
+        with open(plan_path, "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        stage_copies.clear()
+        out_same_mat = os.path.join(self.tmp, "folded_same_mat")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_mat, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_mat), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_mat, ng.load_plan(plan_path), self.port), [])
+        with open(core_mat, "wb") as f:
+            f.write(b"differing_neutral")
+        out_diff_mat = os.path.join(self.tmp, "folded_diff_mat")
+        with self.assertRaisesRegex(SystemExit, r"Data/materials/fo4port/_neutral\.mat"):
+            self.fold(out_diff_mat, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_mat))
+        with open(core_mat, "rb") as f:
+            self.assertEqual(f.read(), b"differing_neutral")
+
 
 @unittest.skipUnless(shutil.which("dotnet"), "no dotnet SDK on PATH")
 class WriterSelfTest(unittest.TestCase):

@@ -99,11 +99,38 @@ Verify in `<STAGE_ROOT>/newgame-stage/plan.json`:
 - `points.platform.stand_src == "0001B29E"`, `points.platform.pos` near `[-77.742, -3.958, -1.751]`
 - `options.hold` includes all S13 groups (`MQ00`, `MQ101`, `MQ101PostQuest`, `MQ_TutorialQuest_Misc04`, `SQ_ENV`, companions, audio/tutorials, city/faction)
 
-### Step 4 — Fold into Clean Core Set & Verify
+### Step 4 — Prepare Clean Core (if starting from an already-folded set), Fold & Verify
+
+If your core set (`<INSTALLED_SET_DIR>`) already includes an earlier `FO4SFNewGame.esm`, prepare `<STAGE_ROOT>/clean-core` first by hardlinking every file **except** `FO4SFNewGame.esm` (and any prior `FO4SFVaultGearDoor.esm` / `FO4SFExitLift.esm`), its four `Data/Scripts/FO4SF_NewGame*.pex` files, and `README.txt`, then writing `<STAGE_ROOT>/clean-core/README.txt` as a **new file** (never editing a hardlink in place) that drops `FO4SFNewGame.esm` from its `exp_install.py install ... --plugins ...` line:
+
+```powershell
+python -c "
+import os, re, sys
+from pathlib import Path
+src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+drop_esm = {'fo4sfnewgame.esm', 'fo4sfvaultgeardoor.esm', 'fo4sfexitlift.esm'}
+drop_pex = {f'data/scripts/fo4sf_newgame{s}.pex' for s in ('quest', 'looks', 'special', 'version')}
+for dp, _, fns in os.walk(src):
+    out_d = dst / Path(dp).relative_to(src)
+    out_d.mkdir(parents=True, exist_ok=True)
+    for fn in fns:
+        s = Path(dp) / fn
+        r = s.relative_to(src).as_posix().lower()
+        if r == 'readme.txt' or r in drop_esm or r in drop_pex:
+            continue
+        os.link(s, out_d / fn)
+rx = re.compile(r'(exp_install\.py install\b.*--plugins )(\S+)')
+lines = (src / 'README.txt').read_text(encoding='utf-8').splitlines()
+fix = lambda ln: rx.sub(lambda m: m.group(1) + ','.join(p for p in m.group(2).split(',') if p.lower() not in drop_esm), ln)
+(dst / 'README.txt').write_text('\n'.join(fix(ln) for ln in lines) + '\n', encoding='utf-8', newline='\n')
+" <INSTALLED_SET_DIR> <STAGE_ROOT>/clean-core
+```
+
+*(If `<CORE_SET_DIR>` has never had `FO4SFNewGame.esm` folded into it, pass `<CORE_SET_DIR>` directly below in place of `<STAGE_ROOT>/clean-core`. Byte-identical shared assets already in the core set — such as `Data/materials/fo4port/_neutral.mat` — are verified by `sha256` during `fold` without copying; differing files are refused.)*
 
 ```powershell
 python scripts/newgame/make_newgame.py fold `
-  --core-dir <CORE_SET_DIR> `
+  --core-dir <STAGE_ROOT>/clean-core `
   --stage <STAGE_ROOT>/newgame-stage `
   --out <STAGE_ROOT>/folded-v111-exit `
   --port <PORT_DIR>/FO4Port.esm
@@ -114,8 +141,7 @@ python scripts/newgame/make_newgame.py verify `
   --port <PORT_DIR>/FO4Port.esm
 ```
 
-Expected plugin order in `<STAGE_ROOT>/folded-v111-exit/README.txt`:
-`FO4TerrainCore.esm,Mars.esm,FO4Port.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm`
+Expected output: `verify: ok` (exit `0`), with `<STAGE_ROOT>/folded-v111-exit/README.txt` widening the clean core set's `--plugins` list by appending `,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm` (for example `FO4ActorRaider.esm,FO4SFMission.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm`, with `FO4Port.esm` active alongside it in the game load order).
 Install when authorized (game closed) using the exact `exp_install.py install ... --pack` command printed by `fold`.
 
 ---
