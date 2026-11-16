@@ -34,6 +34,7 @@ names and short compiler messages, never script source.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import random
 import re
@@ -41,6 +42,14 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+DEFAULT_SHIM_DIR = Path(__file__).resolve().parent / "shims"
+DELETED_ENGINE_TYPES_RE = re.compile(
+    r"\b(?:Sound|SoundCategory|SoundCategorySnapshot|EncounterZone|Component|Holotape|OutputModel|gamejam)\b", re.I
+)
 
 SCHEMA = 3
 KINDS = ("logic", "scene")
@@ -73,7 +82,7 @@ UNLOCATED = re.compile(r"\b(error|failed)\b", re.I)
 RULES = (
     # PC run of cb2c7539: the largest real group of the old "other" bucket. A changed event or function signature:
     # "the parameter types of function OnDeath in the empty state on script X do not match the original script Y".
-    ("signature_mismatch", re.compile(r"the parameter types of function\s+'?(?P<name>\w+)'?.*?do not match the original", re.I)),
+    ("signature_mismatch", re.compile(r"the parameter (?:types|defaults) of function\s+'?(?P<name>\w+)'?.*?do not match the original", re.I)),
     ("self_only_function", re.compile(r"cannot access self-only function\s+'?(?P<name>\w+)'?", re.I)),
     ("type_mismatch", re.compile(r"type mismatch while assigning", re.I)),
     # a follow-on of an unknown function: the member call is rejected because its target never resolved
@@ -246,10 +255,63 @@ def _text(value):
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
 
 
+def _compile_one(rel, kind, is_named_fragment, both, native, compiler, flags, imports, pex_dir, raw_dir, work,
+                 timeout, runner):
+    cmd = build_command(compiler, script_name(rel), flags, imports, pex_dir)
+    try:
+        code, stdout, stderr = runner(cmd, timeout, str(work))
+        note = None
+    except subprocess.TimeoutExpired as err:
+        code, stdout, stderr, note = None, _text(err.stdout), _text(err.stderr), f"timed out after {timeout}s"
+    except OSError as err:
+        code, stdout, stderr, note = None, "", "", f"could not run compiler: {err}"
+    raw_name = rel.replace("/", "__") + ".txt"
+    if raw_dir is not None:
+        (raw_dir / raw_name).write_text(
+            f"$ (cwd {work}) {' '.join(cmd)}\nexit={code}\n--stdout--\n{stdout}\n--stderr--\n{stderr}\n{note or ''}\n",
+            encoding="utf-8",
+        )
+    errors = parse_output(stdout + "\n" + stderr)
+    if note:
+        errors.append({"bucket": "other", "name": None, "line": 0, "col": 0, "message": note})
+    elif not errors and (code != 0 or SUCCESS not in stdout):
+        # Nothing parseable but no clean success either: never count it as a pass.
+        errors.append({"bucket": "other", "name": None, "line": 0, "col": 0,
+                       "message": f"exit code {code} without '{SUCCESS}' and no parseable error"})
+    return {
+        "script": rel,
+        "compiled": code == 0 and SUCCESS in stdout and not errors,
+        "exit_code": code,
+        "kind": kind,
+        "is_named_fragment": is_named_fragment,
+        "is_fragment": Path(rel).stem.lower().startswith(FRAGMENT_PREFIXES),
+        "clash": rel.lower() in both,
+        "clash_overlaid": rel.lower() in both and rel.lower() not in native,
+        "errors": errors,
+        "raw": f"raw/{raw_name}",
+    }
+
+
+def _run_batch(rels, kinds, named_first, both, native, compiler, flags, imports, pex_dir, raw_dir, work,
+               timeout, runner, jobs=1):
+    def task(rel):
+        return _compile_one(rel, kinds[rel], rel == named_first, both, native, compiler, flags, imports,
+                            pex_dir, raw_dir, work, timeout, runner)
+
+    if jobs <= 1:
+        return [task(rel) for rel in rels]
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(task, rels))
+
+
 def run_census(fo4, starfield, shim, compiler, fragment, count, seed, out, flags=DEFAULT_FLAGS,
-               timeout=120, runner=default_runner, scene_count=0):
-    fo4, starfield, shim, out = (Path(p).resolve() for p in (fo4, starfield, shim, out))
-    for folder in (fo4, starfield, shim):
+               timeout=120, runner=default_runner, scene_count=0, with_shims=False,
+               non_identical_only=False, jobs=1):
+    shim_path = Path(shim).resolve() if shim is not None else (DEFAULT_SHIM_DIR.resolve() if with_shims else None)
+    if shim_path is None:
+        raise ValueError("shim folder is required unless with_shims=True")
+    fo4, starfield, out = (Path(p).resolve() for p in (fo4, starfield, out))
+    for folder in (fo4, starfield, shim_path):
         if not folder.is_dir():
             raise ValueError(f"not a folder: {folder}")
     if not Path(compiler).is_file():
@@ -257,57 +319,110 @@ def run_census(fo4, starfield, shim, compiler, fragment, count, seed, out, flags
     work, overlay = out / "work", out / "overlay"
     work.mkdir(parents=True, exist_ok=True)
     overlay.mkdir(parents=True, exist_ok=True)
-    imports = [shim, overlay, starfield, fo4]
-    if not any((d / flags).is_file() for d in imports):
-        raise ValueError(f"flags file {flags} not found in the shim, Starfield or Fallout 4 folder")
     every = list_scripts(fo4)
     both, native = find_clashes(fo4, starfield, every)
     overlaid = build_overlay(fo4, both, native, overlay)
     kinds = kinds_of(fo4, every)
-    if kinds.get(next((s for s in every if Path(s).stem.lower() == fragment.lower()), ""), "logic") == "scene":
-        raise ValueError(f"the fragment {fragment} is a scene or topic script; name a quest fragment")
-    sample = pick_sample([s for s in every if kinds[s] == "logic"], fragment, count, seed)
-    if scene_count:
-        scenes = [s for s in every if kinds[s] == "scene"]
-        if scene_count > len(scenes):
-            raise ValueError(f"asked for {scene_count} scene/topic scripts but only {len(scenes)} exist (is "
-                             "--fo4-sources the root that holds Fragments\\ and the other namespace folders, not a "
-                             "sub-folder of it?)")
-        sample += random.Random(seed).sample(scenes, scene_count)
+
+    bridge_meta = None
+    fo4_import_dir = fo4
+    if with_shims:
+        from fo4sf.papyrus.shim_rewriter import rewrite_source, rewrite_tree
+
+        shim_scripts = list_scripts(shim_path)
+        shim_pex_dir = out / "shim_pex"
+        shim_raw_dir = out / "shim_raw"
+        shim_pex_dir.mkdir(parents=True, exist_ok=True)
+        shim_raw_dir.mkdir(parents=True, exist_ok=True)
+        shim_imports = [shim_path, starfield]
+        if not any((d / flags).is_file() for d in shim_imports + [fo4]):
+            raise ValueError(f"flags file {flags} not found in the shim, Starfield or Fallout 4 folder")
+        shim_kinds = {s: "logic" for s in shim_scripts}
+        shim_results = _run_batch(shim_scripts, shim_kinds, None, {}, set(), compiler, flags, shim_imports,
+                                  shim_pex_dir, shim_raw_dir, work, timeout, runner, jobs=jobs)
+        failed_shims = [r["script"] for r in shim_results if not r["compiled"]]
+        if failed_shims:
+            raise ValueError(f"bridge shim scripts failed to compile against Starfield: {failed_shims}")
+
+        non_native_rels = [r for r in every if not is_native(fo4 / r)]
+        shimmed_fo4 = out / "shimmed_fo4"
+        shimmed_fo4.mkdir(parents=True, exist_ok=True)
+        rewritten_count = rewrite_tree(fo4, shimmed_fo4, scripts=non_native_rels)
+
+        for ov_psc in overlay.rglob("*.psc"):
+            raw_ov = ov_psc.read_text(encoding="utf-8", errors="replace")
+            ov_psc.write_text(rewrite_source(raw_ov), encoding="utf-8", newline="\n")
+
+        fo4_import_dir = shimmed_fo4
+        bridge_meta = {
+            "shims_total": len(shim_scripts),
+            "shims_compiled": sum(1 for r in shim_results if r["compiled"]),
+            "shim_names": [script_name(s) for s in shim_scripts],
+            "non_native_fo4_scripts": len(non_native_rels),
+            "rewritten_fo4_scripts": rewritten_count,
+        }
+
+    imports = [shim_path, overlay, starfield, fo4_import_dir]
+    if not any((d / flags).is_file() for d in imports):
+        raise ValueError(f"flags file {flags} not found in the shim, Starfield or Fallout 4 folder")
+
+    named_first = None
+    if non_identical_only:
+        from fo4sf.papyrus.shim_rewriter import rewrite_source
+
+        non_native_rels = [r for r in every if not is_native(fo4 / r)]
+        unshimmed_fo4 = out / "unshimmed_fo4"
+        unshimmed_overlay = out / "unshimmed_overlay"
+        empty_shim = out / "empty_shim"
+        unshimmed_pex = out / "unshimmed_pex"
+        for d in (unshimmed_fo4, unshimmed_overlay, empty_shim, unshimmed_pex):
+            d.mkdir(parents=True, exist_ok=True)
+        build_overlay(fo4, both, native, unshimmed_overlay)
+        candidates = []
+        for rel in non_native_rels:
+            src_file = fo4 / rel
+            raw_txt = src_file.read_text(encoding="utf-8", errors="replace")
+            dst_file = unshimmed_fo4 / rel
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            dst_file.write_bytes(src_file.read_bytes())
+            if rewrite_source(raw_txt) != raw_txt or DELETED_ENGINE_TYPES_RE.search(raw_txt):
+                candidates.append(rel)
+        unshimmed_imports = [empty_shim, unshimmed_overlay, starfield, unshimmed_fo4]
+        baseline_res = _run_batch(candidates, kinds, None, both, native, compiler, flags, unshimmed_imports,
+                                  unshimmed_pex, None, work, timeout, runner, jobs=jobs)
+        sample = [r["script"] for r in baseline_res if not r["compiled"]]
+        if bridge_meta is not None:
+            bridge_meta["candidates_checked"] = len(candidates)
+            bridge_meta["non_identical_baseline_failed"] = len(sample)
+    else:
+        if kinds.get(next((s for s in every if Path(s).stem.lower() == fragment.lower()), ""), "logic") == "scene":
+            raise ValueError(f"the fragment {fragment} is a scene or topic script; name a quest fragment")
+        sample = pick_sample([s for s in every if kinds[s] == "logic"], fragment, count, seed)
+        named_first = sample[0]
+        if scene_count:
+            scenes = [s for s in every if kinds[s] == "scene"]
+            if scene_count > len(scenes):
+                raise ValueError(f"asked for {scene_count} scene/topic scripts but only {len(scenes)} exist (is "
+                                 "--fo4-sources the root that holds Fragments\\ and the other namespace folders, not a "
+                                 "sub-folder of it?)")
+            sample += random.Random(seed).sample(scenes, scene_count)
+
     raw_dir, pex_dir = out / "raw", out / "pex"
     raw_dir.mkdir(parents=True, exist_ok=True)
     pex_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
-    for rel in sample:
-        cmd = build_command(compiler, script_name(rel), flags, imports, pex_dir)
-        try:
-            code, stdout, stderr = runner(cmd, timeout, str(work))
-            note = None
-        except subprocess.TimeoutExpired as err:
-            code, stdout, stderr, note = None, _text(err.stdout), _text(err.stderr), f"timed out after {timeout}s"
-        except OSError as err:
-            code, stdout, stderr, note = None, "", "", f"could not run compiler: {err}"
-        raw_name = rel.replace("/", "__") + ".txt"
-        (raw_dir / raw_name).write_text(f"$ (cwd {work}) {' '.join(cmd)}\nexit={code}\n--stdout--\n{stdout}\n--stderr--\n{stderr}\n"
-                                        f"{note or ''}\n", encoding="utf-8")
-        errors = parse_output(stdout + "\n" + stderr)
-        if note:
-            errors.append({"bucket": "other", "name": None, "line": 0, "col": 0, "message": note})
-        elif not errors and (code != 0 or SUCCESS not in stdout):
-            # Nothing parseable but no clean success either: never count it as a pass.
-            errors.append({"bucket": "other", "name": None, "line": 0, "col": 0,
-                           "message": f"exit code {code} without '{SUCCESS}' and no parseable error"})
-        results.append({"script": rel, "compiled": code == 0 and SUCCESS in stdout and not errors, "exit_code": code,
-                        "kind": kinds[rel], "is_named_fragment": rel == sample[0],
-                        "is_fragment": Path(rel).stem.lower().startswith(FRAGMENT_PREFIXES),
-                        "clash": rel.lower() in both, "clash_overlaid": rel.lower() in both and rel.lower() not in native, "errors": errors, "raw": f"raw/{raw_name}"})
+    results = _run_batch(sample, kinds, named_first, both, native, compiler, flags, imports,
+                         pex_dir, raw_dir, work, timeout, runner, jobs=jobs)
 
     census = summarize(results)
     census.update(clashes={"count": len(both), "engine_base_starfield_wins": len(native),
                            "overlaid_fo4_wins": len(overlaid), "overlaid_names": overlaid},
-                  schema=SCHEMA, seed=seed, requested_count=count, requested_scene_count=scene_count,
-                  fragment=fragment, scripts=results)
+                  schema=SCHEMA, seed=seed, requested_count=len(sample) if non_identical_only else count,
+                  requested_scene_count=0 if non_identical_only else scene_count,
+                  fragment=fragment, non_identical_only=non_identical_only, with_shims=with_shims,
+                  scripts=results)
+    if bridge_meta is not None:
+        census["bridge"] = bridge_meta
     (out / "census.json").write_text(json.dumps(census, indent=2) + "\n", encoding="utf-8")
     return census
 
@@ -350,6 +465,14 @@ def _summarize(results):
 
 def format_table(census):
     lines = []
+    b_info = census.get("bridge")
+    if b_info:
+        lines.append(
+            f"Bridge shims: {b_info['shims_compiled']}/{b_info['shims_total']} compiled clean against Starfield; "
+            f"rewrote {b_info['rewritten_fo4_scripts']}/{b_info['non_native_fo4_scripts']} non-native FO4 scripts"
+            + (f" (non-identical baseline failed: {b_info['non_identical_baseline_failed']})"
+               if "non_identical_baseline_failed" in b_info else "")
+        )
     for k in KINDS:
         g = census.get("groups", {}).get(k)
         if g is not None:
@@ -381,9 +504,14 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--fo4-sources", required=True, help="folder of Fallout 4 .psc sources")
     p.add_argument("--starfield-sources", required=True, help="folder of Starfield .psc sources")
-    p.add_argument("--shim", required=True, help="shim .psc folder (may be empty)")
+    p.add_argument("--shim", default=None, help="shim .psc folder (optional when --with-shims is set)")
+    p.add_argument("--with-shims", action="store_true",
+                   help="compile repo FO4SF_Shim_* + FO4SF_NativeBridge scripts and rewrite FO4 call/event sites")
+    p.add_argument("--non-identical-only", action="store_true",
+                   help="discover and compile all non-identical FO4 scripts (strict unshimmed Starfield failures)")
+    p.add_argument("--jobs", type=int, default=1, help="parallel compiler worker threads (default 1)")
     p.add_argument("--compiler", required=True, help="path to Starfield's PapyrusCompiler.exe")
-    p.add_argument("--fragment", required=True, help="script name of one quest fragment, e.g. QF_Something_01234567")
+    p.add_argument("--fragment", default="", help="script name of one quest fragment, e.g. QF_Something_01234567")
     p.add_argument("--count", type=int, default=100, help="how many more scripts to sample")
     p.add_argument("--scene-count", type=int, default=50, help="how many scene/topic scripts to sample as well")
     p.add_argument("--seed", type=int, default=1)
@@ -391,12 +519,17 @@ def main(argv=None):
     p.add_argument("--flags", default=DEFAULT_FLAGS)
     p.add_argument("--timeout", type=int, default=120, help="seconds per script")
     a = p.parse_args(argv)
+    if not a.with_shims and a.shim is None:
+        p.error("--shim is required unless --with-shims is set")
+    if not a.non_identical_only and not a.fragment:
+        p.error("--fragment is required unless --non-identical-only is set")
     out = Path(a.out)
     if out.exists() and any(out.iterdir()):
         p.error(f"--out must be new or empty: {out}")
     try:
         census = run_census(a.fo4_sources, a.starfield_sources, a.shim, a.compiler, a.fragment, a.count,
-                            a.seed, out, a.flags, a.timeout, scene_count=a.scene_count)
+                            a.seed, out, a.flags, a.timeout, scene_count=a.scene_count,
+                            with_shims=a.with_shims, non_identical_only=a.non_identical_only, jobs=max(1, a.jobs))
     except ValueError as err:
         print(f"error: {err}", file=sys.stderr)
         return 2
