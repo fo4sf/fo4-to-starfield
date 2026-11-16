@@ -126,39 +126,50 @@ Result rules (Sole, FAL-1017):
 
 ## A3. Discover Vault 111 AFTER the door load (FAL-1007; follows A2 result FAL-1021, FAL-1017 rule 2)
 
-Minuteman Copy. **Pending review; Windows/Papyrus/game NOT_RUN by the author.** Diagnostic only; the probe kit is unchanged
-(no patching on the PC).
+Minuteman Copy. **Pending Courier Copy re-review (FAL-1030 changes applied); Windows/Papyrus/game NOT_RUN by the author.**
+Diagnostic only; the probe kit is unchanged (no patching on the PC).
 
 Input, A2 (PC result, FAL-1021 comment 39f846d6, evidence `fal848-arrA2-55bb428b-20261116T003909Z`): one real door load fills the
 surface list, but every entry is UNKNOWN; the pre-load `V111.SetMarkerDiscovered` did not stick, also not after save/menu/load.
-A2 could not tell which UNKNOWN entry was Vault 111 (tilted map, one tile, 50-90 of about 309 entries).
+A2 exited about 1 km from Vault 111 and could not tell which UNKNOWN entry was Vault 111 (tilted map, one tile around the
+player, 50-90 of about 309 entries).
 
 Same build, kit and heads as A and A2 (#796 `4aaaa2c0`, kit `bb2d385b`, `--landing-undiscovered --no-reload`; the bridge may
-be set on for the session only, as in A2, for `FO4SF_LoadDoor`; record the resulting probe quest id and the full deviation list).
+be set on for the session only, as in A2, for `FO4SF_LoadDoor`; record the resulting probe quest id and every deviation).
+Stage 10/30/40/50 only; leave 20/60/70 unset. Stage 30 is the only `V111.SetMarkerDiscovered()`; stages 10/40/50 only read.
 
-1. `coc FO4Core_RedRocketSpawn`, let the mover finish. **Do not run stage 30 yet.** Stage 10 (baseline) only.
-2. One real door load in and back out, as A2 (same doors if possible; record ids, worlds, and load lengths). No save, menu, or
-   other discovery call. If a short walk is needed to reach the door, say how far and that nothing was discovered by it.
-3. After exiting, stand within sight of Vault 111 if safe (A2 was about 1 km away; say the distance), so its entry is on the
-   visible tile. Open the surface map **before stage 30** and capture, with the same zoom and view you will reuse: the visible
-   entries (count, icons), the entry nearest Vault 111's pinned target, and any named entry. Also read the compass.
-4. Run **stage 30 only** (V111.SetMarkerDiscovered, with the before/after/+2 s lines). Close the console. Reopen the map at
-   the **same view and zoom** and capture again.
-5. Identify Vault 111 by **difference**, not by guessing: which entry changed (icon, name, or UNKNOWN to named) between step 3
-   and step 4, and whether the entry nearest the pinned target is it. Record any name text; hover all changed entries.
-   If no entry changes, say so; that is a result, not an unresolved reading.
-6. Check, as in A2: (a) Vault 111 named and discovered; (b) a Fast Travel offer (do not travel; if refused because the
-   player is near it, move away safely and check again); (c) the landing marker and one ordinary location undiscovered, by
-   the same before/after difference (only Vault 111's entry should change); (d) entry counts before and after.
-7. Persistence: save, menu, load, then stage 50 and the map at the same view. Is Vault 111 still named and discovered?
+1. `coc FO4Core_RedRocketSpawn`, let the mover finish. **Do not run stage 30 yet.** Run stage 10 (baseline) and record the
+   stage-10 V111 position (its merged target).
+2. One real door load in and back out, with the A2 door pair where possible (exterior FO4TerrainCore `02D22B`, interior FO4Port
+   `007D0B`); record ids, worlds and load lengths. No save, menu, or other discovery call.
+3. **Bring Vault 111's tile on screen BEFORE the baseline map.** After the door, move to the stage-10 V111 position (console
+   hops with each axis under 200 m, as on the A2 door approach, or a walk). Record the method and distance, and that nothing was
+   discovered by it. Open the surface map, lock the view and zoom you will reuse, and confirm the locked view contains the
+   stage-10 V111 position. **If it does not, the run is invalid** (it is not a "no entry changes" result).
+4. Baseline capture on that locked view, before stage 30: entries (count, icons), the entry nearest the V111 position, any
+   named entry, and the compass. **Stop, and report the run as invalid, if:** (a) there is no surface list (the door load did
+   not repeat A2); (b) any named or discovered entry is already visible, including Vault 111 (the approach changed the list);
+   (c) the stage-30 before-lines do not show V111 and the player in the same exterior world with V111 at its merged target
+   (as in section A). A walk or hop that discovers anything before the baseline is the same stop.
+5. Run **stage 30 only**, with its before/after/+2 s lines. Close the console, reopen the map at the **same locked view and
+   zoom**, and capture again. Do not travel or walk before this capture.
+6. Judge by difference on the locked view: which entries changed (icon, name, UNKNOWN to named) and whether the changed entry is
+   the one nearest the stage-10 V111 position. Hover all changed entries and record the name text. Then check Fast Travel (do not
+   travel). If it is refused because the player is near Vault 111, take a short walk that discovers nothing and check again;
+   that walk does not revise the two captures. If the walk discovers another location, record the Fast Travel check separately
+   and fail the other-locations check. Also record entry counts before and after.
+7. Persistence, recorded **separately** from steps 3-6: save, menu, load, stage 50, the map at the same view. Is Vault 111
+   still named and discovered?
 8. Cleanup receipts and kit removal as in A and A2.
 
-Result rules:
-- **PASS** (one entry changes to named Vault 111, discovered, Fast Travel offered; no other entry changes): the arrival design
-  is proven for the route: move markers during the ride, FO4's load at the top, then `SetMarkerDiscovered` on Vault 111 only
-  after the load. S5 can be built; persistence from step 7 is recorded separately.
-- **Changes but unnamed, or no Fast Travel:** discovery takes effect but the destination is not usable; the next card tests
-  Gemini (PC)'s hypothesis (pairing it with `SetScanned(true)` / `SetRequiresScanning(false)`, or `AddToMapScanned(true)`) on
-  a separately reviewed kit change. Not part of A3.
-- **No entry changes after the post-load call:** discovery does not take effect on these markers even after a load; replan
-  with Sole (FAL-1017). No hold, slowdown, hop or reload is added to make an outcome pass.
+Result rules (on a valid run):
+- **PASS:** exactly one entry changes; it is named `Vault 111` and discovered; Fast Travel is offered; no other entry changes;
+  and it is the entry nearest the stage-10 V111 position on the locked tile. The arrival design is proven for the route
+  (markers moved during the ride, FO4's load at the top, then `SetMarkerDiscovered` on Vault 111 only after the load). S5 can
+  be built.
+- **Partial:** exactly one entry changes, nothing else changes, and it is unnamed, named something other than `Vault 111`,
+  not discovered, or has no Fast Travel offer. The next card tests Gemini (PC)'s `SetScanned(true)` /
+  `SetRequiresScanning(false)` or `AddToMapScanned(true)` on a separately reviewed kit change; that change is outside A3.
+- **Other entries also change:** report which. This is outside PASS and outside the SetScanned card.
+- **No entry changes** on a valid baseline whose locked tile contains the stage-10 V111 position: discovery does not take
+  effect after a load; replan with Sole (FAL-1017). No hold, slowdown, hop or reload is added to force any outcome.
