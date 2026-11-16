@@ -4332,6 +4332,9 @@ namespace
 		if (g_arm && showOrHide) {   // FAL-852: the lower follows every hide of the screen
 			ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
 		}
+		if (showOrHide) {
+			PipboyMap::OnMenuMessage(type);
+		}
 		if (g_stage >= 3) {   // stages c, d and e: after the engine's own handling, on its thread for this menu
 			if (type == RE::UI_MESSAGE_TYPE::kShow) {
 				if (g_stage == 5) {   // the kit opens on the page it showed last
@@ -4414,6 +4417,9 @@ namespace
 
 	bool MenuShouldHandleEvent(void* a_input, const void* a_event)
 	{
+		if (PipboyMap::ShouldHandleInput(a_event)) {
+			return true;
+		}
 		const auto look = LookAtEvent(a_event, false);
 		if (look.mine && static_cast<const RE::InputEvent*>(a_event)->status != RE::InputEvent::Status::kStop) {
 			return true;
@@ -4423,6 +4429,9 @@ namespace
 
 	void MenuOnButtonEvent(void* a_input, const void* a_event)
 	{
+		if (PipboyMap::OnButtonInput(a_event)) {
+			return;
+		}
 		const auto look = LookAtEvent(a_event, true);
 		if (!look.mine) {
 			g_engineOnButton(a_input, a_event);
@@ -4455,7 +4464,7 @@ namespace
 		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);   // Scaleform RefCountImplCore
 		const auto ctorRefs = *refs;
 		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_vtbl.slots.data());
-		if (g_stage >= 4) {
+		if (g_stage >= 4 || PipboyMap::Enabled()) {
 			*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_inputVtbl.slots.data());
 		}
 		// what the engine's dynamic_cast reads on our object: the locator one slot before its primary vtable
@@ -4701,7 +4710,7 @@ namespace
 		g_vtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
 		g_vtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&MenuLoadMovie);
 		g_vtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&MenuProcessMessage);
-		if (g_stage >= 4) {   // FAL-414: copy the input vtable, replace [01] ShouldHandleEvent and [08] OnButtonEvent
+		if (g_stage >= 4 || PipboyMap::Requested(a_dir / "FO4SFPipboyMenu.ini")) {   // FAL-414: copy the input vtable, replace [01] ShouldHandleEvent and [08] OnButtonEvent
 			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
 			g_inputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);   // checked by CheckVtable
 			std::copy_n(input, kInputSlots, g_inputVtbl.slots.begin());

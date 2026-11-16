@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -35,28 +36,35 @@ namespace
 	constexpr std::size_t   kGameVmImplAt = 0xE0;
 	constexpr std::uint32_t kDataHandlerRva = 0x5FD9B28;
 	constexpr std::uint32_t kLookupByIdRva = 0x5DE3B0;
+	constexpr std::uint32_t kGetExtraMapMarkerRva = 0x50A840;
 
-	// Player & form offsets verified on Starfield 1.16.244 in main.cpp (FAL-272, FAL-301, FAL-595)
-	constexpr std::size_t   kAngleZAt = 0x88;           // HeadingAt=88: player yaw in radians clockwise from North
-	constexpr std::size_t   kPositionAt = 0x80 + 0x0C;  // OBJ_REFR::location (float x, y, z in Starfield metres)
+	// Default 1.16.244 offsets (all configurable via FO4SFPipboyMenu.ini and verified by RTTI / ChooseGlobalSlot)
+	constexpr std::size_t   kPositionAt = 0x80 + 0x0C;         // OBJ_REFR::location (float x, y, z in Starfield metres)
 	constexpr std::size_t   kParentCellAt = 0xB0;
 	constexpr std::size_t   kCellWorldAt = 0x110;
-	constexpr std::size_t   kFullNameAt = 0x08;
 	constexpr std::size_t   kFormIdAt = 0x28;
-	constexpr std::size_t   kGlobalValueAt = 0x48;      // TESGlobal float32 value slot (vmovss xmm0, [r8+0x48])
-	constexpr std::size_t   kFileCollectionAt = 0x1580; // TESDataHandler::compiledFileCollection
-	constexpr std::size_t   kFileNameAt = 0x38;
+	constexpr std::size_t   kDefaultHeadingAt = 0x88;          // [Kit] HeadingAt=88 (FAL-595 PC verified)
+	constexpr std::size_t   kDefaultGlobalValueAt = 0x48;      // TESGlobal float32 value slot (ChooseGlobalSlot verified)
+	constexpr std::size_t   kGlobalSearchFrom = 0x30;
+	constexpr std::size_t   kGlobalObjectBytes = 0x60;
+	constexpr float         kGlobalMinutes = 15.0f;
+	constexpr float         kMaxDays = 1000000.0f;
+	constexpr std::size_t   kDefaultFileCollectionAt = 0x1580; // TESDataHandler::compiledFileCollection
+	constexpr std::size_t   kDefaultFileNameAt = 0x38;
 	constexpr std::size_t   kFileNameSize = 260;
-	constexpr std::size_t   kFileCompileIndexAt = 0x1B7;
-	constexpr std::size_t   kFileIndexAt = 0x218;
+	constexpr std::size_t   kDefaultFileCompileIndexAt = 0x1B7;
+	constexpr std::size_t   kDefaultFileIndexAt = 0x218;
 	constexpr std::size_t   kMaxFiles = 4096;
+	constexpr std::size_t   kDefaultExtraListAt = 0xC8;        // TESObjectREFR::extraList (verified in SetMarkerDiscovered)
+	constexpr std::size_t   kDefaultMarkerFlagsAt = 0x18;      // ExtraMapMarker flags dword (or [rax+0x18], 0x20)
+	constexpr std::uint32_t kDefaultMarkerDiscMask = 0x20;     // kDiscovered bit set by SetMarkerDiscovered (rva 0x2080440)
 
-	constexpr std::uint32_t kGameHourId = 0x38;
-	constexpr std::uint32_t kGameDaysPassedId = 0x39;
+	constexpr std::uint32_t kDefaultGameHourId = 0x38;
+	constexpr std::uint32_t kDefaultGameDaysPassedId = 0x39;
 
 	// FO4SFPipboyTravel.esm local FormIDs (written by scripts/ui/pipboy_map_store.py)
 	constexpr std::uint32_t kGlobTravelTarget = 0x800;  // target marker local FormID (< 2^24, exact in float32)
-	constexpr std::uint32_t kGlobTravelPlugin = 0x801;  // 0 = FO4SFMapMarkers.esm, 1 = FO4TerrainCore.esm
+	constexpr std::uint32_t kGlobTravelPlugin = 0x801;  // 0 = FO4SFMapMarkers.esm, 1 = FO4TerrainCore.esm, 2+ = other worlds
 	constexpr std::uint32_t kGlobSurvivalMode = 0x802;  // 0 = fast travel enabled, 1 = survival blocked
 	constexpr std::uint32_t kGlobTravelIndex = 0x803;   // marker store index
 	constexpr std::uint32_t kGlobTravelX = 0x804;       // merged arrival X (Starfield m)
@@ -66,6 +74,23 @@ namespace
 	constexpr std::uint32_t kGlobDiscFirst = 0x810;     // FO4SF_MapDisc00..13 (24 bits per TESGlobal)
 	constexpr std::size_t   kDiscGlobals = 14;
 	constexpr std::size_t   kBitsPerGlobal = 24;        // float32 mantissa preserves 24 integer bits losslessly
+	constexpr std::size_t   kPluginSlotCount = 5;       // 0..4 pluginCode table in FO4SF_PipboyTravel.psc
+
+	constexpr std::array<std::string_view, kPluginSlotCount> kMarkerPluginFiles{ {
+		"FO4SFMapMarkers.esm"sv,
+		"FO4TerrainCore.esm"sv,
+		"FO4CapitalWasteland.esm"sv,
+		"FO4Mojave.esm"sv,
+		"FO4Appalachia.esm"sv,
+	} };
+
+	constexpr std::array<std::string_view, 5> kMapUserEvents{ {
+		"Map"sv,
+		"SurfaceMap"sv,
+		"PlanetMap"sv,
+		"GalaxyMap"sv,
+		"StarMap"sv,
+	} };
 
 	// Canonical Fallout 4 Commonwealth world-map corners (MNAM cells -33..28, 25..-36 -> outer cell edges in FO4 units)
 	constexpr double        kCommonwealthNWX = -135168.0;
@@ -74,7 +99,6 @@ namespace
 	constexpr double        kCommonwealthNEY = 106496.0;
 	constexpr double        kCommonwealthSWX = -135168.0;
 	constexpr double        kCommonwealthSWY = -147456.0;
-	constexpr double        kWorldMapTextureField = 0.0;
 	constexpr auto          kDefaultWorldTexture = "Textures/Interface/Pip-Boy/WorldMap_d.dds";
 
 	// Inverse coordinate transform from merged Starfield metres to canonical FO4 Commonwealth units
@@ -85,12 +109,13 @@ namespace
 	// Special Pipboy_MapPage MarkerTypesA indices
 	constexpr std::uint32_t kPlayerSetMarkerType = 85;
 	constexpr std::uint32_t kPlayerLocMarkerType = 86;
-	constexpr std::uint32_t kMaxMarkerType = 87;
+	constexpr std::uint32_t kMaxLocationIconType = 84;  // 85 and 86 are reserved for PlayerSetMarker and PlayerLocMarker
 
-	constexpr std::size_t   kMaxStoreMarkers = 512;
+	constexpr std::size_t   kMaxStoreMarkers = kDiscGlobals * kBitsPerGlobal;
 	constexpr std::size_t   kMaxMapMenus = 8;
 	constexpr std::size_t   kMaxName = 64;
 	constexpr std::uint32_t kMaxLogLines = 64;
+	constexpr std::int64_t  kMapKeyCooldownMs = 350;
 	constexpr std::uint32_t kF10 = 0x79;
 	constexpr std::uint32_t kQuickSaveKey = 0x74;
 	constexpr std::uint32_t kQuickLoadKey = 0x78;
@@ -104,6 +129,10 @@ namespace
 		kVmRtti,
 		kDataHandlerSingleton,
 		kLookupById,
+		kGetExtraMapMarker,
+		kExtraMapMarkerRtti,
+		kObjectRefrRtti,
+		kTesFileRtti,
 		kMapIdCount
 	};
 
@@ -123,12 +152,16 @@ namespace
 		{ "BSScript.Internal.VirtualMachine.RTTI", 870795, "VirtualMachine@Internal@BSScript@@"sv, 0 },
 		{ "TESDataHandler.Singleton", 937572, {}, kDataHandlerRva },
 		{ "TESForm.LookupByID", 47401, {}, kLookupByIdRva },
+		{ "ExtraDataList.GetExtraMapMarker", 44761, {}, kGetExtraMapMarkerRva },
+		{ "ExtraMapMarker.RTTI", 845517, "ExtraMapMarker@@"sv, 0 },
+		{ "TESObjectREFR.RTTI", 840386, "TESObjectREFR@@"sv, 0 },
+		{ "TESFile.RTTI", 845789, "TESFile@@"sv, 0 },
 	} };
 
 	struct StoreMarker
 	{
 		std::uint32_t index = 0;
-		std::uint32_t pluginCode = 0;   // 0 = FO4SFMapMarkers.esm, 1 = FO4TerrainCore.esm
+		std::uint32_t pluginCode = 0;   // 0 = FO4SFMapMarkers.esm, 1 = FO4TerrainCore.esm, 2+ = other worlds
 		std::uint32_t localId = 0;
 		std::uint32_t type = 0;
 		bool          initialDiscovered = false;
@@ -172,6 +205,7 @@ namespace
 	};
 
 	using LookupById_t = void* (*)(std::uint32_t);
+	using GetExtraMapMarker_t = void* (*)(std::uintptr_t);
 
 	bool                                   g_on = false;
 	std::uintptr_t                         g_base = 0;
@@ -182,15 +216,39 @@ namespace
 	std::uint32_t                          g_mapKey = 0x4D;
 	std::uint32_t                          g_mapPage = 3;
 	bool                                   g_mapSurvival = false;
+	bool                                   g_blockStarMap = true;
+	std::size_t                            g_headingAt = kDefaultHeadingAt;
+	bool                                   g_headingTurnsDown = false;
+	std::size_t                            g_configuredGlobalValueAt = 0;   // 0 = auto-verify via ChooseMapGlobalSlot
+	std::size_t                            g_verifiedGlobalValueAt = 0;
+	bool                                   g_globalLogged = false;
+	bool                                   g_headingLogged = false;
+	bool                                   g_fileSkipLogged = false;
+	std::uint32_t                          g_gameHourId = kDefaultGameHourId;
+	std::uint32_t                          g_gameDaysPassedId = kDefaultGameDaysPassedId;
+	std::size_t                            g_fileCollectionAt = kDefaultFileCollectionAt;
+	std::size_t                            g_fileNameAt = kDefaultFileNameAt;
+	std::size_t                            g_fileCompileIndexAt = kDefaultFileCompileIndexAt;
+	std::size_t                            g_fileIndexAt = kDefaultFileIndexAt;
+	std::size_t                            g_extraListAt = kDefaultExtraListAt;
+	std::size_t                            g_markerFlagsAt = kDefaultMarkerFlagsAt;
+	std::uint32_t                          g_markerDiscMask = kDefaultMarkerDiscMask;
+
 	std::string                            g_travelPlugin = "FO4SFPipboyTravel.esm";
 	std::string                            g_travelScript = "FO4SF_PipboyTravel";
 	std::string                            g_travelFunction = "Go";
 	std::vector<std::string>               g_mapMenus;
 	std::vector<StoreMarker>               g_store;
 
+	std::atomic<bool>                      g_menuOpen{ false };
+	std::atomic<bool>                      g_mapInputHeld{ false };
 	std::atomic<bool>                      g_keyDown{ false };
+	std::atomic<std::int64_t>              g_lastMapTransitionMs{ 0 };
 	std::atomic<std::uint32_t>             g_keyPresses{ 0 };
 	std::atomic<std::uint32_t>             g_suppressions{ 0 };
+	std::atomic<std::uint32_t>             g_starMapBlocks{ 0 };
+	std::atomic<std::uint32_t>             g_inputLogs{ 0 };
+	std::atomic<std::uint32_t>             g_discSyncLogs{ 0 };
 	std::atomic<std::uint32_t>             g_tickCount{ 0 };
 	std::atomic<std::int32_t>              g_requestedPage{ -1 };
 	std::atomic<std::int32_t>              g_requestedTab{ -1 };
@@ -222,6 +280,13 @@ namespace
 
 	std::mutex                             g_snapLock;
 	LiveSnapshot                           g_snap;
+
+	std::int64_t NowMs()
+	{
+		return std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch())
+		    .count();
+	}
 
 	std::string Hex(std::uintptr_t a_v) { return std::format("{:#x}", a_v); }
 
@@ -272,10 +337,10 @@ namespace
 			   });
 	}
 
-	std::string ReadIniText(const std::filesystem::path& a_ini, const wchar_t* a_key)
+	std::string ReadSectionText(const std::filesystem::path& a_ini, const wchar_t* a_section, const wchar_t* a_key)
 	{
 		std::array<wchar_t, 512> buf{};
-		REX::W32::GetPrivateProfileStringW(L"FO4SFPipboyMenu", a_key, L"", buf.data(),
+		REX::W32::GetPrivateProfileStringW(a_section, a_key, L"", buf.data(),
 			static_cast<std::uint32_t>(buf.size()), a_ini.c_str());
 		std::string out;
 		for (const wchar_t* p = buf.data(); *p; ++p) {
@@ -284,10 +349,46 @@ namespace
 		return out;
 	}
 
+	std::string ReadIniText(const std::filesystem::path& a_ini, const wchar_t* a_key)
+	{
+		return ReadSectionText(a_ini, L"FO4SFPipboyMenu", a_key);
+	}
+
 	std::uint32_t ReadIniNumber(const std::filesystem::path& a_ini, const wchar_t* a_key, std::uint32_t a_default)
 	{
 		const auto text = ReadIniText(a_ini, a_key);
 		return text.empty() ? a_default : static_cast<std::uint32_t>(std::strtoul(text.c_str(), nullptr, 0));
+	}
+
+	bool ParseHeadingSpec(std::string_view a_spec, std::size_t& a_at, bool& a_turnsDown)
+	{
+		while (!a_spec.empty() && (a_spec.front() == ' ' || a_spec.front() == '\t')) {
+			a_spec.remove_prefix(1);
+		}
+		while (!a_spec.empty() && (a_spec.back() == ' ' || a_spec.back() == '\t')) {
+			a_spec.remove_suffix(1);
+		}
+		if (a_spec.empty()) {
+			return false;
+		}
+		const bool down = a_spec.front() == '-';
+		if (down) {
+			a_spec.remove_prefix(1);
+		}
+		if (a_spec.starts_with("0x") || a_spec.starts_with("0X")) {
+			a_spec.remove_prefix(2);
+		}
+		if (a_spec.empty() || a_spec.size() > 3 ||
+			!std::ranges::all_of(a_spec, [](unsigned char c) { return std::isxdigit(c) != 0; })) {
+			return false;
+		}
+		const auto parsed = static_cast<std::size_t>(std::strtoul(std::string(a_spec).c_str(), nullptr, 16));
+		if (parsed < 0x40 || parsed > 0x200 || (parsed % 4) != 0) {
+			return false;
+		}
+		a_at = parsed;
+		a_turnsDown = down;
+		return true;
 	}
 
 	bool ValidIdentifier(std::string_view a_s, bool a_allowDot = false)
@@ -462,7 +563,8 @@ namespace
 			m.index = static_cast<std::uint32_t>(std::strtoul(cols[0].c_str(), nullptr, 10));
 			m.pluginCode = static_cast<std::uint32_t>(std::strtoul(cols[1].c_str(), nullptr, 10));
 			m.localId = static_cast<std::uint32_t>(std::strtoul(cols[2].c_str(), nullptr, 16)) & 0x00FFFFFFu;
-			m.type = std::min<std::uint32_t>(static_cast<std::uint32_t>(std::strtoul(cols[3].c_str(), nullptr, 10)), kMaxMarkerType);
+			// Clamp location icon types below 85 so a store row can never collide with PlayerSetMarker (85) or PlayerLocMarker (86)
+			m.type = std::min<std::uint32_t>(static_cast<std::uint32_t>(std::strtoul(cols[3].c_str(), nullptr, 10)), kMaxLocationIconType);
 			m.initialDiscovered = std::strtoul(cols[4].c_str(), nullptr, 10) != 0;
 			m.xFo4 = std::strtod(cols[5].c_str(), nullptr);
 			m.yFo4 = std::strtod(cols[6].c_str(), nullptr);
@@ -511,16 +613,19 @@ namespace
 		return reinterpret_cast<std::uintptr_t>(fn(a_formId));
 	}
 
-	// Finds the runtime FormID prefix (upper bits) of an active plugin by file name in TESDataHandler::compiledFileCollection
+	// Finds the runtime FormID prefix (upper bits) of an active plugin by file name in TESDataHandler::compiledFileCollection,
+	// checking TESFile@@ RTTI on every entry (as main.cpp KitFileForm does)
 	bool ResolvePluginPrefix(std::string_view a_fileName, std::uint32_t& a_prefix, bool& a_small)
 	{
 		std::uintptr_t handler = 0;
 		if (!Peek(Address(kDataHandlerSingleton), handler) || !handler || !IsType(handler, "TESDataHandler@@")) {
 			return false;
 		}
+		std::size_t skipped = 0;
 		for (int listKind = 0; listKind < 3; ++listKind) {
 			ArrayHead list{};
-			if (!Peek(handler + kFileCollectionAt + static_cast<std::size_t>(listKind) * sizeof(ArrayHead), list)) {
+			if (!Peek(handler + g_fileCollectionAt + static_cast<std::size_t>(listKind) * sizeof(ArrayHead), list) ||
+				list.size > list.capacity || list.size > kMaxFiles || (list.size && !list.data)) {
 				continue;
 			}
 			const auto n = std::min<std::size_t>(list.size, kMaxFiles);
@@ -529,27 +634,35 @@ namespace
 				if (!Peek(list.data + 8ull * i, file) || !file) {
 					continue;
 				}
+				if (!IsType(file, "TESFile@@")) {
+					++skipped;
+					continue;
+				}
 				std::array<char, kFileNameSize> rawName{};
-				if (!PeekBytes(file + kFileNameAt, rawName.data(), rawName.size())) {
+				if (!PeekBytes(file + g_fileNameAt, rawName.data(), rawName.size())) {
 					continue;
 				}
 				rawName.back() = '\0';
-				if (!SameAscii(rawName.data(), a_fileName)) {
+				const std::string_view fileView(rawName.data(), strnlen(rawName.data(), rawName.size()));
+				if (!SameAscii(fileView, a_fileName)) {
 					continue;
 				}
-				std::uint8_t  compileIdx = 0xFF;
-				std::uint32_t fileIdx = 0;
-				if (!Peek(file + kFileCompileIndexAt, compileIdx) || !Peek(file + kFileIndexAt, fileIdx)) {
+				std::uint8_t                compileIdx = 0xFF;
+				std::array<std::uint8_t, 4> indexBytes{};
+				if (!Peek(file + g_fileCompileIndexAt, compileIdx) ||
+					!PeekBytes(file + g_fileIndexAt, indexBytes.data(), indexBytes.size())) {
 					return false;
 				}
-				if (compileIdx == 0xFE) {
+				if (listKind == 1 || compileIdx == 0xFE) {
+					const std::uint32_t smallIdx = static_cast<std::uint32_t>(indexBytes[2]) |
+					                               (static_cast<std::uint32_t>(indexBytes[3]) << 8);
 					a_small = true;
-					a_prefix = 0xFE000000u | ((fileIdx & 0xFFFu) << 12);
+					a_prefix = 0xFE000000u | ((smallIdx & 0xFFFu) << 12);
 					return true;
 				}
-				if (compileIdx == 0xFD) {
+				if (listKind == 2 || compileIdx == 0xFD) {
 					a_small = false;
-					a_prefix = 0xFD000000u | (((fileIdx >> 8) & 0xFFu) << 16);
+					a_prefix = 0xFD000000u | (static_cast<std::uint32_t>(indexBytes[1]) << 16);
 					return true;
 				}
 				if (compileIdx < 0xFD) {
@@ -559,7 +672,65 @@ namespace
 				}
 			}
 		}
+		if (skipped && !g_fileSkipLogged) {
+			g_fileSkipLogged = true;
+			REX::INFO("step=map_file file={} skipped={} (non-TESFile entries in compiledFileCollection)", a_fileName, skipped);
+		}
 		return false;
+	}
+
+	bool ReadTimeAt(std::uintptr_t a_hourForm, std::uintptr_t a_daysForm, std::size_t a_at, float& a_hour, float& a_days)
+	{
+		if (!a_at || a_at == kFormIdAt || !a_hourForm || !a_daysForm ||
+			!Peek(a_hourForm + a_at, a_hour) || !Peek(a_daysForm + a_at, a_days) ||
+			!std::isfinite(a_hour) || !std::isfinite(a_days) ||
+			a_hour < 0.0f || a_hour >= 24.0f || a_days <= 0.0f || a_days >= kMaxDays) {
+			return false;
+		}
+		const float apart = std::fabs(std::fmod(a_days, 1.0f) * 24.0f - a_hour);
+		return std::min(apart, 24.0f - apart) * 60.0f <= kGlobalMinutes;
+	}
+
+	// Self-verifies TESGlobal value offset (as main.cpp FindGlobalValue / ChooseGlobalSlot does), unless overridden in INI
+	std::size_t EnsureGlobalValueOffset(std::uintptr_t a_hourForm, std::uintptr_t a_daysForm)
+	{
+		if (g_verifiedGlobalValueAt) {
+			return g_verifiedGlobalValueAt;
+		}
+		if (g_configuredGlobalValueAt) {
+			g_verifiedGlobalValueAt = g_configuredGlobalValueAt;
+			if (!g_globalLogged) {
+				g_globalLogged = true;
+				REX::INFO("step=map_globals value_at={} source=ini", Hex(g_verifiedGlobalValueAt));
+			}
+			return g_verifiedGlobalValueAt;
+		}
+		if (!IsType(a_hourForm, "TESGlobal@@") || !IsType(a_daysForm, "TESGlobal@@")) {
+			return 0;
+		}
+		float hour = 0.0f;
+		float days = 0.0f;
+		std::size_t chosen = 0;
+		if (ReadTimeAt(a_hourForm, a_daysForm, kDefaultGlobalValueAt, hour, days)) {
+			chosen = kDefaultGlobalValueAt;
+		} else {
+			for (std::size_t at = kGlobalSearchFrom; at + sizeof(float) <= kGlobalObjectBytes; at += 4) {
+				if (at != kFormIdAt && at != kDefaultGlobalValueAt && ReadTimeAt(a_hourForm, a_daysForm, at, hour, days)) {
+					chosen = at;
+					break;
+				}
+			}
+		}
+		if (chosen) {
+			ReadTimeAt(a_hourForm, a_daysForm, chosen, hour, days);
+			g_verifiedGlobalValueAt = chosen;
+			if (!g_globalLogged) {
+				g_globalLogged = true;
+				REX::INFO("step=map_globals value_at={} source=verified game_hour={:.4f} game_days_passed={:.4f}",
+					Hex(chosen), hour, days);
+			}
+		}
+		return g_verifiedGlobalValueAt;
 	}
 
 	std::uintptr_t LookupPluginGlobal(std::uint32_t a_prefix, bool a_small, std::uint32_t a_localId)
@@ -571,21 +742,45 @@ namespace
 
 	bool ReadGlobalFloat(std::uintptr_t a_glob, float& a_out)
 	{
-		return a_glob && Peek(a_glob + kGlobalValueAt, a_out) && std::isfinite(a_out);
+		return a_glob && g_verifiedGlobalValueAt && Peek(a_glob + g_verifiedGlobalValueAt, a_out) && std::isfinite(a_out);
 	}
 
 	bool WriteGlobalFloat(std::uintptr_t a_glob, float a_val, float& a_readBack)
 	{
-		return a_glob && PokeFloat(a_glob + kGlobalValueAt, a_val) && ReadGlobalFloat(a_glob, a_readBack);
+		return a_glob && g_verifiedGlobalValueAt && PokeFloat(a_glob + g_verifiedGlobalValueAt, a_val) &&
+		       ReadGlobalFloat(a_glob, a_readBack);
+	}
+
+	// Reads live engine map-marker discovery state (ExtraMapMarker flags & 0x20, set by ObjectReference.SetMarkerDiscovered)
+	bool IsEngineMarkerDiscovered(std::uint32_t a_prefix, bool a_small, std::uint32_t a_localId)
+	{
+		if (!g_rva[kGetExtraMapMarker]) {
+			return false;
+		}
+		const std::uint32_t mask = a_small ? 0xFFFu : 0xFFFFFFu;
+		const auto          refr = LookupForm(a_prefix | (a_localId & mask));
+		if (!refr || !IsType(refr, "TESObjectREFR@@")) {
+			return false;
+		}
+		std::uintptr_t extraList = 0;
+		if (!Peek(refr + g_extraListAt, extraList) || !extraList) {
+			return false;
+		}
+		const auto fn = reinterpret_cast<GetExtraMapMarker_t>(Address(kGetExtraMapMarker));
+		const auto emm = reinterpret_cast<std::uintptr_t>(fn(extraList));
+		if (!emm || !IsType(emm, "ExtraMapMarker@@")) {
+			return false;
+		}
+		std::uint32_t flags = 0;
+		return Peek(emm + g_markerFlagsAt, flags) && ((flags & g_markerDiscMask) != 0);
 	}
 
 	void DaysToCalendar(float a_daysPassed, std::uint32_t& a_month, std::uint32_t& a_day, std::uint32_t& a_year)
 	{
-		// Fallout 4 starts Oct 23, 2287 (day 0 = 2026/2287-10-23)
 		static constexpr std::array<int, 12> kMonthDays{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 		int total = std::max(0, static_cast<int>(std::floor(a_daysPassed)));
 		int y = 2287;
-		int m = 9;   // 0-based October
+		int m = 9;   // 0-based October (Oct 23, 2287)
 		int d = 23 + total;
 		while (d > kMonthDays[static_cast<std::size_t>(m)]) {
 			d -= kMonthDays[static_cast<std::size_t>(m)];
@@ -599,7 +794,7 @@ namespace
 		a_year = static_cast<std::uint32_t>(y);
 	}
 
-	// Main thread only: refreshes player position/heading, clock, survival mode and 24-bit discovery bitsets
+	// Main thread only: refreshes player position/heading, clock, survival mode, and syncs live engine discovery into FO4SF_MapDisc00..13
 	void CollectMainThreadState()
 	{
 		LiveSnapshot next;
@@ -616,12 +811,18 @@ namespace
 				next.playerXFo4 = (static_cast<double>(xyz[0]) - kMergeOffsetX) * kFo4UnitsPerMetre;
 				next.playerYFo4 = (static_cast<double>(xyz[1]) - kMergeOffsetY) * kFo4UnitsPerMetre;
 			}
-			if (Peek(player + kAngleZAt, yawRad) && std::isfinite(yawRad)) {
-				double deg = std::fmod(static_cast<double>(yawRad) * (180.0 / std::numbers::pi), 360.0);
+			if (g_headingAt && Peek(player + g_headingAt, yawRad) && std::isfinite(yawRad) && std::fabs(yawRad) <= 1000.0f) {
+				const double signedRad = g_headingTurnsDown ? -static_cast<double>(yawRad) : static_cast<double>(yawRad);
+				double       deg = std::fmod(signedRad * (180.0 / std::numbers::pi), 360.0);
 				if (deg < 0.0) {
 					deg += 360.0;
 				}
 				next.playerHeadingDeg = deg;
+				if (!g_headingLogged) {
+					g_headingLogged = true;
+					REX::INFO("step=map_heading heading_at={}+{:03X} rad={:.4f} deg={:.1f}",
+						g_headingTurnsDown ? "-" : "", g_headingAt, yawRad, deg);
+				}
 			}
 			std::uintptr_t cell = 0;
 			std::uintptr_t world = 0;
@@ -630,29 +831,79 @@ namespace
 			}
 		}
 
-		const auto hourForm = LookupForm(kGameHourId);
-		const auto daysForm = LookupForm(kGameDaysPassedId);
-		float      hour = 0.0f;
-		float      days = 0.0f;
+		const auto hourForm = LookupForm(g_gameHourId);
+		const auto daysForm = LookupForm(g_gameDaysPassedId);
+		EnsureGlobalValueOffset(hourForm, daysForm);
+		float hour = 0.0f;
+		float days = 0.0f;
 		if (IsType(hourForm, "TESGlobal@@") && ReadGlobalFloat(hourForm, hour) && hour >= 0.0f && hour < 24.0f) {
 			next.gameHour = hour;
 		}
-		if (IsType(daysForm, "TESGlobal@@") && ReadGlobalFloat(daysForm, days) && days >= 0.0f && days < 1000000.0f) {
+		if (IsType(daysForm, "TESGlobal@@") && ReadGlobalFloat(daysForm, days) && days >= 0.0f && days < kMaxDays) {
 			DaysToCalendar(days, next.dateMonth, next.dateDay, next.dateYear);
 		}
 
-		std::uint32_t prefix = 0;
-		bool          small = false;
-		if (ResolvePluginPrefix(g_travelPlugin, prefix, small)) {
+		std::uint32_t travelPrefix = 0;
+		bool          travelSmall = false;
+		const bool    haveTravelPlugin = g_verifiedGlobalValueAt != 0 &&
+		                                 ResolvePluginPrefix(g_travelPlugin, travelPrefix, travelSmall);
+		if (haveTravelPlugin) {
 			float surv = 0.0f;
-			if (const auto survGlob = LookupPluginGlobal(prefix, small, kGlobSurvivalMode); ReadGlobalFloat(survGlob, surv)) {
+			if (const auto survGlob = LookupPluginGlobal(travelPrefix, travelSmall, kGlobSurvivalMode);
+				ReadGlobalFloat(survGlob, surv)) {
 				next.liveSurvival = surv >= 0.5f;
 			}
 			for (std::size_t i = 0; i < kDiscGlobals; ++i) {
-				float bits = 0.0f;
-				const auto glob = LookupPluginGlobal(prefix, small, kGlobDiscFirst + static_cast<std::uint32_t>(i));
+				float      bits = 0.0f;
+				const auto glob = LookupPluginGlobal(travelPrefix, travelSmall, kGlobDiscFirst + static_cast<std::uint32_t>(i));
 				if (ReadGlobalFloat(glob, bits) && bits >= 0.0f && bits < static_cast<float>(1u << kBitsPerGlobal)) {
 					next.discBits[i] = static_cast<std::uint32_t>(bits) & ((1u << kBitsPerGlobal) - 1u);
+				}
+			}
+		}
+
+		// Sync live engine ExtraMapMarker kDiscovered (0x20, e.g. from Vault 111 exit lift reveal) + init_disc into discBits
+		std::array<std::uint32_t, kPluginSlotCount> markerPrefixes{};
+		std::array<bool, kPluginSlotCount>          markerSmall{};
+		std::array<bool, kPluginSlotCount>          markerLoaded{};
+		for (std::size_t p = 0; p < kPluginSlotCount; ++p) {
+			markerLoaded[p] = ResolvePluginPrefix(kMarkerPluginFiles[p], markerPrefixes[p], markerSmall[p]);
+		}
+
+		std::array<bool, kDiscGlobals> dirtyGroups{};
+		std::uint32_t                  newlySynced = 0;
+		for (const auto& m : g_store) {
+			const std::size_t grp = m.index / kBitsPerGlobal;
+			const std::size_t bit = m.index % kBitsPerGlobal;
+			if (grp >= kDiscGlobals) {
+				continue;
+			}
+			const bool oldBit = ((next.discBits[grp] >> bit) & 1u) != 0;
+			bool       engineDisc = false;
+			if (m.pluginCode < kPluginSlotCount && markerLoaded[m.pluginCode]) {
+				engineDisc = IsEngineMarkerDiscovered(markerPrefixes[m.pluginCode], markerSmall[m.pluginCode], m.localId);
+			}
+			if ((m.initialDiscovered || engineDisc) && !oldBit) {
+				next.discBits[grp] |= (1u << bit);
+				dirtyGroups[grp] = true;
+				if (engineDisc) {
+					++newlySynced;
+				}
+			}
+		}
+
+		if (haveTravelPlugin) {
+			for (std::size_t grp = 0; grp < kDiscGlobals; ++grp) {
+				if (!dirtyGroups[grp]) {
+					continue;
+				}
+				const auto glob = LookupPluginGlobal(travelPrefix, travelSmall, kGlobDiscFirst + static_cast<std::uint32_t>(grp));
+				float      rb = -1.0f;
+				const float want = static_cast<float>(next.discBits[grp]);
+				const bool  ok = WriteGlobalFloat(glob, want, rb) && rb == want;
+				if (++g_discSyncLogs <= kMaxLogLines) {
+					REX::INFO("step=map_disc_sync group={} bits={:#x} engine_new={} written={}", grp, next.discBits[grp],
+						newlySynced, ok ? 1 : 0);
 				}
 			}
 		}
@@ -695,8 +946,54 @@ namespace
 		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
 	}
 
-	// Main thread: suppresses any open vanilla map menu in MapMenus= and opens FO4SF_PipboyMenu on MAP (page 3, tab 0)
-	bool SuppressVanillaMapMenus(bool a_openOursOnSuppress)
+	// Complete star-map block (owner decision 16 Nov): any attempt to instantiate GalaxyStarMapMenu (M, G, DataMenu,
+	// MonocleMenu, console or script) constructs a null Ptr<IMenu>, so the vanilla star map can never open
+	RE::Scaleform::Ptr<RE::IMenu>* BlockedStarMapCreate(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		std::construct_at(a_out);
+		const auto n = ++g_starMapBlocks;
+		if (n <= kMaxLogLines) {
+			REX::INFO("step=starmap_blocked n={} route=create", n);
+		}
+		return a_out;
+	}
+
+	void InstallStarMapBlock()
+	{
+		if (!g_blockStarMap) {
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		for (auto& entry : ui->menuMap) {
+			const char* rawKey = entry.key.c_str();
+			if (!rawKey) {
+				continue;
+			}
+			for (const auto& blocked : g_mapMenus) {
+				if (!SameAscii(rawKey, blocked)) {
+					continue;
+				}
+				const auto origAddr = reinterpret_cast<std::uintptr_t>(entry.value.initFunc);
+				if (entry.value.initFunc == &BlockedStarMapCreate) {
+					break;
+				}
+				if (!InImage(origAddr, 1)) {
+					RefuseStep("starmap_block", std::format("menu={} init_func={} reason=outside_image", blocked, Hex(origAddr)));
+					break;
+				}
+				entry.value.initFunc = &BlockedStarMapCreate;
+				REX::INFO("step=starmap_block_install menu={} orig_rva={}", blocked, Hex(origAddr - g_base));
+				break;
+			}
+		}
+	}
+
+	// Main thread fallback: hides any open vanilla menu in MapMenus= and NEVER opens or reopens FO4SF_PipboyMenu
+	// (preventing any close-then-reopen bounce loop)
+	bool SuppressVanillaMapMenus()
 	{
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
@@ -716,30 +1013,44 @@ namespace
 				REX::INFO("step=map_suppress n={} name={} sent=hide", n, g_mapMenus[i]);
 			}
 		}
-		if (suppressed && a_openOursOnSuppress) {
-			CollectMainThreadState();
-			g_requestedPage = static_cast<std::int32_t>(g_mapPage);
-			g_requestedTab = 0;
-			g_markersDirty = true;
-			if (!ui->IsMenuOpen(OurMenuFixed())) {
-				queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kShow);
-			} else {
-				queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
-			}
-		}
 		return suppressed;
 	}
 
-	void HandleMapKeyMainThread(std::uint32_t a_n)
+	// Main thread: opens FO4SF_PipboyMenu on MAP when pressed from gameplay (closed state)
+	void HandleClosedMapKeyMainThread(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue) {
 			return;
 		}
-		SuppressVanillaMapMenus(false);
-		const bool open = ui->IsMenuOpen(OurMenuFixed());
-		if (open && g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage) && !g_modalOpen.load()) {
+		SuppressVanillaMapMenus();
+		if (ui->IsMenuOpen(OurMenuFixed())) {
+			return;   // Open-menu MapKey is handled exclusively by OnButtonInput (IMenu input vtable)
+		}
+		g_lastMapTransitionMs = NowMs();
+		CollectMainThreadState();
+		g_requestedPage = static_cast<std::int32_t>(g_mapPage);
+		g_requestedTab = 0;
+		g_markersDirty = true;
+		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kShow);
+		REX::INFO("step=map_key n={} vk={} was_open=0 page={} sent=show", a_n, Hex(g_mapKey), g_mapPage);
+	}
+
+	// Main thread: handles MapKey swallowed by FO4SF_PipboyMenu's BSInputEventUser vtable while open
+	void HandleOpenMenuMapKeyMainThread(std::uint32_t a_n)
+	{
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue) {
+			return;
+		}
+		SuppressVanillaMapMenus();
+		if (!ui->IsMenuOpen(OurMenuFixed())) {
+			return;
+		}
+		g_lastMapTransitionMs = NowMs();
+		if (g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage) && !g_modalOpen.load()) {
 			queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
 			REX::INFO("step=map_key n={} vk={} was_open=1 on_map=1 sent=hide", a_n, Hex(g_mapKey));
 			return;
@@ -748,9 +1059,40 @@ namespace
 		g_requestedPage = static_cast<std::int32_t>(g_mapPage);
 		g_requestedTab = 0;
 		g_markersDirty = true;
-		queue->AddMessage(OurMenuFixed(), open ? RE::UI_MESSAGE_TYPE::kUpdate : RE::UI_MESSAGE_TYPE::kShow);
-		REX::INFO("step=map_key n={} vk={} was_open={} page={} sent={}", a_n, Hex(g_mapKey), open ? 1 : 0, g_mapPage,
-			open ? "update" : "show");
+		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
+		REX::INFO("step=map_key n={} vk={} was_open=1 page={} sent=update", a_n, Hex(g_mapKey), g_mapPage);
+	}
+
+	bool IsOurMapInputEvent(const void* a_event, bool& a_isPress, bool& a_isRelease, std::uint32_t& a_code, std::string_view& a_user)
+	{
+		a_isPress = false;
+		a_isRelease = false;
+		a_code = 0;
+		a_user = {};
+		if (!g_on || !a_event || !g_menuOpen.load()) {
+			return false;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+			base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return false;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		a_code = static_cast<std::uint32_t>(button->idCode);
+		a_user = button->strUserEvent.c_str() ? std::string_view(button->strUserEvent.c_str()) : std::string_view{};
+		bool match = (a_code == g_mapKey);
+		for (const auto evName : kMapUserEvents) {
+			if (SameAscii(a_user, evName)) {
+				match = true;
+				break;
+			}
+		}
+		if (!match) {
+			return false;
+		}
+		a_isPress = button->value > 0.0f && button->heldDownSecs == 0.0f;
+		a_isRelease = button->value == 0.0f;
+		return true;
 	}
 
 	RE::BSScript::IVirtualMachine* CheckedScriptVm()
@@ -785,7 +1127,7 @@ namespace
 		return reinterpret_cast<RE::BSScript::IVirtualMachine*>(vm);
 	}
 
-	// Main thread: closes Pip-Boy, writes travel globals at +0x48 with read-back check, dispatches FO4SF_PipboyTravel.Go
+	// Main thread: closes Pip-Boy, writes travel globals at verified offset with read-back check, dispatches FO4SF_PipboyTravel.Go
 	void ExecuteFastTravelMainThread(std::uint32_t a_storeIdx)
 	{
 		if (a_storeIdx >= g_store.size()) {
@@ -809,14 +1151,15 @@ namespace
 		}
 		if (auto* ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(OurMenuFixed())) {
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				g_lastMapTransitionMs = NowMs();
 				queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
 			}
 		}
 
 		std::uint32_t prefix = 0;
 		bool          small = false;
-		if (!ResolvePluginPrefix(g_travelPlugin, prefix, small)) {
-			REX::INFO("step=map_fast_travel idx={} plugin={} result=plugin_not_loaded", a_storeIdx, g_travelPlugin);
+		if (!g_verifiedGlobalValueAt || !ResolvePluginPrefix(g_travelPlugin, prefix, small)) {
+			REX::INFO("step=map_fast_travel idx={} plugin={} result=plugin_or_globals_not_ready", a_storeIdx, g_travelPlugin);
 			return;
 		}
 
@@ -964,6 +1307,16 @@ namespace
 
 namespace PipboyMap
 {
+	bool Requested(const std::filesystem::path& a_ini)
+	{
+		return ReadIniNumber(a_ini, L"Map", 0) != 0;
+	}
+
+	bool Enabled()
+	{
+		return g_on;
+	}
+
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,
 		std::uint32_t a_menuKey, std::uintptr_t a_base, std::size_t a_imageSize)
 	{
@@ -982,9 +1335,42 @@ namespace PipboyMap
 		g_mapKey = ReadIniNumber(a_ini, L"MapKey", 0x4D);
 		g_mapPage = ReadIniNumber(a_ini, L"MapPage", 3);
 		g_mapSurvival = ReadIniNumber(a_ini, L"MapSurvival", 0) != 0;
+		g_blockStarMap = ReadIniNumber(a_ini, L"MapBlockStarMap", 1) != 0;
 		if (g_mapKey == 0 || g_mapKey > 0xFE || g_mapKey == a_menuKey || g_mapKey == kF10 ||
 			g_mapKey == kQuickSaveKey || g_mapKey == kQuickLoadKey || g_mapPage > 4) {
 			RefuseStep("ini", std::format("reason=map_key map_key={} key={} map_page={}", Hex(g_mapKey), Hex(a_menuKey), g_mapPage));
+			return;
+		}
+
+		// Heading offset & sign: MapHeadingAt= overrides [Kit] HeadingAt= (default 88, FAL-595 verified)
+		const auto mapHeadingSpec = ReadIniText(a_ini, L"MapHeadingAt");
+		const auto kitHeadingSpec = ReadSectionText(a_ini, L"Kit", L"HeadingAt");
+		const std::string headingSpec = !mapHeadingSpec.empty() ? mapHeadingSpec :
+		                                !kitHeadingSpec.empty() ? kitHeadingSpec :
+		                                                          std::string("88");
+		if (!ParseHeadingSpec(headingSpec, g_headingAt, g_headingTurnsDown)) {
+			RefuseStep("ini", std::format("reason=map_heading_at value={}", headingSpec));
+			return;
+		}
+
+		g_configuredGlobalValueAt = ReadIniNumber(a_ini, L"MapGlobalValueAt", 0);
+		if (g_configuredGlobalValueAt != 0 &&
+			(g_configuredGlobalValueAt < kGlobalSearchFrom || g_configuredGlobalValueAt > kGlobalObjectBytes ||
+				(g_configuredGlobalValueAt % 4) != 0 || g_configuredGlobalValueAt == kFormIdAt)) {
+			RefuseStep("ini", std::format("reason=map_global_value_at value={}", Hex(g_configuredGlobalValueAt)));
+			return;
+		}
+		g_gameHourId = ReadIniNumber(a_ini, L"MapGameHourId", kDefaultGameHourId);
+		g_gameDaysPassedId = ReadIniNumber(a_ini, L"MapGameDaysPassedId", kDefaultGameDaysPassedId);
+		g_fileCollectionAt = ReadIniNumber(a_ini, L"MapFileCollectionAt", static_cast<std::uint32_t>(kDefaultFileCollectionAt));
+		g_fileNameAt = ReadIniNumber(a_ini, L"MapFileNameAt", static_cast<std::uint32_t>(kDefaultFileNameAt));
+		g_fileCompileIndexAt = ReadIniNumber(a_ini, L"MapFileCompileIndexAt", static_cast<std::uint32_t>(kDefaultFileCompileIndexAt));
+		g_fileIndexAt = ReadIniNumber(a_ini, L"MapFileIndexAt", static_cast<std::uint32_t>(kDefaultFileIndexAt));
+		g_extraListAt = ReadIniNumber(a_ini, L"MapExtraListAt", static_cast<std::uint32_t>(kDefaultExtraListAt));
+		g_markerFlagsAt = ReadIniNumber(a_ini, L"MapMarkerFlagsAt", static_cast<std::uint32_t>(kDefaultMarkerFlagsAt));
+		g_markerDiscMask = ReadIniNumber(a_ini, L"MapMarkerDiscoveredMask", kDefaultMarkerDiscMask);
+		if (!g_gameHourId || !g_gameDaysPassedId || !g_markerDiscMask) {
+			RefuseStep("ini", "reason=map_offsets_zero");
 			return;
 		}
 
@@ -1035,9 +1421,9 @@ namespace PipboyMap
 		}
 
 		g_on = true;
-		REX::INFO("step=map_config map_key={} map_page={} menus={} store={} markers={} travel={}.{} survival={}",
-			Hex(g_mapKey), g_mapPage, menusList, storeFile, g_store.size(), g_travelScript, g_travelFunction,
-			g_mapSurvival ? 1 : 0);
+		REX::INFO("step=map_config map_key={} map_page={} menus={} block_starmap={} store={} markers={} travel={}.{} survival={} heading_at={}+{:03X}",
+			Hex(g_mapKey), g_mapPage, menusList, g_blockStarMap ? 1 : 0, storeFile, g_store.size(), g_travelScript,
+			g_travelFunction, g_mapSurvival ? 1 : 0, g_headingTurnsDown ? "-" : "", g_headingAt);
 	}
 
 	void Start(const SFSE::TaskInterface* a_task)
@@ -1048,6 +1434,8 @@ namespace PipboyMap
 		g_task = a_task;
 		(void)OurMenuFixed();
 		(void)MapMenusFixed();
+		InstallStarMapBlock();
+		SuppressVanillaMapMenus();
 	}
 
 	void OnMovieCreated(const RE::IMenu* a_menu)
@@ -1061,10 +1449,65 @@ namespace PipboyMap
 		}
 		for (const auto& blocked : g_mapMenus) {
 			if (SameAscii(raw, blocked)) {
-				g_task->AddTask([]() { SuppressVanillaMapMenus(true); });
+				g_task->AddTask([]() { SuppressVanillaMapMenus(); });
 				return;
 			}
 		}
+	}
+
+	void OnMenuMessage(RE::UI_MESSAGE_TYPE a_type)
+	{
+		if (!g_on) {
+			return;
+		}
+		if (a_type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_menuOpen = true;
+			g_mapInputHeld = false;
+			g_lastMapTransitionMs = NowMs();
+		} else if (a_type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_menuOpen = false;
+			g_mapInputHeld = false;
+			g_modalOpen = false;
+			g_lastMapTransitionMs = NowMs();
+		}
+	}
+
+	bool ShouldHandleInput(const void* a_event)
+	{
+		bool             isPress = false;
+		bool             isRelease = false;
+		std::uint32_t    code = 0;
+		std::string_view user;
+		if (!IsOurMapInputEvent(a_event, isPress, isRelease, code, user)) {
+			return false;
+		}
+		return static_cast<const RE::InputEvent*>(a_event)->status != RE::InputEvent::Status::kStop;
+	}
+
+	bool OnButtonInput(const void* a_event)
+	{
+		bool             isPress = false;
+		bool             isRelease = false;
+		std::uint32_t    code = 0;
+		std::string_view user;
+		if (!IsOurMapInputEvent(a_event, isPress, isRelease, code, user)) {
+			return false;
+		}
+		const_cast<RE::InputEvent*>(static_cast<const RE::InputEvent*>(a_event))->status = RE::InputEvent::Status::kStop;
+		if (++g_inputLogs <= kMaxLogLines && (isPress || isRelease)) {
+			REX::INFO("step=map_input id={} user_event=\"{}\" press={} release={} swallowed=1", Hex(code), user,
+				isPress ? 1 : 0, isRelease ? 1 : 0);
+		}
+		if (isPress && !g_mapInputHeld.exchange(true)) {
+			g_lastMapTransitionMs = NowMs();
+			const auto n = ++g_keyPresses;
+			if (g_task) {
+				g_task->AddTask([n]() { HandleOpenMenuMapKeyMainThread(n); });
+			}
+		} else if (isRelease) {
+			g_mapInputHeld = false;
+		}
+		return true;
 	}
 
 	void Tick()
@@ -1074,19 +1517,22 @@ namespace PipboyMap
 		}
 		const bool now = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_mapKey)) & 0x8000) != 0;
 		const bool was = g_keyDown.exchange(now);
-		if (now && !was && GameInFront()) {
+		// While FO4SF_PipboyMenu is open, OnButtonInput (IMenu vtable) owns MapKey; Tick only opens from closed gameplay
+		// outside the transition cooldown so M can never close-then-reopen in a loop
+		if (now && !was && !g_menuOpen.load() && GameInFront() &&
+			(NowMs() - g_lastMapTransitionMs.load() >= kMapKeyCooldownMs)) {
+			g_lastMapTransitionMs = NowMs();
 			const auto n = ++g_keyPresses;
-			g_task->AddTask([n]() { HandleMapKeyMainThread(n); });
-			// Stage=2 sends no periodic kUpdate on show; follow up after 750 ms so late calls & MAP DataObj run
+			g_task->AddTask([n]() { HandleClosedMapKeyMainThread(n); });
 			REX::W32::Sleep(750);
 			g_task->AddTask([]() { SendMenuUpdateMainThread(); });
 			return;
 		}
 		const auto t = ++g_tickCount;
 		if (t % 3 == 0) {
-			g_task->AddTask([]() { SuppressVanillaMapMenus(true); });
+			g_task->AddTask([]() { SuppressVanillaMapMenus(); });
 		}
-		if (t % 17 == 0 && g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
+		if (t % 17 == 0 && g_menuOpen.load() && g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
 			g_task->AddTask([]() { SendMenuUpdateMainThread(); });
 		}
 	}
@@ -1229,7 +1675,6 @@ namespace PipboyMap
 			snap = g_snap;
 		}
 
-		// Update header/footer scalar properties on DataObj (public setters)
 		dataObj.SetMember("ReadOnlyMode", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
 		dataObj.SetMember("TimeHour", RE::Scaleform::GFx::Value(static_cast<double>(snap.gameHour)));
 		dataObj.SetMember("DateMonth", RE::Scaleform::GFx::Value(snap.dateMonth));
@@ -1237,7 +1682,6 @@ namespace PipboyMap
 		dataObj.SetMember("DateYear", RE::Scaleform::GFx::Value(snap.dateYear));
 		dataObj.SetMember("CurrLocationName", RE::Scaleform::GFx::Value(snap.locationName.c_str()));
 		dataObj.SetMember("WorldMapTextureName", RE::Scaleform::GFx::Value(kDefaultWorldTexture));
-		(void)kWorldMapTextureField;
 
 		const bool newMovie = g_populatedMovie != movie;
 		bool       rebuiltMarkers = false;
@@ -1321,7 +1765,6 @@ namespace PipboyMap
 			}
 		}
 
-		// Track which page/tab the shell is currently showing (including pending answer)
 		RE::Scaleform::GFx::Value curPageVal, curTabVal;
 		if (a_answerPage.load() >= 0) {
 			g_currentShellPage = a_answerPage.load();
@@ -1334,8 +1777,6 @@ namespace PipboyMap
 			g_currentShellTab = static_cast<std::int32_t>(curTabVal.GetUInt());
 		}
 
-		// If markers were rebuilt while already on MAP (no pending page/tab change for ShellUpdate to invalidate),
-		// trigger InvalidatePartialData(0x80) or InvalidateData() directly and clear RemoveAllMapMarkers afterward.
 		if (rebuiltMarkers && a_answerPage.load() < 0 && a_answerTab.load() < 0 &&
 			g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
 			RE::Scaleform::GFx::Value maskArg(std::uint32_t{ 0x80u });
@@ -1346,7 +1787,6 @@ namespace PipboyMap
 			dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
 		}
 
-		// Slice 2 & 3 page handshakes after RegisterMap(this) arrived
 		if (g_mapPageVal.IsObject()) {
 			if (g_needTexturesLoaded.exchange(false)) {
 				RE::Scaleform::GFx::Value res;
@@ -1383,6 +1823,9 @@ namespace PipboyMap
 
 	void OnMenuDestroy()
 	{
+		g_menuOpen = false;
+		g_mapInputHeld = false;
+		g_modalOpen = false;
 		g_mapPageVal = RE::Scaleform::GFx::Value{};
 		g_populatedMovie = nullptr;
 		g_checkedCreateObjMovie = nullptr;
