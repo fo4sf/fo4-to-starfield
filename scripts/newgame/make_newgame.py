@@ -94,7 +94,32 @@ HOLD_AUDIO_TUTORIALS = ("AudioLogsQuest", "AudioLogsQuest_KT", "AudioLogsQuest_R
                         "AudioLogsQuest_PS", "AudioLogsQuest_JM", "AudioLogsQuest_OB", "AudioLogsQuest_BB",
                         "AudioLogsQuest_FAB", "AudioLogsQuest_AN", "AudioLogsQuest_WJS", "AudioLogsQuest_CT",
                         "SQ_ENV_Tutorial", "OutpostTutorial")
-DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS
+# S13 row 5, the third group (city and faction dialogue; Program.cs HoldCityFaction): the running quests that serve one
+# Starfield city, settlement or faction. Generic, ship and main-quest dialogue stay for later groups.
+HOLD_CITY_FACTION = ("City_AkilaLife07", "DialogueConstellation", "DialogueCrimsonFleet", "DialogueUCNewAtlantis",
+                     "DialogueHopetown_Shared", "CityNewAtlantisTransitControl", "DialogueTheFirstNPCs",
+                     "DialogueUCNewAtlantisSecurity", "City_NA_Viewport_Base", "CF_Unique",
+                     "UC03_DeepMinesSupportQuest", "DialogueUCNewAtlantis_Shared", "CF_Post",
+                     "DialogueUCFactionAlwaysOn", "DialogueFCClinic_IntroPost", "City_GG_Bet_SupportQuest", "CF_Main",
+                     "DialogueKaiser", "DialogueFCClinic", "UC08_SupportQuest", "DialogueRedDevilsHQ", "CFSD01",
+                     "Dialogue1OfAKindUC07", "DialogueUCNewAtlantis_Argos", "City_Neon_Gang_Dialogue",
+                     "DialogueTrackersAllianceAgents", "DialogueFCAkilaCity", "DialogueFCNeonEstablishingScene",
+                     "DialogueFCNeon", "City_Neon_Chem_Shared", "DialogueNewHomestead", "DialogueFreestarRangers",
+                     "DialogueCydonia", "DialogueUCInfinityLTD", "DialogueUCFactionCydonia", "DialogueParadiso",
+                     "DialogueGagarin_UC_GG", "DialogueUCNewAtlantis_LandryHollifeld", "DialogueFCRyujinTower",
+                     "DialogueECSConstant", "DialogueGenericHouseVaruun", "DialogueEleosRetreat",
+                     "DialogueSeokguhSyndicate", "DialogueCrucible", "DialogueUCTheLodge", "Settlement_Convo_NA",
+                     "DialogueUCNewAtlantis_NadiaMuffaz", "UC05_EmbassySupportQuest", "DialogueUCTheDen",
+                     "DialogueHopeTown", "RI_Support", "UC02_PerrysMeatsSupportQuest", "DialogueRedMile",
+                     "DialogueUCFactionNewAtlantis", "DialogueWaggonerFarm_IntroScene", "DialogueWaggonerFarm",
+                     "DialogueNeonConvo_SecurityCheckpoint_Controller", "City_NA_GuardPointer_Well",
+                     "City_NA_GuardPointer_Botany", "City_NA_GuardPointer_Viewport", "City_NA_GuardPointer_NA02",
+                     "DialogueFCNeon_PlayerHomeQuest", "City_AC_FAB_Quest05", "City_AC_FAB_Quest03",
+                     "City_AC_FAB_Quest01", "City_AC_FAB_Quest02", "City_AC_FAB_Quest04", "City_AC_FAB_Quest06",
+                     "City_AC_FAB_Quest11", "City_AC_FAB_Quest09", "City_AC_FAB_Quest07", "City_AC_FAB_Quest08",
+                     "City_AC_FAB_Quest10", "City_AC_FAB_Quest12", "City_AC_FAB_Quest16", "City_AC_FAB_Quest14",
+                     "City_AC_FAB_Quest13", "City_AC_FAB_Quest15", "City_AC_FAB_Quest17", "City_AC_FAB_Quest19")
+DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,

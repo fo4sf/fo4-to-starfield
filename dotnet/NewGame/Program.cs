@@ -228,7 +228,34 @@ static class NewGame
         "AudioLogsQuest_LVC", "AudioLogsQuest_PS", "AudioLogsQuest_JM", "AudioLogsQuest_OB", "AudioLogsQuest_BB",
         "AudioLogsQuest_FAB", "AudioLogsQuest_AN", "AudioLogsQuest_WJS", "AudioLogsQuest_CT", "SQ_ENV_Tutorial",
         "OutpostTutorial" };
-    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray();
+    // S13 row 5, the third group (owner, 15 Nov: city and faction dialogue next): the running quests that serve one
+    // Starfield city, settlement or faction (City_*, CityNewAtlantisTransitControl, CF_* / CFSD01, the UC support
+    // quests, RI_Support, Settlement_Convo_NA and the city- or faction-named Dialogue* quests) from
+    // result-pc-read-s13-5-partb. Not in it: the generic dialogue (DialogueGeneric*, DialogueCrowds, the vendor, crime,
+    // creature and robot dialogue), the ship dialogue (the ships group), the main-quest AlwaysOn quests and the rest
+    // (later groups). None is follower, crew or group plumbing (the owner's Warfare boundary, doc §4e)
+    public static readonly string[] HoldCityFaction = { "City_AkilaLife07", "DialogueConstellation",
+        "DialogueCrimsonFleet", "DialogueUCNewAtlantis", "DialogueHopetown_Shared", "CityNewAtlantisTransitControl",
+        "DialogueTheFirstNPCs", "DialogueUCNewAtlantisSecurity", "City_NA_Viewport_Base", "CF_Unique",
+        "UC03_DeepMinesSupportQuest", "DialogueUCNewAtlantis_Shared", "CF_Post", "DialogueUCFactionAlwaysOn",
+        "DialogueFCClinic_IntroPost", "City_GG_Bet_SupportQuest", "CF_Main", "DialogueKaiser", "DialogueFCClinic",
+        "UC08_SupportQuest", "DialogueRedDevilsHQ", "CFSD01", "Dialogue1OfAKindUC07", "DialogueUCNewAtlantis_Argos",
+        "City_Neon_Gang_Dialogue", "DialogueTrackersAllianceAgents", "DialogueFCAkilaCity",
+        "DialogueFCNeonEstablishingScene", "DialogueFCNeon", "City_Neon_Chem_Shared", "DialogueNewHomestead",
+        "DialogueFreestarRangers", "DialogueCydonia", "DialogueUCInfinityLTD", "DialogueUCFactionCydonia",
+        "DialogueParadiso", "DialogueGagarin_UC_GG", "DialogueUCNewAtlantis_LandryHollifeld", "DialogueFCRyujinTower",
+        "DialogueECSConstant", "DialogueGenericHouseVaruun", "DialogueEleosRetreat", "DialogueSeokguhSyndicate",
+        "DialogueCrucible", "DialogueUCTheLodge", "Settlement_Convo_NA", "DialogueUCNewAtlantis_NadiaMuffaz",
+        "UC05_EmbassySupportQuest", "DialogueUCTheDen", "DialogueHopeTown", "RI_Support",
+        "UC02_PerrysMeatsSupportQuest", "DialogueRedMile", "DialogueUCFactionNewAtlantis",
+        "DialogueWaggonerFarm_IntroScene", "DialogueWaggonerFarm", "DialogueNeonConvo_SecurityCheckpoint_Controller",
+        "City_NA_GuardPointer_Well", "City_NA_GuardPointer_Botany", "City_NA_GuardPointer_Viewport",
+        "City_NA_GuardPointer_NA02", "DialogueFCNeon_PlayerHomeQuest", "City_AC_FAB_Quest05", "City_AC_FAB_Quest03",
+        "City_AC_FAB_Quest01", "City_AC_FAB_Quest02", "City_AC_FAB_Quest04", "City_AC_FAB_Quest06",
+        "City_AC_FAB_Quest11", "City_AC_FAB_Quest09", "City_AC_FAB_Quest07", "City_AC_FAB_Quest08",
+        "City_AC_FAB_Quest10", "City_AC_FAB_Quest12", "City_AC_FAB_Quest16", "City_AC_FAB_Quest14",
+        "City_AC_FAB_Quest13", "City_AC_FAB_Quest15", "City_AC_FAB_Quest17", "City_AC_FAB_Quest19" };
+    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray();
     // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no
     // record) is 0, Oxygen reads 0 and the dial is red; 0002E2 +100 by ModValue or console modav clears it (PC, 15 Nov,
     // verified at 8c655d22 and f96cd32f; the script resolves the id as an ActorValue). So with the reset the quest adds
@@ -1047,6 +1074,87 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x296006), rel) { EditorID = "AudioLogsQuest_CT" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x131E6F), rel) { EditorID = "SQ_ENV_Tutorial" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1ED71C), rel) { EditorID = "OutpostTutorial" });
+        // S13 row 5's third group (city and faction dialogue), at their real ids
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x00DBE9), rel) { EditorID = "City_AkilaLife07" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x00E6B8), rel) { EditorID = "DialogueConstellation" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x012F85), rel) { EditorID = "DialogueCrimsonFleet" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x013497), rel) { EditorID = "DialogueUCNewAtlantis" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0271D8), rel) { EditorID = "DialogueHopetown_Shared" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x05512A), rel) { EditorID = "CityNewAtlantisTransitControl" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x05EA5B), rel) { EditorID = "DialogueTheFirstNPCs" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x061754), rel) { EditorID = "DialogueUCNewAtlantisSecurity" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x07031D), rel) { EditorID = "City_NA_Viewport_Base" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0EE9FD), rel) { EditorID = "CF_Unique" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0FC83A), rel) { EditorID = "UC03_DeepMinesSupportQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x10E8EA), rel) { EditorID = "DialogueUCNewAtlantis_Shared" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x143472), rel) { EditorID = "CF_Post" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x14618F), rel) { EditorID = "DialogueUCFactionAlwaysOn" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x14A876), rel) { EditorID = "DialogueFCClinic_IntroPost" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x14EAE4), rel) { EditorID = "City_GG_Bet_SupportQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x178B1E), rel) { EditorID = "CF_Main" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1C12BB), rel) { EditorID = "DialogueKaiser" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1C2C97), rel) { EditorID = "DialogueFCClinic" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1C54EA), rel) { EditorID = "UC08_SupportQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1E7A0B), rel) { EditorID = "DialogueRedDevilsHQ" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1E8E2A), rel) { EditorID = "CFSD01" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20B923), rel) { EditorID = "Dialogue1OfAKindUC07" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20C59E), rel) { EditorID = "DialogueUCNewAtlantis_Argos" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2111FE), rel) { EditorID = "City_Neon_Gang_Dialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x216D3C), rel) { EditorID = "DialogueTrackersAllianceAgents" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x22342E), rel) { EditorID = "DialogueFCAkilaCity" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x22DAD5), rel) { EditorID = "DialogueFCNeonEstablishingScene" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x22DAD6), rel) { EditorID = "DialogueFCNeon" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x235BC7), rel) { EditorID = "City_Neon_Chem_Shared" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x240431), rel) { EditorID = "DialogueNewHomestead" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x247D20), rel) { EditorID = "DialogueFreestarRangers" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x24AFED), rel) { EditorID = "DialogueCydonia" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x251581), rel) { EditorID = "DialogueUCInfinityLTD" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x25D3DB), rel) { EditorID = "DialogueUCFactionCydonia" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x263194), rel) { EditorID = "DialogueParadiso" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x265062), rel) { EditorID = "DialogueGagarin_UC_GG" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26EE1B), rel) { EditorID = "DialogueUCNewAtlantis_LandryHollifeld" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26F911), rel) { EditorID = "DialogueFCRyujinTower" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2741B1), rel) { EditorID = "DialogueECSConstant" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x27AE98), rel) { EditorID = "DialogueGenericHouseVaruun" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x28B932), rel) { EditorID = "DialogueEleosRetreat" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2927FA), rel) { EditorID = "DialogueSeokguhSyndicate" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2955D8), rel) { EditorID = "DialogueCrucible" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2956BB), rel) { EditorID = "DialogueUCTheLodge" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x297E37), rel) { EditorID = "Settlement_Convo_NA" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x29D67A), rel) { EditorID = "DialogueUCNewAtlantis_NadiaMuffaz" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A0E95), rel) { EditorID = "UC05_EmbassySupportQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A1049), rel) { EditorID = "DialogueUCTheDen" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A823E), rel) { EditorID = "DialogueHopeTown" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A8318), rel) { EditorID = "RI_Support" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2B180A), rel) { EditorID = "UC02_PerrysMeatsSupportQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2B2C2B), rel) { EditorID = "DialogueRedMile" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2C5402), rel) { EditorID = "DialogueUCFactionNewAtlantis" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2CC108), rel) { EditorID = "DialogueWaggonerFarm_IntroScene" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2CC109), rel) { EditorID = "DialogueWaggonerFarm" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x34D426), rel) { EditorID = "DialogueNeonConvo_SecurityCheckpoint_Controller" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x352CB8), rel) { EditorID = "City_NA_GuardPointer_Well" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x352CB9), rel) { EditorID = "City_NA_GuardPointer_Botany" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x352CBA), rel) { EditorID = "City_NA_GuardPointer_Viewport" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x352CBB), rel) { EditorID = "City_NA_GuardPointer_NA02" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x370965), rel) { EditorID = "DialogueFCNeon_PlayerHomeQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E3C), rel) { EditorID = "City_AC_FAB_Quest05" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E3D), rel) { EditorID = "City_AC_FAB_Quest03" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E3E), rel) { EditorID = "City_AC_FAB_Quest01" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E3F), rel) { EditorID = "City_AC_FAB_Quest02" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E40), rel) { EditorID = "City_AC_FAB_Quest04" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x376E41), rel) { EditorID = "City_AC_FAB_Quest06" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D4), rel) { EditorID = "City_AC_FAB_Quest11" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D5), rel) { EditorID = "City_AC_FAB_Quest09" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D6), rel) { EditorID = "City_AC_FAB_Quest07" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D7), rel) { EditorID = "City_AC_FAB_Quest08" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D8), rel) { EditorID = "City_AC_FAB_Quest10" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37A1D9), rel) { EditorID = "City_AC_FAB_Quest12" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5A8), rel) { EditorID = "City_AC_FAB_Quest16" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5A9), rel) { EditorID = "City_AC_FAB_Quest14" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5AA), rel) { EditorID = "City_AC_FAB_Quest13" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5AB), rel) { EditorID = "City_AC_FAB_Quest15" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5AC), rel) { EditorID = "City_AC_FAB_Quest17" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x38430B), rel) { EditorID = "City_AC_FAB_Quest19" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -1143,7 +1251,7 @@ static class NewGame
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         // S13 row 2b: Starfield's environment quest is held off by default, and the reset brings the O2 capacity
-        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
+        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
         if (!DefaultHold.Contains("SQ_ENV") || !DefaultO2Fill || !plain.O2 || Options.From(new[] { "--no-o2-fill" }).O2 ||
             Options.From(new[] { "--keep-inventory" }).O2) { Console.WriteLine("FAIL  the environment options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
@@ -1188,6 +1296,7 @@ static class NewGame
             ("noo2", idsPath, plain with { O2Fill = false }),
             ("nocompanions", idsPath, plain with { Hold = HoldCore }),
             ("noaudio", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }),
+            ("nocity", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -1235,6 +1344,8 @@ static class NewGame
             ("default", plain with { Hold = HoldCore }, idsPath, "the default hold list as one without the companion group"),
             ("noaudio", plain, idsPath, "a hold list without the audio-log and tutorial group as the default one"),
             ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }, idsPath, "the default hold list as one without the audio-log and tutorial group"),
+            ("nocity", plain, idsPath, "a hold list without the city and faction group as the default one"),
+            ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() }, idsPath, "the default hold list as one without the city and faction group"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1266,6 +1377,7 @@ static class NewGame
             ("the DebugAfterHold property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugAfterHold")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the hold list lost DialogueCydonia", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + HoldAudioTutorials.Length + Array.IndexOf(HoldCityFaction, "DialogueCydonia"))),
             ("the hold list lost OutpostTutorial", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + Array.IndexOf(HoldAudioTutorials, "OutpostTutorial"))),
             ("the hold list lost SQ_Companions", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + Array.IndexOf(HoldCompanions, "SQ_Companions"))),
             ("the hold list lost SQ_ENV", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(4)),
