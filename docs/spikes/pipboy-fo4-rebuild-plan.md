@@ -1127,7 +1127,9 @@ the late `InvalidateData` and the crash**. That weakens S3 as the next step.
 **R3, the read (Claude PC, 15 Nov ~17:05Z, the two S1-c2 dumps; card `pc-card-r3` on FAL-852): the load-path lead.**
 - The crashing job thread's stack holds one file name, `Condition_Head.swf`, the STAT page's ConditionBoy clip. Beside
   it is a loader message, cut off in memory: `Error reading Components/Conditi…`. The request was the relative
-  `Components/ConditionClips/Condition_Head.swf`; the opener resolved it under `Interface\Components\ConditionClips\`.
+  `Components/ConditionClips/Condition_Head.swf`. That the opener resolved it under `Interface\Components\ConditionClips\`
+  is the PC's reading of the stack memory, not a shown fact: the error line is cut off at `Conditi…`, so the root the
+  opener used is not shown (Gemini's review of #764).
 - `fonts_en` is not on that stack. No thread was in a file read or open. Frames 00–0f are 16 different functions, not a
   recursion.
 - The fault is the same in both dumps, and the same as L1's by its kept text. L1's own dumps were deleted before R3, so
@@ -1139,14 +1141,19 @@ the late `InvalidateData` and the crash**. That weakens S3 as the next step.
 **S1-c3, the slice: the STAT page's components staged (an installer change, FAL-852).** `pipboy_probe_install.py
 install` takes `--component-movie <path>` with a page: it packs `Interface/<path>.swf` from the stage, where `<path>` is
 `Components/` then one to three names of letters, digits and `_` joined by `/`. Each is named once, must read back as a
-SWF, and is the player's own file, never in Git. The plugin is unchanged since `7b1d29aa`, so the PC's S1-c2 dll is
-the one to run.
+SWF, and is the player's own file, never in Git. The installer also refuses a component that Starfield's own
+Interface archive (`Data\*Interface*.ba2`, read by name only) already holds, since ours would shadow it, and it refuses
+when no such archive reads (Gemini's review of #764). A component under a folder with a space or a hyphen would need
+the path rule widened first. The plugin is unchanged since `7b1d29aa`, so the PC's S1-c2 dll is the one to run.
 
 **S1-c3, the card (Claude PC; one launch, under a fresh owner release; the dll of `7b1d29aa`, the installer at this
 commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the test save, outdoors, no save.
 0. **Read first (no launch):** list the entries under `interface/components/` in Fallout 4's Interface archive (names
-   only). Post the ConditionClips names, their count, and the other folders there. Check Starfield's Interface archive
-   for each of those paths. **A path Starfield also has is a STOP**: our archive would shadow Starfield's file.
+   only), from the repo root:
+   `python -c "import sys; sys.path.insert(0, 'src'); from fo4sf.ba2 import Ba2; print('\n'.join(n for n in Ba2(sys.argv[1]).names if n.lower().replace(chr(92), '/').startswith('interface/components/')))" <Fallout 4 Interface archive>`.
+   Post the ConditionClips names, their count, and the other folders there. Run the same line on Starfield's
+   Interface archive. **A path Starfield also has is a STOP**: our archive would shadow Starfield's file. Step 2's
+   installer refuses such a path too.
 1. **Stage:** S1-c2's stage, plus every `interface/components/conditionclips/*.swf` from the player's own Fallout 4
    archive, copied to `Data/Interface/Components/ConditionClips/` in the stage.
 2. **Install:** S1-c2's install line plus one `--component-movie Components/ConditionClips/<name>` for each (no `.swf`).
@@ -1156,14 +1163,73 @@ commit).** The same setup as S1-c2: the owner's F10 kit out with hashes, the tes
 
 **PASS S1-c3:** S1-c2's PASS lines: no crash after `code_obj_late_call`, STAT's body drawn, and E turning to INV.
 
-What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):
+What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964, and Gemini's of #764):
 - **A crash with another file name or another `Error reading` path on the stack:** a lead that this file is missing
   too. Before it is staged, a read like R3 must show the failed path itself (the full `Error reading` line or the
   path the opener was asked for) and that the kit does not install it.
+- **The same crash with the same `Error reading Components/Conditi…` on the stack again:** the clips were staged, so
+  either the opener looks under another root or does not read our archive. Next: a read that shows the full requested
+  and resolved path (the whole `Error reading` line, or the path the opener was asked for) before any further staging.
+  Not a launch.
 - **The same crash with no `Error reading` on the stack:** not yet proof that the ConditionClips were not the cause
   (the message may simply not be in captured memory). Next: a read that confirms whether the component loads failed or
   succeeded (the dump's call list and the path in flight), before the lead is dropped or another staging is chosen.
   Not a launch.
+- **No crash and no page body:** as S1-c2's outcome of that name.
+- **A body, but E does not turn it:** as S1-c2's outcome of that name.
+
+**S1-c4, the slice: the shell's SPECIAL list made safe before `InvalidateData` (plugin code, FAL-1025).** Gemini (PC) read
+Fallout 4's Pip-Boy movies (the PC's private report `gemini-pipboy-data-contract`, §4 to §6), and the Claude PC checked
+the main claim in the decompiled AS3: the shell's `DataObj` constructor pushes 7 empty objects into its SPECIAL list,
+`onPageLoadComplete` calls `InvalidateData`, the change event reaches all three STAT tabs (the hidden SPECIAL tab too),
+that tab takes `DataObj.SPECIALList`, and `SPECIALListEntry.SetEntryText` calls `value.toString()` on each entry: AS3
+TypeError #1010 on `{}`, with no try/catch in the dispatch. Fallout 4's engine fills the list first; our stand-in only
+logs `PopulatePipboyInfoObj`. `CodeObjSpecial=fill` (README, after `CodeObjLateCalls=`) empties
+`Menu_mc.DataObj.SPECIALList` right before each `InvalidateData` the plugin calls and pushes 7 placeholder entries
+`{text, value, modifier, description}`; `clear` leaves it empty. The same report says the MAP page calls
+`codeObj.RefreshMapMarkers` and `codeObj.CheckHardcoreModeFastTravel` directly (#1006 when missing): the card lists both
+in `CodeObjNames=`. No new Address Library id. **A caution, a reading:** in Scaleform an uncaught AS3 error normally
+stops the script, not the process, while S1-c2 and L1 crashed natively on a job thread. So this is a lead for the crash,
+and certainly a fix for the STAT page's script; the run says which. Not in this slice (REPORT §4.3, each for its own
+page): DATA's `SetPlatform`, INV's `SlotResists[0..8]`, RADIO's non-empty list, and the ConditionBoy loads' missing
+`IO_ERROR` handler (S1-c3 stages those files).
+
+**S1-c4, the card (Claude PC; one launch, under a fresh owner release; the dll built at this commit).** One change from
+the last run: the setup of S1-c3's run if it has run (its components installed), else S1-c2's; say which. The owner's F10
+kit out with hashes, the test save, outdoors, no save.
+1. **Build** the plugin at this commit with `build.ps1`. A build error is a **STOP**: send it. Keep the last dll and ini
+   aside as the rollback.
+2. **Install:** the last run's install line, unchanged. Then the new dll.
+3. **The ini:** the last run's (S1-c2's: `Flags=0`, `Pause=0`, `Arm=0`, `Key=0x76`, `CodeObjAt=Menu_mc`, `CodeObjPages=1`,
+   S1-c's `ShellKeys`, `CodeObjCalls=Menu_mc.onCodeObjCreate`, `CodeObjLateCalls=Menu_mc.InvalidateData`), with:
+   - `CodeObjSpecial=fill`
+   - `CodeObjNames=PopulatePipboyInfoObj,onNewPage,onNewTab,PlaySound,ShowPerksMenu,onBackButtonHandled,onPerksTabOpen,onPerksTabClose,RefreshMapMarkers,CheckHardcoreModeFastTravel`
+4. **Run:** F7 to open STAT, with shots at about 1, 3 and 6 s. Wait 10 s. Then E four times, a second apart (INV, DATA,
+   MAP, RADIO), with a shot of each, and Q four times back to STAT. F7 to close, F7 to open once more, F7 to close. Quit
+   to desktop through the menu.
+5. **Send:** every line from `step=toggle` on, especially `code_obj_special_ini`, `code_obj_special`,
+   `code_obj_late_call`, `code_call`, `shell_key`, `code_answer` and `state`; any `refuse` line; the shots described
+   (a page body or not, which page); crash or not, with the exception's module and the crashing thread's file names (as
+   R3) if it crashed. The owner's visual test with the recorder is their own lane, after this card.
+
+**PASS S1-c4:**
+- at load, `step=code_obj_special_ini mode=fill list=Menu_mc.DataObj.SPECIALList`;
+- `code_obj_special n=1 when=late mode=fill found=1 ... cleared_by=splice pushed=7 length=#7` (or `cleared_by=length`),
+  then `code_obj_late_call n=1 name=Menu_mc.InvalidateData found=1 called=1`, and no crash in the 10 s after it;
+- STAT's page body inside the tab bar and footer (the movie's own placeholders or zeros);
+- on each E and Q, a `code_obj_special ... when=answer` line before its `code_answer ... invalidated=1`, and that page's
+  body; MAP opens with no crash.
+
+What each other outcome points to (leads, not causes):
+- **`found=0`, or `cleared_by=none`:** the list was not reached, so the run says nothing about it. Next: ini only,
+  `CodeObjProbe=Menu_mc.DataObj,Menu_mc.DataObj.SPECIALList,Menu_mc.DataObj._SPECIALList` to show where it is.
+- **`pushed=` below 7 with `length=#0`:** the fill failed and the list was left empty, which is `clear`'s case; the
+  outcome is read as that.
+- **The same crash at L1's fault site after a good `code_obj_special` line:** the SPECIAL list is not the native crash's
+  cause (its script fix stays). The ConditionClips lead (S1-c3) and the dump's call list come next, as S1-c3's
+  outcomes say.
+- **No crash on STAT, a crash on another page:** send the `code_call` lines before it and the page; REPORT §4.3 names
+  that page's trap, which is that page's own slice.
 - **No crash and no page body:** as S1-c2's outcome of that name.
 - **A body, but E does not turn it:** as S1-c2's outcome of that name.
 
@@ -1297,3 +1363,7 @@ delivery.
 13. Done since (15 Nov 17:05Z): R2 ("anything else") and R3 (the load-path lead: `Error reading
    Components/ConditionClips/…` on the crashing stack). Now: S1-c3 (the installer's `--component-movie` at this commit;
    its card above, one launch under a fresh owner release), then the pause, then the arm with B1.
+14. Next with it (16 Nov, FAL-1025): S1-c4 (`CodeObjSpecial=` at this commit, and the MAP page's two names; its card
+   above). It needs a review (the Scribe or the Courier Copy), a carry, then the PC's build and one launch under the
+   owner's release. Each of S1-c3 and S1-c4 changes one thing from the run before it. Then the owner's visual test with
+   the recorder (their lane), and Gemini's item 20 names the first page to fill with real data (REPORT §5).

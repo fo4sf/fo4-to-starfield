@@ -163,6 +163,9 @@ namespace
 	constexpr std::size_t   kMaxShellKeys = 8;               // FAL-614 S1-c: ShellKeys=, keys that call a shell path
 	constexpr std::uint32_t kMaxAnswers = 512;               // FAL-614 S1-c: page and tab answers per movie
 	constexpr std::int64_t  kMaxAnswerIndex = 63;            // the highest page or tab index answered
+	constexpr std::uint32_t kMaxSpecialLines = 16;           // FAL-1025: step=code_obj_special lines logged
+	constexpr std::array<const char*, 7> kSpecialNames{ "STRENGTH", "PERCEPTION", "ENDURANCE", "CHARISMA", "INTELLIGENCE",
+		"AGILITY", "LUCK" };                                     // FAL-1025: CodeObjSpecial=fill's entries, in DataObj's order
 	constexpr std::uint32_t kMaxCodeObjTries = 40;           // tries per movie (load, show, then one per kUpdate)
 	constexpr std::uint32_t kLoggedCodeObjTries = 5;
 	constexpr std::size_t   kMaxSoundBytes = 32u << 20;      // FAL-614 proof 1d: one converted sound file, at most
@@ -484,6 +487,14 @@ namespace
 	std::atomic<const void*>                 g_lateCallsMovie{ nullptr };   // the movie they were called on
 	std::string                              g_codeObjAt;               // FAL-614 S1-c: CodeObjAt=<path>, the stand-in also as <path>.BGSCodeObj
 	bool                                     g_codeObjPages = false;    // FAL-614 S1-c: CodeObjPages=1, onNewPage and onNewTab answered
+	enum : int
+	{
+		kSpecialOff,
+		kSpecialFill,
+		kSpecialClear
+	};
+	int                                      g_codeObjSpecial = kSpecialOff;   // FAL-1025: CodeObjSpecial=fill or clear
+	std::atomic<std::uint32_t>               g_specialLines{ 0 };
 	struct ShellKey   // FAL-614 S1-c: ShellKeys=<key>:<path>,...
 	{
 		std::uint32_t vk = 0;
@@ -3727,6 +3738,56 @@ namespace
 		return a_found && owner.Invoke(name.c_str(), &result, a_args, a_count);
 	}
 
+	// FAL-1025: a path whose last member is InvalidateData, the call that loads a page and dispatches the change event
+	bool IsInvalidate(const std::string& a_path)
+	{
+		const auto last = a_path.rfind('.');
+		return (last == std::string::npos ? a_path : a_path.substr(last + 1)) == "InvalidateData";
+	}
+
+	// FAL-1025 (CodeObjSpecial=fill or clear, with CodeObjAt=): Gemini's PC read of Fallout 4's movies (REPORT 4 to 6),
+	// checked in the decompiled AS3: PipboyMenu's DataObj starts SPECIALList as 7 empty objects, the STAT page's hidden
+	// SPECIAL tab takes that list on each change event InvalidateData dispatches, and SPECIALListEntry.SetEntryText calls
+	// value.toString() on each entry: an AS3 TypeError (#1010) inside the dispatch, which has no try/catch. Fallout 4's
+	// engine fills the list first (PopulatePipboyInfoObj); our stand-in only logs. So right before each InvalidateData the
+	// plugin calls, <CodeObjAt>.DataObj.SPECIALList is emptied (splice(0), else length = 0) and, with fill, given 7
+	// entries {text, value, modifier, description}: the attribute's name, 1, 0 and "" (placeholders, not the player's).
+	// Only the root's CreateObject (a virtual) and Value's GetMember, SetMember and Invoke: no new Address Library id
+	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when)
+	{
+		if (g_codeObjSpecial == kSpecialOff || !a_root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value list;
+		RE::Scaleform::GFx::Value result;
+		const bool                found = ReadPath(a_top, g_codeObjAt + ".DataObj.SPECIALList", list);
+		const RE::Scaleform::GFx::Value start(std::uint32_t{ 0 });
+		std::string_view          by = "none";
+		if (found && list.IsArray()) {
+			if (list.Invoke("splice", &result, &start, 1)) {
+				by = "splice";
+			} else if (list.SetMember("length", start)) {
+				by = "length";
+			}
+		}
+		std::size_t pushed = 0;
+		for (std::size_t i = 0; by != "none" && g_codeObjSpecial == kSpecialFill && i < kSpecialNames.size(); ++i) {
+			RE::Scaleform::GFx::Value entry;
+			a_root->CreateObject(&entry);
+			const bool made = entry.IsObject() && entry.SetMember("text", RE::Scaleform::GFx::Value(kSpecialNames[i])) &&
+			                  entry.SetMember("value", RE::Scaleform::GFx::Value(std::uint32_t{ 1 })) &&
+			                  entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 })) &&
+			                  entry.SetMember("description", RE::Scaleform::GFx::Value(""));
+			pushed += made && list.Invoke("push", &result, &entry, 1) ? 1 : 0;
+		}
+		RE::Scaleform::GFx::Value length;
+		const auto now = found && list.IsArray() && list.GetMember("length", &length) ? ArgText(length) : std::string("none");
+		if (const auto n = ++g_specialLines; n <= kMaxSpecialLines) {
+			REX::INFO("step=code_obj_special n={} when={} mode={} found={} type={} cleared_by={} pushed={} length={}", n, a_when, g_codeObjSpecial == kSpecialFill ? "fill" : "clear", found ? 1 : 0,
+				found ? TypeCode(list) : -1, by, pushed, now);
+		}
+	}
+
 	bool CodeObjInstall(const void* a_menu, const char* a_when)
 	{
 		const void* const movie = MovieOf(a_menu);
@@ -3817,6 +3878,9 @@ namespace
 			} else {
 				read = ReadPath(top, g_rootCallNames[i].substr(0, last), owner) && ReadPath(owner, name, function);
 			}
+			if (IsInvalidate(g_rootCallNames[i])) {
+				SpecialReady(root, top, "calls");   // FAL-1025
+			}
 			const bool found = read && function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure;
 			const bool called = found && owner.Invoke(name.c_str(), &result, nullptr, 0);
 			REX::INFO("step=code_obj_root_call n={} name={} found={} type={} called={} result_type={}", i + 1, g_rootCallNames[i],
@@ -3885,6 +3949,9 @@ namespace
 		// about 750 ms after the show (stage b sends no periodic one)
 		if (g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie) {
 			for (std::size_t i = 0; i < g_lateCallCount; ++i) {
+				if (IsInvalidate(g_lateCallNames[i])) {
+					SpecialReady(root, top, "late");   // FAL-1025
+				}
 				bool       found = false;
 				const bool called = CallPath(top, g_lateCallNames[i], nullptr, 0, found);
 				REX::INFO("step=code_obj_late_call n={} name={} found={} called={}", i + 1, g_lateCallNames[i], found ? 1 : 0,
@@ -3923,6 +3990,9 @@ namespace
 		};
 		const auto pageNow = read("CurrentPage");
 		const auto tabNow = read("CurrentTab");
+		if (gotData) {
+			SpecialReady(root, top, "answer");   // FAL-1025
+		}
 		bool       found = false;
 		const bool invalidated = gotData && CallPath(top, g_codeObjAt + ".InvalidateData", nullptr, 0, found);
 		REX::INFO("step=code_answer n={} page={} tab={} data={} page_set={} tab_set={} page_now={} tab_now={} "
@@ -5244,6 +5314,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_codeObjPages = ReadNumber(ini, L"CodeObjPages", 0) != 0;   // S1-c: with CodeObjAt= only
 	const auto shellKeys = ReadText(ini, L"ShellKeys");   // S1-c: with CodeObj=1 only
 	const auto lateCalls = ReadText(ini, L"CodeObjLateCalls");   // FAL-852: with CodeObj=1 only
+	const auto special = ReadText(ini, L"CodeObjSpecial");   // FAL-1025: with CodeObjAt= only
 	// FAL-414: up to four keyboard ids that close the menu while it is open (0 = unused)
 	g_cancelCodes = { ReadNumber(ini, L"CancelCode1", 0x1B), ReadNumber(ini, L"CancelCode2", 0x09), ReadNumber(ini, L"CancelCode3", 0),
 		ReadNumber(ini, L"CancelCode4", 0) };
@@ -5330,6 +5401,16 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (g_codeObjPages && (g_codeObjAt.empty() || !named("onNewPage") || !named("onNewTab"))) {
 		Refuse("ini", "code_obj_pages=1 (with CodeObjAt= and onNewPage and onNewTab in CodeObjNames only)");
 		return true;
+	}
+	// FAL-1025: CodeObjSpecial=fill or clear (with CodeObjAt= only), <CodeObjAt>.DataObj.SPECIALList made safe before each
+	// InvalidateData the plugin calls (SpecialReady)
+	if (!special.empty()) {
+		if ((special != "fill" && special != "clear") || g_codeObjAt.empty()) {
+			Refuse("ini", std::format("code_obj_special={} (fill or clear, with CodeObjAt= only)", special));
+			return true;
+		}
+		g_codeObjSpecial = special == "fill" ? kSpecialFill : kSpecialClear;
+		REX::INFO("step=code_obj_special_ini mode={} list={}.DataObj.SPECIALList", special, g_codeObjAt);
 	}
 	if (!shellKeys.empty() && !g_codeObj) {
 		Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only)", shellKeys));

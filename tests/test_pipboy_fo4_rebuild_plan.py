@@ -518,11 +518,71 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn('ap.add_argument("--component-movie"', installer)
         # FAL-964: S1-c3's other outcomes are leads; a failed path must be shown before staging or dropping the lead
         outcomes = self.plan[self.plan.index("**PASS S1-c3:**"):self.plan.index("13. Done since (15 Nov 17:05Z)")]
-        self.assertIn("What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964):", outcomes)
+        self.assertIn("What each other outcome points to (leads, not causes; the Lone Wanderer's review, FAL-964, and "
+                      "Gemini's of #764):", outcomes)
+        # Gemini's review of #764: the same error recurring is its own outcome; the resolved root is a reading
+        self.assertIn("**The same crash with the same `Error reading Components/Conditi…` on the stack again:**", outcomes)
+        self.assertIn("is the PC's reading of the stack memory, not a shown fact", self.plan)
+        self.assertNotIn("Condition_Head.swf`; the opener resolved it under", self.plan)
+        self.assertIn("refuses a component that Starfield's own\nInterface archive", self.plan)
+        self.assertIn("def shadow_problems(starfield, components):", installer)
         self.assertIn("must show the failed path itself", outcomes)
         self.assertIn("not yet proof that the ConditionClips were not the cause", outcomes)
         self.assertNotIn("the ConditionClips were not the cause. Next", outcomes)
         self.assertNotIn("the next missing file. Next", outcomes)
+
+    def test_s1c4_special_list_safe_before_invalidate(self):
+        # FAL-1025 (Gemini's PC read): DataObj's SPECIAL list starts as 7 empty objects, and the STAT page's SPECIAL tab
+        # calls value.toString() on each at InvalidateData. CodeObjSpecial= fills or clears it before each of our calls
+        for text in ("**S1-c4, the slice: the shell's SPECIAL list made safe", "**S1-c4, the card (Claude PC;",
+                     "**PASS S1-c4:**", "14. Next with it (16 Nov, FAL-1025)", "**A caution, a reading:**"):
+            self.assertIn(text, self.plan, text)
+        card = self.plan[self.plan.index("**S1-c4, the card"):self.plan.index("**PASS S1-c4:**")]
+        self.assertIn("`CodeObjSpecial=fill`", card)
+        self.assertIn("one launch, under a fresh owner release", card)
+        names = card[card.index("`CodeObjNames=") + 14:]
+        names = names[:names.index("`")].split(",")
+        self.assertLessEqual(len(names), 16)                                # kMaxCodeNames
+        self.assertEqual(len(names), len(set(names)))
+        for name in ("PopulatePipboyInfoObj", "onNewPage", "onNewTab", "RefreshMapMarkers", "CheckHardcoreModeFastTravel"):
+            self.assertIn(name, names)
+        for name in names:
+            self.assertRegex(name, r"^[A-Za-z0-9_]{1,64}$")
+        outcomes = self.plan[self.plan.index("**PASS S1-c4:**"):self.plan.index("**Proof 2, the outline")]
+        self.assertIn("What each other outcome points to (leads, not causes):", outcomes)
+        self.assertIn("cleared_by=splice pushed=7 length=#7", outcomes)
+        # the ini: off as shipped; the plugin: refused without CodeObjAt=, fill or clear only
+        ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+        self.assertRegex(ini, r"\nCodeObjSpecial=\r?\n")
+        self.assertIn('const auto special = ReadText(ini, L"CodeObjSpecial");', self.main)
+        self.assertIn('if ((special != "fill" && special != "clear") || g_codeObjAt.empty()) {', self.main)
+        self.assertIn('Refuse("ini", std::format("code_obj_special={} (fill or clear, with CodeObjAt= only)", special));',
+                      self.main)
+        special = self.main[self.main.index("void SpecialReady("):]
+        special = special[:special.index("\n\t}\n")]
+        self.assertIn('g_codeObjAt + ".DataObj.SPECIALList"', special)
+        self.assertLess(special.index('list.Invoke("splice"'), special.index('list.Invoke("push"'))
+        for member in ('"text"', '"value"', '"modifier"', '"description"'):
+            self.assertIn(member, special, member)
+        self.assertIn("a_root->CreateObject(&entry);", special)
+        self.assertIn('"STRENGTH", "PERCEPTION", "ENDURANCE", "CHARISMA", "INTELLIGENCE",\n\t\t"AGILITY", "LUCK"', self.main)
+        # no new Address Library id: no Value call beyond the checked GetMember, SetMember and Invoke
+        for call in ("SetArraySize", "PushBack", "GetElement", "SetElement", "GetArraySize"):
+            self.assertNotIn(call, self.main, call)
+        # right before each InvalidateData the plugin calls: CodeObjCalls, CodeObjLateCalls, CodeObjPages' answer
+        install = self.main[self.main.index("bool CodeObjInstall("):]
+        install = install[:install.index("\n\t}\n")]
+        self.assertLess(install.index('SpecialReady(root, top, "calls");'),
+                        install.index("owner.Invoke(name.c_str(), &result, nullptr, 0)"))
+        update = self.main[self.main.index("void ShellUpdate("):]
+        update = update[:update.index("\n\t}\n")]
+        self.assertLess(update.index('SpecialReady(root, top, "late");'), update.index("CallPath(top, g_lateCallNames[i]"))
+        self.assertLess(update.index('SpecialReady(root, top, "answer");'),
+                        update.index('CallPath(top, g_codeObjAt + ".InvalidateData"'))
+        readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
+        for text in ("refuse step=ini code_obj_special=", "step=code_obj_special_ini mode= list=",
+                     "step=code_obj_special n= when=<calls|late|answer> mode= found=", "`codeObj.RefreshMapMarkers`"):
+            self.assertIn(text, readme, text)
 
     def test_s1_arm_own_key_raise_pause_lower(self):
         # FAL-852 (the owner's S6 card FAL-843): Fallout 4's screen on its own key, the raise, the pause and the lower
