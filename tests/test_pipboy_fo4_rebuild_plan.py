@@ -577,12 +577,89 @@ class RebuildPlanTests(unittest.TestCase):
         update = self.main[self.main.index("void ShellUpdate("):]
         update = update[:update.index("\n\t}\n")]
         self.assertLess(update.index('SpecialReady(root, top, "late");'), update.index("CallPath(top, g_lateCallNames[i]"))
+        self.assertLess(update.index('SpecialReady(root, top, "keys");'), update.index("CallPath(top, g_shellKeys[i].path"))
         self.assertLess(update.index('SpecialReady(root, top, "answer");'),
                         update.index('CallPath(top, g_codeObjAt + ".InvalidateData"'))
         readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
         for text in ("refuse step=ini code_obj_special=", "step=code_obj_special_ini mode= list=",
-                     "step=code_obj_special n= when=<calls|late|answer> mode= found=", "`codeObj.RefreshMapMarkers`"):
+                     "step=code_obj_special n= when=<calls|late|keys|answer> mode= found=", "`codeObj.RefreshMapMarkers`"):
             self.assertIn(text, readme, text)
+
+    def test_s1c4_slot_guard_shell_keys_and_partial_fill_readback(self):
+        # 1. RootOf checks CreateObject slot 0x2E with InImage before SpecialReady can call a_root->CreateObject
+        self.assertIn("constexpr std::size_t   kCreateObjectSlot = 0x2E;", self.main)
+        root_of = self.main[self.main.index("RE::Scaleform::GFx::ASMovieRootBase* RootOf("):]
+        root_of = root_of[:root_of.index("\n\t}\n")]
+        self.assertIn("!InImage(slot[kCreateObjectSlot], 1)", root_of)
+        self.assertIn("create_object={} create_function={} get_variable={}", root_of)
+        # 2. ShellKeys loop checks IsInvalidate(g_shellKeys[i].path) and calls SpecialReady(root, top, "keys") before CallPath
+        update = self.main[self.main.index("void ShellUpdate("):]
+        update = update[:update.index("\n\t}\n")]
+        keys_loop = update[update.index("for (std::size_t i = 0; i < g_shellKeyCount; ++i)"):update.index("const auto page =")]
+        self.assertIn("if (IsInvalidate(g_shellKeys[i].path)) {\n\t\t\t\tSpecialReady(root, top, \"keys\");", keys_loop)
+        self.assertLess(keys_loop.index('SpecialReady(root, top, "keys");'),
+                        keys_loop.index("CallPath(top, g_shellKeys[i].path"))
+        # 3. Partial fill (0 < pushed < 7) re-clears SPECIALList before length readback
+        special = self.main[self.main.index("void SpecialReady("):]
+        special = special[:special.index("\n\t}\n")]
+        self.assertIn("pushed > 0 && pushed < kSpecialNames.size()", special)
+        self.assertLess(special.index("pushed > 0 && pushed < kSpecialNames.size()"),
+                        special.index('list.GetMember("length", &length)'))
+
+        # Execute the exact SpecialReady clear/fill/rollback/readback contract against a mock AS3 Array + MovieRoot
+        has_rollback = ("if (by != \"none\" && g_codeObjSpecial == kSpecialFill && pushed > 0 && pushed < kSpecialNames.size())"
+                        in special and "by = clearList();" in special)
+        self.assertTrue(has_rollback)
+        names = ("STRENGTH", "PERCEPTION", "ENDURANCE", "CHARISMA", "INTELLIGENCE", "AGILITY", "LUCK")
+
+        def run_special_ready(mode, initial_items=7, fail_create_at=None, fail_push_at=None, splice_ok=True, rollback_splice_ok=True):
+            items = [{} for _ in range(initial_items)]
+            splice_calls = 0
+
+            def clear_list():
+                nonlocal splice_calls
+                splice_calls += 1
+                ok_sp = splice_ok if splice_calls == 1 else rollback_splice_ok
+                if ok_sp:
+                    items.clear()
+                    return "splice"
+                items.clear()
+                return "length"
+
+            by = clear_list()
+            pushed = 0
+            for i, nm in enumerate(names):
+                if by == "none" or mode != "fill":
+                    break
+                made = (fail_create_at != i)
+                entry = {"text": nm, "value": 1, "modifier": 0, "description": ""} if made else None
+                if not made or fail_push_at == i:
+                    break
+                items.append(entry)
+                pushed += 1
+            if by != "none" and mode == "fill" and 0 < pushed < len(names) and has_rollback:
+                by = clear_list()
+            return {"by": by, "pushed": pushed, "length": f"#{len(items)}", "items": list(items)}
+
+        full = run_special_ready("fill")
+        self.assertEqual((full["by"], full["pushed"], full["length"]), ("splice", 7, "#7"))
+        self.assertEqual([e["text"] for e in full["items"]], list(names))
+
+        short_push = run_special_ready("fill", fail_push_at=4)
+        self.assertEqual((short_push["by"], short_push["pushed"], short_push["length"], short_push["items"]),
+                         ("splice", 4, "#0", []))
+
+        short_len_fallback = run_special_ready("fill", fail_create_at=2, rollback_splice_ok=False)
+        self.assertEqual((short_len_fallback["by"], short_len_fallback["pushed"], short_len_fallback["length"], short_len_fallback["items"]),
+                         ("length", 2, "#0", []))
+
+        zero_push = run_special_ready("fill", fail_create_at=0)
+        self.assertEqual((zero_push["by"], zero_push["pushed"], zero_push["length"], zero_push["items"]),
+                         ("splice", 0, "#0", []))
+
+        cleared = run_special_ready("clear")
+        self.assertEqual((cleared["by"], cleared["pushed"], cleared["length"], cleared["items"]),
+                         ("splice", 0, "#0", []))
 
     def test_s1_arm_own_key_raise_pause_lower(self):
         # FAL-852 (the owner's S6 card FAL-843): Fallout 4's screen on its own key, the raise, the pause and the lower
