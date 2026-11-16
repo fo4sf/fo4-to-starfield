@@ -145,6 +145,7 @@ namespace
 	constexpr auto          kFieldName = "fo4sfPosition";    // make_probe_swf.py FIELD_NAME
 	constexpr auto          kButtonName = "fo4sfButton";     // make_probe_swf.py BUTTON_NAME
 	constexpr std::size_t   kMovieRootAt = 0x18;             // GFx::Movie: RefCountBase 0x00, StateBag 0x10, root 0x18
+	constexpr std::size_t   kCreateObjectSlot = 0x2E;        // GFx::ASMovieRootBase::CreateObject (checked InImage in RootOf)
 	constexpr std::size_t   kCreateFunctionSlot = 0x30;      // GFx::ASMovieRootBase (libxse and SFSE 0.2.21 agree)
 	constexpr std::size_t   kGetVariableSlot = 0x32;
 	constexpr std::size_t   kMainPausedAt = 0x448;           // libxse RE::Main::isGameMenuPaused
@@ -910,14 +911,14 @@ namespace
 			}
 			Peek(root, vt);
 			const auto* slot = reinterpret_cast<const std::uintptr_t*>(vt);
-			if (!InImage(vt, (kGetVariableSlot + 1) * 8) || !InImage(slot[kCreateFunctionSlot], 1) || !InImage(slot[kGetVariableSlot], 1)) {
+			if (!InImage(vt, (kGetVariableSlot + 1) * 8) || !InImage(slot[kCreateObjectSlot], 1) || !InImage(slot[kCreateFunctionSlot], 1) || !InImage(slot[kGetVariableSlot], 1)) {
 				g_channelOff = true;
 				Refuse("channel", std::format("what=root_slots root={} vtable={}", Hex(root), Hex(vt)));
 				return nullptr;
 			}
-			REX::INFO("step=movie_root movie={} movie_type={} root={} root_type={} root_offset={} create_function={} get_variable={}",
+			REX::INFO("step=movie_root movie={} movie_type={} root={} root_type={} root_offset={} create_object={} create_function={} get_variable={}",
 				Hex(movie), movieKnown ? movieType.name : "unreadable", Hex(root), rootType.name, Hex(rootType.offset),
-				Hex(slot[kCreateFunctionSlot] - g_base), Hex(slot[kGetVariableSlot] - g_base));
+				Hex(slot[kCreateObjectSlot] - g_base), Hex(slot[kCreateFunctionSlot] - g_base), Hex(slot[kGetVariableSlot] - g_base));
 			g_checkedMovie = MovieOf(a_menu);
 		} else {
 			Peek(movie + kMovieRootAt, root);
@@ -3759,15 +3760,17 @@ namespace
 		RE::Scaleform::GFx::Value result;
 		const bool                found = ReadPath(a_top, g_codeObjAt + ".DataObj.SPECIALList", list);
 		const RE::Scaleform::GFx::Value start(std::uint32_t{ 0 });
-		std::string_view          by = "none";
-		if (found && list.IsArray()) {
+		const auto clearList = [&]() -> std::string_view {
 			if (list.Invoke("splice", &result, &start, 1)) {
-				by = "splice";
-			} else if (list.SetMember("length", start)) {
-				by = "length";
+				return "splice";
 			}
-		}
-		std::size_t pushed = 0;
+			if (list.SetMember("length", start)) {
+				return "length";
+			}
+			return "none";
+		};
+		std::string_view by = found && list.IsArray() ? clearList() : "none";
+		std::size_t      pushed = 0;
 		for (std::size_t i = 0; by != "none" && g_codeObjSpecial == kSpecialFill && i < kSpecialNames.size(); ++i) {
 			RE::Scaleform::GFx::Value entry;
 			a_root->CreateObject(&entry);
@@ -3775,7 +3778,13 @@ namespace
 			                  entry.SetMember("value", RE::Scaleform::GFx::Value(std::uint32_t{ 1 })) &&
 			                  entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 })) &&
 			                  entry.SetMember("description", RE::Scaleform::GFx::Value(""));
-			pushed += made && list.Invoke("push", &result, &entry, 1) ? 1 : 0;
+			if (!made || !list.Invoke("push", &result, &entry, 1)) {
+				break;
+			}
+			++pushed;
+		}
+		if (by != "none" && g_codeObjSpecial == kSpecialFill && pushed > 0 && pushed < kSpecialNames.size()) {
+			by = clearList();   // partial fill rolled back so incomplete entries never reach InvalidateData
 		}
 		RE::Scaleform::GFx::Value length;
 		const auto now = found && list.IsArray() && list.GetMember("length", &length) ? ArgText(length) : std::string("none");
@@ -3959,6 +3968,9 @@ namespace
 		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
 			if (!(keys & (1u << i))) {
 				continue;
+			}
+			if (IsInvalidate(g_shellKeys[i].path)) {
+				SpecialReady(root, top, "keys");   // FAL-1025
 			}
 			bool       found = false;
 			const bool called = CallPath(top, g_shellKeys[i].path, nullptr, 0, found);
