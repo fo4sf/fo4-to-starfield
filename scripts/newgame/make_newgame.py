@@ -584,19 +584,23 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
+    staged_assets = {}
     for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
                                          ("lift", lift, lift_folder, exit_lift_component)):
         if comp:
             if checker(folder, a.port, a.starfield) != comp:
                 sys.exit(f"{label} component changed during the build")
-            for rel in comp["outputs"]:
+            for rel, want in comp["outputs"].items():
                 dest = os.path.join(out, *rel.split("/"))
                 if os.path.exists(dest):
+                    if rel.startswith("Data/") and staged_assets.get(rel) == want and sha256(dest) == want:
+                        continue
                     sys.exit(f"{label} asset collides with staged output: {rel}")
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 shutil.copyfile(os.path.join(folder, *rel.split("/")), dest)
-                if sha256(dest) != comp["outputs"][rel]:
+                if sha256(dest) != want:
                     sys.exit(f"{label} asset changed while copying: {rel}")
+                staged_assets[rel] = want
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
@@ -739,13 +743,19 @@ def fold(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
+    folded_assets = {}
     for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
-        for rel in outputs:
+        for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
-            if os.path.exists(dst):
+            if os.path.exists(os.path.join(a.core_dir, *rel.split("/"))):
                 sys.exit(f"fold refused: core set already has {label} asset {rel} (attempt kept in {out})")
+            if os.path.exists(dst):
+                if rel.startswith("Data/") and folded_assets.get(rel) == want and sha256(dst) == want:
+                    continue
+                sys.exit(f"fold refused: {label} asset {rel} collides with differing staged asset (attempt kept in {out})")
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
+            folded_assets[rel] = want
     for s in plan["scripts"]:
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
         if os.path.exists(dst):

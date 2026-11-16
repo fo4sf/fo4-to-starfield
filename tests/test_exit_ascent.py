@@ -116,7 +116,7 @@ class AscentExecutionTests(unittest.TestCase):
         self.ns = dict(ridingLift=None, ridingCell=None, rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
                        rideActive=False, rideDone=False, rideTransferred=False, exitFailed=False, asked=False,
                        PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
-                       LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, VaultPlugin='FO4Port.esm',
+                       LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25, VaultPlugin='FO4Port.esm',
                        Game=SimpleNamespace(GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else self.base,
                                             GetPlayer=lambda: self.player),
                        Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
@@ -249,18 +249,32 @@ class AscentExecutionTests(unittest.TestCase):
 
 
 def lift_animation():
-    return dict(idles='toggle', rest_after='stage2', moving_bodies=12, clips=[
-        dict(name='StateA_Play', seconds=9.8667, motion=[dict(bone='b_Platform', travel_m=[0, 0, 21.6], rotation_deg=0)]),
-        dict(name='StateB_Play', seconds=23.8333, motion=[dict(bone='b_Platform', travel_m=[0, 0, -21.6], rotation_deg=0)]),
-        dict(name='StateA_Idle', hold_of='StateB_Play', hold_frame='last'),
-        dict(name='StateB_Idle', hold_of='StateA_Play', hold_frame='last')])
+    carried = [dict(bone=bone, node=i) for i, (bone, n) in enumerate(mac.LIFT_CARRIED_BY_BONE.items()) for _ in range(n)]
+    return dict(
+        idles='toggle',
+        rest_after='stage2',
+        moving_bodies=mac.LIFT_MOVING_BODIES,
+        fo4_collision=dict(carried=True, box_fallback_bones=[], carried_bodies=carried),
+        clips=[
+            dict(name='StateA_Play', seconds=9.8667, motion=[dict(bone='b_Platform', travel_m=[0, 0, 21.6], rotation_deg=0)]),
+            dict(name='StateB_Play', seconds=23.8333, motion=[dict(bone='b_Platform', travel_m=[0, 0, -21.6], rotation_deg=0)]),
+            dict(name='StateA_Idle', hold_of='StateB_Play', hold_frame='last'),
+            dict(name='StateB_Idle', hold_of='StateA_Play', hold_frame='last'),
+        ],
+    )
 
 
 class ProductionRecipeTests(unittest.TestCase):
     def test_known_recipe_and_rejected_drift(self):
+        self.assertEqual(mac.LIFT_MOVING_BODIES, 37)
         a = lift_animation()
         mac.validate_lift_animation(a)
-        for mutate in (lambda a: a.update(rest_after='stage3'), lambda a: a.update(moving_bodies=0),
+        for mutate in (lambda a: a.update(rest_after='stage3'),
+                       lambda a: a.update(moving_bodies=0),
+                       lambda a: a.update(moving_bodies=12),
+                       lambda a: a.update(moving_bodies=45),
+                       lambda a: a['fo4_collision'].update(box_fallback_bones=['b_Platform']),
+                       lambda a: a['fo4_collision']['carried_bodies'].pop(),
                        lambda a: a['clips'][0].update(seconds=20), lambda a: a['clips'][0].update(slowed=True),
                        lambda a: a['clips'][0]['motion'][0].update(travel_m=[0, 0, -21.6]),
                        lambda a: a['clips'][0]['motion'][0].update(rotation_deg=2),
@@ -348,24 +362,38 @@ class ProductionRecipeTests(unittest.TestCase):
         stage = Path(fixture.stage)
         lift_asset = stage / 'Data/meshes/lift.nif'
         cog_asset = stage / 'Data/meshes/cog.nif'
+        shared_mat = stage / 'Data/materials/fo4port/v111trim01.mat'
         lift_asset.parent.mkdir(parents=True)
+        shared_mat.parent.mkdir(parents=True)
         lift_asset.write_bytes(b'liftmodel')
         cog_asset.write_bytes(b'cogmodel')
+        shared_mat.write_bytes(b'sharedmat')
         (stage / mac.LIFT_PLUGIN).write_bytes(b'liftplugin')
         (stage / mcd.COG_PLUGIN).write_bytes(b'cogplugin')
         plan_path = stage / 'plan.json'
         plan = json.loads(plan_path.read_text())
         plan['cog_door'] = {'plugins': [mcd.COG_PLUGIN], 'outputs': {
-            mcd.COG_PLUGIN: ng.sha256(stage / mcd.COG_PLUGIN), 'Data/meshes/cog.nif': ng.sha256(cog_asset)}}
+            mcd.COG_PLUGIN: ng.sha256(stage / mcd.COG_PLUGIN),
+            'Data/meshes/cog.nif': ng.sha256(cog_asset),
+            'Data/materials/fo4port/v111trim01.mat': ng.sha256(shared_mat)}}
         plan['exit_lift'] = {'plugins': [mac.LIFT_PLUGIN], 'outputs': {
-            mac.LIFT_PLUGIN: ng.sha256(stage / mac.LIFT_PLUGIN), 'Data/meshes/lift.nif': ng.sha256(lift_asset)}}
+            mac.LIFT_PLUGIN: ng.sha256(stage / mac.LIFT_PLUGIN),
+            'Data/meshes/lift.nif': ng.sha256(lift_asset),
+            'Data/materials/fo4port/v111trim01.mat': ng.sha256(shared_mat)}}
         plan_path.write_text(json.dumps(plan))
         out = Path(fixture.tmp) / 'folded'
         self.assertEqual(fixture.fold(str(out), port=fixture.port), 0)
         self.assertEqual((out / 'Data/meshes/lift.nif').read_bytes(), b'liftmodel')
         self.assertEqual((out / 'Data/meshes/cog.nif').read_bytes(), b'cogmodel')
+        self.assertEqual((out / 'Data/materials/fo4port/v111trim01.mat').read_bytes(), b'sharedmat')
         self.assertIn('FO4TerrainCore.esm,Mars.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm',
                       (out / 'README.txt').read_text())
+        # Conflicting shared material hash between cog and lift must refuse fold
+        bad_plan = copy.deepcopy(plan)
+        bad_plan['exit_lift']['outputs']['Data/materials/fo4port/v111trim01.mat'] = '0' * 64
+        plan_path.write_text(json.dumps(bad_plan))
+        with self.assertRaises(SystemExit): fixture.fold(str(Path(fixture.tmp) / 'bad_shared'), port=fixture.port)
+        plan_path.write_text(json.dumps(plan))
         (out / 'Data/meshes/lift.nif').write_bytes(b'changed')
         self.assertTrue(any('exit lift' in x for x in ng.verify_dir(str(out), plan, fixture.port)))
         collision = Path(fixture.core_dir) / 'Data/meshes/lift.nif'

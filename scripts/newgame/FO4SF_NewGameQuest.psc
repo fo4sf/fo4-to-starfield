@@ -139,8 +139,10 @@ int Property LiftBaseId = 0 Auto Const
  earlier exit. Requires the separately staged production floor-start model, never the animation probe quest.}
 float Property LiftRise = 21.6 Auto Const
 float Property LiftSeconds = 9.8667 Auto Const
-{Measured floor-to-top platform rise (-1.72 to 19.88 m) and stage3 duration. The production recipe puts stage3 in slot A,
- stage2 in slot B, floor pose with open gates in StateA_Idle, and top pose in StateB_Idle.}
+float Property LiftDoneMargin = 0.25 Auto Const
+{Measured floor-to-top platform rise (-1.72 to 19.88 m), stage3 duration (9.8667 s), and Done-event arrival margin
+ (0.25 s, ~7.5 frames at 30 Hz, covering the observed 9.794 s Done timestamp vs 9.8667 s clip duration while rejecting
+ the 0.068 s stale Done from an earlier clip).}
 
 string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
 int Property ExitAnchorId Auto Const Mandatory
@@ -700,8 +702,8 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
     endif
     float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
     ; Prior probe heard a stale Done at 0.068 s from an earlier clip as well as 9.794 s for up. A bare Done is not an end.
-    ; One second allows the reported 9.794 s event against a 9.8667 s asset; physical ascent remains mandatory.
-    if elapsed >= LiftSeconds - 1.0
+    ; LiftDoneMargin (0.25 s) covers the measured 0.073 s delta (9.794 s vs 9.8667 s); physical ascent remains mandatory.
+    if elapsed >= LiftSeconds - LiftDoneMargin
         rideDone = true
         Trace("ascent done elapsed=" + elapsed + " ref=" + akSource)
     else

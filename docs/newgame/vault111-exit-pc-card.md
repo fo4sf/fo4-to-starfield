@@ -7,8 +7,9 @@ Enable leaving Vault 111 end-to-end in a real New Game on `main` (both **Create 
 1. **Walkable pod start (`--pod-step -2.5` default):** `dotnet/NewGame` (`DefaultPodStep = -2.5f`) and `make_newgame.py` (`DEFAULT_POD_STEP = -2.5`) place the player 2.5 m along `-Y` in front of `MQPlayerCryopodREF` (`0004A011`) at `(9.143, -6.614, -1.029)` m (`PodLift = 0.3` -> settle drop `~0.12 m`), avoiding the rear wall pocket behind `+1.0 m` and the canopy collision at `-1.0 m`. Pod rotation and `PodHeading = 0` are unchanged (the player turns around after stepping out).
 2. **Production gear door and catwalk (`FO4SFVaultGearDoor.esm`):** `make_cog_door.py stage --production-cog` packages the seam-repaired animated gear door override (`DOOR 0x00DEF9` on `REFR 00126D`, `_anim` asset path) without `FO4SF_CogDoorQuest` or probe scripts. `InVault` advances `stage 20 -> 30` whether the player presses `E` directly on the gear door (`openState` `1` or `2`) or stands at the console (`ConsoleX/Y/Z`).
 3. **Floor-waiting, open-gate carrying lift (`FO4SFExitLift.esm`) and platform-only prompt:**
-   - `make_anim_console.py stage --production-lift` builds `FO4SFExitLift.esm` (`stage3=StateA_Play,stage2=StateB_Play`, `toggle`, `--rest-after stage2`, 12 moving collision bodies, zero probe quest/PEX). `StateA_Idle` holds the final frame of `stage2`: `b_Platform` rests at the bottom of the shaft (`-139.1` FO4 units) while `b_Gate01` (`+175.0`), `b_Gate02` (`+93.6`), and their moving collision bodies (`c_Gate01B`, `c_Gate02B`) wait **OPEN** overhead.
-   - Choosing **Ride up** plays `Play01` (`StateA_Play` = `stage3`, `9.8667 s`), which **closes the gates during the first ~1.2 s of the ride** and carries the player `+21.6 m` up the shaft (`-1.72 m -> +19.88 m`).
+   - `make_anim_console.py stage --production-lift` builds `FO4SFExitLift.esm` (`stage3=StateA_Play,stage2=StateB_Play`, `toggle`, `--rest-after stage2`, `37` moving collision bodies, zero probe quest/PEX). `StateA_Idle` holds the final frame of `stage2`: `b_Platform` rests at the bottom of the shaft (`-139.1` FO4 units) while `b_Gate01` (`+175.0`), `b_Gate02` (`+93.6`), and their moving collision bodies (`c_Gate01B`, `c_Gate02B`) wait **OPEN** overhead.
+   - **Measured `moving_bodies = 37` provenance (`12` vs `45` vs `37`):** The earlier `12` figure came from pre-`fo4_door_bodies` commit `5e8da96a` (one bounding box per moving geometry bone across `12` bones). Once `fo4_door_bodies` (`convert_static.py`) carried `VltElevator.nif`'s Havok `bhkPhysicsSystem` (`block 715`, `17` `bhkNPCollisionObject` attachments), `door_collision.plan` previously treated `anim_object.fill_static_tracks`'s `"static": True` root track on stationary `VltElevator` as animated, leaking `8` stationary shaft-collar frame bodies (`c_ShaftCollision01..08`, `body_id 0..7`) into `moving_bodies` (`37 + 8 = 45`). Filtering `if not track.get("static")` in `door_collision.py` leaves the exact `37` genuinely moving FO4 convex hull parts: `25` on `b_Platform` (`Cylinder001 (190 Radius)`, `body_id 10`), `3` on `b_Gate01` (`c_Gate01B`, `body_id 11`), `3` on `b_Gate02` (`c_Gate02B`, `body_id 12`), `1` on `b_Hatch Left` (`body_id 13`), `1` on `b_Hatch Right` (`body_id 14`), `2` on `b_CounterWeight` (`c_Weight` + `c_Cable`, `body_id 15..16`), `1` on `c_ExteriorLightR` (`body_id 8`), and `1` on `c_ExteriorLightL` (`body_id 9`).
+   - Choosing **Ride up** plays `Play01` (`StateA_Play` = `stage3`, `9.8667 s`), which **closes the gates during the first ~1.2 s of the ride** and carries the player `+21.6 m` up the shaft (`-1.72 m -> +19.88 m`). `LiftDoneMargin = 0.25` s (`~7.5` frames at `30 Hz`) accepts the observed `9.794 s` `Done` timestamp (`>= 9.6167 s`) while rejecting the stale `0.068 s` `Done` from an earlier clip.
    - `Points` resolves `PlatformX/Y/Z` from `RespecMoveMarker` (`0001B29E`, `(-77.742, -3.958, -1.751)` m on the center of `b_Platform`) rather than `V111ElevatorREF`'s NIF origin (`000244EB`, `(-70.392, -2.742, -0.114)` m out on the catwalk approach), with `PlatformRadius = 2.0` m and `stage >= 30` required. The prompt therefore fires **only inside the lift cage**, never at the console (`-53.7 m`) or catwalk (`-70.4 m`).
 4. **Core-cell surface arrival and post-arrival discovery:** `FinishSurface` applies `SetPosition` onto the merged exterior arrival `(-2467.78, -1406.92, 128.11)` **before** checking that `GetParentCell()` belongs to `FO4TerrainCore.esm`, then confirms landing and requests Vault 111 discovery (`SetMarkerDiscovered`) on the exterior surface after the load.
 
@@ -31,7 +32,7 @@ Enable leaving Vault 111 end-to-end in a real New Game on `main` (both **Create 
 | **Starfield load elevators** (`LoadElevatorManagerScript`, `CityNAMASTElevatorActivatorScript`) | Separate inner/outer door `ACTI`s + cab shell; no full-shaft travel needed across interior/exterior load boundaries. | Close cab doors before transfer; open outer doors after destination load. | Panel button inside the cab triggers door close -> `MoveTo` / load door -> arrival door open. |
 | **Fort Hagen interior 2-stop lift** (`00134462` `ElevatorMasterScript` + `00134467` `platformhelperfree01`) | Multi-record linked-ref kit: controller `ACTI` (`00134462`), helper platform (`00134467`), call buttons, and upper/lower doors, plus `XESP` enable-parent planks (`0013A357`). | Separate `DOOR` records opened/closed by controller script; currently blocked in `FO4Port.esm` when controller/helper refs and `XESP` scripts are absent. | Call button / cab panel activator scripts linked to the master controller. |
 | **Fort Hagen load elevators** (`0016850D` Command Center, `0016852C` Roof, `LoadElevatorDoorUtility`) | Paired load-door elevator cabs plus scripted roof security gate (`000BF414`). | Utility script opens cab door on cell entry and closes on exit; roof gate (`000BF414`) requires script/SetOpen. | Autoload / activator door inside the cab after the outer door opens. |
-| **Vault 111 exit (`FO4SFExitLift.esm` + `FO4SF_NewGameQuest`)** | Hybrid: real `21.6 m` animated shaft inside `Vault111Cryo` (`VltElevator.nif` on `000244EB`, 12 moving collision bodies) + cross-world transfer at shaft top (`+19.88 m`, matching `0001F180` at `+22.34 m`). | Self-contained in `VltElevator.nif`: `StateA_Idle` (`stage2` end) holds `b_Gate01`/`b_Gate02` open; `Play01` (`stage3`) closes gates in `~1.2 s` before lifting. | Stand check on `RespecMoveMarker` (`0001B29E`, `2.0 m` radius) inside the cage -> `Play01` carries rider `+21.6 m` -> `Surface` / `FinishSurface` / `CheckLanding`. |
+| **Vault 111 exit (`FO4SFExitLift.esm` + `FO4SF_NewGameQuest`)** | Hybrid: real `21.6 m` animated shaft inside `Vault111Cryo` (`VltElevator.nif` on `000244EB`, `37` moving collision hulls across `8` animated bones) + cross-world transfer at shaft top (`+19.88 m`, matching `0001F180` at `+22.34 m`). | Self-contained in `VltElevator.nif`: `StateA_Idle` (`stage2` end) holds `b_Gate01`/`b_Gate02` open; `Play01` (`stage3`) closes gates in `~1.2 s` before lifting. | Stand check on `RespecMoveMarker` (`0001B29E`, `2.0 m` radius) inside the cage -> `Play01` carries rider `+21.6 m` -> `Surface` / `FinishSurface` / `CheckLanding`. |
 
 ---
 
@@ -50,7 +51,8 @@ python scripts/newgame/make_cog_door.py stage `
   --fo4-data <FO4_DATA> `
   --door-anim-dll <CALUMI_DLL> `
   --collision-template <COLLISION_NIF> `
-  --texconv <TEXCONV>
+  --texconv <TEXCONV> `
+  --content-resources <CONTENT_ZIP>
 ```
 
 Expected output: `FO4SFVaultGearDoor.esm`, converted `_anim` mesh/rig/clips/geometries/materials, `offline_check.txt` (`all checks pass`), `plan.json` (`kind = "cog-door-production"`), and **no** `Data/Scripts/*.pex`.
@@ -70,10 +72,11 @@ python scripts/newgame/make_anim_console.py stage `
   --fo4-data <FO4_DATA> `
   --door-anim-dll <CALUMI_DLL> `
   --collision-template <COLLISION_NIF> `
-  --texconv <TEXCONV>
+  --texconv <TEXCONV> `
+  --content-resources <CONTENT_ZIP>
 ```
 
-Expected output: `FO4SFExitLift.esm`, converted `_anim` mesh/rig/clips (`12` moving bodies, `StateA_Idle` = `stage2` end pose, `StateA_Play` = `9.8667 s` `+21.6 m`), `offline_check.txt` (`all checks pass`), `plan.json` (`kind = "exit-lift"`), and **no** `Data/Scripts/*.pex`.
+Expected output: `FO4SFExitLift.esm`, converted `_anim` mesh/rig/clips (`37` moving bodies: `25` `b_Platform` + `3` `b_Gate01` + `3` `b_Gate02` + `6` hatch/counterweight/light hulls, `StateA_Idle` = `stage2` end pose, `StateA_Play` = `9.8667 s` `+21.6 m`), `offline_check.txt` (`all checks pass`), `plan.json` (`kind = "exit-lift"`), and **no** `Data/Scripts/*.pex`.
 
 ### Step 3 — Stage `FO4SFNewGame.esm` (with `--cog-door` + `--exit-lift`; `--pod-step -2.5` is automatic)
 
@@ -139,6 +142,6 @@ Run **two** fresh **New Game** sessions from the main menu with **no console com
 - `stages` contains `[10, 20, 30, 40, 200]`.
 - `pod_settle` shows `ok=true` near `(9.143, -6.614, -0.85.. -0.90)` (`drop ~0.12 m`), and the player walks cleanly to the door and lift with zero `tcl`.
 - Zero `elevator prompt` lines while `pos` is near console `(-53.7, -3.7)` or catwalk `(-70.4, -2.7)`; `elevator prompt button=0` occurs only near `(-77.7, -4.0, -1.7)`.
-- `ascent` contains `play accepted=True`, `done elapsed=...` (`>= 8.8667 s`), and `carried confirmed elapsed=... z=19.8...`.
+- `ascent` contains `play accepted=True`, `done elapsed=...` (`>= 9.6167 s` from `LiftSeconds - LiftDoneMargin`), and `carried confirmed elapsed=... z=19.8...`.
 - `surfaced` shows `surface setposition ok=True set=1 pos=... target=... core_cell=True cell=Cell <Surface (03......)> world=WorldSpace <MarsPlanetWorld... (FF......)>`.
 - `arrival_discovery_requested` is non-null (`ref=...0A775B...`), `landed` is `true`, and `stage 200` is reached.

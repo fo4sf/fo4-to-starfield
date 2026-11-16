@@ -403,10 +403,37 @@ Session card: docs/research/anim-console-probe.md. THROWAWAY STATE ONLY, NO SAVE
     return 0
 
 
+# Measured moving Havok convex hull parts carried from VltElevator.nif (bhkPhysicsSystem block 715) once
+# door_collision.plan ignores fill_static_tracks's static placeholder tracks (which otherwise misclassify the 8
+# stationary root shaft-collar bodies c_ShaftCollision01..08 as moving, yielding 37 + 8 = 45). The earlier 12 figure
+# came from pre-fo4_door_bodies commit 5e8da96a (one bounding box per moving geometry bone across 12 bones).
+LIFT_CARRIED_BY_BONE = {
+    "b_Platform": 25,
+    "b_Gate01": 3,
+    "b_Gate02": 3,
+    "b_Hatch Left": 1,
+    "b_Hatch Right": 1,
+    "b_CounterWeight": 2,
+    "c_ExteriorLightL": 1,
+    "c_ExteriorLightR": 1,
+}
+LIFT_MOVING_BODIES = sum(LIFT_CARRIED_BY_BONE.values())  # 37
+
+
 def validate_lift_animation(anim):
-    """Refuse a different recipe before it can be paired with the controller's measured rise/length contract."""
-    if anim.get("idles") != "toggle" or anim.get("rest_after") != "stage2" or anim.get("moving_bodies") != 12:
-        sys.exit("production lift lacks the floor idle or moving collision")
+    """Refuse a different recipe before it can be paired with the controller's measured rise/length/collision contract."""
+    if (anim.get("idles") != "toggle" or anim.get("rest_after") != "stage2"
+            or anim.get("moving_bodies") != LIFT_MOVING_BODIES):
+        sys.exit(f"production lift lacks the floor idle or moving collision "
+                 f"(idles={anim.get('idles')!r}, rest_after={anim.get('rest_after')!r}, "
+                 f"moving_bodies={anim.get('moving_bodies')!r}, expected {LIFT_MOVING_BODIES})")
+    fc = anim.get("fo4_collision")
+    if fc is not None:
+        counts = {}
+        for item in fc.get("carried_bodies") or ():
+            counts[item.get("bone")] = counts.get(item.get("bone"), 0) + 1
+        if not fc.get("carried") or fc.get("box_fallback_bones") or counts != LIFT_CARRIED_BY_BONE:
+            sys.exit(f"production lift carried collision differs from VltElevator's measured moving hulls: {counts}")
     clips = {c["name"]: c for c in anim["clips"]}
     if len(clips) != len(anim["clips"]) or set(clips) != {"StateA_Play", "StateB_Play", "StateA_Idle", "StateB_Idle"}:
         sys.exit("production lift needs exactly the four two-state clips")
