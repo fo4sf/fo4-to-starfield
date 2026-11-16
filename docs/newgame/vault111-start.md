@@ -464,6 +464,26 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
 - **How, the way back:** the same hold-off; `--hold` without them.
 - **Unverified until the PC run:** that all 14 stop and stay stopped, and that nothing above "breaks".
 
+## 4g. Starfield's city and faction quests held off (S13 row 5, the third group)
+
+- **Why:** the owner's order (FAL-883 comment 0637137d): after audio logs and tutorials, city and faction dialogue.
+- **What:** `HoldCityFaction` (Program.cs; `HOLD_CITY_FACTION` in make_newgame.py) joins the default hold list after the
+  audio logs: the 80 running quests of `result-pc-read-s13-5-partb` that serve one Starfield city, settlement or
+  faction: the `City_*` quests (New Atlantis, Akila, Neon, Gagarin, the 18 `City_AC_FAB_Quest*`),
+  `CityNewAtlantisTransitControl`, `CF_*` and `CFSD01` (Crimson Fleet), the UC support quests, `RI_Support`,
+  `Settlement_Convo_NA`, and the `Dialogue*` quests named for a city, settlement or faction. With their ids: `City_AkilaLife07` 00DBE9, `DialogueConstellation` 00E6B8, `DialogueCrimsonFleet` 012F85, `DialogueUCNewAtlantis` 013497, `DialogueHopetown_Shared` 0271D8, `CityNewAtlantisTransitControl` 05512A, `DialogueTheFirstNPCs` 05EA5B, `DialogueUCNewAtlantisSecurity` 061754, `City_NA_Viewport_Base` 07031D, `CF_Unique` 0EE9FD, `UC03_DeepMinesSupportQuest` 0FC83A, `DialogueUCNewAtlantis_Shared` 10E8EA, `CF_Post` 143472, `DialogueUCFactionAlwaysOn` 14618F, `DialogueFCClinic_IntroPost` 14A876, `City_GG_Bet_SupportQuest` 14EAE4, `CF_Main` 178B1E, `DialogueKaiser` 1C12BB, `DialogueFCClinic` 1C2C97, `UC08_SupportQuest` 1C54EA, `DialogueRedDevilsHQ` 1E7A0B, `CFSD01` 1E8E2A, `Dialogue1OfAKindUC07` 20B923, `DialogueUCNewAtlantis_Argos` 20C59E, `City_Neon_Gang_Dialogue` 2111FE, `DialogueTrackersAllianceAgents` 216D3C, `DialogueFCAkilaCity` 22342E, `DialogueFCNeonEstablishingScene` 22DAD5, `DialogueFCNeon` 22DAD6, `City_Neon_Chem_Shared` 235BC7, `DialogueNewHomestead` 240431, `DialogueFreestarRangers` 247D20, `DialogueCydonia` 24AFED, `DialogueUCInfinityLTD` 251581, `DialogueUCFactionCydonia` 25D3DB, `DialogueParadiso` 263194, `DialogueGagarin_UC_GG` 265062, `DialogueUCNewAtlantis_LandryHollifeld` 26EE1B, `DialogueFCRyujinTower` 26F911, `DialogueECSConstant` 2741B1, `DialogueGenericHouseVaruun` 27AE98, `DialogueEleosRetreat` 28B932, `DialogueSeokguhSyndicate` 2927FA, `DialogueCrucible` 2955D8, `DialogueUCTheLodge` 2956BB, `Settlement_Convo_NA` 297E37, `DialogueUCNewAtlantis_NadiaMuffaz` 29D67A, `UC05_EmbassySupportQuest` 2A0E95, `DialogueUCTheDen` 2A1049, `DialogueHopeTown` 2A823E, `RI_Support` 2A8318, `UC02_PerrysMeatsSupportQuest` 2B180A, `DialogueRedMile` 2B2C2B, `DialogueUCFactionNewAtlantis` 2C5402, `DialogueWaggonerFarm_IntroScene` 2CC108, `DialogueWaggonerFarm` 2CC109, `DialogueNeonConvo_SecurityCheckpoint_Controller` 34D426, `City_NA_GuardPointer_Well` 352CB8, `City_NA_GuardPointer_Botany` 352CB9, `City_NA_GuardPointer_Viewport` 352CBA, `City_NA_GuardPointer_NA02` 352CBB, `DialogueFCNeon_PlayerHomeQuest` 370965, `City_AC_FAB_Quest05` 376E3C, `City_AC_FAB_Quest03` 376E3D, `City_AC_FAB_Quest01` 376E3E, `City_AC_FAB_Quest02` 376E3F, `City_AC_FAB_Quest04` 376E40, `City_AC_FAB_Quest06` 376E41, `City_AC_FAB_Quest11` 37A1D4, `City_AC_FAB_Quest09` 37A1D5, `City_AC_FAB_Quest07` 37A1D6, `City_AC_FAB_Quest08` 37A1D7, `City_AC_FAB_Quest10` 37A1D8, `City_AC_FAB_Quest12` 37A1D9, `City_AC_FAB_Quest16` 37C5A8, `City_AC_FAB_Quest14` 37C5A9, `City_AC_FAB_Quest13` 37C5AA, `City_AC_FAB_Quest15` 37C5AB, `City_AC_FAB_Quest17` 37C5AC, `City_AC_FAB_Quest19` 38430B.
+- **Not in it** (later groups): the generic dialogue (`DialogueGeneric*` except House Varuun's, `DialogueCrowds`,
+  `DialogueGenericPlayer`, the vendor, crime, creature, robot and Starborn dialogue, `DialogueStarstations`,
+  `DialogueSettleBartenderRumors`), the ship dialogue (`Dialogue*Ships`, `DialogueShipServices`: the ships group), the
+  main-quest `MQ*_AlwaysOn` quests, and the rest of the running list.
+- **The boundary (section 4e):** none of them is follower, crew or group plumbing.
+- **The HoldOff doc comment** names the row 5 groups by their writer lists instead of every EditorID, to stay under the
+  3,072-byte doc-comment limit (tests/test_papyrus_strings.py).
+- **How, the way back:** the same hold-off; `--hold` without them. The writer refuses a Starfield.esm without one of
+  them, so the PC stage catches a wrong EditorID.
+- **Unverified until the PC run:** that all 80 stop and stay stopped, and that nothing "breaks" (section 4f). Dialogue
+  matters most here: the PC run talks to an NPC.
+
 ## 5. What Vault 111 needs from the port today
 
 | Piece | State | Source |
@@ -494,7 +514,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f, and the city and faction group, section 4g), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`

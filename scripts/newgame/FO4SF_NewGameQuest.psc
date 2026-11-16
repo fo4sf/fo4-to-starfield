@@ -80,15 +80,9 @@ int Property DebugAfterHold = 2 Auto Const
 
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
- MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts; SQ_ENV, S13 row 2b; and S13
- row 5's companion group: COM_Companion_SarahMorgan, COM_Companion_SarahMorgan_SpeechChallenges, COM_Companion_Shared_Sarah,
- Com_Companion_Barrett, COM_Companion_Barrett_SpeechChallenges, COM_Companion_Shared_Barrett, COM_Companion_Andreja,
- COM_Companion_Andreja_SpeechChallenges, COM_Companion_Shared_Andreja, COM_Companion_SamCoe,
- COM_Companion_SamCoe_SpeechChallenges, COM_Companion_SamCoe_Cora, COM_Companion_Shared_SamCoe,
- COM_System_PlayerSharedLines, SQ_Companions, SQ_Crew, CREW_EliteCrew_Heller, CREW_GenericCrew; and row 5's audio-log
- and tutorial group: AudioLogsQuest, AudioLogsQuest_KT, AudioLogsQuest_RQ, AudioLogsQuest_LVC, AudioLogsQuest_PS,
- AudioLogsQuest_JM, AudioLogsQuest_OB, AudioLogsQuest_BB, AudioLogsQuest_FAB, AudioLogsQuest_AN, AudioLogsQuest_WJS,
- AudioLogsQuest_CT, SQ_ENV_Tutorial, OutpostTutorial). Walked twice: in the start,
+ MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts; SQ_ENV, S13 row 2b; then
+ S13 row 5's groups, the writer's HoldCompanions, HoldAudioTutorials and HoldCityFaction lists, named with their ids
+ in docs/newgame/vault111-start.md sections 4e to 4g). Walked twice: in the start,
  right after the move, and again once the vault has loaded, for a quest that started meanwhile (MQ00 is start-game
  enabled, and whether it starts before our start is unverified) and for what MQ101's stage 9000 starts if something had
  started MQ101. Each is stopped only if it runs; each stop is logged with its pass.}
