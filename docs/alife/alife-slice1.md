@@ -132,7 +132,8 @@ User log `FO4SF_ALife` (`Logs/Script/User/FO4SF_ALife.0.log`), one line per even
 ## PC card B: rung 1b, offline (only after card A passed)
 
 1. Same install as card A (still installed, or reinstall the same folded dir: `verify` first).
-2. **Load the save made after card A's PASS.** **Reload the pre-run save before any retry.**
+2. **Load the save made after card A's PASS.** **Reload the card A PASS save before any card B retry** (never the pre-Rung-1a
+   save, which has `rung1aPassed == false` and triggers `rung1b_refused reason=rung1a_not_passed`).
 3. **Move the player far away (more than 1,000 m from Red Rocket):** **never use `player.setpos` for a jump over 200 m**
    (in Starfield, `setpos` over 200 m throws the player kilometres away). Safe methods: either enter a distant interior
    cell via `coc FO4Port_Vault111Cryo` (its coordinates are ~2,687 m from merged Red Rocket `(-2191.1, -1555.0)` and

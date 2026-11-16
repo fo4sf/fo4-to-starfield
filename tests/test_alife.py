@@ -138,10 +138,14 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(doc.isascii(), "alife-slice1.md must stay pure ASCII (no mojibake arrows)")
         self.assertIn("450 m / 620 m", doc)
         self.assertIn("not implemented in slice 1", doc)
+        self.assertIn("rung 3", doc.lower())
         self.assertIn("coc FO4Core_RedRocketSpawn", doc)
         self.assertIn("never use `player.setpos` for a jump over 200 m", doc)
         self.assertIn("--file", doc)
-        self.assertGreaterEqual(doc.lower().count("reload the pre-run save before any retry"), 2)
+        card_a, card_b = doc.split("## PC card B", 1)
+        self.assertIn("reload the pre-run save before any retry", card_a.lower())
+        self.assertIn("reload the card a pass save before any card b retry", card_b.lower())
+        self.assertNotIn("reload the pre-run save before any retry", card_b.lower())
 
     def test_walk_is_the_linked_ref_alone(self):
         psc = read(PSC)
