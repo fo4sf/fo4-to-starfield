@@ -19,7 +19,7 @@ def sprite_ids(movie):
     return [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SPRITE and t.get("id")]
 
 
-def host_shaped_movie():
+def host_shaped_movie(root_show_frame=True):
     """Plain root, Menu_mc child sprite that places DialogueList_mc. No game bytes."""
     W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
     box = (0, 0, 40 * swf.TWIPS, 20 * swf.TWIPS)
@@ -29,9 +29,23 @@ def host_shaped_movie():
     places = [swf.place_named(1, i + 1, name) for i, name in enumerate(host.HOST_CHILDREN)]
     body += swf.define_sprite(2, places)
     body += swf.place_named(2, 1, host.HOST_ROOT)
-    body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+    if root_show_frame:
+        body += swf.tag(swf.SHOW_FRAME)
+    body += swf.tag(swf.END)
     length = 8 + len(body)
     return b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", length) + zlib.compress(body, 9)
+
+
+def slots_bind_movie():
+    W, H = 100 * swf.TWIPS, 100 * swf.TWIPS
+    box = (0, 0, 10 * swf.TWIPS, 10 * swf.TWIPS)
+    body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+    body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+    body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+    body += swf.tag(overlay.DOABC, b"\x01\x00\x00\x00fake")
+    body += overlay._write_symbol_class([(1, overlay.BIND_CLASS)])
+    body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+    return b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
 
 
 class OverlayPlanTest(unittest.TestCase):
@@ -78,15 +92,7 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_bind_slots_abc_symbolclass_unnamed_container(self):
-        W, H = 100 * swf.TWIPS, 100 * swf.TWIPS
-        box = (0, 0, 10 * swf.TWIPS, 10 * swf.TWIPS)
-        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
-        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
-        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
-        body += swf.tag(overlay.DOABC, b"\x01\x00\x00\x00fake")
-        body += overlay._write_symbol_class([(1, overlay.BIND_CLASS)])
-        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
-        slots = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        slots = slots_bind_movie()
         patched = overlay.bind_slots_abc(overlay.overlay_inject(host_shaped_movie()), slots)
         blob = zlib.decompress(patched[8:])
         r = swf.BitReader(blob)
@@ -107,15 +113,7 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertIsNone(overlay.refuse_own_replacement(patched))
 
     def test_bind_slots_abc_refuses_no_end(self):
-        W, H = 100 * swf.TWIPS, 100 * swf.TWIPS
-        box = (0, 0, 10 * swf.TWIPS, 10 * swf.TWIPS)
-        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
-        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
-        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
-        body += swf.tag(overlay.DOABC, b"\x01\x00\x00\x00fake")
-        body += overlay._write_symbol_class([(1, overlay.BIND_CLASS)])
-        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
-        slots = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        slots = slots_bind_movie()
         injected = overlay.overlay_inject(host_shaped_movie())
         hbody, hpos, _ = overlay._swf_body(injected)
         tags = [(c, d) for c, d in overlay._raw_tags(hbody, hpos) if c != swf.END]
@@ -123,6 +121,12 @@ class OverlayPlanTest(unittest.TestCase):
         no_end = b"CWS" + bytes([injected[3]]) + struct.pack("<I", 8 + len(raw_body)) + zlib.compress(raw_body, 9)
         with self.assertRaisesRegex(overlay.OverlayError, "End"):
             overlay.bind_slots_abc(no_end, slots)
+
+    def test_bind_slots_abc_refuses_no_root_showframe(self):
+        slots = slots_bind_movie()
+        injected = overlay.overlay_inject(host_shaped_movie(root_show_frame=False))
+        with self.assertRaisesRegex(overlay.OverlayError, "ShowFrame"):
+            overlay.bind_slots_abc(injected, slots)
 
     def test_bind_slots_abc_refuses_host_movie(self):
         with self.assertRaisesRegex(overlay.OverlayError, "must not be a host"):

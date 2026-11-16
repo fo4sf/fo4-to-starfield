@@ -388,12 +388,14 @@ def bind_slots_abc(host_bytes, slots_bytes):
     for c, d in htags:
         if c == SYMBOL_CLASS:
             continue
-        if c in (swf.SHOW_FRAME, swf.END) and not abc_put:
+        if c == swf.SHOW_FRAME and not abc_put:
             out.extend(abc)
             out.append(_write_symbol_class(existing_sc))
             abc_put = True
         if c == swf.END:
             saw_end = True
+            if not abc_put:
+                raise OverlayError("host movie has no ShowFrame")
         out.append(swf.tag(c, d))
     if not saw_end:
         raise OverlayError("host movie has no End tag")

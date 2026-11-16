@@ -3091,3 +3091,8 @@ the unnamed container. Compiled SWF is not in Git. Native/game NOT_RUN.
 
 bind_slots_abc writes DoABC and SymbolClass before the root ShowFrame. No End is an error.
 Missing --slots-swf is "not installed". Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1038 FINDING — End is not ShowFrame
+
+A host with End and no root ShowFrame is an error. ABC is not written before End.
+Install of that host with --slots-swf is not installed. Native/game NOT_RUN.

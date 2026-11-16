@@ -20,7 +20,7 @@ import concord_talk_install as cti  # noqa: E402
 import exp_install  # noqa: E402
 import make_concord_talk as mct  # noqa: E402
 import make_dialogue_wheel_swf as wheel  # noqa: E402
-from test_dialogue_menu_overlay import host_shaped_movie  # noqa: E402
+from test_dialogue_menu_overlay import host_shaped_movie, slots_bind_movie  # noqa: E402
 
 PLUGIN = "FO4SFConcordTalk.esm"
 EXP_RECORD = b'{"exp_dir": "C:/stage/core", "files": {}, "complete": true}'
@@ -124,6 +124,16 @@ class ConcordTalkInstallTests(unittest.TestCase):
         code, out = self.run_main("install", "--dir", self.staged, "--host-swf", host_path, "--slots-swf", missing)
         self.assertNotEqual(code, 0)
         self.assertIn("not installed", out)
+
+    def test_install_no_root_showframe_is_not_installed(self):
+        host_path = os.path.join(self.tmp.name, "host.swf")
+        slots_path = os.path.join(self.tmp.name, "slots.swf")
+        write(host_path, host_shaped_movie(root_show_frame=False))
+        write(slots_path, slots_bind_movie())
+        code, out = self.run_main("install", "--dir", self.staged, "--host-swf", host_path, "--slots-swf", slots_path)
+        self.assertNotEqual(code, 0)
+        self.assertIn("not installed", out)
+        self.assertFalse(os.path.exists(os.path.join(self.data, cti.RECORD)))
 
 
 if __name__ == "__main__":
