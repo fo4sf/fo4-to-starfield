@@ -35,6 +35,19 @@ def norm(text):
     return text.replace("\\", "/")
 
 
+class FloorPreflightTests(unittest.TestCase):
+    def test_bad_floor_sequence_or_idle_mode_refuses_before_creating_output(self):
+        from types import SimpleNamespace
+        for sequence, mode in (("missing", "toggle"), ("StateA_Play", "toggle"), ("Stage1", "hold")):
+            with self.subTest(sequence=sequence, mode=mode), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "not-published"
+                args = SimpleNamespace(states="Stage1=StateA_Play,Stage2=StateB_Play", rest_after=sequence, idles=mode, out=str(out))
+                with self.assertRaisesRegex(SystemExit, "--rest-after"):
+                    mac.stage(args)
+                self.assertFalse(out.exists())
+                self.assertEqual(list(Path(tmp).iterdir()), [])
+
+
 class ScriptTests(unittest.TestCase):
     def test_ids_stages_log_and_layout_match_the_tool_and_the_reader(self):
         self.assertTrue(PSC.startswith("Scriptname FO4SF_AnimConsoleQuest extends Quest"))
@@ -311,6 +324,22 @@ class StageTests(unittest.TestCase):
         self.assertIn("the model is not Meshes/other.nif", norm(wrong.stdout))
         backslash = self.run_tool("check", out_dir / PLUGIN, port, sf, "--model", "other\\sub.nif", "--rig", "fo4port\\r\\skeleton.rig", "--anims", "fo4port\\r\\animations")
         self.assertIn("the model is not Meshes/other/sub.nif", norm(backslash.stdout))        # a backslash model compares in the same form
+
+    def test_production_lift_has_no_probe_quest(self):
+        port, sf = self.paths()
+        out = self.root / "production-lift"
+        opts = [*self.margs, "--edid", mac.LIFT_EDID, "--production-lift"]
+        made = self.run_tool("build", port, sf, out, *opts)
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        plugin = out / mac.LIFT_PLUGIN
+        self.assertTrue(plugin.exists())
+        self.assertFalse((out / PLUGIN).exists())
+        self.assertNotIn(b"QUST", plugin.read_bytes())
+        checked = self.run_tool("check", plugin, port, sf, *opts)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        refused = self.run_tool("build", port, sf, self.root / "not-production", *self.margs, "--production-lift")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertFalse((self.root / "not-production").exists())
 
     def test_the_plugin_is_one_override_and_one_quest_raw(self):
         """Raw bytes: ACTI carries the FO4Port load index (1), the quest ours (2); the master list is Starfield.esm, FO4Port.esm."""

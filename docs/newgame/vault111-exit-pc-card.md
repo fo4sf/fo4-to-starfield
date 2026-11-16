@@ -1,0 +1,144 @@
+# Vault 111 Clean Exit PC Card (Main-Based Production Slice)
+
+## Purpose
+
+Enable leaving Vault 111 end-to-end in a real New Game on `main` (both **Create character** and **Quick start**) with **zero console commands and zero `tcl`**:
+
+1. **Walkable pod start (`--pod-step -2.5` default):** `dotnet/NewGame` (`DefaultPodStep = -2.5f`) and `make_newgame.py` (`DEFAULT_POD_STEP = -2.5`) place the player 2.5 m along `-Y` in front of `MQPlayerCryopodREF` (`0004A011`) at `(9.143, -6.614, -1.029)` m (`PodLift = 0.3` -> settle drop `~0.12 m`), avoiding the rear wall pocket behind `+1.0 m` and the canopy collision at `-1.0 m`. Pod rotation and `PodHeading = 0` are unchanged (the player turns around after stepping out).
+2. **Production gear door and catwalk (`FO4SFVaultGearDoor.esm`):** `make_cog_door.py stage --production-cog` packages the seam-repaired animated gear door override (`DOOR 0x00DEF9` on `REFR 00126D`, `_anim` asset path) without `FO4SF_CogDoorQuest` or probe scripts. `InVault` advances `stage 20 -> 30` whether the player presses `E` directly on the gear door (`openState` `1` or `2`) or stands at the console (`ConsoleX/Y/Z`).
+3. **Floor-waiting, open-gate carrying lift (`FO4SFExitLift.esm`) and platform-only prompt:**
+   - `make_anim_console.py stage --production-lift` builds `FO4SFExitLift.esm` (`stage3=StateA_Play,stage2=StateB_Play`, `toggle`, `--rest-after stage2`, 12 moving collision bodies, zero probe quest/PEX). `StateA_Idle` holds the final frame of `stage2`: `b_Platform` rests at the bottom of the shaft (`-139.1` FO4 units) while `b_Gate01` (`+175.0`), `b_Gate02` (`+93.6`), and their moving collision bodies (`c_Gate01B`, `c_Gate02B`) wait **OPEN** overhead.
+   - Choosing **Ride up** plays `Play01` (`StateA_Play` = `stage3`, `9.8667 s`), which **closes the gates during the first ~1.2 s of the ride** and carries the player `+21.6 m` up the shaft (`-1.72 m -> +19.88 m`).
+   - `Points` resolves `PlatformX/Y/Z` from `RespecMoveMarker` (`0001B29E`, `(-77.742, -3.958, -1.751)` m on the center of `b_Platform`) rather than `V111ElevatorREF`'s NIF origin (`000244EB`, `(-70.392, -2.742, -0.114)` m out on the catwalk approach), with `PlatformRadius = 2.0` m and `stage >= 30` required. The prompt therefore fires **only inside the lift cage**, never at the console (`-53.7 m`) or catwalk (`-70.4 m`).
+4. **Core-cell surface arrival and post-arrival discovery:** `FinishSurface` applies `SetPosition` onto the merged exterior arrival `(-2467.78, -1406.92, 128.11)` **before** checking that `GetParentCell()` belongs to `FO4TerrainCore.esm`, then confirms landing and requests Vault 111 discovery (`SetMarkerDiscovered`) on the exterior surface after the load.
+
+---
+
+## Architecture Notes (Prompt Questions 1b & 1c)
+
+### 1. Why `MoveTo` Reached a Procedural `Surface (FF...)` Cell in `MarsPlanetWorld (FF...)`
+
+- **Why the runtime world ID is `MarsPlanetWorld... (FF...)`:** `FO4Core_Commonwealth` (`03000803`) is mounted as a planetary surface overlay world. When Starfield instantiates the planet tile at runtime, it creates a dynamic `WorldSpace` (`MarsPlanetWorld...`, form prefix `0xFF`) and merges `FO4TerrainCore.esm`'s exterior grid cells into that runtime world shifted by `MergeOffset = (-1200.0, -2700.0)` m.
+- **Why `MoveTo(anchor)` landed on bare ground in `Surface (FF...)`:** Persistent references stored in the overlay world's persistent cell (`030A775B` `FO4Core_CommonwealthMapMarkerVault111` at unmerged `(-1275.31, +1305.28, 127.21)` m) are **not** shifted by the grid merge. Calling `player.MoveTo(anchor)` places the player in `MarsPlanetWorld... (FF...)` at unmerged `(-1275.31, +1305.28)` m, `2,954 m` northeast of the merged Commonwealth grid, where Starfield generates a plain procedural planet cell (`Surface FF00A492`).
+- **Why `#796` failed and why `main`'s two-step move works:** `#796` checked `currentCell.GetFormID() / 16777216 == anchor.GetFormID() / 16777216` *before* calling `player.SetPosition`, aborting on tick 1 with `surface_cell_not_core`. Calling `player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)` (`(-2467.78, -1406.92, 128.11)` m) *first* synchronously loads the merged `FO4TerrainCore.esm` exterior cell (`03......`, e.g. `Surface 03000CF0`) inside that same runtime `MarsPlanetWorld... (FF...)`. `FinishSurface` now verifies the `0x03` core cell prefix and 3D coordinates *after* `SetPosition` (with up to `SurfaceTries = 3` ticks if cell streaming takes an extra tick).
+- **Self-contained marker attachment on arrival:** When `FO4SFMapMarkers.esm` is not active in a clean New Game load order, nothing else moves `030A775B` from unmerged `(-1275.31, +1305.28)` to merged `(-2475.31, -1394.72)`. In `RequestArrivalDiscovery`, if `030A775B` is not yet in `arrivalWorld` at `(Fallback + MergeOffset)`, the quest moves it once (`Enable(False)` + `MoveTo(player, ...)` + `SetPosition`), waits for the next loaded tick to confirm world and merged XYZ, and then calls `SetMarkerDiscovered()` once.
+
+### 2. Comparison with Starfield's Elevators and Fort Hagen's Elevators
+
+| System | Mechanism | Doors / Gates | Player Trigger & Transfer |
+| :--- | :--- | :--- | :--- |
+| **Starfield short-rise lifts** (`MovingPlatformMasterScript`, `ElevatorMasterScript`) | Single animated `ACTI` with Havok keyframed collision bodies driven between two graph states via `PlayAnimation`. | Optional paired door refs or animated barrier sub-bones. | Activator / trigger volume mounted on the platform car itself; physics carries the rider. |
+| **Starfield load elevators** (`LoadElevatorManagerScript`, `CityNAMASTElevatorActivatorScript`) | Separate inner/outer door `ACTI`s + cab shell; no full-shaft travel needed across interior/exterior load boundaries. | Close cab doors before transfer; open outer doors after destination load. | Panel button inside the cab triggers door close -> `MoveTo` / load door -> arrival door open. |
+| **Fort Hagen interior 2-stop lift** (`00134462` `ElevatorMasterScript` + `00134467` `platformhelperfree01`) | Multi-record linked-ref kit: controller `ACTI` (`00134462`), helper platform (`00134467`), call buttons, and upper/lower doors, plus `XESP` enable-parent planks (`0013A357`). | Separate `DOOR` records opened/closed by controller script; currently blocked in `FO4Port.esm` when controller/helper refs and `XESP` scripts are absent. | Call button / cab panel activator scripts linked to the master controller. |
+| **Fort Hagen load elevators** (`0016850D` Command Center, `0016852C` Roof, `LoadElevatorDoorUtility`) | Paired load-door elevator cabs plus scripted roof security gate (`000BF414`). | Utility script opens cab door on cell entry and closes on exit; roof gate (`000BF414`) requires script/SetOpen. | Autoload / activator door inside the cab after the outer door opens. |
+| **Vault 111 exit (`FO4SFExitLift.esm` + `FO4SF_NewGameQuest`)** | Hybrid: real `21.6 m` animated shaft inside `Vault111Cryo` (`VltElevator.nif` on `000244EB`, 12 moving collision bodies) + cross-world transfer at shaft top (`+19.88 m`, matching `0001F180` at `+22.34 m`). | Self-contained in `VltElevator.nif`: `StateA_Idle` (`stage2` end) holds `b_Gate01`/`b_Gate02` open; `Play01` (`stage3`) closes gates in `~1.2 s` before lifting. | Stand check on `RespecMoveMarker` (`0001B29E`, `2.0 m` radius) inside the cage -> `Play01` carries rider `+21.6 m` -> `Surface` / `FinishSurface` / `CheckLanding`. |
+
+---
+
+## Exact Build & Stage Commands for Claude (PC)
+
+Run with the game closed in a fresh staging folder, using the repo's standard tool paths (`<SF_DATA>`, `<FO4_DATA>`, `<PORT_DIR>`, `<CORE_SET_DIR>`, `<CALUMI_DLL>`, `<COLLISION_NIF>`, `<TEXCONV>`, `<CONTENT_ZIP>`, `<PAPYRUS_COMPILER>`):
+
+### Step 1 — Stage Production Gear Door (`FO4SFVaultGearDoor.esm`, no probe quest)
+
+```powershell
+python scripts/newgame/make_cog_door.py stage `
+  --production-cog `
+  --out <STAGE_ROOT>/cog-door-prod `
+  --starfield-data <SF_DATA> `
+  --port-data <PORT_DIR> `
+  --fo4-data <FO4_DATA> `
+  --door-anim-dll <CALUMI_DLL> `
+  --collision-template <COLLISION_NIF> `
+  --texconv <TEXCONV>
+```
+
+Expected output: `FO4SFVaultGearDoor.esm`, converted `_anim` mesh/rig/clips/geometries/materials, `offline_check.txt` (`all checks pass`), `plan.json` (`kind = "cog-door-production"`), and **no** `Data/Scripts/*.pex`.
+
+### Step 2 — Stage Production Floor-Start Lift (`FO4SFExitLift.esm`, no probe quest)
+
+```powershell
+python scripts/newgame/make_anim_console.py stage `
+  --production-lift `
+  --edid FO4Port_acti_0244ef_fallout4 `
+  --states stage3=StateA_Play,stage2=StateB_Play `
+  --idles toggle `
+  --rest-after stage2 `
+  --out <STAGE_ROOT>/exit-lift-prod `
+  --starfield-data <SF_DATA> `
+  --port-data <PORT_DIR> `
+  --fo4-data <FO4_DATA> `
+  --door-anim-dll <CALUMI_DLL> `
+  --collision-template <COLLISION_NIF> `
+  --texconv <TEXCONV>
+```
+
+Expected output: `FO4SFExitLift.esm`, converted `_anim` mesh/rig/clips (`12` moving bodies, `StateA_Idle` = `stage2` end pose, `StateA_Play` = `9.8667 s` `+21.6 m`), `offline_check.txt` (`all checks pass`), `plan.json` (`kind = "exit-lift"`), and **no** `Data/Scripts/*.pex`.
+
+### Step 3 — Stage `FO4SFNewGame.esm` (with `--cog-door` + `--exit-lift`; `--pod-step -2.5` is automatic)
+
+```powershell
+python scripts/newgame/make_newgame.py stage `
+  --out <STAGE_ROOT>/newgame-stage `
+  --cog-door <STAGE_ROOT>/cog-door-prod `
+  --exit-lift <STAGE_ROOT>/exit-lift-prod `
+  --fo4 <FO4_DATA>/Fallout4.esm `
+  --port <PORT_DIR>/FO4Port.esm `
+  --port-ids <PORT_DIR>/formids.json `
+  --core <CORE_SET_DIR>/FO4TerrainCore.esm `
+  --starfield <SF_DATA>/Starfield.esm `
+  --compiler <PAPYRUS_COMPILER> `
+  --content-resources <CONTENT_ZIP>
+```
+
+Verify in `<STAGE_ROOT>/newgame-stage/plan.json`:
+- `points.pod.step_m == -2.5`, `points.pod.pos` near `[9.143, -6.614, -1.029]`, `points.pod.heading == 0.0`
+- `points.platform.stand_src == "0001B29E"`, `points.platform.pos` near `[-77.742, -3.958, -1.751]`
+- `options.hold` includes all S13 groups (`MQ00`, `MQ101`, `MQ101PostQuest`, `MQ_TutorialQuest_Misc04`, `SQ_ENV`, companions, audio/tutorials, city/faction)
+
+### Step 4 — Fold into Clean Core Set & Verify
+
+```powershell
+python scripts/newgame/make_newgame.py fold `
+  --core-dir <CORE_SET_DIR> `
+  --stage <STAGE_ROOT>/newgame-stage `
+  --out <STAGE_ROOT>/folded-v111-exit `
+  --port <PORT_DIR>/FO4Port.esm
+
+python scripts/newgame/make_newgame.py verify `
+  --exp-dir <STAGE_ROOT>/folded-v111-exit `
+  --plan <STAGE_ROOT>/newgame-stage/plan.json `
+  --port <PORT_DIR>/FO4Port.esm
+```
+
+Expected plugin order in `<STAGE_ROOT>/folded-v111-exit/README.txt`:
+`FO4TerrainCore.esm,Mars.esm,FO4Port.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm`
+Install when authorized (game closed) using the exact `exp_install.py install ... --pack` command printed by `fold`.
+
+---
+
+## In-Game Test Procedure (Both Starts, Zero Console / Zero `tcl`)
+
+Run **two** fresh **New Game** sessions from the main menu with **no console commands** (`tcl`, `moveto`, `setstage` forbidden):
+
+1. **Session 1 — Character Creator (`button=0`):**
+   - Start **New Game** -> Vault 111 loads -> choose **Create character** (`button=0`) -> confirm looks-only menu (`RaceMenuMode=2`) -> finish/close creator (`stage 20`).
+   - Turn around from `(9.143, -6.614, -1.029)` and walk normally (collision on, no `tcl`) through the cryo hall and corridors to the Vault 111 gear door.
+   - Press `E` on the gear door (or walk to the console): verify the gear door opens and the catwalk bridge connects (`stage 30`), with **no** elevator prompt firing at the console or along the catwalk.
+   - Walk across the catwalk to the shaft: verify the lift platform is **waiting at the bottom** and its safety gate is **OPEN**.
+   - Walk onto the platform floor (`(-77.742, -3.958, -1.751)`): verify the **Vault 111 elevator** prompt appears **only** once on the platform -> choose **Ride up** (`button=0`).
+   - Verify the safety gate **closes at the start of the ride** and the platform physically carries the player upward `+21.6 m` over `~9.9 s`.
+   - Verify exterior transfer lands on the Commonwealth Vault 111 surface (`(-2467.78, -1406.92, 128.11)`, core cell `03......`), settles for `3 s`, logs `arrival discovery requested`, and completes at `stage 200`.
+2. **Session 2 — Quick Start (`button=1`):**
+   - Quit to main menu / desktop, start a fresh **New Game**, choose **Quick start** (`button=1`), and repeat the identical walk -> `E` on gear door -> walk onto open platform -> ride up -> surface arrival flow with zero console usage.
+
+### Log Check (`python scripts/newgame/make_newgame.py log`)
+
+**PASS Criteria (both sessions):**
+- Exit code `0` from `make_newgame.py log`, `exit_failure` is `null`, `stood_down` is `false`.
+- `stages` contains `[10, 20, 30, 40, 200]`.
+- `pod_settle` shows `ok=true` near `(9.143, -6.614, -0.85.. -0.90)` (`drop ~0.12 m`), and the player walks cleanly to the door and lift with zero `tcl`.
+- Zero `elevator prompt` lines while `pos` is near console `(-53.7, -3.7)` or catwalk `(-70.4, -2.7)`; `elevator prompt button=0` occurs only near `(-77.7, -4.0, -1.7)`.
+- `ascent` contains `play accepted=True`, `done elapsed=...` (`>= 8.8667 s`), and `carried confirmed elapsed=... z=19.8...`.
+- `surfaced` shows `surface setposition ok=True set=1 pos=... target=... core_cell=True cell=Cell <Surface (03......)> world=WorldSpace <MarsPlanetWorld... (FF......)>`.
+- `arrival_discovery_requested` is non-null (`ref=...0A775B...`), `landed` is `true`, and `stage 200` is reached.

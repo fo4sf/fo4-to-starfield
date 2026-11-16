@@ -790,7 +790,7 @@ class Converter:
 
     def convert_anim_object(self, nif_name: str, states: dict, foley: Optional[str] = None, out_suffix: str = "_anim",
                             swap_siblings: bool = False, idles: str = "toggle", graph: Optional[str] = None,
-                            slow: Optional[dict] = None) -> dict:
+                            slow: Optional[dict] = None, rest_after: Optional[str] = None) -> dict:
         """An animated FO4 object that is no door (the Vault 111 console, FAL-489 variant D) as a model with its own rig and
         one clip per activator-graph slot, through the door path's multi-part builder: states maps FO4 sequence names to
         the Play slots (anim_object.parse_states), each Play slot also gets a one-frame Idle hold, every .afx is written in
@@ -798,12 +798,15 @@ class Converter:
         the doors do. The result's "anim" entry is the manifest (skeleton, animations, graph, clip table); "ok" False
         carries "reason". Files land in the staging folder like every conversion. idles="chain" with graph=<ANAM of genericstategraph01>
         (FAL-489, the four-state console): four Play slots and four Idle slots holding four successive poses (anim_object.add_chain_idles);
-        graph defaults to the activator graph. slow={"StateC_Play": 4}: those clips run a whole factor slower (anim_object.stretch_clips)."""
+        graph defaults to the activator graph. rest_after names a mapped source sequence whose end pose
+        becomes the initial idle (the floor-starting lift); it leaves both moving clips intact. slow={"StateC_Play": 4}: those clips run a whole factor slower (anim_object.stretch_clips)."""
         from . import anim_object, native_door
         res = {"nif": nif_name, "ok": False}
         try:
             if not self.door_anim_dll or self.door_physics_donor is None or self.collision_template is None:
                 raise ValueError("needs door_anim_dll, the vanilla donor body and the collision template")
+            if rest_after is not None and (idles not in ("toggle", "chain") or rest_after not in states):
+                raise ValueError("rest_after needs toggle or chain idles and a mapped source sequence")
             raw = self.src.mesh(nif_name)
             src = nif.parse(raw)
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
@@ -824,6 +827,8 @@ class Converter:
                     plan = anim_object.stretch_clips(plan, slow)
                 plan = (anim_object.add_toggle_idles(plan) if idles == "toggle" else
                         anim_object.add_chain_idles(plan) if idles == "chain" else anim_object.add_holds(plan))
+                if rest_after is not None:
+                    plan = anim_object.rest_after(plan, states[rest_after])
                 holder["plan"] = plan
                 return plan
 
@@ -840,6 +845,8 @@ class Converter:
             anim["swap_siblings"] = bool(swap_siblings)
             anim["idles"] = idles
             anim["slow"] = dict(slow or {})
+            if rest_after is not None:
+                anim["rest_after"] = rest_after
             for relp, data in files.items():
                 write_staged(os.path.join(self.staging, *relp.split("/")), data)
             res.update(ok=True, out_name=out_name, shapes=len(shapes), materials=mats, anim=anim)

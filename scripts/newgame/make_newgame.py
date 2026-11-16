@@ -156,6 +156,9 @@ SPECIAL_MAX_PRESSES = 300
 # mismatch" and a notification when they differ. --build-version sets another number; bump it when a save made under
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
+# Default pod stand step (Program.cs DefaultPodStep = -2.5f): steps 2.5 m along -Y out of REFR 0004A011 onto
+# (9.143, -6.614, -1.029) m (walkable on PC, settle drop 0.12 m); heading stays 0 (do not turn the pod).
+DEFAULT_POD_STEP = -2.5
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
 # ON by default since S13 row 2: the strip-down rule takes Starfield's own new-game items (outfit, gear, credits) out,
 # as FO4's MQ101 empties the inventory, and what Starfield leaves when MQ101 never runs is unresolved (run 4). The
@@ -198,21 +201,23 @@ NATIVES = {
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue"],   # ModValue / GetValue: the O2 fill
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
-                            "GetItemCount", "AddItem"],
+                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
+                            "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
-        "ScriptObject": ["StartTimer"],
+        "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent"],
         "Utility": ["GetCurrentRealTime"],
     },
     LOOKS: {
         "Debug": ["TraceUser"],
-        "Game": ["ShowRaceMenu"],
+        "Game": ["ShowRaceMenu", "GetPlayer"],
         "Message": ["Show"],
+        "ObjectReference": ["GetPositionX", "GetPositionY", "GetPositionZ", "GetAngleZ", "Is3DLoaded", "GetParentCell", "GetWorldSpace"],
         "Quest": ["SetStage", "GetStage", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
@@ -420,6 +425,8 @@ def new_partial(final, create=True):
 
 def tool_options(a):
     opts = []
+    if getattr(a, "exit_lift", None):
+        opts.append("--animated-exit-lift")
     if a.hold:
         opts += ["--hold", a.hold]
     if a.no_mq101debug:
@@ -498,18 +505,68 @@ def pins(a):
     return {"FO4Port.esm": sha256(a.port), "formids.json": sha256(a.port_ids), "FO4TerrainCore.esm": sha256(a.core)}
 
 
+def cog_door_component(folder, port, starfield):
+    """Validate the separate production Vault 111 gear-door stage, refusing probe kits and file drift."""
+    import make_anim_probe as probe_a
+    import make_cog_door as mcd
+    with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    ref = str(plan.get("ref") or "").lower().removeprefix("0x").lstrip("0")
+    if plan.get("kind") != mcd.COG_KIND or plan.get("plugins") != [mcd.COG_PLUGIN] or ref != "126d":
+        sys.exit("--cog-door needs the production Vault 111 gear door component, never a cog-door probe")
+    files = probe_a.stage_files(folder)
+    if files != plan.get("outputs") or any(p != mcd.COG_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
+        sys.exit("cog door assets changed, are missing, or include a probe script")
+    if mcd.COG_PLUGIN not in files or len(files) < 2:
+        sys.exit("cog door component has no plugin/assets")
+    for name, path in (("FO4Port.esm", port), ("Starfield.esm", starfield)):
+        if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
+            sys.exit(f"cog door was built against different {name} bytes")
+    return plan
+
+
+def exit_lift_component(folder, port, starfield):
+    """Validate the separate production asset stage, refusing all probe kits and any file drift."""
+    import make_anim_console as mac
+    with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    if (plan.get("kind") != mac.LIFT_KIND or plan.get("plugins") != [mac.LIFT_PLUGIN]
+            or plan.get("states") != mac.LIFT_STATES or plan.get("rise_m") != 21.6
+            or plan.get("seconds") != 9.8667 or plan.get("event") != "Play01"):
+        sys.exit("--exit-lift needs the production floor-start lift component, never an animation probe")
+    files = mac.probe_a.stage_files(folder)
+    if files != plan.get("outputs") or any(p != mac.LIFT_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
+        sys.exit("exit lift assets changed, are missing, or include a probe script")
+    if mac.LIFT_PLUGIN not in files or len(files) < 2:
+        sys.exit("exit lift component has no plugin/assets")
+    for name, path in (("FO4Port.esm", port), ("Starfield.esm", starfield)):
+        if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
+            sys.exit(f"exit lift was built against different {name} bytes")
+    return plan
+
+
+def points_options(a):
+    """The optional flags `stage` hands to `dotnet NewGame points` (none given: the tool's DefaultPodStep = -2.5)."""
+    return ((["--pod-ref", a.pod_ref] if a.pod_ref else [])
+            + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else [])
+            + (["--pod-step", repr(float(a.pod_step))] if getattr(a, "pod_step", None) is not None else []))
+
+
 def stage(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     before = pins(a)
+    cog_folder = getattr(a, "cog_door", None)
+    cog = cog_door_component(cog_folder, a.port, a.starfield) if cog_folder else None
+    lift_folder = getattr(a, "exit_lift", None)
+    lift = exit_lift_component(lift_folder, a.port, a.starfield) if lift_folder else None
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     points = os.path.join(work, "points.json")
-    run(tool + ["points", a.fo4, points] + (["--pod-ref", a.pod_ref] if a.pod_ref else [])
-        + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else []))
+    run(tool + ["points", a.fo4, points] + points_options(a))
     opts = tool_options(a)
     masters = [a.starfield, a.port, a.port_ids, a.core, points]
     run(tool + ["write", a.starfield, a.port, a.port_ids, a.core, points, out] + opts)
@@ -527,6 +584,19 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
+    for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
+                                         ("lift", lift, lift_folder, exit_lift_component)):
+        if comp:
+            if checker(folder, a.port, a.starfield) != comp:
+                sys.exit(f"{label} component changed during the build")
+            for rel in comp["outputs"]:
+                dest = os.path.join(out, *rel.split("/"))
+                if os.path.exists(dest):
+                    sys.exit(f"{label} asset collides with staged output: {rel}")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copyfile(os.path.join(folder, *rel.split("/")), dest)
+                if sha256(dest) != comp["outputs"][rel]:
+                    sys.exit(f"{label} asset changed while copying: {rel}")
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
@@ -541,6 +611,10 @@ def stage(a):
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
+    if cog:
+        plan["cog_door"] = cog
+    if lift:
+        plan["exit_lift"] = lift
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -585,6 +659,10 @@ def verify_dir(exp_dir, plan, port=None, core=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in plan.get("cog_door", {}).get("outputs", {}).items():
+        same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
+    for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
+        same("exit lift", os.path.join(exp_dir, *rel.split("/")), want)
     pinned = plan["checked_against_sha256"]
     for name, given in (("FO4Port.esm", port), ("FO4TerrainCore.esm", core)):
         path = os.path.join(exp_dir, name)
@@ -649,12 +727,25 @@ def fold(a):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
-    plugins = core_plugins(a.core_dir, core_readme) + [plan["plugin"]]
+    cog_outputs = plan.get("cog_door", {}).get("outputs", {})
+    cog_plugins = plan.get("cog_door", {}).get("plugins", [])
+    lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
+    lift_plugins = plan.get("exit_lift", {}).get("plugins", [])
+    plugins = core_plugins(a.core_dir, core_readme) + cog_plugins + lift_plugins + [plan["plugin"]]
+    if len(set(plugins)) != len(plugins):
+        sys.exit("fold refused: duplicate cog/lift/new-game plugins in core set")
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
+    for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
+        for rel in outputs:
+            dst = os.path.join(out, *rel.split("/"))
+            if os.path.exists(dst):
+                sys.exit(f"fold refused: core set already has {label} asset {rel} (attempt kept in {out})")
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
     for s in plan["scripts"]:
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
         if os.path.exists(dst):
@@ -751,7 +842,8 @@ def summarize(lines):
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
-         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False}
+         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
+         "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -796,10 +888,18 @@ def summarize(lines):
         elif msg.startswith("pod settle "):
             if s["pod_settle"] is None:                      # the script checks once
                 s["pod_settle"] = msg[len("pod settle "):]
+        elif msg.startswith("looks position "):
+            s["looks_positions"].append(msg[len("looks position "):])
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
             s["landed"] = True
+        elif msg.startswith("arrival discovery requested "):
+            s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("ascent "):
+            s["ascent"].append(msg[len("ascent "):])
+        elif msg.startswith("exit failed reason="):
+            s["exit_failure"] = msg[len("exit failed reason="):]
         elif msg.startswith("fell "):
             s["fell"] = True
         elif msg.startswith("not a new game") or msg.startswith("no move into the vault"):
@@ -836,7 +936,7 @@ def log(a):
     with open(a.file, encoding="utf-8", errors="replace") as f:
         s = summarize(f)
     print(json.dumps(s, indent=1))
-    return 0 if 200 in s["stages"] and not s["stood_down"] else 1
+    return 0 if 200 in s["stages"] and not s["stood_down"] and not s["exit_failure"] else 1
 
 
 def main(argv=None):
@@ -848,6 +948,8 @@ def main(argv=None):
     pc.add_argument("--out", default=None)
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
+    s.add_argument("--cog-door", default=None, help="validated make_cog_door.py --production-cog stage; includes FO4SFVaultGearDoor.esm and its assets")
+    s.add_argument("--exit-lift", default=None, help="validated make_anim_console.py --production-lift stage; enables the carrying ascent and includes its assets")
     s.add_argument("--fo4", required=True)
     s.add_argument("--port", required=True)
     s.add_argument("--port-ids", required=True)
@@ -877,6 +979,7 @@ def main(argv=None):
     s.add_argument("--debug-after-hold", type=int, default=None,
                    help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
+    s.add_argument("--pod-step", type=float, default=None, help=f"metres from the pod to the start point along the pod's facing (tool default {DEFAULT_POD_STEP})")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--keep-inventory", action="store_true",
                    help="no inventory reset: the player keeps what Starfield gives. By default the quest empties the "
