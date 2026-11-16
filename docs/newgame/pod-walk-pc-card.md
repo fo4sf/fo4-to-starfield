@@ -41,3 +41,22 @@ For each of the two runs: PASS (reached console and lift by walking), or FAIL wi
 quoted verbatim, and the capture. Compare the settle sample, the `before creator` phase and `done: creator closed` / `done: quick start`: a drop that changes between them is
 the first lead. Keep unresolved items unresolved. A PASS here shows walkability only: not the lift, map listing,
 discovery, Fast Travel or S3.
+
+## Variant B: stand 2.5 m in front of the pod (FAL-1007; Gemini (PC) pod read, FAL-1007 comment 6371ab99)
+
+Hypothesis (Gemini (PC), relayed; mechanism **inferred**, not yet observed in game): the current start, `--pod-step 1.0` (default,
+`dotnet/NewGame/Program.cs:7,90`), places the player 1 m along +Y of `REFR 0004A011`, i.e. behind the pod in a pocket between
+the converted pod and the rear wall; the pod's front exit faces -Y, and FO4's own post-pod marker `0001ED61` is about 2.5 m
+toward -Y at (9.114, -6.615, -0.770) m, heading about 182 degrees. The run below changes only the step; no source change is
+needed because `points` already takes `--pod-step`.
+
+Run the card above once more per start (creator and quick start), identical in every way except the points file:
+`dotnet NewGame points <Fallout4.esm> <out points.json> --pod-step -2.5` (and nothing else), then the same stage/build/install
+steps, recording the new points.json hash and the printed `stand` position and `step_m`. Do not use -1.0: Gemini (PC) reports it
+lands in the pod's door canopy collision. Heading is unchanged (the pod's own, 0), so the player faces the wall and must turn;
+note that, and do not add a heading change on the PC.
+
+Compare with the +1.0 run on the same measurements: the `pod_settle` and `looks_positions` samples, the settle height above
+target (+1.35 to +1.63 m before), and whether the player walks the hall to the console and lift. PASS is walkability only, as
+above. If -2.5 walks, the source slice is a default change plus a heading (the pod's facing turned 180 degrees) with its own
+unit test; if it does not, record where it blocks, and the variant is rejected.
