@@ -521,6 +521,43 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   (`nodialogue`, `noactivities`) and cross-checks them, so a break can be narrowed to one list.
 - **Unverified until the PC run:** that all 48 stop and stay stopped, and that nothing "breaks" (section 4f).
 
+## 4i. Starfield's radiant, ship and system quests held off (S13 row 5, the fifth group)
+
+- **Why:** completes S13 row 5's hold-off of every unneeded Starfield cold-start quest in ranked order after section
+  4h's generic dialogue and activities, stopping the remaining `34` holdable quests (`radiant` 9, `ships` 21, `system`
+  4) so `DefaultHold` holds `199` quests (`4` non-running `MQ*` plus `195` of the `207` cold-start running quests) and
+  only the `12` protected quests (`5` Warfare + `7` core engine) remain running.
+- **What:** three writer lists join the default hold list after `HoldActivities`. All `34` are running quests of
+  `result-pc-read-s13-5-partb`, at their verified `Starfield.esm` ids:
+  - `HoldRadiant` (`HOLD_RADIANT` in `make_newgame.py`), the `9` remaining radiant, mission-board, space-encounter and
+    cleared-location quests (`RI_Support` `2A8318` joined `HoldCityFaction` in section 4g): `MB_Parent` 015300,
+    `SQ_PlayerClearedReward` 0394C5, `SE_AC01` 05B4B0, `RE_Parent` 05F193, `RQ_Parent` 08D848, `OE_Dialogue` 10AC08,
+    `SEDebug` 160C29, `Rad01_LIST` 192DD7, `RQ_Dialogue` 1C439D. (`SE_AC01` is the sole quest of the `175` defining
+    `OnQuestShutdown`, in `SEScript`, which only updates a space-encounter cooldown global when `setCooldownOnShutdown`
+    is set.)
+  - `HoldShips` (`HOLD_SHIPS`), the `21` holdable ship hail, piracy, vendor and cargo quests (`16` space ship-to-ship
+    comms pools plus `5` ship-service/cargo quests): `DialogueCrimeGuardShips` 05BD6F, `DialogueCrimsonFleetShips`
+    063085, `DialogueGenericCitizensShips_MuddledChatter` 13E3C8, `DialogueGenericGuardsShips_MuddledChatter` 13E3C9,
+    `DialogueGenericVendor_LIST` 1A2D28, `DialogueGenericPiracyShips` 1A5509, `DialogueGenericSpacersShips` 1BA199,
+    `DialogueGenericStarbornShips_Unique` 20EC5A, `DialogueShipServices` 22E153, `SQ_ShipVendors` 23DE4E,
+    `DialogueGenericGuardsShips` 24411E, `DialogueGenericHouseVaruunShips` 24411F, `DialogueTheFirstShips` 255EAF,
+    `SE_Player_Attack_SharedLines` 261767, `SQ_OutpostCargoLink` 2A6C44, `DialogueGenericCitizensShips` 2BCB81,
+    `DialogueGenericEclipticANDSoldierShips` 2BCB83, `DialogueGenericScumShips` 2BCB86, `DialogueGenericStarbornShips`
+    2BCB87, `DialogueGenericUCGuardsShips` 2BCB88, `SQ_CargoShips` 2CFDEC.
+  - `HoldSystem` (`HOLD_SYSTEM`), the `4` Starfield-only system, dungeon-location, planet-trait and voice-stub quests:
+    `SQ_GravitationalTraits` 07C6A9, `SQ_Traits` 146687, `SQ_ApplyVoices_OBSOLETE` 1D307F, `LDMasterQuest` 257DE5.
+- **Not in it (the exact 12-quest running floor):**
+  - **5 Warfare boundary quests kept running:** `SQ_Followers` 00D773, `SQ_Groups` 1A9565,
+    `SQ_COM_CREW_AngerCombatOverride` 0709A7, `SQ_Captive` 1D3081, `SQ_Airlock` 046617.
+  - **7 core engine quests never to stop:** `SQ_PlayerShip` 0174A2, `SQ_Parent` 07092C, `PlayerSkills` 2C59E4,
+    `DialogueGenericPlayer` 05C8C4, `DialogueGeneric` 010B4B, `SpeechChallenge` 0128D0, `Achievements_Quest` 29E183.
+- **How, the way back:** `--hold` without one or more of the three lists. The selftest builds `noradiant`, `noships`
+  and `nosystem`, cross-checks each both ways against `default`, and rejects a list that lost `MB_Parent`,
+  `DialogueShipServices` or `SQ_Traits`.
+- **Unverified until the PC run:** that all `34` stop and stay stopped (`docs/newgame/hold-group5-pc-card.md`), and
+  that stopping `DialogueShipServices` / `SQ_OutpostCargoLink` / `SQ_Traits` introduces no ground-world side effect
+  while the `12` protected quests remain `1.00`.
+
 ## 5. What Vault 111 needs from the port today
 
 | Piece | State | Source |
@@ -551,7 +588,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f, the city and faction group, section 4g, and the generic dialogue and activities group, section 4h), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f, the city and faction group, section 4g, the generic dialogue and activities group, section 4h, and the radiant, ship and system group, section 4i), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`
