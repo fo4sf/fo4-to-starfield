@@ -785,9 +785,20 @@ Function FinishSurface(Actor player)
         FailExit("surface_world_or_cell_unavailable")
         return
     endif
-    ; The runtime world is learned from a loaded core-owned cell, not the anchor's original overlay world.
+    ; The runtime world is learned from a loaded core-owned cell, not the anchor's original overlay world. The anchor's
+    ; MoveTo lands at its LOCAL position, which is a plain surface cell of the runtime world (the owner's 16 Nov pod-branch
+    ; session: surface moveto at -1275 1305 in a Mars Surface cell, then "surface_cell_not_core" before any SetPosition).
+    ; So a cell that is not the core's yet is not a failure: move to the merged arrival, which is what loads the core's cell,
+    ; and judge it on a later tick. Only SurfaceTries such moves without ever reaching a core cell end the exit.
     if currentCell.GetFormID() / 16777216 != anchor.GetFormID() / 16777216
-        FailExit("surface_cell_not_core")
+        if surfaceSets >= SurfaceTries
+            FailExit("surface_cell_not_core")
+            return
+        endif
+        player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)
+        player.SetAngle(0.0, 0.0, ArrivalHeading)
+        surfaceSets += 1
+        Trace("surface cell not core yet: setposition to the merged arrival set=" + surfaceSets + " cell=" + currentCell + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
         return
     endif
     arrivalWorld = w

@@ -116,12 +116,24 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertEqual(self.stages, [])
         self.assertEqual(self.marker.discovery_calls, 0)
 
-    def test_exterior_cell_must_be_owned_by_core(self):
+    def test_non_core_cell_moves_to_the_merged_arrival_before_failing(self):
+        """The anchor's MoveTo lands in a plain surface cell (PC log 16 Nov: surface_cell_not_core before any SetPosition).
+        A non-core cell is corrected by a SetPosition and judged on a later tick, not failed at once."""
         self.player.cell = SimpleNamespace(GetFormID=lambda: 0x01000DAF)
         self.run_branch("FinishSurface")
+        self.assertEqual(self.failures, [])
+        self.assertEqual(self.ns["surfaceSets"], 1)
+        self.assertEqual(self.stages, [])                                 # no arrival yet: the next tick judges it
+        self.assertEqual(self.marker.discovery_calls, 0)
+
+    def test_a_cell_that_never_becomes_core_still_fails_after_the_budget(self):
+        self.player.cell = SimpleNamespace(GetFormID=lambda: 0x01000DAF)
+        for _ in range(4):
+            self.run_branch("FinishSurface")
         self.assertEqual(self.failures, ["surface_cell_not_core"])
-        self.assertEqual(self.player.moves, [])
+        self.assertEqual(self.ns["surfaceSets"], 3)
         self.assertEqual(self.stages, [])
+        self.assertEqual(self.marker.discovery_calls, 0)
 
     def test_loaded_primary_arrival_requests_one_marker_then_completes(self):
         self.run_branch("FinishSurface")
