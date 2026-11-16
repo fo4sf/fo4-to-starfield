@@ -3081,3 +3081,8 @@ show nothing (unbound). Bind sChoiceText next. Native/game NOT_RUN here.
 
 Bind class Fo4sfDialogueSlots on the unnamed container, not sealed DialogueMenu. Source only;
 no compiled ABC in Git; overlay_inject does not replace DialogueMenu. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: bind_slots_abc SymbolClass unnamed container
+
+Installer --slots-swf copies Fo4sfDialogueSlots DoABC onto the overlaid host and SymbolClass
+the unnamed container. Compiled SWF is not in Git. Native/game NOT_RUN.

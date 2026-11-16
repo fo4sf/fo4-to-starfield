@@ -78,6 +78,10 @@ def install(a):
             print(f"concord talk not installed: {killed}", file=sys.stderr)
             sys.exit(1)
         patched = overlay.overlay_inject(host_bytes)
+        slots_swf = getattr(a, "slots_swf", "") or ""
+        if slots_swf:
+            with open(slots_swf, "rb") as f:
+                patched = overlay.bind_slots_abc(patched, f.read())
     except (overlay.OverlayError, overlay.swf.SwfError, overlay.Ba2Error, zlib.error, struct.error) as e:
         print(f"concord talk not installed: {e}", file=sys.stderr)
         sys.exit(1)
@@ -99,6 +103,7 @@ def main(argv=None):
     ap.add_argument("--prepacked", default="", help="verify and install this existing archive; never build")
     ap.add_argument("--starfield", required=True, help="the game folder (Starfield.exe)")
     ap.add_argument("--host-swf", default="", help="tests only: a host-shaped movie instead of the player's archive")
+    ap.add_argument("--slots-swf", default="", help="tests/PC: compiled Fo4sfDialogueSlots.swf; never committed")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.dir:

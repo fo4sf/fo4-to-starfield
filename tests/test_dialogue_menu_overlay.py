@@ -77,6 +77,34 @@ class OverlayPlanTest(unittest.TestCase):
         after = sum(1 for t in swf.read_movie(patched)["tags"] if t.get("code") == swf.DEFINE_SHAPE3)
         self.assertEqual(before, after)
 
+    def test_bind_slots_abc_symbolclass_unnamed_container(self):
+        W, H = 100 * swf.TWIPS, 100 * swf.TWIPS
+        box = (0, 0, 10 * swf.TWIPS, 10 * swf.TWIPS)
+        body = swf.rect(0, W, 0, H) + struct.pack("<HH", swf.FRAME_RATE << 8, 1)
+        body += swf.tag(swf.FILE_ATTRIBUTES, bytes([swf.AS3, 0, 0, 0]))
+        body += swf.define_shape3(1, [box], swf.PIPBOY_GREEN)
+        body += swf.tag(overlay.DOABC, b"\x01\x00\x00\x00fake")
+        body += overlay._write_symbol_class([(1, overlay.BIND_CLASS)])
+        body += swf.tag(swf.SHOW_FRAME) + swf.tag(swf.END)
+        slots = b"CWS" + bytes([swf.VERSION]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 9)
+        patched = overlay.bind_slots_abc(overlay.overlay_inject(host_shaped_movie()), slots)
+        blob = zlib.decompress(patched[8:])
+        r = swf.BitReader(blob)
+        swf.read_rect(r)
+        pos = r.align() + 4
+        tags = overlay._raw_tags(blob, pos)
+        self.assertTrue(any(c == overlay.DOABC for c, _ in tags))
+        names = []
+        for c, d in tags:
+            if c == overlay.SYMBOL_CLASS:
+                names.extend(n for _, n in overlay._symbol_entries(d))
+        self.assertIn(overlay.BIND_CLASS, names)
+        self.assertIsNone(overlay.refuse_own_replacement(patched))
+
+    def test_bind_slots_abc_refuses_host_movie(self):
+        with self.assertRaisesRegex(overlay.OverlayError, "must not be a host"):
+            overlay.bind_slots_abc(overlay.overlay_inject(host_shaped_movie()), host_shaped_movie())
+
     def test_refuses_our_wheel_as_host(self):
         reason = overlay.refuse_own_replacement(wheel.movie_bytes())
         self.assertIsNotNone(reason)

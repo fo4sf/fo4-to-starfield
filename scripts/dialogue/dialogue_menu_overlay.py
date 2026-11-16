@@ -28,6 +28,8 @@ DEFINE_IDS = (
 )
 PLACE_OBJECT, PLACE_OBJECT3 = 4, 70
 IMPORT_ASSETS, IMPORT_ASSETS2 = 57, 71
+DOABC, DOABC2, SYMBOL_CLASS = 72, 82, 76
+BIND_CLASS = "Fo4sfDialogueSlots"
 
 
 class OverlayError(ValueError):
@@ -306,6 +308,97 @@ def overlay_inject(host_bytes, width=1920, height=1080):
     new_body = header + b"".join(out_tags)
     length = 8 + len(new_body)
     return b"CWS" + bytes([raw[3]]) + struct.pack("<I", length) + zlib.compress(new_body, 9)
+
+
+def _symbol_entries(data):
+    if len(data) < 2:
+        return []
+    n = struct.unpack_from("<H", data, 0)[0]
+    pos = 2
+    out = []
+    for _ in range(n):
+        if pos + 2 > len(data):
+            break
+        cid = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        z = data.find(b"\x00", pos)
+        if z < 0:
+            break
+        out.append((cid, data[pos:z].decode("ascii", "replace")))
+        pos = z + 1
+    return out
+
+
+def _write_symbol_class(entries):
+    body = struct.pack("<H", len(entries))
+    for cid, name in entries:
+        body += struct.pack("<H", cid) + name.encode("ascii") + b"\x00"
+    return swf.tag(SYMBOL_CLASS, body)
+
+
+def _unnamed_container_id(tags):
+    best, best_depth = None, -1
+    for code, data in tags:
+        if code != swf.DEFINE_SPRITE or len(data) < 4:
+            continue
+        nested = _raw_tags(data, 4)
+        if not any(_place_instance(nd)[0] == host.HOST_LIST for nc, nd in nested if nc == swf.PLACE_OBJECT2):
+            continue
+        for nc, nd in nested:
+            if nc != swf.PLACE_OBJECT2:
+                continue
+            parsed = swf.read_place(nd)
+            if parsed.get("instance"):
+                continue
+            ch, dep = parsed.get("character"), parsed.get("depth") or 0
+            if ch and dep >= best_depth:
+                best, best_depth = ch, dep
+    return best
+
+
+def bind_slots_abc(host_bytes, slots_bytes):
+    """Copy Fo4sfDialogueSlots DoABC onto the overlaid movie; SymbolClass the unnamed container."""
+    if refuse_own_replacement(slots_bytes) is None:
+        raise OverlayError("slots SWF must not be a host DialogueMenu")
+    sbody, spos, _ = _swf_body(slots_bytes)
+    stags = _raw_tags(sbody, spos)
+    abc = [swf.tag(c, d) for c, d in stags if c in (DOABC, DOABC2)]
+    if not abc:
+        raise OverlayError("slots SWF has no DoABC")
+    exported = []
+    for c, d in stags:
+        if c == SYMBOL_CLASS:
+            exported.extend(n for _, n in _symbol_entries(d))
+    if BIND_CLASS not in exported:
+        raise OverlayError(f"slots SWF does not export {BIND_CLASS}")
+    hbody, hpos, _ = _swf_body(host_bytes)
+    header = hbody[:hpos]
+    htags = _raw_tags(hbody, hpos)
+    container = _unnamed_container_id(htags)
+    if container is None:
+        raise OverlayError("overlay has no unnamed slot container")
+    out = []
+    saw_sc = False
+    abc_put = False
+    for c, d in htags:
+        if c == SYMBOL_CLASS:
+            entries = [(cid, n) for cid, n in _symbol_entries(d) if n != BIND_CLASS]
+            entries.append((container, BIND_CLASS))
+            out.append(_write_symbol_class(entries))
+            saw_sc = True
+            continue
+        if c == swf.END:
+            if not abc_put:
+                out.extend(abc)
+                abc_put = True
+            if not saw_sc:
+                out.append(_write_symbol_class([(container, BIND_CLASS)]))
+            out.append(swf.tag(c, d))
+            continue
+        out.append(swf.tag(c, d))
+    new_body = header + b"".join(out)
+    raw = bytes(host_bytes)
+    return b"CWS" + bytes([raw[3]]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 9)
 
 
 def archive_search_order(names):
