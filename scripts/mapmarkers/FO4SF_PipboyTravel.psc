@@ -179,6 +179,12 @@ Function Go() global
     bool hasExplicitArrival = (arrX != 0.0 || arrY != 0.0 || arrZ != 0.0)
     bool crossWorld = pluginCode >= 2
 
+    GlobalVariable gDays = Game.GetFormFromFile(0x000039, "Starfield.esm") as GlobalVariable
+    float daysBefore = 0.0
+    if gDays != None
+        daysBefore = gDays.GetValue()
+    endif
+
     bool usedFallback = False
     if engineEnabled && !crossWorld
         Game.FastTravel(dest)
@@ -204,11 +210,14 @@ Function Go() global
             player.SetPosition(arrX, arrY, arrZ)
             player.SetAngle(0.0, 0.0, arrH)
         endif
-        SQ_FollowersScript followers = SQ_FollowersScript.GetScript()
-        if followers != None
-            followers.TeleportFollowers(player, None, True, False, False, False, False)
-        endif
         Game.FadeOutGame(False, True, 0.15, 0.45, False)
+    elseif tripMetres > 1.0 && (gDays == None || (gDays.GetValue() - daysBefore) < 0.001)
+        AdvanceTravelClock(tripMetres)
+    endif
+
+    SQ_FollowersScript followers = SQ_FollowersScript.GetScript()
+    if followers != None
+        followers.TeleportFollowers(player, None, True, False, False, False, False)
     endif
 
     SyncMarkerDiscovered(dest, storeIdx)

@@ -92,7 +92,7 @@ Per the owner's decision (16 Nov), **the player never sees Starfield's surface, 
   1. Load the exterior Commonwealth save, press `M`, and verify markers start undiscovered (`discovered=0` on a fresh save before reveal).
   2. Close `M`, reveal one marker via engine `SetMarkerDiscovered` (e.g. Vault 111 exit lift arrival discovery or console `<markerRef>.cf "ObjectReference.SetMarkerDiscovered"`), press `M` again (without reloading), and verify that marker immediately flips to Discovered (`step=map_disc_sync`) while rotating ~90 deg East updates the `PlayerLocMarker` arrow.
 - **PASS Criteria:**
-  - `FO4SFPipboyMenu.log` shows `step=map_store file=FO4SFPipboyMapMarkers.tsv status=loaded markers=310`, `step=map_globals value_at=0x48 source=verified ...`, `step=map_heading heading_at=+088 ...`, `step=map_disc_sync ... written=1`, and `step=map_markers ... discovered=1 ... corners_set=3/3 read_back=match`.
+  - `FO4SFPipboyMenu.log` shows `step=map_store file=FO4SFPipboyMapMarkers.tsv status=loaded markers=309` (`309` Commonwealth location rows; landing marker `0x8F2` is excluded unless `--include-landing` is passed), `step=map_globals value_at=0x48 source=verified ...`, `step=map_heading heading_at=+088 ...`, `step=map_disc_sync ... written=1`, and `step=map_markers ... discovered=1 ... corners_set=3/3 read_back=match`.
 
 ---
 

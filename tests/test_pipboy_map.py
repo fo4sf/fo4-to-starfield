@@ -337,10 +337,14 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertNotIn("protectsfunctionlogic", tokens)
         self.assertIn("Function Go() global", self.psc)
         self.assertIn("Game.FastTravel(dest)", self.psc)
-        self.assertIn("SQ_FollowersScript.GetScript()", self.psc)
+        self.assertIn("elseif tripMetres > 1.0 && (gDays == None || (gDays.GetValue() - daysBefore) < 0.001)", self.psc)
+        # TeleportFollowers must run after both native FastTravel and fallback MoveTo
+        self.assertGreater(self.psc.index("SQ_FollowersScript.GetScript()"), self.psc.index("Game.FadeOutGame(False"))
 
     def test_doc_has_four_pc_cards_and_s1c3_gate(self):
         self.assertIn("S1-c3", self.doc)
+        self.assertIn("markers=309", self.doc)
+        self.assertNotIn("markers=310", self.doc)
         for slice_num in (1, 2, 3, 4):
             self.assertIn(f"PC Card — Slice {slice_num}:", self.doc)
         self.assertIn("slot_0x2e_in_image=1", self.cpp)
