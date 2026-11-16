@@ -50,10 +50,10 @@ wall; the pod's front exit faces -Y, and FO4's own post-pod marker `0001ED61` is
 
 How to build it. `make_newgame.py stage` at #796 `4aaaa2c0` always ran `points` with the default step, so this card needs the
 reviewed `--pod-step` flag on `stage` (branch `minuteman/fal848-pod-walk-card`, with a unit test; install head for Variant B is
-that branch's head, which differs from #796 `4aaaa2c0` only by that flag and this card; record the full head). Use the same
+that branch's head, which differs from #796 `4aaaa2c0` only by that flag, its unit tests (`tests/test_newgame.py`, which do not change the staged plugin) and this card; record the full head). Use the same
 `stage` command and every other option as the +1.0 run, adding `--pod-step -2.5`. Do not run any other points path and do not
 edit source on the PC. Before install, record the printed `stand` and `step_m` and the same two values in the staged
-`points.json` (expect `step_m` -2.5 and a stand Y about -6.11 for the pod at Y -4.11). Do not use -1.0: Gemini (PC) reports it
+`points.json` (expect `step_m` -2.5 and stand about (9.143, -6.614, -1.029) for the pod at (9.143, -4.114, -1.029), read from `work/points.json` `pod.pos` and `pod.step_m` and from the printed stand line; `step_m` is only in the points file, not in the printed line). Do not use -1.0: Gemini (PC) reports it
 lands in the pod's door canopy collision.
 
 Run the card above once per start (creator = button 0, quick start = button 1), identical except the points file. The pod's

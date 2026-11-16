@@ -1785,9 +1785,6 @@ class WriterSelfTest(unittest.TestCase):
         self.assertIn("selftest pass", r.stdout)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class PodStepOptionTests(unittest.TestCase):
     """stage's --pod-step reaches `points`; unset leaves the command exactly as before (FAL-1007 pod Variant B)."""
 
@@ -1810,3 +1807,6 @@ class PodStepOptionTests(unittest.TestCase):
     def test_the_stage_parser_takes_it(self):
         self.assertIn('"--pod-step", type=float, default=None', open(ng.__file__, encoding="utf-8").read())
 
+
+if __name__ == "__main__":
+    unittest.main()
