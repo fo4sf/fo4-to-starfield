@@ -144,8 +144,8 @@ thirteen, and the three of the click's section below:
 | GFx Value ObjectAddRef, ObjectRelease, GetMember, SetMember, Invoke | 169745, 169746, 169748, 169749, 169750 | libxse | each equal to SFSE 0.2.21's own 1.16.244 address (`sfse/ScaleformValue.h` at 48535cc: `0x3352400`, `0x33524A0`, `0x33528A0`, `0x3352C90`, `0x33530B0`) |
 
 Before first use: `Main`, `PlayerCharacter` and `ControlMap` are their types by RTTI at offset 0 (`step=object`), and
-the pointer at movie + 0x18 is a `GFx::AS3::MovieRoot` by RTTI whose slots 0x30 (`CreateFunction`) and 0x32
-(`GetVariable`) are inside the image (`step=movie_root`; libxse and SFSE 0.2.21 declare both at those slots). The
+the pointer at movie + 0x18 is a `GFx::AS3::MovieRoot` by RTTI whose slots 0x2E (`CreateObject`), 0x30 (`CreateFunction`) and 0x32
+(`GetVariable`) are inside the image (`step=movie_root`; `InImage` checks image bounds, not the target function's identity; libxse and SFSE 0.2.21 declare 0x30 and 0x32 at those slots). The
 movie's own type is logged. The input contexts, the pause byte and the position are layouts only libxse states; their
 reads are guarded, so a wrong offset logs `fault` or a wrong number, not a crash.
 
@@ -660,13 +660,13 @@ loaded no page. `step=code_obj_shell` ends `late_calls=`.
 
 `CodeObjSpecial=fill` or `clear` (FAL-1025; with `CodeObjAt=` only, else `refuse step=ini code_obj_special=`; at load
 `step=code_obj_special_ini mode= list=`) makes `<CodeObjAt>.DataObj.SPECIALList` safe right before each
-`InvalidateData` the plugin calls: a `CodeObjCalls=` or `CodeObjLateCalls=` path ending in `.InvalidateData`, and
+`InvalidateData` the plugin calls: a `CodeObjCalls=`, `CodeObjLateCalls=` or `ShellKeys=` path ending in `.InvalidateData`, and
 `CodeObjPages=1`'s answer. Gemini's PC read of Fallout 4's movies (checked in the decompiled AS3): the shell's `DataObj`
 starts that list as 7 empty objects, the STAT page's hidden SPECIAL tab takes it on every change event, and each entry's
 `SetEntryText` calls `value.toString()`, an AS3 TypeError (#1010) with no try/catch around the dispatch. Fallout 4's
 engine fills the list first; our stand-in does not. The list is emptied (`splice(0)`, else `length = 0`); `fill` then
 pushes 7 new objects `{text, value, modifier, description}`: the attribute's name in capitals, 1, 0 and `""`
-(placeholders, not the player's values). Each time: `step=code_obj_special n= when=<calls|late|answer> mode= found=
+(placeholders, not the player's values), re-clearing the list if a fill falls short (`0 < pushed < 7`) so partial entries never reach `InvalidateData`. Each time: `step=code_obj_special n= when=<calls|late|keys|answer> mode= found=
 type= cleared_by=<splice|length|none> pushed= length=` (the first 16). Only the root's `CreateObject` and the Value
 calls already checked at stage (c) are used, so no Address Library id is added. Fallout 4's MAP page calls
 `codeObj.RefreshMapMarkers` and `codeObj.CheckHardcoreModeFastTravel` directly (a missing function is TypeError #1006):
