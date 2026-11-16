@@ -317,7 +317,8 @@ class ContractTests(unittest.TestCase):
         main-quest AlwaysOn quests and the follower, crew and group plumbing (the owner's Warfare boundary) stay out.
         The selftest builds the list without them, cross-checks both ways and rejects one that lost DialogueCydonia."""
         cs = read(CS)
-        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)
+        self.assertEqual(ng.DEFAULT_HOLD[:len(ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)],
+                         ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)
         self.assertEqual(len(ng.HOLD_CITY_FACTION), 80)
         self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
         for q in ng.HOLD_CITY_FACTION:
@@ -327,10 +328,37 @@ class ContractTests(unittest.TestCase):
             self.assertIn(f'EditorID = "{q}"', cs)
         for q in ("SQ_Followers", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride", "DialogueGeneric", "DialogueCrowds",
                   "DialogueGenericPlayer", "SQ_PlayerShip", "DialogueShipServices", "MQ105_AlwaysOnDialogueNeon"):
-            self.assertNotIn(q, ng.DEFAULT_HOLD)
+            self.assertNotIn(q, ng.HOLD_CITY_FACTION)
         self.assertIn('("nocity", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() })', cs)
         self.assertIn('"a hold list without the city and faction group as the default one"', cs)
         self.assertIn('("the hold list lost DialogueCydonia"', cs)
+
+    def test_generic_dialogue_and_activities_held_off(self):
+        """S13 row 5, the fourth group (FAL-1041): the rest of Gemini's city and faction dialogue batches (32), then the
+        rest of its activities and misc batches (16), join the default hold list after the city and faction group. The
+        five quests the Warfare boundary keeps running and the seven never to stop stay out, and so do the radiant, ship
+        and system batches. The selftest builds the list without the group and without the activities, cross-checks
+        each both ways and rejects a list that lost DialogueCrowds or SQ_Doctors."""
+        cs = read(CS)
+        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION
+                         + ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES)
+        self.assertEqual((len(ng.HOLD_GENERIC_DIALOGUE), len(ng.HOLD_ACTIVITIES)), (32, 16))
+        self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
+        for q in ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES:
+            self.assertNotIn("Ships", q)                                      # the ship dialogue is the ships group
+            self.assertIn(f'EditorID = "{q}"', cs)
+        for q in ng.HOLD_GENERIC_DIALOGUE:
+            self.assertTrue("Dial" in q or q.startswith("LC082_"), q)        # DialgoueSSNNScenes: Starfield's spelling
+        for q in ("SQ_Followers", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride", "SQ_Captive", "SQ_Airlock",  # Warfare
+                  "SQ_PlayerShip", "SQ_Parent", "PlayerSkills", "DialogueGenericPlayer", "DialogueGeneric",
+                  "SpeechChallenge", "Achievements_Quest",                                     # never to stop
+                  "MB_Parent", "RE_Parent", "DialogueShipServices", "SQ_Traits"):              # later groups
+            self.assertNotIn(q, ng.DEFAULT_HOLD)
+        self.assertIn('("nodialogue", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray() })', cs)
+        self.assertIn('"a hold list without the generic dialogue and activities group as the default one"', cs)
+        self.assertIn('"a hold list without the activities as the default one"', cs)
+        self.assertIn('("the hold list lost DialogueCrowds"', cs)
+        self.assertIn('("the hold list lost SQ_Doctors"', cs)
 
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
@@ -668,9 +696,11 @@ class ContractTests(unittest.TestCase):
         default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
         self.assertIn("HoldCore = { " + ", ".join(f'"{q}"' for q in ng.HOLD_CORE) + " }", cs)
-        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray();", cs)
+        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction)\n"
+                      "        .Concat(HoldGenericDialogue).Concat(HoldActivities).ToArray();", cs)
         for name, group in (("HoldCompanions", ng.HOLD_COMPANIONS), ("HoldAudioTutorials", ng.HOLD_AUDIO_TUTORIALS),
-                            ("HoldCityFaction", ng.HOLD_CITY_FACTION)):
+                            ("HoldCityFaction", ng.HOLD_CITY_FACTION), ("HoldGenericDialogue", ng.HOLD_GENERIC_DIALOGUE),
+                            ("HoldActivities", ng.HOLD_ACTIVITIES)):
             block = cs[cs.index(name + " = {"):]
             self.assertEqual(re.findall(r'"([^"]+)"', block[:block.index("};")]), list(group))
         self.assertNotIn("DefaultMQ101Debug", cs)
@@ -709,7 +739,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('" pass=" + pass', psc)
         for q in ng.HOLD_CORE:
             self.assertIn(q, psc)                            # the HoldOff property's doc names the core list
-        for name in ("HoldCompanions", "HoldAudioTutorials", "HoldCityFaction"):
+        for name in ("HoldCompanions", "HoldAudioTutorials", "HoldCityFaction", "HoldGenericDialogue", "HoldActivities"):
             self.assertIn(name, psc)                         # and the row 5 groups by their writer list
 
     def test_script_names_and_log_name(self):

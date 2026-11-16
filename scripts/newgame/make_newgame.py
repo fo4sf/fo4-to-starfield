@@ -119,7 +119,26 @@ HOLD_CITY_FACTION = ("City_AkilaLife07", "DialogueConstellation", "DialogueCrims
                      "City_AC_FAB_Quest11", "City_AC_FAB_Quest09", "City_AC_FAB_Quest07", "City_AC_FAB_Quest08",
                      "City_AC_FAB_Quest10", "City_AC_FAB_Quest12", "City_AC_FAB_Quest16", "City_AC_FAB_Quest14",
                      "City_AC_FAB_Quest13", "City_AC_FAB_Quest15", "City_AC_FAB_Quest17", "City_AC_FAB_Quest19")
-DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION
+# S13 row 5, the fourth group (Program.cs HoldGenericDialogue, HoldActivities): the rest of Gemini's city and faction
+# dialogue batches, then the rest of its activities and misc batches. Radiant, ships and system stay for later groups.
+HOLD_GENERIC_DIALOGUE = ("DialogueCrowds", "DialgoueSSNNScenes", "CR_Dialogue_Turret",
+                         "DialogueTerrormorphThrallHuman", "DialogueGeneric_LISTOutpost", "DialogueGenericSpacers",
+                         "DialogueGenericUnique_Crime_TheKey", "DialogueGenericChildren",
+                         "CR_Dialogue_Terrormorph_Base", "DialogueGenericStarborn_Unique", "CR_Dialogue_QuadrupedB",
+                         "DialogueMiniBot", "DialogueSettleBartenderRumors", "DialogueCrimeGuards",
+                         "MQ105_AlwaysOnDialogueNeon", "DialogueGenericVendor_Chunks",
+                         "DialogueGenericVendor_Terrabrew", "Staryard_StroudEklund_Dialogue",
+                         "Staryard_Taiyo_Dialogue", "Staryard_Deimos_Dialogue", "DialogueGenericEclipticANDSoldiers",
+                         "DialogueGenericUnique_Combat", "Staryard_TridentLuxury_Dialogue", "DialogueGenericCitizens",
+                         "DialogueGenericScum", "DialogueGenericGuards", "DialogueGenericRobotModelA",
+                         "DialogueGenericStarborn", "DialogueGenericRobotModelS", "DialogueGenericUnique_Crime",
+                         "LC082_SuspiciousActors", "DialogueStarstations")
+HOLD_ACTIVITIES = ("MQ207C_AlwaysOn", "Trait_RaisedEnlightenedBoxEnabler", "Traits_Shared", "MQ207C_Support_Fix01",
+                   "Trait_RaisedUniversalBoxEnabler", "MQ206B_AlwaysOn", "SQ_Doctors", "AspirationalItems", "MS04",
+                   "Patch_Hotfix", "Patch_Update03_FixFollower", "StarbornTempleQuest",
+                   "SkillMag_CyberRunner_Handler", "SQ_PEO_SustenanceDialogue", "Patch_Update05", "SQ_Hoteliers")
+DEFAULT_HOLD = (HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION + HOLD_GENERIC_DIALOGUE
+                + HOLD_ACTIVITIES)
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
