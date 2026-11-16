@@ -87,6 +87,7 @@ int Property OfflineMaxTicks = 5000 Auto Const
 string LogName = "FO4SF_ALife"
 int TIMER_1A = 1
 int TIMER_1B = 2
+int MAX_SQUAD = 16
 int mode1a = 0                  ; 0 idle, 1 walking, 2 arrived, 3 failed
 int mode1b = 0                  ; 0 idle, 1 walking, 2 garrisoned, 3 failed
 bool rung1aPassed = False
@@ -99,6 +100,7 @@ float[] wpY
 float[] wpZ
 int wpCount = 0
 int wp = 0
+int reusedCount = 0
 float destX = 0.0
 float destY = 0.0
 float t0 = 0.0
@@ -164,7 +166,8 @@ EndFunction
 ; ---------------------------------------------------------------- lifecycle
 
 Event OnQuestInit()
-    occupancy = new int[128]
+    ResetOccupancy()
+    RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
     Trace("step=init nodes=" + NodeX.Length + " edges=" + EdgeU.Length + " pool=" + Waymarkers.Length + " squad_size=" + SquadSize + " mode=" + Mode + " offset=" + MergeOffsetX + "," + MergeOffsetY)
     if !GraphOk()
         return
@@ -175,6 +178,31 @@ Event OnQuestInit()
         StartRung1b(10, True)
     endif
 EndEvent
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    RebaseTimers(Utility.GetCurrentRealTime())
+    Trace("step=load_game rt_rebased=" + (mode1a == 1) + " rung1a=" + mode1a + " rung1b=" + mode1b)
+EndEvent
+
+Function RebaseTimers(float now)
+    if mode1a == 1
+        float elapsed = lastT - t0
+        if elapsed < 0.0
+            elapsed = 0.0
+        endif
+        float stuckAge = lastT - stuckT
+        if stuckAge < 0.0
+            stuckAge = 0.0
+        endif
+        t0 = now - elapsed
+        lastT = now
+        stuckT = now - stuckAge
+    endif
+EndFunction
+
+Function ResetOccupancy()
+    occupancy = new int[128]
+EndFunction
 
 bool Function GraphOk()
     int n = NodeX.Length
@@ -197,19 +225,24 @@ Function Shutdown(string why)
     CancelTimer(TIMER_1A)
     CancelTimer(TIMER_1B)
     int removed = ClearSquad()
+    ResetOccupancy()
     if mode1a == 1
         mode1a = 3
     endif
     if mode1b == 1
         mode1b = 3
     endif
-    Trace("step=stop why=" + why + " removed=" + removed)
+    Trace("step=stop why=" + why + " removed=" + removed + " occupancy_reset=1")
 EndFunction
 
 ; ---------------------------------------------------------------- rung 1a: loaded 3D walk
 
 Function StartRung1a()
     if !GraphOk()
+        return
+    endif
+    if SquadSize < 1 || SquadSize > MAX_SQUAD
+        Trace("step=rung1a_refused reason=bad_squad_size squad_size=" + SquadSize + " max=" + MAX_SQUAD)
         return
     endif
     if mode1a == 1 || mode1b == 1
@@ -229,9 +262,8 @@ Function StartRung1a()
         return
     endif
     ClearSquad()
-    if occupancy == None
-        occupancy = new int[128]
-    endif
+    ResetOccupancy()
+    RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     ; the waypoints: evenly spaced on the straight line from start to destination (the navmesh walk finds the road)
     float ex = NodeX[Rung1aTo] + MergeOffsetX
     float ey = NodeY[Rung1aTo] + MergeOffsetY
@@ -259,12 +291,13 @@ Function StartRung1a()
     destY = ey
     ; spawn: pool marker 0 at the start spot, snapped to the navmesh, then the squad on it
     ObjectReference spawnAt = PlaceWaymarker(0, sx, sy, sz, -1)
-    squad = new Actor[4]
-    lastX = new float[4]
-    lastY = new float[4]
+    squad = new Actor[16]
+    lastX = new float[16]
+    lastY = new float[16]
     maxSnap = 0.0
+    reusedCount = 0
     int i = 0
-    while i < SquadSize && i < 4
+    while i < SquadSize && i < MAX_SQUAD
         Actor a = spawnAt.PlaceActorAtMe(SquadBase, 4, None, False, False, True, None, True)
         if a != None
             a.MoveTo(spawnAt, (i as float) * 1.5 - 2.25, -1.5, 0.0, False, False)
@@ -376,6 +409,9 @@ EndFunction
 
 Function Rung1aSample()
     float now = Utility.GetCurrentRealTime()
+    if now < lastT
+        RebaseTimers(now)
+    endif
     float t = now - t0
     float dt = now - lastT
     lastT = now
@@ -468,9 +504,13 @@ Function Rung1aSample()
     endif
     if wp < wpCount - 1 && toWp <= WaymarkerRadius
         wp += 1
+        bool reused = wp >= Waymarkers.Length
+        if reused
+            reusedCount += 1
+        endif
         ObjectReference nextM = PlaceWaymarker(wp, wpX[wp], wpY[wp], wpZ[wp], wp)
         LinkSquad(nextM)
-        Trace("step=rung1a_waymarker_advance t=" + t + " wp=" + wp + "/" + wpCount + " marker=" + nextM.GetFormID() + " reused=" + (wp >= Waymarkers.Length) + " leader_dest_m=" + toDest)
+        Trace("step=rung1a_waymarker_advance t=" + t + " wp=" + wp + "/" + wpCount + " marker=" + nextM.GetFormID() + " reused=" + reused + " leader_dest_m=" + toDest)
     endif
     if t >= Rung1aTimeout
         Finish1a(False, "timeout", t)
@@ -484,7 +524,7 @@ Function Finish1a(bool arrivedOk, string why, float t)
     if samples > 0
         okFrac = (spreadOk as float) / (samples as float)
     endif
-    bool pass = arrivedOk && teleports == 0 && okFrac >= SpreadOkFraction && maxSnap < MaxSnapError && t <= Rung1aTimeout && cellsCrossed >= 1
+    bool pass = arrivedOk && teleports == 0 && okFrac >= SpreadOkFraction && maxSnap < MaxSnapError && t <= Rung1aTimeout && cellsCrossed >= 1 && reusedCount >= 1
     string result = "FAIL"
     if pass
         result = "PASS"
@@ -493,7 +533,7 @@ Function Finish1a(bool arrivedOk, string why, float t)
     else
         mode1a = 3
     endif
-    Trace("step=summary rung=1a result=" + result + " why=" + why + " t=" + t + " members=" + LiveActors() + "/" + SquadSize + " samples=" + samples + " spread_ok=" + okFrac + " max_step_mps=" + maxStep + " teleports=" + teleports + " z_snap_max_m=" + maxSnap + " cells_crossed=" + cellsCrossed + " stuck=" + stuckCount + " waypoints=" + wpCount + " pool=" + Waymarkers.Length)
+    Trace("step=summary rung=1a result=" + result + " why=" + why + " t=" + t + " members=" + LiveActors() + "/" + SquadSize + " samples=" + samples + " spread_ok=" + okFrac + " max_step_mps=" + maxStep + " teleports=" + teleports + " z_snap_max_m=" + maxSnap + " cells_crossed=" + cellsCrossed + " reused=" + reusedCount + " stuck=" + stuckCount + " waypoints=" + wpCount + " pool=" + Waymarkers.Length)
 EndFunction
 
 bool Function GarrisonCheck(int node, string who)
@@ -521,9 +561,7 @@ Function StartRung1b(int perTimer, bool force)
         Trace("step=rung1b_refused reason=rung1a_not_passed")
         return
     endif
-    if occupancy == None
-        occupancy = new int[128]
-    endif
+    ResetOccupancy()
     forced = force && !rung1aPassed
     int removed = ClearSquad()
     Actor player = Game.GetPlayer()

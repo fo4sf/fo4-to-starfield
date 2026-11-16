@@ -420,9 +420,11 @@ def judge(lines, min_player_m=OFFLINE_MIN_PLAYER_M):
         snaps = [_num(kv.get("z_snap_m"), math.inf) for kv in spawns if kv.get("failed") != "1"]
         cells = max((int(_num(kv.get("cells_crossed"), 0)) for kv in prog), default=0)
         t_arr = _num(arrived[-1].get("t")) if arrived else None
+        init_kv = next((kv for s, kv in reversed(ev[:starts[-1] + 1]) if s == "init"), {})
+        want_squad = int(_num(init_kv.get("squad_size"), SQUAD))
         crit = {
-            "members_spawned": len(snaps) == SQUAD,
-            "arrived_all": bool(arrived) and int(_num(arrived[-1].get("members"), 0)) == SQUAD,
+            "members_spawned": len(snaps) == want_squad,
+            "arrived_all": bool(arrived) and int(_num(arrived[-1].get("members"), 0)) == want_squad,
             "within_timeout": t_arr is not None and t_arr <= TIMEOUT,
             "no_teleport": bool(steps) and max(steps) < MAX_STEP,
             "cohesion": ok_frac >= SPREAD_OK,
@@ -577,7 +579,7 @@ Commands (console, game unpaused after each):
   cgf "{SCRIPT}.Rung1b" 10 0
   cgf "{SCRIPT}.Status"
   cgf "{SCRIPT}.StopAll"
-Read the log: python scripts\\alife\\make_alife.py log   (rung 1b's own session: log1b)
+Read the log: python scripts\\alife\\make_alife.py log --file "<My Games>\\Starfield\\Logs\\Script\\User\\FO4SF_ALife.0.log"   (rung 1b's own session: log1b --file ...)
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, Data/Scripts/{SCRIPT}.pex, offline_check.txt, plan.json, README.txt")

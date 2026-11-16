@@ -5,6 +5,12 @@ reusable waymarkers, a 4-member Minutemen squad that walks Red Rocket to Concord
 that walks the north-west offline graph (1b). The native simulation plugin stays for a later slice: a 20-node graph
 fits Papyrus arrays (at most 128 elements each), so this slice is Papyrus only.
 
+**Scope boundary (no online/offline switch yet):** the 450 m / 620 m online/offline switch-in and switch-out
+(materialising an offline squad into 3D actors when the player approaches, and dematerialising loaded actors back onto
+the offline graph when the player leaves) is **not implemented in slice 1** -- that hand-off belongs to a later rung
+(Part F rung 3). Slice 1 runs rung 1a (loaded 3D walk) and rung 1b (actorless offline graph walk) as two sequential,
+independent steps.
+
 Status: **offline only.** Build, check, compile and unit tests pass on the PC (below). Nothing has run in game. Every
 in-game claim here is a **supported hypothesis** until the two PC cards come back.
 
@@ -28,9 +34,11 @@ in-game claim here is a **supported hypothesis** until the two PC cards come bac
   in. The controller uses the verified recipe of `FO4SF_Min00Quest`: merged spot = local spot + (-1200, -2700), placed
   by `MoveTo(player, target - player position)`, then `MoveToNearestNavmeshLocation`. It starts only when the player
   stands outdoors within 300 m of the merged start spot (coordinates alone cannot tell two exterior worlds apart).
-- **Squad:** four `PlaceActorAtMe` of the squad NPC_ on pool marker 0, 1.5 m apart, each `SetGroupFaction` to our
-  faction. The walk is the P9 recipe (docs/combined-core.md CC-63): `SetLinkedRef(waymarker)` + `EvaluatePackage()`,
-  no alias, no `PathToReference`.
+- **Squad:** four `PlaceActorAtMe` of the squad NPC_ on pool marker 0 (`SquadSize` 1..16 supported, default 4; values
+  outside 1..16 are refused with `reason=bad_squad_size`), 1.5 m apart, each `SetGroupFaction` to our faction. The walk
+  is the P9 recipe (docs/combined-core.md CC-63): `SetLinkedRef(waymarker)` + `EvaluatePackage()`, no alias, no
+  `PathToReference`. Garrison `occupancy` resets on `Shutdown` (`StopAll`) and at the start of every `StartRung1a` and
+  `StartRung1b`, and `Actor.OnPlayerLoadGame` rebases `GetCurrentRealTime` timers across game restarts.
 - **Reusable waymarkers:** the line is cut into `ceil(165.4 / 40)` = 5 waypoints; waypoint i uses `Waymarkers[i % 4]`,
   moved into place only when the squad's leader comes within 10 m of the previous one, so waypoint 5 reuses marker 1.
   A marker read more than 25 m from its waypoint is placed again (persistent refs read their editor spot again after
@@ -63,7 +71,7 @@ in-game claim here is a **supported hypothesis** until the two PC cards come bac
 ## Telemetry
 
 User log `FO4SF_ALife` (`Logs/Script/User/FO4SF_ALife.0.log`), one line per event:
-`FO4SF_ALIFE rt=<real s> step=<name> key=value ...`. Steps: `init`, `rung1a_waymarker_place`, `rung1a_spawn`,
+`FO4SF_ALIFE rt=<real s> step=<name> key=value ...`. Steps: `init`, `load_game`, `rung1a_waymarker_place`, `rung1a_spawn`,
 `rung1a_start`, `rung1a_progress`, `rung1a_waymarker_advance`, `rung1a_waymarker_replace`, `rung1a_stuck`,
 `rung1a_arrived`, `garrison_cap_check`, `rung1b_start`, `rung1b_route`, `rung1b_tick`, `rung1b_edge_step`,
 `rung1b_node_arrive`, `summary rung=1a|1b result=PASS|FAIL`, plus `rung1a_refused`, `rung1b_refused`, `status`,
@@ -85,7 +93,8 @@ User log `FO4SF_ALife` (`Logs/Script/User/FO4SF_ALife.0.log`), one line per even
   nearest evidence). The progress lines name the package every sample.
 - **Unresolved:** whether four actors linked to one marker keep together; the spread criterion measures it.
 - **Unresolved:** whether `Math.sqrt` behaves in game (it compiles; P9's helper avoided it).
-- Rung 1b is abstract by design: no actor moves, and nothing here hands it back to a loaded actor (Part F rung 3).
+- Rung 1b is abstract by design: no actor moves, and the 450 m / 620 m online/offline switch-in/out hand-off belongs
+  to a later rung (Part F rung 3), not slice 1.
 
 ## PC card A: rung 1a, loaded (run first)
 
@@ -95,38 +104,45 @@ User log `FO4SF_ALife` (`Logs/Script/User/FO4SF_ALife.0.log`), one line per even
    `python scripts/alife/make_alife.py stage --out <new stage dir> --core <core experiment dir>/FO4TerrainCore.esm --raider <FO4ActorRaider.esm> --starfield <game>/Data/Starfield.esm --compiler "<game>/Tools/Papyrus Compiler/PapyrusCompiler.exe" --content-resources <game>/Tools/ContentResources.zip`
    Expect `all checks pass`, `Compilation succeeded`, `staged ...`.
 2. **Fold and verify:** `make_alife.py fold --stage <stage dir> --core-dir <core experiment dir> --out <new folded dir> --raider <FO4ActorRaider.esm>`,
-   then `make_alife.py verify --exp-dir <folded dir> --plan <stage dir>/plan.json --raider <FO4ActorRaider.esm>` → `verify: ok`.
+   then `make_alife.py verify --exp-dir <folded dir> --plan <stage dir>/plan.json --raider <FO4ActorRaider.esm>` -> `verify: ok`.
    Use a core set on which the Red Rocket crash is solved (ROADMAP: v6i plainshader).
 3. **Before-receipt:** `python scripts/game/exp_install.py status --exp-dir <folded dir> --starfield <game>` and a copy
    of Plugins.txt. **Install** (game closed): the core set's usual `exp_install.py install` with `--exp-dir <folded dir>`
    and `FO4SFALife.esm` appended to `--plugins` (`--pack`), then `exp_install.py order`.
 4. **Launch:** through SFSE as the core set's sessions do; load a throwaway save in the converted Commonwealth (or a new
    game through the converted start). Logging needs the `[Papyrus]` keys `make_bridge.py ini` sets.
-5. **Place the player:** outdoors at Red Rocket on the merged world (the sessions' exterior `coc` line, then walk), about
-   25 m off the road between Red Rocket and Concord, `tgm`. The log's `init` line appears at quest start.
+5. **Place the player:** outdoors at Red Rocket on the merged world: console `coc FO4Core_RedRocketSpawn`, wait for the
+   arrival to settle, then walk about 25 m off the road between Red Rocket and Concord, `tgm`, and make a pre-run
+   throwaway save. The log's `init` line appears at quest start.
 6. **Run:** console `cgf "FO4SF_ALifeControllerQuest.Rung1a"`, close the console. A `rung1a_refused` line names why
    (interior, or too far from the start spot: `player_m=`). Do not move the player during the walk; stops near the
-   player are expected (P9).
+   player are expected (P9). **Reload the pre-run save before any retry.**
 7. **Watch (recorder):** four Minutemen appear at Red Rocket, walk together along the road to Concord, stop there.
    Record the whole walk.
-8. **Read:** `python scripts/alife/make_alife.py log` (exit 0 = PASS). Every criterion is printed; the script's own
-   `summary rung=1a` line is reported beside it.
+8. **Read:** `python scripts/alife/make_alife.py log --file "<My Games>/Starfield/Logs/Script/User/FO4SF_ALife.0.log"`
+   (always pass `--file`, because `Documents` can be OneDrive-redirected; exit 0 = PASS). Every criterion is printed;
+   the script's own `summary rung=1a` line is reported beside it.
 9. **Save** a new throwaway save after the PASS (card B loads it: rung 1b needs rung 1a passed on the save).
-10. **Rollback:** `cgf "FO4SF_ALifeControllerQuest.StopAll"` deletes the squad; quit; `exp_install.py uninstall --exp-dir <folded dir> --starfield <game>`;
-    Plugins.txt back to the before-receipt. Throwaway saves only. Nothing else in the game folder changes.
+10. **Rollback:** `cgf "FO4SF_ALifeControllerQuest.StopAll"` deletes the squad and resets garrison occupancy; quit;
+    `exp_install.py uninstall --exp-dir <folded dir> --starfield <game>`; Plugins.txt back to the before-receipt.
+    Throwaway saves only. Nothing else in the game folder changes.
 
-**Return:** the log (`FO4SF_ALife.0.log`), `make_alife.py log` output, the recording's description. No game text.
+**Return:** the log (`FO4SF_ALife.0.log`), `make_alife.py log --file ...` output, the recording's description. No game text.
 
 ## PC card B: rung 1b, offline (only after card A passed)
 
 1. Same install as card A (still installed, or reinstall the same folded dir: `verify` first).
-2. **Load the save made after card A's PASS.**
-3. **Move the player far away:** more than 1,000 m from Red Rocket (Diamond City's area, per Part F, is about 3 km).
-   Any outdoor or indoor spot works; nothing loads near the graph.
+2. **Load the save made after card A's PASS.** **Reload the pre-run save before any retry.**
+3. **Move the player far away (more than 1,000 m from Red Rocket):** **never use `player.setpos` for a jump over 200 m**
+   (in Starfield, `setpos` over 200 m throws the player kilometres away). Safe methods: either enter a distant interior
+   cell via `coc FO4Port_Vault111Cryo` (its coordinates are ~2,687 m from merged Red Rocket `(-2191.1, -1555.0)` and
+   load nothing near the graph), use `player.moveto <ref>` onto a reference/actor over 1,000 m away, or step outdoors in
+   incremental hops under 150 m (`<= 150 m` per `setpos`, waiting to settle after each hop, 8 hops south-east).
 4. **Run:** `cgf "FO4SF_ALifeControllerQuest.Rung1b" 10 0`, close the console. About 61 s at 10 ticks per second.
    `rung1b_refused reason=rung1a_not_passed` means the save is not card A's: stop and report.
-5. **Read:** `python scripts/alife/make_alife.py log1b` (exit 0 = PASS): due tick 610 within one, 1.35 m a tick, no live
-   actor, player far, route length as planned, garrisoned at Starlight Drive-In.
+5. **Read:** `python scripts/alife/make_alife.py log1b --file "<My Games>/Starfield/Logs/Script/User/FO4SF_ALife.0.log"`
+   (exit 0 = PASS): due tick 610 within one, 1.35 m a tick, no live actor, player far, route length as planned,
+   garrisoned at Starlight Drive-In.
 6. **Rollback:** as card A step 10.
 
-**Return:** the log and `make_alife.py log1b` output.
+**Return:** the log and `make_alife.py log1b --file ...` output.

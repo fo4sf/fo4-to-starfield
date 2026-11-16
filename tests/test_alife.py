@@ -93,10 +93,55 @@ class ContractTests(unittest.TestCase):
 
     def test_every_telemetry_step_is_logged(self):
         psc = read(PSC)
-        for step in ("init", "rung1a_spawn", "rung1a_waymarker_place", "rung1a_waymarker_advance", "rung1a_progress",
+        for step in ("init", "load_game", "rung1a_spawn", "rung1a_waymarker_place", "rung1a_waymarker_advance", "rung1a_progress",
                      "rung1a_stuck", "rung1a_waymarker_replace", "rung1a_arrived", "garrison_cap_check", "rung1b_start", "rung1b_route",
                      "rung1b_tick", "rung1b_edge_step", "rung1b_node_arrive", "summary", "stop"):
             self.assertIn(f'"step={step} ', psc.replace('step=" + ', "step= ") + "", step)
+
+    def test_finish1a_requires_waymarker_reuse(self):
+        psc = read(PSC)
+        fin = psc[psc.index("Function Finish1a("):psc.index("EndFunction", psc.index("Function Finish1a("))]
+        self.assertIn("reusedCount >= 1", fin)
+        self.assertIn('" reused=" + reusedCount', fin)
+
+    def test_occupancy_resets_on_shutdown_and_new_runs(self):
+        psc = read(PSC)
+        reset = psc[psc.index("Function ResetOccupancy("):psc.index("EndFunction", psc.index("Function ResetOccupancy("))]
+        self.assertIn("occupancy = new int[128]", reset)
+        for fn in ("Event OnQuestInit(", "Function Shutdown(", "Function StartRung1a(", "Function StartRung1b("):
+            end = "EndEvent" if fn.startswith("Event ") else "EndFunction"
+            body = psc[psc.index(fn):psc.index(end, psc.index(fn))]
+            self.assertIn("ResetOccupancy()", body, f"{fn} must reset garrison occupancy for retries")
+
+    def test_load_game_rebases_realtime_clock(self):
+        psc = read(PSC)
+        self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', psc)
+        ev = psc[psc.index("Event Actor.OnPlayerLoadGame("):psc.index("EndEvent", psc.index("Event Actor.OnPlayerLoadGame("))]
+        self.assertIn("RebaseTimers(", ev)
+        rb = psc[psc.index("Function RebaseTimers("):psc.index("EndFunction", psc.index("Function RebaseTimers("))]
+        self.assertIn("t0 = now - elapsed", rb)
+        self.assertIn("lastT = now", rb)
+        self.assertIn("stuckT = now - stuckAge", rb)
+        samp = psc[psc.index("Function Rung1aSample("):psc.index("EndFunction", psc.index("Function Rung1aSample("))]
+        self.assertIn("if now < lastT", samp)
+
+    def test_squad_size_guarded_and_sized(self):
+        psc = read(PSC)
+        start = psc[psc.index("Function StartRung1a("):psc.index("EndFunction", psc.index("Function StartRung1a("))]
+        self.assertIn("SquadSize < 1 || SquadSize > MAX_SQUAD", start)
+        self.assertIn("reason=bad_squad_size", start)
+        self.assertIn("squad = new Actor[16]", start)
+        self.assertIn("while i < SquadSize && i < MAX_SQUAD", start)
+
+    def test_doc_ascii_and_pc_card_guards(self):
+        doc = read(os.path.join(ROOT, "docs", "alife", "alife-slice1.md"))
+        self.assertTrue(doc.isascii(), "alife-slice1.md must stay pure ASCII (no mojibake arrows)")
+        self.assertIn("450 m / 620 m", doc)
+        self.assertIn("not implemented in slice 1", doc)
+        self.assertIn("coc FO4Core_RedRocketSpawn", doc)
+        self.assertIn("never use `player.setpos` for a jump over 200 m", doc)
+        self.assertIn("--file", doc)
+        self.assertGreaterEqual(doc.lower().count("reload the pre-run save before any retry"), 2)
 
     def test_walk_is_the_linked_ref_alone(self):
         psc = read(PSC)
