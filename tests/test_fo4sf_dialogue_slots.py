@@ -26,6 +26,8 @@ class Fo4sfDialogueSlotsSourceTest(unittest.TestCase):
         self.assertIn("fo4sfOptN", self.src)
         self.assertIn("getChildByName", self.src)
         self.assertIn("getDefinitionByName", self.src)
+        self.assertIn("DialogueList_mc", self.src)
+        self.assertIn("hideHostList", self.src)
 
     def test_not_a_compiled_movie(self):
         self.assertTrue(self.src.lstrip().startswith("//"))

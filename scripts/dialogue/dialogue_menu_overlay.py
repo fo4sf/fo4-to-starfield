@@ -282,9 +282,11 @@ def overlay_inject(host_bytes, width=1920, height=1080):
     extras = []
     inner = []
     cid = next_character_id(tags)
+    boxes = wheel.slot_boxes(width * swf.TWIPS, height * swf.TWIPS)
     for i, name in enumerate(wheel.SLOT_NAMES):
         extras.append(swf.define_sprite(cid, []))
-        inner.append(swf.place_named(cid, i + 1, name))
+        x, y, _w, _h = boxes[wheel.SLOTS[i]]
+        inner.append(_place_named_xy(cid, i + 1, name, x, y))
         cid += 1
     extras.append(swf.define_sprite(cid, inner))
     host_place = swf.place_object2(cid, depth)
@@ -327,6 +329,38 @@ def _symbol_entries(data):
         out.append((cid, data[pos:z].decode("ascii", "replace")))
         pos = z + 1
     return out
+
+
+def _place_named_xy(char_id, depth, name, x, y):
+    """PLACE_OBJECT2 with HasName and a translate. Empty clips at 0,0 drew nothing (FAL-1040)."""
+    nbits = swf.sb_bits(x, y)
+    b = swf.Bits()
+    b.ub(0, 1)
+    b.ub(0, 1)
+    b.ub(nbits, 5)
+    b.sb(x, nbits)
+    b.sb(y, nbits)
+    return swf.tag(
+        swf.PLACE_OBJECT2,
+        bytes([0x26]) + struct.pack("<HH", depth, char_id) + b.align() + name.encode("ascii") + b"\x00",
+    )
+
+
+def _place_translate(data):
+    """Translate x, y from a HasMatrix PlaceObject2, or (0, 0)."""
+    if not data or not (data[0] & 0x04):
+        return (0, 0)
+    pos = 3
+    if data[0] & 0x02:
+        pos = 5
+    r = swf.BitReader(data, pos)
+    for _ in range(2):
+        if r.ub(1):
+            n = r.ub(5)
+            r.sb(n)
+            r.sb(n)
+    n = r.ub(5)
+    return (r.sb(n), r.sb(n))
 
 
 def _write_symbol_class(entries):

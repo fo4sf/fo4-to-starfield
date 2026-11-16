@@ -24,6 +24,7 @@ package
         public static const SELECT_KEY:String = "selectedIndex";
         public static const SLOTS:Array = ["fo4sfOptN", "fo4sfOptE", "fo4sfOptS", "fo4sfOptW"];
         public static const MAP_ROWS:int = 4;
+        public static const HOST_LIST:String = "DialogueList_mc";
 
         public var lastChoices:Array;
 
@@ -35,6 +36,7 @@ package
 
         public function onAdded(e:Event):void
         {
+            hideHostList();
             var mgr:Object = shuttle();
             if (mgr != null)
             {
@@ -89,6 +91,20 @@ package
                 return;
             }
             mgr.Dispatch(ON_SELECT, payload);
+        }
+
+        public function hideHostList():void
+        {
+            var p:DisplayObjectContainer = this.parent;
+            if (p == null)
+            {
+                return;
+            }
+            var list:DisplayObject = p.getChildByName(HOST_LIST);
+            if (list != null)
+            {
+                list.visible = false;
+            }
         }
 
         public function fillSlot(name:String, text:String):void

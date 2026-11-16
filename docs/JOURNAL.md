@@ -3096,3 +3096,10 @@ Missing --slots-swf is "not installed". Native/game NOT_RUN.
 
 A host with End and no root ShowFrame is an error. ABC is not written before End.
 Install of that host with --slots-swf is not installed. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1040 PARTIAL — bind drew nothing
+
+PC PARTIAL 162fe3ad: compiled Fo4sfDialogueSlots (1924 B), overlay --slots-swf, no crash on a
+2-option vanilla talk. Slots drew nothing. Bind is aChoices on any talk, not Concord-only.
+Empty clips were stacked at 0,0. Next: N/E/S/W translate; hide DialogueList_mc from the bind
+class. Native/game NOT_RUN here.

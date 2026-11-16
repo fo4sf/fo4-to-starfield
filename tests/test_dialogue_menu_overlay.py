@@ -84,6 +84,28 @@ class OverlayPlanTest(unittest.TestCase):
             self.assertIn(name, nested_names)
         self.assertIn(host.HOST_ROOT, overlay.root_instances(movie))
 
+    def test_inject_places_slots_at_wheel_boxes(self):
+        patched = overlay.overlay_inject(host_shaped_movie())
+        blob = zlib.decompress(patched[8:])
+        r = swf.BitReader(blob)
+        swf.read_rect(r)
+        pos = r.align() + 4
+        got = {}
+        for code, data in overlay._raw_tags(blob, pos):
+            if code != swf.DEFINE_SPRITE or len(data) < 4:
+                continue
+            for nc, nd in overlay._raw_tags(data, 4):
+                if nc != swf.PLACE_OBJECT2:
+                    continue
+                name = overlay._place_instance(nd)[0]
+                if name in wheel.SLOT_NAMES:
+                    got[name] = overlay._place_translate(nd)
+        boxes = wheel.slot_boxes(1920 * swf.TWIPS, 1080 * swf.TWIPS)
+        for i, name in enumerate(wheel.SLOT_NAMES):
+            x, y, _w, _h = boxes[wheel.SLOTS[i]]
+            self.assertEqual(got[name], (x, y))
+        self.assertEqual(len(set(got.values())), 4)
+
     def test_inject_adds_no_filled_slot_shapes(self):
         raw = host_shaped_movie()
         before = sum(1 for t in swf.read_movie(raw)["tags"] if t.get("code") == swf.DEFINE_SHAPE3)
