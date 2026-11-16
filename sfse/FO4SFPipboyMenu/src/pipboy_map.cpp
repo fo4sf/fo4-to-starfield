@@ -1200,6 +1200,8 @@ namespace
 			g_travelFunction, queued ? 1 : 0);
 	}
 
+	// Note: CheckCreateObjectSlot only checks that vtable slot 0x2E lies inside the Starfield.exe module image (InImage);
+	// it does NOT prove that slot 0x2E is Scaleform::GFx::ASMovieRootBase::CreateObject (unverified until Slice 3 PC run).
 	bool CheckCreateObjectSlot(const void* a_movie, RE::Scaleform::GFx::ASMovieRootBase* a_root)
 	{
 		if (g_createObjOff || !a_movie || !a_root) {
@@ -1220,7 +1222,7 @@ namespace
 			return RefuseStep("channel", std::format("what=create_object_slot vtable={}", Hex(vt)));
 		}
 		g_checkedCreateObjMovie = a_movie;
-		REX::INFO("step=map_root vtable={} create_object={}", Hex(vt), Hex(slot[kCreateObjectSlot] - g_base));
+		REX::INFO("step=map_root vtable={} slot_0x2e_in_image=1 slot_rva={}", Hex(vt), Hex(slot[kCreateObjectSlot] - g_base));
 		return true;
 	}
 

@@ -343,6 +343,11 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertIn("S1-c3", self.doc)
         for slice_num in (1, 2, 3, 4):
             self.assertIn(f"PC Card — Slice {slice_num}:", self.doc)
+        self.assertIn("slot_0x2e_in_image=1", self.cpp)
+        self.assertIn("does NOT prove that slot 0x2E is", self.cpp)
+        self.assertIn("Slices 1–2 (`MapKey` + Star-Map Block + World Texture) are testable first", self.doc)
+        self.assertIn("Do NOT claim Slices 3–4 are verified", self.doc)
+        self.assertIn("does **not** prove that slot `0x2E` is `CreateObject`", self.doc)
 
 
 if __name__ == "__main__":
