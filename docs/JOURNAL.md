@@ -3071,3 +3071,8 @@ ImportAssets2 skips 20 SHA1 bytes when hasDigest is 1. Native/game NOT_RUN.
 
 PC PARTIAL 3d06cbb0: kit did not crash; host list still draws. A green rectangle at lower right
 was the filled fo4sfOpt* shapes. Slots are now empty named sprites. Bind is next. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1029 PARTIAL — no green leak
+
+PC PARTIAL 1cd7d9ad: kit did not crash; host list still draws; no green rectangle. Empty fo4sfOpt*
+show nothing (unbound). Bind sChoiceText next. Native/game NOT_RUN here.

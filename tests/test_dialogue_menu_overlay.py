@@ -41,6 +41,8 @@ class OverlayPlanTest(unittest.TestCase):
         self.assertEqual(payload["menu_mc_role"], "child")
         self.assertTrue(payload["shuttle_in_movie"])
         self.assertEqual(payload["slots_go"], "inside Menu_mc next to DialogueList_mc")
+        self.assertTrue(payload["empty_slot_clips"])
+        self.assertTrue(payload["kill_green_fill"])
 
     def test_refuses_document_named_menu_mc(self):
         payload = overlay.overlay_plan()
