@@ -1787,3 +1787,26 @@ class WriterSelfTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PodStepOptionTests(unittest.TestCase):
+    """stage's --pod-step reaches `points`; unset leaves the command exactly as before (FAL-1007 pod Variant B)."""
+
+    def args(self, **kw):
+        base = dict(pod_ref=None, terminal_ref=None, pod_step=None)
+        base.update(kw)
+        return type("A", (), base)()
+
+    def test_unset_adds_nothing(self):
+        self.assertEqual(ng.points_options(self.args()), [])
+        self.assertEqual(ng.points_options(self.args(pod_ref="4A011", terminal_ref="23CCD")),
+                         ["--pod-ref", "4A011", "--terminal-ref", "23CCD"])
+
+    def test_negative_step_is_passed_verbatim(self):
+        self.assertEqual(ng.points_options(self.args(pod_step=-2.5)), ["--pod-step", "-2.5"])
+
+    def test_zero_is_still_passed(self):
+        self.assertEqual(ng.points_options(self.args(pod_step=0.0)), ["--pod-step", "0.0"])
+
+    def test_the_stage_parser_takes_it(self):
+        self.assertIn('"--pod-step", type=float, default=None', open(ng.__file__, encoding="utf-8").read())
+

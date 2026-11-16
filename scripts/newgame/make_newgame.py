@@ -481,6 +481,15 @@ def exit_lift_component(folder, port, starfield):
     return plan
 
 
+def points_options(a):
+    """The optional flags `stage` hands to `dotnet NewGame points` (none given: the tool's own defaults, so an
+    unchanged stage builds the same points as before). --pod-step is the metres the stand point sits from the pod along
+    its facing (the tool's default 1.0); a negative value steps the other way (FAL-1007 pod Variant B)."""
+    return ((["--pod-ref", a.pod_ref] if a.pod_ref else [])
+            + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else [])
+            + (["--pod-step", repr(float(a.pod_step))] if getattr(a, "pod_step", None) is not None else []))
+
+
 def stage(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
@@ -493,8 +502,7 @@ def stage(a):
     os.makedirs(work)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     points = os.path.join(work, "points.json")
-    run(tool + ["points", a.fo4, points] + (["--pod-ref", a.pod_ref] if a.pod_ref else [])
-        + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else []))
+    run(tool + ["points", a.fo4, points] + points_options(a))
     opts = tool_options(a)
     masters = [a.starfield, a.port, a.port_ids, a.core, points]
     run(tool + ["write", a.starfield, a.port, a.port_ids, a.core, points, out] + opts)
@@ -902,6 +910,7 @@ def main(argv=None):
     s.add_argument("--debug-after-hold", type=int, default=None,
                    help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
+    s.add_argument("--pod-step", type=float, default=None, help="metres from the pod to the start point along the pod's facing (tool default 1.0; FAL-1007 pod Variant B is -2.5)")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--keep-inventory", action="store_true",
                    help="no inventory reset: the player keeps what Starfield gives. By default the quest empties the "

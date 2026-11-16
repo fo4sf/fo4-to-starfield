@@ -44,19 +44,25 @@ discovery, Fast Travel or S3.
 
 ## Variant B: stand 2.5 m in front of the pod (FAL-1007; Gemini (PC) pod read, FAL-1007 comment 6371ab99)
 
-Hypothesis (Gemini (PC), relayed; mechanism **inferred**, not yet observed in game): the current start, `--pod-step 1.0` (default,
-`dotnet/NewGame/Program.cs:7,90`), places the player 1 m along +Y of `REFR 0004A011`, i.e. behind the pod in a pocket between
-the converted pod and the rear wall; the pod's front exit faces -Y, and FO4's own post-pod marker `0001ED61` is about 2.5 m
-toward -Y at (9.114, -6.615, -0.770) m, heading about 182 degrees. The run below changes only the step; no source change is
-needed because `points` already takes `--pod-step`.
+Hypothesis (Gemini (PC), relayed; the mechanism is **inferred**, not yet observed in game): the current start, `--pod-step 1.0`
+(the points tool's default), places the player 1 m along +Y of `REFR 0004A011`, behind the pod in a pocket against the rear
+wall; the pod's front exit faces -Y, and FO4's own post-pod marker `0001ED61` is about 2.5 m toward -Y. Only the step changes.
 
-Run the card above once more per start (creator and quick start), identical in every way except the points file:
-`dotnet NewGame points <Fallout4.esm> <out points.json> --pod-step -2.5` (and nothing else), then the same stage/build/install
-steps, recording the new points.json hash and the printed `stand` position and `step_m`. Do not use -1.0: Gemini (PC) reports it
-lands in the pod's door canopy collision. Heading is unchanged (the pod's own, 0), so the player faces the wall and must turn;
-note that, and do not add a heading change on the PC.
+How to build it. `make_newgame.py stage` at #796 `4aaaa2c0` always ran `points` with the default step, so this card needs the
+reviewed `--pod-step` flag on `stage` (branch `minuteman/fal848-pod-walk-card`, with a unit test; install head for Variant B is
+that branch's head, which differs from #796 `4aaaa2c0` only by that flag and this card; record the full head). Use the same
+`stage` command and every other option as the +1.0 run, adding `--pod-step -2.5`. Do not run any other points path and do not
+edit source on the PC. Before install, record the printed `stand` and `step_m` and the same two values in the staged
+`points.json` (expect `step_m` -2.5 and a stand Y about -6.11 for the pod at Y -4.11). Do not use -1.0: Gemini (PC) reports it
+lands in the pod's door canopy collision.
 
-Compare with the +1.0 run on the same measurements: the `pod_settle` and `looks_positions` samples, the settle height above
-target (+1.35 to +1.63 m before), and whether the player walks the hall to the console and lift. PASS is walkability only, as
-above. If -2.5 walks, the source slice is a default change plus a heading (the pod's facing turned 180 degrees) with its own
-unit test; if it does not, record where it blocks, and the variant is rejected.
+Run the card above once per start (creator = button 0, quick start = button 1), identical except the points file. The pod's
+rotation and the written heading are unchanged (`Points` derives both the offset and the heading from `pod.Rotation.Z`), so
+the player faces the wall and must turn; **a walk proves the step only**. Do not turn the pod's rotation to change the heading;
+that is a separate, unproven change.
+
+Compare with the +1.0 run on the same measurements: `pod_settle` and `looks_positions`, the settle height above target (+1.35
+to +1.63 m before), and whether the player walks the hall to the console and lift. Record each start's own PASS or FAIL; if
+one does not walk, record where it blocks and do not reject the other. PASS is walkability only, as above. If both walk, the
+later source slice is the default `--pod-step` alone, with its own unit test; a heading change stays separate. If neither
+walks, the variant is rejected and the converter's pod collision bodies are the next suspects.
