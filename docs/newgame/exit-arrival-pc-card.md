@@ -148,10 +148,12 @@ Stage 10/30/40/50 only; leave 20/60/70 unset. Stage 30 is the only `V111.SetMark
    stage-10 V111 position. **If it does not, the run is invalid** (it is not a "no entry changes" result).
 4. Baseline capture on that locked view, before stage 30: entries (count, icons), the entry nearest the V111 position, any
    named entry, and the compass. **Stop, and report the run as invalid, if:** (a) there is no surface list (the door load did
-   not repeat A2); (b) any named or discovered entry is already visible, including Vault 111 (the approach changed the list);
-   (c) the stage-30 before-lines do not show V111 and the player in the same exterior world with V111 at its merged target
-   (as in section A). A walk or hop that discovers anything before the baseline is the same stop.
-5. Run **stage 30 only**, with its before/after/+2 s lines. Close the console, reopen the map at the **same locked view and
+   not repeat A2); (b) any named or discovered entry is already visible, including Vault 111 (the approach changed the list).
+   A walk or hop that discovers anything before the baseline is the same stop. Do not run stage 30 to test anything here:
+   its before-lines are printed inside the stage that also runs the discovery call.
+5. Run **stage 30 only**, once, with its before/after/+2 s lines. **After it runs, read its before-lines (they are printed inside the same stage that makes the call):** if V111 and the player
+   are not in the same exterior world, or V111 is not at its merged target (as in section A), the run is invalid and the result
+   rules do not apply; do not run stage 30 again. Close the console, reopen the map at the **same locked view and
    zoom**, and capture again. Do not travel or walk before this capture.
 6. Judge by difference on the locked view: which entries changed (icon, name, UNKNOWN to named) and whether the changed entry is
    the one nearest the stage-10 V111 position. Hover all changed entries and record the name text. Then check Fast Travel (do not
@@ -164,9 +166,13 @@ Stage 10/30/40/50 only; leave 20/60/70 unset. Stage 30 is the only `V111.SetMark
 
 Result rules (on a valid run):
 - **PASS:** exactly one entry changes; it is named `Vault 111` and discovered; Fast Travel is offered; no other entry changes;
-  and it is the entry nearest the stage-10 V111 position on the locked tile. The arrival design is proven for the route
+  it is the entry nearest the stage-10 V111 position on the locked tile; and the Fast Travel walk (if any) discovered nothing. The arrival design is proven for the route
   (markers moved during the ride, FO4's load at the top, then `SetMarkerDiscovered` on Vault 111 only after the load). S5 can
   be built.
+- **One entry changes to named, discovered `Vault 111` with Fast Travel, but it is not the nearest to the stage-10 V111 position:**
+  not PASS, Partial, other-entries or no-change. Report the entries and stop; build no S5 and open no SetScanned card.
+- **Fast Travel walk discovers another location:** record Fast Travel separately and fail the other-locations check; this is
+  not PASS even when the two captures match the PASS bullet, and it opens no SetScanned card.
 - **Partial:** exactly one entry changes, nothing else changes, and it is unnamed, named something other than `Vault 111`,
   not discovered, or has no Fast Travel offer. The next card tests Gemini (PC)'s `SetScanned(true)` /
   `SetRequiresScanning(false)` or `AddToMapScanned(true)` on a separately reviewed kit change; that change is outside A3.
