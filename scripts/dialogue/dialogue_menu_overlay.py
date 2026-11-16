@@ -50,6 +50,9 @@ def overlay_plan():
         "kill_root_named_menu_mc": True,
         "empty_slot_clips": True,
         "kill_green_fill": True,
+        "bind_class": "Fo4sfDialogueSlots",
+        "bind_on": "unnamed_container",
+        "kill_bind_on_sealed_dialogue_menu": True,
         "exported": [
             "DialogueMenu", "DialogueList", "DialogueScrollingListEntry", "DialogueButtonBar",
             "PersuasionList", "PersuasionListEntry", "PersuasionData",
@@ -70,6 +73,12 @@ def check_overlay_plan(payload):
         raise OverlayError("four slots go on Menu_mc next to DialogueList_mc")
     if not payload.get("empty_slot_clips") or not payload.get("kill_green_fill"):
         raise OverlayError("fo4sfOpt* are empty sprites; filled green rectangles leaked in-game")
+    if payload.get("bind_on") != "unnamed_container":
+        raise OverlayError("bind lives on the unnamed container, not sealed DialogueMenu")
+    if payload.get("bind_class") != "Fo4sfDialogueSlots":
+        raise OverlayError("overlay bind class is Fo4sfDialogueSlots")
+    if not payload.get("kill_bind_on_sealed_dialogue_menu"):
+        raise OverlayError("do not assign fo4sfOpt* on sealed DialogueMenu")
     return payload
 
 

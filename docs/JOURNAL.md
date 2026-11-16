@@ -3076,3 +3076,8 @@ was the filled fo4sfOpt* shapes. Slots are now empty named sprites. Bind is next
 
 PC PARTIAL 1cd7d9ad: kit did not crash; host list still draws; no green rectangle. Empty fo4sfOpt*
 show nothing (unbound). Bind sChoiceText next. Native/game NOT_RUN here.
+
+## 2026-11-16 — Scribe: Fo4sfDialogueSlots bind source
+
+Bind class Fo4sfDialogueSlots on the unnamed container, not sealed DialogueMenu. Source only;
+no compiled ABC in Git; overlay_inject does not replace DialogueMenu. Native/game NOT_RUN.
