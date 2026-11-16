@@ -264,14 +264,11 @@ def overlay_inject(host_bytes, width=1920, height=1080):
     nested = _raw_tags(tags[target][1], 4)
     depths = [d for nc, nd in nested for d in [_place_depth(nc, nd)] if d]
     depth = (max(depths) if depths else 0) + 1
-    W, H = width * swf.TWIPS, height * swf.TWIPS
-    boxes = wheel.slot_boxes(W, H)
     extras = []
     inner = []
     cid = next_character_id(tags)
     for i, name in enumerate(wheel.SLOT_NAMES):
-        box = boxes[wheel.SLOTS[i]]
-        extras.append(swf.define_shape3(cid, [box], swf.PIPBOY_GREEN))
+        extras.append(swf.define_sprite(cid, []))
         inner.append(swf.place_named(cid, i + 1, name))
         cid += 1
     extras.append(swf.define_sprite(cid, inner))

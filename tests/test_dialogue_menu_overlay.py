@@ -15,6 +15,10 @@ import make_probe_swf as swf  # noqa: E402
 import make_dialogue_wheel_swf as wheel  # noqa: E402
 
 
+def sprite_ids(movie):
+    return [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SPRITE and t.get("id")]
+
+
 def host_shaped_movie():
     """Plain root, Menu_mc child sprite that places DialogueList_mc. No game bytes."""
     W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
@@ -61,6 +65,13 @@ class OverlayPlanTest(unittest.TestCase):
             self.assertIn(name, nested_names)
         self.assertIn(host.HOST_ROOT, overlay.root_instances(movie))
 
+    def test_inject_adds_no_filled_slot_shapes(self):
+        raw = host_shaped_movie()
+        before = sum(1 for t in swf.read_movie(raw)["tags"] if t.get("code") == swf.DEFINE_SHAPE3)
+        patched = overlay.overlay_inject(raw)
+        after = sum(1 for t in swf.read_movie(patched)["tags"] if t.get("code") == swf.DEFINE_SHAPE3)
+        self.assertEqual(before, after)
+
     def test_refuses_our_wheel_as_host(self):
         reason = overlay.refuse_own_replacement(wheel.movie_bytes())
         self.assertIsNotNone(reason)
@@ -100,7 +111,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 9000 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 9000 for i in shape_ids))
+        self.assertTrue(any(i and i > 9000 for i in sprite_ids(movie)))
 
     def test_inject_skips_importassets2_url_id_3(self):
         extra = swf.tag(
@@ -111,7 +122,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 3 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 3 for i in shape_ids))
+        self.assertTrue(any(i and i > 3 for i in sprite_ids(movie)))
 
     def test_inject_skips_importassets2_digest_id_3(self):
         extra = swf.tag(
@@ -122,7 +133,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 3 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 3 for i in shape_ids))
+        self.assertTrue(any(i and i > 3 for i in sprite_ids(movie)))
 
     def test_inject_skips_importassets2_zero_digest_id_3(self):
         extra = swf.tag(
@@ -133,7 +144,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 3 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 3 for i in shape_ids))
+        self.assertTrue(any(i and i > 3 for i in sprite_ids(movie)))
 
     def test_inject_skips_importassets_url_id_29807(self):
         extra = swf.tag(
@@ -144,7 +155,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 29807 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 29807 for i in shape_ids))
+        self.assertTrue(any(i and i > 29807 for i in sprite_ids(movie)))
 
     def test_inspect_skips_edittext_flags_we_do_not_write(self):
         extra = swf.tag(
@@ -193,7 +204,7 @@ class OverlayPlanTest(unittest.TestCase):
         ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertIn(9000, ids)
         self.assertEqual(ids.count(9000), 1)
-        self.assertTrue(any(i and i > 9000 for i in ids))
+        self.assertTrue(any(i and i > 9000 for i in sprite_ids(movie)))
 
     def _patched_ids(self, extra_root_tags):
         W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
@@ -215,7 +226,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 9000 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 9000 for i in shape_ids))
+        self.assertTrue(any(i and i > 9000 for i in sprite_ids(movie)))
 
     def test_inject_skips_font_and_videostream_id_9000(self):
         extra = swf.tag(10, struct.pack("<H", 9000)) + swf.tag(60, struct.pack("<H", 9000))
@@ -223,7 +234,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 9000 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 9000 for i in shape_ids))
+        self.assertTrue(any(i and i > 9000 for i in sprite_ids(movie)))
 
     def test_inject_skips_videostream_nested_in_menu_mc(self):
         W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
@@ -241,7 +252,7 @@ class OverlayPlanTest(unittest.TestCase):
         movie = swf.read_movie(patched)
         shape_ids = [t.get("id") for t in movie["tags"] if t.get("code") == swf.DEFINE_SHAPE3]
         self.assertTrue(all(i != 9000 for i in shape_ids if i))
-        self.assertTrue(any(i and i > 9000 for i in shape_ids))
+        self.assertTrue(any(i and i > 9000 for i in sprite_ids(movie)))
 
     def test_inject_skips_shape_two_sprites_deep(self):
         W, H = 1920 * swf.TWIPS, 1080 * swf.TWIPS
@@ -263,7 +274,7 @@ class OverlayPlanTest(unittest.TestCase):
 
         ids = shape_ids(movie["tags"])
         self.assertEqual(ids.count(9000), 1)
-        self.assertTrue(any(i > 9000 for i in ids))
+        self.assertTrue(any(i > 9000 for i in sprite_ids(movie)))
 
     def test_short_hint_archive_does_not_abort(self):
         import tempfile

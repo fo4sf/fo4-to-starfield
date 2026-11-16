@@ -3066,3 +3066,8 @@ extract_host_movie maps Ba2Error on read (v3 LZ4) to OverlayError. Native/game N
 ## 2026-11-15 — Scribe: FAL-1011 FINDING — ImportAssets2 hasDigest
 
 ImportAssets2 skips 20 SHA1 bytes when hasDigest is 1. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1020 PARTIAL — empty slot clips, no green fill
+
+PC PARTIAL 3d06cbb0: kit did not crash; host list still draws. A green rectangle at lower right
+was the filled fo4sfOpt* shapes. Slots are now empty named sprites. Bind is next. Native/game NOT_RUN.
