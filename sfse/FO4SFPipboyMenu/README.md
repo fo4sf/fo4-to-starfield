@@ -658,6 +658,20 @@ menu has drawn by then. The S1-arm sessions found why
 own Scaleform work on a job thread, about 20 ms after the show). Without it the shell drew its tab bar and footer and
 loaded no page. `step=code_obj_shell` ends `late_calls=`.
 
+`CodeObjSpecial=fill` or `clear` (FAL-1025; with `CodeObjAt=` only, else `refuse step=ini code_obj_special=`; at load
+`step=code_obj_special_ini mode= list=`) makes `<CodeObjAt>.DataObj.SPECIALList` safe right before each
+`InvalidateData` the plugin calls: a `CodeObjCalls=` or `CodeObjLateCalls=` path ending in `.InvalidateData`, and
+`CodeObjPages=1`'s answer. Gemini's PC read of Fallout 4's movies (checked in the decompiled AS3): the shell's `DataObj`
+starts that list as 7 empty objects, the STAT page's hidden SPECIAL tab takes it on every change event, and each entry's
+`SetEntryText` calls `value.toString()`, an AS3 TypeError (#1010) with no try/catch around the dispatch. Fallout 4's
+engine fills the list first; our stand-in does not. The list is emptied (`splice(0)`, else `length = 0`); `fill` then
+pushes 7 new objects `{text, value, modifier, description}`: the attribute's name in capitals, 1, 0 and `""`
+(placeholders, not the player's values). Each time: `step=code_obj_special n= when=<calls|late|answer> mode= found=
+type= cleared_by=<splice|length|none> pushed= length=` (the first 16). Only the root's `CreateObject` and the Value
+calls already checked at stage (c) are used, so no Address Library id is added. Fallout 4's MAP page calls
+`codeObj.RefreshMapMarkers` and `codeObj.CheckHardcoreModeFastTravel` directly (a missing function is TypeError #1006):
+list both in `CodeObjNames=` (they only log, and the second returns nothing, read as false).
+
 ### The arm (FAL-852, S1-arm): Fallout 4's screen on its own key, raised, paused, lowered
 
 The owner's rules for the Pip-Boy (14 Nov, FAL-843): the raise (`idleexaminewatch`) plays when it opens and the lower
