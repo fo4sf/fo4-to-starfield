@@ -127,6 +127,7 @@ REX_W32_IMPORT(std::uint32_t, waveOutReset, void*);
 REX_W32_IMPORT(std::uint32_t, waveOutUnprepareHeader, void*, void*, std::uint32_t);
 REX_W32_IMPORT(std::uint32_t, waveOutClose, void*);
 
+#include "pipboy_map.h"
 #include "world.h"   // FAL-250: the world-surface census and candidate (World=1; README.md, "World surface")
 
 namespace
@@ -3386,6 +3387,7 @@ namespace
 				g_shellKeyPending = 0;       // S1-c: nothing pressed or asked for carries over to the next movie
 				g_answerPage = -1;
 				g_answerTab = -1;
+				PipboyMap::OnMenuDestroy();
 			}
 			if (g_codeObjTriedMovie == movie) {
 				g_codeObjTriedMovie = nullptr;
@@ -3669,6 +3671,7 @@ namespace
 		{
 			const auto n = ++g_codeCalls;
 			NoteAnswer(_name, a_params);   // FAL-614 S1-c: before the log's cap, so every page or tab change is answered
+			PipboyMap::OnCodeObjCall(_name, a_params);
 			if (n > kMaxCodeCalls) {
 				return;
 			}
@@ -3979,6 +3982,7 @@ namespace
 					g_shellKeys[i].path, found ? 1 : 0, called ? 1 : 0);
 			}
 		}
+		PipboyMap::OnShellUpdate(a_menu, root, top, g_codeObjAt, g_answerPage, g_answerTab);
 		const auto page = g_answerPage.exchange(-1);
 		const auto tab = g_answerTab.exchange(-1);
 		if ((page < 0 && tab < 0) || g_codeObjAt.empty()) {
@@ -4959,6 +4963,7 @@ namespace
 			if (g_stage == 2 && g_answerNow.exchange(false)) {   // S1-c: the shell asked for a page or tab (a click, a key)
 				g_task->AddTask([]() { SendUpdate(); });
 			}
+			PipboyMap::Tick();
 			if (g_stage < 3) {
 				continue;
 			}
@@ -5024,6 +5029,7 @@ namespace
 		const auto hooked = *reinterpret_cast<const std::uint8_t*>(Address(kLoadMovie)) == 0xE9;   // SFSE's branch
 		REX::INFO("step=register result=ok name={} load_movie_hooked_by_sfse={}", kMenuName, hooked ? "yes" : "no");
 		World::Start(g_task);
+		PipboyMap::Start(g_task);
 		const auto thread = REX::W32::CreateThread(nullptr, 0, &KeyThread, nullptr, 0, nullptr);
 		if (!thread) {
 			Refuse("key_thread", "reason=create_failed");
@@ -5036,6 +5042,7 @@ namespace
 	void OnMovieCreated(RE::IMenu* a_menu)
 	{
 		World::OnMovieCreated(a_menu);
+		PipboyMap::OnMovieCreated(a_menu);
 		if (IsOurs(a_menu)) {
 			REX::INFO("step=sfse_movie_created menu={} movie={}", Hex(reinterpret_cast<std::uintptr_t>(a_menu)),
 				Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_menu))));
@@ -5498,6 +5505,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		return true;
 	}
 	World::Configure(ini, g_stage, g_key, g_base, g_imageSize);
+	PipboyMap::Configure(ini, dir, g_stage, g_key, g_base, g_imageSize);
 	const auto messaging = SFSE::GetMessagingInterface();
 	g_task = SFSE::GetTaskInterface();
 	if (!messaging || !g_task || !messaging->RegisterListener(&OnMessage)) {
