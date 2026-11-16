@@ -16,7 +16,7 @@ if str(ROOT / "src") not in sys.path:
 if str(ROOT / "scripts" / "ui") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "ui"))
 
-from fo4sf.planet.esm import Plugin  # noqa: E402
+from fo4sf.planet.esm import ESM, PERSISTENT, Plugin, PluginWriter, Record, group_bytes, zbytes  # noqa: E402
 import make_pipboy_probe as mpp  # noqa: E402
 import make_probe_swf as swf  # noqa: E402
 import pipboy_map_store as store  # noqa: E402
@@ -187,6 +187,80 @@ class TravelPluginAndStoreTests(unittest.TestCase):
         self.assertTrue(back[0]["init_disc"])
         self.assertAlmostEqual(back[0]["arr_x_sf"], -2445.446, places=3)
 
+    def _synthetic_marker_plugin(self, path, masters, markers, wrld_id=0x01000800, cell_id=0x01000801):
+        w = PluginWriter(masters, flags=ESM)
+        refr_bytes = b"".join(
+            Record(
+                b"REFR",
+                fid,
+                [
+                    (b"EDID", zbytes(edid)),
+                    (b"NAME", struct.pack("<I", 0x00000010)),
+                    (b"XMRK", b""),
+                    (b"FNAM", struct.pack("<I", fnam)),
+                    (b"FULL", zbytes(label)),
+                    (b"TNAM", struct.pack("<H", sf_tnam)),
+                    (b"DATA", struct.pack("<6f", x_m, y_m, z_m, 0.0, 0.0, 0.0)),
+                ],
+                flags=PERSISTENT,
+            ).to_bytes(compress=False)
+            for fid, edid, label, sf_tnam, fnam, x_m, y_m, z_m in markers
+        )
+        cell_rec = Record(b"CELL", cell_id, [(b"EDID", zbytes("TestPersistentCell"))]).to_bytes(compress=False)
+        cell_children = group_bytes(struct.pack("<I", cell_id), group_bytes(struct.pack("<I", cell_id), refr_bytes, gtype=8), gtype=6)
+        wrld_rec = Record(b"WRLD", wrld_id, [(b"EDID", zbytes("FO4Core_Commonwealth"))]).to_bytes(compress=False)
+        wrld_children = group_bytes(struct.pack("<I", wrld_id), cell_rec + cell_children, gtype=1)
+        top_wrld = group_bytes("WRLD", wrld_rec + wrld_children, gtype=0)
+        head = Record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 0.96, 4, 0x950))] + [(b"MAST", zbytes(m)) for m in masters], ESM, 0, 576, 0)
+        Path(path).write_bytes(head.to_bytes(compress=False) + top_wrld)
+
+    def test_build_store_cli_extracts_core_and_mapmarkers_plugins_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core_esm = os.path.join(tmp, "FO4TerrainCore.esm")
+            mm_esm = os.path.join(tmp, "FO4SFMapMarkers.esm")
+            tsv_out = os.path.join(tmp, "FO4SFPipboyMapMarkers.tsv")
+            travel_out = os.path.join(tmp, store.TRAVEL_PLUGIN)
+            # Core has 2 markers (self_index=1 -> 0x01......), unlifted Z=100.0
+            self._synthetic_marker_plugin(
+                core_esm,
+                ["Starfield.esm"],
+                [
+                    (0x010A7759, "FO4Core_CommonwealthMapMarker", "SITE_STATION", 86, 0x1B, -991.13, 1144.97, 100.0),
+                    (0x010A775B, "FO4Core_CommonwealthMapMarkerVault111", "SITE_VAULT", 86, 0x1B, -1275.31, 1305.28, 127.2),
+                ],
+            )
+            # FO4SFMapMarkers overrides those 2 with lifted Z (+2.5) and adds 1 own extra marker (0x02000900) + 1 landing (0x020008F2)
+            self._synthetic_marker_plugin(
+                mm_esm,
+                ["Starfield.esm", "FO4TerrainCore.esm"],
+                [
+                    (0x010A7759, "FO4Core_CommonwealthMapMarker", "SITE_STATION", 86, 0x13, -991.13, 1144.97, 102.5),
+                    (0x010A775B, "FO4Core_CommonwealthMapMarkerVault111", "SITE_VAULT", 86, 0x33, -1275.31, 1305.28, 129.7),
+                    (0x020008F2, "FO4SF_LandingMarker", "SITE_LANDING", 45, 0x33, -950.0, 1100.0, 105.0),
+                    (0x02000900, "FO4Core_CommonwealthMapMarkerM019C6F", "SITE_EXTRA", 22, 0x03, 500.0, -300.0, 25.0),
+                ],
+            )
+            rc = store.main(["build-store", "--core", core_esm, "--markers-esm", mm_esm, "--out", tsv_out])
+            self.assertEqual(rc, 0)
+            rows = store.parse_store_tsv(Path(tsv_out).read_text(encoding="utf-8"))
+            self.assertEqual(len(rows), 3, "landing marker 0x8F2 excluded by default")
+            self.assertEqual([r["plugin_code"] for r in rows], [1, 1, 0])
+            self.assertEqual([r["local_id"] for r in rows], [0x0A7759, 0x0A775B, 0x000900])
+            # Location icon types stay < 85 (never 85 PlayerSetMarker or 86 PlayerLocMarker)
+            self.assertEqual(rows[0]["type"], 27)  # Filling Station
+            self.assertEqual(rows[1]["type"], 15)  # Vault
+            self.assertEqual(rows[2]["type"], 7)   # Military Base (sf_type 22 -> fo4_id 7)
+            # Only SITE_VAULT had FNAM 0x20 bit set (0x33 & 0x20 != 0)
+            self.assertEqual([r["init_disc"] for r in rows], [False, True, False])
+            self.assertAlmostEqual(rows[1]["arr_x_sf"], -2475.31, places=2)
+            self.assertAlmostEqual(rows[1]["arr_y_sf"], -1394.72, places=2)
+            self.assertAlmostEqual(rows[1]["arr_z_sf"], 129.7, places=2)
+            # stage-travel-esm --store seeds FO4SF_MapDisc00 from init_disc so C++ and Papyrus agree on frame 0
+            self.assertEqual(store.main(["stage-travel-esm", "--store", tsv_out, "--out", travel_out]), 0)
+            with Plugin(travel_out) as tp:
+                by_edid = {g.edid: int(struct.unpack("<f", g.get(b"FLTV"))[0]) for g in tp.records("GLOB")}
+                self.assertEqual(by_edid["FO4SF_MapDisc00"], 0b010)
+
 
 class SourceAndContractTests(unittest.TestCase):
     cpp = (PLUGIN / "src" / "pipboy_map.cpp").read_text(encoding="utf-8")
@@ -202,13 +276,47 @@ class SourceAndContractTests(unittest.TestCase):
             "MapKey=0x4D",
             "MapPage=3",
             "MapMenus=GalaxyStarMapMenu",
+            "MapBlockStarMap=1",
             "MapStore=FO4SFPipboyMapMarkers.tsv",
             "MapTravelPlugin=FO4SFPipboyTravel.esm",
             "MapTravelScript=FO4SF_PipboyTravel.Go",
             "MapSurvival=0",
+            "MapHeadingAt=",
+            "MapGlobalValueAt=0",
+            "MapGameHourId=0x38",
+            "MapGameDaysPassedId=0x39",
+            "MapFileCollectionAt=0x1580",
+            "MapExtraListAt=0xC8",
+            "MapMarkerFlagsAt=0x18",
+            "MapMarkerDiscoveredMask=0x20",
         ):
             self.assertRegex(self.ini, rf"\n{re.escape(line)}\r?\n", line)
+        self.assertTrue(self.ini.isascii(), "FO4SFPipboyMenu.ini must stay pure ASCII")
         self.assertIn('if (ReadIniNumber(a_ini, L"Map", 0) == 0) {\n\t\t\treturn;\n\t\t}', self.cpp)
+
+    def test_m_key_swallow_no_reopen_loop_and_complete_starmap_block(self):
+        # Suppression must NEVER reopen FO4SF_PipboyMenu (fixes close-then-reopen loop)
+        sup = self.cpp[self.cpp.index("bool SuppressVanillaMapMenus()"):self.cpp.index("void HandleClosedMapKeyMainThread")]
+        self.assertNotIn("kShow", sup)
+        self.assertNotIn("OurMenuFixed()", sup)
+        # Complete star-map lockout in UI::menuMap + BSInputEventUser swallow while open
+        self.assertIn("entry.value.initFunc = &BlockedStarMapCreate;", self.cpp)
+        self.assertIn("step=starmap_blocked", self.cpp)
+        self.assertIn("RE::InputEvent::Status::kStop", self.cpp)
+        self.assertIn("PipboyMap::ShouldHandleInput(a_event)", self.main)
+        self.assertIn("PipboyMap::OnButtonInput(a_event)", self.main)
+        self.assertIn("g_stage >= 4 || PipboyMap::Enabled()", self.main)
+
+    def test_live_engine_discovery_and_papyrus_agreement(self):
+        # C++ reads live ExtraMapMarker kDiscovered (0x20 via REL::ID 44761) and syncs into FO4SF_MapDisc00..13;
+        # Papyrus checks IsBitDiscovered(storeIdx) (not CanFastTravelToMarker/IsMapMarkerVisible which are 1 on FNAM 0x03)
+        self.assertIn("ExtraDataList.GetExtraMapMarker", self.cpp)
+        self.assertIn("step=map_disc_sync", self.cpp)
+        self.assertIn("EnsureGlobalValueOffset(", self.cpp)
+        self.assertIn('IsType(file, "TESFile@@")', self.cpp)
+        self.assertIn("bool canTravel = IsBitDiscovered(storeIdx)", self.psc)
+        self.assertNotIn("CanFastTravelToMarker()", self.psc)
+        self.assertNotIn("IsMapMarkerVisible()", self.psc)
 
     def test_cpp_uses_only_checked_gfx_methods_and_checks_slot_0x2e(self):
         # SetArraySize / PushBack / SetElement would trigger unchecked REL::ID lookups; AS3 Array uses length + push

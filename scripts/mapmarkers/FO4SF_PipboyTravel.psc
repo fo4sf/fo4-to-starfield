@@ -1,8 +1,8 @@
 Scriptname FO4SF_PipboyTravel Hidden
-{Native-to-Papyrus fast-travel and 24-bit marker-discovery bridge for the Pip-Boy MAP (docs/ui/pipboy-map-s1-s4.md,
- Slice 4). FO4SFPipboyMenu.dll writes the selected marker's local FormID, plugin code, store index and merged arrival
- coordinates into FO4SFPipboyTravel.esm's GLOB records at +0x48 on the main thread, then dispatches FO4SF_PipboyTravel.Go
- with zero arguments (IVirtualMachine::DispatchStaticCall slot 0x2F).}
+{Native-to-Papyrus fast-travel, live marker-discovery sync and multi-world travel bridge for the Pip-Boy MAP
+ (docs/ui/pipboy-map-s1-s4.md, Slice 4). FO4SFPipboyMenu.dll syncs live engine ExtraMapMarker kDiscovered (0x20) bits
+ into FO4SF_MapDisc00..13, writes the selected marker's local FormID, plugin code, store index and arrival coordinates
+ into FO4SFPipboyTravel.esm's GLOB records on the main thread, and dispatches FO4SF_PipboyTravel.Go (0 args, slot 0x2F).}
 
 Function TraceLine(string asMsg) global
     Debug.OpenUserLog("FO4SF_PipboyTravel")
@@ -11,6 +11,19 @@ EndFunction
 
 GlobalVariable Function TravelGlobal(int aiLocalId) global
     return Game.GetFormFromFile(aiLocalId, "FO4SFPipboyTravel.esm") as GlobalVariable
+EndFunction
+
+string Function PluginNameForCode(int aiPluginCode) global
+    if aiPluginCode == 1
+        return "FO4TerrainCore.esm"
+    elseif aiPluginCode == 2
+        return "FO4CapitalWasteland.esm"
+    elseif aiPluginCode == 3
+        return "FO4Mojave.esm"
+    elseif aiPluginCode == 4
+        return "FO4Appalachia.esm"
+    endif
+    return "FO4SFMapMarkers.esm"
 EndFunction
 
 int Function BitScale(int aiBitIndex) global
@@ -60,6 +73,13 @@ Function MarkBitDiscovered(int aiMarkerIndex) global
         int updated = raw + scale
         discGlob.SetValue(updated as float)
     endif
+EndFunction
+
+Function SyncMarkerDiscovered(ObjectReference akMarker, int aiMarkerIndex) global
+    if akMarker != None
+        akMarker.SetMarkerDiscovered()
+    endif
+    MarkBitDiscovered(aiMarkerIndex)
 EndFunction
 
 Function AdvanceTravelClock(float afDistanceMetres) global
@@ -133,10 +153,7 @@ Function Go() global
         arrH = gH.GetValue()
     endif
 
-    string pluginName = "FO4SFMapMarkers.esm"
-    if pluginCode == 1
-        pluginName = "FO4TerrainCore.esm"
-    endif
+    string pluginName = PluginNameForCode(pluginCode)
 
     ObjectReference dest = Game.GetFormFromFile(targetId, pluginName) as ObjectReference
     if dest == None
@@ -144,20 +161,26 @@ Function Go() global
         return
     endif
 
-    bool canTravel = dest.CanFastTravelToMarker() || dest.IsMapMarkerVisible() || IsBitDiscovered(storeIdx)
+    ; Native CollectMainThreadState syncs live ExtraMapMarker kDiscovered (0x20) + init_disc into FO4SF_MapDisc00..13
+    ; before dispatching Go(), so native and Papyrus agree on the exact same discovery bitset (FNAM 0x03/0x13 sets
+    ; Visible/CanTravelTo on undiscovered markers, so IsMapMarkerVisible/CanFastTravelToMarker must not bypass discovery).
+    bool canTravel = IsBitDiscovered(storeIdx)
     if !canTravel
         TraceLine("step=go idx=" + storeIdx + " id=" + targetId + " result=not_discovered")
         return
     endif
 
+    WorldSpace startWorld = player.GetWorldSpace()
     float startX = player.GetPositionX()
     float startY = player.GetPositionY()
     float dx0 = arrX - startX
     float dy0 = arrY - startY
     float tripMetres = Math.Sqrt(dx0 * dx0 + dy0 * dy0)
+    bool hasExplicitArrival = (arrX != 0.0 || arrY != 0.0 || arrZ != 0.0)
+    bool crossWorld = pluginCode >= 2
 
     bool usedFallback = False
-    if engineEnabled
+    if engineEnabled && !crossWorld
         Game.FastTravel(dest)
         Utility.Wait(0.25)
     endif
@@ -166,16 +189,21 @@ Function Go() global
     float dyAfter = player.GetPositionY() - arrY
     float remDist = Math.Sqrt(dxAfter * dxAfter + dyAfter * dyAfter)
 
-    ; Merged runtime world fallback when Game.FastTravel is a no-op on runtime-relocated markers
-    if remDist > 75.0 && (arrX != 0.0 || arrY != 0.0 || arrZ != 0.0)
+    ; Merged runtime world or cross-worldspace travel (normal loading fade, never opening Starfield's star map)
+    if crossWorld || (hasExplicitArrival && remDist > 75.0) || (!hasExplicitArrival && player.GetWorldSpace() == startWorld && player.GetDistance(dest) > 75.0)
         usedFallback = True
         Game.FadeOutGame(True, True, 0.0, 0.35, True)
         Utility.Wait(0.35)
-        AdvanceTravelClock(tripMetres)
-        player.MoveTo(dest, 0.0, 0.0, 0.0, False, False)
+        if tripMetres > 1.0
+            AdvanceTravelClock(tripMetres)
+        endif
+        player.MoveTo(dest, 0.0, 0.0, 0.0, !hasExplicitArrival, False)
+        player.WaitFor3DLoad()
         Utility.Wait(0.15)
-        player.SetPosition(arrX, arrY, arrZ)
-        player.SetAngle(0.0, 0.0, arrH)
+        if hasExplicitArrival
+            player.SetPosition(arrX, arrY, arrZ)
+            player.SetAngle(0.0, 0.0, arrH)
+        endif
         SQ_FollowersScript followers = SQ_FollowersScript.GetScript()
         if followers != None
             followers.TeleportFollowers(player, None, True, False, False, False, False)
@@ -183,7 +211,6 @@ Function Go() global
         Game.FadeOutGame(False, True, 0.15, 0.45, False)
     endif
 
-    dest.SetMarkerDiscovered()
-    MarkBitDiscovered(storeIdx)
-    TraceLine("step=go idx=" + storeIdx + " plugin=" + pluginName + " id=" + targetId + " enabled=" + engineEnabled + " fallback=" + usedFallback + " px=" + player.GetPositionX() + " py=" + player.GetPositionY() + " pz=" + player.GetPositionZ())
+    SyncMarkerDiscovered(dest, storeIdx)
+    TraceLine("step=go idx=" + storeIdx + " plugin=" + pluginName + " id=" + targetId + " enabled=" + engineEnabled + " cross_world=" + crossWorld + " fallback=" + usedFallback + " px=" + player.GetPositionX() + " py=" + player.GetPositionY() + " pz=" + player.GetPositionZ())
 EndFunction

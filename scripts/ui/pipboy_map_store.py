@@ -15,7 +15,10 @@ Capabilities:
   4. Forward/inverse Commonwealth <-> merged planet coordinate transforms and `FO4SFPipboyMapMarkers.tsv` serializer.
 """
 import argparse
+import json
+import math
 import os
+import re
 import struct
 import sys
 import zlib
@@ -27,7 +30,8 @@ if os.path.join(REPO, "src") not in sys.path:
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from fo4sf.planet.esm import ESM, PluginWriter, Record, zbytes  # noqa: E402
+from fo4sf.map_markers import MAP_MARKER_TYPES_JSON, MAPMARKER_STAT  # noqa: E402
+from fo4sf.planet.esm import ESM, Plugin, PluginWriter, Record, zbytes, zstring  # noqa: E402
 import make_probe_swf as swf  # noqa: E402
 import pipboy_probe_install as pbi  # noqa: E402
 
@@ -447,6 +451,195 @@ def parse_store_tsv(text):
     return rows
 
 
+# Pipboy_MapPage MarkerTypesA reserves 85 = PlayerSetMarker and 86 = PlayerLocMarker; location icons lie in 0..80.
+MAX_FO4_LOCATION_ICON = 80
+DEFAULT_FO4_ICON = 5  # Landmark
+CORE_FIXED_FO4_ICONS = {
+    "FO4Core_CommonwealthMapMarker": 27,          # Filling Station (Red Rocket)
+    "FO4Core_CommonwealthMapMarkerSanctuary": 12, # Sanctuary
+    "FO4Core_CommonwealthMapMarkerVault111": 15,  # Vault
+    "FO4Core_CommonwealthMapMarkerConcord": 49,   # Town
+}
+LANDING_MARKER_LOCAL_ID = 0x0008F2
+DEFAULT_CORE_Z_LIFT = 2.5
+
+
+def _sf_to_fo4_icon_map(types_json_path=MAP_MARKER_TYPES_JSON):
+    with open(types_json_path, encoding="utf-8") as f:
+        doc = json.load(f)
+    inv = {}
+    for row in doc.get("types", []):
+        fo4_id = int(row["fo4_id"])
+        sf_type = int(row["sf_type"])
+        if 0 <= fo4_id <= MAX_FO4_LOCATION_ICON and sf_type not in inv:
+            inv[sf_type] = fo4_id
+    return inv
+
+
+def _iter_xmrk_refrs(plugin):
+    """Yield placed `REFR` records carrying an `XMRK` map-marker subrecord inside `WRLD` or `CELL` groups."""
+    for grp_name in ("WRLD", "CELL"):
+        for start, end in plugin.groups.get(grp_name, []):
+            for item in plugin.walk(start, end):
+                if item[0] != "REC" or item[2] != b"REFR":
+                    continue
+                rec = Record.parse(plugin.buf, item[1])
+                if rec.index(b"XMRK") < 0:
+                    continue
+                name_sub = rec.get(b"NAME")
+                if name_sub is not None and len(name_sub) == 4:
+                    base_id = struct.unpack_from("<I", name_sub, 0)[0]
+                    if (base_id & 0xFFFFFF) != MAPMARKER_STAT:
+                        continue
+                yield rec
+
+
+def _parse_xmrk_record(rec):
+    data_sub = rec.get(b"DATA")
+    if data_sub is None or len(data_sub) < 12:
+        raise MapStoreError(f"REFR {rec.formid:08X} ({rec.edid}) missing 12+ byte DATA position")
+    vals = struct.unpack_from("<6f" if len(data_sub) >= 24 else "<3f", data_sub, 0)
+    x_m, y_m, z_m = vals[0], vals[1], vals[2]
+    rz = vals[5] if len(vals) >= 6 else 0.0
+    full_sub = rec.get(b"FULL")
+    label = zstring(full_sub).strip() if full_sub else ""
+    tnam_sub = rec.get(b"TNAM")
+    sf_tnam = struct.unpack_from("<H", tnam_sub, 0)[0] if tnam_sub and len(tnam_sub) >= 2 else None
+    fnam_sub = rec.get(b"FNAM")
+    fnam = struct.unpack_from("<I", fnam_sub, 0)[0] if fnam_sub and len(fnam_sub) >= 4 else (
+        fnam_sub[0] if fnam_sub else 0
+    )
+    return {
+        "formid": rec.formid,
+        "local_id": rec.formid & 0xFFFFFF,
+        "edid": rec.edid,
+        "label": label or rec.edid or f"LOC_{rec.formid & 0xFFFFFF:06X}",
+        "x_m": x_m,
+        "y_m": y_m,
+        "z_m": z_m,
+        "h_deg": (math.degrees(rz) % 360.0),
+        "sf_tnam": sf_tnam,
+        "fnam": fnam,
+    }
+
+
+def _fo4_export_types(fo4_export_path):
+    """Map source FO4 hex FormID (`int`) -> FO4 `type_id` (`0..80`) from a `Fo4Land` `export-mapmarkers` JSON."""
+    if not fo4_export_path:
+        return {}
+    with open(fo4_export_path, encoding="utf-8-sig") as f:
+        doc = json.load(f)
+    out = {}
+    for r in doc.get("markers") or []:
+        tid = r.get("type_id")
+        if tid is not None and "fid" in r:
+            iv = int(tid)
+            if 0 <= iv <= MAX_FO4_LOCATION_ICON:
+                out[int(r["fid"], 16) & 0xFFFFFF] = iv
+    return out
+
+
+def build_store_rows(
+    core_esm,
+    markers_esm="",
+    fo4_export="",
+    z_lift=DEFAULT_CORE_Z_LIFT,
+    discover=(),
+    include_landing=False,
+):
+    """Build ordered Pip-Boy MAP store rows from the project's `FO4TerrainCore.esm` and optional `FO4SFMapMarkers.esm`.
+
+    - Core-owned markers (`FO4TerrainCore.esm`) carry `plugin_code = 1`; `FO4SFMapMarkers.esm`-owned extra markers
+      carry `plugin_code = 0` (`0x000900..`). When `markers_esm` is provided, its overrides of the core's markers
+      supply their lifted `DATA` height and `FULL` label while keeping `plugin_code = 1`.
+    - `init_disc` defaults to `False` unless the marker's `FNAM` already carries engine `kDiscovered` (`0x20`) or its
+      EditorID / label is listed in `discover`: in game, live discovery comes from the engine's `ExtraMapMarker` state
+      (`SetMarkerDiscovered` bit `0x20`) synced into `FO4SF_MapDisc00..13`.
+    """
+    sf_to_fo4 = _sf_to_fo4_icon_map()
+    export_types = _fo4_export_types(fo4_export)
+    disc_set = {s.strip().casefold() for s in discover if s and s.strip()}
+
+    with Plugin(core_esm) as pc:
+        core_self = pc.self_index
+        core_by_local = {}
+        for rec in _iter_xmrk_refrs(pc):
+            if (rec.formid >> 24) == core_self:
+                info = _parse_xmrk_record(rec)
+                core_by_local[info["local_id"]] = info
+
+    if not core_by_local:
+        raise MapStoreError(f"{os.path.basename(core_esm)} has no own XMRK MapMarker REFRs")
+
+    core_ordered = [core_by_local[k] for k in sorted(core_by_local)]
+    extra_ordered = []
+    has_markers_plugin = bool(markers_esm)
+
+    if has_markers_plugin:
+        with Plugin(markers_esm) as pm:
+            pm_self = pm.self_index
+            for rec in _iter_xmrk_refrs(pm):
+                info = _parse_xmrk_record(rec)
+                top = rec.formid >> 24
+                if top < pm_self and info["local_id"] in core_by_local:
+                    # Override of a core marker (carries lifted Z and cleared UseLocationName)
+                    merged = dict(core_by_local[info["local_id"]])
+                    merged.update({k: v for k, v in info.items() if v not in ("", None)})
+                    core_by_local[info["local_id"]] = merged
+                elif top == pm_self:
+                    if info["local_id"] == LANDING_MARKER_LOCAL_ID and not include_landing:
+                        continue
+                    extra_ordered.append(info)
+        core_ordered = [core_by_local[k] for k in sorted(core_by_local)]
+        extra_ordered.sort(key=lambda r: r["local_id"])
+
+    capacity = DISC_GLOBAL_COUNT * BITS_PER_GLOBAL
+    combined = [(1, r) for r in core_ordered] + [(0, r) for r in extra_ordered]
+    if len(combined) > capacity:
+        raise MapStoreError(f"{len(combined)} markers exceed 24-bit discovery store capacity ({capacity})")
+
+    rows = []
+    for idx, (plugin_code, info) in enumerate(combined):
+        edid = info["edid"]
+        fo4_icon = CORE_FIXED_FO4_ICONS.get(edid)
+        if fo4_icon is None:
+            m = re.search(r"M([0-9A-Fa-f]{6})$", edid)
+            if m:
+                fo4_icon = export_types.get(int(m.group(1), 16))
+        if fo4_icon is None and info["sf_tnam"] is not None:
+            fo4_icon = sf_to_fo4.get(info["sf_tnam"])
+        if fo4_icon is None or not (0 <= fo4_icon <= MAX_FO4_LOCATION_ICON):
+            fo4_icon = DEFAULT_FO4_ICON
+
+        arr_z = info["z_m"] if has_markers_plugin else (info["z_m"] + float(z_lift))
+        init_disc = bool(info["fnam"] & 0x20) or (
+            edid.casefold() in disc_set or info["label"].casefold() in disc_set
+        )
+        rows.append({
+            "index": idx,
+            "plugin_code": plugin_code,
+            "local_id": info["local_id"],
+            "type": fo4_icon,
+            "init_disc": init_disc,
+            "x_fo4": info["x_m"] * FO4_UNITS_PER_M,
+            "y_fo4": info["y_m"] * FO4_UNITS_PER_M,
+            "arr_x_sf": info["x_m"] + MERGE_OFFSET_X,
+            "arr_y_sf": info["y_m"] + MERGE_OFFSET_Y,
+            "arr_z_sf": arr_z,
+            "arr_h_deg": info["h_deg"],
+            "label": info["label"],
+        })
+    return rows
+
+
+def write_store_tsv(path, rows):
+    text = format_store_tsv(rows)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    return len(rows)
+
+
 def run_self_test():
     """Offline synthetic verification of BC1->SWF, DoABC string patching, 24-bit globals, and coord transforms."""
     # 1. Synthetic 8x8 BC1 DDS -> SWF container validation
@@ -489,8 +682,18 @@ def main(argv=None):
     p_mp.add_argument("--worldmap-url", default=WORLDMAP_URL_PATCHED)
     p_mp.add_argument("--msgbox-url", default=MSGBOX_URL_PATCHED)
 
+    p_bs = sub.add_parser("build-store", help="Build FO4SFPipboyMapMarkers.tsv from FO4TerrainCore.esm / FO4SFMapMarkers.esm")
+    p_bs.add_argument("--core", required=True, help="Path to FO4TerrainCore.esm")
+    p_bs.add_argument("--markers-esm", default="", help="Optional path to FO4SFMapMarkers.esm (overrides + extra markers)")
+    p_bs.add_argument("--fo4-map-markers", default="", help="Optional Fo4Land export-mapmarkers JSON for exact FO4 icon types")
+    p_bs.add_argument("--z-lift", type=float, default=DEFAULT_CORE_Z_LIFT, help="Arrival Z lift in m when --markers-esm is omitted")
+    p_bs.add_argument("--discover", action="append", default=[], help="Marker label or EditorID initially discovered (repeatable)")
+    p_bs.add_argument("--include-landing", action="store_true", help="Include the 0x8F2 ship landing marker if present")
+    p_bs.add_argument("--out", required=True, help="Output FO4SFPipboyMapMarkers.tsv path")
+
     p_tr = sub.add_parser("stage-travel-esm", help="Write FO4SFPipboyTravel.esm with travel and discovery GLOBs")
     p_tr.add_argument("--out", required=True, help="Output FO4SFPipboyTravel.esm path")
+    p_tr.add_argument("--store", default="", help="Optional FO4SFPipboyMapMarkers.tsv to seed initial FO4SF_MapDisc00..13 bits")
     p_tr.add_argument("--survival", action="store_true", help="Initialize FO4SF_SurvivalMode to 1")
 
     sub.add_parser("self-test", help="Run synthetic offline self-checks")
@@ -498,6 +701,18 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "self-test":
         return run_self_test()
+    if args.cmd == "build-store":
+        rows = build_store_rows(
+            args.core,
+            markers_esm=args.markers_esm,
+            fo4_export=args.fo4_map_markers,
+            z_lift=args.z_lift,
+            discover=args.discover,
+            include_landing=args.include_landing,
+        )
+        n = write_store_tsv(args.out, rows)
+        print(f"wrote {n} marker row(s) to {os.path.basename(args.out)}")
+        return 0
     if args.cmd == "stage-worldmap":
         with open(args.dds, "rb") as f:
             w, h, argb = parse_dds_bc1(f.read())
@@ -522,7 +737,12 @@ def main(argv=None):
         print(f"patched Pipboy_MapPage.swf replacements={counts}")
         return 0
     if args.cmd == "stage-travel-esm":
-        n = write_travel_plugin(args.out, survival=args.survival)
+        init_bits = ()
+        if args.store:
+            with open(args.store, encoding="utf-8") as f:
+                parsed = parse_store_tsv(f.read())
+            init_bits = pack_discovery_bits([r["init_disc"] for r in parsed])
+        n = write_travel_plugin(args.out, survival=args.survival, initial_disc_bits=init_bits)
         print(f"wrote {TRAVEL_PLUGIN} ({n} bytes)")
         return 0
     return 1
