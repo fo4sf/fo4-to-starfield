@@ -25,7 +25,6 @@ Complete S13 row 5's cold-start quest hold-off (`docs/newgame/vault111-start.md`
      --compiler <PAPYRUS_COMPILER> `
      --content-resources <CONTENT_ZIP>
    ```
-   *(If combining with `#803`'s Vault 111 exit gear door and floor lift, also pass `--cog-door <STAGE_ROOT>/cog-door-prod --exit-lift <STAGE_ROOT>/exit-lift-prod`.)*
 
 2. Check `<STAGE_ROOT>/newgame-g5/offline_check.txt` and `plan.json`:
    - `offline_check.txt` contains `hold 199` and ends with `check: ok`.
@@ -149,4 +148,14 @@ GetQuestRunning 01E3F9
   2. All `34` quests in Batch 1 and Batch 2 print `GetQuestRunning >> 0.00` at both `stage 20` and `stage 200 + 3 min`.
   3. All `12` protected quests (`5` Warfare + `7` core engine) print `GetQuestRunning >> 1.00`, and all `5` prior-group held controls print `>> 0.00`.
   4. HUD/damage audio/follower follow-wait commands work normally, with `0` crashes and `0` Starfield quest popups.
-- **Narrowing if anything breaks:** Re-stage with `--hold` omitting `HOLD_SYSTEM`, `HOLD_SHIPS`, or `HOLD_RADIANT` (the exact `nosystem`, `noships`, and `noradiant` variants covered by `dotnet/NewGame` `selftest`) to isolate the list in one run.
+- **Narrowing if anything breaks:** Re-stage using `--omit-hold-group` (`system` = `195` quests, `ships` = `178` quests, or `radiant` = `190` quests — `DEFAULT_HOLD` minus that single Group 5 list) to isolate the responsible subset in one run:
+  ```powershell
+  # Omit HoldSystem (4):
+  python scripts/newgame/make_newgame.py stage --out <STAGE_ROOT>/newgame-nosystem --omit-hold-group system --fo4 <FO4_DATA>/Fallout4.esm --port <PORT_DIR>/FO4Port.esm --port-ids <PORT_DIR>/formids.json --core <CORE_SET_DIR>/FO4TerrainCore.esm --starfield <SF_DATA>/Starfield.esm --compiler <PAPYRUS_COMPILER> --content-resources <CONTENT_ZIP>
+
+  # Omit HoldShips (21):
+  python scripts/newgame/make_newgame.py stage --out <STAGE_ROOT>/newgame-noships --omit-hold-group ships --fo4 <FO4_DATA>/Fallout4.esm --port <PORT_DIR>/FO4Port.esm --port-ids <PORT_DIR>/formids.json --core <CORE_SET_DIR>/FO4TerrainCore.esm --starfield <SF_DATA>/Starfield.esm --compiler <PAPYRUS_COMPILER> --content-resources <CONTENT_ZIP>
+
+  # Omit HoldRadiant (9):
+  python scripts/newgame/make_newgame.py stage --out <STAGE_ROOT>/newgame-noradiant --omit-hold-group radiant --fo4 <FO4_DATA>/Fallout4.esm --port <PORT_DIR>/FO4Port.esm --port-ids <PORT_DIR>/formids.json --core <CORE_SET_DIR>/FO4TerrainCore.esm --starfield <SF_DATA>/Starfield.esm --compiler <PAPYRUS_COMPILER> --content-resources <CONTENT_ZIP>
+  ```

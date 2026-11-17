@@ -388,6 +388,16 @@ class ContractTests(unittest.TestCase):
         self.assertIn('("the hold list lost MB_Parent"', cs)
         self.assertIn('("the hold list lost DialogueShipServices"', cs)
         self.assertIn('("the hold list lost SQ_Traits"', cs)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["radiant"]), 190)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["ships"]), 178)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["system"]), 195)
+        for group_name, omitted in (("radiant", ng.HOLD_RADIANT), ("ships", ng.HOLD_SHIPS), ("system", ng.HOLD_SYSTEM)):
+            ns_opt = namespace(omit_hold_group=group_name)
+            expected = ",".join(q for q in ng.DEFAULT_HOLD if q not in set(omitted))
+            self.assertEqual(ng.hold_option(ns_opt), expected)
+            self.assertEqual(ng.tool_options(ns_opt), ["--hold", expected])
+        with self.assertRaises(SystemExit):
+            ng.hold_option(namespace(hold="MQ00", omit_hold_group="system"))
 
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
