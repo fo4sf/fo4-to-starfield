@@ -137,8 +137,21 @@ HOLD_ACTIVITIES = ("MQ207C_AlwaysOn", "Trait_RaisedEnlightenedBoxEnabler", "Trai
                    "Trait_RaisedUniversalBoxEnabler", "MQ206B_AlwaysOn", "SQ_Doctors", "AspirationalItems", "MS04",
                    "Patch_Hotfix", "Patch_Update03_FixFollower", "StarbornTempleQuest",
                    "SkillMag_CyberRunner_Handler", "SQ_PEO_SustenanceDialogue", "Patch_Update05", "SQ_Hoteliers")
+# S13 row 5, the fifth and final holdable group (Program.cs HoldRadiant, HoldShips, HoldSystem): the remaining 9
+# radiant quests, 21 holdable ship quests and 4 Starfield-only system/trait quests. Leaves only the 5 Warfare squad
+# quests and 7 core engine quests running out of the 207 cold-start quests.
+HOLD_RADIANT = ("MB_Parent", "SQ_PlayerClearedReward", "SE_AC01", "RE_Parent", "RQ_Parent", "OE_Dialogue", "SEDebug",
+                "Rad01_LIST", "RQ_Dialogue")
+HOLD_SHIPS = ("DialogueCrimeGuardShips", "DialogueCrimsonFleetShips", "DialogueGenericCitizensShips_MuddledChatter",
+              "DialogueGenericGuardsShips_MuddledChatter", "DialogueGenericVendor_LIST", "DialogueGenericPiracyShips",
+              "DialogueGenericSpacersShips", "DialogueGenericStarbornShips_Unique", "DialogueShipServices",
+              "SQ_ShipVendors", "DialogueGenericGuardsShips", "DialogueGenericHouseVaruunShips",
+              "DialogueTheFirstShips", "SE_Player_Attack_SharedLines", "SQ_OutpostCargoLink",
+              "DialogueGenericCitizensShips", "DialogueGenericEclipticANDSoldierShips", "DialogueGenericScumShips",
+              "DialogueGenericStarbornShips", "DialogueGenericUCGuardsShips", "SQ_CargoShips")
+HOLD_SYSTEM = ("SQ_GravitationalTraits", "SQ_Traits", "SQ_ApplyVoices_OBSOLETE", "LDMasterQuest")
 DEFAULT_HOLD = (HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION + HOLD_GENERIC_DIALOGUE
-                + HOLD_ACTIVITIES)
+                + HOLD_ACTIVITIES + HOLD_RADIANT + HOLD_SHIPS + HOLD_SYSTEM)
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
