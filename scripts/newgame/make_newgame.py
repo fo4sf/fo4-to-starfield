@@ -137,8 +137,26 @@ HOLD_ACTIVITIES = ("MQ207C_AlwaysOn", "Trait_RaisedEnlightenedBoxEnabler", "Trai
                    "Trait_RaisedUniversalBoxEnabler", "MQ206B_AlwaysOn", "SQ_Doctors", "AspirationalItems", "MS04",
                    "Patch_Hotfix", "Patch_Update03_FixFollower", "StarbornTempleQuest",
                    "SkillMag_CyberRunner_Handler", "SQ_PEO_SustenanceDialogue", "Patch_Update05", "SQ_Hoteliers")
+# S13 row 5, the fifth and final holdable group (Program.cs HoldRadiant, HoldShips, HoldSystem): the remaining 9
+# radiant quests, 21 holdable ship quests and 4 Starfield-only system/trait quests. Leaves only the 5 Warfare squad
+# quests and 7 core engine quests running out of the 207 cold-start quests.
+HOLD_RADIANT = ("MB_Parent", "SQ_PlayerClearedReward", "SE_AC01", "RE_Parent", "RQ_Parent", "OE_Dialogue", "SEDebug",
+                "Rad01_LIST", "RQ_Dialogue")
+HOLD_SHIPS = ("DialogueCrimeGuardShips", "DialogueCrimsonFleetShips", "DialogueGenericCitizensShips_MuddledChatter",
+              "DialogueGenericGuardsShips_MuddledChatter", "DialogueGenericVendor_LIST", "DialogueGenericPiracyShips",
+              "DialogueGenericSpacersShips", "DialogueGenericStarbornShips_Unique", "DialogueShipServices",
+              "SQ_ShipVendors", "DialogueGenericGuardsShips", "DialogueGenericHouseVaruunShips",
+              "DialogueTheFirstShips", "SE_Player_Attack_SharedLines", "SQ_OutpostCargoLink",
+              "DialogueGenericCitizensShips", "DialogueGenericEclipticANDSoldierShips", "DialogueGenericScumShips",
+              "DialogueGenericStarbornShips", "DialogueGenericUCGuardsShips", "SQ_CargoShips")
+HOLD_SYSTEM = ("SQ_GravitationalTraits", "SQ_Traits", "SQ_ApplyVoices_OBSOLETE", "LDMasterQuest")
 DEFAULT_HOLD = (HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION + HOLD_GENERIC_DIALOGUE
-                + HOLD_ACTIVITIES)
+                + HOLD_ACTIVITIES + HOLD_RADIANT + HOLD_SHIPS + HOLD_SYSTEM)
+OMIT_HOLD_GROUPS = {
+    "radiant": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_RADIANT)),
+    "ships": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_SHIPS)),
+    "system": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_SYSTEM)),
+}
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
@@ -437,10 +455,20 @@ def new_partial(final, create=True):
     return out
 
 
+def hold_option(a):
+    """Comma-joined hold list for the writer and plan.json: --hold, --omit-hold-group, or DEFAULT_HOLD."""
+    omit = getattr(a, "omit_hold_group", None)
+    if a.hold and omit:
+        sys.exit("--hold and --omit-hold-group contradict each other")
+    if omit:
+        return ",".join(OMIT_HOLD_GROUPS[omit])
+    return a.hold or ",".join(DEFAULT_HOLD)
+
+
 def tool_options(a):
     opts = []
-    if a.hold:
-        opts += ["--hold", a.hold]
+    if a.hold or getattr(a, "omit_hold_group", None):
+        opts += ["--hold", hold_option(a)]
     if a.no_mq101debug:
         opts.append("--no-mq101debug")
     elif a.mq101debug is not None:
@@ -550,7 +578,7 @@ def stage(a):
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
-            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
+            "options": {"hold": hold_option(a), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
@@ -570,7 +598,7 @@ master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in 
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in (a.hold or ','.join(DEFAULT_HOLD)).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
+Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in hold_option(a).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -886,6 +914,8 @@ def main(argv=None):
     s.add_argument("--build-version", type=int, default=None,
                    help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
+    s.add_argument("--omit-hold-group", choices=tuple(OMIT_HOLD_GROUPS), default=None,
+                   help="narrowing flag omitting one Group 5 list from DEFAULT_HOLD: radiant (190), ships (178), or system (195)")
     s.add_argument("--mq101debug", type=float, default=None,
                    help=f"override GLOB MQ101Debug, experiments only (default: no override). MQ101 never runs with our own "
                         f"start, so it matters only when the start hands back to MQ101 (a New Game+, or no move into the vault): "
