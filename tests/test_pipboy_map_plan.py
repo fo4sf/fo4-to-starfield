@@ -19,14 +19,14 @@ class MapPlanTests(unittest.TestCase):
         page = self.ini[self.ini.index("[Page MAP/WORLD]\n"):]
         page = page[:page.index("\n\n")]
         rows = [line.split("=", 1)[1].split("|")[0] for line in page.splitlines()[1:]]
-        self.assertEqual(rows, ["WORLD", "CELL", "POSITION", "TIME", "DAYS PASSED"])
+        self.assertEqual(rows, ["WORLD", "CELL", "POSITION", "HEADING", "GRID", "TIME", "DAYS PASSED"])   # FAL-595
         for row in rows:
             self.assertIn(f"| {row} |", self.plan, row)
         self.assertIn("kPositionAt = 0x80 + 0x0C;", self.main)       # location after angle in OBJ_REFR
         self.assertIn("kParentCellAt = 0xB0;", self.main)
         self.assertIn("`+0x80 + 0x0C`", self.plan)
         self.assertIn("`+0xB0`", self.plan)
-        self.assertIn('return { cellText, "NONE (INTERIOR)" };', self.main)
+        self.assertIn('return { cellText, "NONE (INTERIOR)" };', self.main)   # FAL-595: the world at +0x110, 0 indoors
 
     def test_the_plan_keeps_its_rules(self):
         for text in ("**A plan, no code.**", "**hypothesis**", "`Pause=0`", "No game files in Git",
