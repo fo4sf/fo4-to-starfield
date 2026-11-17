@@ -78,7 +78,7 @@ python scripts/progression/make_progression.py verify `
 - **Offline PASS lines:**
   - `Ran ... tests ... OK` and `guard: ok`
   - `precheck: ok`
-  - `FO4SFProgression.esm: header Master, masters [Starfield.esm], 21 AVIF, 26 PERK, 3 FLST, 18 GLOB, 6 FACT, 1 QUST; all checks pass`
+  - `FO4SFProgression.esm: header Master, masters [Starfield.esm], 21 AVIF, 26 PERK, 7 FLST, 18 GLOB, 6 FACT, 1 QUST; all checks pass`
   - `verify: ok`
 
 ### Step 2 — Ride-Along In-Game Verification (**GATED: Run ONLY After Grok Reviews `#806` OR Claude (PC) Says Go**)
