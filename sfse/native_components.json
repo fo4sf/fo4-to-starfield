@@ -70,6 +70,20 @@
       "refuse_steps": ["address_library", "arm_holder", "arm_id", "arm_idle", "channel", "channel_ids", "close",
                        "create", "ctor", "id", "image", "ini", "key_thread", "listen", "object", "page", "page_ids", "pages", "register", "rtti", "slots",
                        "toggle", "version", "world", "world_key_thread", "world_toggle"]
+    },
+    "FO4SFCombat.dll": {
+      "folder": "sfse/FO4SFCombat",
+      "source": "sfse/FO4SFCombat/src/main.cpp",
+      "build": "libxse",
+      "role": "probe",
+      "required": false,
+      "address": "address_library",
+      "structure": "1.14.70_layout",
+      "sfse_compatible": "latest",
+      "runtime_pin": "plugin",
+      "reads_address_library": true,
+      "needs_address_library": true,
+      "refuse_steps": ["address_library", "id", "image", "ini", "key_thread", "listen", "object", "version"]
     }
   },
   "refuse_causes": {
